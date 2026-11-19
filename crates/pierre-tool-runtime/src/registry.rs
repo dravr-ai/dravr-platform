@@ -26,6 +26,7 @@ use pierre_mcp_schema::{JsonSchema, ToolSchema};
 use crate::chat_catalogue;
 use crate::read_subject::{athlete_property, DataClass, ATHLETE_ARGUMENT};
 use crate::security::{RuntimeTool, SecurityLabels};
+use crate::tool_data::ToolData;
 use dravr_tronc::mcp::schema::{TaskSupport, Tool};
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_contremaitre::ToolDescriptionRegistry;
@@ -101,9 +102,10 @@ pub struct ToolRegistry {
     tools: BTreeMap<String, Arc<dyn RuntimeTool>>,
     /// Tool categories for organization, ordered for the same reason.
     categories: BTreeMap<String, Vec<String>>,
-    /// What each tool that declared it reads ([`DataClass`]). A tool absent
-    /// here declared none: it reads its caller's own data, if any.
-    data_classes: BTreeMap<String, DataClass>,
+    /// What each registered tool reads ([`ToolData`]). A tool absent here
+    /// declared nothing: it reads its caller's own data, if any, and its
+    /// result carries no trust label's streams.
+    tool_data: BTreeMap<String, ToolData>,
     /// External tool description overlays from contremaitre (hot-reloadable)
     tool_descriptions: Option<Arc<ToolDescriptionRegistry>>,
 }
@@ -115,7 +117,7 @@ impl ToolRegistry {
         Self {
             tools: BTreeMap::new(),
             categories: BTreeMap::new(),
-            data_classes: BTreeMap::new(),
+            tool_data: BTreeMap::new(),
             tool_descriptions: None,
         }
     }
@@ -199,23 +201,30 @@ impl ToolRegistry {
         }
     }
 
-    /// Declare what the registered tool `name` reads ([`DataClass`]).
+    /// Declare what the registered tool `name` reads ([`ToolData`]).
     ///
-    /// Returns whether `name` is registered; a class declared for a tool this
+    /// Returns whether `name` is registered; a declaration for a tool this
     /// build does not register is dropped, as the tool is.
-    pub fn declare_data_class(&mut self, name: &str, class: DataClass) -> bool {
+    pub fn declare_data(&mut self, name: &str, data: ToolData) -> bool {
         if !self.tools.contains_key(name) {
             return false;
         }
-        self.data_classes.insert(name.to_owned(), class);
+        self.tool_data.insert(name.to_owned(), data);
         true
     }
 
     /// What a tool reads, as it declared; `None` for an unknown tool and for
-    /// one that declared no class.
+    /// one that declared nothing.
+    #[must_use]
+    pub(crate) fn tool_data(&self, name: &str) -> Option<&ToolData> {
+        self.tool_data.get(name)
+    }
+
+    /// Whose data a tool reads, as it declared; `None` for an unknown tool
+    /// and for one that declared no class.
     #[must_use]
     pub(crate) fn data_class(&self, name: &str) -> Option<DataClass> {
-        self.data_classes.get(name).copied()
+        self.tool_data(name).and_then(ToolData::class)
     }
 
     /// Whether `name` reads a coached athlete a call names: a training- or
@@ -636,7 +645,7 @@ impl fmt::Debug for ToolRegistry {
             .field("tool_count", &self.tools.len())
             .field("tools", &self.tool_names())
             .field("categories", &self.categories())
-            .field("data_classes", &self.data_classes);
+            .field("tool_data", &self.tool_data);
         debug.field(
             "tool_descriptions",
             &self.tool_descriptions.as_ref().map(|r| r.count()),

@@ -305,7 +305,7 @@ async fn world(api_base: &str) -> World {
 }
 
 /// A stored API key for `user_id`, and the full key to present.
-async fn api_key(res: &Arc<ServerContext>, user_id: Uuid) -> String {
+pub(crate) async fn api_key(res: &Arc<ServerContext>, user_id: Uuid) -> String {
     let data = ApiKeyManager::new().generate_api_key(false);
     let key = ApiKey {
         id: Uuid::new_v4().to_string(),

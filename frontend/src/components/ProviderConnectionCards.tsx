@@ -35,6 +35,7 @@ import {
   OAUTH_RESULT_KEY,
   historySignInAfterGrant,
   refusalAnswer,
+  startOAuthInNewTab,
   startOAuthInThisTab,
   type OAuthResult,
 } from '../utils/oauthReturn';
@@ -68,14 +69,14 @@ const ACTIONABLE: ReadonlySet<CardStatus> = new Set<CardStatus>([
 
 /**
  * The account sign-in on screen, whether it is a card's one-time history
- * copy, and the card whose OAuth a sign-in that cannot complete falls back to
+ * copy, and the provider whose OAuth a sign-in that cannot complete falls back to
  * (`oauthFallbackTarget`, carnet#1477), when it may.
  */
 interface SignInWindow {
   target: SciotteTarget;
   consentRequired: boolean;
   historyMode: boolean;
-  fallback: { provider: SciotteTarget; card: ProviderStatus } | null;
+  fallback: SciotteTarget | null;
 }
 
 // SVG icons for each provider - clean and professional. `sciotte` reuses the
@@ -216,7 +217,7 @@ export default function ProviderConnectionCards({
       target,
       consentRequired: card?.consent_required ?? false,
       historyMode,
-      fallback: card && oauth ? { provider: oauth, card } : null,
+      fallback: oauth,
     });
   };
 
@@ -287,13 +288,14 @@ export default function ProviderConnectionCards({
   }, [refetch, queryClient]);
 
   // A sign-in that could not complete hands over to the card's OAuth
-  // (carnet#1477): the window closes and the authorization starts in its place.
-  const fallBackToOAuth =
-    ({ provider, card }: NonNullable<SignInWindow['fallback']>) =>
-    () => {
-      setSignIn(null);
-      connectViaOAuth(provider, card);
-    };
+  // (carnet#1477), a reconnect's too (carnet#1667): the window closes and the
+  // authorization opens in a new tab, so this one stays where it was; the
+  // grant comes back through the storage event above.
+  const fallBackToOAuth = (provider: SciotteTarget) => () => {
+    setSignIn(null);
+    track({ name: 'feature_engaged', props: { feature: 'provider_connect_started' } });
+    startOAuthInNewTab(oauthApi.authorizeUrl(provider, { signInBlocked: true }));
+  };
 
   // Launch the OAuth authorization flow for a provider: go, in this tab, to
   // the server's launch route, which 302s to the provider and returns here

@@ -325,6 +325,7 @@ export {
 } from './delegation';
 export type { DelegationConsent, ConsentChangeConfirmKeys } from './delegation';
 export {
+  COACH_ASSISTANT_NOTICE_KEYS,
   COACH_READ_LOG_ALL_KEYS,
   COACH_READ_LOG_KEYS,
   coachReadClassKey,
@@ -391,8 +392,9 @@ export {
 // What every unread and notification badge prints for a count
 export { badgeLabel } from './badge';
 
-// The athlete's own API keys: the window each key's usage line counts over
-export { API_KEY_USAGE_WINDOW_DAYS } from './api-keys';
+// The athlete's own API keys and MCP tokens: the window each key's usage line
+// counts over, and the consent shown where each is created
+export { API_KEY_USAGE_WINDOW_DAYS, CREDENTIAL_CONSENT_KEYS } from './api-keys';
 
 // The catalogue key naming each account role (Account pane, sidebar badge)
 export { ACCOUNT_ROLE_LABEL_KEY } from './roles';

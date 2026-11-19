@@ -391,6 +391,11 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
             // A fact derived from first-party-only data is withheld from an
             // external caller; the rest are served (carnet#769).
             ai_scope::retain_admitted(&mut facts, |fact| fact.transport_policy);
+            // What the agent remembered is the agent's own writing, and the
+            // result's trust label says so.
+            if !facts.is_empty() {
+                ai_scope::note_agent_written();
+            }
             // The agent reads each fact as a sentence in the athlete's own
             // locale, rendered by the same function the memory screen uses.
             let locale = context.render_locale(context.user_id).await;

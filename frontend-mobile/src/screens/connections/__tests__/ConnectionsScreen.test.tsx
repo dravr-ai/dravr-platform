@@ -165,7 +165,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
     const connect = await screen.findByText('Connect');
     fireEvent.press(connect);
 
-    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('strava', 'dravr://oauth-callback', { tosConsent: false }));
+    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('strava', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false }));
     expect(screen.queryByText('sciotte-modal:strava')).toBeNull();
   });
 
@@ -187,7 +187,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
     fireEvent.press(await screen.findByText('Connect'));
 
-    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false }));
+    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false }));
     expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
   });
 
@@ -228,10 +228,33 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
       expect(initMobileOAuth).not.toHaveBeenCalled();
       fireEvent.press(screen.getByTestId('sciotte-modal-unavailable'));
 
+      // The start says the sign-in was blocked, so the server never turns
+      // it back into that sign-in (carnet#1667).
       await waitFor(() =>
-        expect(initMobileOAuth).toHaveBeenCalledWith(provider, 'dravr://oauth-callback', { tosConsent: false }),
+        expect(initMobileOAuth).toHaveBeenCalledWith(provider, 'dravr://oauth-callback', {
+          tosConsent: false,
+          signInBlocked: true,
+        }),
       );
       expect(screen.queryByText(`sciotte-modal:${provider}`)).toBeNull();
+    });
+
+    it('starts the Garmin OAuth when the reconnect sign-in of a dead Garmin card cannot complete (carnet#1667)', async () => {
+      const dead = { ...garminCard('mirror'), connected: true, needs_reauth: true, seats_left: 900 };
+      getProvidersStatus.mockResolvedValue({ providers: [dead] });
+      openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
+
+      render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+      fireEvent.press(await screen.findByText('Reconnect'));
+      expect(await screen.findByText('sciotte-modal:garmin')).toBeTruthy();
+      fireEvent.press(screen.getByTestId('sciotte-modal-unavailable'));
+
+      await waitFor(() =>
+        expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', {
+          tosConsent: false,
+          signInBlocked: true,
+        }),
+      );
     });
 
     it('offers no fallback with the pool full', async () => {
@@ -327,7 +350,7 @@ describe('ConnectionsScreen — a Garmin grant whose history is needed (carnet#1
     fireEvent.press(await screen.findByText('Connect'));
 
     expect(await screen.findByText('sciotte-modal:garmin:history')).toBeTruthy();
-    expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false });
+    expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false });
   });
 
   it('stays on the grant once it holds activities', async () => {
@@ -358,7 +381,7 @@ describe('ConnectionsScreen — a Garmin grant whose history is needed (carnet#1
     openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
     fireEvent.press(refused);
     await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledTimes(2));
-    expect(initMobileOAuth).toHaveBeenLastCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false });
+    expect(initMobileOAuth).toHaveBeenLastCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false });
     expect(screen.queryByTestId('provider-error-sciotte_garmin')).toBeNull();
   });
 

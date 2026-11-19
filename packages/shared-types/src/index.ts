@@ -483,6 +483,7 @@ export type {
   UpdateMemberRoleRequest,
   UpdatePeerConsentRequest,
   CoachSharing,
+  CoachSharingState,
   CoachRead,
   CoachReadDataClass,
   CoachReads,

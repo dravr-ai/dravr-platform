@@ -9,6 +9,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ApiKeyInfo } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 import ApiKeysSettings from '../ApiKeysSettings';
 
 const list = vi.fn();
@@ -131,6 +132,17 @@ describe('ApiKeysSettings', () => {
     const tools = await screen.findByTestId('api-key-tools-k1');
     expect(tools).toHaveTextContent('No tool calls in the last 30 days.');
     expect(within(tools).queryByRole('list')).not.toBeInTheDocument();
+  });
+
+  // EFVP decision 9.1b: creating a key after this text is the express consent.
+  it('shows the express consent in the create form, beside its action', async () => {
+    renderPane();
+
+    const consent = await screen.findByTestId('api-key-consent');
+    expect(consent).toBeVisible();
+    expect(consent).toHaveTextContent(i18n.t('settingsTabs.apiKeysConsent'));
+    const form = consent.closest('form') as HTMLElement;
+    expect(within(form).getByTestId('api-key-create')).toBeInTheDocument();
   });
 
   it('shows a created key once, then only its prefix', async () => {

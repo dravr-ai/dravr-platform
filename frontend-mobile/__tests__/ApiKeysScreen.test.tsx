@@ -5,6 +5,7 @@ import React from 'react';
 import { Alert } from 'react-native';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import type { ApiKeyInfo } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 
 const mockList = jest.fn();
 const mockCreate = jest.fn();
@@ -93,6 +94,17 @@ describe('ApiKeysScreen', () => {
 
     fireEvent.press(getByTestId('api-key-created-done'));
     await waitFor(() => expect(queryByTestId('created-api-key-value')).toBeNull());
+  });
+
+  // EFVP decision 9.1b: creating a key after this text is the express consent.
+  it('shows the express consent in the sheet, beside the create action, with no further tap', async () => {
+    const { findByTestId, getByTestId, getAllByTestId } = render(<ApiKeysScreen />);
+
+    await findByTestId('api-key-row-k1');
+    fireEvent.press(getAllByTestId('new-api-key-button')[0]);
+
+    expect(getByTestId('create-api-key-confirm')).toBeTruthy();
+    expect(getByTestId('api-key-consent').props.children).toEqual(i18n.t('settingsTabs.apiKeysConsent'));
   });
 
   it('revokes a key after confirmation and it leaves the list', async () => {

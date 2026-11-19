@@ -210,7 +210,7 @@ describe('ChatScreen provider reconnect', () => {
     await waitFor(() => expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledTimes(1));
     // A fresh authorization URL minted against the app's own return address:
     // the block's URL was minted for a browser callback and cannot come back.
-    expect(mockInitMobileOAuth).toHaveBeenCalledWith('garmin', RETURN_URL, { tosConsent: false });
+    expect(mockInitMobileOAuth).toHaveBeenCalledWith('garmin', RETURN_URL, { tosConsent: false, signInBlocked: false });
     expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(AUTHORIZATION_URL, RETURN_URL);
     // Safari never gets it, so there is nothing for the athlete to come back from.
     expect(DeviceLinking.openURL).not.toHaveBeenCalled();
@@ -244,7 +244,7 @@ describe('ChatScreen provider reconnect', () => {
     fireEvent.press(getByTestId('provider-notice-continue'));
 
     await waitFor(() =>
-      expect(mockInitMobileOAuth).toHaveBeenCalledWith('whoop', RETURN_URL, { tosConsent: true }),
+      expect(mockInitMobileOAuth).toHaveBeenCalledWith('whoop', RETURN_URL, { tosConsent: true, signInBlocked: false }),
     );
     expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(AUTHORIZATION_URL, RETURN_URL);
   });

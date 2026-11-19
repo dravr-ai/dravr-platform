@@ -188,7 +188,8 @@ describe('ChatThread — a reply reconnects the way its card connects', () => {
     expect(status.handleConnectProvider).not.toHaveBeenCalled();
     fireEvent.press(screen.getByTestId('sciotte-modal-unavailable'));
 
-    expect(status.handleConnectProvider).toHaveBeenCalledWith('strava');
+    // Marked as a fallback from a blocked sign-in (carnet#1667).
+    expect(status.handleConnectProvider).toHaveBeenCalledWith('strava', undefined, false, true);
     expect(screen.queryByTestId('sciotte-modal')).toBeNull();
   });
 

@@ -78,35 +78,20 @@ on:
         default: false
 
 concurrency:
-  # On main the sha is part of the group, so every commit gets its own group and
-  # no run can displace another's verdict. Branches share a group per ref.
-  #
-  # A ref-only group is not enough even with `cancel-in-progress: false`. That
-  # flag protects a RUNNING run, but a group holds at most one waiting run and
-  # a newer arrival replaces it: with main pushes landing minutes apart against
-  # a 20-45 min suite, the run queued behind the in-flight one is evicted with
-  # zero jobs started. Under a ref-only group this lane lost 9 of 84 main
-  # verdicts between 2026-08-27 and 2026-09-01 — among them 33450894413,
-  # 33552222435 and 33555424548 (carnet#169) — each `conclusion: cancelled`
-  # with no job row, so the commit never got a PostgreSQL verdict and nothing
-  # was red to say so. The 13 other test-verdict push lanes use this same key
-  # and showed 0 such evictions in 371 main runs over the same window.
-  #
-  # `cancel-in-progress` is true, and the event name is part of the group, as
-  # in ci-backend.yml. On main it is moot: every commit and event has a group
-  # of its own, so nothing can cancel a main verdict. On a branch a newer push
-  # cancels the run it supersedes, whose verdict nobody reads, instead of
-  # holding four shard runners for it. Until carnet#1114 this was false, and a
-  # branch re-pushed mid-run paid for every superseded run to completion. The
-  # event name keeps a schedule or dispatch run on the tip sha out of the
-  # tip's push-run group, where it would otherwise cancel that verdict (the
-  # 2026-08-31 cron that killed 7eac7b067's push run in ci-backend.yml).
-  #
-  # The ref test lives in `group` rather than in `cancel-in-progress` because
-  # only the former is known to work here — see the same block in ci-backend.yml
-  # for the run that proved it.
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
-  cancel-in-progress: true
+  # One run going and one waiting, per lane and per ref (JF, 2026-11-19). A
+  # running run always finishes, so main still turns green and deploys however
+  # often it is pushed; a newer push takes the single waiting slot, replacing
+  # the run that waited there, which GitHub cancels. The run that does go tests
+  # a tree holding every skipped commit. Main used to keep one group per sha and
+  # never cancel: 24 commits on 2026-11-19 queued ~600 jobs for a handful of
+  # slots. Both costs are accepted: an intermediate main commit gets no verdict
+  # of its own (the eviction carnet#169 once counted as a loss), and a branch
+  # re-pushed mid-run finishes the superseded run (what carnet#1114 avoided),
+  # bounded to one. The event name keeps a schedule or dispatch run out of the
+  # push group. `cancel-in-progress` stays a literal: an expression there did
+  # not hold on main (run 33026440559, see ci-backend.yml's history).
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read

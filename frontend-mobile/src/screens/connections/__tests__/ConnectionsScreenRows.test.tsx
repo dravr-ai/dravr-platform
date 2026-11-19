@@ -192,7 +192,7 @@ describe('ConnectionsScreen rows', () => {
     const action = screen.getByTestId('provider-action-garmin');
     expect(action.props.children).toBe('Reconnect');
     fireEvent.press(action);
-    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false }));
+    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false }));
     expect(screen.queryByText('Connected')).toBeNull();
   });
 

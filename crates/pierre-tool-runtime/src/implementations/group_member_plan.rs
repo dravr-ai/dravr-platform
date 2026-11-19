@@ -198,7 +198,8 @@ async fn plan_status(
     };
     // A plan derived from first-party-only data is not described over an
     // external transport, and not reported as absent either (carnet#769).
-    if !ai_scope::admit_derived(plan.transport_policy) {
+    // Described, it is labelled as what an agent wrote with the athlete.
+    if !ai_scope::admit_agent_written(plan.transport_policy) {
         return Ok(refusal(
             "unavailable_over_transport",
             &format!("{name}'s plan is not available over this interface."),

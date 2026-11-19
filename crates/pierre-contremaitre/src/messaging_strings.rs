@@ -1210,7 +1210,9 @@ pub const KEY_GROUP_READS_HEADER: &str = "commands.group.reads_header";
 /// `{0}` = when (UTC), `{1}` = the coach, `{2}` = the kind of data
 /// ([`KEY_GROUP_READS_TRAINING`] or [`KEY_GROUP_READS_WELLNESS`]), `{3}` = the
 /// tool read through, or the words of a read made outside a tool call
-/// (`KEY_GROUP_READS_SOURCE_*`).
+/// (`KEY_GROUP_READS_SOURCE_*`), followed by
+/// [`KEY_GROUP_READS_SERVED_TO_ASSISTANT`] when the coach's outside AI tool
+/// was served the read.
 pub const KEY_GROUP_READS_LINE: &str = "commands.group.reads_line";
 /// Key: `/group reads` for a group whose human coach read nothing of the
 /// member's within the retention. `{0}` = group name, `{1}` = the months
@@ -1300,6 +1302,14 @@ pub const KEY_GROUP_COACH_DETACHED: &str = "humanCoach.group_detached";
 /// carnet#847. `{0}` = the coach's name, `{1}` = the athlete the reply
 /// answered, `{2}` = the reply's opening, `{3}` = the correction.
 pub const KEY_GROUP_REPLY_CORRECTED: &str = "humanCoach.reply_corrected";
+/// Key: `/group reads` words beside a read served to the coach's outside AI
+/// tool.
+///
+/// The server marks a read served to an AI tool the human coach connects to
+/// Dravr from outside it, whose company received the data (EFVP decision
+/// 9.4b). Under `humanCoach.*`, so the vocabulary fence reads its "your
+/// coach" as the human coach. No placeholder.
+pub const KEY_GROUP_READS_SERVED_TO_ASSISTANT: &str = "humanCoach.reads_served_to_assistant";
 /// Key: the room post a coach's publish of an athlete's plan leaves in their
 /// group, when it changed days of a plan the athlete already had.
 ///

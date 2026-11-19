@@ -12,6 +12,8 @@
 
 use serde::Serialize;
 
+use crate::ai_policy::SourceClass;
+
 /// Strava fitness provider identifier
 /// Note: Provider name constants are always available for configuration;
 /// the provider implementation is gated behind `provider-strava` feature.
@@ -540,6 +542,31 @@ pub fn is_user_provided(provider: &str) -> bool {
     USER_PROVIDED_PROVIDERS.contains(&provider)
 }
 
+/// The [`SourceClass`] of an item served under the key `provider`.
+///
+/// A device's own connection, an uploaded file and every archive the athlete
+/// imported are the device's record; a reading the athlete typed in is
+/// theirs. A scrape mirror ([`MIRROR_PAIRS`]) relays the service it mirrors,
+/// so its items take that service's class: Strava read through sciotte is the
+/// device's record, as Strava over `OAuth` is, and TrainingPeaks read the same
+/// way is another application's. Everything else — a coaching platform, an
+/// aggregator, the synthetic providers, and any name not listed here — is
+/// another application's, the class that claims the least about where the
+/// data came from.
+#[must_use]
+pub fn source_class_of(provider: &str) -> SourceClass {
+    let mirrored = MIRROR_PAIRS
+        .iter()
+        .find(|(_, mirror)| *mirror == provider)
+        .map_or(provider, |(facing, _)| *facing);
+    match mirrored {
+        STRAVA | GARMIN | COROS | WAHOO | WHOOP => SourceClass::Device,
+        ATHLETE => SourceClass::PatientEntered,
+        user_provided if is_user_provided(user_provided) => SourceClass::Device,
+        _ => SourceClass::ThirdPartyApp,
+    }
+}
+
 /// The keys an athlete's own copies of `provider`'s activities are held under.
 ///
 /// Asking for `strava` also reads the Strava history they imported, and
@@ -684,6 +711,113 @@ mod tests {
         activity_attribution, garmin_contribution, garmin_recorded, garmin_service_attribution,
         workout_attribution, GarminContribution,
     };
+
+    mod source_class {
+        use super::super::{
+            source_class_of, ATHLETE, INTERVALS_ICU, MIRROR_PAIRS, SCIOTTE, SYNTHETIC, TERRA,
+            TRAININGPEAKS, USER_PROVIDED_PROVIDERS,
+        };
+        use crate::ai_policy::SourceClass;
+
+        /// Every provider key a stored item is filed under maps to the class
+        /// owl Q1 settled for it. The keys are persisted values (rows already
+        /// carry them), so they are spelled out here.
+        #[test]
+        fn every_known_key_has_its_settled_class() {
+            for (provider, class) in [
+                ("strava", SourceClass::Device),
+                ("garmin", SourceClass::Device),
+                ("whoop", SourceClass::Device),
+                ("coros", SourceClass::Device),
+                ("synthetic", SourceClass::ThirdPartyApp),
+                // Strava's scrape mirror relays Strava's own record.
+                ("sciotte", SourceClass::Device),
+            ] {
+                assert_eq!(
+                    source_class_of(provider),
+                    class,
+                    "{provider} is placed as owl Q1 settled it"
+                );
+            }
+            for provider in USER_PROVIDED_PROVIDERS {
+                assert_eq!(
+                    source_class_of(provider),
+                    SourceClass::Device,
+                    "{provider} is the athlete's own copy of a device's record"
+                );
+            }
+            assert_eq!(
+                source_class_of(ATHLETE),
+                SourceClass::PatientEntered,
+                "a reading the athlete typed in is theirs"
+            );
+            for provider in ["sciotte_garmin", "sciotte_coros", "wahoo"] {
+                assert_eq!(
+                    source_class_of(provider),
+                    SourceClass::Device,
+                    "{provider} relays a device's own record"
+                );
+            }
+            for provider in [
+                INTERVALS_ICU,
+                TRAININGPEAKS,
+                "sciotte_trainingpeaks",
+                TERRA,
+                SYNTHETIC,
+                "nolio",
+            ] {
+                assert_eq!(
+                    source_class_of(provider),
+                    SourceClass::ThirdPartyApp,
+                    "{provider} relays or computes what another app wrote"
+                );
+            }
+        }
+
+        /// A scrape mirror's items are the record of the service it
+        /// mirrors: Strava read through sciotte is labelled as Strava over
+        /// `OAuth` is.
+        #[test]
+        fn a_scrape_mirror_takes_the_class_of_the_service_it_mirrors() {
+            for (facing, mirror) in MIRROR_PAIRS {
+                assert_eq!(
+                    source_class_of(mirror),
+                    source_class_of(facing),
+                    "{mirror} relays {facing}"
+                );
+            }
+            assert_eq!(
+                source_class_of(SCIOTTE),
+                SourceClass::Device,
+                "Strava read through sciotte is the device's record"
+            );
+        }
+
+        #[test]
+        fn an_unknown_key_claims_the_least() {
+            for provider in ["", "polar", "Strava", "all"] {
+                assert_eq!(
+                    source_class_of(provider),
+                    SourceClass::ThirdPartyApp,
+                    "{provider:?} is not a key this build knows"
+                );
+            }
+        }
+
+        #[test]
+        fn a_class_serializes_in_snake_case() {
+            assert_eq!(
+                serde_json::to_value(SourceClass::ThirdPartyApp).ok(),
+                Some(serde_json::json!("third_party_app")),
+                "the wire name a host parses"
+            );
+            assert_eq!(
+                serde_json::to_value(SourceClass::AgentWritten).ok(),
+                Some(serde_json::json!("agent_written")),
+                "the wire name a host parses"
+            );
+        }
+    }
 
     #[test]
     fn a_figure_names_garmin_as_its_sole_or_a_contributing_source() {

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
@@ -18,6 +18,7 @@ import {
   OAUTH_RESULT_KEY,
   historySignInAfterGrant,
   refusalAnswer,
+  startOAuthInNewTab,
   startOAuthInThisTab,
   type OAuthResult,
 } from '../utils/oauthReturn';
@@ -30,6 +31,7 @@ import {
   AI_CONSENT_KEYS,
   APP_VERSION,
   countKey,
+  CREDENTIAL_CONSENT_KEYS,
   HELP_URL,
   LEGAL_URL,
   providerGlyphInk,
@@ -495,10 +497,13 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   };
 
   // A sign-in that could not complete hands over to its provider's OAuth
-  // (carnet#1477): the window closes and the authorization starts instead.
+  // (carnet#1477), a reconnect's too (carnet#1667): the window closes and the
+  // authorization opens in a new tab, so this one stays on Settings, which
+  // reads the grant the other tab leaves (`answerOAuthResult`).
   const fallBackToOAuth = (provider: SciotteTarget) => () => {
     setSignIn(null);
-    handleConnectProvider(provider);
+    setProviderMessage(null);
+    startOAuthInNewTab(oauthApi.authorizeUrl(provider, { signInBlocked: true }));
   };
 
   const handleConnectProvider = (providerId: string, tosConsent = false) => {
@@ -515,63 +520,79 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   // Settings answers it and removes it — a grant with its message, a refusal
   // with the way in that is left — so a later remount within the freshness
   // window (Settings remounts on every section change) does not repeat it.
-  // Read once, as Settings opens on the connect's return, after the provider
-  // list has answered so the message names the provider by its card.
+  // It is read once, as Settings opens on the connect's return, after the
+  // provider list has answered so the message names the provider by its card;
+  // and again whenever another tab leaves a result — the fallback's
+  // authorization runs in a new tab (carnet#1667) — once the cards are reloaded.
+  const answerOAuthResult = useCallback(
+    (providers: readonly ProviderStatus[]) => {
+      let result: OAuthResult;
+      try {
+        const stored = localStorage.getItem(OAUTH_RESULT_KEY);
+        if (!stored) return;
+        result = JSON.parse(stored);
+      } catch {
+        return;
+      }
+      if (!result.timestamp || Date.now() - result.timestamp > OAUTH_RESULT_FRESH_MS) return;
+      // The card's display name for the backend the connect launched. The
+      // server withholds the raw card of a backend with a scrape mirror (native
+      // `garmin`), so that backend is matched to the card it serves through the
+      // card's `connected_backend`. Native `strava` reads as the Strava card's
+      // label, and a backend no card serves by its capitalised id.
+      const card = providers.find(
+        (p) => p.provider === result.provider || p.connected_backend === result.provider,
+      );
+      const name =
+        result.provider === 'strava'
+          ? t('shell.sciotteTargetStrava')
+          : (card?.display_name ?? result.provider.charAt(0).toUpperCase() + result.provider.slice(1));
+      localStorage.removeItem(OAUTH_RESULT_KEY);
+      if (result.success) {
+        setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: name }) });
+        // A grant whose card still needs its history (Garmin pushes only what
+        // comes after it) opens the sign-in that copies it, at once (carnet#1472).
+        const chained = historySignInAfterGrant(result, providers);
+        if (chained) {
+          setSignIn({ target: chained.target, consentRequired: chained.card.consent_required, historyMode: true, fallback: null });
+        }
+        return;
+      }
+      // The account belonged to a deleted Dravr account: the callback page
+      // worded it and offered to start fresh. Another way in to the same
+      // account would only be refused the same way.
+      if (result.tombstoned) return;
+      // A refused Strava grant falls back to its sign-in, same data; a refused
+      // Garmin grant signs in only while the seats are out, and otherwise says
+      // it failed, the card's Connect trying again (`refusalAnswer`).
+      const answer = refusalAnswer(result, providers);
+      if (answer?.kind === 'sign_in') {
+        setSignIn({
+          target: answer.target,
+          consentRequired: answer.card?.consent_required ?? false,
+          historyMode: false,
+          fallback: null,
+        });
+      } else {
+        setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: name }) });
+      }
+    },
+    [t]
+  );
   const oauthReturnRead = useRef(false);
   useEffect(() => {
     if (oauthReturnRead.current || isLoadingProviders) return;
     oauthReturnRead.current = true;
-    let result: OAuthResult;
-    try {
-      const stored = localStorage.getItem(OAUTH_RESULT_KEY);
-      if (!stored) return;
-      result = JSON.parse(stored);
-    } catch {
-      return;
-    }
-    if (!result.timestamp || Date.now() - result.timestamp > OAUTH_RESULT_FRESH_MS) return;
-    // The card's display name for the backend the connect launched. The
-    // server withholds the raw card of a backend with a scrape mirror (native
-    // `garmin`), so that backend is matched to the card it serves through the
-    // card's `connected_backend`. Native `strava` reads as the Strava card's
-    // label, and a backend no card serves by its capitalised id.
-    const card = providersResponse?.providers?.find(
-      (p) => p.provider === result.provider || p.connected_backend === result.provider,
-    );
-    const name =
-      result.provider === 'strava'
-        ? t('shell.sciotteTargetStrava')
-        : (card?.display_name ?? result.provider.charAt(0).toUpperCase() + result.provider.slice(1));
-    localStorage.removeItem(OAUTH_RESULT_KEY);
-    if (result.success) {
-      setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: name }) });
-      // A grant whose card still needs its history (Garmin pushes only what
-      // comes after it) opens the sign-in that copies it, at once (carnet#1472).
-      const chained = historySignInAfterGrant(result, providersResponse?.providers ?? []);
-      if (chained) {
-        setSignIn({ target: chained.target, consentRequired: chained.card.consent_required, historyMode: true, fallback: null });
-      }
-      return;
-    }
-    // The account belonged to a deleted Dravr account: the callback page
-    // worded it and offered to start fresh. Another way in to the same
-    // account would only be refused the same way.
-    if (result.tombstoned) return;
-    // A refused Strava grant falls back to its sign-in, same data; a refused
-    // Garmin grant signs in only while the seats are out, and otherwise says
-    // it failed, the card's Connect trying again (`refusalAnswer`).
-    const answer = refusalAnswer(result, providersResponse?.providers ?? []);
-    if (answer?.kind === 'sign_in') {
-      setSignIn({
-        target: answer.target,
-        consentRequired: answer.card?.consent_required ?? false,
-        historyMode: false,
-        fallback: null,
-      });
-    } else {
-      setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: name }) });
-    }
-  }, [isLoadingProviders, providersResponse, t]);
+    answerOAuthResult(providersResponse?.providers ?? []);
+  }, [isLoadingProviders, providersResponse, answerOAuthResult]);
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== OAUTH_RESULT_KEY || !event.newValue) return;
+      void refetchProviders().then(({ data }) => answerOAuthResult(data?.providers ?? []));
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [refetchProviders, answerOAuthResult]);
 
   // Disconnect a fitness provider
   const handleDisconnectProvider = async (providerId: string, displayName: string) => {
@@ -1065,6 +1086,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                         ]}
                       />
                     </div>
+                    {/* Always in view beside the action: creating the token after it is the express consent. */}
+                    <p className="text-xs text-on-surface-variant" data-testid="mcp-token-consent">
+                      {t(CREDENTIAL_CONSENT_KEYS.mcpToken)}
+                    </p>
                     <div className="flex gap-2">
                       <Button
                         onClick={handleCreateToken}

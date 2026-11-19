@@ -42,6 +42,28 @@ use serde_json::{Map, Value};
 
 use crate::transport::TransportPolicy;
 
+/// Where a served item came from, as the trust label on a tool result names
+/// it (owl T02 §3.1): what recorded or wrote it, not which service relayed it.
+///
+/// Each provider key maps to one class
+/// ([`source_class_of`](crate::constants::oauth_providers::source_class_of)).
+/// Ordered as declared, so a set of classes reads the same on every call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceClass {
+    /// Recorded by the athlete's own device: a watch, a bike computer, a
+    /// strap, or a file exported from one.
+    Device,
+    /// Written or computed by another application before it reached Dravr: a
+    /// coaching platform, an aggregator, a scraped service. A provider name
+    /// Dravr does not know is one too, the class that claims the least.
+    ThirdPartyApp,
+    /// Entered by the athlete by hand.
+    PatientEntered,
+    /// Written by Dravr's own agent: a remembered fact, a stored plan.
+    AgentWritten,
+}
+
 /// What one rule lets a model see of an item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AiUse {

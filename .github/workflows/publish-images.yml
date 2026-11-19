@@ -1335,7 +1335,7 @@ jobs:
   # ---------------------------------------------------------------------------
   # A red deploy reaches a person: nothing else watches this workflow, and a
   # red "Deploy: Build & Ship" once sat unnoticed for twelve hours. Posts to
-  # the deploys channel (by ID: a #name breaks when a room is renamed) with the
+  # #dev-dravr-errors (by ID: a #name breaks when a room is renamed) with the
   # server's own Slack bot, whose token the deployer may read. A skipped
   # deploy (a red or scheduled CI run) is no failure and stays silent
   # (JF, 2026-11-19).
@@ -1362,8 +1362,9 @@ jobs:
           SHA: ${{ needs.resolve-sha.outputs.short_sha || github.event.workflow_run.head_sha || inputs.sha || github.sha }}
           SLACK_SECRET: dravr-mcp-server-slack-bot-token
           GCP_PROJECT: dravr-dev
-          # deploys (dravr.slack.com): where the deploy and user-lifecycle pings go.
-          SLACK_CHANNEL: C0ANDA76S1Y
+          # #dev-dravr-errors (dravr.slack.com): quieter than deploys, and where
+          # the drift monitor posts too (JF, 2026-11-19).
+          SLACK_CHANNEL: C0AP7HQNLH2
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set +e

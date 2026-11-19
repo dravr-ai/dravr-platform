@@ -781,7 +781,7 @@ pub(crate) async fn store_profile(
         .user_physiological_profile
         .get_user_physiological_profile(tenant_id, user_id)
         .await?
-        .filter(|profile| ai_scope::admit_derived(profile.transport_policy))
+        .filter(ai_scope::admit_profile)
         .ok_or_else(|| {
             AppError::database("physiological profile was not readable immediately after its write")
         })?;

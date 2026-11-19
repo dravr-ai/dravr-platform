@@ -4629,6 +4629,7 @@ dependencies = [
  "bitflags 2.13.2",
  "chrono",
  "chrono-tz",
+ "dravr-barrage",
  "dravr-cageux",
  "dravr-enforme",
  "dravr-meteo",

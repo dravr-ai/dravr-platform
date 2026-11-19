@@ -154,6 +154,18 @@ describe('TokensScreen', () => {
     expect(JSON.stringify(toJSON())).not.toContain('rounded-full');
   });
 
+  // EFVP decision 9.1b: creating a token after this text is the express consent.
+  it('shows the express consent in the sheet, beside the create action, with no further tap', async () => {
+    mockGetMcpTokens.mockResolvedValue({ tokens: [] });
+    const { getByTestId } = render(<TokensScreen />);
+    await waitFor(() => expect(getByTestId('new-token-button')).toBeTruthy());
+
+    fireEvent.press(getByTestId('new-token-button'));
+    await waitFor(() => expect(getByTestId('create-token-confirm')).toBeTruthy());
+
+    expect(getByTestId('mcp-token-consent').props.children).toEqual(i18n.t('app.mcpTokenConsent'));
+  });
+
   it('refuses to mint without a name', async () => {
     mockGetMcpTokens.mockResolvedValue({ tokens: [] });
     const { getByTestId } = render(<TokensScreen />);

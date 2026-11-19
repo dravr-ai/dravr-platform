@@ -189,16 +189,19 @@ export const SIGN_IN_UNAVAILABLE = 'sign_in_unavailable' as const;
 
 /**
  * The provider whose OAuth a failed account sign-in on `card` falls back to,
- * or `null` (carnet#1477): a card not yet connected whose account sign-in goes
- * first while an OAuth seat is free — `recommended_backend` `mirror` with
- * `seats_left` above zero, which the default sign-in-first order produces.
- * With the pool full there is no OAuth to fall back to, and a reconnect has
- * none: a dead grant reconnects only through its sign-in (carnet#1494).
+ * or `null` (carnet#1477): a card whose account sign-in goes first while an
+ * OAuth seat is free — `recommended_backend` `mirror` with `seats_left` above
+ * zero — that is not yet connected, or asks for a reconnect. A reconnect signs
+ * in first (carnet#1494) but falls back like a new connection when that
+ * sign-in cannot complete, a provider challenge above all (carnet#1667).
+ * With the pool full there is no OAuth to fall back to, and a connected card
+ * that needs no reconnect (a history copy) never falls back.
  */
 export function oauthFallbackTarget(
-  card: Pick<ConnectPlanCard, 'provider' | 'connected' | 'recommended_backend' | 'seats_left'>,
+  card: Pick<ConnectPlanCard, 'provider' | 'connected' | 'needs_reauth' | 'recommended_backend' | 'seats_left'>,
 ): SciotteTarget | null {
-  if (card.connected || card.recommended_backend !== 'mirror' || !card.seats_left || card.seats_left <= 0) {
+  const settled = card.connected && !card.needs_reauth;
+  if (settled || card.recommended_backend !== 'mirror' || !card.seats_left || card.seats_left <= 0) {
     return null;
   }
   const target = sciotteTargetForBackend(card.provider);

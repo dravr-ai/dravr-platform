@@ -1096,7 +1096,7 @@ async fn the_purge_removes_reads_past_twelve_months_and_keeps_the_rest() {
 // ── /group reads ─────────────────────────────────────────────────────────
 
 /// The `/group reads` templates, as the catalogue words them in English.
-const READS_TEMPLATES: [(&str, &str); 15] = [
+const READS_TEMPLATES: [(&str, &str); 16] = [
     (
         "commands.group.reads_header",
         "Your human coach's reads of your data in {0}, newest first:",
@@ -1138,6 +1138,10 @@ const READS_TEMPLATES: [(&str, &str); 15] = [
     (
         "commands.group.reads_source_weekly_digest",
         "their weekly digest of the group",
+    ),
+    (
+        "humanCoach.reads_served_to_assistant",
+        "read by an AI tool your coach connects to Dravr", // humanCoach.reads_served_to_assistant
     ),
 ];
 
@@ -1200,5 +1204,85 @@ async fn group_reads_lists_the_coachs_reads_of_the_member_and_says_when_there_ar
     assert!(
         listed.contains("training (your plan, from Group info)") && !listed.contains("plan_view"),
         "bug: the plan view is named in words: {listed}"
+    );
+}
+
+// ── Reads served to the coach's outside assistant, on the wire (EFVP 9.4b) ─
+
+/// Each read the athlete lists says whether it was served to an AI tool the
+/// coach connects from outside Dravr: over REST beside their coach sharing,
+/// and in `/group reads`. A read by Dravr's own agent, an undeclared one and
+/// one recorded before the transport was are never marked.
+#[tokio::test]
+async fn a_read_served_to_the_coachs_outside_assistant_is_marked_on_every_surface() {
+    let f = fixture().await;
+    ok(
+        f.in_thread("get_activities", json!({})).await,
+        "get_activities in the thread",
+    );
+    ok(
+        f.call(
+            &f.mcp_executor(),
+            f.coach,
+            "get_training_history",
+            json!({ "athlete": MEMBER }),
+        )
+        .await,
+        "get_training_history over MCP",
+    );
+    f.record_at(f.athlete.tenant, f.athlete.id, Duration::days(1))
+        .await;
+
+    let (status, body) = f.get_reads(f.athlete, f.group).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mut marked: Vec<(String, bool)> = body["reads"]
+        .as_array()
+        .expect("a reads array")
+        .iter()
+        .map(|read| {
+            (
+                read["tool"].as_str().unwrap_or_default().to_owned(),
+                read["served_to_assistant"]
+                    .as_bool()
+                    .unwrap_or_else(|| panic!("bug: every read carries the mark: {read}")),
+            )
+        })
+        .collect();
+    marked.sort();
+    assert_eq!(
+        marked,
+        vec![
+            ("get_activities".to_owned(), false),
+            ("get_activities".to_owned(), false),
+            ("get_training_history".to_owned(), true),
+        ],
+        "bug: only the read served over MCP is marked as the outside tool's: {body}"
+    );
+
+    let listed = group_reads(&f.res, f.athlete).await;
+    let served: Vec<&str> = listed
+        .lines()
+        .filter(|line| line.contains("read by an AI tool your coach connects to Dravr")) // humanCoach.reads_served_to_assistant
+        .collect();
+    assert_eq!(
+        served.len(),
+        1,
+        "bug: /group reads marks the one outside read: {listed}"
+    );
+    assert!(
+        served[0].contains("training (get_training_history, read by an AI tool"),
+        "bug: the mark sits beside the read's source: {listed}"
+    );
+
+    // A row from before the column says nowhere it went, so it is not marked.
+    f.clear_stored_transports().await;
+    let (_, body) = f.get_reads(f.athlete, f.group).await;
+    assert!(
+        body["reads"]
+            .as_array()
+            .expect("a reads array")
+            .iter()
+            .all(|read| read["served_to_assistant"] == false),
+        "bug: a read with no recorded transport is never marked: {body}"
     );
 }

@@ -27,6 +27,7 @@ use crate::protocol::provider_helpers::no_provider_refusal;
 use crate::protocol::provider_offer::{
     connections_page, external_no_provider_response, provider_offers, ConnectRoute,
 };
+use crate::protocol::trust_labels;
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::read_subject::ReadSubject;
@@ -950,8 +951,19 @@ impl UniversalExecutor {
         // provenance it inherits from this call. At the MCP and A2A entry
         // points no derivation encloses the call, so that provenance is this
         // call's own.
-        if self.caller_writes_reply && provenance.served_provider_data() && !response.is_error {
-            reply_check::note_unchecked_reply(&mut universal);
+        // The same caller is told how sensitive what it was served is, and how
+        // far to trust it, in a label its host reads (owl phase 1).
+        if self.caller_writes_reply && !response.is_error {
+            if provenance.served_provider_data() {
+                reply_check::note_unchecked_reply(&mut universal);
+            }
+            let declared = self.resources.tool_registry().tool_data(&tool_name);
+            trust_labels::attach(
+                &mut universal,
+                &tool_name,
+                declared,
+                &provenance.source_classes(),
+            );
         }
 
         // What the backstop let through reaches the turn: a first-party-only
@@ -1153,26 +1165,6 @@ impl UniversalExecutor {
     }
 }
 
-/// Build the per-call [`ToolContext`] handed to `McpTool::execute` from a
-/// [`UniversalRequest`].
-///
-/// Enforces that `user_id` parses as a UUID (fail fast), and that a present
-/// `tenant_id` parses as a UUID. A missing `tenant_id` passes through as
-/// absent — tenant presence is enforced per-tool, not at this boundary, because
-/// some tools legitimately run pre-onboarding (e.g. provider listing). Identity
-/// fields are carried as strings on the host-agnostic context and rebuilt into
-/// the typed [`crate::context::ToolExecutionContext`] inside each tool via
-/// `ToolExecutionContext::from_tronc`.
-///
-/// Resolves the caller's admin flag from the global admin role (`User.role`) and
-/// records it via [`ToolContext::as_admin`]. The flag is then read back as the
-/// cached admin status inside each tool, so admin-gated tools see the same
-/// decision regardless of which dispatch path surfaced the request.
-///
-/// System-admin tools (e.g. system-agent management) gate on the global
-/// admin role, not the per-tenant role: being a tenant owner makes a user
-/// admin *of their tenant*, which must not grant system-wide admin powers. A
-/// global-lookup failure defaults to non-admin (deny-by-default).
 /// Refuse a tool the caller's grant does not cover.
 ///
 /// Required scopes are derived from the tool's own capability flags

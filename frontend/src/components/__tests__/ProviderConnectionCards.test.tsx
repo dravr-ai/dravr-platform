@@ -351,7 +351,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     // The operator put the sign-in first: the card recommends it with seats free.
     const signInFirst = <T extends { seats_left: number }>(card: T) => ({ ...card, seats_left: 3 });
 
-    it('starts the Strava OAuth when the Strava sign-in cannot complete', async () => {
+    it('opens the Strava OAuth in a new tab when the Strava sign-in cannot complete', async () => {
       getProvidersStatus.mockResolvedValue({ providers: [signInFirst(stravaCard('mirror'))] });
       const user = userEvent.setup();
       renderCards();
@@ -361,11 +361,13 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       expect(assign).not.toHaveBeenCalled();
       await user.click(screen.getByTestId('sign-in-unavailable'));
 
-      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/strava'));
+      await waitFor(() => expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/strava', '_blank'));
+      expect(authorizeUrl).toHaveBeenCalledWith('strava', { signInBlocked: true });
+      expect(assign).not.toHaveBeenCalled();
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
-    it('starts the Garmin OAuth when the Garmin sign-in cannot complete', async () => {
+    it('opens the Garmin OAuth in a new tab when the Garmin sign-in cannot complete', async () => {
       getProvidersStatus.mockResolvedValue({ providers: [signInFirst(garminCard('mirror'))] });
       const user = userEvent.setup();
       renderCards();
@@ -373,7 +375,8 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       await user.click(await screen.findByLabelText('Connect to Garmin'));
       await user.click(await screen.findByTestId('sign-in-unavailable'));
 
-      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+      await waitFor(() => expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/garmin', '_blank'));
+      expect(authorizeUrl).toHaveBeenCalledWith('garmin', { signInBlocked: true });
     });
 
     it('offers no fallback with the pool full', async () => {

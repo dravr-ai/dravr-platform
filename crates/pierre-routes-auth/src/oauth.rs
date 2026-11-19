@@ -24,6 +24,7 @@ use tracing::{error, field, field::Empty, info, warn, Span};
 use crate::card_backend;
 use crate::card_history::card_history;
 use crate::card_seats::{require_garmin_seat, CardSeats};
+use crate::dead_grant::dead_grant_sign_in_url;
 use crate::oauth_connect::spawn_connect_follow_ups;
 use crate::AuthRoutesContext;
 use pierre_core::errors::AppError;
@@ -57,7 +58,6 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_middleware::provider_link_token::mint_hosted_signin_url;
 use pierre_services::locale::resolve_user_locale;
 use uuid::Uuid;
 
@@ -733,17 +733,26 @@ pub(crate) async fn compute_providers_status(
     })
 }
 
-/// The acceptance a client carries on an OAuth start request.
+/// What a client carries on an OAuth start request.
 ///
 /// `tos_consent` is `true` once the athlete ticked the provider's notice
 /// (WHOOP's owner authorization) on this attempt. The launch routes are
 /// browser navigations, so it rides the query string where the credential
 /// login sends it in the JSON body.
+///
+/// `sign_in_blocked` is `true` when the athlete's sign-in for the provider
+/// could not complete (a provider challenge, or the sign-in service down) and
+/// the client fell back to the OAuth: the start then authorizes even a dead
+/// grant, instead of turning it back into the sign-in that just failed
+/// (carnet#1667, amending carnet#1494).
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct OAuthStartQuery {
     /// The athlete accepted the provider's notice on this attempt.
     #[serde(default)]
     pub tos_consent: bool,
+    /// The athlete's sign-in could not complete, so this start is its fallback.
+    #[serde(default)]
+    pub sign_in_blocked: bool,
 }
 
 /// Refuse to begin `provider`'s OAuth flow until the account has accepted the
@@ -777,55 +786,6 @@ pub(crate) async fn require_oauth_start_notice(
         tos_consent,
     )
     .await
-}
-
-/// The hosted sign-in an OAuth start of `provider` is turned to, when the
-/// athlete's grant of it is dead in `tenant_id`; `None` otherwise.
-///
-/// A dead grant reconnects only through its mirror's hosted sign-in
-/// (carnet#1494), whatever client asks for the OAuth: a shipped mobile build
-/// and the web card both still start it for a grant they read as connected.
-/// The start answers with the sign-in in the authorization's place, so no
-/// client needs to change; the link-token is minted for `channel`. A grant
-/// that writes what its session cannot (Garmin's) beside a signed-in session
-/// starts its own authorization: the sign-in already serves (directive 8).
-///
-/// # Errors
-/// The mint's error when the link-token cannot be encoded.
-pub(crate) async fn dead_grant_sign_in_url(
-    resources: &AuthRoutesContext,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-    channel: &str,
-) -> Result<Option<String>, AppError> {
-    let Some(grant) =
-        backend_resolver::flagged_grant(&resources.repos, user_id, tenant_id, provider).await
-    else {
-        return Ok(None);
-    };
-    let Some(target) = backend_resolver::reconnect_target(grant) else {
-        return Ok(None);
-    };
-    if backend_resolver::grant_writes_beside_mirror(&resources.provider_registry, grant).is_some()
-        && backend_resolver::grant_beside_session(&resources.repos, user_id, tenant_id, grant).await
-    {
-        return Ok(None);
-    }
-    info!(
-        user_id = %user_id,
-        provider = %provider,
-        "OAuth start of a dead grant: answering with the hosted sign-in"
-    );
-    mint_hosted_signin_url(
-        &resources.config.base_url,
-        user_id,
-        tenant_id.as_uuid(),
-        target,
-        channel,
-        &resources.admin_jwt_secret,
-    )
-    .map(Some)
 }
 
 /// Handle mobile OAuth initiation
@@ -884,8 +844,16 @@ pub(crate) async fn handle_mobile_oauth_init(
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
     // A dead grant is answered in the same shape, its sign-in in the
     // authorization's place: a shipped build opens whatever URL it is given.
-    if let Some(sign_in) =
-        dead_grant_sign_in_url(&resources, user_id, tenant_id, &provider, MOBILE_CHANNEL).await?
+    let blocked = query.get("sign_in_blocked").is_some_and(|v| v == "true");
+    if let Some(sign_in) = dead_grant_sign_in_url(
+        &resources,
+        user_id,
+        tenant_id,
+        &provider,
+        MOBILE_CHANNEL,
+        blocked,
+    )
+    .await?
     {
         return Ok((
             StatusCode::OK,
@@ -1010,8 +978,16 @@ pub(crate) async fn handle_oauth_authorize_redirect(
     span.record("tenant_id", field::display(&tenant_id));
 
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
-    if let Some(sign_in) =
-        dead_grant_sign_in_url(&resources, user_id, tenant_id, &provider, WEB_CHANNEL).await?
+    let blocked = start.sign_in_blocked;
+    if let Some(sign_in) = dead_grant_sign_in_url(
+        &resources,
+        user_id,
+        tenant_id,
+        &provider,
+        WEB_CHANNEL,
+        blocked,
+    )
+    .await?
     {
         return Ok((StatusCode::FOUND, [(header::LOCATION, sign_in)]).into_response());
     }

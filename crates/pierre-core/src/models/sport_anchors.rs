@@ -39,8 +39,11 @@ use dravr_cageux::periodization::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::measurement::{AnchorOrigin, MeasurementKind, MetricProvenance, ProvenancedValue};
+use super::measurement::{
+    AnchorOrigin, MeasurementKind, MetricProvenance, ProvenancedValue, COACH_STATED_ORIGIN,
+};
 use super::{SportType, UserPhysiologicalProfile};
+use crate::ai_policy::SourceClass;
 use crate::constants::units::METERS_PER_KM;
 
 /// The unit an anchor's value, low and high are in.
@@ -476,6 +479,21 @@ pub struct SportAnchor {
     pub value: AnchorValue,
 }
 
+impl SportAnchor {
+    /// The trust label's class of this anchor (owl phase 1). Only
+    /// `set_physiology` stores one, so it is the athlete's own statement,
+    /// whatever test it names, unless their human coach set it
+    /// ([`COACH_STATED_ORIGIN`]), which claims the least.
+    #[must_use]
+    pub fn source_class(&self) -> SourceClass {
+        if self.value.origin.as_deref() == Some(COACH_STATED_ORIGIN) {
+            SourceClass::ThirdPartyApp
+        } else {
+            SourceClass::PatientEntered
+        }
+    }
+}
+
 /// One sport family's anchors in `anchors`, for writing.
 const fn family_mut(anchors: &mut AthleteAnchors, sport: SportFamily) -> &mut SportAnchors {
     match sport {
@@ -626,6 +644,21 @@ mod tests {
                 confidence: AnchorConfidence::High,
             },
         })
+    }
+
+    #[test]
+    fn a_stored_anchor_is_the_athletes_unless_their_coach_set_it() -> TestResult {
+        let mut anchor = stored(SportFamily::Ride, SportAnchorName::CriticalPower, 312.0)?;
+        assert_eq!(anchor.source_class(), SourceClass::PatientEntered, "lab");
+        anchor.value.origin = None;
+        assert_eq!(
+            anchor.source_class(),
+            SourceClass::PatientEntered,
+            "unnamed"
+        );
+        anchor.value.origin = Some(COACH_STATED_ORIGIN.to_owned());
+        assert_eq!(anchor.source_class(), SourceClass::ThirdPartyApp, "coach");
+        Ok(())
     }
 
     #[test]

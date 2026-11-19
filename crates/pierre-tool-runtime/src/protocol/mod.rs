@@ -40,6 +40,8 @@ pub mod sleep_helpers;
 mod token_writeback;
 /// Reads a tool's `ToolResponse` back: raised error codes, sentinels and the universal reply
 mod tool_response;
+/// The trust label a result carries for a caller that writes its own reply.
+pub mod trust_labels;
 /// Core universal protocol types (`UniversalRequest`, `UniversalResponse`, executor alias)
 pub mod types;
 
