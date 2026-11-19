@@ -9,9 +9,7 @@ use pierre_core::models::messaging::{
     channel_label, ChannelType, IncomingMessage, MessageContent, OutgoingMessage, MAX_OTP_ATTEMPTS,
     OTP_TTL_MINUTES,
 };
-use pierre_core::models::{
-    locale_from_language_tag, normalize_email, whatsapp_sender_locale, TenantId, User,
-};
+use pierre_core::models::{normalize_email, TenantId, User};
 use pierre_database::backends::{
     CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository, TenantRepository,
     UserRepository,
@@ -25,16 +23,17 @@ use uuid::Uuid;
 
 use super::addressing::reply_recipient;
 use super::linking::{self, AWAITING_LINK_CONFIRM};
+use super::prelink::prelink_locale;
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
 use pierre_auth::dto::auth::{RegisterRequest, RegisterResponse};
 use pierre_contremaitre::messaging_strings::{
-    format_template, DEFAULT_LOCALE, KEY_LINK_CANCELLED, KEY_LINK_EMAIL_NOT_CONFIGURED,
-    KEY_LINK_EMAIL_PROMPT, KEY_LINK_EMAIL_SEND_FAILED, KEY_LINK_GENERIC_ERROR,
-    KEY_LINK_IDENTITY_COLLISION, KEY_LINK_INCORRECT_CODE, KEY_LINK_INVALID_EMAIL,
-    KEY_LINK_LOGOUT_COMPLETE, KEY_LINK_NO_TENANT, KEY_LINK_OTP_PROMPT, KEY_LINK_OTP_SENT,
-    KEY_LINK_SESSION_EXPIRED, KEY_LINK_SIGNUP_CREATED, KEY_LINK_SIGNUP_FAILED,
-    KEY_LINK_SIGNUP_OFFER, KEY_LINK_TOO_MANY_ATTEMPTS, KEY_LINK_VERIFICATION_ERROR,
+    format_template, KEY_LINK_CANCELLED, KEY_LINK_EMAIL_NOT_CONFIGURED, KEY_LINK_EMAIL_PROMPT,
+    KEY_LINK_EMAIL_SEND_FAILED, KEY_LINK_GENERIC_ERROR, KEY_LINK_IDENTITY_COLLISION,
+    KEY_LINK_INCORRECT_CODE, KEY_LINK_INVALID_EMAIL, KEY_LINK_LOGOUT_COMPLETE, KEY_LINK_NO_TENANT,
+    KEY_LINK_OTP_PROMPT, KEY_LINK_OTP_SENT, KEY_LINK_SESSION_EXPIRED, KEY_LINK_SIGNUP_CREATED,
+    KEY_LINK_SIGNUP_FAILED, KEY_LINK_SIGNUP_OFFER, KEY_LINK_TOO_MANY_ATTEMPTS,
+    KEY_LINK_VERIFICATION_ERROR,
 };
 use pierre_core::errors::AppError;
 use pierre_middleware::redaction::{mask_email_for_display, mask_recipient};
@@ -53,50 +52,6 @@ pub(super) struct OtpFlowStep<'a> {
     email: &'a str,
     /// The language every reply of the flow is written in.
     pub(super) locale: &'a str,
-}
-
-/// Metadata key under which dravr-canot puts a `WhatsApp` sender's phone number
-/// (Meta's `wa_id`) when the sender id is their business-scoped user id. canot
-/// writes it from 8f2bd6c on (carnet#1668, "key WhatsApp senders on the BSUID");
-/// the release the platform pins still keys senders on the number itself.
-const WHATSAPP_PHONE_NUMBER_KEY: &str = "wa_id";
-
-/// The language a sender who has not linked an account reads, from what the
-/// channel tells us about them in `message`; [`DEFAULT_LOCALE`] only when it
-/// places them nowhere (carnet#1669).
-///
-/// A `WhatsApp` sender is placed by their phone number, down to the area code,
-/// whether it is the sender id or rides in the metadata beside a
-/// business-scoped user id, else by that id's country. A Telegram update names
-/// the language of the sender's Telegram app. The messages Messenger, Slack
-/// and Discord deliver carry no language of their sender.
-pub(super) fn prelink_locale(message: &IncomingMessage) -> &'static str {
-    let signal = match message.channel_type {
-        ChannelType::WhatsApp => whatsapp_sender_locale(
-            &message.sender_id,
-            message
-                .metadata
-                .get(WHATSAPP_PHONE_NUMBER_KEY)
-                .and_then(Value::as_str),
-        ),
-        ChannelType::Telegram => {
-            telegram_sender_language(&message.raw_payload).and_then(locale_from_language_tag)
-        }
-        _ => None,
-    };
-    signal.unwrap_or(DEFAULT_LOCALE)
-}
-
-/// The IETF language tag a Telegram update gives its sender (`from.language_code`),
-/// which the sender's Telegram app sets. dravr-canot hands the update over whole
-/// as the message's raw payload; a post signed as a channel has no sender and
-/// no tag.
-fn telegram_sender_language(update: &Value) -> Option<&str> {
-    ["message", "edited_message", "callback_query"]
-        .into_iter()
-        .find_map(|kind| update.get(kind))?
-        .pointer("/from/language_code")?
-        .as_str()
 }
 
 /// The language a sender's live linking flow speaks: the one its link state
@@ -1069,140 +1024,9 @@ async fn invalidate_otp_flows(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
-    use dravr_canot::turn::ConversationTurnId;
     use serde_json::json;
 
     use super::*;
-
-    /// An inbound text from `sender_id` on `channel_type`, its webhook body `update`.
-    fn inbound(channel_type: ChannelType, sender_id: &str, update: Value) -> IncomingMessage {
-        IncomingMessage {
-            channel_type,
-            sender_id: sender_id.to_owned(),
-            sender_name: None,
-            content: MessageContent::Text {
-                body: "Hello".to_owned(),
-            },
-            conversation_id: Some(sender_id.to_owned()),
-            chat_title: None,
-            channel_message_id: "m-1669".to_owned(),
-            timestamp: Utc::now(),
-            raw_payload: update,
-            turn_id: ConversationTurnId::new(),
-            is_direct_message: true,
-            addressed_to_bot: true,
-            metadata: Value::Null,
-        }
-    }
-
-    /// A Telegram update of `kind` whose sender's app speaks `language_code`.
-    fn telegram_update(kind: &str, language_code: &str) -> Value {
-        let mut update = json!({ "update_id": 1669 });
-        update[kind] = json!({
-            "from": { "id": 4242, "first_name": "Ana", "language_code": language_code },
-        });
-        update
-    }
-
-    #[test]
-    fn a_whatsapp_sender_is_asked_in_the_language_of_their_number() {
-        for (number, expected) in [
-            ("15145550123", "fr"),
-            ("12125550123", "en"),
-            ("34612345678", "es"),
-            ("31612345678", "en"), // a country whose language the platform does not speak
-            ("unknown", DEFAULT_LOCALE),
-        ] {
-            let message = inbound(ChannelType::WhatsApp, number, json!({}));
-            assert_eq!(
-                prelink_locale(&message),
-                expected,
-                "bug: WhatsApp sender {number} is not asked in {expected}"
-            );
-        }
-    }
-
-    /// The message dravr-canot builds from 8f2bd6c on (carnet#1668): the sender
-    /// id is the business-scoped user id and the number, when Meta sent one,
-    /// rides in the metadata. The pinned release cannot produce it from a
-    /// webhook, so it is built here.
-    #[test]
-    fn a_whatsapp_sender_keyed_on_their_bsuid_is_still_placed() {
-        for (sender_id, metadata, expected) in [
-            (
-                "US.13491208655302741918",
-                json!({ "wa_id": "15145550123", "user_id": "US.13491208655302741918" }),
-                "fr",
-            ),
-            (
-                "CH.13491208655302741918",
-                json!({ "user_id": "CH.13491208655302741918" }),
-                "de",
-            ),
-            ("CA.ENT.11815799212886844830", Value::Null, "en"),
-        ] {
-            let mut message = inbound(ChannelType::WhatsApp, sender_id, json!({}));
-            message.metadata = metadata;
-            assert_eq!(
-                prelink_locale(&message),
-                expected,
-                "bug: WhatsApp sender {sender_id} is not asked in {expected}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_telegram_sender_is_asked_in_the_language_of_their_app() {
-        for (kind, language_code, expected) in [
-            ("message", "en", "en"),
-            ("message", "pt-br", "pt"),
-            ("edited_message", "es", "es"),
-            ("callback_query", "de", "de"),
-            ("message", "nl", "en"),
-        ] {
-            let message = inbound(
-                ChannelType::Telegram,
-                "4242",
-                telegram_update(kind, language_code),
-            );
-            assert_eq!(
-                prelink_locale(&message),
-                expected,
-                "bug: a Telegram {kind} in {language_code} is not asked in {expected}"
-            );
-        }
-        let unsigned_post = inbound(
-            ChannelType::Telegram,
-            "4242",
-            json!({ "channel_post": { "sender_chat": { "id": -100 } } }),
-        );
-        assert_eq!(
-            prelink_locale(&unsigned_post),
-            DEFAULT_LOCALE,
-            "bug: an update naming no sender language was given one"
-        );
-    }
-
-    /// A Telegram or Slack id is digits too, but it is no phone number:
-    /// reading one as a calling code would guess a language from an account
-    /// counter.
-    #[test]
-    fn a_numeric_id_on_another_channel_is_not_read_as_a_phone_number() {
-        for channel in [
-            ChannelType::Telegram,
-            ChannelType::Messenger,
-            ChannelType::Slack,
-            ChannelType::Discord,
-        ] {
-            let message = inbound(channel, "12125550123", json!({}));
-            assert_eq!(
-                prelink_locale(&message),
-                DEFAULT_LOCALE,
-                "bug: a {channel} id was read as a phone number"
-            );
-        }
-    }
 
     #[test]
     fn a_flow_keeps_the_language_it_was_opened_in() {

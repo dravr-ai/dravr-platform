@@ -41,6 +41,8 @@ mod outbound_persist;
 pub mod outbound_retry;
 /// The config-loading, body-splitting egress seam every non-pipeline reply leaves through.
 pub mod outbound_send;
+/// The language a sender with no account is asked in (carnet#1669).
+mod prelink;
 /// Inbound emoji reactions mapped onto the shared per-message feedback write.
 pub mod reactions;
 /// The durable record every turn runs from, the runner hand-off and the sweeper.
@@ -89,6 +91,7 @@ use linking::{detect_linking_code, handle_linking_command, LinkingAction};
 /// last readable point without a network stub.
 pub use otp::start_otp_flow;
 use otp::{apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command};
+use prelink::prelink_locale;
 /// Re-exported alongside [`start_otp_flow`], and for the same reason.
 pub use session::create_link_and_prompt;
 pub(crate) use session::fresh_title_fallback;
@@ -1062,7 +1065,7 @@ async fn send_unlinked_user_prompt(
             channel_type,
             &message.sender_id,
             message.sender_name.as_deref(),
-            otp::prelink_locale(message),
+            prelink_locale(message),
         )
         .await
     } else {
@@ -1074,7 +1077,7 @@ async fn send_unlinked_user_prompt(
             channel_type,
             &message.sender_id,
             message.sender_name.as_deref(),
-            otp::prelink_locale(message),
+            prelink_locale(message),
         )
         .await
     };

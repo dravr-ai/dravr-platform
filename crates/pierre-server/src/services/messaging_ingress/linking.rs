@@ -16,6 +16,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use super::otp::{self, OtpFlowStep};
+use super::prelink::prelink_locale;
 use crate::mcp::resources::ServerContext;
 use pierre_contremaitre::messaging_strings::{
     KEY_LINK_CONFIRM_PROMPT, KEY_LINK_IDENTITY_COLLISION, KEY_LINK_SESSION_EXPIRED,
@@ -405,7 +406,7 @@ async fn link_confirm_prompt(
 /// (carnet#1596).
 ///
 /// The question is asked in the language the channel suggests for the sender
-/// ([`otp::prelink_locale`]), which the hold records so every later prompt of
+/// ([`prelink_locale`]), which the hold records so every later prompt of
 /// the exchange reads it back (carnet#1669).
 ///
 /// Returns the question, or why the code cannot be redeemed here.
@@ -419,7 +420,7 @@ pub(super) async fn handle_linking_command(
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let channel_type = ChannelType::from_str(channel).unwrap_or(ChannelType::Telegram);
     let sender_id = message.sender_id.as_str();
-    let locale = otp::prelink_locale(message);
+    let locale = prelink_locale(message);
     let asked = match hold_pairing_code(db, tenant_id, channel, sender_id, code, locale).await {
         Ok(owner) => link_confirm_prompt(resources, channel, &owner, locale).await,
         Err(err) => Err(err),
