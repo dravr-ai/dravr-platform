@@ -42,6 +42,7 @@ use uuid::Uuid;
 use crate::check_in_post_test::backdate_session;
 use crate::common::create_test_server_resources;
 use crate::helpers::axum_test::AxumTestRequest;
+use crate::helpers::date_golden::restamp;
 use crate::helpers::drained_turn::{
     compute_whatsapp_sig, setup_whatsapp_config, WA_BUSINESS_ID, WA_PHONE_NUMBER_ID,
 };
@@ -63,6 +64,8 @@ const PHONE: &str = "15145550172";
 const PROVIDER: &str = "sciotte_garmin";
 /// The notify event every held or rerouted proactive message emits.
 const HELD: &str = "messaging.proactive_held";
+/// Move a chat row's instant, which the repository stamps with the wall clock.
+const MOVE_MESSAGE: &str = "UPDATE chat_messages SET created_at = $1 WHERE CAST(id AS TEXT) = $2";
 
 /// An athlete with a `WhatsApp` DM: its channel link, its session, and the
 /// conversation the session writes into, which the app lists too.
@@ -427,6 +430,38 @@ async fn a_closed_window_writes_the_reconnect_sentence_once_while_it_stands() {
         channel.sent.lock().unwrap().is_empty(),
         "nothing goes to the closed chat"
     );
+
+    // A day on, the sentence is no longer the latest turn and no longer stands.
+    let written = dm
+        .resources
+        .common
+        .repos
+        .chat
+        .get_messages(&dm.conversation, &dm.user.to_string(), dm.tenant)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|message| message.role == "assistant")
+        .expect("the sentence was written first");
+    restamp(
+        dm.db(),
+        MOVE_MESSAGE,
+        Utc::now() - Duration::hours(25),
+        &written.id,
+        None,
+    )
+    .await;
+    notifier
+        .push_provider_reauth(dm.user, dm.tenant, &dm.conversation, PROVIDER)
+        .await;
+    let turns = dm.assistant_turns().await;
+    assert_eq!(
+        turns.len(),
+        3,
+        "a sentence written more than a day ago is written again: {turns:?}"
+    );
+    assert_eq!(turns[2], turns[0], "the same sentence is written again");
+    assert_eq!(named(&events, HELD).len(), 4, "that hold is reported too");
 }
 
 #[tokio::test]

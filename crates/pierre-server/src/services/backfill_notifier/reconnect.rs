@@ -14,10 +14,11 @@
 //!
 //! A chat whose window is closed is sent none of it (carnet#1672): a linked
 //! chat is left to the notice's app half, and the conversation that asked is
-//! answered in the app with the linkless sentence — once, while the athlete
-//! has not moved past it. A turn the platform runs on its own (a check-in, a
-//! landing reaction) reads the provider too, and on a dead session each one
-//! would otherwise add the same sentence to the thread.
+//! answered in the app with the linkless sentence — once while it stands, as
+//! the thread's latest assistant turn or for a day after it was written. A
+//! turn the platform runs on its own (a check-in, a landing reaction) reads
+//! the provider too, and on a dead session each one would otherwise add the
+//! same sentence to the thread.
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_contremaitre::messaging_strings::{
@@ -291,11 +292,12 @@ impl ServerBackfillNotifier {
         .await;
     }
 
-    /// Whether `body` already stands in `conversation_id` at `now`: it is the
-    /// latest assistant turn there, or one written within
-    /// [`REAUTH_NOTE_QUIET`]. The sentence names its provider, so an equal
-    /// body is that provider's. A thread that cannot be read answers `false`,
-    /// and the sentence is written.
+    /// Whether `body` already stands in `conversation_id` at `now`: among the
+    /// thread's newest [`REAUTH_NOTE_LOOKBACK`] rows, it is the latest
+    /// assistant turn, or one written within [`REAUTH_NOTE_QUIET`]. The
+    /// sentence names its provider's brand, so an equal body tells the athlete
+    /// the same thing whichever of that brand's backends asked. A thread that
+    /// cannot be read answers `false`, and the sentence is written.
     async fn reauth_note_standing(
         &self,
         user_id: Uuid,

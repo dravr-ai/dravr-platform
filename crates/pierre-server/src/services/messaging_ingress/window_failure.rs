@@ -175,7 +175,9 @@ fn opened_by(
 /// Claim the one re-delivery of `notice` across deliveries and instances,
 /// keyed by its opening ledger row. `false` (logged) when another delivery
 /// holds it, or the claim cannot be written: a second in-app copy is worse
-/// than none, and the notice stays in the ledger either way.
+/// than none, and the notice stays in the ledger either way. The claim is
+/// never released, so a winner whose write then fails leaves no copy and no
+/// later delivery retries it.
 async fn claim_redelivery(
     resources: &ServerContext,
     tenant_id: TenantId,

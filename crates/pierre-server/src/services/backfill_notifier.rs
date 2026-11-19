@@ -891,7 +891,10 @@ impl BackfillNotifier for ServerBackfillNotifier {
         // clicked must not be permanently silenced — so this fires each time,
         // matching the synchronous in-chat reconnect path (which also
         // re-injects every turn). The flag and the once-per-transition notice
-        // were written by the backfill before it called here.
+        // were written by the backfill before it called here. A closed
+        // window's linkless sentence in the app is the one exception: it is
+        // written once while it stands (`reauth_in_app`), its hold reported
+        // each time.
 
         // Resolve the originating channel — cross-channel, DM-correct (the same
         // routing the backfill-ready notice uses).
