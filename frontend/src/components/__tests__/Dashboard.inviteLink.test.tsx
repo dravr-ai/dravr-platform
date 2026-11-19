@@ -60,7 +60,11 @@ vi.mock('../../services/api', () => ({
 }));
 vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
 
-function renderDashboard(pendingInviteCode: string | null, onInviteCodeConsumed = vi.fn()) {
+function renderDashboard(
+  pendingInviteCode: string | null,
+  onInviteCodeConsumed = vi.fn(),
+  onInviteJoinAnswered = vi.fn(),
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -69,6 +73,7 @@ function renderDashboard(pendingInviteCode: string | null, onInviteCodeConsumed 
       <Dashboard
         pendingInviteCode={pendingInviteCode}
         onInviteCodeConsumed={onInviteCodeConsumed}
+        onInviteJoinAnswered={onInviteJoinAnswered}
       />
     </QueryClientProvider>,
   );
@@ -99,8 +104,9 @@ describe('Dashboard invite deep link', () => {
 
   it('clears the action and tells the shell once the turn has gone out', async () => {
     const onInviteCodeConsumed = vi.fn();
+    const onInviteJoinAnswered = vi.fn();
     await act(async () => {
-      renderDashboard('WELCOME2026', onInviteCodeConsumed);
+      renderDashboard('WELCOME2026', onInviteCodeConsumed, onInviteJoinAnswered);
     });
 
     await screen.findByTestId('chat-tab');
@@ -109,8 +115,27 @@ describe('Dashboard invite deep link', () => {
     });
 
     expect(onInviteCodeConsumed).toHaveBeenCalledTimes(1);
+    // Sent is not joined: the stored invite outlives the dispatch (registre#1648).
+    expect(onInviteJoinAnswered).not.toHaveBeenCalled();
     const last = chatTabProps.mock.calls[chatTabProps.mock.calls.length - 1][0];
     expect(last).toBeNull();
+  });
+
+  it('tells the shell the join was answered only when its turn reports an answer', async () => {
+    const onInviteJoinAnswered = vi.fn();
+    await act(async () => {
+      renderDashboard('WELCOME2026', vi.fn(), onInviteJoinAnswered);
+    });
+
+    await screen.findByTestId('chat-tab');
+    const action = chatTabProps.mock.calls
+      .map(([candidate]) => candidate as PendingComposerAction | null)
+      .find((candidate): candidate is PendingComposerAction => Boolean(candidate));
+    expect(action?.onAnswered).toBeTypeOf('function');
+    expect(onInviteJoinAnswered).not.toHaveBeenCalled();
+
+    act(() => action?.onAnswered?.());
+    expect(onInviteJoinAnswered).toHaveBeenCalledTimes(1);
   });
 
   it('queues nothing without an invite code', async () => {

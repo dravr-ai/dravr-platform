@@ -268,6 +268,43 @@ describe('ChatThread', () => {
     expect(await screen.findByText('Finish my profile')).toBeInTheDocument();
   });
 
+  it("tells the host its action was answered once the reply lands, through a thread opened for it", async () => {
+    const turn = heldTurn();
+    const onAnswered = vi.fn();
+    renderThread({
+      initial: null,
+      openThread,
+      action: { kind: 'send', text: '/group join WELCOME2026', onAnswered },
+    });
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    // Sent, and the action consumed, but not answered yet: the invite stays stored.
+    expect(onAnswered).not.toHaveBeenCalled();
+
+    await act(async () => {
+      turn.finish(turnEnding('Welcome to Tri — longue distance.'));
+    });
+    expect(onAnswered).toHaveBeenCalledTimes(1);
+  });
+
+  it('never tells the host a failed turn was answered', async () => {
+    sendTurn.mockImplementationOnce(
+      async (_id: string, _content: string, options: { onError?: (error: unknown) => void }) => {
+        options.onError?.(new Error('network down'));
+      },
+    );
+    const onAnswered = vi.fn();
+    renderThread({
+      initial: CONVERSATION_ID,
+      openThread,
+      action: { kind: 'send', text: '/group join WELCOME2026', onAnswered },
+    });
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('host-conversation')).toHaveTextContent(CONVERSATION_ID));
+    expect(onAnswered).not.toHaveBeenCalled();
+  });
+
   it('leaves focus where it was unless the host asks the composer to take it', async () => {
     const first = renderThread({ initial: CONVERSATION_ID, openThread, focusComposerOnOpen: false });
     await screen.findByText('Hi, ready when you are.');

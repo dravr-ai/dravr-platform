@@ -95,7 +95,7 @@ interface FailedTurnNote {
    * What the turn sent, which a retry sends again: a tapped suggestion's
    * bubble shows its label while the turn carries its postback (carnet#828).
    */
-  sent: { content: string; options: TurnSendOptions };
+  sent: { content: string; options: ThreadSendOptions };
   retryable: boolean;
 }
 
@@ -114,6 +114,18 @@ export interface NewThreadOptions {
  * the athlete's personal thread, or opens that thread when they have none yet.
  */
 export type OpenThread = (request: { athlete_speaks_first?: boolean }) => Promise<{ id: string }>;
+
+/**
+ * How the thread sends one turn: what the server is told, plus what the host
+ * asked to hear once the turn is answered (the invite deep link's
+ * `onAnswered`). A retry re-sends the same options, so it reports too.
+ */
+type ThreadSendOptions = TurnSendOptions & Pick<PendingComposerAction, 'onAnswered'>;
+
+/** A `send` held until there is a thread with no turn running in it. */
+function queuedPrompt(action: PendingComposerAction): Omit<PendingComposerAction, 'kind'> {
+  return { text: action.text, origin: action.origin, display: action.display, onAnswered: action.onAnswered };
+}
 
 /** The newest row the server has persisted — the one the read marker follows. */
 function latestPersistedMessageId(messages: Message[] | undefined): string | null {
@@ -717,7 +729,7 @@ export function useChatThread({
    * button, a retry — dispatches the same way. The composer is state, so a
    * caller never seeds it and waits for React to commit before sending.
    */
-  const sendTurn = useCallback(async (content: string, options: TurnSendOptions = {}) => {
+  const sendTurn = useCallback(async (content: string, options: ThreadSendOptions = {}) => {
     if (!content || !selectedConversation || turnInFlight) return;
 
     setIsStreaming(true);
@@ -937,6 +949,9 @@ export function useChatThread({
         if (turn.opened_topic_divider_id) {
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(selectedConversation) });
         }
+
+        // The host asked to hear that this turn was answered.
+        options.onAnswered?.();
       },
       onError: error => {
         finishTrail(null);
@@ -1156,7 +1171,11 @@ export function useChatThread({
     if (pendingPrompt && selectedConversation && !holdQueuedSend) {
       const promptToSend = pendingPrompt;
       setPendingPrompt(null);
-      void sendTurn(promptToSend.text, { origin: promptToSend.origin, display: promptToSend.display });
+      void sendTurn(promptToSend.text, {
+        origin: promptToSend.origin,
+        display: promptToSend.display,
+        onAnswered: promptToSend.onAnswered,
+      });
     }
   }, [pendingPrompt, selectedConversation, holdQueuedSend, sendTurn]);
 
@@ -1172,17 +1191,17 @@ export function useChatThread({
       // whether one does: the line waits in the same queue a send with no
       // thread does, and goes out once that turn has its reply.
       if (holdQueuedSend) {
-        setPendingPrompt({ text: action.text, origin: action.origin, display: action.display });
+        setPendingPrompt(queuedPrompt(action));
         return;
       }
-      void sendTurn(action.text, { origin: action.origin, display: action.display });
+      void sendTurn(action.text, { origin: action.origin, display: action.display, onAnswered: action.onAnswered });
       return;
     }
     if (action.kind === 'send') {
       // No thread yet: queue the text and let the pending-prompt effect send
       // it the moment the fresh conversation exists. The athlete speaks
       // first, so the thread's agent posts no welcome over the answer.
-      setPendingPrompt({ text: action.text, origin: action.origin, display: action.display });
+      setPendingPrompt(queuedPrompt(action));
       startConversation({ athleteSpeaksFirst: true });
       return;
     }
@@ -1193,7 +1212,9 @@ export function useChatThread({
   }, [selectedConversation, startConversation, sendTurn, holdQueuedSend]);
 
   // The host's own composer action — the `/groups/join/:code` deep link, which
-  // lands on chat and sends `/group join CODE` as its first turn.
+  // lands on chat and sends `/group join CODE` as its first turn. Consumed
+  // once dispatched or queued; whether the turn was answered reaches the host
+  // through the action's own `onAnswered`.
   useEffect(() => {
     if (!pendingComposerAction) return;
     runComposerAction(pendingComposerAction);

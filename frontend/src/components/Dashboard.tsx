@@ -258,12 +258,20 @@ function parseSettingsTab(
 
 interface DashboardProps {
   pendingInviteCode?: string | null;
+  /** The invite's `/group join` turn was dispatched (or queued) on this page. */
   onInviteCodeConsumed?: () => void;
+  /**
+   * The server answered the invite's `/group join` turn: the athlete joined,
+   * already belonged, or the code cannot be used. Sending it again would
+   * change nothing, so the stored invite can go.
+   */
+  onInviteJoinAnswered?: () => void;
 }
 
 export default function Dashboard({
   pendingInviteCode,
   onInviteCodeConsumed,
+  onInviteJoinAnswered,
 }: DashboardProps) {
   const { user, logout, viewMode, chooseViewMode } = useAuth();
   // A coach-access grant shows on the next navigation, without signing out
@@ -520,14 +528,19 @@ export default function Dashboard({
   // An invite link lands on chat and joins through the command, exactly as a
   // Telegram or WhatsApp member would: one turn, `/group join <code>`, in a
   // thread the athlete can then read.
+  // The stored invite is kept until that turn is answered, not merely sent
+  // (registre#1648): a reload or a failed send leaves it to be sent again.
   const [pendingComposerAction, setPendingComposerAction] =
     useState<PendingComposerAction | null>(null);
+  const onInviteJoinAnsweredRef = useRef(onInviteJoinAnswered);
+  onInviteJoinAnsweredRef.current = onInviteJoinAnswered;
   useEffect(() => {
     if (!pendingInviteCode) return;
     setActiveTab("chat");
     setPendingComposerAction({
       kind: "send",
       text: COMMAND_DRAFTS.groupJoin(pendingInviteCode),
+      onAnswered: () => onInviteJoinAnsweredRef.current?.(),
     });
   }, [pendingInviteCode]);
 

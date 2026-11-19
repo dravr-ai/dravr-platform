@@ -30,6 +30,7 @@ import { ALERT_TONE, ToastProvider } from './components/ui';
 import { ThemeProvider } from './hooks/useTheme';
 import { useAuth } from './hooks/useAuth';
 import { useOnboardingState } from './hooks/useOnboardingState';
+import { usePendingInvite } from './hooks/usePendingInvite';
 import { useIdleWatch } from './hooks/useIdleWatch';
 import { useApiRefusalSurface } from './hooks/useApiRefusalSurface';
 import { useLanguageSwitcher, useTranslation } from '@pierre/i18n';
@@ -85,44 +86,6 @@ function isTakeoverPath(): boolean {
 }
 
 /**
- * Check if the current URL is an invite link: /groups/join/:code
- */
-function getGroupInviteCode(): string | null {
-  const match = window.location.pathname.match(/^\/groups\/join\/([^/]+)$/);
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-/**
- * Where this tab holds a group invite opened before signing in.
- *
- * LIMITATION(registre#1648): `PENDING_INVITE_KEY` is per tab and cleared once `/group join` is queued, so the email-confirmation tab and the reload after sign-in drop the invite.
- */
-const PENDING_INVITE_KEY = 'dravr.pending_invite_code';
-
-/**
- * The group invite this tab opened before the sign-in redirect reloaded it, or
- * null. Storage can be refused (a private window): the invite then lasts only
- * as long as the page, as it always did.
- */
-function readPendingInvite(): string | null {
-  try {
-    return window.sessionStorage.getItem(PENDING_INVITE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-/** Hold `code` for this tab across the sign-in redirect, or forget it once sent. */
-function writePendingInvite(code: string | null) {
-  try {
-    if (code === null) window.sessionStorage.removeItem(PENDING_INVITE_KEY);
-    else window.sessionStorage.setItem(PENDING_INVITE_KEY, code);
-  } catch {
-    // Storage refused: the invite lasts as long as the page.
-  }
-}
-
-/**
  * Whether the current URL is the create-account link: /register, or /signup.
  * dravr.ai's "Create your account" button points here, so it opens the form it
  * names rather than the sign-in form.
@@ -159,8 +122,10 @@ function AppContent() {
     settleOAuthReturn(getOAuthCallbackParams()),
   );
   // A group invite opened signed out survives the sign-in redirect, which
-  // reloads the page: held for this tab until the join is sent (carnet#1530).
-  const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(readPendingInvite);
+  // reloads the page, and reaches the email-confirmation tab: held for every
+  // tab until its `/group join` turn is answered (carnet#1530). A stored
+  // invite with no answer yet is sent again on load.
+  const { pendingInviteCode, onInviteCodeConsumed, onInviteJoinAnswered } = usePendingInvite();
   // The confirmation token, read once from the link's fragment. `undefined`
   // when this page load is not a confirmation link.
   const [verifyEmailToken, setVerifyEmailToken] = useState<string | null | undefined>(() =>
@@ -262,17 +227,6 @@ function AppContent() {
     // it), never the dashboard.
     if (isTakeoverPath()) {
       window.history.replaceState({}, document.title, TAKEOVER_PATH);
-    }
-  }, []);
-
-  // Check for group invite link on mount: /groups/join/:code
-  useEffect(() => {
-    const code = getGroupInviteCode();
-    if (code) {
-      setPendingInviteCode(code);
-      writePendingInvite(code);
-      // Clean the URL so the invite path doesn't persist on refresh
-      window.history.replaceState({}, document.title, '/');
     }
   }, []);
 
@@ -511,10 +465,8 @@ function AppContent() {
               // than carrying one mode's tab into the other.
               key={viewMode ?? 'athlete-account'}
               pendingInviteCode={pendingInviteCode}
-              onInviteCodeConsumed={() => {
-                setPendingInviteCode(null);
-                writePendingInvite(null);
-              }}
+              onInviteCodeConsumed={onInviteCodeConsumed}
+              onInviteJoinAnswered={onInviteJoinAnswered}
             />
           </UnitsProvider>
         }

@@ -101,6 +101,12 @@ export interface PendingComposerAction {
    * postback: its label, until the turn echoes the words it stands for.
    */
   display?: string;
+  /**
+   * Called when the server answers a `send`'s turn — never when the turn
+   * fails or the page goes before its reply. The invite deep link keeps its
+   * stored code until then.
+   */
+  onAnswered?: () => void;
 }
 
 // Re-export for convenience
