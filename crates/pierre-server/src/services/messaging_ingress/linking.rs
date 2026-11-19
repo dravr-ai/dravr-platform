@@ -7,16 +7,18 @@
 use std::str::FromStr;
 
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::messaging::{channel_label, ChannelType, MessageContent, OutgoingMessage};
+use pierre_core::models::messaging::{
+    channel_label, ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
+};
 use pierre_core::models::TenantId;
 use pierre_database::backends::{CreateChannelLinkParams, MessagingRepository};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use super::otp;
+use super::otp::{self, OtpFlowStep};
 use crate::mcp::resources::ServerContext;
 use pierre_contremaitre::messaging_strings::{
-    DEFAULT_LOCALE, KEY_LINK_CONFIRM_PROMPT, KEY_LINK_IDENTITY_COLLISION, KEY_LINK_SESSION_EXPIRED,
+    KEY_LINK_CONFIRM_PROMPT, KEY_LINK_IDENTITY_COLLISION, KEY_LINK_SESSION_EXPIRED,
     KEY_LINK_SUCCESS, KEY_NO_PROVIDER_CONNECTED_WITH_EMAIL,
 };
 use pierre_middleware::redaction::mask_email_for_display;
@@ -145,13 +147,15 @@ async fn pairing_code_owner(
 /// taps it, so a forwarded link would bind whoever opened it. Nothing links
 /// here and the code stays unspent: the sender is asked first, and
 /// [`confirm_held_link`] links on their yes. A sender whose chat identity is
-/// already linked is refused now rather than after they confirm.
+/// already linked is refused now rather than after they confirm. The hold
+/// records `locale`, the language the sender is asked in.
 async fn hold_pairing_code(
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     channel: &str,
     sender_id: &str,
     code: &str,
+    locale: &str,
 ) -> Result<String, DeepLinkError> {
     let owner = pairing_code_owner(db, channel, code).await?;
     let already_linked = db
@@ -165,7 +169,7 @@ async fn hold_pairing_code(
         ));
     }
     let held = db
-        .hold_link_for_confirmation(code, tenant_id, channel, sender_id)
+        .hold_link_for_confirmation(code, tenant_id, channel, sender_id, locale)
         .await
         .map_err(|e| DeepLinkError::SessionExpired(e.to_string()))?;
     if held {
@@ -225,8 +229,8 @@ async fn execute_link_code(
 ///
 /// Calls the unified channel-authentication path (same call every inbound
 /// message after this will hit) and translates the outcome into a link-time
-/// reply:
-/// - `Ok(_)` → [`KEY_LINK_SUCCESS`] (locale resolved from the auth result).
+/// reply, in the language of `user_id`, the account just linked:
+/// - `Ok(_)` → [`KEY_LINK_SUCCESS`].
 /// - `AccountPending` / `AccountSuspended` → translated denial copy.
 /// - Any other auth error → falls back to [`KEY_LINK_SUCCESS`] (the link did
 ///   persist, the transient auth-side error doesn't justify scaring the user
@@ -236,37 +240,30 @@ pub(super) async fn link_time_reply(
     tenant_id: TenantId,
     channel: &str,
     sender_id: &str,
+    user_id: Option<Uuid>,
 ) -> String {
     let reg = &resources.mcp.messaging_strings_registry;
+    // Resolved by the account rather than by the auth result, so a denied
+    // account reads its denial in its own language too: the link is fresh and
+    // carries no override, and without the account the chain is the default.
+    let locale = resolve_channel_locale(
+        resources.common.repos.messaging.as_ref(),
+        resources.common.repos.users.as_ref(),
+        tenant_id,
+        channel,
+        sender_id,
+        user_id,
+    )
+    .await;
     match resources
         .auth
         .auth_middleware
         .authenticate_channel(tenant_id, channel, sender_id)
         .await
     {
-        Ok(auth_result) => {
-            let locale = resolve_channel_locale(
-                resources.common.repos.messaging.as_ref(),
-                resources.common.repos.users.as_ref(),
-                tenant_id,
-                channel,
-                sender_id,
-                Some(auth_result.user_id),
-            )
-            .await;
-            reg.get(KEY_LINK_SUCCESS, &locale)
-        }
+        Ok(_) => reg.get(KEY_LINK_SUCCESS, &locale),
         Err(e) => {
             if let Some(key) = messaging_key_for_status(e.code) {
-                let locale = resolve_channel_locale(
-                    resources.common.repos.messaging.as_ref(),
-                    resources.common.repos.users.as_ref(),
-                    tenant_id,
-                    channel,
-                    sender_id,
-                    None,
-                )
-                .await;
                 // Mirror `build_auth_denial_reply`: NoProviderConnected
                 // carries a `{0}` URL placeholder and a `{1}` email when
                 // resolvable from the channel link. Keeps the two render
@@ -303,7 +300,7 @@ pub(super) async fn link_time_reply(
                 // back to the link-success template — the link is real, the
                 // next inbound message hits the gate again.
                 warn!(error = %e, channel = %channel, "Link-time auth check failed; using success template");
-                reg.get(KEY_LINK_SUCCESS, DEFAULT_LOCALE)
+                reg.get(KEY_LINK_SUCCESS, &locale)
             }
         }
     }
@@ -355,13 +352,14 @@ fn emit_linking_failed(tenant_id: TenantId, channel: &str, failure_reason: &str)
     );
 }
 
-/// Reply text for a failed link step, after logging it and emitting
-/// `messaging.linking_failed`.
+/// Reply text for a failed link step, in `locale`, after logging it and
+/// emitting `messaging.linking_failed`.
 fn link_failure_reply(
     resources: &ServerContext,
     tenant_id: TenantId,
     channel: &str,
     err: &DeepLinkError,
+    locale: &str,
 ) -> String {
     let (key, detail) = match err {
         DeepLinkError::SessionExpired(d) => (KEY_LINK_SESSION_EXPIRED, d.as_str()),
@@ -369,18 +367,16 @@ fn link_failure_reply(
     };
     warn!(error = %detail, "Channel linking failed");
     emit_linking_failed(tenant_id, channel, detail);
-    resources
-        .mcp
-        .messaging_strings_registry
-        .get(key, DEFAULT_LOCALE)
+    resources.mcp.messaging_strings_registry.get(key, locale)
 }
 
-/// The question a held pairing code asks: which account this chat would be
-/// linked to, by its masked email, and that a yes links it.
+/// The question a held pairing code asks, in `locale`: which account this chat
+/// would be linked to, by its masked email, and that a yes links it.
 async fn link_confirm_prompt(
     resources: &ServerContext,
     channel: &str,
     owner_user_id: &str,
+    locale: &str,
 ) -> Result<String, DeepLinkError> {
     let owner = Uuid::parse_str(owner_user_id)
         .map_err(|e| DeepLinkError::SessionExpired(format!("link code names no account: {e}")))?;
@@ -399,7 +395,7 @@ async fn link_confirm_prompt(
         .email;
     Ok(resources.mcp.messaging_strings_registry.render(
         KEY_LINK_CONFIRM_PROMPT,
-        DEFAULT_LOCALE,
+        locale,
         &[channel_label(channel), &mask_email_for_display(&email)],
     ))
 }
@@ -408,38 +404,50 @@ async fn link_confirm_prompt(
 /// confirm the account it links to. Nothing is linked until they answer yes
 /// (carnet#1596).
 ///
+/// The question is asked in the language the channel suggests for the sender
+/// ([`otp::prelink_locale`]), which the hold records so every later prompt of
+/// the exchange reads it back (carnet#1669).
+///
 /// Returns the question, or why the code cannot be redeemed here.
 pub(super) async fn handle_linking_command(
     resources: &ServerContext,
     tenant_id: TenantId,
     channel: &str,
-    sender_id: &str,
+    message: &IncomingMessage,
     code: &str,
 ) -> OutgoingMessage {
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let channel_type = ChannelType::from_str(channel).unwrap_or(ChannelType::Telegram);
-    let asked = match hold_pairing_code(db, tenant_id, channel, sender_id, code).await {
-        Ok(owner) => link_confirm_prompt(resources, channel, &owner).await,
+    let sender_id = message.sender_id.as_str();
+    let locale = otp::prelink_locale(message);
+    let asked = match hold_pairing_code(db, tenant_id, channel, sender_id, code, locale).await {
+        Ok(owner) => link_confirm_prompt(resources, channel, &owner, locale).await,
         Err(err) => Err(err),
     };
     let response_text =
-        asked.unwrap_or_else(|err| link_failure_reply(resources, tenant_id, channel, &err));
+        asked.unwrap_or_else(|err| link_failure_reply(resources, tenant_id, channel, &err, locale));
 
     proactive_text(channel_type, sender_id.to_owned(), response_text)
 }
 
 /// Answer a sender who holds a pairing code: a yes spends the code and links
 /// them to the account it names; anything else asks again. `cancel` is handled
-/// before this, by handing the code back unspent.
+/// before this, by handing the code back unspent. Every reply is in the
+/// language the hold recorded, `step.locale`.
 pub(super) async fn confirm_held_link(
-    resources: &ServerContext,
-    tenant_id: TenantId,
-    channel_type: ChannelType,
-    channel: &str,
-    sender_id: &str,
+    step: &OtpFlowStep<'_>,
     held: &serde_json::Value,
     answer: &str,
 ) -> OutgoingMessage {
+    let OtpFlowStep {
+        resources,
+        tenant_id,
+        channel_type,
+        channel,
+        sender_id,
+        locale,
+        ..
+    } = *step;
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let code = held["code"].as_str().unwrap_or_default();
     let response_text = if otp::is_yes_reply(answer) {
@@ -450,15 +458,16 @@ pub(super) async fn confirm_held_link(
                 // Run the unified channel-auth path on the freshly-minted link so
                 // the immediate reply reflects approval state exactly as every
                 // subsequent inbound message will.
-                link_time_reply(resources, tenant_id, channel, sender_id).await
+                let linked = Uuid::parse_str(&user_id).ok();
+                link_time_reply(resources, tenant_id, channel, sender_id, linked).await
             }
-            Err(err) => link_failure_reply(resources, tenant_id, channel, &err),
+            Err(err) => link_failure_reply(resources, tenant_id, channel, &err, locale),
         }
     } else {
         let owner = held["user_id"].as_str().unwrap_or_default();
-        link_confirm_prompt(resources, channel, owner)
+        link_confirm_prompt(resources, channel, owner, locale)
             .await
-            .unwrap_or_else(|err| link_failure_reply(resources, tenant_id, channel, &err))
+            .unwrap_or_else(|err| link_failure_reply(resources, tenant_id, channel, &err, locale))
     };
 
     proactive_text(channel_type, sender_id.to_owned(), response_text)
@@ -507,6 +516,8 @@ mod tests {
     use super::*;
 
     const SENDER: &str = "4242";
+    /// The language a test sender is asked in.
+    const LOCALE: &str = "en";
 
     /// An account with a tenant; returns `(user_id, tenant_id)`.
     async fn account(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
@@ -610,7 +621,7 @@ mod tests {
         let (user_id, tenant_id) = account(repos).await;
         let code = started(db, tenant_id, user_id, "telegram", "deep_link").await;
 
-        let owner = hold_pairing_code(db, tenant_id, "telegram", SENDER, &code).await;
+        let owner = hold_pairing_code(db, tenant_id, "telegram", SENDER, &code, LOCALE).await;
 
         assert_eq!(
             owner.ok(),
@@ -636,6 +647,41 @@ mod tests {
             held["otp_step"], AWAITING_LINK_CONFIRM,
             "bug: a held code is not parked on the confirmation step"
         );
+        assert_eq!(
+            held["locale"], LOCALE,
+            "bug: a held code does not record the language its sender is asked in"
+        );
+    }
+
+    /// carnet#1669: the language of a held code is its holder's, so a sender
+    /// who takes a forwarded code over is asked in their own language.
+    #[tokio::test]
+    async fn a_code_taken_over_speaks_the_language_of_its_new_holder() {
+        let database = create_test_db().await.expect("test database");
+        let repos = database.repositories();
+        let db: &dyn MessagingRepository = repos.messaging.as_ref();
+        let (user_id, tenant_id) = account(repos).await;
+        let code = started(db, tenant_id, user_id, "telegram", "deep_link").await;
+        let (forwarded_to, starter) = ("5151", "4242");
+
+        hold_pairing_code(db, tenant_id, "telegram", forwarded_to, &code, "es")
+            .await
+            .ok()
+            .expect("held by the first redeemer");
+        hold_pairing_code(db, tenant_id, "telegram", starter, &code, "de")
+            .await
+            .ok()
+            .expect("the starter takes the hold over");
+
+        let held = db
+            .get_active_otp_link_state(tenant_id, "telegram", starter)
+            .await
+            .expect("held read")
+            .expect("the code is held for the starter");
+        assert_eq!(
+            held["locale"], "de",
+            "bug: a code taken over kept the language of the sender it was taken from"
+        );
     }
 
     #[tokio::test]
@@ -645,7 +691,7 @@ mod tests {
         let db: &dyn MessagingRepository = repos.messaging.as_ref();
         let (user_id, tenant_id) = account(repos).await;
         let code = started(db, tenant_id, user_id, "telegram", "deep_link").await;
-        hold_pairing_code(db, tenant_id, "telegram", SENDER, &code)
+        hold_pairing_code(db, tenant_id, "telegram", SENDER, &code, LOCALE)
             .await
             .ok()
             .expect("held");
@@ -679,7 +725,7 @@ mod tests {
         let code = started(db, tenant_id, user_id, "telegram", "deep_link").await;
         let (forwarded_to, starter) = ("5151", "4242");
 
-        hold_pairing_code(db, tenant_id, "telegram", forwarded_to, &code)
+        hold_pairing_code(db, tenant_id, "telegram", forwarded_to, &code, LOCALE)
             .await
             .ok()
             .expect("held by the first redeemer");
@@ -689,7 +735,7 @@ mod tests {
             "bug: a sender who does not hold the code confirmed it"
         );
 
-        hold_pairing_code(db, tenant_id, "telegram", starter, &code)
+        hold_pairing_code(db, tenant_id, "telegram", starter, &code, LOCALE)
             .await
             .ok()
             .expect("the starter takes the hold over");
@@ -724,7 +770,7 @@ mod tests {
         let db: &dyn MessagingRepository = repos.messaging.as_ref();
         let (user_id, tenant_id) = account(repos).await;
         let code = started(db, tenant_id, user_id, "telegram", "deep_link").await;
-        hold_pairing_code(db, tenant_id, "telegram", SENDER, &code)
+        hold_pairing_code(db, tenant_id, "telegram", SENDER, &code, LOCALE)
             .await
             .ok()
             .expect("held");
@@ -762,11 +808,11 @@ mod tests {
         let (user_id, tenant_id) = account(repos).await;
         let code = started(db, tenant_id, user_id, "telegram", "deep_link").await;
         let (forwarded_to, starter) = ("5151", "4242");
-        hold_pairing_code(db, tenant_id, "telegram", forwarded_to, &code)
+        hold_pairing_code(db, tenant_id, "telegram", forwarded_to, &code, LOCALE)
             .await
             .ok()
             .expect("held by the first redeemer");
-        hold_pairing_code(db, tenant_id, "telegram", starter, &code)
+        hold_pairing_code(db, tenant_id, "telegram", starter, &code, LOCALE)
             .await
             .ok()
             .expect("the starter takes the hold over");
@@ -795,7 +841,7 @@ mod tests {
         let db: &dyn MessagingRepository = repos.messaging.as_ref();
         let (user_id, tenant_id) = account(repos).await;
         let first = started(db, tenant_id, user_id, "telegram", "deep_link").await;
-        hold_pairing_code(db, tenant_id, "telegram", SENDER, &first)
+        hold_pairing_code(db, tenant_id, "telegram", SENDER, &first, LOCALE)
             .await
             .ok()
             .expect("held");
@@ -805,7 +851,7 @@ mod tests {
             .expect("linked");
         let second = started(db, tenant_id, user_id, "telegram", "deep_link").await;
 
-        let refused = hold_pairing_code(db, tenant_id, "telegram", SENDER, &second).await;
+        let refused = hold_pairing_code(db, tenant_id, "telegram", SENDER, &second, LOCALE).await;
 
         assert!(
             matches!(refused, Err(DeepLinkError::IdentityCollision(_))),
@@ -832,7 +878,7 @@ mod tests {
         let db: &dyn MessagingRepository = repos.messaging.as_ref();
         let (user_id, tenant_id) = account(repos).await;
         let code = started_for(db, tenant_id, user_id, Duration::seconds(1)).await;
-        hold_pairing_code(db, tenant_id, "telegram", SENDER, &code)
+        hold_pairing_code(db, tenant_id, "telegram", SENDER, &code, LOCALE)
             .await
             .ok()
             .expect("held");
@@ -859,7 +905,7 @@ mod tests {
         let (user_id, tenant_id) = account(repos).await;
         let code = started_for(db, tenant_id, user_id, Duration::seconds(-1)).await;
 
-        let refused = hold_pairing_code(db, tenant_id, "telegram", SENDER, &code).await;
+        let refused = hold_pairing_code(db, tenant_id, "telegram", SENDER, &code, LOCALE).await;
 
         assert!(
             matches!(refused, Err(DeepLinkError::SessionExpired(_))),
@@ -891,7 +937,7 @@ mod tests {
         ] {
             let code = started(db, tenant_id, user_id, started_on, method).await;
 
-            let refused = hold_pairing_code(db, tenant_id, typed_on, SENDER, &code).await;
+            let refused = hold_pairing_code(db, tenant_id, typed_on, SENDER, &code, LOCALE).await;
 
             assert!(
                 matches!(refused, Err(DeepLinkError::SessionExpired(_))),

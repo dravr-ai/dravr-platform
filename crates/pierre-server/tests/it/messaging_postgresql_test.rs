@@ -452,14 +452,14 @@ async fn test_pg_pairing_code_hold_and_release() {
 
     assert!(
         messaging
-            .hold_link_for_confirmation(&code, tenant_id, "telegram", "pg-first")
+            .hold_link_for_confirmation(&code, tenant_id, "telegram", "pg-first", "fr")
             .await
             .unwrap(),
         "bug: a live pairing code could not be held"
     );
     assert!(
         messaging
-            .hold_link_for_confirmation(&code, tenant_id, "telegram", "pg-second")
+            .hold_link_for_confirmation(&code, tenant_id, "telegram", "pg-second", "en")
             .await
             .unwrap(),
         "bug: a later redeemer could not take the hold over"
@@ -481,9 +481,13 @@ async fn test_pg_pairing_code_hold_and_release() {
         held["otp_step"], "awaiting_link_confirm",
         "bug: a held code is not parked on the confirmation step"
     );
+    assert_eq!(
+        held["locale"], "en",
+        "bug: a held code does not carry the language its holder is asked in"
+    );
     assert!(
         !messaging
-            .hold_link_for_confirmation(&code, tenant_id, "whatsapp", "pg-second")
+            .hold_link_for_confirmation(&code, tenant_id, "whatsapp", "pg-second", "fr")
             .await
             .unwrap(),
         "bug: a Telegram pairing code was held on WhatsApp"
@@ -547,11 +551,11 @@ async fn test_pg_pairing_code_spends_only_for_its_holder() {
         .await
         .unwrap();
     messaging
-        .hold_link_for_confirmation(&code, tenant_id, "telegram", "pg-displaced")
+        .hold_link_for_confirmation(&code, tenant_id, "telegram", "pg-displaced", "fr")
         .await
         .unwrap();
     messaging
-        .hold_link_for_confirmation(&code, tenant_id, "telegram", "pg-holder")
+        .hold_link_for_confirmation(&code, tenant_id, "telegram", "pg-holder", "fr")
         .await
         .unwrap();
 
@@ -621,6 +625,63 @@ async fn test_pg_link_state_channel_initiated_then_complete() {
         .await
         .expect("complete_link_state should succeed on PG");
     assert_eq!(completed["user_id"].as_str().unwrap(), user_id);
+}
+
+/// carnet#1669: an in-chat flow opens in the language its prompts speak, and
+/// only within the tenant that minted its state.
+#[tokio::test]
+async fn test_pg_otp_flow_opens_in_its_language_within_its_tenant() {
+    let db = pg_db().await;
+    let (_, tenant_id) = seed_pg_user_and_tenant(&db).await;
+    let (_, other_tenant) = seed_pg_user_and_tenant(&db).await;
+    let messaging = &db.repositories().messaging;
+    let state_id = Uuid::new_v4().to_string();
+    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    messaging
+        .create_link_state(&CreateLinkStateParams {
+            id: &state_id,
+            tenant_id,
+            user_id: None,
+            channel_type: "whatsapp",
+            code: &Uuid::new_v4().to_string(),
+            method: "otp",
+            channel_user_id: Some("12125550123"),
+            sender_name: None,
+            app_return_uri: None,
+            expires_at: &expires_at,
+        })
+        .await
+        .unwrap();
+
+    assert!(
+        messaging
+            .open_otp_flow_on_link_state(&state_id, other_tenant, "en")
+            .await
+            .is_err(),
+        "bug: another tenant opened this tenant's flow"
+    );
+    messaging
+        .open_otp_flow_on_link_state(&state_id, tenant_id, "en")
+        .await
+        .unwrap();
+
+    let flow = messaging
+        .get_active_otp_link_state(tenant_id, "whatsapp", "12125550123")
+        .await
+        .unwrap()
+        .expect("the opened flow is live");
+    assert_eq!(
+        flow["otp_step"], "awaiting_otp",
+        "bug: an opened flow does not wait"
+    );
+    assert_eq!(
+        flow["email"], "",
+        "bug: an opened flow already holds an address"
+    );
+    assert_eq!(
+        flow["locale"], "en",
+        "bug: an opened flow does not carry its language"
+    );
 }
 
 // ============================================================================

@@ -111,23 +111,35 @@ pub(crate) use link_state_by_code_sql;
 pub(crate) const CONSUME_LINK_STATE_SQL: &str = "UPDATE messaging_link_states SET used = TRUE \
      WHERE code = $1 AND tenant_id = $2 AND used = FALSE AND expires_at > $3";
 
+/// Open the in-chat OTP flow on a fresh state: `awaiting_otp` with no address
+/// yet, in the language its prompts are written in.
+pub(crate) const OPEN_OTP_FLOW_SQL: &str = r"
+            UPDATE messaging_link_states
+            SET email = '', otp_hash = '', otp_step = 'awaiting_otp', otp_attempts = 0,
+                locale = $1
+            WHERE id = $2 AND tenant_id = $3
+            ";
+
 /// Hand back every pairing code a sender holds pending confirmation, unspent,
-/// so the starter's code outlives a sender who walked away from it.
+/// so the starter's code outlives a sender who walked away from it. The
+/// language the sender's prompts were in goes with them.
 pub(crate) const RELEASE_SENDER_LINK_CONFIRMATIONS_SQL: &str = r"
             UPDATE messaging_link_states
-            SET channel_user_id = NULL, otp_step = NULL
+            SET channel_user_id = NULL, otp_step = NULL, locale = NULL
             WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
               AND otp_step = 'awaiting_link_confirm' AND used = FALSE
             ";
 
-/// Hold a live pairing code for the sender who redeemed it, until they confirm.
+/// Hold a live pairing code for the sender who redeemed it, until they confirm,
+/// in the language that sender's confirmation prompts are written in.
 ///
 /// Only a deep-link code minted on an account for this channel qualifies. A
 /// code another sender held is taken over, so a forwarded copy cannot lock the
 /// starter out of their own link.
 pub(crate) const HOLD_LINK_FOR_CONFIRMATION_SQL: &str = r"
             UPDATE messaging_link_states
-            SET channel_user_id = $1, otp_step = 'awaiting_link_confirm', otp_attempts = 0
+            SET channel_user_id = $1, otp_step = 'awaiting_link_confirm', otp_attempts = 0,
+                locale = $6
             WHERE code = $2 AND tenant_id = $3 AND channel_type = $4
               AND method = 'deep_link' AND user_id IS NOT NULL
               AND used = FALSE AND expires_at > $5
