@@ -64,8 +64,12 @@ mod prelink_locale {
     const MADRID: &str = "34612345103";
     const BERLIN: &str = "4915112345104";
     const LISBON: &str = "351912345105";
-    /// A country whose language the platform does not speak.
+    /// A country whose language the platform does not speak, which reads
+    /// English (owner decision, carnet#1669).
     const AMSTERDAM: &str = "31612345106";
+    /// What dravr-canot v0.11.0 names a sender whose webhook carried no number:
+    /// nothing places them, so they read the default.
+    const NO_NUMBER: &str = "unknown";
 
     struct Bot {
         resources: Arc<ServerContext>,
@@ -286,7 +290,8 @@ mod prelink_locale {
             (MADRID, "es"),
             (BERLIN, "de"),
             (LISBON, "pt"),
-            (AMSTERDAM, DEFAULT_LOCALE),
+            (AMSTERDAM, "en"),
+            (NO_NUMBER, DEFAULT_LOCALE),
         ]);
         for (msg_id, (sender, locale)) in numbered_senders {
             let asked = bot.whatsapp(sender, "Hello", msg_id).await;
@@ -334,8 +339,8 @@ mod prelink_locale {
         let unspoken = bot.telegram(4_441_670, "nl", "Hallo", 3).await;
         assert_eq!(
             unspoken,
-            bot.says(KEY_LINK_EMAIL_PROMPT, DEFAULT_LOCALE),
-            "bug: a Telegram app language the platform does not speak was not answered in the default"
+            bot.says(KEY_LINK_EMAIL_PROMPT, "en"),
+            "bug: a Telegram app language the platform does not speak was not answered in English"
         );
     }
 

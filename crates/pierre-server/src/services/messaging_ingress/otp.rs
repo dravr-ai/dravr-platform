@@ -10,7 +10,7 @@ use pierre_core::models::messaging::{
     OTP_TTL_MINUTES,
 };
 use pierre_core::models::{
-    locale_from_phone_number, normalize_email, supported_ui_locale, TenantId, User,
+    locale_from_language_tag, normalize_email, whatsapp_sender_locale, TenantId, User,
 };
 use pierre_database::backends::{
     CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository, TenantRepository,
@@ -55,19 +55,32 @@ pub(super) struct OtpFlowStep<'a> {
     pub(super) locale: &'a str,
 }
 
+/// Metadata key under which dravr-canot puts a `WhatsApp` sender's phone number
+/// (Meta's `wa_id`) when the sender id is their business-scoped user id. canot
+/// writes it from 8f2bd6c on (carnet#1668, "key WhatsApp senders on the BSUID");
+/// the release the platform pins still keys senders on the number itself.
+const WHATSAPP_PHONE_NUMBER_KEY: &str = "wa_id";
+
 /// The language a sender who has not linked an account reads, from what the
-/// channel tells us about them in `message`; [`DEFAULT_LOCALE`] when it names
-/// no language the platform speaks (carnet#1669).
+/// channel tells us about them in `message`; [`DEFAULT_LOCALE`] only when it
+/// places them nowhere (carnet#1669).
 ///
-/// A `WhatsApp` sender id is their phone number, whose country calling code
-/// names a language. A Telegram update names the language of the sender's
-/// Telegram app. The messages Messenger, Slack and Discord deliver carry no
-/// language of their sender.
+/// A `WhatsApp` sender is placed by their phone number, down to the area code,
+/// whether it is the sender id or rides in the metadata beside a
+/// business-scoped user id, else by that id's country. A Telegram update names
+/// the language of the sender's Telegram app. The messages Messenger, Slack
+/// and Discord deliver carry no language of their sender.
 pub(super) fn prelink_locale(message: &IncomingMessage) -> &'static str {
     let signal = match message.channel_type {
-        ChannelType::WhatsApp => locale_from_phone_number(&message.sender_id),
+        ChannelType::WhatsApp => whatsapp_sender_locale(
+            &message.sender_id,
+            message
+                .metadata
+                .get(WHATSAPP_PHONE_NUMBER_KEY)
+                .and_then(Value::as_str),
+        ),
         ChannelType::Telegram => {
-            supported_ui_locale(telegram_sender_language(&message.raw_payload))
+            telegram_sender_language(&message.raw_payload).and_then(locale_from_language_tag)
         }
         _ => None,
     };
@@ -1098,13 +1111,43 @@ mod tests {
             ("15145550123", "fr"),
             ("12125550123", "en"),
             ("34612345678", "es"),
-            ("31612345678", DEFAULT_LOCALE),
+            ("31612345678", "en"), // a country whose language the platform does not speak
+            ("unknown", DEFAULT_LOCALE),
         ] {
             let message = inbound(ChannelType::WhatsApp, number, json!({}));
             assert_eq!(
                 prelink_locale(&message),
                 expected,
                 "bug: WhatsApp sender {number} is not asked in {expected}"
+            );
+        }
+    }
+
+    /// The message dravr-canot builds from 8f2bd6c on (carnet#1668): the sender
+    /// id is the business-scoped user id and the number, when Meta sent one,
+    /// rides in the metadata. The pinned release cannot produce it from a
+    /// webhook, so it is built here.
+    #[test]
+    fn a_whatsapp_sender_keyed_on_their_bsuid_is_still_placed() {
+        for (sender_id, metadata, expected) in [
+            (
+                "US.13491208655302741918",
+                json!({ "wa_id": "15145550123", "user_id": "US.13491208655302741918" }),
+                "fr",
+            ),
+            (
+                "CH.13491208655302741918",
+                json!({ "user_id": "CH.13491208655302741918" }),
+                "de",
+            ),
+            ("CA.ENT.11815799212886844830", Value::Null, "en"),
+        ] {
+            let mut message = inbound(ChannelType::WhatsApp, sender_id, json!({}));
+            message.metadata = metadata;
+            assert_eq!(
+                prelink_locale(&message),
+                expected,
+                "bug: WhatsApp sender {sender_id} is not asked in {expected}"
             );
         }
     }
@@ -1116,7 +1159,7 @@ mod tests {
             ("message", "pt-br", "pt"),
             ("edited_message", "es", "es"),
             ("callback_query", "de", "de"),
-            ("message", "nl", DEFAULT_LOCALE),
+            ("message", "nl", "en"),
         ] {
             let message = inbound(
                 ChannelType::Telegram,

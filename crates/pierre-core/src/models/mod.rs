@@ -59,7 +59,6 @@ mod nutrition;
 mod oauth;
 /// Guided-flow state + the two next-topic policies (coverage, calibration list).
 pub mod onboarding;
-mod phone_locale;
 /// The canonical six fitness-adapted health pillars (single source of truth
 /// for per-user context, pillar-tagged facts, and the OKF bundle).
 pub mod pillar;
@@ -73,6 +72,7 @@ mod provider_thresholds;
 pub mod route_geometry;
 /// The season walk's topic table and next-topic policy.
 pub mod season;
+mod sender_locale;
 mod sleep;
 /// An athlete's physiology anchors per sport family, and the `AthleteAnchors`
 /// the workout families resolve on.
@@ -186,7 +186,7 @@ pub use sport_anchors::{
 
 // User domain
 pub use invitation::{InvitationKind, PreApprovedEmail, UserInvitation};
-pub use phone_locale::locale_from_phone_number;
+pub use sender_locale::{locale_from_language_tag, whatsapp_sender_locale};
 pub use user::{
     default_locale, locale_from_accept_language, normalize_email, page_locale, roster_display_name,
     supported_ui_locale, CoachingPersona, ColorScheme, OperatorRosterGrant, PhysiologicalSex, User,
