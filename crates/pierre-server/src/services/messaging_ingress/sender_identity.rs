@@ -30,10 +30,10 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 
 /// Settle the channel identity `message` is routed on, before anything reads
-/// its sender id as one: `false` when the sender id is a placeholder that is
-/// never linked or routed; otherwise a `WhatsApp` athlete linked by phone
-/// number is first moved onto the BSUID this message names them by, so the
-/// lookups after it find them.
+/// its sender id as one: `false` when the sender id names no single sender,
+/// which is never linked or routed; otherwise a `WhatsApp` athlete linked by
+/// phone number is first moved onto the BSUID this message names them by, so
+/// the lookups after it find them.
 pub(super) async fn admit(
     resources: &ServerContext,
     tenant_id: TenantId,

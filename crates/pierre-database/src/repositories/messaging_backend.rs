@@ -1,5 +1,5 @@
 // ABOUTME: The one MessagingRepository implementation, emitted per backend by impl_messaging_repository! with that backend's id codec
-// ABOUTME: Row-to-JSON projections and the trait body over the statements in repositories/messaging.rs; the shells are one line each
+// ABOUTME: Row-to-JSON projections and the trait body over the statements in repositories/messaging_sql.rs; the shells are one line each
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

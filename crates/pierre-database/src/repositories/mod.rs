@@ -163,7 +163,7 @@ pub(crate) mod messaging_backend;
 pub mod messaging_link_states;
 /// Shared SQL and body for the reaction → chat-message lookup both backends serve.
 pub mod messaging_reactions;
-/// The statements the one `MessagingRepository` body runs, written once for both backends.
+/// The statements the one `MessagingRepository` body runs, bar the link-state and reaction ones.
 pub(crate) mod messaging_sql;
 /// Repository traits for mobility (yoga and stretching) persistence.
 pub mod mobility;

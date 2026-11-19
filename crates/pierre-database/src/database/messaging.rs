@@ -1,4 +1,4 @@
-// ABOUTME: SQLite-backed MessagingRepository, emitted from the shared implementation in repositories/messaging.rs
+// ABOUTME: SQLite-backed MessagingRepository, emitted from the shared implementation in repositories/messaging_backend.rs
 // ABOUTME: Every id column is TEXT here: a user id binds and reads as the hyphenated text the caller holds
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

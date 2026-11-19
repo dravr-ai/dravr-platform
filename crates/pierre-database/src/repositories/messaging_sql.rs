@@ -1,4 +1,4 @@
-// ABOUTME: The SQL every MessagingRepository method runs, written once for both backends
+// ABOUTME: The SQL the shared MessagingRepository body runs, bar the link-state and reaction statements beside it
 // ABOUTME: `$n` placeholders and portable syntax, so SQLite and PostgreSQL run each statement as is
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

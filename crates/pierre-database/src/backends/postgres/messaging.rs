@@ -1,4 +1,4 @@
-// ABOUTME: PostgreSQL-backed MessagingRepository, emitted from the shared implementation in repositories/messaging.rs
+// ABOUTME: PostgreSQL-backed MessagingRepository, emitted from the shared implementation in repositories/messaging_backend.rs
 // ABOUTME: tenant_id and user_id are uuid columns on sessions, links, link states and the push log: a user id binds and reads through the native uuid codec
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
