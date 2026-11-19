@@ -211,6 +211,7 @@ macro_rules! impl_messaging_repository {
                 "email": text_column_opt(row, "email")?,
                 "otp_hash": text_column_opt(row, "otp_hash")?,
                 "otp_attempts": otp_attempts,
+                "locale": text_column_opt(row, "locale")?,
                 "expires_at": stamp_column(row, "expires_at")?,
                 "created_at": stamp_column(row, "created_at")?,
             }))
@@ -908,6 +909,28 @@ macro_rules! impl_messaging_repository {
                 row.as_ref().map(otp_link_state_json).transpose()
             }
 
+            async fn open_otp_flow_on_link_state(
+                &self,
+                id: &str,
+                tenant_id: TenantId,
+                locale: &str,
+            ) -> AppResult<()> {
+                let opened = sqlx::query(OPEN_OTP_FLOW_SQL)
+                    .bind(locale)
+                    .bind(id)
+                    .bind(tenant_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to open OTP flow: {e}")))?
+                    .rows_affected();
+                if opened == 0 {
+                    return Err(AppError::not_found(format!(
+                        "link state {id} in tenant {tenant_id}"
+                    )));
+                }
+                Ok(())
+            }
+
             async fn set_otp_on_link_state(
                 &self,
                 id: &str,
@@ -976,6 +999,7 @@ macro_rules! impl_messaging_repository {
                 tenant_id: TenantId,
                 channel_type: &str,
                 channel_user_id: &str,
+                locale: &str,
             ) -> AppResult<bool> {
                 let hold_error =
                     |e: sqlx::Error| AppError::database(format!("Failed to hold pairing code: {e}"));
@@ -1000,6 +1024,7 @@ macro_rules! impl_messaging_repository {
                     .bind(tenant_id)
                     .bind(channel_type)
                     .bind(Utc::now())
+                    .bind(locale)
                     .execute(&mut *tx)
                     .await
                     .map_err(hold_error)?

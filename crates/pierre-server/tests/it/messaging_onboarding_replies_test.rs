@@ -137,6 +137,7 @@ async fn an_unlinked_sender_is_given_an_actionable_link() {
         ChannelType::Telegram,
         "tg-sender-42",
         Some("Jess"),
+        "en",
     )
     .await;
 
@@ -172,6 +173,7 @@ async fn the_link_in_the_prompt_resolves_to_a_real_link_state() {
         ChannelType::WhatsApp,
         "wa-15551234567",
         None,
+        "en",
     )
     .await;
 
@@ -210,7 +212,8 @@ async fn every_channel_answers_an_unlinked_sender() {
         ChannelType::Discord,
     ] {
         let sender = format!("{channel}-sender");
-        let reply = create_link_and_prompt(&resources, db, tenant, channel, &sender, None).await;
+        let reply =
+            create_link_and_prompt(&resources, db, tenant, channel, &sender, None, "en").await;
 
         assert_eq!(
             reply.recipient_id, sender,

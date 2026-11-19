@@ -552,6 +552,7 @@ mod messaging_onboarding_replies_test;
 mod messaging_otp_linking_test;
 mod messaging_pairing_confirm_test;
 mod messaging_postgresql_test;
+mod messaging_prelink_locale_test;
 mod messaging_push_failure_contract_test;
 mod messaging_push_render_test;
 mod messaging_quota_enforcement_test;

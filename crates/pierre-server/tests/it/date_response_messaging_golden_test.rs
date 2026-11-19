@@ -278,6 +278,7 @@ async fn a_strangers_link_code_and_otp_flow_are_stored_with_their_lifetimes() {
             ChannelType::Telegram,
             "tg-stranger-7",
             Some("Jess"),
+            "fr",
         )
         .await;
         let after = Instant::now();
@@ -310,6 +311,7 @@ async fn a_strangers_link_code_and_otp_flow_are_stored_with_their_lifetimes() {
             ChannelType::Telegram,
             "tg-stranger-8",
             None,
+            "fr",
         )
         .await;
         let after = Instant::now();

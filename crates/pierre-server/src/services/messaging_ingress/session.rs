@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
 use pierre_contremaitre::messaging_strings::{
-    format_template, DEFAULT_LOCALE, KEY_LINK_FALLBACK_PROMPT, KEY_LINK_INITIAL_PROMPT,
+    format_template, KEY_LINK_FALLBACK_PROMPT, KEY_LINK_INITIAL_PROMPT,
     KEY_NEW_CONVERSATION_TITLE_PREFIX,
 };
 use pierre_core::errors::AppError;
@@ -916,7 +916,8 @@ async fn resolve_group_for_retrofit(
 /// Create a link state and return a prompt message with a clickable login URL
 ///
 /// Generates a 32-character cryptographic code with a 10-minute TTL, stores it
-/// in the database, and constructs a message with a clickable URL for the user.
+/// in the database, and constructs a message with a clickable URL for the user,
+/// in `locale`, the language the channel suggests for them.
 ///
 /// `pub` rather than `pub(super)` so integration tests can assert on the reply a
 /// stranger actually receives. The outbound adapters post to hardcoded hosts, so
@@ -930,6 +931,7 @@ pub async fn create_link_and_prompt(
     channel_type: ChannelType,
     sender_id: &str,
     sender_name: Option<&str>,
+    locale: &str,
 ) -> OutgoingMessage {
     let code = generate_link_code();
     let expires_at = Utc::now() + Duration::minutes(LINK_CODE_TTL_MINUTES);
@@ -954,7 +956,7 @@ pub async fn create_link_and_prompt(
         let body = resources
             .mcp
             .messaging_strings_registry
-            .get(KEY_LINK_FALLBACK_PROMPT, DEFAULT_LOCALE);
+            .get(KEY_LINK_FALLBACK_PROMPT, locale);
         return proactive_text(channel_type, sender_id.to_owned(), body);
     }
 
@@ -966,7 +968,7 @@ pub async fn create_link_and_prompt(
     let template = resources
         .mcp
         .messaging_strings_registry
-        .get(KEY_LINK_INITIAL_PROMPT, DEFAULT_LOCALE);
+        .get(KEY_LINK_INITIAL_PROMPT, locale);
     let body = format_template(&template, &[&link_url]);
 
     proactive_text(channel_type, sender_id.to_owned(), body)

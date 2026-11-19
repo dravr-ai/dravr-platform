@@ -79,8 +79,6 @@ use super::registry::PromptSource;
 /// first entry of [`SUPPORTED_LOCALES`] rather than its own literal, so the
 /// default follows the one list instead of drifting from it — currently
 /// French, because the majority user base is francophone.
-///
-/// LIMITATION(registre#1669): `DEFAULT_LOCALE` is the language of every pre-link messaging prompt (`otp.rs`, `linking.rs`), so an unlinked English speaker reads French.
 pub const DEFAULT_LOCALE: &str = SUPPORTED_LOCALES[0];
 
 // ── Chat pipeline keys ────────────────────────────────────────────────────

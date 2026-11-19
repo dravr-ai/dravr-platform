@@ -687,6 +687,17 @@ pub trait MessagingRepository: Send + Sync {
         channel_user_id: &str,
     ) -> AppResult<Option<Value>>;
 
+    /// Open the in-chat OTP flow on a link state just minted for an unlinked
+    /// sender: `awaiting_otp` with no address yet, and the `locale` every
+    /// prompt of the flow is written in, so the flow never switches language
+    /// mid-way (carnet#1669).
+    async fn open_otp_flow_on_link_state(
+        &self,
+        id: &str,
+        tenant_id: TenantId,
+        locale: &str,
+    ) -> AppResult<()>;
+
     /// Advance the OTP flow: set email and OTP hash, transition to `awaiting_otp`.
     async fn set_otp_on_link_state(&self, id: &str, email: &str, otp_hash: &str) -> AppResult<()>;
 
@@ -714,8 +725,9 @@ pub trait MessagingRepository: Send + Sync {
     ///
     /// In one transaction: any other code this sender held is handed back
     /// unspent, the sender's own in-chat OTP flow is spent (the pairing link
-    /// supersedes it), and the code is bound to this sender. Nothing is linked
-    /// and the code stays unspent until the sender confirms.
+    /// supersedes it), and the code is bound to this sender with the `locale`
+    /// its confirmation prompts are written in (carnet#1669). Nothing is
+    /// linked and the code stays unspent until the sender confirms.
     ///
     /// Returns `false` when the code is not a live deep-link code minted on an
     /// account for `channel_type` in this tenant.
@@ -728,6 +740,7 @@ pub trait MessagingRepository: Send + Sync {
         tenant_id: TenantId,
         channel_type: &str,
         channel_user_id: &str,
+        locale: &str,
     ) -> AppResult<bool>;
 
     /// Spend a pairing code this sender holds, once they confirm it
@@ -1134,7 +1147,7 @@ pub(crate) const LOGOUT_INVALIDATE_STATES_SQL: &str = r"
 pub(crate) const ACTIVE_OTP_LINK_STATE_SQL: &str = r"
             SELECT id, tenant_id, user_id, channel_type, code, method,
                    channel_user_id, sender_name, otp_step, email, otp_hash,
-                   otp_attempts, expires_at, created_at
+                   otp_attempts, locale, expires_at, created_at
             FROM messaging_link_states
             WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
               AND otp_step IS NOT NULL AND used = FALSE AND expires_at > $4

@@ -533,17 +533,10 @@ async fn handle_pre_session_commands(
     {
         info!(channel = %channel, sender_id = %message.sender_id, "Processing channel linking command");
         emit_messaging_intent(pre_link_identity, tenant_id, channel, "link_code");
-        handle_linking_command(resources, tenant_id, channel, &message.sender_id, &code).await
+        handle_linking_command(resources, tenant_id, channel, message, &code).await
     } else {
-        let otp_response = handle_otp_flow(
-            resources,
-            tenant_id,
-            channel_type,
-            channel,
-            &message.sender_id,
-            &message.content,
-        )
-        .await?;
+        let otp_response =
+            handle_otp_flow(resources, tenant_id, channel_type, channel, message).await?;
         emit_messaging_intent(pre_link_identity, tenant_id, channel, "otp_flow");
         otp_response
     };
@@ -635,14 +628,8 @@ async fn persist_single_message(
         // degrades to the old unledgered send rather than blocking logout.
         let logout_persist =
             outbound_persist::logout_persist_spec(resources, tenant_id, channel, message).await;
-        let mut logout_response = handle_logout(
-            resources,
-            tenant_id,
-            channel_type,
-            channel,
-            &message.sender_id,
-        )
-        .await;
+        let mut logout_response =
+            handle_logout(resources, tenant_id, channel_type, channel, message).await;
         logout_response.thread_id = thread_id;
         apply_conversation_recipient(&mut logout_response, message.conversation_id.as_deref());
         send_channel_response(
@@ -1074,6 +1061,7 @@ async fn send_unlinked_user_prompt(
             channel_type,
             &message.sender_id,
             message.sender_name.as_deref(),
+            otp::prelink_locale(message),
         )
         .await
     } else {
@@ -1085,6 +1073,7 @@ async fn send_unlinked_user_prompt(
             channel_type,
             &message.sender_id,
             message.sender_name.as_deref(),
+            otp::prelink_locale(message),
         )
         .await
     };
