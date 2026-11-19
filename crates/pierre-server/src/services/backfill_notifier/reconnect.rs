@@ -14,7 +14,10 @@
 //!
 //! A chat whose window is closed is sent none of it (carnet#1672): a linked
 //! chat is left to the notice's app half, and the conversation that asked is
-//! answered in the app with the linkless sentence.
+//! answered in the app with the linkless sentence — once, while the athlete
+//! has not moved past it. A turn the platform runs on its own (a check-in, a
+//! landing reaction) reads the provider too, and on a dead session each one
+//! would otherwise add the same sentence to the thread.
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_contremaitre::messaging_strings::{
@@ -47,6 +50,14 @@ use crate::services::post_delivery::{report_held, HELD_WINDOW_CLOSED};
 /// than this left is given up instead: a link that dies before they read it
 /// is worse than the app notice they already have.
 const RECONNECT_LINK_MIN_REMAINING_MINUTES: i64 = 60;
+
+/// How many of a conversation's newest rows are read to find a reconnect
+/// sentence still standing there.
+const REAUTH_NOTE_LOOKBACK: i64 = 20;
+
+/// How long a reconnect sentence written in the app stands: the same one is
+/// not written into that conversation again within it.
+const REAUTH_NOTE_QUIET: Duration = Duration::hours(24);
 
 /// How long a grant's authorization link must still have to run for a
 /// queued notice to be sent with it. The link lasts an hour
@@ -233,6 +244,10 @@ impl ServerBackfillNotifier {
     /// travels. Stored without the completion push's app notification, whose
     /// "N activities loaded" would misstate it: the turn's unread badge is the
     /// ping, as the reconnect notice's own app half is.
+    ///
+    /// Written once while it stands ([`Self::reauth_note_standing`]): an
+    /// automatic turn on a dead session asks again without the athlete doing
+    /// anything, and the hold is still reported each time.
     pub(super) async fn reauth_in_app(
         &self,
         user_id: Uuid,
@@ -257,6 +272,13 @@ impl ServerBackfillNotifier {
             backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
         let (_, bare_key) = self.reauth_keys(user_id, tenant_id, provider).await;
         let body = self.strings.render(bare_key, &locale, &[display]);
+        if self
+            .reauth_note_standing(user_id, tenant_id, conversation_id, &body, Utc::now())
+            .await
+        {
+            info!(provider = %provider, "Reauth nudge: the same sentence still stands in the app; not written again");
+            return;
+        }
         // A provider's name and a pointer to settings: no data of any session.
         InAppDelivery {
             repos: &self.repos,
@@ -267,6 +289,56 @@ impl ServerBackfillNotifier {
         }
         .persist(user_id, tenant_id, conversation_id, body, 0)
         .await;
+    }
+
+    /// Whether `body` already stands in `conversation_id` at `now`: it is the
+    /// latest assistant turn there, or one written within
+    /// [`REAUTH_NOTE_QUIET`]. The sentence names its provider, so an equal
+    /// body is that provider's. A thread that cannot be read answers `false`,
+    /// and the sentence is written.
+    async fn reauth_note_standing(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        conversation_id: &str,
+        body: &str,
+        now: DateTime<Utc>,
+    ) -> bool {
+        let recent = match self
+            .repos
+            .chat
+            .get_recent_messages(
+                conversation_id,
+                &user_id.to_string(),
+                tenant_id,
+                REAUTH_NOTE_LOOKBACK,
+                TransportPolicy::FirstPartyOnly,
+            )
+            .await
+        {
+            Ok(recent) => recent,
+            Err(e) => {
+                warn!(error = %e, "Reauth nudge: the conversation could not be read; writing the sentence");
+                return false;
+            }
+        };
+        // Oldest first: the latest assistant turn is the last one.
+        let assistant: Vec<_> = recent
+            .iter()
+            .rev()
+            .filter(|message| message.role == "assistant")
+            .collect();
+        if assistant
+            .first()
+            .is_some_and(|latest| latest.content == body)
+        {
+            return true;
+        }
+        assistant.iter().any(|message| {
+            message.content == body
+                && DateTime::parse_from_rfc3339(&message.created_at)
+                    .is_ok_and(|at| now - at.with_timezone(&Utc) < REAUTH_NOTE_QUIET)
+        })
     }
 
     /// The reconnect notice for one linked chat on `channel`, in `locale`.

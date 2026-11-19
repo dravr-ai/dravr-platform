@@ -26,7 +26,8 @@ use chrono::{Duration, Utc};
 use dravr_canot::channel::MessagingChannel;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::usage::JwtUsage;
-use pierre_core::models::TenantId;
+use pierre_core::models::{AddMessageParams, TenantId};
+use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::InsertMessageParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -371,6 +372,64 @@ async fn a_closed_window_answers_the_reconnect_in_the_app_without_a_link() {
 }
 
 #[tokio::test]
+async fn a_closed_window_writes_the_reconnect_sentence_once_while_it_stands() {
+    let dm = whatsapp_dm(Duration::hours(30)).await;
+    let channel = whatsapp(&["wamid.never"]);
+    let notifier = dm.notifier(&channel);
+    let (events, _guard) = capture_notify();
+
+    // Two automatic turns on the dead session ask in a row.
+    for _ in 0..2 {
+        notifier
+            .push_provider_reauth(dm.user, dm.tenant, &dm.conversation, PROVIDER)
+            .await;
+    }
+    let turns = dm.assistant_turns().await;
+    assert_eq!(
+        turns.len(),
+        1,
+        "the sentence still the latest turn is not written again: {turns:?}"
+    );
+
+    // The coach says something else; the sentence was written today.
+    dm.resources
+        .common
+        .repos
+        .chat
+        .add_message(&AddMessageParams {
+            tenant_id: dm.tenant,
+            conversation_id: &dm.conversation,
+            user_id: &dm.user.to_string(),
+            role: "assistant",
+            content: "Your week looks balanced.",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
+            about_user_id: None,
+            turn_attempted_write: None,
+        })
+        .await
+        .unwrap();
+    notifier
+        .push_provider_reauth(dm.user, dm.tenant, &dm.conversation, PROVIDER)
+        .await;
+    assert_eq!(
+        dm.assistant_turns().await.len(),
+        2,
+        "a sentence written within the day is not written again"
+    );
+    assert_eq!(named(&events, HELD).len(), 3, "each hold is still reported");
+    assert!(
+        channel.sent.lock().unwrap().is_empty(),
+        "nothing goes to the closed chat"
+    );
+}
+
+#[tokio::test]
 async fn an_open_window_sends_the_reconnect_answer_to_whatsapp() {
     let dm = whatsapp_dm(Duration::hours(2)).await;
     let channel = whatsapp(&["wamid.reauth-1"]);
@@ -507,12 +566,44 @@ async fn a_late_131047_writes_the_notice_in_the_app_once_and_holds_it() {
     );
     assert_eq!(held.field("channel"), "whatsapp", "where it was held");
 
-    // Meta delivering the same status again writes nothing more.
+    // Meta delivering the same status again writes and reports nothing more.
     dm.fail_late("wamid.late-1", 131_047).await;
     assert_eq!(
         dm.assistant_turns().await.len(),
         1,
         "a repeated webhook does not write the notice twice"
+    );
+    assert_eq!(
+        named(&events, HELD).len(),
+        1,
+        "a repeated webhook does not report the hold twice"
+    );
+}
+
+#[tokio::test]
+async fn two_racing_deliveries_of_one_131047_write_the_notice_once() {
+    let dm = whatsapp_dm(Duration::hours(2)).await;
+    dm.warm_cache().await;
+    let channel = whatsapp(&["wamid.race-1"]);
+    dm.notifier(&channel)
+        .push_backfill_complete(dm.completion())
+        .await;
+    let (events, _guard) = capture_notify();
+
+    tokio::join!(
+        dm.fail_late("wamid.race-1", 131_047),
+        dm.fail_late("wamid.race-1", 131_047)
+    );
+
+    assert_eq!(
+        dm.assistant_turns().await,
+        text_of(&channel),
+        "the delivery that wins the claim writes the one in-app copy"
+    );
+    assert_eq!(
+        named(&events, HELD).len(),
+        1,
+        "only the winning delivery reports the hold"
     );
 }
 
