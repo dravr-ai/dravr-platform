@@ -21,9 +21,9 @@ pub use crate::repositories::{
     LlmCredentialRepository, LlmUsageRepository, MessagingRepository, MobilityRepository,
     NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
     OAuthTokenRepository, OutboundReauthGuard, PasswordResetRepository, ProfileRepository,
-    ProviderConnectionRepository, RecipeRepository, SecurityRepository, SeedTable,
-    SeederRepository, StoreListingsRepository, TenantRepository, ToolSelectionRepository,
-    UpsertChannelConfigParams, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
-    UserRepository,
+    ProviderConnectionRepository, RecipeRepository, RekeyChannelIdentityParams, SecurityRepository,
+    SeedTable, SeederRepository, StoreListingsRepository, TenantRepository,
+    ToolSelectionRepository, UpsertChannelConfigParams, UsageCounterRepository, UsageRepository,
+    UserMcpTokenRepository, UserRepository,
 };
 pub use crate::DatabaseProvider;

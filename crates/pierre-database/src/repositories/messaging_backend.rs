@@ -608,6 +608,12 @@ macro_rules! impl_messaging_repository {
                 &self,
                 params: &CreateChannelLinkParams<'_>,
             ) -> AppResult<()> {
+                if !is_routable_sender_id(params.channel_user_id) {
+                    return Err(AppError::invalid_input(format!(
+                        "Refusing to link a {} identity that names no single sender",
+                        params.channel_type
+                    )));
+                }
                 sqlx::query(CREATE_CHANNEL_LINK_SQL)
                     .bind(params.id)
                     .bind(params.tenant_id)
@@ -635,6 +641,44 @@ macro_rules! impl_messaging_repository {
                         }
                     })?;
                 Ok(())
+            }
+
+            async fn rekey_channel_identity(
+                &self,
+                params: &RekeyChannelIdentityParams<'_>,
+            ) -> AppResult<bool> {
+                let rekey_error = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to re-key channel identity: {e}"))
+                };
+                let user_id = $ids::bind_text(params.user_id)?;
+                let mut tx = self.pool().begin().await.map_err(rekey_error)?;
+                let moved = sqlx::query(REKEY_CHANNEL_LINK_SQL)
+                    .bind(params.to_channel_user_id)
+                    .bind(params.link_tenant_id)
+                    .bind(params.channel_type)
+                    .bind(params.from_channel_user_id)
+                    .bind(user_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(rekey_error)?
+                    .rows_affected()
+                    == 1;
+                if !moved {
+                    tx.rollback().await.map_err(rekey_error)?;
+                    return Ok(false);
+                }
+                sqlx::query(REKEY_CHANNEL_SESSIONS_SQL)
+                    .bind(params.to_channel_user_id)
+                    .bind(params.session_tenant_id)
+                    .bind(params.link_tenant_id)
+                    .bind(user_id)
+                    .bind(params.channel_type)
+                    .bind(params.from_channel_user_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(rekey_error)?;
+                tx.commit().await.map_err(rekey_error)?;
+                Ok(true)
             }
 
             async fn get_channel_link(

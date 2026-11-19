@@ -292,6 +292,38 @@ impl fmt::Debug for CreateChannelLinkParams<'_> {
     }
 }
 
+/// Parameters for moving a sender's channel link and sessions from one channel
+/// identity to another identifier the same sender is now known by.
+pub struct RekeyChannelIdentityParams<'a> {
+    /// Tenant that holds the channel link: the bot / channel-owner tenant the
+    /// webhook arrived under.
+    pub link_tenant_id: TenantId,
+    /// The linked user's own tenant, which holds their direct-message sessions.
+    pub session_tenant_id: TenantId,
+    /// The Pierre user the link names; only that user's link and sessions move.
+    pub user_id: &'a str,
+    /// Channel type
+    pub channel_type: &'a str,
+    /// The channel identity the sender was linked under.
+    pub from_channel_user_id: &'a str,
+    /// The channel identity the sender is known by now.
+    pub to_channel_user_id: &'a str,
+}
+
+// A channel user id is a phone number on WhatsApp and SMS: never printed.
+impl fmt::Debug for RekeyChannelIdentityParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RekeyChannelIdentityParams")
+            .field("link_tenant_id", &self.link_tenant_id)
+            .field("session_tenant_id", &self.session_tenant_id)
+            .field("user_id", &self.user_id)
+            .field("channel_type", &self.channel_type)
+            .field("from_channel_user_id", &"[REDACTED]")
+            .field("to_channel_user_id", &"[REDACTED]")
+            .finish()
+    }
+}
+
 /// Multi-channel messaging gateway repository
 ///
 /// Manages channel configurations, sessions, messages with idempotency,
@@ -514,7 +546,33 @@ pub trait MessagingRepository: Send + Sync {
     async fn complete_link_state(&self, code: &str, user_id: &str) -> AppResult<Value>;
 
     /// Create a permanent channel link mapping user to channel identity
+    ///
+    /// # Errors
+    ///
+    /// Refuses a channel identity that names no single sender — empty, or a
+    /// parser's placeholder such as `"unknown"` — with an invalid-input error:
+    /// every author-less event carries that id, so whoever linked it would own
+    /// all of them (carnet#1668).
     async fn create_channel_link(&self, params: &CreateChannelLinkParams<'_>) -> AppResult<()>;
+
+    /// Move a sender's channel link, and their sessions on that channel, from
+    /// one channel identity to another, in one transaction.
+    ///
+    /// For a channel whose platform changed the identifier it names a sender
+    /// by — `WhatsApp` moved from the phone number to the business-scoped user
+    /// id — so an athlete linked under the old identifier keeps their account
+    /// and their conversation. Only the link naming `user_id` under
+    /// `link_tenant_id` moves, and only when no link there holds the new
+    /// identifier already. That user's sessions under either tenant move with
+    /// it; a DM session lives under the user's own tenant, and the link under
+    /// the bot tenant.
+    ///
+    /// Returns `true` when the link moved and `false` when there was nothing to
+    /// move.
+    async fn rekey_channel_identity(
+        &self,
+        params: &RekeyChannelIdentityParams<'_>,
+    ) -> AppResult<bool>;
 
     /// Look up a channel link by channel identity (for inbound webhook user resolution)
     async fn get_channel_link(
@@ -1017,6 +1075,28 @@ pub(crate) const CREATE_CHANNEL_LINK_SQL: &str = r"
             INSERT INTO messaging_channel_links
                 (id, tenant_id, user_id, channel_type, channel_user_id, display_name, linked_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ";
+
+/// Re-key, step one: the user's link moves to the new channel identity, unless
+/// a link in the tenant already holds that identity.
+pub(crate) const REKEY_CHANNEL_LINK_SQL: &str = r"
+            UPDATE messaging_channel_links
+            SET channel_user_id = $1
+            WHERE tenant_id = $2 AND channel_type = $3 AND channel_user_id = $4 AND user_id = $5
+              AND NOT EXISTS (
+                  SELECT 1 FROM messaging_channel_links held
+                  WHERE held.tenant_id = $2 AND held.channel_type = $3
+                    AND held.channel_user_id = $1
+              )
+            ";
+
+/// Re-key, step two: the user's sessions keyed on the old identity follow the
+/// link, under their own tenant (DMs) or the bot tenant.
+pub(crate) const REKEY_CHANNEL_SESSIONS_SQL: &str = r"
+            UPDATE messaging_sessions
+            SET channel_user_id = $1
+            WHERE tenant_id IN ($2, $3) AND user_id = $4 AND channel_type = $5
+              AND channel_user_id = $6
             ";
 
 /// The link behind a channel identity, within one tenant.

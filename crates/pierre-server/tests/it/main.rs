@@ -977,6 +977,7 @@ mod week_readiness_rail_test;
 mod welcome_postback_test;
 mod wellness_read_chokepoint_test;
 mod whatsapp_delivery_status_test;
+mod whatsapp_sender_identity_test;
 mod whoop_own_app_connect_test;
 mod whoop_owner_authorization_test;
 mod whoop_provider_test;
