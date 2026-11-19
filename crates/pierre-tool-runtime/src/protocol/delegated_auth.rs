@@ -44,6 +44,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use futures_util::future::BoxFuture;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
     ConnectionType, DelegatedConnection, DelegationEndReason, ProviderAccountRole,
@@ -66,6 +67,10 @@ use crate::protocol::auth::AuthService;
 use crate::protocol::coach_calendar::CoachSeat;
 use crate::protocol::reauth_notice::flag_needs_reauth;
 use crate::protocol::types::{UniversalResponse, META_OWN_CALENDAR_REFUSED};
+
+/// What the delegated path answers for a read: the provider to read through,
+/// or the refusal to return as is. `None` falls through to the ordinary path.
+type DelegatedSubject = Option<Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>>>;
 
 /// Longest coach name a refusal carries. A coach's name is their own Dravr
 /// display name, typed by them, so it reaches the model as one defanged line.
@@ -177,58 +182,63 @@ impl AuthService {
     /// ordinary path reads them again and answers its own failure. So does a
     /// failed decision for a user with no delegated connection; one who has a
     /// delegated connection is refused as unreadable just now.
-    pub(crate) async fn delegated_subject(
-        &self,
-        provider_name: &str,
+    ///
+    /// Boxed rather than `async fn` so its body is compiled once, not again in
+    /// every codegen unit that awaits it (binary size).
+    pub(crate) fn delegated_subject<'a>(
+        &'a self,
+        provider_name: &'a str,
         user_id: Uuid,
         tenant_id: Option<TenantId>,
-    ) -> Option<Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>>> {
-        let platform = coach_platform(self.runtime().provider_registry(), provider_name)?;
-        let platform = platform.as_ref();
-        let tenant = tenant_id?;
-        let connections = self.platform_connections(platform, user_id, tenant).await?;
-        if let Some(own_calendar_refusal) = platform.own_calendar_refusal() {
-            let own_coach_account = connections.iter().any(|connection| {
-                connection.connection_type != ConnectionType::Delegated
-                    && connection.account_role == Some(ProviderAccountRole::Coach)
-            });
-            if own_coach_account {
-                return Some(Err(Box::new(own_calendar_refused(own_calendar_refusal))));
+    ) -> BoxFuture<'a, DelegatedSubject> {
+        Box::pin(async move {
+            let platform = coach_platform(self.runtime().provider_registry(), provider_name)?;
+            let platform = platform.as_ref();
+            let tenant = tenant_id?;
+            let connections = self.platform_connections(platform, user_id, tenant).await?;
+            if let Some(own_calendar_refusal) = platform.own_calendar_refusal() {
+                let own_coach_account = connections.iter().any(|connection| {
+                    connection.connection_type != ConnectionType::Delegated
+                        && connection.account_role == Some(ProviderAccountRole::Coach)
+                });
+                if own_coach_account {
+                    return Some(Err(Box::new(own_calendar_refused(own_calendar_refusal))));
+                }
             }
-        }
-        let delegated_row = connections
-            .iter()
-            .any(|connection| connection.connection_type == ConnectionType::Delegated);
-        let brand = platform.brand();
-        match member_read(
-            self.runtime().repos(),
-            self.runtime().provider_registry(),
-            platform,
-            user_id,
-            Some(tenant),
-        )
-        .await
-        {
-            Ok(MemberRead::NotLinked) if delegated_row => {
-                self.release_unreachable_link(platform, user_id, tenant)
-                    .await;
-                Some(Err(Box::new(link_ended(brand))))
+            let delegated_row = connections
+                .iter()
+                .any(|connection| connection.connection_type == ConnectionType::Delegated);
+            let brand = platform.brand();
+            match member_read(
+                self.runtime().repos(),
+                self.runtime().provider_registry(),
+                platform,
+                user_id,
+                Some(tenant),
+            )
+            .await
+            {
+                Ok(MemberRead::NotLinked) if delegated_row => {
+                    self.release_unreachable_link(platform, user_id, tenant)
+                        .await;
+                    Some(Err(Box::new(link_ended(brand))))
+                }
+                Ok(MemberRead::OwnCredential | MemberRead::NotLinked) => None,
+                Ok(MemberRead::Refused { link, refusal }) => {
+                    Some(Err(self.refused_read(platform, &link, refusal).await))
+                }
+                Ok(MemberRead::ThroughCoach(read)) => Some(self.serve_through_coach(*read).await),
+                Err(e) => {
+                    warn!(
+                        user_id = %user_id,
+                        provider = platform.backend(),
+                        error = %e,
+                        "Could not decide whether the read goes through the member's coach link"
+                    );
+                    delegated_row.then(|| Err(Box::new(link_unreadable(brand))))
+                }
             }
-            Ok(MemberRead::OwnCredential | MemberRead::NotLinked) => None,
-            Ok(MemberRead::Refused { link, refusal }) => {
-                Some(Err(self.refused_read(platform, &link, refusal).await))
-            }
-            Ok(MemberRead::ThroughCoach(read)) => Some(self.serve_through_coach(*read).await),
-            Err(e) => {
-                warn!(
-                    user_id = %user_id,
-                    provider = platform.backend(),
-                    error = %e,
-                    "Could not decide whether the read goes through the member's coach link"
-                );
-                delegated_row.then(|| Err(Box::new(link_unreadable(brand))))
-            }
-        }
+        })
     }
 
     /// The user's `platform` connections in `tenant` — their own and a
@@ -437,30 +447,36 @@ impl AuthService {
     ///
     /// Best-effort: the read has already failed with the platform's own
     /// words, and a write that fails here is logged.
-    pub(crate) async fn react_to_delegated_refusal(
-        &self,
+    ///
+    /// Boxed rather than `async fn` so its body is compiled once, not again in
+    /// every codegen unit that awaits it (binary size).
+    pub(crate) fn react_to_delegated_refusal<'a>(
+        &'a self,
         user_id: Uuid,
-        tenant_id: &str,
-        provider: &dyn CoreFitnessProvider,
-        error: &AppError,
+        tenant_id: &'a str,
+        provider: &'a dyn CoreFitnessProvider,
+        error: &'a AppError,
         attempt_started_at: DateTime<Utc>,
-    ) {
-        let Some(platform) = coach_platform(self.runtime().provider_registry(), provider.name())
-        else {
-            return;
-        };
-        let platform = platform.as_ref();
-        let Ok(tenant) = TenantId::parse_str(tenant_id) else {
-            return;
-        };
-        if is_coach_credential_expired(error) {
-            self.flag_coach_session(platform, user_id, tenant, attempt_started_at)
-                .await;
-        } else if is_athlete_off_roster(error) {
-            self.end_off_roster_link(platform, user_id, tenant).await;
-        } else if is_coach_account_refusal(error) {
-            self.record_coach_account(user_id, tenant).await;
-        }
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            let Some(platform) =
+                coach_platform(self.runtime().provider_registry(), provider.name())
+            else {
+                return;
+            };
+            let platform = platform.as_ref();
+            let Ok(tenant) = TenantId::parse_str(tenant_id) else {
+                return;
+            };
+            if is_coach_credential_expired(error) {
+                self.flag_coach_session(platform, user_id, tenant, attempt_started_at)
+                    .await;
+            } else if is_athlete_off_roster(error) {
+                self.end_off_roster_link(platform, user_id, tenant).await;
+            } else if is_coach_account_refusal(error) {
+                self.record_coach_account(user_id, tenant).await;
+            }
+        })
     }
 
     /// Flag the coach's connection behind `member_user_id`'s link after the

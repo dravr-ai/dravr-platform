@@ -13,6 +13,7 @@ use crate::protocol::types::{
 use crate::read_subject;
 use crate::runtime::ToolRuntime;
 use chrono::{DateTime, Utc};
+use futures_util::future::BoxFuture;
 use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingClient, IssuingLookup};
 use pierre_core::constants::oauth_providers::{self, USER_PROVIDED_PROVIDERS};
 use pierre_core::errors::{AppError, AppResult};
@@ -460,125 +461,130 @@ impl AuthService {
     /// Authenticate the provider for `provider_name`, the backend already
     /// chosen; `requested_provider` is the name the caller asked for, which
     /// an unsupported-provider refusal names.
-    async fn authenticate_backend(
-        &self,
-        provider_name: &str,
-        requested_provider: &str,
+    ///
+    /// Boxed rather than `async fn` so its body is compiled once, not again in
+    /// every codegen unit that awaits it (binary size).
+    fn authenticate_backend<'a>(
+        &'a self,
+        provider_name: &'a str,
+        requested_provider: &'a str,
         user_id: Uuid,
-        tenant_id: Option<&str>,
-    ) -> Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>> {
-        let tenant_id_parsed = tenant_id.and_then(|t| TenantId::parse_str(t).ok());
+        tenant_id: Option<&'a str>,
+    ) -> BoxFuture<'a, Result<Box<dyn CoreFitnessProvider>, Box<UniversalResponse>>> {
+        Box::pin(async move {
+            let tenant_id_parsed = tenant_id.and_then(|t| TenantId::parse_str(t).ok());
 
-        // What the athlete brought in (uploaded files, imported archives)
-        // answers without a connection or token: the reader is their own rows
-        // in the tenant they brought them into.
-        if let Some(key) = USER_PROVIDED_PROVIDERS
-            .iter()
-            .find(|key| **key == provider_name)
-        {
-            return self.user_provided_reader(key, user_id, tenant_id_parsed);
-        }
-
-        // Check if provider is supported by the registry
-        if !self
-            .resources
-            .provider_registry()
-            .is_supported(provider_name)
-        {
-            return Err(Box::new(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!("Unsupported provider: {requested_provider}")),
-                metadata: None,
-            }));
-        }
-
-        // A coaching-platform read whose subject is decided before the user's own
-        // token is (a coach account's own calendar is refused in words).
-        if let Some(served) = self
-            .delegated_subject(provider_name, user_id, tenant_id_parsed)
-            .await
-        {
-            return served;
-        }
-
-        // Get valid token for the (resolved) provider with automatic refresh.
-        match self
-            .get_valid_token(user_id, provider_name, tenant_id)
-            .await
-        {
-            Ok(Some(token_data)) => {
-                self.create_provider_with_token(provider_name, token_data, user_id, tenant_id)
-                    .await
+            // What the athlete brought in (uploaded files, imported archives)
+            // answers without a connection or token: the reader is their own rows
+            // in the tenant they brought them into.
+            if let Some(key) = USER_PROVIDED_PROVIDERS
+                .iter()
+                .find(|key| **key == provider_name)
+            {
+                return self.user_provided_reader(key, user_id, tenant_id_parsed);
             }
-            Ok(None) => {
-                // The error STRING reports the user-facing provider so the
-                // LLM never mentions "sciotte" in text it forwards to the
-                // user.
-                let user_facing = backend_resolver::user_facing_name(provider_name);
-                // No usable token and nothing left to refresh: whatever the
-                // connection row's status says, (re)connecting is the only
-                // action that can fix this. The tag is unconditional because
-                // gating it on a `needs_reauth` status missed the drift case
-                // where the row still reads Active but the token/session is
-                // gone — sciotte sessions never refresh, so no refresh
-                // failure ever flips their status (live incident 2026-08-11:
-                // the athlete's dead scrape session produced a generic error
-                // and never the reconnect link). The tag makes the chat tool
-                // loop short-circuit so auth_recovery renders a localized
-                // reconnect message + minted login link instead of letting
-                // the LLM rephrase a generic error.
-                //
-                // The tag carries the BACKEND slug, never the user-facing
-                // name: auth_recovery branches on `sciotte`/`sciotte_garmin`
-                // to pick the hosted-login mint over the OAuth mint, and the
-                // metadata never reaches the LLM (`FunctionResponse` drops
-                // it), so there is nothing to sanitise. Tagging "strava" for
-                // a dead sciotte session sent the athlete to a Strava OAuth
-                // flow their tenant may not even have credentials for.
-                let mut map = HashMap::new();
-                map.insert(
-                    META_AUTH_REQUIRED_PROVIDER.to_owned(),
-                    JsonValue::String(provider_name.to_owned()),
-                );
-                // On a coach's read of a coached athlete the reconnect is the
-                // athlete's to make, and "your account" would read as the
-                // coach's own: a tool that answers this text in band names
-                // whose connection it is (carnet#1387).
-                let error = match scoped_read_subject() {
-                    Some(subject) => {
-                        let athlete = &subject.access.display_name;
-                        let brand = backend_resolver::brand_name(
-                            self.resources.provider_registry(),
-                            provider_name,
-                        )
-                        .unwrap_or(user_facing);
-                        format!(
-                            "No valid {user_facing} token found for {athlete}: {}",
-                            read_subject::athlete_reconnect_note(athlete, brand)
-                        )
-                    }
-                    None => format!(
-                        "No valid {user_facing} token found. Please reconnect your {user_facing} account."
-                    ),
-                };
-                Err(Box::new(UniversalResponse {
+
+            // Check if provider is supported by the registry
+            if !self
+                .resources
+                .provider_registry()
+                .is_supported(provider_name)
+            {
+                return Err(Box::new(UniversalResponse {
                     success: false,
                     result: None,
-                    error: Some(error),
-                    metadata: Some(map),
-                }))
+                    error: Some(format!("Unsupported provider: {requested_provider}")),
+                    metadata: None,
+                }));
             }
-            // A transient failure is no authentication error: nothing says the
-            // grant is dead, and the text says so rather than prompting a
-            // reconnect.
-            Err(e) => Err(Box::new(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(e.tool_error_text("Authentication error")),
-                metadata: None,
-            })),
-        }
+
+            // A coaching-platform read whose subject is decided before the user's own
+            // token is (a coach account's own calendar is refused in words).
+            if let Some(served) = self
+                .delegated_subject(provider_name, user_id, tenant_id_parsed)
+                .await
+            {
+                return served;
+            }
+
+            // Get valid token for the (resolved) provider with automatic refresh.
+            match self
+                .get_valid_token(user_id, provider_name, tenant_id)
+                .await
+            {
+                Ok(Some(token_data)) => {
+                    self.create_provider_with_token(provider_name, token_data, user_id, tenant_id)
+                        .await
+                }
+                Ok(None) => {
+                    // The error STRING reports the user-facing provider so the
+                    // LLM never mentions "sciotte" in text it forwards to the
+                    // user.
+                    let user_facing = backend_resolver::user_facing_name(provider_name);
+                    // No usable token and nothing left to refresh: whatever the
+                    // connection row's status says, (re)connecting is the only
+                    // action that can fix this. The tag is unconditional because
+                    // gating it on a `needs_reauth` status missed the drift case
+                    // where the row still reads Active but the token/session is
+                    // gone — sciotte sessions never refresh, so no refresh
+                    // failure ever flips their status (live incident 2026-08-11:
+                    // the athlete's dead scrape session produced a generic error
+                    // and never the reconnect link). The tag makes the chat tool
+                    // loop short-circuit so auth_recovery renders a localized
+                    // reconnect message + minted login link instead of letting
+                    // the LLM rephrase a generic error.
+                    //
+                    // The tag carries the BACKEND slug, never the user-facing
+                    // name: auth_recovery branches on `sciotte`/`sciotte_garmin`
+                    // to pick the hosted-login mint over the OAuth mint, and the
+                    // metadata never reaches the LLM (`FunctionResponse` drops
+                    // it), so there is nothing to sanitise. Tagging "strava" for
+                    // a dead sciotte session sent the athlete to a Strava OAuth
+                    // flow their tenant may not even have credentials for.
+                    let mut map = HashMap::new();
+                    map.insert(
+                        META_AUTH_REQUIRED_PROVIDER.to_owned(),
+                        JsonValue::String(provider_name.to_owned()),
+                    );
+                    // On a coach's read of a coached athlete the reconnect is the
+                    // athlete's to make, and "your account" would read as the
+                    // coach's own: a tool that answers this text in band names
+                    // whose connection it is (carnet#1387).
+                    let error = match scoped_read_subject() {
+                        Some(subject) => {
+                            let athlete = &subject.access.display_name;
+                            let brand = backend_resolver::brand_name(
+                                self.resources.provider_registry(),
+                                provider_name,
+                            )
+                            .unwrap_or(user_facing);
+                            format!(
+                                "No valid {user_facing} token found for {athlete}: {}",
+                                read_subject::athlete_reconnect_note(athlete, brand)
+                            )
+                        }
+                        None => format!(
+                            "No valid {user_facing} token found. Please reconnect your {user_facing} account."
+                        ),
+                    };
+                    Err(Box::new(UniversalResponse {
+                        success: false,
+                        result: None,
+                        error: Some(error),
+                        metadata: Some(map),
+                    }))
+                }
+                // A transient failure is no authentication error: nothing says the
+                // grant is dead, and the text says so rather than prompting a
+                // reconnect.
+                Err(e) => Err(Box::new(UniversalResponse {
+                    success: false,
+                    result: None,
+                    error: Some(e.tool_error_text("Authentication error")),
+                    metadata: None,
+                })),
+            }
+        })
     }
 
     /// The client credentials a stored token's provider calls present, and

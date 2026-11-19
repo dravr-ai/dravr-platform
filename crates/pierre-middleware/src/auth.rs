@@ -7,6 +7,7 @@
 use axum::http::header::AUTHORIZATION;
 use axum::http::HeaderMap;
 use chrono::{Duration, Utc};
+use futures_util::future::BoxFuture;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::ApiKeyManager;
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult, Claims, ImpersonationGrant};
@@ -380,6 +381,9 @@ impl McpAuthMiddleware {
     }
 
     /// Authenticate an `Authorization` header value under `policy`.
+    ///
+    /// Boxed rather than `async fn` so its body is compiled once, not again in
+    /// every codegen unit that awaits it (binary size).
     #[tracing::instrument(
         skip(self, auth_header),
         fields(
@@ -390,102 +394,110 @@ impl McpAuthMiddleware {
             success = Empty,
         )
     )]
-    async fn authenticate_header(
-        &self,
-        auth_header: Option<&str>,
-        policy: GrantPolicy<'_>,
-    ) -> AppResult<AuthResult> {
-        debug!("=== AUTH MIDDLEWARE AUTHENTICATE_REQUEST START ===");
-        debug!("Auth header provided: {}", auth_header.is_some());
+    fn authenticate_header<'a>(
+        &'a self,
+        auth_header: Option<&'a str>,
+        policy: GrantPolicy<'a>,
+    ) -> BoxFuture<'a, AppResult<AuthResult>> {
+        Box::pin(async move {
+            debug!("=== AUTH MIDDLEWARE AUTHENTICATE_REQUEST START ===");
+            debug!("Auth header provided: {}", auth_header.is_some());
 
-        let auth_str = if let Some(header) = auth_header {
-            // Security: Do not log auth header content to prevent token leakage
-            debug!(
-                "Authentication attempt with header type: {}",
-                if is_api_key_format(header) {
-                    "API_KEY"
-                } else if header.starts_with("Bearer ") {
-                    "JWT_TOKEN"
-                } else {
-                    "UNKNOWN"
-                }
-            );
-            header
-        } else {
-            warn!("Authentication failed: Missing authorization header");
-            return Err(AppError::auth_invalid("Authentication failed: Missing authorization header - Request authentication requires Authorization header with Bearer token or API key"));
-        };
+            let auth_str = if let Some(header) = auth_header {
+                // Security: Do not log auth header content to prevent token leakage
+                debug!(
+                    "Authentication attempt with header type: {}",
+                    if is_api_key_format(header) {
+                        "API_KEY"
+                    } else if header.starts_with("Bearer ") {
+                        "JWT_TOKEN"
+                    } else {
+                        "UNKNOWN"
+                    }
+                );
+                header
+            } else {
+                warn!("Authentication failed: Missing authorization header");
+                return Err(AppError::auth_invalid(
+                    "Authentication failed: Missing authorization header - Request authentication requires Authorization header with Bearer token or API key",
+                ));
+            };
 
-        // Try API key authentication first (starts with pk_live_ or pk_trial_)
-        if is_api_key_format(auth_str) {
-            tracing::Span::current().record("auth_method", "API_KEY");
-            debug!("Attempting API key authentication");
-            match settle(self.authenticate_api_key(auth_str).await) {
-                Ok(result) => {
-                    tracing::Span::current().record("success", true);
-                    record_authenticated(&result);
-                    info!(
-                        "API key authentication successful for user: {}",
-                        result.user_id
-                    );
-                    Ok(result)
-                }
-                Err(e) => {
-                    tracing::Span::current().record("success", false);
-                    warn!("API key authentication failed: {}", e);
-                    Err(e)
-                }
-            }
-        }
-        // Then a personal MCP token, which an MCP client sends as a bearer
-        // token but which is no JWT: it resolves through its own table
-        else if let Some(token) = auth_str
-            .strip_prefix("Bearer ")
-            .filter(|token| is_user_mcp_token_format(token))
-        {
-            tracing::Span::current().record("auth_method", "MCP_TOKEN");
-            debug!("Attempting personal MCP token authentication");
-            match settle(self.authenticate_user_mcp_token(token, policy).await) {
-                Ok(result) => {
-                    tracing::Span::current().record("success", true);
-                    record_authenticated(&result);
-                    info!(
-                        "MCP token authentication successful for user: {}",
-                        result.user_id
-                    );
-                    Ok(result)
-                }
-                Err(e) => {
-                    tracing::Span::current().record("success", false);
-                    warn!("MCP token authentication failed: {}", e);
-                    Err(e)
+            // Try API key authentication first (starts with pk_live_ or pk_trial_)
+            if is_api_key_format(auth_str) {
+                tracing::Span::current().record("auth_method", "API_KEY");
+                debug!("Attempting API key authentication");
+                match settle(self.authenticate_api_key(auth_str).await) {
+                    Ok(result) => {
+                        tracing::Span::current().record("success", true);
+                        record_authenticated(&result);
+                        info!(
+                            "API key authentication successful for user: {}",
+                            result.user_id
+                        );
+                        Ok(result)
+                    }
+                    Err(e) => {
+                        tracing::Span::current().record("success", false);
+                        warn!("API key authentication failed: {}", e);
+                        Err(e)
+                    }
                 }
             }
-        }
-        // Then try Bearer token authentication
-        else if let Some(token) = auth_str.strip_prefix("Bearer ") {
-            tracing::Span::current().record("auth_method", "JWT_TOKEN");
-            debug!("Attempting JWT token authentication");
-            match settle(self.authenticate_jwt_token(token, policy).await) {
-                Ok(result) => {
-                    tracing::Span::current().record("success", true);
-                    record_authenticated(&result);
-                    info!("JWT authentication successful for user: {}", result.user_id);
-                    Ok(result)
-                }
-                Err(e) => {
-                    tracing::Span::current().record("success", false);
-                    warn!("JWT authentication failed: {}", e);
-                    Err(e)
+            // Then a personal MCP token, which an MCP client sends as a bearer
+            // token but which is no JWT: it resolves through its own table
+            else if let Some(token) = auth_str
+                .strip_prefix("Bearer ")
+                .filter(|token| is_user_mcp_token_format(token))
+            {
+                tracing::Span::current().record("auth_method", "MCP_TOKEN");
+                debug!("Attempting personal MCP token authentication");
+                match settle(self.authenticate_user_mcp_token(token, policy).await) {
+                    Ok(result) => {
+                        tracing::Span::current().record("success", true);
+                        record_authenticated(&result);
+                        info!(
+                            "MCP token authentication successful for user: {}",
+                            result.user_id
+                        );
+                        Ok(result)
+                    }
+                    Err(e) => {
+                        tracing::Span::current().record("success", false);
+                        warn!("MCP token authentication failed: {}", e);
+                        Err(e)
+                    }
                 }
             }
-        } else {
-            tracing::Span::current()
-                .record("auth_method", "INVALID")
-                .record("success", false);
-            warn!("Authentication failed: Invalid authorization header format (expected 'Bearer ...', 'pk_live_...' or 'pk_trial_...')");
-            Err(AppError::auth_invalid("Invalid authorization header format - must be 'Bearer <token>' or an API key ('pk_live_<key>' or 'pk_trial_<key>')"))
-        }
+            // Then try Bearer token authentication
+            else if let Some(token) = auth_str.strip_prefix("Bearer ") {
+                tracing::Span::current().record("auth_method", "JWT_TOKEN");
+                debug!("Attempting JWT token authentication");
+                match settle(self.authenticate_jwt_token(token, policy).await) {
+                    Ok(result) => {
+                        tracing::Span::current().record("success", true);
+                        record_authenticated(&result);
+                        info!("JWT authentication successful for user: {}", result.user_id);
+                        Ok(result)
+                    }
+                    Err(e) => {
+                        tracing::Span::current().record("success", false);
+                        warn!("JWT authentication failed: {}", e);
+                        Err(e)
+                    }
+                }
+            } else {
+                tracing::Span::current()
+                    .record("auth_method", "INVALID")
+                    .record("success", false);
+                warn!(
+                    "Authentication failed: Invalid authorization header format (expected 'Bearer ...', 'pk_live_...' or 'pk_trial_...')"
+                );
+                Err(AppError::auth_invalid(
+                    "Invalid authorization header format - must be 'Bearer <token>' or an API key ('pk_live_<key>' or 'pk_trial_<key>')",
+                ))
+            }
+        })
     }
 
     /// Authenticate using `API` key
@@ -800,125 +812,134 @@ impl McpAuthMiddleware {
     /// narrower than the self grant) is refused before anything is read or
     /// written for it — no usage row, no activity, no budget — since the
     /// request it carries is not served.
-    async fn authenticate_jwt_token(&self, token: &str, policy: GrantPolicy<'_>) -> Checked {
-        // The audience check: every path takes the platform audience, and the
-        // protected resource also takes a token bound to itself — never one
-        // bound to another resource.
-        let claims = match policy {
-            GrantPolicy::DirectOnly => self
-                .auth_manager
-                .validate_token_detailed(token, &self.jwks_manager),
-            GrantPolicy::ScopesEnforced { resources } => self
-                .auth_manager
-                .validate_resource_token_detailed(token, &self.jwks_manager, resources),
-        }
-        .map_err(|e| AppError::auth_invalid(format!("JWT validation failed: {e}")))?;
-
-        // A client-credentials token names no user, and is refused here.
-        let user_id = token_user_id(&claims)?;
-
-        // An impersonation token acts only while its session is live: ending
-        // the session revokes it, rather than leaving it good until its hour
-        // runs out. The impersonation rides on the credential, so a handler
-        // minting a token from it can keep it an impersonation.
-        let impersonation = match claims.impersonation_session_id.as_deref() {
-            Some(session_id) => Some(ImpersonationGrant {
-                session_id: session_id.to_owned(),
-                impersonator_id: self.require_live_impersonation(session_id, user_id).await?,
-                expires_at: claims.exp,
-            }),
-            None => None,
-        };
-
-        // Whatever the token was minted with. A first-party session was minted
-        // with the full self grant; a delegated OAuth token stays as narrow as
-        // the athlete consented to. A token minted before the `scope` claim
-        // existed parses to the empty grant and is refused every tool that
-        // reads or writes — deliberate, and the reason this shipped with a
-        // re-authentication rather than a compatibility path.
-        let scopes = OAuthScope::parse_granted(&claims.scope);
-        // A session by the client the token names, then by its grant: a token
-        // an application holds is its delegation however wide the grant.
-        let is_session = claims.is_session();
-        match policy {
-            GrantPolicy::DirectOnly if !is_session => {
-                warn!(
-                    user_id = %user_id,
-                    granted = %OAuthScope::render_granted(&scopes),
-                    "Delegated OAuth grant refused on a path that does not enforce scopes"
-                );
-                return Err(Refused::Failed(delegated_grant_refused()));
+    ///
+    /// Boxed rather than `async fn` so its body is compiled once, not again in
+    /// every codegen unit that awaits it (binary size).
+    fn authenticate_jwt_token<'a>(
+        &'a self,
+        token: &'a str,
+        policy: GrantPolicy<'a>,
+    ) -> BoxFuture<'a, Checked> {
+        Box::pin(async move {
+            // The audience check: every path takes the platform audience, and the
+            // protected resource also takes a token bound to itself — never one
+            // bound to another resource.
+            let claims = match policy {
+                GrantPolicy::DirectOnly => self
+                    .auth_manager
+                    .validate_token_detailed(token, &self.jwks_manager),
+                GrantPolicy::ScopesEnforced { resources } => self
+                    .auth_manager
+                    .validate_resource_token_detailed(token, &self.jwks_manager, resources),
             }
-            // The mirror image (carnet#768): a first-party session token is
-            // Dravr's own app signed in, never an integration's credential.
-            // An MCP or A2A client authorizes through OAuth, or presents the
-            // athlete's API key, so a session token arriving here was lifted
-            // from the app — refused before it reads or writes anything.
-            GrantPolicy::ScopesEnforced { .. } if is_session => {
-                warn!(
-                    user_id = %user_id,
-                    "First-party session token refused on a delegated-access endpoint"
-                );
-                return Err(Refused::Failed(session_token_refused()));
-            }
-            GrantPolicy::DirectOnly | GrantPolicy::ScopesEnforced { .. } => {}
-        }
+            .map_err(|e| AppError::auth_invalid(format!("JWT validation failed: {e}")))?;
 
-        // Extract active_tenant_id from JWT claims (multi-tenant user tenant selection)
-        let active_tenant_id = claims.active_tenant_id.as_deref().and_then(|tid| {
-            parse_uuid(tid)
-                .inspect_err(|e| {
+            // A client-credentials token names no user, and is refused here.
+            let user_id = token_user_id(&claims)?;
+
+            // An impersonation token acts only while its session is live: ending
+            // the session revokes it, rather than leaving it good until its hour
+            // runs out. The impersonation rides on the credential, so a handler
+            // minting a token from it can keep it an impersonation.
+            let impersonation = match claims.impersonation_session_id.as_deref() {
+                Some(session_id) => Some(ImpersonationGrant {
+                    session_id: session_id.to_owned(),
+                    impersonator_id: self.require_live_impersonation(session_id, user_id).await?,
+                    expires_at: claims.exp,
+                }),
+                None => None,
+            };
+
+            // Whatever the token was minted with. A first-party session was minted
+            // with the full self grant; a delegated OAuth token stays as narrow as
+            // the athlete consented to. A token minted before the `scope` claim
+            // existed parses to the empty grant and is refused every tool that
+            // reads or writes — deliberate, and the reason this shipped with a
+            // re-authentication rather than a compatibility path.
+            let scopes = OAuthScope::parse_granted(&claims.scope);
+            // A session by the client the token names, then by its grant: a token
+            // an application holds is its delegation however wide the grant.
+            let is_session = claims.is_session();
+            match policy {
+                GrantPolicy::DirectOnly if !is_session => {
                     warn!(
-                        tenant_id = %tid,
-                        error = %e,
-                        "Invalid active_tenant_id format in JWT claims, will use default tenant"
+                        user_id = %user_id,
+                        granted = %OAuthScope::render_granted(&scopes),
+                        "Delegated OAuth grant refused on a path that does not enforce scopes"
                     );
-                })
-                .ok()
-        });
+                    return Err(Refused::Failed(delegated_grant_refused()));
+                }
+                // The mirror image (carnet#768): a first-party session token is
+                // Dravr's own app signed in, never an integration's credential.
+                // An MCP or A2A client authorizes through OAuth, or presents the
+                // athlete's API key, so a session token arriving here was lifted
+                // from the app — refused before it reads or writes anything.
+                GrantPolicy::ScopesEnforced { .. } if is_session => {
+                    warn!(
+                        user_id = %user_id,
+                        "First-party session token refused on a delegated-access endpoint"
+                    );
+                    return Err(Refused::Failed(session_token_refused()));
+                }
+                GrantPolicy::DirectOnly | GrantPolicy::ScopesEnforced { .. } => {}
+            }
 
-        let user = self.standing_account(user_id).await?;
+            // Extract active_tenant_id from JWT claims (multi-tenant user tenant selection)
+            let active_tenant_id = claims.active_tenant_id.as_deref().and_then(|tid| {
+                parse_uuid(tid)
+                    .inspect_err(|e| {
+                        warn!(
+                            tenant_id = %tid,
+                            error = %e,
+                            "Invalid active_tenant_id format in JWT claims, will use default tenant"
+                        );
+                    })
+                    .ok()
+            });
 
-        // A delegated token speaks for the athlete only while they let it. It
-        // is refused before it spends anything of theirs, as any bad credential.
-        self.require_unwithdrawn_grant(&claims, user_id, policy)
-            .await?;
+            let user = self.standing_account(user_id).await?;
 
-        // The user's month-to-date requests against its monthly limit (an
-        // admin's override, else the tier's), both read in one statement. A
-        // breach is a 429 with a retry window, not a 401: "slow down" and
-        // "bad credentials" demand opposite client reactions, and the old
-        // auth_invalid shape sent rate-limited clients into re-login loops
-        // (registre#10). It carries the budget that refused it, so the
-        // refusal renders its numbers too.
-        let now = Utc::now();
-        let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
-        let budget = calculate_jwt_rate_limit(&user, usage, now);
-        enforce_request_budget(budget, now)
-            .map_err(|error| Refused::OverBudget { budget, error })?;
+            // A delegated token speaks for the athlete only while they let it. It
+            // is refused before it spends anything of theirs, as any bad credential.
+            self.require_unwithdrawn_grant(&claims, user_id, policy)
+                .await?;
 
-        // Record JWT usage so the *next* request sees an accurate
-        // `get_jwt_current_usage` and the rate-limit gate actually fires.
-        // Without this write the counter stays at zero across all users and
-        // every transport that goes through the JWT calculator (HTTP cookie,
-        // Bearer header, `MCP`, and — via `authenticate_channel` — every
-        // messaging webhook). Same posture as
-        // `services::messaging_ingress::record_channel_usage`.
-        record_jwt_usage_for_request(&self.repos, user_id, "http:jwt", "AUTH").await;
-        self.note_activity(&user).await;
+            // The user's month-to-date requests against its monthly limit (an
+            // admin's override, else the tier's), both read in one statement. A
+            // breach is a 429 with a retry window, not a 401: "slow down" and
+            // "bad credentials" demand opposite client reactions, and the old
+            // auth_invalid shape sent rate-limited clients into re-login loops
+            // (registre#10). It carries the budget that refused it, so the
+            // refusal renders its numbers too.
+            let now = Utc::now();
+            let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
+            let budget = calculate_jwt_rate_limit(&user, usage, now);
+            enforce_request_budget(budget, now)
+                .map_err(|error| Refused::OverBudget { budget, error })?;
 
-        Ok(Admitted {
-            auth: AuthResult {
-                user_id,
-                auth_method: AuthMethod::JwtToken {
-                    tier: format!("{:?}", user.tier).to_lowercase(),
-                    impersonation,
+            // Record JWT usage so the *next* request sees an accurate
+            // `get_jwt_current_usage` and the rate-limit gate actually fires.
+            // Without this write the counter stays at zero across all users and
+            // every transport that goes through the JWT calculator (HTTP cookie,
+            // Bearer header, `MCP`, and — via `authenticate_channel` — every
+            // messaging webhook). Same posture as
+            // `services::messaging_ingress::record_channel_usage`.
+            record_jwt_usage_for_request(&self.repos, user_id, "http:jwt", "AUTH").await;
+            self.note_activity(&user).await;
+
+            Ok(Admitted {
+                auth: AuthResult {
+                    user_id,
+                    auth_method: AuthMethod::JwtToken {
+                        tier: format!("{:?}", user.tier).to_lowercase(),
+                        impersonation,
+                    },
+                    active_tenant_id,
+                    scopes,
+                    client_id: claims.client_id,
                 },
-                active_tenant_id,
-                scopes,
-                client_id: claims.client_id,
-            },
-            budget,
+                budget,
+            })
         })
     }
 

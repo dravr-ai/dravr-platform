@@ -58,6 +58,7 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use futures_util::future::BoxFuture;
 use pierre_auth::connect_order::{order_and_seats, sign_in_falls_back_to_oauth};
 use pierre_auth::garmin_seats::garmin_seat_summary;
 #[cfg(feature = "client-notifications")]
@@ -190,41 +191,46 @@ async fn writes_owed(
 /// Claim the connection's one notice and, on the won claim, send it in the
 /// app and on every linked chat, worded as `copy`, a refused chat's copy
 /// retried as `retry` says.
-async fn send_claimed_notice(
-    runtime: &Arc<dyn ToolRuntime>,
+///
+/// Boxed rather than `async fn` so its body is compiled once, not again in
+/// every codegen unit that awaits it (binary size).
+fn send_claimed_notice<'a>(
+    runtime: &'a Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
-    provider: &str,
+    provider: &'a str,
     (copy, retry): (NoticeCopy, ReauthRetry),
-) -> ReauthNotice {
-    if !claim_notice(runtime, user_id, tenant_id, provider).await {
-        return ReauthNotice::default();
-    }
+) -> BoxFuture<'a, ReauthNotice> {
+    Box::pin(async move {
+        if !claim_notice(runtime, user_id, tenant_id, provider).await {
+            return ReauthNotice::default();
+        }
 
-    // Without the notification backend there is no app half, and nothing to
-    // suppress the chat half.
-    #[cfg(feature = "client-notifications")]
-    let suppressed = suppressed_in_app(runtime, user_id, tenant_id, provider, copy).await;
-    #[cfg(not(feature = "client-notifications"))]
-    let suppressed = {
-        let _ = copy;
-        false
-    };
+        // Without the notification backend there is no app half, and nothing to
+        // suppress the chat half.
+        #[cfg(feature = "client-notifications")]
+        let suppressed = suppressed_in_app(runtime, user_id, tenant_id, provider, copy).await;
+        #[cfg(not(feature = "client-notifications"))]
+        let suppressed = {
+            let _ = copy;
+            false
+        };
 
-    let chat_channels = if suppressed {
-        info!(
-            user_id = %user_id,
-            provider = %provider,
-            "Reconnect notice suppressed by the notification pipeline; no chat copy sent"
-        );
-        0
-    } else {
-        send_chat_half(runtime, user_id, tenant_id, provider, retry).await
-    };
-    ReauthNotice {
-        claimed: true,
-        chat_channels,
-    }
+        let chat_channels = if suppressed {
+            info!(
+                user_id = %user_id,
+                provider = %provider,
+                "Reconnect notice suppressed by the notification pipeline; no chat copy sent"
+            );
+            0
+        } else {
+            send_chat_half(runtime, user_id, tenant_id, provider, retry).await
+        };
+        ReauthNotice {
+            claimed: true,
+            chat_channels,
+        }
+    })
 }
 
 /// Whether a sign-in hand-off is a new connection that can fall back to its

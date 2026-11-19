@@ -43,6 +43,9 @@
 
 mod first_welcome;
 
+use std::future::Future;
+use std::pin::Pin;
+
 use chrono::Utc;
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, KEY_AGENT_WELCOME_CAN_SEE,
@@ -615,73 +618,82 @@ async fn record_shown(
     }
 }
 
+/// A welcome's words and the policy its row is stamped with; `None` when
+/// there is nothing to greet with.
+type Welcome = AppResult<Option<(WelcomeText, TransportPolicy)>>;
+
 /// The words of `target.agent_id`'s welcome in `target.locale`, and the
 /// policy the row must be stamped with; `None` when the agent is not one
 /// this athlete can see, has no title, or the string catalogue holds no
 /// greeting to say it with.
-async fn welcome_text(
-    repos: &RepositoryRegistry,
-    strings: &MessagingStringsRegistry,
-    target: &WelcomeTarget<'_>,
+///
+/// Boxed rather than `async fn` so its body is compiled once, not again in
+/// every codegen unit that awaits it (binary size).
+fn welcome_text<'a>(
+    repos: &'a RepositoryRegistry,
+    strings: &'a MessagingStringsRegistry,
+    target: &'a WelcomeTarget<'_>,
     user: Uuid,
-) -> AppResult<Option<(WelcomeText, TransportPolicy)>> {
-    let Some((canonical, localized)) = localized_agent(
-        repos,
-        target.agent_id,
-        user,
-        target.agent_tenant_id,
-        target.locale,
-    )
-    .await?
-    else {
-        info!(
-            agent_id = target.agent_id,
-            "agent not visible to the athlete; no welcome"
+) -> Pin<Box<dyn Future<Output = Welcome> + Send + 'a>> {
+    Box::pin(async move {
+        let Some((canonical, localized)) = localized_agent(
+            repos,
+            target.agent_id,
+            user,
+            target.agent_tenant_id,
+            target.locale,
+        )
+        .await?
+        else {
+            info!(
+                agent_id = target.agent_id,
+                "agent not visible to the athlete; no welcome"
+            );
+            return Ok(None);
+        };
+        let Some(title) = display_title(Some(&localized.title), &canonical.title) else {
+            warn!(
+                agent_id = target.agent_id,
+                "the agent has no title to welcome by"
+            );
+            return Ok(None);
+        };
+        let (starters, mut transport_policy) =
+            choose_starters(repos, strings, target, &canonical, &localized, user).await;
+        let templates = WelcomeTemplates::resolve(strings, target.locale);
+        // Said to one athlete about their own data; a room's welcome speaks to
+        // every member, whose data the room's agent reads under each one's
+        // consent, so it does not say it.
+        let capability = target
+            .conversation
+            .group_id
+            .is_none()
+            .then_some(templates.can_see.as_str());
+        let mut text = WelcomeText::compose(
+            &templates,
+            &title,
+            localized.description.as_deref(),
+            capability,
+            starters,
         );
-        return Ok(None);
-    };
-    let Some(title) = display_title(Some(&localized.title), &canonical.title) else {
-        warn!(
-            agent_id = target.agent_id,
-            "the agent has no title to welcome by"
-        );
-        return Ok(None);
-    };
-    let (starters, mut transport_policy) =
-        choose_starters(repos, strings, target, &canonical, &localized, user).await;
-    let templates = WelcomeTemplates::resolve(strings, target.locale);
-    // Said to one athlete about their own data; a room's welcome speaks to
-    // every member, whose data the room's agent reads under each one's
-    // consent, so it does not say it.
-    let capability = target
-        .conversation
-        .group_id
-        .is_none()
-        .then_some(templates.can_see.as_str());
-    let mut text = WelcomeText::compose(
-        &templates,
-        &title,
-        localized.description.as_deref(),
-        capability,
-        starters,
-    );
-    if let Some(first) = first_welcome(repos, strings, target, user).await {
-        text.push_paragraphs(first.lines.opening);
-        text.introduce_team(&templates, &first.team);
-        text.push_paragraphs(first.lines.closing);
-        transport_policy = transport_policy.strictest(first.policy);
-    }
-    if text.content.trim().is_empty() {
-        // The catalogue lacks the greeting in every locale: an instance whose
-        // strings predate the welcome keys. A blank row would read as the
-        // agent saying nothing at all.
-        warn!(
-            locale = target.locale,
-            "agent welcome greeting missing from the string catalogue; no welcome"
-        );
-        return Ok(None);
-    }
-    Ok(Some((text, transport_policy)))
+        if let Some(first) = first_welcome(repos, strings, target, user).await {
+            text.push_paragraphs(first.lines.opening);
+            text.introduce_team(&templates, &first.team);
+            text.push_paragraphs(first.lines.closing);
+            transport_policy = transport_policy.strictest(first.policy);
+        }
+        if text.content.trim().is_empty() {
+            // The catalogue lacks the greeting in every locale: an instance whose
+            // strings predate the welcome keys. A blank row would read as the
+            // agent saying nothing at all.
+            warn!(
+                locale = target.locale,
+                "agent welcome greeting missing from the string catalogue; no welcome"
+            );
+            return Ok(None);
+        }
+        Ok(Some((text, transport_policy)))
+    })
 }
 
 /// The starters `target`'s welcome offers, and the policy the row must be
