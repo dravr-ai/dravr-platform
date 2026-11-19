@@ -20,12 +20,14 @@ use pierre_core::models::agents::{
 use pierre_core::models::groups::{GroupRole, UpdateGroupRequest};
 use pierre_core::models::{CreateGroupRequest, GroupMember, GroupSummary};
 use pierre_core::models::{TenantId, User};
+use pierre_core::usage_log;
 use pierre_database::seed_models::SeedAgentTranslation;
 use pierre_groups::strategies::tier::tier_strategy_for;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_agents::build_agents_router;
 use pierre_routes_groups::group_analytics::GroupAnalyticsRoutes;
 use pierre_routes_groups::GroupRoutes;
+use pierre_test_support::log_capture::{capture_target, drain};
 
 use axum::http::StatusCode;
 use serde_json::{json, Value};
@@ -1440,12 +1442,50 @@ async fn test_starter_group_holds_its_coach_and_one_athlete() {
     assert_eq!(joined.group_id.to_string(), group_id);
 
     let second = starter_athlete(&doors, "starter-second@test.com").await;
+    let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
     let refusal = doors
         .join(&second, &code)
         .await
         .expect_err("a Starter group holds one athlete");
+    drop(usage_guard);
     assert_eq!(refusal.code, ErrorCode::InvalidInput);
     assert_eq!(refusal.message, "This group is full");
+    // The refused join is logged as the group's member cap, against the
+    // athlete who could not join (carnet#1630).
+    let (second_id, _) = doors.caller(&second);
+    let lines = drain(&usage_lines);
+    assert_eq!(lines.len(), 1, "one usage line per refusal: {lines:?}");
+    let line = &lines[0];
+    assert_eq!(
+        line.get("user_id").map(String::as_str),
+        Some(second_id.to_string().as_str()),
+        "the line names the athlete refused: {line:?}"
+    );
+    assert_eq!(
+        line.get("tenant_id").map(String::as_str),
+        group["tenant_id"].as_str(),
+        "the line names the group's tenant: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit_type").map(String::as_str),
+        Some("group_members"),
+        "the line names the member cap: {line:?}"
+    );
+    assert_eq!(
+        line.get("current").map(String::as_str),
+        Some("2"),
+        "the coach and one athlete fill it: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit").map(String::as_str),
+        Some("2"),
+        "a Starter group holds two members: {line:?}"
+    );
+    assert_eq!(
+        line.get("surface").map(String::as_str),
+        Some("groups"),
+        "the refusal was met joining by invite: {line:?}"
+    );
 }
 
 /// Group settings no longer change the member limit: a `max_members` in an

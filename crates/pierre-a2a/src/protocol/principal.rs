@@ -17,7 +17,7 @@ use pierre_core::models::a2a::{user_task_key, A2AClient};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_logging::record_identity;
 use pierre_middleware::rate_limiting::{
-    enforce_request_budget, report_a2a_client_request, report_request_budget,
+    enforce_request_budget, log_budget_refusal, report_a2a_client_request, report_request_budget,
     report_request_operation, A2AClientCall,
 };
 use serde_json::{Number, Value};
@@ -305,8 +305,15 @@ impl A2AServer {
             .map_err(|e| Box::new(Self::auth_refusal(&e, request_id.clone())))?;
 
         report_request_budget(budget);
-        enforce_request_budget(budget, now)
-            .map_err(|refusal| Box::new(Self::auth_refusal(&refusal, request_id.clone())))?;
+        enforce_request_budget(budget, now).map_err(|refusal| {
+            log_budget_refusal(
+                budget,
+                &client.user_id.to_string(),
+                "a2a_client_window",
+                "a2a",
+            );
+            Box::new(Self::auth_refusal(&refusal, request_id.clone()))
+        })?;
 
         report_request_operation(method);
         report_a2a_client_request(A2AClientCall {

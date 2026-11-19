@@ -130,7 +130,8 @@ pierre-providers = { version = "0.3.0", path = "../pierre-providers", features =
 # Property tests for the OAuth redirect allowlist (carnet#1143).
 proptest = { version = "1", default-features = false, features = ["std"] }
 # Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
-pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
+# `groups`: the plan without group coaching the channel auto-bind's tests refuse.
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["groups"] }
 # Captures the `llm call cost` line's fields in the recorder's unit test.
 tracing-subscriber = { version = "0.3", features = ["std", "registry"], default-features = false }
 # The header type dravr-enforme's SyncProvider::validate_webhook takes, for

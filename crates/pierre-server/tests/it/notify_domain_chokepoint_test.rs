@@ -16,8 +16,9 @@
 //! the emitted event's fields. A regression that moved an emission back onto a
 //! transport would leave these silent.
 //!
-//! The same shortcut skipped `GroupService`'s tier gate, so the auto-bind path
-//! is also asserted to honour the tenant plan's member cap.
+//! The same shortcut skipped `GroupService`'s tier policy, so the auto-bind
+//! path is also asserted to honour the tenant plan's member cap, and creation
+//! is asserted to refuse a plan without group coaching.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -35,14 +36,18 @@ use pierre_core::errors::ErrorCode;
 use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::groups::CreateGroupRequest;
 use pierre_core::models::TenantId;
+use pierre_core::usage_log;
+use pierre_groups::creation_policy::{GROUP_COACHING_NOT_INCLUDED, GROUP_COACHING_PLAN_LIMIT};
 use pierre_groups::service::ChannelGroupSpec;
-use pierre_groups::strategies::tier::ProfessionalTierStrategy;
+use pierre_groups::strategies::tier::{GroupAllowance, ProfessionalTierStrategy};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::messaging_group_bind::{
     fallback_group_name, refresh_channel_group_title, resolve_or_create_channel_group,
     ChannelChatBinding,
 };
+use pierre_test_support::group_tier::NoGroupCoachingTier;
+use pierre_test_support::log_capture::{capture_target, drain, CapturedEvents};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -353,38 +358,87 @@ async fn returning_sender_emits_nothing() {
 }
 
 // ============================================================================
-// The tier gate the auto-bind path used to reach past
+// A plan without group coaching
 // ============================================================================
 
+/// A REST-shaped creation request for `agent_id`.
+fn rest_request(name: &str, agent_id: &str) -> CreateGroupRequest {
+    CreateGroupRequest {
+        name: name.to_owned(),
+        description: None,
+        agent_id: agent_id.to_owned(),
+        max_members: None,
+        coach_user_id: None,
+    }
+}
+
+/// A plan whose tier includes no group coaching refuses the creation as a
+/// permission, in tier-neutral words, before any group is written or
+/// announced. No shipping tier is such a plan, so the suite passes one in:
+/// the gate is the mechanism, and it must stay wired whichever plans use it.
 #[tokio::test]
-async fn tier_gate_refuses_group_creation_and_emits_nothing() {
+async fn a_plan_without_group_coaching_refuses_creation_and_writes_nothing() {
     let (res, user_id, tenant_id, agent_id) =
-        chat_fixture("autobind-gated@test.com", "professional").await;
+        chat_fixture("no-coaching-gated@test.com", "professional").await;
 
     let (events, _guard) = capture_notify();
-    // A cap of 0 is how a plan disables group coaching. Driven directly
-    // because no shipping tier currently sets it — the gate is the mechanism,
-    // and it must stay wired whichever tiers use it.
     let refused = res
         .group_service()
-        .create_channel_group(
-            &ChannelGroupSpec {
-                name: "Gated Chat",
-                agent_id: &agent_id,
-                channel_type: "telegram",
-                channel_chat_id: "-100222",
-            },
+        .create_group(
+            &rest_request("Gated Group", &agent_id),
             user_id,
             tenant_id,
-            0,
+            &NoGroupCoachingTier,
         )
         .await;
 
-    let err = refused.expect_err("cap 0 must reject group creation");
-    assert_eq!(err.code, ErrorCode::PermissionDenied);
+    let err = refused.expect_err("a plan without group coaching must refuse creation");
+    assert_eq!(
+        err.code,
+        ErrorCode::PermissionDenied,
+        "the refusal is a permission"
+    );
+    assert_eq!(
+        err.message, GROUP_COACHING_NOT_INCLUDED,
+        "the refusal names the missing capability, not a tier"
+    );
+    assert_eq!(
+        res.common
+            .repos
+            .groups
+            .count_groups_for_owner(user_id, tenant_id)
+            .await
+            .unwrap(),
+        0,
+        "a refused creation writes no group"
+    );
     assert!(
         events.lock().unwrap().is_empty(),
         "a refused creation must not emit group.created"
+    );
+}
+
+/// The allowance check behind the gate refuses a plan without group coaching
+/// on its own, before it counts anything.
+#[tokio::test]
+async fn the_allowance_check_refuses_a_plan_without_group_coaching() {
+    let (res, user_id, tenant_id, _agent_id) =
+        chat_fixture("no-coaching-allowance@test.com", "professional").await;
+
+    let err = res
+        .group_service()
+        .athlete_billing()
+        .ensure_room(user_id, tenant_id, GroupAllowance::Disabled)
+        .await
+        .expect_err("a Disabled allowance admits no group");
+    assert_eq!(
+        err.code,
+        ErrorCode::PermissionDenied,
+        "the defence refuses as the gate does"
+    );
+    assert_eq!(
+        err.message, GROUP_COACHING_NOT_INCLUDED,
+        "the defence uses the gate's words"
     );
 }
 
@@ -449,6 +503,151 @@ async fn a_full_group_leaves_the_sender_ungrouped() {
         events.lock().unwrap().is_empty(),
         "a refused enrolment must not emit group.joined"
     );
+}
+
+// ============================================================================
+// The usage line each of those two refusals logs (carnet#1630)
+// ============================================================================
+
+/// The one usage line `events` captured says `user_id` met `limit_type` in
+/// `tenant_id` with the counter at `current` of `limit`, on `groups`.
+fn assert_one_group_limit_line(
+    events: &CapturedEvents,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    limit_type: &str,
+    (current, limit): (i64, i64),
+) {
+    let lines = drain(events);
+    assert_eq!(lines.len(), 1, "one usage line per refusal: {lines:?}");
+    let line = &lines[0];
+    let field = |name: &str| line.get(name).map(String::as_str);
+    assert_eq!(
+        field("event"),
+        Some(usage_log::LIMIT_REACHED),
+        "the line is a refusal: {line:?}"
+    );
+    assert_eq!(
+        field("user_id"),
+        Some(user_id.to_string().as_str()),
+        "the line names the refused user: {line:?}"
+    );
+    assert_eq!(
+        field("tenant_id"),
+        Some(tenant_id.to_string().as_str()),
+        "the line names the group's tenant: {line:?}"
+    );
+    assert_eq!(
+        field("limit_type"),
+        Some(limit_type),
+        "the line names the limit: {line:?}"
+    );
+    assert_eq!(
+        field("current"),
+        Some(current.to_string().as_str()),
+        "the line carries the counter: {line:?}"
+    );
+    assert_eq!(
+        field("limit"),
+        Some(limit.to_string().as_str()),
+        "the line carries the limit: {line:?}"
+    );
+    assert_eq!(
+        field("surface"),
+        Some("groups"),
+        "the line names the groups surface: {line:?}"
+    );
+}
+
+/// A plan without group coaching is logged as the limit, with nothing counted.
+#[tokio::test]
+async fn a_plan_without_group_coaching_logs_the_plan_as_the_limit() {
+    let (res, user_id, tenant_id, agent_id) =
+        chat_fixture("no-coaching-gated-log@test.com", "professional").await;
+
+    let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
+    let refused = res
+        .group_service()
+        .create_group(
+            &rest_request("Gated Logged Group", &agent_id),
+            user_id,
+            tenant_id,
+            &NoGroupCoachingTier,
+        )
+        .await;
+    drop(usage_guard);
+
+    assert_eq!(
+        refused
+            .expect_err("a plan without group coaching must refuse creation")
+            .code,
+        ErrorCode::PermissionDenied,
+        "the gate refuses as a permission"
+    );
+    assert_one_group_limit_line(
+        &usage_lines,
+        user_id,
+        tenant_id,
+        GROUP_COACHING_PLAN_LIMIT,
+        (0, 0),
+    );
+}
+
+/// A sender a full chat-bound group cannot enrol is logged against its
+/// member cap.
+#[tokio::test]
+async fn a_full_channel_group_logs_the_member_cap() {
+    let (res, owner_id, tenant_id, agent_id) =
+        chat_fixture("autobind-full-log@test.com", "professional").await;
+    let auth = res.common.repos.auth_repos();
+    let agent = res.common.repos.agent_repos();
+    res.group_service()
+        .create_channel_group(
+            &ChannelGroupSpec {
+                name: "Tiny Logged Chat",
+                agent_id: &agent_id,
+                channel_type: "telegram",
+                channel_chat_id: "-100334",
+            },
+            owner_id,
+            tenant_id,
+            2,
+        )
+        .await
+        .unwrap();
+    let second = second_sender(&res, "autobind-full-log-2@test.com").await;
+    let third = second_sender(&res, "autobind-full-log-3@test.com").await;
+    let second_str = second.to_string();
+    let third_str = third.to_string();
+    assert!(
+        resolve_or_create_channel_group(
+            &auth,
+            &agent,
+            res.group_service(),
+            &binding(tenant_id, "-100334", &second_str, "Tiny Logged Chat"),
+        )
+        .await
+        .unwrap()
+        .is_some(),
+        "fixture: the second sender fills the group"
+    );
+
+    let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
+    let overflow = resolve_or_create_channel_group(
+        &auth,
+        &agent,
+        res.group_service(),
+        &binding(tenant_id, "-100334", &third_str, "Tiny Logged Chat"),
+    )
+    .await
+    .unwrap();
+    drop(usage_guard);
+
+    assert!(
+        overflow.is_none(),
+        "a sender who could not be enrolled is not bound to the group"
+    );
+    assert_one_group_limit_line(&usage_lines, third, tenant_id, "group_members", (2, 2));
 }
 
 // ============================================================================

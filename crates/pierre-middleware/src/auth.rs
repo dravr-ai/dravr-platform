@@ -31,7 +31,7 @@ use tracing::field::Empty;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::rate_limiting::{enforce_request_budget, report_api_key_request};
+use crate::rate_limiting::{enforce_request_budget, log_budget_refusal, report_api_key_request};
 
 mod impersonation;
 /// One credential's outcome, and how it becomes the request's answer.
@@ -528,10 +528,18 @@ impl McpAuthMiddleware {
             .get_api_key_window_usage(&db_key.id, api_key_window_start(&db_key, now))
             .await?;
         let budget = calculate_api_key_rate_limit(&db_key, &window_usage, now);
-        enforce_request_budget(budget, now).map_err(|error| Refused::OverBudget {
-            budget,
-            error,
-            caller: db_key.user_id,
+        enforce_request_budget(budget, now).map_err(|error| {
+            log_budget_refusal(
+                budget,
+                &db_key.user_id.to_string(),
+                "api_key_window",
+                "api_key",
+            );
+            Refused::OverBudget {
+                budget,
+                error,
+                caller: db_key.user_id,
+            }
         })?;
 
         // Update last used timestamp. The call is counted against the window
@@ -625,10 +633,13 @@ impl McpAuthMiddleware {
         let now = Utc::now();
         let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
         let budget = calculate_jwt_rate_limit(&user, usage, now);
-        enforce_request_budget(budget, now).map_err(|error| Refused::OverBudget {
-            budget,
-            error,
-            caller: user_id,
+        enforce_request_budget(budget, now).map_err(|error| {
+            log_budget_refusal(budget, &user_id.to_string(), "monthly_requests", "mcp");
+            Refused::OverBudget {
+                budget,
+                error,
+                caller: user_id,
+            }
         })?;
         record_jwt_usage_for_request(&self.repos, user_id, "mcp:token", "AUTH").await;
         self.note_activity(&user).await;
@@ -770,6 +781,12 @@ impl McpAuthMiddleware {
         let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
         let budget = calculate_jwt_rate_limit(&user, usage, now);
         enforce_request_budget(budget, now).inspect_err(|e| {
+            log_budget_refusal(
+                budget,
+                &user_id.to_string(),
+                "monthly_requests",
+                "messaging",
+            );
             warn!(
                 user_id = %user_id,
                 channel = %channel,
@@ -913,10 +930,13 @@ impl McpAuthMiddleware {
         let now = Utc::now();
         let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
         let budget = calculate_jwt_rate_limit(&user, usage, now);
-        enforce_request_budget(budget, now).map_err(|error| Refused::OverBudget {
-            budget,
-            error,
-            caller: user_id,
+        enforce_request_budget(budget, now).map_err(|error| {
+            log_budget_refusal(budget, &user_id.to_string(), "monthly_requests", "http");
+            Refused::OverBudget {
+                budget,
+                error,
+                caller: user_id,
+            }
         })?;
 
         // Record JWT usage so the *next* request sees an accurate

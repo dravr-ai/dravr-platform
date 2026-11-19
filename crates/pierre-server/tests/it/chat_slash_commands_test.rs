@@ -37,11 +37,13 @@ use pierre_core::models::{AddMessageParams, COMMAND_FINISH_REASON};
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_core::models::{OnboardingState, Tenant, User, UserStatus};
 use pierre_core::transport::TransportPolicy;
+use pierre_core::usage_log;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{
     ChatMessageAction, ChatRoutes, ConversationListResponse, ConversationResponse,
     MessagesListResponse, ReplyBlockResponse, TurnResponse,
 };
+use pierre_test_support::log_capture::{capture_target, drain};
 
 /// The controls a turn carries, or an empty slice when it carries none.
 fn turn_actions(body: &TurnResponse) -> Vec<&ChatMessageAction> {
@@ -1400,11 +1402,51 @@ async fn agent_create_confirm_is_refused_at_the_agent_quota() {
 
     let body = send_command(router.clone(), &auth, &conv_id, "/coach create").await;
     let confirm = turn_actions(&body)[0].value.clone();
+    let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
     let body = send_command(router, &auth, &conv_id, &confirm).await;
+    drop(usage_guard);
 
     assert_eq!(
         body.assistant.message.content,
         rendered(&resources, KEY_AGENT_CREATE_QUOTA, &["3", "3"])
+    );
+    // The refused draft is logged as the athlete's coach cap, with the
+    // count that met it (carnet#1630).
+    let lines: Vec<_> = drain(&usage_lines)
+        .into_iter()
+        .filter(|line| line.get("event").map(String::as_str) == Some(usage_log::LIMIT_REACHED))
+        .collect();
+    assert_eq!(lines.len(), 1, "one usage line per refusal: {lines:?}");
+    let line = &lines[0];
+    assert_eq!(
+        line.get("user_id").map(String::as_str),
+        Some(user_id.to_string().as_str()),
+        "the line names the refused athlete: {line:?}"
+    );
+    assert_eq!(
+        line.get("tenant_id").map(String::as_str),
+        Some(tenant_id.to_string().as_str()),
+        "the line names the athlete's tenant: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit_type").map(String::as_str),
+        Some("max_coaches_per_user"),
+        "the line names the coach cap: {line:?}"
+    );
+    assert_eq!(
+        line.get("current").map(String::as_str),
+        Some("3"),
+        "three coaches are held: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit").map(String::as_str),
+        Some("3"),
+        "the cap is three coaches: {line:?}"
+    );
+    assert_eq!(
+        line.get("surface").map(String::as_str),
+        Some("web"),
+        "the draft was confirmed in the web chat: {line:?}"
     );
     assert_eq!(agent_count(&resources, user_id, tenant_id).await, 3);
     assert_eq!(

@@ -36,6 +36,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{ConversationRecord, CoverageMap, GuidedFlow, OnboardingState, TenantId};
+use pierre_core::usage_log::{self, LimitHit};
 use pierre_database::repositories::{
     ChatRepository, GroupRoomClaim, NewConversation, Reactivation, SlotClaim,
 };
@@ -197,6 +198,8 @@ pub async fn create_conversation_slot(
     match repos.chat.create_conversation_within_cap(new, cap).await? {
         SlotClaim::Claimed(conversation) => Ok(*conversation),
         SlotClaim::AtCap { current } => Err(conversation_cap_error(
+            new.user_id,
+            new.tenant_id,
             current,
             cap.unwrap_or(UNLIMITED_CONVERSATIONS),
         )),
@@ -241,6 +244,8 @@ pub async fn open_group_room_slot(
         GroupRoomClaim::Held(conversation) => Ok((*conversation, RoomOrigin::Held)),
         GroupRoomClaim::Opened(conversation) => Ok((*conversation, RoomOrigin::Opened)),
         GroupRoomClaim::AtCap { current } => Err(conversation_cap_error(
+            new.user_id,
+            new.tenant_id,
             current,
             cap.unwrap_or(UNLIMITED_CONVERSATIONS),
         )),
@@ -300,6 +305,8 @@ pub async fn reactivate_for_turn(
             Ok(())
         }
         Reactivation::AtCap { current } => Err(archived_conversation_cap_error(
+            user_id,
+            tenant_id,
             current,
             cap.unwrap_or(UNLIMITED_CONVERSATIONS),
         )),
@@ -346,15 +353,30 @@ const CONVERSATION_CAP_LIMIT_TYPE: &str = "max_active_conversations";
 /// one", and [`conversation_cap_reply`] does the same on messaging.
 const ARCHIVED_CONVERSATION_REASON: &str = "conversation_archived";
 
-/// The one refusal shape for the conversation cap, whichever path hit it.
-fn conversation_cap_error(current: i64, cap: i64) -> AppError {
+/// The one refusal shape for the conversation cap, whichever path hit it,
+/// logged as the usage limit `user_id` reached.
+fn conversation_cap_error(user_id: &str, tenant_id: TenantId, current: i64, cap: i64) -> AppError {
+    let tenant_id = tenant_id.to_string();
+    usage_log::limit_reached(&LimitHit {
+        user_id,
+        tenant_id: Some(&tenant_id),
+        limit_type: CONVERSATION_CAP_LIMIT_TYPE,
+        current,
+        limit: cap,
+        surface: "chat",
+    });
     AppError::quota_exceeded(CONVERSATION_CAP_LIMIT_TYPE, current, cap, "")
 }
 
 /// The cap refusal for a turn into an archived thread: the same shape as
 /// [`conversation_cap_error`], plus `details.reason` naming the archive.
-fn archived_conversation_cap_error(current: i64, cap: i64) -> AppError {
-    let mut err = conversation_cap_error(current, cap);
+fn archived_conversation_cap_error(
+    user_id: &str,
+    tenant_id: TenantId,
+    current: i64,
+    cap: i64,
+) -> AppError {
+    let mut err = conversation_cap_error(user_id, tenant_id, current, cap);
     if let Some(Value::Object(details)) = err.details.as_deref_mut() {
         details.insert(
             "reason".to_owned(),
@@ -843,6 +865,8 @@ pub fn dated_title(
 mod tests {
     use chrono::TimeZone;
 
+    use pierre_test_support::log_capture::{capture_target, drain};
+
     use super::*;
 
     /// 2026-10-01T05:28Z — 01:28 in Toronto, 14:28 in Tokyo.
@@ -882,5 +906,24 @@ mod tests {
             dated_title("Chat", "en", Some("Not/AZone"), at()),
             "Chat Oct 1 05:28"
         );
+    }
+
+    /// A conversation-cap refusal is logged with who, the cap and the count
+    /// that met it (carnet#1630).
+    #[test]
+    fn a_conversation_cap_refusal_is_logged_with_the_athlete_and_the_count() {
+        let (events, _guard) = capture_target(usage_log::TARGET);
+        let error = conversation_cap_error("athlete-1", TenantId::generate(), 50, 50);
+        assert_eq!(error.code, ErrorCode::QuotaExceeded);
+        let lines = drain(&events);
+        assert_eq!(lines.len(), 1, "one line per refusal: {lines:?}");
+        let line = &lines[0];
+        assert_eq!(line.get("user_id").map(String::as_str), Some("athlete-1"));
+        assert_eq!(
+            line.get("limit_type").map(String::as_str),
+            Some(CONVERSATION_CAP_LIMIT_TYPE)
+        );
+        assert_eq!(line.get("current").map(String::as_str), Some("50"));
+        assert_eq!(line.get("limit").map(String::as_str), Some("50"));
     }
 }

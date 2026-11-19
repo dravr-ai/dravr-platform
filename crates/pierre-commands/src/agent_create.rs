@@ -27,6 +27,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::agents::{Agent, AgentCategory, CreateAgentRequest};
+use pierre_core::usage_log::{self, LimitHit};
 use pierre_database::repositories::{PendingAgentDraft, AGENT_PROPOSAL_ACTION};
 use pierre_services::agent_generation::{
     agent_quota, conversation_excerpt, propose_agent, resolve_chat_provider, AgentProposal,
@@ -241,6 +242,16 @@ pub(crate) async fn create_from_claimed_proposal(
     )
     .await?;
     if quota.is_full() {
+        let user_id = ctx.user_id.to_string();
+        let tenant_id = ctx.tenant_id.to_string();
+        usage_log::limit_reached(&LimitHit {
+            user_id: &user_id,
+            tenant_id: Some(&tenant_id),
+            limit_type: "max_coaches_per_user",
+            current: quota.current,
+            limit: quota.max,
+            surface: &ctx.channel_type,
+        });
         return Ok(CommandResponse::text(reg.render(
             KEY_AGENT_CREATE_QUOTA,
             locale,

@@ -1,5 +1,5 @@
-// ABOUTME: Who may create a coaching group, and who may be a group's human coach
-// ABOUTME: One decision each, shared by the REST create route, its permissions read and the /group commands
+// ABOUTME: Whether a plan includes group coaching, who may create a group, and who may coach one
+// ABOUTME: One decision each, shared by the REST create route and its permissions read, the messaging auto-bind and /group
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,9 +8,54 @@ use std::future::Future;
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{TenantId, User};
+use pierre_core::usage_log::{self, LimitHit};
 use pierre_database::repositories::TenantRepository;
 use tracing::warn;
 use uuid::Uuid;
+
+use crate::strategies::tier::GroupTierStrategy;
+
+/// The refusal a creation path answers with when the tenant plan includes no
+/// group coaching. Tier-neutral: it names the missing capability, not which
+/// plans carry it.
+pub const GROUP_COACHING_NOT_INCLUDED: &str = "Your plan does not include group coaching";
+
+/// The usage-log `limit_type` of a creation refused because the plan includes
+/// no group coaching.
+pub const GROUP_COACHING_PLAN_LIMIT: &str = "group_coaching_plan";
+
+/// Whether `plan_tier` refuses group coaching to `user_id` in `tenant_id`.
+///
+/// The one decision every creation entry point asks — the REST and
+/// `/group create` paths through [`crate::GroupService::create_group`], and the
+/// messaging auto-bind before it creates a channel group — so a plan without
+/// group coaching
+/// ([`GroupAllowance::includes_group_coaching`](crate::strategies::tier::GroupAllowance::includes_group_coaching))
+/// is refused the same way everywhere. A refusal is logged as a usage limit
+/// ([`GROUP_COACHING_PLAN_LIMIT`], counter and limit both `0`) on `surface`;
+/// a plan that includes group coaching logs nothing.
+#[must_use]
+pub fn refuses_group_coaching(
+    plan_tier: &dyn GroupTierStrategy,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    surface: &str,
+) -> bool {
+    if plan_tier.group_allowance().includes_group_coaching() {
+        return false;
+    }
+    let user_id = user_id.to_string();
+    let tenant_id = tenant_id.to_string();
+    usage_log::limit_reached(&LimitHit {
+        user_id: &user_id,
+        tenant_id: Some(&tenant_id),
+        limit_type: GROUP_COACHING_PLAN_LIMIT,
+        current: 0,
+        limit: 0,
+        surface,
+    });
+    true
+}
 
 /// The admin-config key holding a tenant's group-creation policy:
 /// `"everyone"` lets any member create groups, anything else reserves it to
@@ -128,7 +173,37 @@ pub fn creator_coaches_group(user: &User, tenant_id: TenantId) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::strategies::tier::{
+        EnterpriseTierStrategy, ProfessionalTierStrategy, StarterTierStrategy,
+    };
     use pierre_core::permissions::UserRole;
+    use pierre_test_support::log_capture::{capture_target, drain};
+
+    // The refusal of a plan without group coaching is asserted in
+    // tests/it/no_group_coaching_gate_test.rs: it needs the shared
+    // `NoGroupCoachingTier` fixture, whose trait is the ordinary library's,
+    // not this unit-test build's.
+
+    #[test]
+    fn every_shipping_tier_includes_group_coaching_and_logs_nothing() {
+        let (events, _guard) = capture_target(usage_log::TARGET);
+        let tiers: [(&str, &dyn GroupTierStrategy); 3] = [
+            ("starter", &StarterTierStrategy),
+            ("professional", &ProfessionalTierStrategy),
+            ("enterprise", &EnterpriseTierStrategy),
+        ];
+        for (name, tier) in tiers {
+            assert!(
+                !refuses_group_coaching(tier, Uuid::new_v4(), TenantId::generate(), "groups"),
+                "{name} includes group coaching"
+            );
+        }
+        let lines = drain(&events);
+        assert!(
+            lines.is_empty(),
+            "an admitted plan logs no limit: {lines:?}"
+        );
+    }
 
     fn user(manages_roster: bool, admin: bool) -> User {
         let mut user = User::new("coach@example.com".to_owned(), "hash".to_owned(), None);

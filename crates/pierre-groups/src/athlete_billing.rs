@@ -20,13 +20,15 @@ use std::fmt;
 use std::sync::Arc;
 
 use pierre_core::billing::{BillingProvider, ExtraAthletesRequest};
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Subscription, SubscriptionStatus, TenantId};
+use pierre_core::usage_log::{self, LimitHit};
 use pierre_database::repositories::{
     CoachingGroupRepository, SubscriptionsRepository, TenantRepository,
 };
 use uuid::Uuid;
 
+use crate::creation_policy::GROUP_COACHING_NOT_INCLUDED;
 use crate::strategies::tier::{tier_strategy_for, GroupAllowance};
 
 /// What [`AthleteBilling::sync`] did with an owner's per-athlete charge.
@@ -104,7 +106,13 @@ impl AthleteBilling {
 
     /// Refuse a group creation `allowance` does not cover.
     ///
-    /// Below the included count every tier admits the group. At or above it,
+    /// [`GroupAllowance::Disabled`] refuses every creation without counting:
+    /// the plan includes no group coaching. The creation paths have already
+    /// refused such a plan through
+    /// [`refuses_group_coaching`](crate::creation_policy::refuses_group_coaching),
+    /// so this is the defence behind that gate, not a second decision.
+    ///
+    /// Below the included count every other tier admits the group. At or above it,
     /// [`GroupAllowance::Capped`] refuses, and [`GroupAllowance::BilledAbove`]
     /// admits it only when the owner has an entitled subscription on this
     /// tenant to bill the extra athlete to — without one, the included count
@@ -112,8 +120,9 @@ impl AthleteBilling {
     ///
     /// # Errors
     ///
-    /// Returns an `invalid_input` error naming the allowance when the creation
-    /// is refused, or a database error on failure.
+    /// Returns [`ErrorCode::PermissionDenied`] for a plan without group
+    /// coaching, an `invalid_input` error naming the allowance when the
+    /// creation is refused, or a database error on failure.
     pub async fn ensure_room(
         &self,
         owner_id: Uuid,
@@ -122,10 +131,17 @@ impl AthleteBilling {
     ) -> AppResult<()> {
         let included = match allowance {
             GroupAllowance::Unlimited => return Ok(()),
+            GroupAllowance::Disabled => {
+                return Err(AppError::new(
+                    ErrorCode::PermissionDenied,
+                    GROUP_COACHING_NOT_INCLUDED,
+                ))
+            }
             GroupAllowance::Capped(count) | GroupAllowance::BilledAbove(count) => count,
         };
         let held = self.active_groups(owner_id, tenant_id).await?;
-        if held < i64::try_from(included).unwrap_or(i64::MAX) {
+        let limit = i64::try_from(included).unwrap_or(i64::MAX);
+        if held < limit {
             return Ok(());
         }
 
@@ -137,12 +153,14 @@ impl AthleteBilling {
             if billable {
                 return Ok(());
             }
+            log_allowance_reached(owner_id, tenant_id, held, limit);
             return Err(AppError::invalid_input(format!(
                 "Group limit reached ({included} included). Each athlete above {included} is \
                  billed on an active subscription; start one to add more."
             )));
         }
 
+        log_allowance_reached(owner_id, tenant_id, held, limit);
         Err(AppError::invalid_input(format!(
             "Group limit reached ({included}). Upgrade your plan for more groups."
         )))
@@ -218,8 +236,24 @@ const fn still_billing(status: SubscriptionStatus) -> bool {
     )
 }
 
+/// Log a group creation the owner's plan allowance refused.
+fn log_allowance_reached(owner_id: Uuid, tenant_id: TenantId, held: i64, limit: i64) {
+    let user_id = owner_id.to_string();
+    let tenant_id = tenant_id.to_string();
+    usage_log::limit_reached(&LimitHit {
+        user_id: &user_id,
+        tenant_id: Some(&tenant_id),
+        limit_type: "group_allowance",
+        current: held,
+        limit,
+        surface: "groups",
+    });
+}
+
 #[cfg(test)]
 mod tests {
+    use pierre_test_support::log_capture::{capture_target, drain};
+
     use super::*;
 
     #[test]
@@ -231,5 +265,24 @@ mod tests {
         assert!(still_billing(SubscriptionStatus::Incomplete));
         assert!(!still_billing(SubscriptionStatus::Canceled));
         assert!(!still_billing(SubscriptionStatus::IncompleteExpired));
+    }
+
+    /// A refused group creation is logged with the owner, the groups they
+    /// hold and their plan's allowance (carnet#1630).
+    #[test]
+    fn a_refused_allowance_is_logged_with_the_owner_and_count() {
+        let (events, _guard) = capture_target(usage_log::TARGET);
+        let owner_id = Uuid::new_v4();
+        log_allowance_reached(owner_id, TenantId::generate(), 3, 3);
+        let lines = drain(&events);
+        assert_eq!(lines.len(), 1, "one line per refusal: {lines:?}");
+        let line = &lines[0];
+        assert_eq!(line.get("user_id"), Some(&owner_id.to_string()));
+        assert_eq!(
+            line.get("limit_type").map(String::as_str),
+            Some("group_allowance")
+        );
+        assert_eq!(line.get("current").map(String::as_str), Some("3"));
+        assert_eq!(line.get("limit").map(String::as_str), Some("3"));
     }
 }

@@ -19,6 +19,8 @@
 //!   link rests on.
 //! - [`garmin`] — an athlete's Garmin session and the API grant that pushes
 //!   their wellness.
+//! - `group_tier` (feature `groups`) — a plan whose tier includes no group
+//!   coaching, which no shipping tier is.
 //! - [`server`] — `User` fixtures in a consistent default shape.
 //! - `sse` (feature `sse`) — the frames a client reads off a streaming chat
 //!   turn's body.
@@ -45,6 +47,9 @@
 //! factory honours a `PostgreSQL` `DATABASE_URL` exactly when the test binary
 //! was built able to open one.
 //!
+//! `groups` builds the group-tier fixture, and with it `pierre-groups`; only a
+//! consumer whose suites drive group creation turns it on.
+//!
 //! `sse` builds the SSE frame reader, and with it an HTTP client; only a
 //! consumer whose suites read a streaming turn turns it on.
 
@@ -62,6 +67,11 @@ pub mod fault_proxy;
 pub mod fit;
 /// A Garmin athlete's usr/pwd session and the API grant pushing their wellness.
 pub mod garmin;
+/// A group tier whose plan includes no group coaching.
+#[cfg(feature = "groups")]
+pub mod group_tier;
+/// Capture one tracing target's events, to assert the lines code logs.
+pub mod log_capture;
 /// `User` fixtures in a consistent default shape.
 pub mod server;
 /// The frames a client reads off a streaming chat turn's SSE body.

@@ -38,9 +38,11 @@ use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_config::environment::{CorsConfig, ServerConfig};
 use pierre_core::models::usage::JwtUsage;
 use pierre_core::models::{
-    A2AClient, A2AUsage, RequestLog, Tenant, TenantId, User, UserStatus, UserTier,
+    A2AClient, A2AUsage, CreateUserMcpTokenRequest, RequestLog, Tenant, TenantId, User, UserStatus,
+    UserTier,
 };
 use pierre_core::permissions::UserRole;
+use pierre_core::usage_log;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::backends::{
     CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
@@ -48,6 +50,9 @@ use pierre_database::backends::{
 use pierre_database::repositories::analytics::next_utc_month_start;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_services::admin_ops;
+use pierre_test_support::log_capture::{capture_target, drain, CapturedEvents};
+use secrecy::ExposeSecret;
 use serde_json::{json, Value};
 use sha2::Sha256;
 use sqlx::sqlite::SqliteRow;
@@ -522,6 +527,53 @@ fn seconds_apart(a: i64, b: i64) -> i64 {
     (a - b).abs()
 }
 
+/// What one refused request's usage line must say (carnet#1630).
+struct UsageRefusal<'want> {
+    user_id: Uuid,
+    limit_type: &'want str,
+    current: u32,
+    limit: u32,
+    surface: &'want str,
+}
+
+/// The usage lines `events` captured are exactly one refusal, saying `want`.
+fn assert_one_usage_refusal(events: &CapturedEvents, want: &UsageRefusal<'_>) {
+    let lines = drain(events);
+    assert_eq!(lines.len(), 1, "one usage line per refusal: {lines:?}");
+    let line = &lines[0];
+    let field = |name: &str| line.get(name).map(String::as_str);
+    assert_eq!(
+        field("event"),
+        Some(usage_log::LIMIT_REACHED),
+        "the line is a refusal: {line:?}"
+    );
+    assert_eq!(
+        field("user_id"),
+        Some(want.user_id.to_string().as_str()),
+        "the line names the refused athlete: {line:?}"
+    );
+    assert_eq!(
+        field("limit_type"),
+        Some(want.limit_type),
+        "the line names the budget that refused: {line:?}"
+    );
+    assert_eq!(
+        field("current"),
+        Some(want.current.to_string().as_str()),
+        "the line carries the budget's count: {line:?}"
+    );
+    assert_eq!(
+        field("limit"),
+        Some(want.limit.to_string().as_str()),
+        "the line carries the budget's limit: {line:?}"
+    );
+    assert_eq!(
+        field("surface"),
+        Some(want.surface),
+        "the line names where the budget was met: {line:?}"
+    );
+}
+
 #[tokio::test]
 async fn test_api_key_request_returns_numeric_rate_limit_headers() {
     let resources = common::create_test_server_resources().await.unwrap();
@@ -663,8 +715,20 @@ async fn test_an_admin_override_below_the_tier_is_the_enforced_and_reported_limi
 
     // The fifth is past the override, far below the tier's 10 000
     let before = next_utc_month_start(Utc::now()).timestamp();
+    let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
     let fifth = usage_status(&app, &starter).await;
+    drop(usage_guard);
     let after = next_utc_month_start(Utc::now()).timestamp();
+    assert_one_usage_refusal(
+        &usage_lines,
+        &UsageRefusal {
+            user_id: starter.user.id,
+            limit_type: "monthly_requests",
+            current: 4,
+            limit: 4,
+            surface: "http",
+        },
+    );
     assert_eq!(
         fifth.status,
         StatusCode::TOO_MANY_REQUESTS,
@@ -1227,6 +1291,60 @@ async fn test_mcp_trial_key_authenticates_and_carries_headers() {
     assert_eq!(answer.header("x-ratelimit-remaining"), Some("4"));
 }
 
+/// A personal MCP token spends its owner's monthly budget: past an admin's
+/// override, POST /mcp is a 429, and the refusal is logged as the owner's
+/// usage limit on the MCP surface (carnet#1630).
+#[tokio::test]
+async fn test_spent_personal_mcp_token_gets_429_and_logs_the_owners_budget() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let owner = athlete(&resources, UserTier::Starter, UserRole::User).await;
+    let repos = &resources.common.repos;
+    admin_ops::set_user_rate_limit_override(
+        repos,
+        owner.user.id,
+        Some(2),
+        Some("mcp token budget".to_owned()),
+        None,
+    )
+    .await
+    .unwrap();
+    seed_jwt_calls(&resources, owner.user.id, 2).await;
+    let token = repos
+        .user_mcp_tokens
+        .create_token(
+            owner.user.id,
+            &CreateUserMcpTokenRequest {
+                name: "Budget client".to_owned(),
+                expires_in_days: None,
+            },
+        )
+        .await
+        .unwrap()
+        .token_value;
+
+    let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
+    let refused = send(&app, mcp_ping(Some(token.expose_secret()))).await;
+    drop(usage_guard);
+
+    assert_eq!(
+        refused.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "a spent owner budget is a 429 on POST /mcp: {}",
+        refused.body
+    );
+    assert_one_usage_refusal(
+        &usage_lines,
+        &UsageRefusal {
+            user_id: owner.user.id,
+            limit_type: "monthly_requests",
+            current: 2,
+            limit: 2,
+            surface: "mcp",
+        },
+    );
+}
+
 #[tokio::test]
 async fn test_unauthenticated_routes_carry_no_rate_limit_headers() {
     let resources = common::create_test_server_resources().await.unwrap();
@@ -1682,13 +1800,25 @@ async fn test_a2a_client_token_spends_its_clients_window_and_a_spent_one_gets_42
     assert_eq!(last.status, StatusCode::OK, "{}", last.body);
     assert_eq!(last.header("x-ratelimit-remaining"), Some("0"));
 
+    let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
     let refused = send(&app, a2a_request(&token, "GetExtendedAgentCard")).await;
+    drop(usage_guard);
     let now = Utc::now();
     assert_eq!(
         refused.status,
         StatusCode::TOO_MANY_REQUESTS,
         "a spent client budget cannot keep running through A2A: {}",
         refused.body
+    );
+    assert_one_usage_refusal(
+        &usage_lines,
+        &UsageRefusal {
+            user_id: owner.user.id,
+            limit_type: "a2a_client_window",
+            current: 3,
+            limit: 3,
+            surface: "a2a",
+        },
     );
     assert!(
         refused.headers.get(WWW_AUTHENTICATE).is_none(),
