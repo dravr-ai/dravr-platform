@@ -27,7 +27,7 @@ mod coach_roster_route_tests {
     use chrono::{Datelike, Duration, NaiveDate, Utc};
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
     use pierre_core::models::periodization::PhaseKind;
-    use pierre_core::transport::TransportPolicy;
+    use pierre_core::transport::{Transport, TransportPolicy};
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::repositories::training_plans::{
         DraftOwner, PlanAuthor, PublishDraftParams, SaveDraftParams,
@@ -36,6 +36,7 @@ mod coach_roster_route_tests {
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_memory::claims::ClaimStatus;
     use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
+    use pierre_providers::ai_scope;
     use pierre_tool_runtime::implementations::group_roster::GetRosterOverviewTool;
     use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::{json, Value};
@@ -563,11 +564,13 @@ mod coach_roster_route_tests {
             .with_user(casey.id.to_string())
             .with_tenant(casey.tenant.to_string())
             .with_auth_method("jwt_bearer");
-        let tool = GetRosterOverviewTool
-            .execute(&runtime, &ctx, json!({}))
-            .await
-            .structured_content
-            .expect("structured content");
+        let tool = ai_scope::serve_over(
+            Transport::WebApp,
+            GetRosterOverviewTool.execute(&runtime, &ctx, json!({})),
+        )
+        .await
+        .structured_content
+        .expect("structured content");
         let agent_row = tool["athletes"]
             .as_array()
             .unwrap()

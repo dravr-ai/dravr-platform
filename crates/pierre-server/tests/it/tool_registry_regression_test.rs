@@ -21,7 +21,7 @@ fn test_user_visible_tool_count_above_threshold() {
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
 
-    let user_schemas = registry.user_visible_schemas();
+    let user_schemas = registry.athlete_audience_schemas();
     let count = user_schemas.len();
 
     assert!(
@@ -384,7 +384,7 @@ fn chat_tools_are_never_offered_an_output_format_and_mcp_tools_still_are() {
     );
 
     let get_activities = registry
-        .user_visible_schemas()
+        .athlete_audience_schemas()
         .into_iter()
         .find(|schema| schema.name == "get_activities")
         .expect("get_activities is registered");

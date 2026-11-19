@@ -875,7 +875,7 @@ async fn every_wellness_read_is_listed_with_athlete_over_mcp_and_offered_in_the_
             .as_ref()
             .is_some_and(|properties| properties.contains_key("athlete"))
     };
-    let listed = registry.user_visible_schemas();
+    let listed = registry.athlete_audience_schemas();
     let chat = registry.chat_callable_schemas();
     for (tool, _) in wellness_reads() {
         assert!(

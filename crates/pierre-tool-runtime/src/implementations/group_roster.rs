@@ -60,12 +60,12 @@ use tracing::info;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{CoachingGroup, MemberFitnessSnapshot};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_mcp_schema::PropertySchema;
-use pierre_core::ai_policy::ProviderTerms;
 use pierre_providers::ai_scope;
 use pierre_services::coach_roster::{
     gather_roster, order_roster, roster_access, OrderedMember, RosterAccess, RosterAthleteStatus,
@@ -503,9 +503,8 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
              sources. Only athletes whose `status` is `shared` carry `training`; \
              `no_coach_consent` means they stopped sharing with you (they can share again with \
              `/group consent coach yes`) — never infer their numbers. In a group's room it \
-             covers that group only. For an AI assistant the coach connects to Dravr it shows \
-             only the members who allowed it in Dravr; `note` says how many others there are. Use `get_group_member_activities` for one athlete's full \
-             session history, and `get_provider_roster` for your coaching platform's roster.",
+             covers that group only. Outside AI tools see opted-in members; `note` counts \
+             the rest. Use `get_group_member_activities` for one athlete's full session history, and `get_provider_roster` for your coaching platform's roster.",
             schema,
             annotations(
                 "Get roster overview",

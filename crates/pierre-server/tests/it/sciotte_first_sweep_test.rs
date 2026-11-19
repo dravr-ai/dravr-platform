@@ -547,6 +547,8 @@ async fn a_group_member_read_scrapes_the_session_once_and_never_writes_it_under_
     use pierre_core::models::groups::{
         CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     };
+    use pierre_core::transport::Transport;
+    use pierre_providers::ai_scope;
     use pierre_tool_runtime::implementations::groups::GetGroupMemberActivitiesTool;
 
     let w = world().await;
@@ -640,9 +642,11 @@ async fn a_group_member_read_scrapes_the_session_once_and_never_writes_it_under_
         .with_tenant(host_tenant.to_string())
         .with_auth_method("jwt_bearer");
 
-    let response = GetGroupMemberActivitiesTool
-        .execute(&runtime, &ctx, json!({ "member": "raph" }))
-        .await;
+    let response = ai_scope::serve_over(
+        Transport::WebApp,
+        GetGroupMemberActivitiesTool.execute(&runtime, &ctx, json!({ "member": "raph" })),
+    )
+    .await;
 
     let payload = response
         .structured_content

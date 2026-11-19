@@ -261,7 +261,11 @@ mod roster_overview_tests {
             .with_user(coach.user.to_string())
             .with_tenant(coach.tenant.to_string())
             .with_auth_method("jwt_bearer");
-        let response: ToolResponse = GetRosterOverviewTool.execute(&runtime, &ctx, args).await;
+        let response: ToolResponse = ai_scope::serve_over(
+            Transport::WebApp,
+            GetRosterOverviewTool.execute(&runtime, &ctx, args),
+        )
+        .await;
         response
             .structured_content
             .expect("tool result carries structured content")

@@ -415,8 +415,15 @@ impl UniversalExecutor {
     ///
     /// `is_admin` is the live role [`build_tool_context`] read. The coach flag
     /// is read live too, and only where it can change the answer: a coach
-    /// tool called over an external transport by someone who is not an
-    /// admin. In Dravr's own app the coach tools' own gates decide.
+    /// tool called by an MCP client or an A2A agent (the entry points that
+    /// bind [`Self::with_caller_writing_reply`]) over an external transport,
+    /// by someone who is not an admin. In Dravr's own app the coach tools'
+    /// own gates decide.
+    ///
+    /// A chat turn served outside the app (an API key's, the A2A text turn's)
+    /// offers what a caller with no role is offered
+    /// ([`offered_schemas`](crate::chat_catalogue::offered_schemas)), so its
+    /// calls are refused the same, the admin tools' own gate aside.
     async fn access_refusal(
         &self,
         tool: &dyn RuntimeTool,
@@ -426,7 +433,8 @@ impl UniversalExecutor {
     ) -> Result<Option<UniversalResponse>, ProtocolError> {
         let transport = ai_scope::effective_transport(self.transport);
         let external = !transport.is_some_and(Transport::is_first_party);
-        let coach = external
+        let coach = self.caller_writes_reply
+            && external
             && !is_admin
             && tool.audience() == Audience::Coach
             && is_human_coach(self.resources.repos(), user_id).await;
@@ -438,7 +446,17 @@ impl UniversalExecutor {
             grant: &self.scopes,
             transport,
         };
-        withheld(tool, &caller)
+        let answer = withheld(tool, &caller).or_else(|| {
+            if self.caller_writes_reply {
+                return None;
+            }
+            let role_less = Caller {
+                role: CallerRole::default(),
+                ..caller
+            };
+            withheld(tool, &role_less).filter(|why| *why != Withheld::Role(Audience::Admin))
+        });
+        answer
             .map(|answer| render_withheld(tool_name, answer))
             .transpose()
     }

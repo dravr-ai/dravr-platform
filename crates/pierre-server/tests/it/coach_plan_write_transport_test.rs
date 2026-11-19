@@ -464,7 +464,12 @@ mod coach_plan_write_transport_tests {
         task["status"]["state"] == "TASK_STATE_FAILED"
             && task["status"]["message"]["parts"][0]["text"]
                 .as_str()
-                .is_some_and(|text| text.contains("not over this interface"))
+                .is_some_and(|text| {
+                    // Refused by #1533's write gate, or, for an app-only tool
+                    // never listed externally, by the access predicate.
+                    text.contains("not over this interface")
+                        || text.contains("not available over this interface")
+                })
     }
 
     fn reason(response: &UniversalResponse) -> Option<&str> {

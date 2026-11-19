@@ -23,14 +23,14 @@ use crate::common;
 
 use anyhow::Result;
 use pierre_core::models::TenantPlan;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::{
     mcp::resources::ServerContext, tools::registry_builtin::register_builtin_tools,
 };
-use pierre_tool_runtime::coach_listing;
-use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::registry::ToolRegistry;
+use pierre_tool_runtime::tool_access::{self, Caller, CallerRole};
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::{collections::HashSet, sync::Arc};
@@ -444,8 +444,9 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (user, _session) =
         common::create_test_tenant(&resources, "wire-parity-admin@example.com").await?;
-    // The wire response must match the in-process registry less what is kept on Dravr's
-    // own surfaces, for a global admin (`User.role`) on the top plan as for anyone.
+    // The wire response must match the in-process registry as the access predicate
+    // narrows it for a global admin (`User.role`) on the top plan: every tool but the
+    // app-only one, on an API key whose grant holds `admin` (carnet#1511).
     // Flipping the flag in the DB makes the admin's API key authenticate as an admin — an
     // API key, because `admin` is never delegated and `/mcp` refuses a session token
     // (carnet#768).
@@ -486,12 +487,22 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
     // In-process: rebuild a registry and compare.
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
-    // `/mcp` is an external transport: what it lists is the registry less the
-    // operator tools and the tools kept on Dravr's own surfaces.
-    let mut schemas = registry.user_visible_schemas();
-    first_party_tools::retain_served_over(&registry, &mut schemas, Transport::McpHttp);
-    // The admin coaches no group, so the coach-only tools are not listed to them.
-    coach_listing::retain_for_audience(&registry, &mut schemas, false);
+    // `/mcp` is an external transport; the admin's key holds every scope.
+    let mut schemas = registry.all_schemas();
+    let grant = OAuthScope::self_grant();
+    let admin = Caller {
+        role: CallerRole {
+            admin: true,
+            coach: false,
+        },
+        grant: &grant,
+        transport: Some(Transport::McpHttp),
+    };
+    tool_access::retain_offered(&registry, &mut schemas, &admin);
+    assert!(
+        !schemas.iter().any(|s| s.name == "publish_training_plan"),
+        "an app-only tool is listed to no one externally"
+    );
     let in_process: HashSet<String> = schemas.into_iter().map(|s| s.name).collect();
 
     let only_wire: Vec<&String> = wire.difference(&in_process).collect();

@@ -64,23 +64,23 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
     /// The tool's Guardian security classification (see [`SecurityLabels`]).
     fn security_class(&self) -> SecurityLabels;
 
-    /// Where the tool may be listed and run ([`ToolSurface`]): on every
+    /// Where the tool may be listed and run ([`ToolReach`]): on every
     /// transport, only on Dravr's own surfaces, or only in Dravr's own app
     /// whoever asks.
     ///
     /// Read by the one access predicate ([`crate::tool_access::withheld`]):
-    /// a [`ToolSurface::FirstPartyOnly`] tool is left out of an external
+    /// a [`ToolReach::FirstPartyOnly`] tool is left out of an external
     /// caller's listing and refused if it calls it anyway, unless the caller
-    /// is an admin whose grant holds `admin`; a [`ToolSurface::AppOnly`] tool
+    /// is an admin whose grant holds `admin`; a [`ToolReach::AppOnly`] tool
     /// is withheld from every external caller. An MCP client, an A2A agent
     /// and an API key are external; the web and mobile apps, linked
     /// messaging channels and platform jobs are not.
     ///
-    /// Defaults to [`ToolSurface::AnyTransport`]. A tool opts in through
+    /// Defaults to [`ToolReach::AnyTransport`]. A tool opts in through
     /// [`declare_security!`](crate::declare_security)'s `first_party_only` or
     /// `app_only` arm, beside its security labels.
-    fn surface(&self) -> ToolSurface {
-        ToolSurface::AnyTransport
+    fn reach(&self) -> ToolReach {
+        ToolReach::AnyTransport
     }
 
     /// Who the tool serves ([`Audience`]), the role axis of
@@ -112,7 +112,7 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
 /// Where a tool may be listed and run, by the transport a call is served
 /// over and, for one value, the caller's role.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ToolSurface {
+pub enum ToolReach {
     /// Every transport.
     #[default]
     AnyTransport,
@@ -151,9 +151,9 @@ pub enum Audience {
 /// ```
 ///
 /// The trailing `; first_party_only` declares the tool
-/// [`ToolSurface::FirstPartyOnly`] ([`RuntimeTool::surface`]): listed and run
+/// [`ToolReach::FirstPartyOnly`] ([`RuntimeTool::reach`]): listed and run
 /// on Dravr's own surfaces, and to an admin holding `admin` in their grant.
-/// `; app_only` declares [`ToolSurface::AppOnly`]: Dravr's own surfaces
+/// `; app_only` declares [`ToolReach::AppOnly`]: Dravr's own surfaces
 /// only, whoever asks. `; coach` declares that the tool serves a human coach
 /// ([`Audience::Coach`], [`RuntimeTool::audience`]). `; food_database`
 /// declares that the tool needs the deployment's USDA key
@@ -188,8 +188,8 @@ macro_rules! declare_security {
                 $crate::security::SecurityLabels::empty()
             }
 
-            fn surface(&self) -> $crate::security::ToolSurface {
-                $crate::security::ToolSurface::FirstPartyOnly
+            fn reach(&self) -> $crate::security::ToolReach {
+                $crate::security::ToolReach::FirstPartyOnly
             }
         }
     };
@@ -199,8 +199,8 @@ macro_rules! declare_security {
                 $( $crate::security::SecurityLabels::$flag )|+
             }
 
-            fn surface(&self) -> $crate::security::ToolSurface {
-                $crate::security::ToolSurface::FirstPartyOnly
+            fn reach(&self) -> $crate::security::ToolReach {
+                $crate::security::ToolReach::FirstPartyOnly
             }
         }
     };
@@ -221,8 +221,8 @@ macro_rules! declare_security {
                 $( $crate::security::SecurityLabels::$flag )|+
             }
 
-            fn surface(&self) -> $crate::security::ToolSurface {
-                $crate::security::ToolSurface::AppOnly
+            fn reach(&self) -> $crate::security::ToolReach {
+                $crate::security::ToolReach::AppOnly
             }
         }
     };

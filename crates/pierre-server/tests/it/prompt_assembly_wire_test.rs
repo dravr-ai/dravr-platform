@@ -747,7 +747,7 @@ async fn the_tool_index_names_exactly_what_the_chat_surface_serves() {
         .map(|schema| schema.name)
         .collect();
     let visible_only: Vec<String> = registry
-        .user_visible_schemas()
+        .athlete_audience_schemas()
         .into_iter()
         .map(|schema| schema.name)
         .filter(|name| !callable.contains(name))

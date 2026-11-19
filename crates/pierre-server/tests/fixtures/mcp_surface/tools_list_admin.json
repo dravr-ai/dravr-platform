@@ -12419,6 +12419,315 @@
       }
     },
     {
+      "name": "get_group_member_activities",
+      "description": "Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to read a peer's data in a group chat — `get_activities` always returns YOUR own data, never a peer's. Returns an error (not data), whose `reason` says why, if the member has not shared their data with you: with the group via `/group consent yes`, or with you as the group's coach (joining grants it, `/group consent coach no` revokes it).",
+      "inputSchema": {
+        "properties": {
+          "after": {
+            "description": "Unix epoch-second lower bound; pair with `before` for a specific past race or date range.",
+            "type": "integer"
+          },
+          "before": {
+            "description": "Unix epoch-second upper bound.",
+            "type": "integer"
+          },
+          "group_id": {
+            "description": "Id of one group you share, to search only it. In a group's room only that room's group is ever searched, whatever is passed.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max activities to return (1-100, default 30).",
+            "type": "integer"
+          },
+          "member": {
+            "description": "The member's display name as the group roster shows it, e.g. 'Raph'.",
+            "type": "string"
+          },
+          "sport_type": {
+            "description": "Sport filter, e.g. 'ride'.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "member"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "GroupMemberActivity": {
+            "description": "One of a group member's activities, as the consent-gated peer read\nreports it.\n\nA deliberately narrow projection: this is another athlete's data, shown\nbecause they consented to share it with the group, so it carries what a\ntraining partner would compare against and nothing more. No GPS track, no\nnotes, no device details.",
+            "properties": {
+              "average_heart_rate": {
+                "description": "Mean heart rate; absent without a strap.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "average_power": {
+                "description": "Mean power in watts; absent without a meter.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "calories": {
+                "description": "Energy in kilocalories, as the provider estimated it.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "distance_km": {
+                "description": "Distance in kilometres; absent for an activity with no distance.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "duration_seconds": {
+                "description": "Moving time in seconds, exact: the agent quotes it and derives pace\nfrom it.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "elevation_gain_m": {
+                "description": "Elevation gained in metres; absent when the device recorded none.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "id": {
+                "description": "Provider-scoped activity identifier.",
+                "type": "string"
+              },
+              "max_heart_rate": {
+                "description": "Peak heart rate; absent without a strap.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "max_power": {
+                "description": "Peak power in watts; absent without a meter.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "The activity's title.",
+                "type": "string"
+              },
+              "provider": {
+                "description": "Which provider the activity came from.",
+                "type": "string"
+              },
+              "sport": {
+                "description": "Sport, as the provider classified it.",
+                "type": "string"
+              },
+              "start_date": {
+                "description": "RFC 3339 start timestamp.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "sport",
+              "start_date",
+              "distance_km",
+              "duration_seconds",
+              "elevation_gain_m",
+              "average_heart_rate",
+              "max_heart_rate",
+              "average_power",
+              "max_power",
+              "calories",
+              "provider"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "What `get_group_member_activities` answers with.",
+        "properties": {
+          "activities": {
+            "description": "The activities, newest first.",
+            "items": {
+              "$ref": "#/$defs/GroupMemberActivity"
+            },
+            "type": "array"
+          },
+          "count": {
+            "description": "How many activities came back, after de-duplication and the limit.",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "group": {
+            "description": "The group the consent was granted through.",
+            "type": "string"
+          },
+          "member": {
+            "description": "The member whose activities these are, by display name — never their\naccount identifier.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "member",
+          "group",
+          "count",
+          "activities"
+        ],
+        "title": "GroupMemberActivitiesResult",
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Get group member activities",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "get_group_member_plan_status",
+      "description": "Whether an athlete you COACH has a published plan: goal race, season, phase, and `where_to_read`. Never the weeks: relay `where_to_read`.",
+      "inputSchema": {
+        "properties": {
+          "member": {
+            "description": "The athlete's roster name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "member"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "PlanGoalRace": {
+            "description": "The goal race a published season is aimed at.",
+            "properties": {
+              "date": {
+                "description": "The race day, `YYYY-MM-DD`.",
+                "type": "string"
+              },
+              "days_out": {
+                "description": "Days from the athlete's today to the race; absent when the date does\nnot parse.",
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "The race's name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "date",
+              "days_out"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "What `get_group_member_plan_status` answers with.",
+        "properties": {
+          "current_phase": {
+            "description": "The phase the athlete is in today, when one covers it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "goal_race": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PlanGoalRace"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The race the season is aimed at; absent without a published plan."
+          },
+          "group": {
+            "description": "The group the caller coaches them in.",
+            "type": "string"
+          },
+          "member": {
+            "description": "The athlete, by roster name — never their account identifier.",
+            "type": "string"
+          },
+          "published": {
+            "description": "Whether the athlete has a published plan, the one they see.",
+            "type": "boolean"
+          },
+          "season_end": {
+            "description": "Day after the season's last, when the plan states one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "season_start": {
+            "description": "First day of the season, when the plan states one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "where_to_read": {
+            "description": "Where their coach reads the plan, changes it, or builds one: relay it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "member",
+          "group",
+          "published",
+          "goal_race",
+          "season_start",
+          "season_end",
+          "current_phase",
+          "where_to_read"
+        ],
+        "title": "GroupMemberPlanStatus",
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Get group member plan status",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "get_health_snapshots",
       "description": "Get stored wellness snapshots (body composition, vitals) and daily steps, energy, intensity minutes",
       "inputSchema": {
@@ -14673,6 +14982,296 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_roster_overview",
+      "description": "Review the athletes you COACH across your groups in one call: who trained this week, who has gone quiet, weekly volume, fitness and form, recent sessions and broken sources. Only athletes whose `status` is `shared` carry `training`; `no_coach_consent` means they stopped sharing with you (they can share again with `/group consent coach yes`) — never infer their numbers. In a group's room it covers that group only. Outside AI tools see opted-in members; `note` counts the rest. Use `get_group_member_activities` for one athlete's full session history, and `get_provider_roster` for your coaching platform's roster.",
+      "inputSchema": {
+        "properties": {
+          "group_id": {
+            "description": "Id of one group you coach, to review only its athletes; omit to review every athlete you coach.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "RosterAthleteStatus": {
+            "description": "One athlete's place on the roster.",
+            "oneOf": [
+              {
+                "const": "shared",
+                "description": "Their training is shared with the coach and listed.",
+                "type": "string"
+              },
+              {
+                "const": "no_coach_consent",
+                "description": "They revoked the coach's read in every group the coach holds them in\n(`/group consent coach no`); `/group consent coach yes` restores it.",
+                "type": "string"
+              },
+              {
+                "const": "no_source",
+                "description": "They share, but no training source is connected.",
+                "type": "string"
+              }
+            ]
+          },
+          "RosterOverviewActivity": {
+            "description": "One session in an athlete's recent list.",
+            "properties": {
+              "date": {
+                "description": "The day the athlete trained, on their own clock (`YYYY-MM-DD`).",
+                "type": "string"
+              },
+              "distance_km": {
+                "description": "Distance in kilometres; absent for a session with no distance.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "duration_seconds": {
+                "description": "Moving time in seconds, exact: the agent quotes it and derives pace\nfrom it.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "description": "The session's title, when the provider gave one.",
+                "type": "string"
+              },
+              "sport": {
+                "description": "Sport, as the provider classified it.",
+                "type": "string"
+              },
+              "weekday": {
+                "description": "That day's weekday, on the athlete's clock.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "date",
+              "weekday",
+              "sport",
+              "name",
+              "duration_seconds",
+              "distance_km"
+            ],
+            "type": "object"
+          },
+          "RosterOverviewAthlete": {
+            "description": "One athlete on the coach's roster.",
+            "properties": {
+              "groups": {
+                "description": "The groups, held by the coach, the athlete belongs to.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "name": {
+                "description": "Display name — never their account identifier.",
+                "type": "string"
+              },
+              "not_read": {
+                "description": "Why a `shared` athlete's training is not read, in the words a read of\nthem anywhere else is refused with: relay it, never infer their\nnumbers.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "$ref": "#/$defs/RosterAthleteStatus",
+                "description": "Whether their training is listed, and why not when it is not."
+              },
+              "training": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/RosterTraining"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Their training; present only when `status` is `shared`."
+              }
+            },
+            "required": [
+              "name",
+              "groups",
+              "status"
+            ],
+            "type": "object"
+          },
+          "RosterOverviewGroup": {
+            "description": "One group the overview covers.",
+            "properties": {
+              "athlete_count": {
+                "description": "Live athletes in the group.",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "name": {
+                "description": "The group's name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "athlete_count"
+            ],
+            "type": "object"
+          },
+          "RosterTraining": {
+            "description": "A shared athlete's training, as the group roster card carries it.",
+            "properties": {
+              "ctl": {
+                "description": "Chronic training load — fitness; absent when it could not be computed.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "days_since_last_activity": {
+                "description": "Days since their last session; absent with none in the lookback.",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "form": {
+                "description": "Form, read as a share of this athlete's own fitness with its band.\nNever compare it across athletes as an absolute number.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "km_previous_week": {
+                "description": "Kilometres the week before, for the trend.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "km_this_week": {
+                "description": "Kilometres this week.",
+                "format": "double",
+                "type": "number"
+              },
+              "last_activity_per_source": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "The day each connected source last delivered a session.",
+                "type": "object"
+              },
+              "needs_reconnect": {
+                "description": "Sources whose connection died and must be reconnected by the athlete.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "primary_sport": {
+                "description": "The sport they log most.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "recent_activities": {
+                "description": "Their latest sessions, newest first.",
+                "items": {
+                  "$ref": "#/$defs/RosterOverviewActivity"
+                },
+                "type": "array"
+              },
+              "seconds_this_week": {
+                "description": "Active seconds this week, which covers sources with no distance.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sessions_this_week": {
+                "description": "Sessions this week.",
+                "format": "int32",
+                "type": "integer"
+              },
+              "stale": {
+                "description": "True when the data came from a stale cache that could not be refreshed;\nquiet recent days are then not evidence they stopped training.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "days_since_last_activity",
+              "sessions_this_week",
+              "seconds_this_week",
+              "km_this_week",
+              "km_previous_week",
+              "primary_sport",
+              "ctl",
+              "form",
+              "recent_activities",
+              "last_activity_per_source",
+              "needs_reconnect",
+              "stale"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "What `get_roster_overview` answers with.",
+        "properties": {
+          "athletes": {
+            "description": "Shared athletes first, the longest without a session at the top; then\nthe athletes whose training is not listed, by name.",
+            "items": {
+              "$ref": "#/$defs/RosterOverviewAthlete"
+            },
+            "type": "array"
+          },
+          "groups": {
+            "description": "The groups covered: every one the caller coaches, or the room's own.",
+            "items": {
+              "$ref": "#/$defs/RosterOverviewGroup"
+            },
+            "type": "array"
+          },
+          "note": {
+            "description": "What the caller should know about who is not shown: for an AI\nassistant, how many members have not allowed it; for an admin who\nleads no group, why there is no roster. Relay it; never infer the\nmembers left out.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "truncated": {
+            "description": "True when the roster held more athletes than one call lists.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "groups",
+          "athletes",
+          "truncated"
+        ],
+        "title": "RosterOverviewResult",
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Get roster overview",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "optional"
       }
     },
     {
@@ -26318,10 +26917,6 @@
             "description": "The prescribing agent, read only on a direct MCP call with no conversation; a chat turn's own agent always wins. Its package resolves the template.",
             "type": "string"
           },
-          "athlete": {
-            "description": "Roster display name of a consenting athlete whose calendar this writes. Only a human coach of their group may set it, once the athlete allows calendar writes, from Dravr in a direct chat — never in a room. Defaults to the athlete of the coach's one-athlete thread.",
-            "type": "string"
-          },
           "date": {
             "description": "Date to schedule it on, YYYY-MM-DD.",
             "type": "string"
@@ -27568,1362 +28163,10 @@
       }
     },
     {
-      "name": "publish_training_plan",
-      "description": "Publish or discard a group's human coach's draft of a coached athlete's training plan (their save_training_plan for an athlete writes that unseen draft). publish makes it the live plan in one step; weeks not drafted keep the athlete's version. Call it only when the coach asks, in Dravr's app. If the athlete's own agent changed a drafted week or re-laid the season since, publish is refused with status `conflict` and nothing changes: tell the coach which weeks, and publish again with overwrite_athlete_changes only if they choose. publish also puts the plan on the athlete's chosen calendar: relay the reply's calendar_push. The caller's own plan has no draft: their saves are already live.",
-      "inputSchema": {
-        "properties": {
-          "action": {
-            "description": "publish (your draft becomes the athlete's live plan) or discard (it is thrown away, their plan unchanged).",
-            "type": "string"
-          },
-          "athlete": {
-            "description": "Roster display name of the consenting athlete whose plan your draft is of. Only a human coach of their group may set it, from a direct chat — never in a room. Defaults to the athlete of the coach's one-athlete thread.",
-            "type": "string"
-          },
-          "overwrite_athlete_changes": {
-            "description": "Publish over weeks the athlete's own agent changed since you drafted them and over a season re-laid under your draft. Set it only after the coach saw the conflicts and chose to replace the athlete's changes.",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "action"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "AnchorConfidence": {
-            "description": "How far to trust an anchor value.",
-            "oneOf": [
-              {
-                "const": "low",
-                "description": "A conversion, a default, an old test or a single effort.",
-                "type": "string"
-              },
-              {
-                "const": "medium",
-                "description": "A test 6–12 weeks old, or a model with two qualifying efforts.",
-                "type": "string"
-              },
-              {
-                "const": "high",
-                "description": "A named, protocol-compliant test at most 6 weeks old, or a model\nwith three maximal efforts spanning ~2–20 min.",
-                "type": "string"
-              }
-            ]
-          },
-          "CalendarPreview": {
-            "description": "What a push would change, without the entry list.\n\nThe save reply reports the counts only: the athlete has just written the\nplan and needs to know whether the calendar is behind, not to re-read\nevery entry they already have.",
-            "properties": {
-              "calendar_note": {
-                "description": "Present only when the athlete's chosen calendar was passed over (see\n[`CalendarBlock::calendar_note`]).",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "pending": {
-                "$ref": "#/$defs/PushPreview",
-                "description": "What a push would change."
-              },
-              "provider": {
-                "description": "The calendar provider.",
-                "type": "string"
-              },
-              "pushed_by": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/CalendarPusher"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "Present only when the athlete's human coach, not the athlete, pushes\nthis calendar (see [`CalendarBlock::pushed_by`])."
-              },
-              "stale": {
-                "description": "Whether it would change anything.",
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "provider",
-              "pending",
-              "stale"
-            ],
-            "type": "object"
-          },
-          "CalendarPushOutcome": {
-            "description": "What a save or a publish did to the athlete's calendar on its own\n(carnet#1492): the plan reconciled onto their chosen calendar, or why\nnothing was written there.\n\nThe write it follows never fails because of it. A gate that refuses the\npush, or a push that fails, is reported here beside a plan that landed.",
-            "oneOf": [
-              {
-                "description": "The plan was reconciled onto the athlete's calendar.",
-                "properties": {
-                  "report": {
-                    "$ref": "#/$defs/PushReport",
-                    "description": "What the push created, updated and removed, and what it left\nalone or failed to write."
-                  },
-                  "status": {
-                    "const": "pushed",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "status",
-                  "report"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Nothing on the athlete's calendar was written.",
-                "properties": {
-                  "message": {
-                    "description": "Why, in words to relay.",
-                    "type": "string"
-                  },
-                  "reason": {
-                    "description": "Why, as a code a client branches on: the refusing gate's own\nreason, `no_calendar` when the athlete holds no calendar Dravr\nwrites, or `push_failed` when the push itself failed.",
-                    "type": "string"
-                  },
-                  "status": {
-                    "const": "not_pushed",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "status",
-                  "reason",
-                  "message"
-                ],
-                "type": "object"
-              }
-            ]
-          },
-          "CalendarPusher": {
-            "description": "Who puts Dravr's plan on a calendar when it is not the athlete reading it.",
-            "oneOf": [
-              {
-                "const": "human_coach",
-                "description": "The athlete's human coach, through the link the athlete reads the\ncalendar by: only the coach writes it, from Dravr.",
-                "type": "string"
-              }
-            ]
-          },
-          "ConstraintAction": {
-            "description": "What a rule does when it fires. There is no block (founder decision D3).",
-            "oneOf": [
-              {
-                "const": "warn",
-                "description": "Tell the athlete and coach; the session stands as written.",
-                "type": "string"
-              },
-              {
-                "const": "relabel",
-                "description": "The physiology changed: tell them and file the session under the\npurpose it now trains.",
-                "type": "string"
-              }
-            ]
-          },
-          "CrowdedWeek": {
-            "description": "One week whose hard sessions sit closer together than its flavour allows.\n\nNamed rather than paired for the reason [`WeekReadiness`] is: a tuple\nserialises positionally and the reader has to know which slot is which.\nThe check is flattened, so the kernel stays the one definition of what\n\"too close\" means — including the minimum it applied and which gaps were\nshort.",
-            "oneOf": [
-              {
-                "description": "Every gap between hard sessions meets the minimum.",
-                "properties": {
-                  "min_hours": {
-                    "description": "The minimum applied, in hours.",
-                    "format": "uint16",
-                    "maximum": 65535,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "outcome": {
-                    "const": "within",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "outcome",
-                  "min_hours"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "At least one gap is short.",
-                "properties": {
-                  "min_hours": {
-                    "description": "The minimum applied, in hours.",
-                    "format": "uint16",
-                    "maximum": 65535,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "outcome": {
-                    "const": "off",
-                    "type": "string"
-                  },
-                  "short": {
-                    "description": "The short gaps, in date order.",
-                    "items": {
-                      "$ref": "#/$defs/ShortGap"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "outcome",
-                  "min_hours",
-                  "short"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Fewer than two hard sessions, or no flavour to take the minimum from.",
-                "properties": {
-                  "outcome": {
-                    "const": "unmeasured",
-                    "type": "string"
-                  },
-                  "reason": {
-                    "$ref": "#/$defs/Unmeasured",
-                    "description": "Why."
-                  }
-                },
-                "required": [
-                  "outcome",
-                  "reason"
-                ],
-                "type": "object"
-              }
-            ],
-            "properties": {
-              "week_start": {
-                "description": "Monday, `YYYY-MM-DD`.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "week_start"
-            ],
-            "type": "object"
-          },
-          "DayEnvelopeNotice": {
-            "description": "One day's envelope findings.",
-            "properties": {
-              "anchor": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/TargetAnchor"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "The athlete's anchor the day's targets are written on, with its\norigin, day and confidence: name it with the finding (\"against your\nFTP of 285 W from intervals.icu\"), as a range or an estimate when its\nconfidence is low. Absent when the targets name no anchor the athlete\nholds."
-              },
-              "date": {
-                "description": "The day, `YYYY-MM-DD`.",
-                "type": "string"
-              },
-              "findings": {
-                "description": "What the check found.",
-                "items": {
-                  "$ref": "#/$defs/EnvelopeFinding"
-                },
-                "type": "array"
-              },
-              "not_generated": {
-                "description": "Why the save could not build the day's steps from its preset; the day\ncarries no steps until the agent writes them or shortens the day.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "preset": {
-                "description": "The preset it was measured against.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "relabelled_purpose": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/WorkoutPurpose"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "The purpose the session trains when an edit moved it to another\nfamily."
-              },
-              "template_slug": {
-                "description": "The family the day names.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "date",
-              "template_slug",
-              "findings"
-            ],
-            "type": "object"
-          },
-          "DraftConflict": {
-            "description": "One week the coach drafted whose live version the athlete changed since.",
-            "properties": {
-              "reason": {
-                "$ref": "#/$defs/DraftConflictReason",
-                "description": "Why publishing it would overwrite the athlete's work."
-              },
-              "week_start": {
-                "description": "The week's first day, `YYYY-MM-DD`.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "week_start",
-              "reason"
-            ],
-            "type": "object"
-          },
-          "DraftConflictReason": {
-            "description": "Why publishing a drafted week would overwrite the athlete's own work.",
-            "oneOf": [
-              {
-                "const": "athlete_changed_week",
-                "description": "The athlete's agent saved the week after the coach drafted over it,\nor saved it for the first time.",
-                "type": "string"
-              }
-            ]
-          },
-          "DraftState": {
-            "description": "Where the coach's open draft stands: which draft it is, when the coach\nlast saved into it, and what publishing it now would overwrite.\n\nBuilt only by [`DraftState::of`]. It deserializes too, so a plan card\nstored on a reply carries the state it was built with back to the client\nunchanged.",
-            "properties": {
-              "conflicts": {
-                "description": "The drafted weeks the athlete changed since the coach drafted them.\nPublishing refuses them unless the coach overwrites them; a week the\ncoach never drafted is never here.",
-                "items": {
-                  "$ref": "#/$defs/DraftConflict"
-                },
-                "type": "array"
-              },
-              "draft_id": {
-                "description": "The draft's id: the same through every save until it is published or\ndiscarded.",
-                "type": "string"
-              },
-              "season_relaid": {
-                "description": "The athlete's season was re-laid (or laid, or removed) after the draft\nbegan, so the draft's weeks may no longer fit it. Publishing refuses\nit unless the coach overwrites it.",
-                "type": "boolean"
-              },
-              "updated_at": {
-                "description": "When the coach last saved into the draft.",
-                "format": "date-time",
-                "type": "string"
-              }
-            },
-            "required": [
-              "draft_id",
-              "updated_at",
-              "conflicts",
-              "season_relaid"
-            ],
-            "type": "object"
-          },
-          "EnvelopeFinding": {
-            "description": "One thing the check found. Always a warning; a relabel also names the\npurpose the session now trains.",
-            "properties": {
-              "action": {
-                "$ref": "#/$defs/ConstraintAction",
-                "description": "Warn, or warn and relabel."
-              },
-              "bound": {
-                "description": "The bound it crossed.",
-                "format": "float",
-                "type": [
-                  "number",
-                  "null"
-                ]
-              },
-              "code": {
-                "$ref": "#/$defs/FindingCode",
-                "description": "What it is about — the key a localized notice is written under."
-              },
-              "evidence": {
-                "description": "The studies the bound is derived from.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "key": {
-                "description": "The parameter or quantity measured (`reps`, `cycle_mean_pct`).",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "measured": {
-                "description": "What was measured.",
-                "format": "float",
-                "type": [
-                  "number",
-                  "null"
-                ]
-              },
-              "message": {
-                "description": "One deterministic English sentence, for logs and for the model;\nathlete-facing text is localized from `code`.",
-                "type": "string"
-              },
-              "relabel_to": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/WorkoutPurpose"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "The purpose a relabel files the session under."
-              }
-            },
-            "required": [
-              "code",
-              "action",
-              "message"
-            ],
-            "type": "object"
-          },
-          "FailedEntry": {
-            "description": "An entry whose write the provider or the ledger refused.",
-            "properties": {
-              "date": {
-                "description": "The entry's date.",
-                "format": "date",
-                "type": "string"
-              },
-              "error": {
-                "description": "What went wrong, in the provider's or the database's words.",
-                "type": "string"
-              },
-              "external_id": {
-                "description": "The entry's key.",
-                "type": "string"
-              },
-              "name": {
-                "description": "The entry's title.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "external_id",
-              "date",
-              "name",
-              "error"
-            ],
-            "type": "object"
-          },
-          "FindingCode": {
-            "description": "What a finding is about.",
-            "oneOf": [
-              {
-                "const": "param_out_of_range",
-                "description": "A parameter left its preset's range.",
-                "type": "string"
-              },
-              {
-                "const": "params_disagree_with_steps",
-                "description": "The stated parameters and the written steps describe different sessions.",
-                "type": "string"
-              },
-              {
-                "const": "left_purpose",
-                "description": "The steps train a different family than the template's.",
-                "type": "string"
-              },
-              {
-                "const": "unknown_preset",
-                "description": "The request named a preset the family does not hold.",
-                "type": "string"
-              },
-              {
-                "const": "sport_not_offered",
-                "description": "The family has no form for the requested sport.",
-                "type": "string"
-              },
-              {
-                "const": "map_without_definition",
-                "description": "A MAP target, but the athlete's MAP states no definition.",
-                "type": "string"
-              },
-              {
-                "const": "under_dosed",
-                "description": "Supra-threshold reps below the anaerobic-capacity floor with long rest.",
-                "type": "string"
-              },
-              {
-                "const": "work_range",
-                "description": "C1.",
-                "type": "string"
-              },
-              {
-                "const": "ratio_floor",
-                "description": "C2.",
-                "type": "string"
-              },
-              {
-                "const": "ratio_ceiling",
-                "description": "C3.",
-                "type": "string"
-              },
-              {
-                "const": "cycle_mean_floor",
-                "description": "C4.",
-                "type": "string"
-              },
-              {
-                "const": "on_intensity_window",
-                "description": "C5.",
-                "type": "string"
-              },
-              {
-                "const": "true_tabata",
-                "description": "C6.",
-                "type": "string"
-              },
-              {
-                "const": "hr_rep_target",
-                "description": "C8.",
-                "type": "string"
-              },
-              {
-                "const": "fixed_pacing",
-                "description": "C9.",
-                "type": "string"
-              },
-              {
-                "const": "gps_short_reps",
-                "description": "C10.",
-                "type": "string"
-              },
-              {
-                "const": "on_time_ceiling",
-                "description": "C11.",
-                "type": "string"
-              },
-              {
-                "const": "on_time_floor",
-                "description": "C12.",
-                "type": "string"
-              },
-              {
-                "const": "one_to_one_long_rep",
-                "description": "C13.",
-                "type": "string"
-              },
-              {
-                "const": "duration_ceiling",
-                "description": "The session ran past its family's duration ceiling.",
-                "type": "string"
-              },
-              {
-                "const": "steady_ceiling",
-                "description": "A steady segment rose past its family's ceiling.",
-                "type": "string"
-              },
-              {
-                "const": "insert_quality_cap",
-                "description": "Too much time above LT1 inside an easy session.",
-                "type": "string"
-              }
-            ]
-          },
-          "MeasurementKind": {
-            "description": "Whether a physiological value was measured or estimated.\n\nThis is what decides how the value may be framed. A measured critical\npower is \"your CP is 312 W\"; an estimated one is \"Vekta estimates your CP\nat 312 W\", never stated bare. Where the value came from is a separate axis\n([`MetricProvenance::origin`]): a provider can hand over either kind.",
-            "oneOf": [
-              {
-                "const": "measured",
-                "description": "Produced by a named test: a lab protocol, a 3-minute all-out test, a\nset of time trials fitted to the model, a track test.",
-                "type": "string"
-              },
-              {
-                "const": "estimated",
-                "description": "Produced by a model from training data (a provider's or an app's), or\nstated by the athlete without naming the test behind it.",
-                "type": "string"
-              }
-            ]
-          },
-          "PlanEnvelopeReport": {
-            "description": "What the envelope check found on the days a save or publish wrote.\n\nIt sits beside `safety`: each templated session measured against its\nfamily's evidence envelope. In Dravr's chat the platform shows every\nfinding and relabel under your reply in its own sentences, so do not\nrestate them there; explain or disagree with one only when asked. Where a\nclient shows the athlete only your words, relay them yourself, as plain\nwords about the work. A day with `not_generated` has no steps until you\nwrite them or shorten the day.\n\nEvery finding warns; a relabel also names the purpose the session now\ntrains, which is what compliance and readiness read for that day. Absent\nwhen no day found anything.",
-            "properties": {
-              "days": {
-                "description": "The days with findings, in plan order.",
-                "items": {
-                  "$ref": "#/$defs/DayEnvelopeNotice"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "days"
-            ],
-            "type": "object"
-          },
-          "PlanSafetyReport": {
-            "description": "What the two safety-shaped checks found in the weeks this save wrote.\n\nA coach's save into their draft of an athlete's plan carries the same\nreport, measured on the draft view — the draft's outline over the\nathlete's live weeks — so the coach hears of it before publishing puts the\nplan in the athlete's hands.\n\nThe compliance rail has measured every saved week since it shipped and\nreported into a log line no agent reads; the readiness rail the same. This\nis the half that reaches the turn: the agent sees what the platform\nmeasured on the save it just made, and can say so before the athlete acts\non a week that crowds its hard days or opens well above their recent load.\n\nOnly the two checks the ledger calls safety-shaped travel here. Time in\nzone, volume against target and template parameter ranges are coaching\njudgements the agent already owns, and a platform that volunteered those\nwould be second-guessing the plan rather than flagging a risk.\n\nStructured, never prose. What the athlete is told is the agent's to write:\nthe framing rules on load ratios are CI-enforced and live in the prompt,\nso a sentence composed here would be a second place they could be broken.\n\nAbsent when both checks read within, unmeasured, or had nothing to measure\n— which is the common case and costs the turn nothing.",
-            "properties": {
-              "crowded_weeks": {
-                "description": "Weeks whose hard sessions are closer together than the minimum.",
-                "items": {
-                  "$ref": "#/$defs/CrowdedWeek"
-                },
-                "type": "array"
-              },
-              "ramp": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/RampVerdict"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "The opening week against the athlete's recent weekly hours, when it\ncame in above the threshold. `None` when it did not, or when there was\nno baseline to compare against."
-              }
-            },
-            "type": "object"
-          },
-          "PublishStatus": {
-            "description": "What `publish_training_plan` did with the coach's draft.",
-            "oneOf": [
-              {
-                "const": "published",
-                "description": "The draft is the athlete's live plan.",
-                "type": "string"
-              },
-              {
-                "const": "conflict",
-                "description": "Nothing was published: the athlete's plan changed under the draft.\n`conflict` names what collided.",
-                "type": "string"
-              },
-              {
-                "const": "discarded",
-                "description": "The draft was thrown away; the athlete's plan is as it was.",
-                "type": "string"
-              }
-            ]
-          },
-          "PushPreview": {
-            "description": "What a push would do, judged from the ledger alone — no provider call.\n\nThis is the preview `save_training_plan` reports after a save so the\nathlete learns the calendar is behind, and the count `get_training_plan`\nshows next to the calendar block.",
-            "properties": {
-              "create": {
-                "description": "Entries the ledger has no live row for.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "remove": {
-                "description": "Live rows no entry wants any more.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "unchanged": {
-                "description": "Entries whose live row already carries this content.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "update": {
-                "description": "Entries whose content differs from the live row's.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "create",
-              "update",
-              "unchanged",
-              "remove"
-            ],
-            "type": "object"
-          },
-          "PushReport": {
-            "description": "What a push did.",
-            "properties": {
-              "calendar_note": {
-                "description": "Present when the calendar the athlete chose for Dravr's pushes was\npassed over for this one — not connected, or not one this write may\ngo to — saying where it went instead (carnet#1393).",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "cancelled": {
-                "description": "Whether a cooperative cancellation stopped the push early. Entries\nalready written stay; the push is convergent, so a re-run reconciles\nthe rest.",
-                "type": "boolean"
-              },
-              "created": {
-                "description": "Entries created on the provider.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "failed": {
-                "description": "Entries the provider or the ledger refused.",
-                "items": {
-                  "$ref": "#/$defs/FailedEntry"
-                },
-                "type": "array"
-              },
-              "from": {
-                "description": "First date the push considered.",
-                "format": "date",
-                "type": "string"
-              },
-              "plan_id": {
-                "description": "The active plan that was pushed.",
-                "type": "string"
-              },
-              "provider": {
-                "description": "Provider the plan was pushed to.",
-                "type": "string"
-              },
-              "removed": {
-                "description": "Entries removed from the provider because no plan day wants them.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "skipped": {
-                "description": "Entries left alone, with the reason.",
-                "items": {
-                  "$ref": "#/$defs/SkippedEntry"
-                },
-                "type": "array"
-              },
-              "to": {
-                "description": "Last date the push considered, when there was anything to consider.",
-                "format": "date",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "unchanged": {
-                "description": "Entries already carrying this content.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "unpublished_draft": {
-                "description": "Present when a human coach pushed a coached athlete's calendar while\nholding an unpublished draft of their plan: only the published plan\nwas pushed, and the draft reaches the calendar once it is published\nand pushed again.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "updated": {
-                "description": "Entries updated in place.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "provider",
-              "plan_id",
-              "from",
-              "to",
-              "created",
-              "updated",
-              "unchanged",
-              "removed",
-              "skipped",
-              "failed",
-              "cancelled"
-            ],
-            "type": "object"
-          },
-          "RampUnmeasurable": {
-            "description": "Why a ramp check could not produce a verdict.",
-            "oneOf": [
-              {
-                "const": "no_baseline",
-                "description": "No cached activity in the window — no provider connected, a new\naccount, or a genuine layoff. There is no baseline to compare against.",
-                "type": "string"
-              },
-              {
-                "const": "no_planned_durations",
-                "description": "The plan's first week carries no `duration_min` on any day, so its\nplanned hours cannot be summed.",
-                "type": "string"
-              }
-            ]
-          },
-          "RampVerdict": {
-            "description": "What the ramp check concluded about a saved plan.\n\nSerialised because the save reports it to the agent: the numbers are\ndescriptive magnitudes — planned hours, the athlete's recent average, the\nfractional increase — and never a risk claim, which is the CI-enforced\nframing rule for load ratios. The agent writes the sentence; this carries\nonly what was measured.",
-            "oneOf": [
-              {
-                "description": "The opening week sits within the threshold of recent load.",
-                "properties": {
-                  "baseline_hours": {
-                    "description": "The athlete's recent weekly-hours average.",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "outcome": {
-                    "const": "within_threshold",
-                    "type": "string"
-                  },
-                  "planned_hours": {
-                    "description": "Planned hours in the plan's first week.",
-                    "format": "double",
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "outcome",
-                  "planned_hours",
-                  "baseline_hours"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "The opening week exceeds recent load by more than the threshold.",
-                "properties": {
-                  "baseline_hours": {
-                    "description": "The athlete's recent weekly-hours average.",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "increase": {
-                    "description": "Fractional increase, e.g. `0.45` for +45%.",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "outcome": {
-                    "const": "exceeded",
-                    "type": "string"
-                  },
-                  "planned_hours": {
-                    "description": "Planned hours in the plan's first week.",
-                    "format": "double",
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "outcome",
-                  "planned_hours",
-                  "baseline_hours",
-                  "increase"
-                ],
-                "type": "object"
-              },
-              {
-                "$ref": "#/$defs/RampUnmeasurable",
-                "description": "The check could not run.",
-                "properties": {
-                  "outcome": {
-                    "const": "unmeasurable",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "outcome"
-                ],
-                "type": "object"
-              }
-            ]
-          },
-          "ShortGap": {
-            "description": "One gap between hard sessions that is shorter than the minimum.",
-            "properties": {
-              "from": {
-                "description": "The earlier hard day.",
-                "format": "date",
-                "type": "string"
-              },
-              "hours": {
-                "description": "The hours between them.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "to": {
-                "description": "The later hard day.",
-                "format": "date",
-                "type": "string"
-              }
-            },
-            "required": [
-              "from",
-              "to",
-              "hours"
-            ],
-            "type": "object"
-          },
-          "SkipReason": {
-            "description": "Why a wanted entry was left as it is.",
-            "oneOf": [
-              {
-                "const": "edited_on_provider",
-                "description": "The athlete changed the entry on the provider after Dravr wrote it.",
-                "type": "string"
-              }
-            ]
-          },
-          "SkippedEntry": {
-            "description": "An entry the push left alone, and why.",
-            "properties": {
-              "date": {
-                "description": "The entry's date.",
-                "format": "date",
-                "type": "string"
-              },
-              "external_id": {
-                "description": "The entry's key.",
-                "type": "string"
-              },
-              "name": {
-                "description": "The entry's title.",
-                "type": "string"
-              },
-              "reason": {
-                "$ref": "#/$defs/SkipReason",
-                "description": "Why it was skipped."
-              }
-            },
-            "required": [
-              "external_id",
-              "date",
-              "name",
-              "reason"
-            ],
-            "type": "object"
-          },
-          "SportAnchorName": {
-            "description": "Which anchor of a sport family a stored row holds: a field of cageux's\n[`SportAnchors`], less the resting heart rate, which is the athlete's\nrather than a sport's and stays on the profile row.",
-            "oneOf": [
-              {
-                "const": "ftp",
-                "description": "Functional threshold power, watts.",
-                "type": "string"
-              },
-              {
-                "const": "critical_power",
-                "description": "Critical power, watts.",
-                "type": "string"
-              },
-              {
-                "const": "map",
-                "description": "Maximal aerobic power, watts; its `method` names the definition it\nfollows.",
-                "type": "string"
-              },
-              {
-                "const": "critical_speed",
-                "description": "Critical speed, metres per second.",
-                "type": "string"
-              },
-              {
-                "const": "vvo2max",
-                "description": "Speed at `VO2max`, or maximal aerobic speed, metres per second.",
-                "type": "string"
-              },
-              {
-                "const": "threshold_speed",
-                "description": "Threshold pace as a speed, metres per second.",
-                "type": "string"
-              },
-              {
-                "const": "max_heart_rate",
-                "description": "Maximum heart rate reached in this sport, bpm.",
-                "type": "string"
-              },
-              {
-                "const": "threshold_heart_rate",
-                "description": "Lactate-threshold heart rate in this sport, bpm.",
-                "type": "string"
-              }
-            ]
-          },
-          "SportFamily": {
-            "description": "The three sport families a family file writes realizations for.",
-            "oneOf": [
-              {
-                "const": "ride",
-                "description": "Cycling, indoor and out.",
-                "type": "string"
-              },
-              {
-                "const": "run",
-                "description": "Running, road and trail.",
-                "type": "string"
-              },
-              {
-                "const": "swim",
-                "description": "Swimming.",
-                "type": "string"
-              }
-            ]
-          },
-          "TargetAnchor": {
-            "description": "The athlete's anchor a session's targets are written on, as it stood when\nthe session was measured: what a notice about the session names (\"FTP\n285 W from intervals.icu\"), with how far to trust it.",
-            "properties": {
-              "anchor": {
-                "$ref": "#/$defs/SportAnchorName",
-                "description": "Which anchor the targets are a percentage of."
-              },
-              "as_of": {
-                "description": "When it was measured or set.",
-                "format": "date",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "confidence": {
-                "$ref": "#/$defs/AnchorConfidence",
-                "description": "How far to trust it."
-              },
-              "high": {
-                "description": "Upper bound of the range the value stands for.",
-                "format": "float",
-                "type": [
-                  "number",
-                  "null"
-                ]
-              },
-              "kind": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/MeasurementKind"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "Measured by a named test, or estimated: an estimate reads as one\nwhatever its confidence. Absent when the anchor records no kind (a\nthreshold the athlete stated on the profile row) or was stored before\nthe field existed; neither reads as measured."
-              },
-              "low": {
-                "description": "Lower bound of the range the value stands for.",
-                "format": "float",
-                "type": [
-                  "number",
-                  "null"
-                ]
-              },
-              "method": {
-                "description": "How it was measured: `20min_test`, `ramp`, `3min_all_out`, …; for\nMAP, the definition the value follows.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "origin": {
-                "description": "Who set it: `athlete`, a provider name, `estimate`.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "own_conversions": {
-                "description": "Whether the conversions between this sport's anchors (MAP to CP, CP\nto FTP, `vVO2max` to CS) were the athlete's own rather than the\ndefault ratios.",
-                "type": "boolean"
-              },
-              "sport": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/SportFamily"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "The sport family the session is in: a speed anchor reads as pace per\nkilometre on the run and per 100 m in the pool. Absent on an anchor\nstored before the field existed, which still has to decode: a plan\nweek is read whole."
-              },
-              "value": {
-                "description": "The value: watts, metres per second, or beats per minute.",
-                "format": "float",
-                "type": "number"
-              }
-            },
-            "required": [
-              "anchor",
-              "value",
-              "confidence",
-              "own_conversions"
-            ],
-            "type": "object"
-          },
-          "Unmeasured": {
-            "description": "Why a check could not be measured.",
-            "oneOf": [
-              {
-                "const": "no_target",
-                "description": "The phase states no target for this check.",
-                "type": "string"
-              },
-              {
-                "const": "no_flavour",
-                "description": "No flavour is on file to take the cap or spacing from.",
-                "type": "string"
-              },
-              {
-                "const": "no_classified_time",
-                "description": "No session in the week could be classified.",
-                "type": "string"
-              },
-              {
-                "const": "fewer_than_two_hard",
-                "description": "Fewer than two hard sessions, so there is no gap to measure.",
-                "type": "string"
-              },
-              {
-                "const": "no_durations",
-                "description": "No session carries or implies a duration.",
-                "type": "string"
-              }
-            ]
-          },
-          "WorkoutPurpose": {
-            "description": "What a session is for — the 21-word vocabulary every `session_mix`,\n`key_sessions`, `readiness_substitution` and workout `purpose` draws\nfrom (python `VOCAB[\"purpose\"]`).\n\nDeclaration order is the wire order of every purpose-keyed map and of\n[`Self::ALL`], so a purpose joins the vocabulary at the end.",
-            "oneOf": [
-              {
-                "const": "recovery",
-                "description": "Easy movement that costs nothing.",
-                "type": "string"
-              },
-              {
-                "const": "endurance",
-                "description": "Steady aerobic work below LT1.",
-                "type": "string"
-              },
-              {
-                "const": "endurance_long",
-                "description": "The long session of the week.",
-                "type": "string"
-              },
-              {
-                "const": "tempo",
-                "description": "Sustained work between LT1 and LT2.",
-                "type": "string"
-              },
-              {
-                "const": "sweet_spot",
-                "description": "The 88–94 % FTP band, long reps.",
-                "type": "string"
-              },
-              {
-                "const": "threshold",
-                "description": "Work at or around LT2.",
-                "type": "string"
-              },
-              {
-                "const": "vo2max_long",
-                "description": "Long intervals at ~90 % of maximum (4 × 8 min).",
-                "type": "string"
-              },
-              {
-                "const": "vo2max_short",
-                "description": "Short intervals above threshold (30/15, 30/30).",
-                "type": "string"
-              },
-              {
-                "const": "sprint",
-                "description": "Maximal efforts with full recovery.",
-                "type": "string"
-              },
-              {
-                "const": "neuromuscular",
-                "description": "Strides and hill sprints: form and recruitment, not fatigue.",
-                "type": "string"
-              },
-              {
-                "const": "race_specific",
-                "description": "Race-pace work the goal event asks for.",
-                "type": "string"
-              },
-              {
-                "const": "brick",
-                "description": "Bike-to-run transition session.",
-                "type": "string"
-              },
-              {
-                "const": "strength_aa",
-                "description": "Anatomical adaptation — light load, high reps, movement quality.",
-                "type": "string"
-              },
-              {
-                "const": "strength_max",
-                "description": "Maximal strength — heavy load, low reps, full recovery.",
-                "type": "string"
-              },
-              {
-                "const": "strength_maint",
-                "description": "In-season strength maintenance.",
-                "type": "string"
-              },
-              {
-                "const": "plyometric",
-                "description": "Plyometrics — jumps and contacts.",
-                "type": "string"
-              },
-              {
-                "const": "mobility",
-                "description": "Mobility and core.",
-                "type": "string"
-              },
-              {
-                "const": "uphill",
-                "description": "Sustained climbing effort — steep uphill running or power-hiking\nheld for minutes at a time, the demand a mountain course makes.",
-                "type": "string"
-              },
-              {
-                "const": "downhill",
-                "description": "Eccentric downhill conditioning — controlled descents that build\nthe muscle's resistance to the damage downhill running causes.",
-                "type": "string"
-              },
-              {
-                "const": "anaerobic_capacity",
-                "description": "Anaerobic capacity — 20–90 s supramaximal reps with 2–9× rest,\ntrue Tabata and repeated sprints: W′ and buffering, not `VO2max`.",
-                "type": "string"
-              },
-              {
-                "const": "race_prep",
-                "description": "Race preparation — the day-before opener (taper intensity\nmaintenance) and the race-day priming warm-up.",
-                "type": "string"
-              }
-            ]
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `publish_training_plan` answers with.",
-        "properties": {
-          "athlete": {
-            "description": "Whose plan: the athlete's roster name.",
-            "type": "string"
-          },
-          "athlete_notified": {
-            "description": "On `published`: whether the athlete was sent a notice of it.",
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "calendar": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/CalendarPreview"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "On `published`, when the push did not run: what one would change,\nwhen the athlete's calendar already carries the plan."
-          },
-          "calendar_push": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/CalendarPushOutcome"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "On `published`: the plan put on the athlete's chosen calendar, or why\nit was not."
-          },
-          "conflict": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/DraftState"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "On `conflict`: the weeks the athlete changed since the coach drafted\nthem, and whether their season was re-laid. Nothing was written."
-          },
-          "draft_id": {
-            "description": "The draft acted on.",
-            "type": "string"
-          },
-          "envelope": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/PlanEnvelopeReport"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "On `published`: what the envelope check found on the templated days\nthat went live."
-          },
-          "message": {
-            "description": "What happened, in words to relay to the coach.",
-            "type": "string"
-          },
-          "plan_id": {
-            "description": "On `published`: the athlete's live plan now.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "safety": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/PlanSafetyReport"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "On `published`: what the two safety-shaped checks found in the weeks\nthat went live."
-          },
-          "status": {
-            "$ref": "#/$defs/PublishStatus",
-            "description": "What happened to the draft."
-          },
-          "superseded_plan_id": {
-            "description": "On `published`, when the draft re-laid the season: the season it\nreplaced.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "weeks_published": {
-            "description": "On `published`: the weeks (`week_start`) the draft put live.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "status",
-          "athlete",
-          "draft_id",
-          "message"
-        ],
-        "title": "PublishTrainingPlanResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Publish training plan",
-        "readOnlyHint": false,
-        "destructiveHint": true,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "push_training_plan",
       "description": "Put the athlete's active training plan on their calendar provider (Intervals.icu, Wahoo or Garmin): creates missing days, updates changed ones, removes dropped ones, leaves alone any the athlete edited there (Garmin reports no edits). Never touches dates before today. save_training_plan and publish_training_plan already push (their calendar_push says what landed): call this only when the athlete or coach asks, e.g. once what stopped that push is fixed. Needs a saved plan and a connected calendar-writing provider. A group's human coach pushes a consenting athlete's plan with `athlete`, through their Intervals.icu link: they must allow calendar writes on it, and Intervals.icu must list the coach as their coach. Only the published plan is pushed, never a coach's unpublished draft (the reply's unpublished_draft flags one).",
       "inputSchema": {
         "properties": {
-          "athlete": {
-            "description": "Roster display name of a consenting athlete whose calendar this writes. Only a human coach of their group may set it, once the athlete allows calendar writes, from Dravr in a direct chat — never in a room. Defaults to the athlete of the coach's one-athlete thread.",
-            "type": "string"
-          },
           "from_date": {
             "description": "First date to push, YYYY-MM-DD. Defaults to today in the athlete's calendar and is never earlier.",
             "type": "string"
@@ -31871,10 +31114,6 @@
         "properties": {
           "agent_id": {
             "description": "The authoring agent, read only on a direct MCP call with no conversation; a chat turn's own agent always wins.",
-            "type": "string"
-          },
-          "athlete": {
-            "description": "Roster display name of a consenting athlete whose plan this is. Only a human coach of their group may set it, from a direct chat in Dravr — never in a room. Defaults to the athlete of the coach's one-athlete thread.",
             "type": "string"
           },
           "conversation_id": {
@@ -35513,10 +34752,6 @@
       "description": "Record the connected calendar the athlete chose for Dravr's pushes: their answer to choose_calendar, or a switch. Later pushes naming no provider go there.",
       "inputSchema": {
         "properties": {
-          "athlete": {
-            "description": "Roster name of a consenting athlete, for their human coach.",
-            "type": "string"
-          },
           "provider": {
             "description": "The calendar chosen, e.g. intervals_icu.",
             "type": "string"
@@ -37163,10 +36398,6 @@
       "description": "Remove a workout prescribe_workout wrote to the athlete's calendar provider and mark the prescription withdrawn. Only for single prescriptions: an entry the training plan put there is removed by adjusting the plan — save_training_plan, or a coach's publish_training_plan, updates the calendar. A group's human coach passes `athlete` as for prescribe_workout.",
       "inputSchema": {
         "properties": {
-          "athlete": {
-            "description": "Roster display name of a consenting athlete whose calendar this writes. Only a human coach of their group may set it, once the athlete allows calendar writes, from Dravr in a direct chat — never in a room. Defaults to the athlete of the coach's one-athlete thread.",
-            "type": "string"
-          },
           "prescription_id": {
             "description": "prescription_id of the entry to remove — from the prescribe_workout reply, or from get_training_plan's calendar block.",
             "type": "string"

@@ -49,14 +49,23 @@ pub fn includes(membership: &GroupMember) -> bool {
         || (membership.coach_sharing_consent && membership.coach_consents.assistant_read)
 }
 
-/// What the coach's assistant reads beside a roster that left members out.
+/// What the coach's assistant reads beside a roster that left members out:
+/// the count, and that a member who still shares is read by name by the
+/// other tools (the counsel packet's count wording, 2026-11-15 §5.2).
 #[must_use]
 pub fn left_out_note(left_out: usize) -> String {
-    format!(
-        "{left_out} more member(s) of your groups are not shown here: a member appears in these \
-         roster tools only once they allow it in their own Dravr app, under Group info → What \
-         your human coach can do."
-    )
+    if left_out == 1 {
+        "1 member has not allowed AI tools to see them in the group overview and is not listed \
+         here. If that member still shares their training with their human coach, the other \
+         tools can read them by name."
+            .to_owned()
+    } else {
+        format!(
+            "{left_out} members have not allowed AI tools to see them in the group overview and \
+             are not listed here. The other tools can read by name those who still share their \
+             training with their human coach."
+        )
+    }
 }
 
 /// What the coach's assistant reads when a member it asked about is not

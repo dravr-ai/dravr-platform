@@ -33,11 +33,11 @@
 //!   (carnet#1565).
 //!
 //! One tool, `publish_training_plan`, is kept in the app from everyone,
-//! admins included ([`ToolSurface::AppOnly`]): every effect it has is one an
+//! admins included ([`ToolReach::AppOnly`]): every effect it has is one an
 //! external transport refuses for everyone (carnet#1533).
 //!
 //! A tool declares this as a property of itself
-//! ([`RuntimeTool::surface`](crate::security::RuntimeTool::surface)), and
+//! ([`RuntimeTool::reach`](crate::security::RuntimeTool::reach)), and
 //! [`Transport::is_first_party`] decides. There is no list of names: a tool
 //! added later is kept off external transports by declaring it.
 //!
@@ -47,7 +47,7 @@
 //! the turn's transport, and the executor answers an external caller that
 //! names one anyway with [`refusal`].
 //!
-//! [`ToolSurface::AppOnly`]: crate::security::ToolSurface::AppOnly
+//! [`ToolReach::AppOnly`]: crate::security::ToolReach::AppOnly
 //! [`Transport::is_first_party`]: pierre_core::transport::Transport::is_first_party
 
 use serde_json::json;
@@ -118,7 +118,7 @@ mod tests {
         use crate::implementations::groups::create_group_tools;
         use crate::implementations::memory::create_memory_tools;
         use crate::registry::ToolRegistry;
-        use crate::security::{Audience, ToolSurface};
+        use crate::security::{Audience, ToolReach};
         use crate::tool_access::{retain_offered, Caller, CallerRole};
 
         fn registry() -> ToolRegistry {
@@ -142,10 +142,10 @@ mod tests {
             for name in registry.tools_in_category("groups") {
                 let tool = registry.get(name).expect("registered");
                 if tool.audience() == Audience::Coach {
-                    assert_eq!(tool.surface(), ToolSurface::AnyTransport, "{name}");
+                    assert_eq!(tool.reach(), ToolReach::AnyTransport, "{name}");
                     coach.push(name);
                 } else {
-                    assert_eq!(tool.surface(), ToolSurface::FirstPartyOnly, "{name}");
+                    assert_eq!(tool.reach(), ToolReach::FirstPartyOnly, "{name}");
                     first_party.push(name);
                 }
             }

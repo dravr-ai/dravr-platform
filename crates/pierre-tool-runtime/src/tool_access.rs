@@ -28,9 +28,9 @@
 //!    ([`missing_scope`](crate::scopes::missing_scope) over the tool's
 //!    capabilities). First, so a caller that is not authorized learns nothing
 //!    the later answers would tell them.
-//! 2. **Transport**: where the tool may run ([`ToolSurface`]). Externally an
-//!    [`ToolSurface::AppOnly`] tool is withheld from everyone and a
-//!    [`ToolSurface::FirstPartyOnly`] tool from everyone but an admin whose
+//! 2. **Transport**: where the tool may run ([`ToolReach`]). Externally an
+//!    [`ToolReach::AppOnly`] tool is withheld from everyone and a
+//!    [`ToolReach::FirstPartyOnly`] tool from everyone but an admin whose
 //!    grant holds `admin`.
 //! 3. **Role**: who the tool serves ([`Audience`]). An admin tool needs an
 //!    admin on every transport; a coach tool needs a coach or an admin over
@@ -61,7 +61,7 @@ use crate::protocol::types::UniversalResponse;
 use crate::read_subject::ATHLETE_ARGUMENT;
 use crate::registry::ToolRegistry;
 use crate::scopes::missing_scope;
-use crate::security::{Audience, RuntimeTool, ToolSurface};
+use crate::security::{Audience, RuntimeTool, ToolReach};
 use dravr_tronc::mcp::tool::ToolCapabilities;
 
 /// `error_code` of the in-band refusal a coach tool returns to an external
@@ -150,7 +150,7 @@ pub enum Withheld {
 pub fn withheld(tool: &dyn RuntimeTool, caller: &Caller<'_>) -> Option<Withheld> {
     decide(
         Declared {
-            surface: tool.surface(),
+            surface: tool.reach(),
             audience: tool.audience(),
             capabilities: tool.capabilities(),
         },
@@ -161,7 +161,7 @@ pub fn withheld(tool: &dyn RuntimeTool, caller: &Caller<'_>) -> Option<Withheld>
 /// What a tool declares about itself that the predicate reads.
 #[derive(Debug, Clone, Copy)]
 struct Declared {
-    surface: ToolSurface,
+    surface: ToolReach,
     audience: Audience,
     capabilities: ToolCapabilities,
 }
@@ -173,9 +173,9 @@ fn decide(tool: Declared, caller: &Caller<'_>) -> Option<Withheld> {
     }
     if caller.is_external() {
         let lifted = match tool.surface {
-            ToolSurface::AnyTransport => true,
-            ToolSurface::AppOnly => false,
-            ToolSurface::FirstPartyOnly => {
+            ToolReach::AnyTransport => true,
+            ToolReach::AppOnly => false,
+            ToolReach::FirstPartyOnly => {
                 caller.role.admin && caller.grant.contains(&OAuthScope::Admin)
             }
         };
@@ -260,7 +260,7 @@ mod tests {
     const WRITE: ToolCapabilities = ToolCapabilities::WRITES_DATA;
 
     const fn tool(
-        surface: ToolSurface,
+        surface: ToolReach,
         audience: Audience,
         capabilities: ToolCapabilities,
     ) -> Declared {
@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     fn the_coach_tools_go_externally_to_a_coach_and_an_admin_only() {
-        let roster = tool(ToolSurface::AnyTransport, Audience::Coach, READ);
+        let roster = tool(ToolReach::AnyTransport, Audience::Coach, READ);
         assert_eq!(
             decide(roster, &caller(ATHLETE, &READ_ONLY, Transport::McpHttp)),
             Some(Withheld::Role(Audience::Coach))
@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn a_first_party_only_tool_goes_externally_to_an_admin_holding_admin_alone() {
-        let agents = tool(ToolSurface::FirstPartyOnly, Audience::Athlete, READ);
+        let agents = tool(ToolReach::FirstPartyOnly, Audience::Athlete, READ);
         let with_admin = OAuthScope::self_grant();
         assert_eq!(
             decide(agents, &caller(ADMIN, &READ_ONLY, Transport::McpHttp)),
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn an_app_only_tool_is_withheld_externally_from_everyone() {
-        let publish = tool(ToolSurface::AppOnly, Audience::Athlete, WRITE);
+        let publish = tool(ToolReach::AppOnly, Audience::Athlete, WRITE);
         let every = OAuthScope::self_grant();
         for role in [ATHLETE, COACH, ADMIN] {
             assert_eq!(
@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn scope_is_read_first_and_an_admin_tool_needs_an_admin_everywhere() {
         let admin_tool = tool(
-            ToolSurface::AnyTransport,
+            ToolReach::AnyTransport,
             Audience::Admin,
             ToolCapabilities::ADMIN_ONLY,
         );
@@ -404,7 +404,7 @@ mod tests {
 
     #[test]
     fn an_undeclared_transport_is_external() {
-        let roster = tool(ToolSurface::AnyTransport, Audience::Coach, READ);
+        let roster = tool(ToolReach::AnyTransport, Audience::Coach, READ);
         let undeclared = Caller {
             role: ATHLETE,
             grant: &READ_ONLY,
@@ -434,9 +434,9 @@ mod tests {
             Transport::WebApp,
         ];
         let surfaces = [
-            ToolSurface::AnyTransport,
-            ToolSurface::FirstPartyOnly,
-            ToolSurface::AppOnly,
+            ToolReach::AnyTransport,
+            ToolReach::FirstPartyOnly,
+            ToolReach::AppOnly,
         ];
         let audiences = [Audience::Athlete, Audience::Coach, Audience::Admin];
         for surface in surfaces {
