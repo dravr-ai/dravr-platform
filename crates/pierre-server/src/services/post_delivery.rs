@@ -43,7 +43,7 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 use crate::services::adapter_resolver::AdapterResolver;
 use crate::services::backfill_delivery::{ChannelDelivery, ResolvedRoute};
-use crate::services::commitment_reporter::channel_allows_proactive;
+use crate::services::commitment_reporter::{channel_allows_proactive, session_last_inbound};
 use crate::services::messaging_ingress::block_render::render_reply;
 use crate::services::messaging_ingress::fresh_title_fallback;
 use crate::services::messaging_ingress::surface::messaging_render_profile;
@@ -58,7 +58,7 @@ pub(crate) const POST_CLAIM_LEASE: Duration = Duration::minutes(15);
 
 /// Why a post on a DM whose window closed was not sent there, as
 /// `messaging.proactive_held` reports it.
-const HELD_WINDOW_CLOSED: &str = "window_closed";
+pub(crate) const HELD_WINDOW_CLOSED: &str = "window_closed";
 
 /// The athlete a post is for.
 #[derive(Debug, Clone, Copy)]
@@ -198,7 +198,8 @@ async fn remove_unused_forge(resources: &ServerContext, athlete: PostAthlete, th
 ///
 /// `None` when nothing was attempted — no instruction in that locale;
 /// otherwise whether the reply was stored in the DM's conversation. A stored
-/// reply whose send failed is queued for the outbound retry worker.
+/// reply whose send failed is queued for the outbound retry worker; one the
+/// channel takes and fails afterwards is found again as `purpose`'s notice.
 pub(crate) async fn post_to_dm(
     resources: &ServerContext,
     post: &dyn PlatformPost,
@@ -206,6 +207,7 @@ pub(crate) async fn post_to_dm(
     athlete: PostAthlete,
     dm: OpenDm,
     prompt: &(dyn Fn(&str) -> Option<String> + Sync),
+    purpose: PostPurpose,
 ) -> Option<bool> {
     let channel_str = dm.channel_type.to_string();
     let locale = resolve_channel_locale(
@@ -242,6 +244,7 @@ pub(crate) async fn post_to_dm(
     let delivery = ChannelDelivery {
         repos: &resources.common.repos,
         resolver,
+        purpose: purpose.as_str(),
     };
     if delivery
         .send(
@@ -252,10 +255,12 @@ pub(crate) async fn post_to_dm(
                 recipient: dm.recipient.clone(),
                 channel_user_id: dm.recipient,
                 channel_tenant_id: dm.channel_tenant_id,
+                last_inbound: dm.last_inbound,
             },
             athlete.user_id,
             athlete.tenant_id,
             rendered,
+            Some(&reply.assistant.message.id),
         )
         .await
     {
@@ -326,11 +331,7 @@ pub(crate) async fn linked_dms(
                 continue;
             }
         };
-        let last_inbound = session
-            .get("last_message_at")
-            .and_then(Value::as_str)
-            .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
-            .map(|at| at.with_timezone(&Utc));
+        let last_inbound = session_last_inbound(&session);
         if !channel_allows_proactive(target.channel_type, last_inbound, now) {
             info!(channel = %channel_str, "Platform post: the DM's window is closed");
             held.push(target.channel_type);
@@ -376,14 +377,21 @@ pub(crate) async fn post_to_one(
 ) -> Option<(PostSurface, bool)> {
     if let Some(dm) = dms.open {
         let surface = PostSurface::Channel(dm.channel_type);
-        if let Some(posted) = post_to_dm(resources, post, resolver, athlete, dm, prompt).await {
+        if let Some(posted) =
+            post_to_dm(resources, post, resolver, athlete, dm, prompt, purpose).await
+        {
             return Some((surface, posted));
         }
         // No instruction in the DM's language: the app's thread, in the
         // athlete's own, is still a destination.
     } else {
         for channel in &dms.held {
-            report_held(athlete.tenant_id, *channel, purpose);
+            report_held(
+                athlete.tenant_id,
+                *channel,
+                purpose.as_str(),
+                HELD_WINDOW_CLOSED,
+            );
         }
     }
     post_in_app(resources, post, athlete, prompt)
@@ -391,16 +399,18 @@ pub(crate) async fn post_to_one(
         .map(|posted| (PostSurface::InApp, posted))
 }
 
-/// Report a DM whose window had closed, so the post for `purpose` was not
-/// sent there.
-fn report_held(tenant_id: TenantId, channel: ChannelType, purpose: PostPurpose) {
+/// Report a proactive message for `purpose` that `channel` would not carry
+/// unprompted, for `reason`: a post held off a DM whose window had closed
+/// ([`HELD_WINDOW_CLOSED`]), a notice rerouted to the app for the same reason,
+/// or one the channel took and failed afterwards.
+pub(crate) fn report_held(tenant_id: TenantId, channel: ChannelType, purpose: &str, reason: &str) {
     info!(
         target: "notify",
         event = "messaging.proactive_held",
         tenant_id = %tenant_id,
         channel = %channel,
-        purpose = purpose.as_str(),
-        reason = HELD_WINDOW_CLOSED,
+        purpose,
+        reason,
         "proactive post held"
     );
 }

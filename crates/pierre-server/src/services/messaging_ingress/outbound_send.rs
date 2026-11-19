@@ -107,6 +107,7 @@ async fn deliver_and_persist(
                             .and_then(|r| r.channel_message_id.as_deref()),
                         delivered: receipt.is_some(),
                         chat_message_id: spec.chat_message_id.as_deref(),
+                        proactive_purpose: None,
                     },
                     &message,
                 )

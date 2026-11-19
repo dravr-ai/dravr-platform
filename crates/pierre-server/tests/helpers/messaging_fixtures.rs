@@ -256,8 +256,9 @@ impl MessagingChannel for CapturingChannel {
 }
 
 /// A channel whose `send` always fails with a non-retryable delivery rejection,
-/// modeling the Meta `WhatsApp` out-of-window rejection (error 131047: more than
-/// 24 hours since the recipient last replied, so a message template is required).
+/// modeling a send the channel refuses outright — synchronously, unlike Meta's
+/// out-of-window error 131047, which `WhatsApp` reports only afterwards in a
+/// status webhook.
 /// Records every send attempt BEFORE returning the error so a test can assert
 /// exactly one attempt and that no retry occurred.
 ///
@@ -288,17 +289,15 @@ impl FailingChannel {
         }
     }
 
-    /// The delivery error every send returns — the Meta `WhatsApp` 24h-window /
-    /// template-required rejection (error 131047). `retryable: false` describes
-    /// the immediate re-send (the same free-form message stays rejected while
-    /// the window is closed), but the queue row does not carry the flag: the
-    /// outbound worker still retries with backoff by design, because the 24h
-    /// window re-opens as soon as the user writes again.
+    /// The delivery error every send returns: a refusal the channel answers the
+    /// send with. `retryable: false` describes the immediate re-send, but the
+    /// queue row does not carry the flag: the outbound worker still retries with
+    /// backoff by design.
     fn rejection(&self) -> MessagingError {
         MessagingError::DeliveryFailed {
             channel: self.channel_type.to_string(),
-            reason: "Meta WhatsApp error 131047: re-engagement message — more than 24 hours since \
-                     the recipient last replied; a message template is required"
+            reason: "Meta WhatsApp error 131026: message undeliverable — the recipient \
+                     cannot receive this message"
                 .to_owned(),
             retryable: false,
         }

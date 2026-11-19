@@ -12,6 +12,9 @@ use std::fmt;
 use pierre_core::models::TenantId;
 use serde_json::Value;
 
+use super::messaging_proactive::ProactiveNotice;
+pub use super::messaging_reactions::ReactionFeedbackTarget;
+
 /// Parameters for upserting a messaging channel configuration
 pub struct UpsertChannelConfigParams<'a> {
     /// Unique identifier for this config
@@ -173,6 +176,9 @@ pub struct InsertMessageParams<'a> {
     /// error apologies). An emoji reaction on the channel message resolves
     /// through this id to the shared per-message feedback write.
     pub chat_message_id: Option<&'a str>,
+    /// What a notice the platform sent unprompted was saying, on its outbound
+    /// rows ([`ProactiveNotice::purpose`]); `None` for inbound rows and replies.
+    pub proactive_purpose: Option<&'a str>,
 }
 
 // Bodies and raw payloads hold athlete messages, sender phone numbers and
@@ -192,28 +198,9 @@ impl fmt::Debug for InsertMessageParams<'_> {
             .field("correlation_id", &self.correlation_id)
             .field("raw_payload_len", &self.raw_payload.map(str::len))
             .field("chat_message_id", &self.chat_message_id)
+            .field("proactive_purpose", &self.proactive_purpose)
             .finish()
     }
-}
-
-/// The resolved target of an inbound emoji reaction: the assistant chat
-/// message a sent channel message delivered, plus the session identity
-/// needed to authorise and address the feedback write.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReactionFeedbackTarget {
-    /// Assistant `chat_messages.id` the reacted-to channel message delivered.
-    pub chat_message_id: String,
-    /// Tenant the conversation (and so the feedback row) lives under — the
-    /// session tenant, which for a DM is the athlete's own, not the bot's.
-    pub tenant_id: TenantId,
-    /// Pierre user the conversation belongs to.
-    pub user_id: String,
-    /// Channel-native id of that user. A reactor with a different channel
-    /// id (another member in a group room) must not write feedback as this
-    /// user.
-    pub channel_user_id: String,
-    /// Conversation the assistant message belongs to.
-    pub conversation_id: String,
 }
 
 /// Parameters for creating a pending link state
@@ -451,6 +438,24 @@ pub trait MessagingRepository: Send + Sync {
         channel_message_id: &str,
         channel_conversation_id: Option<&str>,
     ) -> AppResult<Option<ReactionFeedbackTarget>>;
+
+    /// The proactive notice whose message on `channel_type` is
+    /// `channel_message_id`, in `tenant_id`; `None` for any other message.
+    async fn find_proactive_notice(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_message_id: &str,
+    ) -> AppResult<Option<ProactiveNotice>>;
+
+    /// Name `chat_message_id` as the chat row ledger row `message_id` is
+    /// stored as; `false` when the row already names one.
+    async fn stamp_notice_chat_message(
+        &self,
+        tenant_id: TenantId,
+        message_id: &str,
+        chat_message_id: &str,
+    ) -> AppResult<bool>;
 
     /// Get messages for a session, ordered by creation time
     async fn get_session_messages(
@@ -946,8 +951,8 @@ pub(crate) const INSERT_MESSAGE_SQL: &str = r"
             INSERT INTO messaging_messages
                 (id, tenant_id, session_id, direction, channel_type, channel_message_id,
                  sender_id, content_type, content_body, correlation_id, raw_payload,
-                 chat_message_id, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                 chat_message_id, proactive_purpose, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             ON CONFLICT (tenant_id, channel_message_id) DO NOTHING
             ";
 

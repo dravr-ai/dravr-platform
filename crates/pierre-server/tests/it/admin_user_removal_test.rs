@@ -2049,6 +2049,7 @@ async fn delete_clears_a_users_messaging_history() {
             correlation_id: "corr-1",
             raw_payload: None,
             chat_message_id: None,
+            proactive_purpose: None,
         })
         .await
         .unwrap());

@@ -11,7 +11,9 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::{Destination, ServerBackfillNotifier, REENTRY_HISTORY_LOOKBACK};
-use crate::services::backfill_delivery::{ChannelDelivery, InAppDelivery};
+use crate::services::backfill_delivery::{
+    ChannelDelivery, InAppDelivery, PURPOSE_BACKFILL_COMPLETE,
+};
 use crate::services::messaging_ingress::block_render::RenderedReply;
 use crate::services::platform_post::{PlatformPostRequest, PostSurface, PostedReply};
 
@@ -66,11 +68,13 @@ impl ServerBackfillNotifier {
         let note = self.strings.render(KEY_LIVE_READ_OVERTAKEN, locale, &[]);
         match destination {
             Destination::Channel(route) => {
+                // A templated line: the conversation does not hold it.
                 ChannelDelivery {
                     repos: &self.repos,
                     resolver: self.resolver.as_ref(),
+                    purpose: PURPOSE_BACKFILL_COMPLETE,
                 }
-                .send(*route, user_id, tenant_id, RenderedReply::plain(note))
+                .send(*route, user_id, tenant_id, RenderedReply::plain(note), None)
                 .await;
             }
             Destination::InApp => {
