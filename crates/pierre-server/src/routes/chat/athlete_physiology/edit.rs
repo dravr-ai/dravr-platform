@@ -57,7 +57,7 @@ pub(in super::super) async fn put_athlete_physiology_anchor(
     let athlete = athlete_in_path(&athlete_user_id)?;
     let (sport, anchor) = anchor_in_path(&sport, &anchor)?;
     let coach = auth.user_id;
-    let access = coached_athlete(&resources, coach, athlete, query.group_id).await?;
+    let access = coached_athlete(&resources, &auth, athlete, query.group_id).await?;
     refuse_when_edits_off(&resources, access.tenant, AnchorReader::Coach).await?;
     record_physiology_read(&resources, &access, coach).await?;
     let args = anchor_edit_args(sport, anchor, &edit, COACH_STATED_ORIGIN)?;

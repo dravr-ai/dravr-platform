@@ -45,7 +45,7 @@ pub mod types;
 
 pub use auth::AuthService;
 pub use coach_calendar::delegation_services;
-pub use executor::UniversalExecutor;
+pub use executor::{record_refused_admin_call, RefusedAdminCall, UniversalExecutor};
 pub use types::{
     auth_required_provider, guardian_block_reason, is_no_provider_refusal, UniversalRequest,
     UniversalResponse, UniversalTool, UniversalToolExecutor, META_AUTH_REQUIRED_PROVIDER,

@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use pierre_database::repositories::SubjectThreads;
 
 use common::{create_test_server_resources, create_test_user_with_plan};
 use pierre_core::errors::ErrorCode;
@@ -45,6 +46,7 @@ async fn the_seeder_leaves_one_reply_with_a_supported_verdict() {
             50,
             0,
             TransportPolicy::AnyTransport,
+            SubjectThreads::All,
         )
         .await
         .unwrap();
@@ -109,6 +111,7 @@ async fn the_seeder_leaves_one_reply_with_a_supported_verdict() {
             50,
             0,
             TransportPolicy::AnyTransport,
+            SubjectThreads::All,
         )
         .await
         .unwrap();
@@ -161,6 +164,7 @@ async fn the_seeder_refuses_without_a_model_and_writes_nothing() {
             50,
             0,
             TransportPolicy::AnyTransport,
+            SubjectThreads::All,
         )
         .await
         .unwrap();

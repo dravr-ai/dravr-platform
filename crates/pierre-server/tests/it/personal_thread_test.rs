@@ -14,6 +14,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_database::repositories::SubjectThreads;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -439,7 +440,14 @@ async fn first_requests_racing_each_other_settle_on_one_thread() {
         );
         let listed = repos
             .chat
-            .list_conversations(&user, tenant_id, 50, 0, TransportPolicy::FirstPartyOnly)
+            .list_conversations(
+                &user,
+                tenant_id,
+                50,
+                0,
+                TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All,
+            )
             .await
             .unwrap()
             .items;

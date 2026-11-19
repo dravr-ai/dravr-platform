@@ -24,6 +24,7 @@ use pierre_core::models::{
 use pierre_core::permissions::UserRole;
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::Database;
+use pierre_database::repositories::SubjectThreads;
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -133,7 +134,14 @@ async fn unread_for(
 ) -> Option<i64> {
     repos
         .chat
-        .list_conversations(user, tenant, 10, 0, TransportPolicy::FirstPartyOnly)
+        .list_conversations(
+            user,
+            tenant,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
+        )
         .await
         .unwrap()
         .items
@@ -289,14 +297,26 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
     // The page: every row fact, newest activity first, the real total.
     let page = repos
         .chat
-        .list_conversations(&athlete, tenant, 10, 0, TransportPolicy::FirstPartyOnly)
+        .list_conversations(
+            &athlete,
+            tenant,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
+        )
         .await
         .unwrap();
     assert_eq!(page.total, 3);
     assert_eq!(
         repos
             .chat
-            .count_participating_conversations(&athlete, tenant, TransportPolicy::FirstPartyOnly)
+            .count_participating_conversations(
+                &athlete,
+                tenant,
+                TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All
+            )
             .await
             .unwrap(),
         3
@@ -344,14 +364,28 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
     // Paging is applied as given; the total is not.
     let page = repos
         .chat
-        .list_conversations(&athlete, tenant, 2, 0, TransportPolicy::FirstPartyOnly)
+        .list_conversations(
+            &athlete,
+            tenant,
+            2,
+            0,
+            TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
+        )
         .await
         .unwrap();
     assert_eq!(page.items.len(), 2);
     assert_eq!(page.total, 3);
     let page = repos
         .chat
-        .list_conversations(&athlete, tenant, 2, 2, TransportPolicy::FirstPartyOnly)
+        .list_conversations(
+            &athlete,
+            tenant,
+            2,
+            2,
+            TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
+        )
         .await
         .unwrap();
     assert_eq!(page.items.len(), 1);
@@ -423,7 +457,8 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
                 tenant,
                 10,
                 0,
-                TransportPolicy::FirstPartyOnly
+                TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All
             )
             .await
             .unwrap()
@@ -464,7 +499,14 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
     );
     let member_page = repos
         .chat
-        .list_conversations(&member, tenant, 10, 0, TransportPolicy::FirstPartyOnly)
+        .list_conversations(
+            &member,
+            tenant,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
+        )
         .await
         .unwrap();
     assert_eq!(member_page.total, 1);

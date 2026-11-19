@@ -12,7 +12,9 @@ use chrono::{TimeZone, Utc};
 use pierre_core::admin::models::{DELETED_ACCOUNT_LABEL, DEVICE_CLI_SERVICE_PREFIX};
 use pierre_core::models::User;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
-use pierre_database::repositories::{AuditEventFilter, AuditOutcome, AuditSource, NewAuditEvent};
+use pierre_database::repositories::{
+    AuditEventFilter, AuditOutcome, AuditSource, NewAuditEvent, SettledAuditEvent,
+};
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::account::delete_account;
 use pierre_test_support::db::create_test_db;
@@ -255,4 +257,100 @@ async fn a_deleted_admins_trail_rows_stay_without_their_caller() {
     assert_eq!(address.as_deref(), Some(ADDRESS));
     assert_eq!(agent.as_deref(), Some(AGENT));
     assert!(metadata.contains(&staying.email), "{metadata}");
+}
+
+/// A started row is settled once, by the actor and tenant it names, and
+/// nothing else changes it (EFVP 9.4d: an admin-only tool call is written
+/// before it runs and settled to how it ended).
+#[tokio::test]
+async fn a_started_row_is_settled_once_and_only_under_its_actor_and_tenant() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let admin = account(repos, "settle-admin@example.com", true).await.id;
+    let action = format!("tool.settle.{}", Uuid::new_v4().simple());
+    // A platform-wide row: `tenant_id` references a tenant on SQLite, and the
+    // tenant only has to differ for the settle below to miss.
+    let tenant: Option<String> = None;
+    let id = repos
+        .admin_audit
+        .record(&NewAuditEvent {
+            action: action.clone(),
+            summary: "admin_update_system_agent called over mcp_http".to_owned(),
+            outcome: AuditOutcome::Started,
+            source: AuditSource::ToolCall,
+            actor_user_id: Some(admin),
+            tenant_id: tenant.clone(),
+            ip_address: None,
+            user_agent: None,
+            metadata: json!({ "transport": "mcp_http" }),
+        })
+        .await
+        .unwrap();
+    let outcome = || async {
+        let rows = repos
+            .admin_audit
+            .list(
+                &AuditEventFilter {
+                    action_prefix: Some(action.clone()),
+                    ..AuditEventFilter::default()
+                },
+                10,
+            )
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1, "bug: the action names one row");
+        (rows[0].outcome.clone(), rows[0].source.clone())
+    };
+    assert_eq!(
+        outcome().await,
+        ("started".to_owned(), "tool_call".to_owned()),
+        "bug: a recorded tool call starts as started, sourced as a tool call"
+    );
+
+    let settle = |actor, tenant: Option<String>, outcome| {
+        let trail = repos.admin_audit.clone();
+        let id = id.clone();
+        async move {
+            trail
+                .settle(&SettledAuditEvent {
+                    id: &id,
+                    actor_user_id: actor,
+                    tenant_id: tenant.as_deref(),
+                    outcome,
+                })
+                .await
+                .unwrap()
+        }
+    };
+    assert!(
+        !settle(Some(Uuid::new_v4()), tenant.clone(), AuditOutcome::Failed).await,
+        "bug: another actor settles nothing"
+    );
+    assert!(
+        !settle(
+            Some(admin),
+            Some(Uuid::new_v4().to_string()),
+            AuditOutcome::Failed
+        )
+        .await,
+        "bug: another tenant settles nothing"
+    );
+    assert!(
+        settle(Some(admin), tenant.clone(), AuditOutcome::Success).await,
+        "bug: the actor and tenant that wrote the row settle it"
+    );
+    assert_eq!(
+        outcome().await.0,
+        "success",
+        "bug: the row is settled to the outcome given"
+    );
+    assert!(
+        !settle(Some(admin), tenant.clone(), AuditOutcome::Failed).await,
+        "bug: a settled row is settled once"
+    );
+    assert_eq!(
+        outcome().await.0,
+        "success",
+        "bug: a second settle leaves the first outcome"
+    );
 }

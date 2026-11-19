@@ -38,6 +38,7 @@ use pierre_core::models::groups::{
 use pierre_core::models::{AddMessageParams, Tenant, TenantId};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::training_plans::PlanAuthor;
+use pierre_database::repositories::SubjectThreads;
 use pierre_database::repositories::{
     NewConversation, PlanOutlineInput, Reactivation, SavePlanBundleParams, SlotClaim,
 };
@@ -424,6 +425,7 @@ async fn every_gate_refuses_with_its_reason_and_opens_nothing() {
             &fx.coach.id.to_string(),
             fx.coach.tenant,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap();
@@ -456,6 +458,7 @@ async fn a_coach_whose_access_is_off_opens_no_thread_until_it_is_back() {
             &fx.coach.id.to_string(),
             fx.coach.tenant,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap();
@@ -831,7 +834,8 @@ async fn reset_in_a_subject_thread_opens_a_topic_and_keeps_the_binding() {
             .count_participating_conversations(
                 &coach,
                 fx.coach.tenant,
-                TransportPolicy::FirstPartyOnly
+                TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All
             )
             .await
             .unwrap(),

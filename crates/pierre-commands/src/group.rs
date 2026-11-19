@@ -28,6 +28,7 @@ use pierre_core::models::TenantId;
 use pierre_core::untrusted::{display_line, ROSTER_NAME_MAX_CHARS};
 use pierre_groups::group_agent::require_athlete_facing;
 use pierre_groups::strategies::tier::tier_enables_digest;
+use pierre_providers::ai_scope;
 use pierre_services::group_staff::resolve_group_staff;
 use uuid::Uuid;
 
@@ -503,7 +504,9 @@ impl CommandHandler for GroupStatusHandler {
 /// that answers in the chat, the human coach when one is attached, then each
 /// member with their role; a name that cannot be read renders as the
 /// localized "unknown". The agent and the coach hold no membership row, so
-/// the header counts the members alone.
+/// the header counts the members alone. Typed by the group's coach through an
+/// outside client, it neither lists nor counts a member who stopped sharing
+/// with the coach.
 #[derive(Debug)]
 pub struct GroupMembersHandler;
 
@@ -530,7 +533,17 @@ impl CommandHandler for GroupMembersHandler {
             .await?
             .ok_or_else(not_a_member)?;
         let staff = resolve_group_staff(repos, &group, locale).await?;
-        let members = repos.groups.list_members(&group_id).await?;
+        let mut members = repos.groups.list_members(&group_id).await?;
+        // A command turn runs under the transport its surface declared: an
+        // outside client acting for the group's coach (an API key on the
+        // chat routes) is never told of a member who stopped sharing with
+        // the coach (EFVP 2026-11-17, decision 9.4c), as the room's own
+        // roster never tells one. A handler holds no credential, so the
+        // declared transport alone decides.
+        if ai_scope::served_outside(false) {
+            let unnamed = group.unnamed_to_outside_client_of(ctx.user_id, &members);
+            members.retain(|member| !unnamed.contains(&member.user_id));
+        }
 
         let unknown = reg.render(KEY_GROUP_MEMBERS_UNKNOWN, locale, &[]);
         // Every name here was typed by someone other than the reader, so each

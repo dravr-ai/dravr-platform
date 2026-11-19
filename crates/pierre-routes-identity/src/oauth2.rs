@@ -56,6 +56,8 @@ mod consent;
 mod consent_copy;
 /// The consent flow's text, in the reader's language
 mod consent_text;
+/// Which consent text a grant was approved under, and whether it is current.
+mod consent_version;
 /// "Continue with Google": server-side Google sign-in on the hosted login page
 mod google_login;
 /// The JWKS endpoint serving the RS256 public keys
@@ -70,6 +72,8 @@ mod pages;
 mod revoke;
 /// The sign-in cookie: its name, value and reading.
 mod session;
+/// What a hosted page shows its reader, as the consent text version reads it.
+mod visible_text;
 /// The RFC 8414 and RFC 9728 discovery documents
 mod well_known;
 
@@ -408,7 +412,8 @@ impl OAuth2Routes {
         };
 
         // Skip the consent screen only when the user has already approved this client
-        // for the requested scope; otherwise show consent before any code is minted.
+        // for the requested scope, under the consent text that language reads now;
+        // otherwise show consent before any code is minted.
         let grant_tenant =
             Self::resolve_grant_tenant(context, authenticated_user_id, tenant_id.clone()).await;
         let has_grant = match &grant_tenant {
@@ -425,7 +430,17 @@ impl OAuth2Routes {
                     error!("Failed to look up the client grant, showing consent: {e}");
                     None
                 })
-                .is_some(),
+                .is_some_and(|grant| {
+                    consent_version::approved_under_current_text(
+                        &context.strings,
+                        &grant,
+                        consent_version::ConsentSubject {
+                            client_id: &request.client_id,
+                            redirect_uri: &redirect_uri,
+                            first_party_only_sources: &context.first_party_only_sources,
+                        },
+                    )
+                }),
             None => false,
         };
 

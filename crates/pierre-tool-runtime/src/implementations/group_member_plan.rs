@@ -56,7 +56,7 @@ use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::read_subject::{
-    gate_message, match_coached_member, GateObject, MemberMiss, COACH_ACCESS_OFF,
+    gate_message, match_coached_member, GateObject, MatchAudience, MemberMiss, COACH_ACCESS_OFF,
 };
 use crate::runtime::ToolRuntime;
 
@@ -314,7 +314,15 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberPlanStatusTool {
                 return Ok(refusal(NO_COACH_ACCESS, COACH_ACCESS_OFF));
             }
 
-            let found = match match_coached_member(repos, requester, query, within).await? {
+            let found = match match_coached_member(
+                repos,
+                requester,
+                query,
+                within,
+                MatchAudience::current(),
+            )
+            .await?
+            {
                 Ok(found) => found,
                 Err(miss) => return Ok(miss_refusal(&miss, query)),
             };

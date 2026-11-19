@@ -67,6 +67,44 @@ pub const KEY_CONSENT_FIRST_PARTY_ONLY: &str = "oauth.consent.firstPartyOnly";
 /// Key: "`{0}` and `{1}`", joining the last service to the ones before it
 pub const KEY_CONSENT_LIST_PAIR: &str = "oauth.consent.listPair";
 
+/// Every line the consent screen can show.
+///
+/// What the user reads when they choose Allow access.
+/// `pierre-routes-identity` versions the consent it records by this text, so
+/// a key the screen renders and this list leaves out is a wording change
+/// nobody is asked again about; its test holds every `oauth.consent.` key in
+/// the catalogue to this list.
+pub const CONSENT_SCREEN_KEYS: [&str; 28] = [
+    KEY_CONSENT_TITLE,
+    KEY_CONSENT_LEAD,
+    KEY_CONSENT_RETURNS_TO,
+    KEY_CONSENT_SCOPES_TITLE,
+    KEY_CONSENT_SCOPE_FITNESS_READ,
+    KEY_CONSENT_SCOPE_FITNESS_WRITE,
+    KEY_CONSENT_SCOPE_PROFILE_READ,
+    KEY_CONSENT_SCOPE_PROFILE_WRITE,
+    KEY_CONSENT_SCOPE_OFFLINE_ACCESS,
+    KEY_CONSENT_ALLOW,
+    KEY_CONSENT_DENY,
+    KEY_CONSENT_SIGNED_IN_AS,
+    KEY_CONSENT_USE_ANOTHER_ACCOUNT,
+    KEY_CONSENT_REVOKE_ANYTIME,
+    KEY_CONSENT_PRIVACY_POLICY,
+    KEY_CONSENT_TERMS,
+    KEY_CONSENT_VERIFIED,
+    KEY_CONSENT_UNVERIFIED_TITLE,
+    KEY_CONSENT_UNVERIFIED_BODY,
+    KEY_CONSENT_UNVERIFIED_PUBLISHED_BY,
+    KEY_CONSENT_UNVERIFIED_LOOPBACK,
+    KEY_CONSENT_HEALTH,
+    KEY_CONSENT_OUTSIDE_QUEBEC_KNOWN,
+    KEY_CONSENT_OUTSIDE_QUEBEC_UNKNOWN,
+    KEY_CONSENT_IN_UNITED_STATES,
+    KEY_CONSENT_EXPRESS,
+    KEY_CONSENT_FIRST_PARTY_ONLY,
+    KEY_CONSENT_LIST_PAIR,
+];
+
 /// Key: "Connection Failed": the error page's title and heading. No format placeholders.
 pub const KEY_ERROR_TITLE: &str = "oauth.error.title";
 /// Key: "Please try again." No format placeholders.

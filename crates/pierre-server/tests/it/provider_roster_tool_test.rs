@@ -522,7 +522,10 @@ impl World {
             .with_user(who.id.to_string())
             .with_tenant(who.tenant.to_string())
             .with_auth_method("jwt_bearer");
-        let response = tool.execute(&runtime, &ctx, args).await;
+        // The coach tools are first-party only: served over the web app, as
+        // the chat route declares it. A call that declares no transport is
+        // read as outside Dravr's own surfaces.
+        let response = serve_over(Transport::WebApp, tool.execute(&runtime, &ctx, args)).await;
         (
             response
                 .structured_content

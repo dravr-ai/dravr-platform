@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use pierre_database::repositories::SubjectThreads;
 
 use common::{create_test_server_resources, create_test_user_with_plan};
 use pierre_core::constants::oauth::providers::provider_terms_version;
@@ -112,6 +113,7 @@ async fn the_seeder_leaves_one_link_waiting_for_its_member() {
             50,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap();
@@ -132,6 +134,7 @@ async fn the_seeder_leaves_one_link_waiting_for_its_member() {
             50,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap();

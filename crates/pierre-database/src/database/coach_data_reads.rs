@@ -7,12 +7,13 @@
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
+use pierre_core::transport::Transport;
 use sqlx::Row;
 use uuid::Uuid;
 
 use crate::database::Database;
 use crate::repositories::coach_data_reads::{
-    coach_read_error, impl_coach_data_read_repository, read_day, CoachDataRead,
+    coach_read_error, impl_coach_data_read_repository, parse_transport, read_day, CoachDataRead,
     CoachDataReadRepository, CoachReadClass, NewCoachDataRead, LIST_COACH_READS_SQL,
     PURGE_COACH_READS_SQL, RECORD_COACH_READ_SQL,
 };

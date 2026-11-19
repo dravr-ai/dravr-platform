@@ -15,11 +15,12 @@ use axum::{
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
+use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{ConversationRecord, ParticipantRole, TenantId};
 use pierre_middleware::AuthenticatedUser;
 
-use super::common::get_tenant_id;
+use super::common::{conversation_not_found, get_tenant_id, refuse_unshared_subject};
 use super::dto::{AddParticipantRequest, ParticipantListResponse, ParticipantResponse};
 
 /// The membership check every participant route reuses: the caller must
@@ -29,16 +30,18 @@ use super::dto::{AddParticipantRequest, ParticipantListResponse, ParticipantResp
 async fn require_participant(
     resources: &ServerContext,
     conversation_id: &str,
-    user_id: Uuid,
+    auth: &AuthResult,
     tenant_id: TenantId,
 ) -> Result<ConversationRecord, AppError> {
-    resources
+    let conv = resources
         .common
         .repos
         .chat
-        .get_conversation(conversation_id, &user_id.to_string(), tenant_id)
+        .get_conversation(conversation_id, &auth.user_id.to_string(), tenant_id)
         .await?
-        .ok_or_else(|| AppError::not_found("Conversation not found"))
+        .ok_or_else(conversation_not_found)?;
+    refuse_unshared_subject(resources, auth, &conv).await?;
+    Ok(conv)
 }
 
 /// List who is in the conversation, owner first.
@@ -49,7 +52,7 @@ pub(super) async fn list_participants(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
-    require_participant(&resources, &conversation_id, auth.user_id, tenant_id).await?;
+    require_participant(&resources, &conversation_id, &auth, tenant_id).await?;
 
     let participants = resources
         .common
@@ -90,8 +93,7 @@ pub(super) async fn add_participant(
     )
     .await?;
     let tenant_id = get_tenant_id(&auth, &resources).await?;
-    let conversation =
-        require_participant(&resources, &conversation_id, auth.user_id, tenant_id).await?;
+    let conversation = require_participant(&resources, &conversation_id, &auth, tenant_id).await?;
     // The personal thread is the athlete and Dravr alone — the thread Home
     // opens and the coach posts into. Talking with someone else is a group
     // (carnet#840).
@@ -156,7 +158,7 @@ pub(super) async fn remove_participant(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
-    require_participant(&resources, &conversation_id, auth.user_id, tenant_id).await?;
+    require_participant(&resources, &conversation_id, &auth, tenant_id).await?;
 
     let target = Uuid::parse_str(user_id.trim())
         .map_err(|_| AppError::invalid_input("user_id must be a UUID"))?;

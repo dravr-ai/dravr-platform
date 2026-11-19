@@ -32,7 +32,7 @@ use pierre_services::training_plan_render::{
     plan_goal_is_stale, select_active_weeks, SelectedWeek, ACTIVE_WEEKS,
 };
 use pierre_tool_runtime::implementations::plan_scope::{self, CoachedPlanRefusal};
-use pierre_tool_runtime::read_subject::{self, MemberMiss};
+use pierre_tool_runtime::read_subject::{self, MatchAudience, MemberMiss};
 use std::fmt::Write as _;
 use tracing::info;
 use uuid::Uuid;
@@ -537,12 +537,20 @@ async fn coached_athlete_plan(
 
     // Every name in a reply is user-set free text in rich text, so escaped.
     let typed = escape_markdown(query);
-    let found = match read_subject::match_coached_member(repos, ctx.user_id, query, None).await? {
+    let found = match read_subject::match_coached_member(
+        repos,
+        ctx.user_id,
+        query,
+        None,
+        MatchAudience::current(),
+    )
+    .await?
+    {
         Ok(found) => found,
         // Coach access lost between the rule asked above and this match is
         // answered as it is above: the caller's own plan.
         Err(MemberMiss::Requester | MemberMiss::NoCoachAccess) => return Ok(None),
-        Err(MemberMiss::NoMatch) => {
+        Err(MemberMiss::NoMatch | MemberMiss::NoSharingMatch) => {
             return Ok(Some(reg.render(
                 KEY_PLAN_ATHLETE_NO_MATCH,
                 locale,

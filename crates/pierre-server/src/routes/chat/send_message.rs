@@ -52,7 +52,7 @@ use pierre_tool_runtime::context::SUPPORT_SESSION;
 #[cfg(feature = "client-notifications")]
 use tokio::time;
 
-use super::common::get_tenant_id;
+use super::common::{conversation_not_found, get_tenant_id, refuse_unshared_subject};
 use super::dto::{MessageResponse, SendMessageRequest};
 use super::room_quote::verify_room_quote;
 use super::turn_response::{
@@ -231,7 +231,8 @@ pub(super) async fn send_message(
         .chat
         .get_conversation(&conversation_id, &user_id_str, tenant_id)
         .await?
-        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+        .ok_or_else(conversation_not_found)?;
+    refuse_unshared_subject(&resources, &auth, &conversation).await?;
 
     // A quoted room message is verified before anything is written: a quote
     // the coach may not carry refuses the whole send (carnet#1249).

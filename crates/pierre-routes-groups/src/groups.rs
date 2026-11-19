@@ -49,6 +49,7 @@ use pierre_services::locale::resolve_user_locale;
 
 use crate::group_response::GroupResponse;
 use crate::group_update_access::authorize_group_update;
+use crate::outside_roster::members_served_to;
 
 mod bodies;
 pub use bodies::{
@@ -556,6 +557,7 @@ impl GroupRoutes {
         Self::require_member_or_coach(&resources, &group_id, auth.user_id, tenant_id).await?;
 
         let members = resources.group_service().list_members(&group_id).await?;
+        let members = members_served_to(&resources, &auth, &group_id, tenant_id, members).await?;
 
         let member_responses: Vec<MemberResponse> =
             members.into_iter().map(MemberResponse::from).collect();

@@ -55,6 +55,7 @@ use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::protocol::provider_offer::accept_no_provider_answer;
+use pierre_tool_runtime::protocol::{record_refused_admin_call, RefusedAdminCall};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::scopes::missing_scope;
@@ -244,29 +245,49 @@ impl PierreAuthHook {
         request: &JsonRpcRequest,
         granted: &[OAuthScope],
     ) -> Option<OAuthScope> {
-        if request.method != "tools/call" {
-            return None;
-        }
-        let name = request.params.as_ref()?.get("name")?.as_str()?;
+        let name = called_tool(request)?;
         let capabilities = self.resources.mcp.tool_registry.get(name)?.capabilities();
         missing_scope(granted, capabilities)
     }
+
+    /// Put the call `request` names on the admin audit trail as `refused`
+    /// when it is an admin-only `tools/call` this hook turns away: the
+    /// refusal never reaches the dispatcher, which records every other one
+    /// (EFVP 9.4d). Any other request writes nothing.
+    async fn record_refusal(&self, request: &JsonRpcRequest, user_id: Uuid, tenant: Option<&str>) {
+        let Some(tool_name) = called_tool(request) else {
+            return;
+        };
+        record_refused_admin_call(
+            &*self.resources,
+            &RefusedAdminCall {
+                tool_name,
+                user_id,
+                tenant_id: tenant,
+                transport: Transport::McpHttp,
+                protocol: "mcp",
+            },
+        )
+        .await;
+    }
+}
+
+/// The tool a `tools/call` names; `None` for any other request.
+fn called_tool(request: &JsonRpcRequest) -> Option<&str> {
+    if request.method != "tools/call" {
+        return None;
+    }
+    request
+        .params
+        .as_ref()
+        .and_then(|params| params.get("name"))
+        .and_then(Value::as_str)
 }
 
 /// What an MCP request did, for its usage row: the tool a `tools/call`
 /// names, otherwise the JSON-RPC method.
 fn mcp_operation(request: &JsonRpcRequest) -> &str {
-    if request.method == "tools/call" {
-        if let Some(tool) = request
-            .params
-            .as_ref()
-            .and_then(|params| params.get("name"))
-            .and_then(Value::as_str)
-        {
-            return tool;
-        }
-    }
-    &request.method
+    called_tool(request).unwrap_or(&request.method)
 }
 
 /// The authority the client dialed, from the headers the transport forwards:
@@ -316,11 +337,20 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
             .resources
             .auth
             .auth_middleware
-            .authenticate_scoped_request(Some(&auth_header), &resources)
+            .authenticate_scoped_request_naming_caller(Some(&auth_header), &resources)
             .await
         {
             Ok(result) => result,
-            Err(e) => return Err(auth_refusal(&e, resource_url)),
+            Err(refusal) => {
+                // A caller the credential named — an API key over its budget,
+                // an owner the account-status gate turns away, a grant whose
+                // consent was withdrawn — leaves its admin-only attempt on
+                // the trail (EFVP 2026-11-17, decision 9.4d).
+                if let Some(caller) = refusal.caller {
+                    self.record_refusal(request, caller, None).await;
+                }
+                return Err(auth_refusal(&refusal.error, resource_url));
+            }
         };
         // The usage row an API key's request writes names the tool it
         // called, not `POST /mcp`, which serves every tool.
@@ -371,6 +401,9 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
                         missing_scope = %missing,
                         "MCP request rejected: the caller's grant does not cover this tool"
                     );
+                    let tenant = tenant_ctx.tenant_id.to_string();
+                    self.record_refusal(request, auth_result.user_id, Some(&tenant))
+                        .await;
                     return Err(AuthError::InsufficientScope {
                         www_authenticate: insufficient_scope_challenge(resource_url, missing),
                         reason: format!(
@@ -381,11 +414,17 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
 
                 Ok(ctx)
             }
-            Ok(None) => Err(AuthError::Forbidden {
-                reason: "User must be assigned to a tenant to execute tools".to_owned(),
-            }),
+            Ok(None) => {
+                self.record_refusal(request, auth_result.user_id, None)
+                    .await;
+                Err(AuthError::Forbidden {
+                    reason: "User must be assigned to a tenant to execute tools".to_owned(),
+                })
+            }
             Err(e) => {
                 log_tenant_failure(auth_result.user_id, &e);
+                self.record_refusal(request, auth_result.user_id, None)
+                    .await;
                 Err(AuthError::Forbidden {
                     reason: "Failed to extract tenant context".to_owned(),
                 })

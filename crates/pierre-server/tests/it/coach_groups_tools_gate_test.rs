@@ -145,9 +145,17 @@ mod groups_tools_gate {
             in_thread.0, "coach_sharing_revoked",
             "test setup bug: the scoped read refuses a revoked consent"
         );
+        // The coach's outside assistant is not told who stopped sharing: to
+        // it the athlete reads as no match (EFVP 9.4c). Dravr's own surfaces
+        // still name them, which the groups tools below are held to.
         assert_eq!(
-            in_thread, over_mcp,
-            "test setup bug: both scoped paths word the refusal alike"
+            over_mcp.0, "no_match",
+            "test setup bug: over MCP a revoked consent reads as no match"
+        );
+        assert!(
+            !over_mcp.1.contains("stopped sharing") && !over_mcp.1.contains("Subject"),
+            "test setup bug: the MCP refusal names no one: {}",
+            over_mcp.1
         );
 
         let activities = f

@@ -24,6 +24,7 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_database::repositories::CoachReadSurface;
 use pierre_middleware::AuthenticatedUser;
@@ -39,14 +40,15 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 use crate::tools::runtime_adapter::into_runtime;
 
+use super::common::coaching_refusal;
 use super::dto::{AthletePlanQuery, AthletePlanResponse};
 
 /// The refusal as an HTTP error, with the `details.reason` a client words:
 /// the coaching gates' own, or 403 `plans_disabled` when the athlete's
 /// tenant turned the plan read off.
-fn refusal_error(refused: CoachedPlanRefusal) -> AppError {
+fn refusal_error(auth: &AuthResult, refused: CoachedPlanRefusal) -> AppError {
     match refused {
-        CoachedPlanRefusal::Coaching(gate) => gate.into_error(),
+        CoachedPlanRefusal::Coaching(gate) => coaching_refusal(auth, gate),
         CoachedPlanRefusal::PlansDisabled { athlete } => {
             let mut error = AppError::new(
                 ErrorCode::PermissionDenied,
@@ -85,7 +87,7 @@ pub(super) async fn get_athlete_plan(
         CoachReadSurface::PlanView.as_str(),
     )
     .await?
-    .map_err(refusal_error)?;
+    .map_err(|refused| refusal_error(&auth, refused))?;
 
     let today = athlete_clock::athlete_today(repos, athlete).await;
     let coach_user = repos.users.get_global(coach).await?;

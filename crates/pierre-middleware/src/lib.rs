@@ -56,7 +56,7 @@ pub use admin_guard::require_admin;
 // Authentication middleware
 
 /// MCP authentication middleware
-pub use auth::McpAuthMiddleware;
+pub use auth::{AuthRefusal, McpAuthMiddleware};
 /// CSRF protection layer for Axum router (validates cookie-auth state-changing requests)
 pub use csrf::csrf_protection_layer;
 /// Pure-function CSRF validator (header extraction + method-class check + token verification)

@@ -285,6 +285,7 @@ macro_rules! impl_chat_repository {
                 limit: i64,
                 offset: i64,
                 readable: TransportPolicy,
+                subjects: SubjectThreads,
             ) -> AppResult<ConversationPage> {
                 let rows = sqlx::query(LIST_CONVERSATIONS_SQL)
                     .bind($ids::bind_text(user_id)?)
@@ -293,6 +294,7 @@ macro_rules! impl_chat_repository {
                     .bind(offset)
                     .bind(CONTENT_HEAD_CHARS)
                     .bind(readable.is_first_party_only())
+                    .bind(subjects.lists_every_subject())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -300,7 +302,7 @@ macro_rules! impl_chat_repository {
                     })?;
 
                 let total = self
-                    .count_participating_conversations(user_id, tenant_id, readable)
+                    .count_participating_conversations(user_id, tenant_id, readable, subjects)
                     .await?;
 
                 Ok(ConversationPage {
@@ -317,11 +319,13 @@ macro_rules! impl_chat_repository {
                 user_id: &str,
                 tenant_id: TenantId,
                 readable: TransportPolicy,
+                subjects: SubjectThreads,
             ) -> AppResult<i64> {
                 sqlx::query_scalar(COUNT_PARTICIPATING_SQL)
                     .bind($ids::bind_text(user_id)?)
                     .bind(tenant_id.to_string())
                     .bind(readable.is_first_party_only())
+                    .bind(subjects.lists_every_subject())
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| {

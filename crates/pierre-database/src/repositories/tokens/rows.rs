@@ -236,6 +236,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     Ok(OAuthClientGrant {
         id: row.try_get("id").map_err(|e| column_error("id", e))?,
@@ -255,6 +256,12 @@ where
         revoked_at: row
             .try_get("revoked_at")
             .map_err(|e| column_error("revoked_at", e))?,
+        consent_version: row
+            .try_get("consent_version")
+            .map_err(|e| column_error("consent_version", e))?,
+        consent_locale: row
+            .try_get("consent_locale")
+            .map_err(|e| column_error("consent_locale", e))?,
     })
 }
 

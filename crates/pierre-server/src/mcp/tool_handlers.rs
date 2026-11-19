@@ -28,7 +28,9 @@ use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::quota_policy::{check_quotas, QuotaPolicyInputs, QuotaSurface};
 use pierre_services::usage_counter::UsageCounterService;
 use pierre_tool_runtime::context::GRANTED_SCOPES;
-use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
+use pierre_tool_runtime::protocol::{
+    record_refused_admin_call, RefusedAdminCall, UniversalRequest, UniversalToolExecutor,
+};
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
 use pierre_tool_runtime::protocols::ProtocolError;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -102,6 +104,23 @@ impl ToolHandlers {
     ) -> ToolResponse {
         record_tool_call(tool_name, &args, tool_context);
 
+        // An admin-only call refused here never reaches the executor, which
+        // writes the audit row of every other one: it is written here, so
+        // every admin-only call over `/mcp` is on the trail (EFVP 9.4d).
+        let refused = |tenant: Option<String>, response: ToolResponse| async move {
+            record_refused_admin_call(
+                &**resources,
+                &RefusedAdminCall {
+                    tool_name,
+                    user_id,
+                    tenant_id: tenant.as_deref(),
+                    transport: Transport::McpHttp,
+                    protocol: "mcp",
+                },
+            )
+            .await;
+            response
+        };
         let tenant_context = match extract_tenant_context_internal(
             &resources.common.repos,
             user_id,
@@ -111,13 +130,21 @@ impl ToolHandlers {
         {
             Ok(Some(ctx)) => ctx,
             Ok(None) => {
-                return ToolResponse::error(
-                    "User must be assigned to a tenant to execute tools".to_owned(),
-                );
+                return refused(
+                    None,
+                    ToolResponse::error(
+                        "User must be assigned to a tenant to execute tools".to_owned(),
+                    ),
+                )
+                .await;
             }
             Err(e) => {
                 log_tenant_failure(user_id, &e);
-                return ToolResponse::error("Failed to extract tenant context".to_owned());
+                return refused(
+                    None,
+                    ToolResponse::error("Failed to extract tenant context".to_owned()),
+                )
+                .await;
             }
         };
 
@@ -126,39 +153,21 @@ impl ToolHandlers {
             .clone()
             .unwrap_or_else(default_request_id);
 
-        // Shared budget + activity quota (mirrors the chat route).
-        if let Some(quota_error) = Self::check_tool_quota(
-            resources,
-            &tenant_context,
-            user_id,
-            Some(request_id.clone()),
-        )
-        .await
-        {
-            return Self::mcp_response_to_tool_response(quota_error);
-        }
-        if let Some(error_response) = Self::check_tool_enabled(
-            resources,
-            &tenant_context,
-            user_id,
-            tool_name,
-            Some(request_id.clone()),
-        )
-        .await
-        {
-            return Self::mcp_response_to_tool_response(error_response);
-        }
-        if let Some(error_response) = Self::check_activity_quota(
+        if let Some(error_response) = Self::door_refusal(
             resources,
             &tenant_context,
             user_id,
             tool_name,
             &args,
-            Some(request_id.clone()),
+            &request_id,
         )
         .await
         {
-            return Self::mcp_response_to_tool_response(error_response);
+            return refused(
+                Some(tenant_context.tenant_id.to_string()),
+                Self::mcp_response_to_tool_response(error_response),
+            )
+            .await;
         }
 
         let start_time = Instant::now();
@@ -207,6 +216,45 @@ impl ToolHandlers {
         }
 
         Self::mcp_response_to_tool_response(response)
+    }
+
+    /// The refusal `/mcp` answers a call with before it reaches the executor:
+    /// the shared budget, the tenant's switched-off tools and the activity
+    /// quota (mirrors the chat route); `None` when the call may run.
+    async fn door_refusal(
+        resources: &Arc<ServerContext>,
+        tenant_context: &TenantContext,
+        user_id: Uuid,
+        tool_name: &str,
+        args: &Value,
+        request_id: &Value,
+    ) -> Option<McpResponse> {
+        if let Some(quota_error) =
+            Self::check_tool_quota(resources, tenant_context, user_id, Some(request_id.clone()))
+                .await
+        {
+            return Some(quota_error);
+        }
+        if let Some(error_response) = Self::check_tool_enabled(
+            resources,
+            tenant_context,
+            user_id,
+            tool_name,
+            Some(request_id.clone()),
+        )
+        .await
+        {
+            return Some(error_response);
+        }
+        Self::check_activity_quota(
+            resources,
+            tenant_context,
+            user_id,
+            tool_name,
+            args,
+            Some(request_id.clone()),
+        )
+        .await
     }
 
     /// Adapt an [`McpResponse`] from the shared routing helpers into the wire

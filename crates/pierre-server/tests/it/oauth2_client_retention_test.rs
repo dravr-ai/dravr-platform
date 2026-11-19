@@ -191,6 +191,8 @@ async fn grant(database: &Database, client_id: &str) {
             scope: "read:fitness".to_owned(),
             granted_at: Utc::now(),
             revoked_at: None,
+            consent_version: None,
+            consent_locale: None,
         })
         .await
         .unwrap();

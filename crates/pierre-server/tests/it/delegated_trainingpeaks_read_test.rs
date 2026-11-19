@@ -33,6 +33,8 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_core::transport::Transport;
+use pierre_providers::ai_scope;
 
 use secrecy::SecretString;
 use std::collections::HashMap;
@@ -757,9 +759,13 @@ async fn the_coach_reads_the_members_plan_once_they_share(w: &World) {
         "end_date": end.format("%Y-%m-%d").to_string(),
     });
 
-    let refused = GetPlannedWorkoutsTool
-        .execute(&w.runtime, &ctx(&w.coach), args.clone())
-        .await;
+    // In Dravr's own app the coach is told the member stopped sharing; a call
+    // that declares no transport is read as outside, and told no match.
+    let refused = ai_scope::serve_over(
+        Transport::WebApp,
+        GetPlannedWorkoutsTool.execute(&w.runtime, &ctx(&w.coach), args.clone()),
+    )
+    .await;
     let body = payload(&refused);
     assert!(refused.is_error, "{body}");
     assert!(

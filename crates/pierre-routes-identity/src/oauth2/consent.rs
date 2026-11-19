@@ -18,6 +18,7 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use super::consent_text::ConsentText;
+use super::consent_version::{consent_version, ConsentSubject};
 use super::{OAuth2Context, OAuth2Routes};
 use crate::authorize_redirect::{error_redirect, rejection_response};
 
@@ -42,6 +43,16 @@ pub(super) const CONSENT_NOT_RECORDED: &str =
     "Your approval could not be recorded, so this app was not connected; try again";
 /// The refusal when the consent form's token could not be minted.
 pub(super) const CONSENT_UNAVAILABLE: &str = "The consent screen could not be prepared";
+
+/// What the athlete approved on the consent screen: a client, the scope the
+/// authorization was checked to carry, and the text they were shown.
+struct Approval<'form> {
+    client_id: &'form str,
+    scope: &'form str,
+    text: &'form ConsentText<'form>,
+    /// What the screen disclosed about the client, which the version covers
+    subject: ConsentSubject<'form>,
+}
 
 impl OAuth2Routes {
     /// Handle the OAuth consent form submission (POST /oauth2/consent).
@@ -108,9 +119,13 @@ impl OAuth2Routes {
         }
 
         // The account may have been suspended since the screen was rendered.
-        if let Err(refused) = Self::account_gate(&context, user_id, &headers).await {
-            return *refused;
-        }
+        let user = match Self::account_gate(&context, user_id, &headers).await {
+            Ok(user) => user,
+            Err(refused) => return *refused,
+        };
+        // The text the screen was rendered in for this user, which the
+        // approval is recorded under.
+        let text = ConsentText::for_reader(&context.strings, Some(&user.locale), &headers);
 
         // A client first seen in this flow gets its row before the grant naming it.
         if let Err(error) = server.enroll_checked_client(&checked).await {
@@ -126,8 +141,16 @@ impl OAuth2Routes {
         // that was not written, and a code would connect the client anyway.
         if let Err(error) = Self::record_consent(
             &context,
-            &request.client_id,
-            &checked.scope,
+            Approval {
+                client_id: &request.client_id,
+                scope: &checked.scope,
+                text: &text,
+                subject: ConsentSubject {
+                    client_id: &request.client_id,
+                    redirect_uri: &redirect_uri,
+                    first_party_only_sources: &context.first_party_only_sources,
+                },
+            },
             user_id,
             tenant_id.clone(),
         )
@@ -145,19 +168,25 @@ impl OAuth2Routes {
     }
 
     /// Record the athlete's approval of `scope`, the grant the authorization
-    /// was checked to carry; a duplicate active grant is a no-op at the storage
-    /// layer.
+    /// was checked to carry, with the version and language of the consent
+    /// text it was given under. A duplicate active grant keeps its row and
+    /// takes the new version at the storage layer.
     ///
     /// # Errors
     /// `server_error` when the grant's tenant cannot be resolved or the grant
     /// cannot be written.
     async fn record_consent(
         context: &OAuth2Context,
-        client_id: &str,
-        scope: &str,
+        approval: Approval<'_>,
         user_id: Uuid,
         tenant_id: Option<String>,
     ) -> Result<(), OAuth2Error> {
+        let Approval {
+            client_id,
+            scope,
+            text,
+            subject,
+        } = approval;
         let Some(tid) = Self::resolve_grant_tenant(context, user_id, tenant_id).await else {
             error!(user_id = %user_id, client_id, "OAuth consent not recorded: the grant has no tenant");
             return Err(OAuth2Error::server_error(CONSENT_NOT_RECORDED));
@@ -170,6 +199,8 @@ impl OAuth2Routes {
             scope: scope.to_owned(),
             granted_at: Utc::now(),
             revoked_at: None,
+            consent_version: Some(consent_version(text, subject)),
+            consent_locale: Some(text.lang().to_owned()),
         };
         context
             .oauth2_server

@@ -36,7 +36,7 @@ use pierre_providers::ai_scope;
 use pierre_services::locale::resolve_user_locale;
 use pierre_tool_runtime::derived_content;
 
-use super::common::get_tenant_id;
+use super::common::{conversation_not_found, get_tenant_id, refuse_unshared_subject};
 use super::dto::{
     preview_text, resolve_stored_blocks, AwaitingReply, MessageFeedbackEntry, MessageResponse,
     MessagesListResponse, TopicResponse, TopicsListResponse,
@@ -88,7 +88,8 @@ pub(super) async fn get_messages(
     let conversation = chat
         .get_conversation(&conversation_id, &user_id_str, tenant_id)
         .await?
-        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+        .ok_or_else(conversation_not_found)?;
+    refuse_unshared_subject(&resources, &auth, &conversation).await?;
 
     // A thread opened from a first-party-only activity is about it
     // throughout (carnet#769).
@@ -260,9 +261,11 @@ pub(super) async fn list_topics(
     let user_id_str = auth.user_id.to_string();
     let chat = resources.common.repos.chat.as_ref();
 
-    chat.get_conversation(&conversation_id, &user_id_str, tenant_id)
+    let conversation = chat
+        .get_conversation(&conversation_id, &user_id_str, tenant_id)
         .await?
-        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+        .ok_or_else(conversation_not_found)?;
+    refuse_unshared_subject(&resources, &auth, &conversation).await?;
     derived_content::refuse_withheld_thread(
         resources.as_ref(),
         &tenant_id,

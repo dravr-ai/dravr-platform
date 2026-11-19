@@ -380,14 +380,19 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
         scope: "read".to_owned(),
         granted_at: Utc::now(),
         revoked_at: None,
+        consent_version: Some("text-v1".to_owned()),
+        consent_locale: Some("fr".to_owned()),
     };
     repos
         .oauth2_server
         .store_client_grant(&grant)
         .await
         .unwrap();
+    // Approved again under a newer consent text, read in English.
     let again = OAuthClientGrant {
         id: Uuid::new_v4().to_string(),
+        consent_version: Some("text-v2".to_owned()),
+        consent_locale: Some("en".to_owned()),
         ..grant.clone()
     };
     repos
@@ -401,8 +406,16 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
         .list_client_grants(&user_id, "tenant-d")
         .await
         .unwrap();
-    assert_eq!(listed.len(), 1, "re-consent is a no-op, not a second grant");
+    assert_eq!(listed.len(), 1, "re-consent is not a second grant");
     assert_eq!(listed[0].id, grant.id, "the first grant is the one kept");
+    assert_eq!(
+        (
+            listed[0].consent_version.as_deref(),
+            listed[0].consent_locale.as_deref()
+        ),
+        (Some("text-v2"), Some("en")),
+        "bug: the kept grant records the consent text it was last approved under"
+    );
     assert_eq!(listed[0].client_id, client.client_id);
     assert_eq!(listed[0].scope, "read");
     assert_eq!(listed[0].revoked_at, None);

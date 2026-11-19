@@ -24,6 +24,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use pierre_providers::ai_scope;
 
 use chrono::Utc;
 use common::{create_test_server_resources, in_web_turn};
@@ -39,7 +40,7 @@ use pierre_core::models::groups::{
 use pierre_core::models::{
     Tenant, TenantId, TenantPlan, ToolCatalogEntry, ToolCategory, User, UserStatus,
 };
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{
@@ -350,11 +351,16 @@ async fn save_as(
     args: Value,
 ) -> Value {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let response = in_web_turn(
-        resources,
-        user,
-        tenant,
-        SaveTrainingPlanTool.execute(&runtime, &tool_context(user, tenant), args),
+    // Served over the web app, as the chat route declares it: a call that
+    // declares no transport is read as outside Dravr's own surfaces.
+    let response = ai_scope::serve_over(
+        Transport::WebApp,
+        in_web_turn(
+            resources,
+            user,
+            tenant,
+            SaveTrainingPlanTool.execute(&runtime, &tool_context(user, tenant), args),
+        ),
     )
     .await;
     structured(&response)
@@ -367,11 +373,14 @@ async fn get_as(
     args: Value,
 ) -> Value {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let response = in_web_turn(
-        resources,
-        user,
-        tenant,
-        GetTrainingPlanTool.execute(&runtime, &tool_context(user, tenant), args),
+    let response = ai_scope::serve_over(
+        Transport::WebApp,
+        in_web_turn(
+            resources,
+            user,
+            tenant,
+            GetTrainingPlanTool.execute(&runtime, &tool_context(user, tenant), args),
+        ),
     )
     .await;
     structured(&response)

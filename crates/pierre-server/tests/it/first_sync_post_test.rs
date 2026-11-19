@@ -30,6 +30,7 @@ use pierre_core::models::{AddMessageParams, PostPurpose, TenantId, SUPPORTED_LOC
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::ChatRepository;
+use pierre_database::repositories::SubjectThreads;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::first_sync_post::FirstSyncPoster;
 use pierre_mcp_server::services::platform_post::{
@@ -113,6 +114,7 @@ async fn conversations(fx: &Fixture) -> Vec<String> {
             50,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()

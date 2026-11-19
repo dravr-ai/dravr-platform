@@ -315,6 +315,17 @@ pub fn declared_transport() -> Option<Transport> {
     TRANSPORT.try_with(|transport| *transport).ok()
 }
 
+/// Whether the current request is served to an outside client.
+///
+/// It is when its credential is an outside client's (`outside_credential`:
+/// an API key, an MCP token, an OAuth application's grant), or when the
+/// transport layer declared it outside Dravr's own surfaces. A request no
+/// layer declared is read by its credential alone.
+#[must_use]
+pub fn served_outside(outside_credential: bool) -> bool {
+    outside_credential || declared_transport().is_some_and(|served| !served.is_first_party())
+}
+
 /// The transport a call bound to `bound` serves when it runs here: the
 /// enclosing declaration narrowed by `bound`, or whichever of the two exists.
 #[must_use]

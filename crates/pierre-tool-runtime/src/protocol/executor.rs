@@ -50,13 +50,17 @@ use serde_json::Value as JsonValue;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
-use subject::{build_tool_context, subject_tool_context, withhold_reconnect_offer, Parties};
+use subject::{answered_for_member, build_tool_context, subject_tool_context, Parties};
 use tracing::{info, warn, Instrument};
 use uuid::Uuid;
 
+/// Admin-only tool calls from outside Dravr's own surfaces, on the audit trail.
+mod admin_call_audit;
 /// Whose data a dispatched call reads (carnet#1387).
 mod subject;
 mod turn_signals;
+
+pub use admin_call_audit::{record_refused_admin_call, RefusedAdminCall};
 
 /// The two facts the dispatch chokepoint needs to decide a provider refusal.
 ///
@@ -547,10 +551,21 @@ impl UniversalExecutor {
         // The one span per tool call, opened here because every transport
         // funnels through this function; see `dispatch_span`.
         let span = tool_call_span(&request);
+        // An admin-only call from outside Dravr's own surfaces is on the audit
+        // trail before it is dispatched, or it is not run (EFVP 9.4d).
+        let audited = self.admin_call_audit(&request).await?;
         // Boxed: a tool body may dispatch another tool through here
         // (`analyze_activity` → `get_activity_intelligence`), and an inline
         // `dispatch` future would ride in that body's future and its callers'.
         let result = Box::pin(self.dispatch(request).instrument(span.clone())).await;
+        if let Some(started) = &audited {
+            admin_call_audit::settle(
+                self.resources.repos().admin_audit.as_ref(),
+                started,
+                &result,
+            )
+            .await;
+        }
         record_outcome(&span, &result);
         result
     }
@@ -900,8 +915,8 @@ impl UniversalExecutor {
         }
 
         let mut universal = tool_response_to_universal_response(&tool_name, &response);
-        if subject.is_some() {
-            withhold_reconnect_offer(&mut universal);
+        if let Some(subject) = &subject {
+            answered_for_member(&mut universal, subject, transport);
         }
         let mut held_back = read_side_withheld;
         if response.is_error

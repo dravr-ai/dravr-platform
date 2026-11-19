@@ -36,7 +36,10 @@ use pierre_services::conversation_forge::{
 use pierre_services::locale::{resolve_user_locale, user_locale};
 use pierre_tool_runtime::derived_content;
 
-use super::common::{conversation_response, get_tenant_id, verify_group_membership};
+use super::common::{
+    conversation_not_found, conversation_response, get_tenant_id, listed_subjects,
+    refuse_unshared_subject, refuse_unshared_subject_by_id, verify_group_membership,
+};
 use super::dto::preview_text;
 use super::dto::{
     ConversationListResponse, ConversationResponse, ConversationSummaryResponse,
@@ -306,7 +309,8 @@ pub(super) async fn list_conversations(
 
     // An external caller is listed no thread opened from a first-party-only
     // activity, and every count and preview it reads is of unstamped rows —
-    // in the statement, so the page fills (carnet#769).
+    // in the statement, so the page fills (carnet#769). An outside client is
+    // listed no coach's thread about a member who does not share (EFVP 9.4c).
     let page = resources
         .common
         .repos
@@ -317,6 +321,7 @@ pub(super) async fn list_conversations(
             limit,
             offset,
             ai_scope::readable_policy(),
+            listed_subjects(&auth),
         )
         .await?;
 
@@ -375,7 +380,8 @@ pub(super) async fn get_conversation(
         .chat
         .get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
         .await?
-        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+        .ok_or_else(conversation_not_found)?;
+    refuse_unshared_subject(&resources, &auth, &conv).await?;
     // A thread opened from a first-party-only activity is about it
     // throughout (carnet#769).
     derived_content::refuse_withheld_thread(
@@ -400,6 +406,7 @@ pub(super) async fn update_conversation(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
+    refuse_unshared_subject_by_id(&resources, &auth, &conversation_id, tenant_id).await?;
 
     let updated = resources
         .common
@@ -451,7 +458,8 @@ pub(super) async fn delete_conversation(
         .chat
         .get_conversation(&conversation_id, &user_id_str, tenant_id)
         .await?
-        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+        .ok_or_else(conversation_not_found)?;
+    refuse_unshared_subject(&resources, &auth, &conv).await?;
     if conv.user_id != user_id_str {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,

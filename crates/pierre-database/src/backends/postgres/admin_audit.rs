@@ -15,8 +15,8 @@ use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::admin_audit::{
     action_prefix_pattern, audit_column_error, impl_admin_audit_repository, severity_for,
     AdminAuditRepository, AuditEventFilter, AuditEventRecord, AuditOutcome, NewAuditEvent,
-    RecentReadKey, AUDIT_PAGE_MAX, HAS_RECENT_READ_SQL, INSERT_AUDIT_EVENT_SQL,
-    LIST_AUDIT_EVENTS_SQL,
+    RecentReadKey, SettledAuditEvent, AUDIT_PAGE_MAX, HAS_RECENT_READ_SQL, INSERT_AUDIT_EVENT_SQL,
+    LIST_AUDIT_EVENTS_SQL, SETTLE_AUDIT_EVENT_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 

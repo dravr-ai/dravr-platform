@@ -25,7 +25,7 @@ use tracing::error;
 use uuid::Uuid;
 
 use super::{A2AResources, A2AServer, A2ATask};
-use crate::protocol_types::{rate_limit_details, A2ASpecError, A2A_VERSION};
+use crate::protocol_types::{rate_limit_details, A2ASpecError, Message, A2A_VERSION};
 use crate::{A2AErrorResponse, A2ARequest, A2AResponse};
 
 /// The authenticated caller of a protocol method.
@@ -46,6 +46,32 @@ pub(super) struct AuthPrincipal {
     /// client-credentials token, which acts as its registering user in that
     /// user's own tenant.
     pub(super) active_tenant_id: Option<Uuid>,
+}
+
+/// A call refused before it reached its handler, and whom its credential
+/// named when it was checked far enough to name one.
+pub(super) struct RefusedCall {
+    /// The acting user the credential named; `None` when it named none that
+    /// holds.
+    pub(super) caller: Option<Uuid>,
+    /// The answer the call gets.
+    pub(super) response: Box<A2AResponse>,
+}
+
+impl From<Box<A2AResponse>> for RefusedCall {
+    fn from(response: Box<A2AResponse>) -> Self {
+        Self {
+            caller: None,
+            response,
+        }
+    }
+}
+
+/// The tool a request's message names, when it carries a tool intent.
+fn requested_tool(request: &A2ARequest) -> Option<String> {
+    let message = request.params.as_ref()?.get("message")?;
+    let message: Message = serde_json::from_value(message.clone()).ok()?;
+    A2AServer::extract_tool_intent(&message).map(|(tool, _)| tool)
 }
 
 impl A2AServer {
@@ -74,10 +100,31 @@ impl A2AServer {
     /// Authentication is transport-level per the spec; a refused credential
     /// carries the `AUTHENTICATION_REQUIRED` reason so the HTTP layer can
     /// surface 401.
+    ///
+    /// A refused call that names an admin-only tool is on the audit trail
+    /// when the credential named its caller (EFVP 2026-11-17, decision 9.4d):
+    /// a grant over its budget or whose owner the account-status gate turns
+    /// away, a deactivated client.
     pub(super) async fn authenticate_request(
         request: &A2ARequest,
         resources: &A2AResources,
     ) -> Result<AuthPrincipal, Box<A2AResponse>> {
+        match Self::resolve_principal(request, resources).await {
+            Ok(principal) => Ok(principal),
+            Err(refused) => {
+                if let (Some(caller), Some(tool)) = (refused.caller, requested_tool(request)) {
+                    Self::record_refused(&resources.tool_runtime, caller, &tool).await;
+                }
+                Err(refused.response)
+            }
+        }
+    }
+
+    /// The principal `request`'s credential acts as, or its refusal.
+    async fn resolve_principal(
+        request: &A2ARequest,
+        resources: &A2AResources,
+    ) -> Result<AuthPrincipal, RefusedCall> {
         let request_id = request
             .id
             .clone() // Safe: JSON value ownership for request ID
@@ -133,16 +180,25 @@ impl A2AServer {
         if Uuid::parse_str(&claims.sub).is_ok() {
             let admitted = resources
                 .auth_middleware
-                .authenticate_scoped_request(Some(&format!("Bearer {auth_token}")), &a2a_resources)
+                .authenticate_scoped_request_naming_caller(
+                    Some(&format!("Bearer {auth_token}")),
+                    &a2a_resources,
+                )
                 .await
-                .map_err(|e| Box::new(Self::auth_refusal(&e, request_id.clone())))?;
+                .map_err(|refusal| RefusedCall {
+                    caller: refusal.caller,
+                    response: Box::new(Self::auth_refusal(&refusal.error, request_id.clone())),
+                })?;
             // A delegated grant acts in the tenant it was authorized in; a
             // user token naming none has no tenant the athlete consented to.
             let Some(active_tenant_id) = admitted.active_tenant_id else {
-                return Err(Box::new(Self::auth_error(
-                    "The authentication token names no tenant",
-                    Some(request_id),
-                )));
+                return Err(RefusedCall {
+                    caller: Some(admitted.user_id),
+                    response: Box::new(Self::auth_error(
+                        "The authentication token names no tenant",
+                        Some(request_id),
+                    )),
+                });
             };
             return Ok(AuthPrincipal {
                 user_id: admitted.user_id,
@@ -152,10 +208,10 @@ impl A2AServer {
             });
         }
 
-        Err(Box::new(Self::auth_error(
+        Err(RefusedCall::from(Box::new(Self::auth_error(
             "Invalid principal in authentication token",
             Some(request_id),
-        )))
+        ))))
     }
 
     /// Resolve a client-credentials subject into its acting principal: the
@@ -175,32 +231,40 @@ impl A2AServer {
         method: &str,
         resources: &A2AResources,
         request_id: Value,
-    ) -> Result<AuthPrincipal, Box<A2AResponse>> {
+    ) -> Result<AuthPrincipal, RefusedCall> {
         let client = match resources.ctx.repos().a2a.get_client(client_id).await {
             Ok(Some(client)) => client,
             Ok(None) => {
-                return Err(Box::new(Self::auth_error(
+                return Err(RefusedCall::from(Box::new(Self::auth_error(
                     "Unknown A2A client in authentication token",
                     Some(request_id),
-                )))
+                ))))
             }
             Err(e) => {
                 error!("Failed to resolve A2A client during authentication: {e}");
-                return Err(Box::new(Self::a2a_error(
+                return Err(RefusedCall::from(Box::new(Self::a2a_error(
                     -32000,
                     "Failed to resolve A2A client",
                     Some(request_id),
-                )));
+                ))));
             }
         };
         if !client.is_active {
-            return Err(Box::new(Self::auth_error(
-                "A2A client is deactivated",
-                Some(request_id),
-            )));
+            return Err(RefusedCall {
+                caller: Some(client.user_id),
+                response: Box::new(Self::auth_error(
+                    "A2A client is deactivated",
+                    Some(request_id),
+                )),
+            });
         }
 
-        Self::admit_client_call(&client, &scopes, method, resources, &request_id).await?;
+        Self::admit_client_call(&client, &scopes, method, resources, &request_id)
+            .await
+            .map_err(|response| RefusedCall {
+                caller: Some(client.user_id),
+                response,
+            })?;
 
         // This credential never passes the auth middleware, which records the
         // user on the request's spans for a user token; the tenant is resolved

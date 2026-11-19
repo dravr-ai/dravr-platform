@@ -24,6 +24,7 @@ use pierre_core::models::{
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::training_plans::PlanAuthor;
+use pierre_database::repositories::SubjectThreads;
 use pierre_database::repositories::{
     InsertClaimVerdictParams, InsertCompactionBlockParams, MergeUserFactParams, PlanOutlineInput,
     PlanWeekInput, RecordedOutcome, SavePlanBundleParams, UpsertUserFactParams,
@@ -106,7 +107,7 @@ async fn chat_rows_keep_their_stamp_through_every_read() {
 
     let page = repos
         .chat
-        .list_conversations(&user, tenant, 10, 0, FirstPartyOnly)
+        .list_conversations(&user, tenant, 10, 0, FirstPartyOnly, SubjectThreads::All)
         .await
         .unwrap();
     let last = page.items[0].last_message.as_ref().expect("a preview");
@@ -659,7 +660,7 @@ async fn a_limit_counts_only_the_rows_the_reader_may_read() {
 
     let page = repos
         .chat
-        .list_conversations(&user, tenant, 10, 0, AnyTransport)
+        .list_conversations(&user, tenant, 10, 0, AnyTransport, SubjectThreads::All)
         .await
         .unwrap();
     let row = &page.items[0];

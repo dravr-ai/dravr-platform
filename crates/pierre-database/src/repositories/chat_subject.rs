@@ -8,6 +8,29 @@ use pierre_core::models::{ConversationRecord, ConversationSubject, TenantId};
 
 use super::chat::conversation_columns;
 
+/// Which coach threads bound to one athlete a conversation list holds.
+///
+/// A coach's outside client (an API key, an OAuth application, an MCP
+/// token) is never told the name of a member who does not share their
+/// training with the coach, and such a thread is titled with that name: it is
+/// left out of the list such a client reads (EFVP 2026-11-17, decision 9.4c).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubjectThreads {
+    /// Every thread, as Dravr's own apps list them.
+    All,
+    /// A thread bound to an athlete only while that athlete is a live member
+    /// of its group who shares their training with the coach.
+    SharedOnly,
+}
+
+impl SubjectThreads {
+    /// Whether every thread is listed: the list statements' bound flag.
+    #[must_use]
+    pub const fn lists_every_subject(self) -> bool {
+        matches!(self, Self::All)
+    }
+}
+
 /// The thread [`ChatRepository::open_subject_conversation`] opens: a group's
 /// human coach's own thread about one athlete they coach.
 ///

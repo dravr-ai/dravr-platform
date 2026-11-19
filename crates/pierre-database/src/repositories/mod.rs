@@ -67,6 +67,8 @@ pub(crate) mod chat_backend;
 pub(crate) mod chat_delete;
 /// A participant's thumbs on one reply: its statements and the bodies behind them.
 pub(crate) mod chat_feedback;
+/// A participant's page of conversations and its total: the list statements.
+pub(crate) mod chat_list;
 /// A thread's rows about a group member: the prompt read that keeps only the readable ones.
 pub(crate) mod chat_member_rows;
 /// Who belongs to a conversation: its membership statements and the bodies behind them.
@@ -313,7 +315,7 @@ pub use activity_streams::*;
 pub use admin::*;
 pub use admin_audit::{
     AdminAuditRepository, AuditEventFilter, AuditEventRecord, AuditOutcome, AuditSource,
-    NewAuditEvent, RecentReadKey, AUDIT_PAGE_MAX,
+    NewAuditEvent, RecentReadKey, SettledAuditEvent, AUDIT_PAGE_MAX,
 };
 pub use admin_standing::{StandingWrite, WithdrawnAdminCredentials};
 pub use agent_artefacts::*;
@@ -328,7 +330,7 @@ pub use athlete_places::{
 };
 pub use calendar_preferences::{CalendarPreference, CalendarPreferenceRepository};
 pub use chat::*;
-pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread};
+pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread, SubjectThreads};
 pub use check_in_preferences::{CheckInPreferenceRepository, CheckInSubscriber};
 pub use claim_verdicts::*;
 pub use coach_access_requests::CoachAccessRequestRepository;
@@ -337,6 +339,7 @@ pub use coach_attention_dismissals::{
 };
 pub use coach_data_reads::{
     CoachDataRead, CoachDataReadRepository, CoachReadClass, CoachReadSurface, NewCoachDataRead,
+    RecordedTransport,
 };
 pub use coach_reply_reviews::CoachReplyReviewRepository;
 pub use commitments::*;

@@ -47,7 +47,8 @@ pub struct AuditTrailQuery {
     pub before_id: Option<String>,
     /// Only actions starting with this text (`user.`, `DELETE`).
     pub action: Option<String>,
-    /// Only `success`, `refused` or `failed`.
+    /// Only `success`, `refused`, `failed` or `started` (an admin-only tool
+    /// call whose outcome could not be written after it ran).
     pub outcome: Option<String>,
     /// Only this operator's actions.
     pub actor_user_id: Option<Uuid>,
@@ -58,8 +59,9 @@ fn parse_outcome(raw: &str) -> AppResult<AuditOutcome> {
         "success" => Ok(AuditOutcome::Success),
         "refused" => Ok(AuditOutcome::Refused),
         "failed" => Ok(AuditOutcome::Failed),
+        "started" => Ok(AuditOutcome::Started),
         other => Err(AppError::invalid_input(format!(
-            "outcome must be success, refused or failed, not {other:?}"
+            "outcome must be success, refused, failed or started, not {other:?}"
         ))),
     }
 }
@@ -125,12 +127,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_three_outcomes_parse() {
-        assert_eq!(
-            parse_outcome("refused").ok(),
-            Some(AuditOutcome::Refused),
-            "bug: a stored outcome must parse"
-        );
+    fn only_the_stored_outcomes_parse() {
+        for outcome in [
+            AuditOutcome::Success,
+            AuditOutcome::Refused,
+            AuditOutcome::Failed,
+            AuditOutcome::Started,
+        ] {
+            assert_eq!(
+                parse_outcome(outcome.as_str()).ok(),
+                Some(outcome),
+                "bug: a stored outcome must parse"
+            );
+        }
         assert!(
             parse_outcome("ok").is_err(),
             "bug: an unknown outcome must be refused, not read as no filter"

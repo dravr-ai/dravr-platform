@@ -36,6 +36,7 @@ mod discover_over_messaging {
         CreateChannelLinkParams, CreateSessionParams, MessagingRepository,
         UpsertChannelConfigParams,
     };
+    use pierre_database::repositories::SubjectThreads;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_runtime_context::CommandCtx;
@@ -596,6 +597,7 @@ mod discover_over_messaging {
                 50,
                 0,
                 TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All,
             )
             .await
             .unwrap()
@@ -643,6 +645,7 @@ mod discover_over_messaging {
                 50,
                 0,
                 TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All,
             )
             .await
             .unwrap()

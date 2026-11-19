@@ -225,18 +225,25 @@ pub(crate) const CONSUME_OAUTH2_STATE_SQL: &str = r"
             RETURNING state, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, created_at, expires_at, used
             ";
 
-/// Record a consent. The active partial-unique index makes re-consent a
-/// no-op: the conflict target names that index, which both engines resolve.
+/// Record a consent. The active partial-unique index keeps one live grant:
+/// the conflict target names that index, which both engines resolve. A
+/// re-consent to the same grant keeps its row and records the consent text
+/// it was given under, so a screen asked again because its text changed is
+/// not asked again on the next authorization.
 pub(crate) const STORE_CLIENT_GRANT_SQL: &str = r"
             INSERT INTO oauth_client_grants
-                (id, user_id, tenant_id, client_id, scope, granted_at, revoked_at)
-            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, NULL)
-            ON CONFLICT (user_id, tenant_id, client_id, scope) WHERE revoked_at IS NULL DO NOTHING
+                (id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
+                 consent_version, consent_locale)
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, NULL, $6, $7)
+            ON CONFLICT (user_id, tenant_id, client_id, scope) WHERE revoked_at IS NULL
+            DO UPDATE SET consent_version = excluded.consent_version,
+                          consent_locale = excluded.consent_locale
             ";
 
 /// The live grant for one `(user, tenant, client, scope)` tuple.
 pub(crate) const FIND_ACTIVE_CLIENT_GRANT_SQL: &str = r"
-            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at
+            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
+                   consent_version, consent_locale
             FROM oauth_client_grants
             WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3 AND scope = $4
               AND revoked_at IS NULL
@@ -245,7 +252,8 @@ pub(crate) const FIND_ACTIVE_CLIENT_GRANT_SQL: &str = r"
 
 /// A user's live grants within a tenant, newest first.
 pub(crate) const LIST_CLIENT_GRANTS_SQL: &str = r"
-            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at
+            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
+                   consent_version, consent_locale
             FROM oauth_client_grants
             WHERE user_id = $1 AND tenant_id = $2 AND revoked_at IS NULL
             ORDER BY granted_at DESC
@@ -263,7 +271,8 @@ pub(crate) const REVOKE_CLIENT_GRANT_SQL: &str = r"
 
 /// Every grant, live or revoked, a user gave one client in one tenant.
 pub(crate) const LIST_CLIENT_GRANT_HISTORY_SQL: &str = r"
-            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at
+            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
+                   consent_version, consent_locale
             FROM oauth_client_grants
             WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3
             ";
@@ -785,6 +794,8 @@ macro_rules! impl_oauth2_server_repository {
                     .bind(&grant.tenant_id)
                     .bind(&grant.client_id)
                     .bind(&grant.scope)
+                    .bind(&grant.consent_version)
+                    .bind(&grant.consent_locale)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

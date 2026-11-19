@@ -31,6 +31,7 @@ mod group_transcript_tests {
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
+    use pierre_database::repositories::SubjectThreads;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::chat::ChatRoutes;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
@@ -793,6 +794,7 @@ mod group_transcript_tests {
                 50,
                 0,
                 TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All,
             )
             .await
             .unwrap();
@@ -807,7 +809,8 @@ mod group_transcript_tests {
             chat.count_participating_conversations(
                 &alice,
                 scenario.alice_tenant,
-                TransportPolicy::FirstPartyOnly
+                TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All
             )
             .await
             .unwrap(),
@@ -843,6 +846,7 @@ mod group_transcript_tests {
                 50,
                 0,
                 TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All,
             )
             .await
             .unwrap();
@@ -979,6 +983,7 @@ mod group_transcript_tests {
                 50,
                 0,
                 TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All,
             )
             .await
             .unwrap();

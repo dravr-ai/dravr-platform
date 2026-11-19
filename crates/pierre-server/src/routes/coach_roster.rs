@@ -22,6 +22,8 @@
 //!   name, groups and status: no number, nothing inferred, for the others.
 //!   A shared row carries nothing from a provider whose AI use the athlete
 //!   withheld: the coach and the agent read one projection (carnet#1262).
+//!   An outside client acting for the coach (an API key) is not listed an
+//!   athlete who stopped sharing at all, nor counted one.
 //! - **Each read is gated and recorded.** Before a sharer's training or plan
 //!   is read, the one coach-read gate is asked for them, as the agent's
 //!   roster asks it (`pierre_tool_runtime::coach_roster::gate_page_reads`,
@@ -54,6 +56,7 @@ use axum::{
 };
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use futures_util::stream::{self, StreamExt, TryStreamExt};
+use pierre_auth::auth::AuthResult;
 use pierre_config::coach_home::CoachHomeConfig;
 use pierre_core::civil_time;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -74,8 +77,9 @@ use pierre_services::coach_attention::{
 use pierre_services::coach_plan_draft::{draft_outline, CoachDraftTarget};
 use pierre_services::coach_replies::{self, CoachReplyView, ReplyPageQuery};
 use pierre_services::coach_roster::{
-    gather_roster, order_roster, roster_access, OrderedMember, RosterAccess, RosterAthleteStatus,
-    RosterGroupRef, RosterGroupSummary, NO_COACH_ACCESS, ROSTER_LOOKUP_CONCURRENCY,
+    gather_roster, order_roster, roster_access, GatheredRoster, OrderedMember, RosterAccess,
+    RosterAthleteStatus, RosterGroupRef, RosterGroupSummary, NO_COACH_ACCESS,
+    ROSTER_LOOKUP_CONCURRENCY,
 };
 use pierre_services::coached_athlete::CoachedAthleteAccess;
 use pierre_tool_runtime::coach_roster::{
@@ -324,11 +328,12 @@ pub async fn handle_roster(
     auth: AuthenticatedUser,
     Query(query): Query<RosterQuery>,
 ) -> Result<Response, AppError> {
-    let coach = auth.into_inner().user_id;
+    let auth = auth.into_inner();
+    let coach = auth.user_id;
     let repos = &resources.common.repos;
     let groups = roster_groups(repos, coach).await?;
 
-    let gathered = gather_roster(repos, coach, &groups).await?;
+    let gathered = roster_served_to(repos, &auth, &groups).await?;
     let scope = RosterScope {
         visible_members: gathered.visible_members(),
         roster_members: gathered.roster_members(),
@@ -415,6 +420,25 @@ pub async fn handle_roster(
         }),
     )
         .into_response())
+}
+
+/// The roster of `groups` as it is served to `auth`, its coach. An outside
+/// client acting for the coach is never told of an athlete who stopped
+/// sharing (EFVP 2026-11-17, decision 9.4c), as the agent's
+/// `get_roster_overview`, a first-party-only tool, never tells one.
+async fn roster_served_to(
+    repos: &RepositoryRegistry,
+    auth: &AuthResult,
+    groups: &[CoachingGroup],
+) -> AppResult<GatheredRoster> {
+    let gathered = gather_roster(repos, auth.user_id, groups).await?;
+    Ok(
+        if ai_scope::served_outside(auth.acts_for_outside_client()) {
+            gathered.served_to_outside_client()
+        } else {
+            gathered
+        },
+    )
 }
 
 /// What one page read shares across its rows.

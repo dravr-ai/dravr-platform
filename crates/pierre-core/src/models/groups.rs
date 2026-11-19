@@ -6,7 +6,7 @@
 
 use crate::civil_time::{clock_date, resolve_zone};
 use crate::transport::TransportPolicy;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use chrono::{DateTime, NaiveDate, Utc};
@@ -360,6 +360,28 @@ pub struct GroupMember {
     /// profile on read, not stored)
     #[serde(default)]
     pub display_name: Option<String>,
+}
+
+impl CoachingGroup {
+    /// The members an outside client acting for `reader` is never told of:
+    /// when `reader` is this group's coach, every other member who stopped
+    /// sharing their training with the coach (EFVP 2026-11-17, decision
+    /// 9.4c); none for any other reader. Dravr's own surfaces name them all.
+    #[must_use]
+    pub fn unnamed_to_outside_client_of(
+        &self,
+        reader: Uuid,
+        members: &[GroupMember],
+    ) -> HashSet<Uuid> {
+        if self.coach_user_id != Some(reader) {
+            return HashSet::new();
+        }
+        members
+            .iter()
+            .filter(|member| member.user_id != reader && !member.coach_sharing_consent)
+            .map(|member| member.user_id)
+            .collect()
+    }
 }
 
 /// Who spoke in a group transcript entry.

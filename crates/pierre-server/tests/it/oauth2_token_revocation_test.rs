@@ -213,6 +213,8 @@ async fn connect(world: &World) -> Connection {
             scope: SCOPE.to_owned(),
             granted_at: Utc::now(),
             revoked_at: None,
+            consent_version: None,
+            consent_locale: None,
         })
         .await
         .unwrap();
@@ -820,6 +822,8 @@ async fn consenting_again_does_not_revive_a_token_from_before_the_revocation() {
             scope: SCOPE.to_owned(),
             granted_at: Utc::now(),
             revoked_at: None,
+            consent_version: None,
+            consent_locale: None,
         })
         .await
         .unwrap();
@@ -902,6 +906,8 @@ async fn a_standing_is_held_for_its_window_and_forgotten_on_demand() {
             scope: SCOPE.to_owned(),
             granted_at: Utc::now(),
             revoked_at: None,
+            consent_version: None,
+            consent_locale: None,
         })
         .await
         .unwrap();

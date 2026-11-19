@@ -37,6 +37,11 @@ pub enum AuditOutcome {
     Refused,
     /// It failed on the server's side (5xx); part of it may have applied.
     Failed,
+    /// Written before the action ran, and not yet settled: an admin-only
+    /// tool call is recorded before its body runs, then settled to how it
+    /// ended. A row left here names a call whose outcome could not be written
+    /// afterwards.
+    Started,
 }
 
 impl AuditOutcome {
@@ -57,6 +62,7 @@ impl AuditOutcome {
             Self::Success => "success",
             Self::Refused => "refused",
             Self::Failed => "failed",
+            Self::Started => "started",
         }
     }
 }
@@ -76,6 +82,10 @@ pub enum AuditSource {
     /// A button tapped in the ops Slack room, which is its own authorization
     /// and names no admin account.
     Slack,
+    /// An admin-only tool called from outside Dravr's own surfaces: over
+    /// `/mcp` or A2A, with an API key or an OAuth grant. The row's metadata
+    /// names the tool and the transport.
+    ToolCall,
 }
 
 impl AuditSource {
@@ -88,6 +98,7 @@ impl AuditSource {
             Self::CliDatabase => "cli_database",
             Self::Service => "service",
             Self::Slack => "slack",
+            Self::ToolCall => "tool_call",
         }
     }
 }
@@ -190,6 +201,27 @@ pub trait AdminAuditRepository: Send + Sync {
     /// # Errors
     /// Returns a database error when the read fails.
     async fn has_recent_read(&self, read: &RecentReadKey<'_>) -> AppResult<bool>;
+
+    /// Settle a row written [`AuditOutcome::Started`] to how its action
+    /// ended. Only a started row of `actor_user_id` in `tenant_id` is
+    /// settled, and once: `false` when no such row was left to settle.
+    ///
+    /// # Errors
+    /// Returns a database error when the update fails.
+    async fn settle(&self, settled: &SettledAuditEvent<'_>) -> AppResult<bool>;
+}
+
+/// How a started row ended, for [`AdminAuditRepository::settle`].
+#[derive(Debug, Clone, Copy)]
+pub struct SettledAuditEvent<'row> {
+    /// The row [`AdminAuditRepository::record`] returned.
+    pub id: &'row str,
+    /// The actor the row names.
+    pub actor_user_id: Option<Uuid>,
+    /// The tenant the row names.
+    pub tenant_id: Option<&'row str>,
+    /// How the action ended.
+    pub outcome: AuditOutcome,
 }
 
 /// What makes two recorded reads the same access, for
@@ -251,11 +283,22 @@ pub(crate) const HAS_RECENT_READ_SQL: &str = r"
             LIMIT 1
             ";
 
+/// Settle one started row: the actor and the tenant it names are part of the
+/// key, so a row is only ever settled by the call that wrote it.
+pub(crate) const SETTLE_AUDIT_EVENT_SQL: &str = r"
+            UPDATE audit_events
+            SET result = $2, severity = $3
+            WHERE id = $1
+              AND user_id IS NOT DISTINCT FROM $4
+              AND tenant_id IS NOT DISTINCT FROM $5
+              AND result = 'started'
+            ";
+
 /// The severity column's value for an outcome.
 #[must_use]
 pub const fn severity_for(outcome: AuditOutcome) -> &'static str {
     match outcome {
-        AuditOutcome::Success => "info",
+        AuditOutcome::Success | AuditOutcome::Started => "info",
         AuditOutcome::Refused => "warning",
         AuditOutcome::Failed => "error",
     }
@@ -377,6 +420,21 @@ macro_rules! impl_admin_audit_repository {
                         AppError::database(format!("Failed to read the audit trail: {e}"))
                     })?;
                 Ok(hit.is_some())
+            }
+
+            async fn settle(&self, settled: &SettledAuditEvent<'_>) -> AppResult<bool> {
+                let done = sqlx::query(SETTLE_AUDIT_EVENT_SQL)
+                    .bind(settled.id)
+                    .bind(settled.outcome.as_str())
+                    .bind(severity_for(settled.outcome))
+                    .bind($ids::bind_opt(settled.actor_user_id))
+                    .bind(settled.tenant_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to settle an audit event: {e}"))
+                    })?;
+                Ok(done.rows_affected() > 0)
             }
         }
     };

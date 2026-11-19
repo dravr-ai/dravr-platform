@@ -47,6 +47,7 @@ use pierre_core::models::{
 };
 use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
+use pierre_database::repositories::SubjectThreads;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::platform_post::{
     PipelinePlatformPost, PlatformPost, PlatformPostRequest, PostSurface,
@@ -292,6 +293,7 @@ async fn unread(fx: &Fixture) -> i64 {
             50,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()

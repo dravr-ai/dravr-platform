@@ -48,7 +48,7 @@ use tracing::info;
 
 use crate::mcp::resources::ServerContext;
 
-use super::common::get_tenant_id;
+use super::common::{conversation_not_found, get_tenant_id, refuse_unshared_subject};
 
 /// Answer of `POST …/stop`.
 #[derive(Debug, Serialize, Deserialize)]
@@ -92,11 +92,12 @@ pub(super) async fn stop_turn(
     let user_id = auth.user_id.to_string();
     let repos = &resources.common.repos;
 
-    repos
+    let conversation = repos
         .chat
         .get_conversation(&conversation_id, &user_id, tenant_id)
         .await?
-        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+        .ok_or_else(conversation_not_found)?;
+    refuse_unshared_subject(&resources, &auth, &conversation).await?;
     let locale = resolve_user_locale(repos.users.as_ref(), auth.user_id).await;
     let notice = resources
         .mcp

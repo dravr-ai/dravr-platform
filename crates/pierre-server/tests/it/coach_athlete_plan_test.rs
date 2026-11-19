@@ -20,6 +20,8 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_core::transport::Transport;
+use pierre_providers::ai_scope;
 
 use std::sync::Arc;
 
@@ -208,8 +210,11 @@ async fn call<T: McpTool<dyn ToolRuntime>>(
             .is_none_or(|row| row.group_id.is_none()),
         None => true,
     };
-    TURN_DIRECT_MESSAGE
-        .scope(
+    // Served over the web app, as the chat route declares it: a call that
+    // declares no transport is read as outside Dravr's own surfaces.
+    ai_scope::serve_over(
+        Transport::WebApp,
+        TURN_DIRECT_MESSAGE.scope(
             Some(is_direct_message),
             CONVERSATION_ID.scope(conversation.map(ToOwned::to_owned), async {
                 tool.execute(&runtime, &ctx, args)
@@ -217,8 +222,9 @@ async fn call<T: McpTool<dyn ToolRuntime>>(
                     .structured_content
                     .expect("tool result carries structured content")
             }),
-        )
-        .await
+        ),
+    )
+    .await
 }
 
 impl Fixture {
@@ -329,7 +335,12 @@ impl Fixture {
             rotation: ConversationRotation::default(),
             tool_runtime: Arc::<ServerContext>::clone(&self.res),
         };
-        PlanShowHandler.execute(&ctx).await.unwrap().text
+        // Typed into Telegram: the turn service serves a command over
+        // messaging (`dispatch_slash`).
+        ai_scope::serve_over(Transport::Messaging, PlanShowHandler.execute(&ctx))
+            .await
+            .unwrap()
+            .text
     }
 }
 

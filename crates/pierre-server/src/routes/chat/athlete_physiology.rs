@@ -37,17 +37,17 @@ use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use axum::Json;
+use pierre_auth::auth::AuthResult;
 use pierre_contremaitre::anchor_strings::AnchorReader;
 use pierre_core::errors::AppError;
 use pierre_database::repositories::{CoachReadClass, CoachReadSurface};
 use pierre_middleware::AuthenticatedUser;
-use pierre_services::coached_athlete::{
-    coached_athlete_access, CoachedAthleteAccess, CoachedAthleteRefusal,
-};
+use pierre_services::coached_athlete::{coached_athlete_access, CoachedAthleteAccess};
 use pierre_tool_runtime::read_subject::record_coach_read;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use super::common::coaching_refusal;
 use crate::mcp::resources::ServerContext;
 use crate::routes::athlete_home::physiology::{physiology_response, PhysiologyResponse};
 
@@ -67,17 +67,18 @@ fn athlete_in_path(raw: &str) -> Result<Uuid, AppError> {
         .map_err(|_| AppError::invalid_input("athlete_user_id must be a UUID"))
 }
 
-/// The coaching gates for `coach` acting for `athlete` in `group_id`, run
-/// now.
+/// The coaching gates for the caller, `auth`, acting for `athlete` in
+/// `group_id`, run now; a refusal answered as `auth` may be told it
+/// ([`coaching_refusal`]).
 async fn coached_athlete(
     resources: &Arc<ServerContext>,
-    coach: Uuid,
+    auth: &AuthResult,
     athlete: Uuid,
     group_id: Uuid,
 ) -> Result<CoachedAthleteAccess, AppError> {
-    coached_athlete_access(&resources.common.repos, coach, athlete, group_id)
+    coached_athlete_access(&resources.common.repos, auth.user_id, athlete, group_id)
         .await?
-        .map_err(CoachedAthleteRefusal::into_error)
+        .map_err(|refused| coaching_refusal(auth, refused))
 }
 
 /// Record on the athlete's own record that `coach` read their anchors, once
@@ -112,7 +113,7 @@ pub(super) async fn get_athlete_physiology(
 ) -> Result<Json<PhysiologyResponse>, AppError> {
     let athlete = athlete_in_path(&athlete_user_id)?;
     let coach = auth.user_id;
-    let access = coached_athlete(&resources, coach, athlete, query.group_id).await?;
+    let access = coached_athlete(&resources, &auth, athlete, query.group_id).await?;
     record_physiology_read(&resources, &access, coach).await?;
     let body = physiology_response(
         &resources,

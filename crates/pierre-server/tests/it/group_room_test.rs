@@ -25,6 +25,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;
+use pierre_database::repositories::SubjectThreads;
 use pierre_database::repositories::{GroupRoomClaim, NewConversation};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
@@ -161,6 +162,7 @@ impl Fixture {
                 100,
                 0,
                 TransportPolicy::AnyTransport,
+                SubjectThreads::All,
             )
             .await
             .unwrap()

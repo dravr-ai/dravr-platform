@@ -134,7 +134,8 @@ use crate::guardian::{
 };
 use crate::read_subject::{
     gate_message, match_coached_member, names_subject, other_name, record_coach_read,
-    thread_unreached, GateObject, MemberMiss, OtherName, WellnessWithheld, COACH_ACCESS_OFF,
+    thread_unreached, GateObject, MatchAudience, MemberMiss, OtherName, WellnessWithheld,
+    COACH_ACCESS_OFF,
 };
 use crate::runtime::ToolRuntime;
 
@@ -475,14 +476,16 @@ pub async fn resolve_plan_scope(
 
     // The name, resolved to one live member of a group the requester is
     // attached to as its coach — never one they merely belong to.
-    let resolved = match match_coached_member(data.repos(), requester, query, None).await? {
-        Ok(resolved) => resolved,
-        Err(miss) => {
-            return Ok(Err(refusal(
-                &miss.message(query, "omit `athlete` to act on your own plan."),
-            )));
-        }
-    };
+    let audience = MatchAudience::current();
+    let resolved =
+        match match_coached_member(data.repos(), requester, query, None, audience).await? {
+            Ok(resolved) => resolved,
+            Err(miss) => {
+                return Ok(Err(refusal(
+                    &miss.message(query, "omit `athlete` to act on your own plan."),
+                )));
+            }
+        };
 
     // Gates 2 to 4, by id. The match prefers a group where the athlete shares
     // with the coach, so a consent refusal, when there is one, names the most
@@ -492,6 +495,16 @@ pub async fn resolve_plan_scope(
         .await?
     {
         Ok(access) => acting_for(&request, writer, access).await,
+        // Sharing turned off since the match: an outside assistant is told
+        // no match, so the member is not named to it.
+        Err(CoachedAthleteRefusal::CoachSharingRevoked { .. })
+            if audience == MatchAudience::OutsideAssistant =>
+        {
+            Ok(Err(refusal(&MemberMiss::NoSharingMatch.message(
+                query,
+                "omit `athlete` to act on your own plan.",
+            ))))
+        }
         Err(refused) => Ok(Err(gate_refusal(&refused, || {
             MemberMiss::NoMatch.message(query, "omit `athlete` to act on your own plan.")
         }))),

@@ -25,6 +25,7 @@ use pierre_core::errors::ErrorCode;
 use pierre_core::models::groups::GroupRole;
 use pierre_core::models::ConversationSummary;
 use pierre_core::transport::TransportPolicy;
+use pierre_database::repositories::SubjectThreads;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
@@ -112,6 +113,7 @@ impl Accounts {
                 50,
                 0,
                 TransportPolicy::AnyTransport,
+                SubjectThreads::All,
             )
             .await
             .unwrap()

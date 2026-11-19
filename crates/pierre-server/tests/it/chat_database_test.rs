@@ -19,6 +19,7 @@ use pierre_core::models::{
 use pierre_core::permissions::UserRole;
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
+use pierre_database::repositories::SubjectThreads;
 use pierre_database::repositories::{ChatRepository, NewConversation, Reactivation, SlotClaim};
 use pierre_test_support::db::{create_concurrent_test_db, create_test_db};
 #[cfg(feature = "postgresql")]
@@ -282,6 +283,7 @@ async fn test_list_rows_carry_agent_group_preview_and_unread() {
             10,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap();
@@ -322,6 +324,7 @@ async fn test_list_rows_carry_agent_group_preview_and_unread() {
             10,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap();
@@ -331,7 +334,14 @@ async fn test_list_rows_carry_agent_group_preview_and_unread() {
 /// The unread count `user` sees on their first listed thread.
 async fn unread_of(manager: &dyn ChatRepository, tenant_id: TenantId, user: &str) -> i64 {
     manager
-        .list_conversations(user, tenant_id, 10, 0, TransportPolicy::FirstPartyOnly)
+        .list_conversations(
+            user,
+            tenant_id,
+            10,
+            0,
+            TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
+        )
         .await
         .unwrap()
         .items[0]
@@ -460,6 +470,7 @@ async fn test_read_marker_is_monotonic_and_membership_gated() {
             10,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap();
@@ -632,6 +643,7 @@ async fn test_list_conversations() {
             10,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()
@@ -669,6 +681,7 @@ async fn test_list_conversations_pagination() {
             2,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()
@@ -683,6 +696,7 @@ async fn test_list_conversations_pagination() {
             2,
             2,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()
@@ -697,6 +711,7 @@ async fn test_list_conversations_pagination() {
             2,
             4,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()
@@ -764,6 +779,7 @@ async fn test_set_conversation_channel_surfaces_in_list() {
             10,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()
@@ -793,6 +809,7 @@ async fn test_set_conversation_channel_surfaces_in_list() {
             10,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()
@@ -1903,7 +1920,8 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             tenant_id,
             10,
             0,
-            TransportPolicy::FirstPartyOnly
+            TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All
         )
         .await
         .unwrap()
@@ -1955,6 +1973,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             10,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()
@@ -2156,7 +2175,8 @@ async fn test_count_keeps_owner_semantics() {
                 tenant_id,
                 10,
                 0,
-                TransportPolicy::FirstPartyOnly
+                TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All
             )
             .await
             .unwrap()
@@ -2239,7 +2259,8 @@ async fn archiving_frees_a_quota_slot_for_the_owner_only() {
                 tenant_id,
                 10,
                 0,
-                TransportPolicy::FirstPartyOnly
+                TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All
             )
             .await
             .unwrap()
@@ -2429,6 +2450,7 @@ async fn the_capped_create_and_the_archive_read_follow_the_active_count() {
             10,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap();
@@ -2516,6 +2538,7 @@ async fn a_malformed_user_id_is_refused_as_invalid_input_on_every_read() {
             10,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await;
     let err = listed.unwrap_err();

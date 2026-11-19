@@ -42,9 +42,7 @@ use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_plan_draft::{
     coach_plan_view, discard_coach_draft, CoachDraftTarget, DraftView, PlanWithWeeks,
 };
-use pierre_services::coached_athlete::{
-    coached_athlete_access, CoachedAthleteAccess, CoachedAthleteRefusal,
-};
+use pierre_services::coached_athlete::{coached_athlete_access, CoachedAthleteAccess};
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
@@ -62,7 +60,10 @@ use crate::mcp::resources::ServerContext;
 use crate::routes::athlete_home::TrainingPlanQuery;
 use crate::tools::runtime_adapter::into_runtime;
 
-use super::common::{get_tenant_id, refusal, refuse_external_coach_write};
+use super::common::{
+    coaching_refusal, conversation_not_found, get_tenant_id, refusal, refuse_external_coach_write,
+    refuse_unshared_subject,
+};
 use super::dto::{
     PlanPublishConflictResponse, PublishConflictDetails, PublishSubjectPlanRequest,
     PublishedSubjectPlanResponse, SubjectPlanResponse,
@@ -105,7 +106,8 @@ async fn coached_subject(
         .get_conversation(conversation_id, &caller, tenant_id)
         .await?
         .filter(|conv| conv.user_id == caller)
-        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+        .ok_or_else(conversation_not_found)?;
+    refuse_unshared_subject(resources, auth, &conversation).await?;
     let Some(subject) = conversation.subject() else {
         return Err(refusal(
             ErrorCode::ResourceNotFound,
@@ -120,7 +122,7 @@ async fn coached_subject(
         subject.group_id,
     )
     .await?
-    .map_err(CoachedAthleteRefusal::into_error)
+    .map_err(|refused| coaching_refusal(auth, refused))
 }
 
 /// Record on the athlete's own record that the coach's thread read their plan

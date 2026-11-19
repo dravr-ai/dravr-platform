@@ -32,13 +32,14 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, SubsecRound, Utc};
+use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::MemberFitnessSnapshot;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::AttentionDismissalKey;
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::AuthenticatedUser;
-use pierre_providers::backend_resolver;
+use pierre_providers::{ai_scope, backend_resolver};
 use pierre_services::coach_attention::TrainingSignals;
 use pierre_services::coach_roster::{gather_members, OrderedMember};
 use pierre_tool_runtime::coach_roster::RosterReading;
@@ -229,15 +230,22 @@ fn bounded<'a>(field: &str, value: &'a str) -> AppResult<&'a str> {
     Ok(value)
 }
 
-/// The roster tenant of `athlete` on the caller's roster.
+/// The roster tenant of `athlete` on the caller's roster, as the roster is
+/// served to `auth`: an outside client acting for the coach is answered for
+/// an athlete who stopped sharing as for one not on the roster (EFVP
+/// 2026-11-17, decision 9.4c).
 async fn athlete_tenant(
     repos: &RepositoryRegistry,
-    coach: Uuid,
+    auth: &AuthResult,
     athlete: Uuid,
 ) -> AppResult<TenantId> {
+    let coach = auth.user_id;
     let groups = roster_groups(repos, coach).await?;
-    gather_members(repos, coach, &groups)
-        .await?
+    let mut roster = gather_members(repos, coach, &groups).await?;
+    if ai_scope::served_outside(auth.acts_for_outside_client()) {
+        roster = roster.served_to_outside_client();
+    }
+    roster
         .members
         .iter()
         .find(|m| m.user_id == athlete)
@@ -257,11 +265,12 @@ pub async fn handle_dismiss(
     auth: AuthenticatedUser,
     Json(body): Json<DismissRequest>,
 ) -> Result<Response, AppError> {
-    let coach = auth.into_inner().user_id;
+    let auth = auth.into_inner();
+    let coach = auth.user_id;
     let reason_id = bounded("reason_id", &body.reason_id)?;
     let fingerprint = bounded("fingerprint", &body.fingerprint)?;
     let repos = &resources.common.repos;
-    let tenant = athlete_tenant(repos, coach, body.athlete_user_id).await?;
+    let tenant = athlete_tenant(repos, &auth, body.athlete_user_id).await?;
     // PostgreSQL keeps six fractional digits and SQLite the text whole, so the
     // instant is truncated to what both store: the answer then matches the row
     // every later roster read returns (as `llm_usage::recorded_at` does).
@@ -303,10 +312,11 @@ pub async fn handle_restore(
     auth: AuthenticatedUser,
     Json(body): Json<RestoreRequest>,
 ) -> Result<Response, AppError> {
-    let coach = auth.into_inner().user_id;
+    let auth = auth.into_inner();
+    let coach = auth.user_id;
     let reason_id = bounded("reason_id", &body.reason_id)?;
     let repos = &resources.common.repos;
-    let tenant = athlete_tenant(repos, coach, body.athlete_user_id).await?;
+    let tenant = athlete_tenant(repos, &auth, body.athlete_user_id).await?;
     let restored = repos
         .coach_attention_dismissals
         .restore_attention(AttentionDismissalKey {

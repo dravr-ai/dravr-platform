@@ -38,7 +38,8 @@ use pierre_tool_runtime::coach_listing;
 use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::protocol::{
-    guardian_block_reason, UniversalRequest, UniversalResponse, UniversalToolExecutor,
+    guardian_block_reason, record_refused_admin_call, RefusedAdminCall, UniversalRequest,
+    UniversalResponse, UniversalToolExecutor,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use std::fmt;
@@ -574,6 +575,7 @@ impl A2AServer {
             );
         }
 
+        let tool = Self::extract_tool_intent(&message).map(|(tool, _)| tool);
         let mut prepared = match Self::prepare_send(
             resources,
             &principal,
@@ -584,7 +586,10 @@ impl A2AServer {
         .await
         {
             Ok(prepared) => prepared,
-            Err(err) => return *err,
+            Err(err) => {
+                Self::record_refused_send(resources, &principal, tool.as_deref()).await;
+                return *err;
+            }
         };
         prepared.text_turn = text_turn;
 
@@ -597,6 +602,7 @@ impl A2AServer {
             )
             .await
             {
+                Self::record_refused_send(resources, &principal, tool.as_deref()).await;
                 return *err;
             }
         }
@@ -917,6 +923,39 @@ impl A2AServer {
         None
     }
 
+    /// An admin-only call refused before it reaches the executor, which
+    /// writes the audit row of every other one, is written `refused` here: every
+    /// admin-only call over A2A is on the trail (EFVP 9.4d). An unknown tool is
+    /// no admin-only one, so it writes nothing.
+    async fn record_refused(tool_runtime: &Arc<dyn ToolRuntime>, user_id: Uuid, tool_name: &str) {
+        record_refused_admin_call(
+            tool_runtime.as_ref(),
+            &RefusedAdminCall {
+                tool_name,
+                user_id,
+                tenant_id: None,
+                transport: Transport::A2a,
+                protocol: "a2a",
+            },
+        )
+        .await;
+    }
+
+    /// Record the admin-only call a message names, `tool`, refused before
+    /// its task ran (a continuation of a finished or running task, a task
+    /// that could not be stored, a push config refused): every admin-only
+    /// call over A2A is on the trail (EFVP 9.4d). A message naming no tool
+    /// writes nothing.
+    async fn record_refused_send(
+        resources: &A2AResources,
+        principal: &AuthPrincipal,
+        tool: Option<&str>,
+    ) {
+        if let Some(tool) = tool {
+            Self::record_refused(&resources.tool_runtime, principal.user_id, tool).await;
+        }
+    }
+
     /// Execute a registered tool against the authenticated user's tenant.
     /// Returns the tool output on success, or the failure (surfaced on the task
     /// as the `failed` status message).
@@ -933,9 +972,13 @@ impl A2AServer {
         let tenant_context =
             match extract_tenant_context_internal(ctx.repos(), user_id, tenant).await {
                 Ok(Some(context)) => context,
-                Ok(None) => return Err(SendFailure::text("User does not belong to any tenant")),
+                Ok(None) => {
+                    Self::record_refused(tool_runtime, user_id, tool_name).await;
+                    return Err(SendFailure::text("User does not belong to any tenant"));
+                }
                 Err(e) => {
                     log_tenant_failure(user_id, &e);
+                    Self::record_refused(tool_runtime, user_id, tool_name).await;
                     return Err(SendFailure::text("Failed to resolve tenant context"));
                 }
             };
@@ -1030,24 +1073,36 @@ impl A2AServer {
         let text_turn =
             Self::admit_text_turn(resources, &principal, &mut message, request.id.as_ref()).await?;
 
-        let mut prepared = Self::prepare_send(
+        let tool = Self::extract_tool_intent(&message).map(|(tool, _)| tool);
+        let mut prepared = match Self::prepare_send(
             resources,
             &principal,
             message,
             text_turn.is_some(),
             request.id.as_ref(),
         )
-        .await?;
+        .await
+        {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                Self::record_refused_send(resources, &principal, tool.as_deref()).await;
+                return Err(err);
+            }
+        };
         prepared.text_turn = text_turn;
 
         if let Some(config_input) = configuration.push_notification_config {
-            Self::store_push_config(
+            if let Err(err) = Self::store_push_config(
                 resources,
                 &prepared.task_id,
                 config_input,
                 request.id.as_ref(),
             )
-            .await?;
+            .await
+            {
+                Self::record_refused_send(resources, &principal, tool.as_deref()).await;
+                return Err(err);
+            }
         }
 
         // Subscribe before spawning so no event can be missed.

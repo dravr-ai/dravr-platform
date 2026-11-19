@@ -27,6 +27,7 @@ use pierre_core::models::User;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::admin_audit::{
     AdminAuditRepository, AuditEventFilter, AuditEventRecord, NewAuditEvent, RecentReadKey,
+    SettledAuditEvent,
 };
 use serde_json::Value;
 use uuid::Uuid;
@@ -77,6 +78,11 @@ impl AdminAuditRepository for Trail {
     }
 
     async fn has_recent_read(&self, _read: &RecentReadKey<'_>) -> AppResult<bool> {
+        Ok(false)
+    }
+
+    /// The session refusals write finished rows only: none is left started.
+    async fn settle(&self, _settled: &SettledAuditEvent<'_>) -> AppResult<bool> {
         Ok(false)
     }
 }

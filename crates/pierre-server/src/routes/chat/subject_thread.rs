@@ -22,14 +22,14 @@ use pierre_core::errors::AppError;
 use pierre_core::models::ConversationSubject;
 use pierre_database::repositories::NewSubjectConversation;
 use pierre_middleware::AuthenticatedUser;
-use pierre_services::coached_athlete::{coached_athlete_access, CoachedAthleteRefusal};
+use pierre_services::coached_athlete::coached_athlete_access;
 use pierre_services::conversation_forge::resolve_conversation_model;
 use tracing::info;
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 
-use super::common::get_tenant_id;
+use super::common::{coaching_refusal, get_tenant_id};
 use super::dto::{ConversationResponse, OpenSubjectThreadRequest};
 
 /// Open the caller's thread about `athlete_user_id`, as the human coach of
@@ -62,7 +62,7 @@ pub(super) async fn open_subject_thread(
 
     let access = coached_athlete_access(repos, auth.user_id, athlete, request.group_id)
         .await?
-        .map_err(CoachedAthleteRefusal::into_error)?;
+        .map_err(|refused| coaching_refusal(&auth, refused))?;
 
     let model = resolve_conversation_model(None, &resources.common.config.llm_chain)?;
     let coach = auth.user_id.to_string();

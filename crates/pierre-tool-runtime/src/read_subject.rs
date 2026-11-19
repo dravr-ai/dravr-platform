@@ -51,9 +51,11 @@ use chrono::Utc;
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::{ConversationRecord, TenantId};
+use pierre_core::transport::Transport;
 use pierre_database::repositories::{CoachReadClass, NewCoachDataRead};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_schema::PropertySchema;
+use pierre_providers::ai_scope;
 use pierre_services::athlete_display_name::fetch_user_display_name;
 use pierre_services::coach_roster::{roster_access, RosterAccess, NO_COACH_ACCESS};
 use pierre_services::coached_athlete::{
@@ -402,7 +404,9 @@ pub(crate) async fn coached_read(
 ///
 /// `tool` is the tool read through, or for a read made outside a tool call
 /// its [`CoachReadSurface`](pierre_database::repositories::CoachReadSurface)
-/// label.
+/// label. The transport the call declared is recorded beside it, so the
+/// athlete's record says when a read was served to the coach's outside
+/// assistant (EFVP 9.4b).
 ///
 /// Every coach read of a coached athlete records here once the gates have let
 /// it through and before its data is read: the dispatch chokepoint for a
@@ -439,6 +443,7 @@ pub async fn record_coach_read(
             tool,
             class,
             read_at: Utc::now(),
+            transport: ai_scope::declared_transport(),
         })
         .await
 }
@@ -474,6 +479,7 @@ pub async fn record_daily_coach_read(
             tool,
             class,
             read_at: Utc::now(),
+            transport: ai_scope::declared_transport(),
         })
         .await
 }
@@ -527,11 +533,14 @@ async fn named_subject(
 ) -> AppResult<Result<Option<ReadSubject>, UniversalResponse>> {
     const YOURSELF: &str = "omit `athlete` to read your own data.";
     let repos = request.resources.repos();
-    let no_match = || MemberMiss::NoMatch.message(name, YOURSELF);
+    // Named only over MCP or A2A: the caller is an outside assistant, never
+    // told of a member who does not share with the coach.
+    let audience = MatchAudience::OutsideAssistant;
+    let no_match = || MemberMiss::NoSharingMatch.message(name, YOURSELF);
     let Some(requester_tenant) = request.requester_tenant else {
         return Ok(Err(refusal("no_match", no_match())));
     };
-    let found = match match_coached_member(repos, request.requester, name, None).await? {
+    let found = match match_coached_member(repos, request.requester, name, None, audience).await? {
         Ok(found) => found,
         Err(miss) => return Ok(Err(refusal(miss.reason(), miss.message(name, YOURSELF)))),
     };
@@ -553,6 +562,11 @@ async fn named_subject(
             access,
             SubjectSource::ExternalArgument,
         )))),
+        // Sharing turned off since the match: said as no match, so the
+        // member is not named to the assistant.
+        Err(CoachedReadRefusal::Coaching(CoachedAthleteRefusal::CoachSharingRevoked {
+            ..
+        })) => Ok(Err(refusal("no_match", no_match()))),
         Err(refused) => Ok(Err(refused.response(request.tool_name, |_| no_match()))),
     }
 }
@@ -740,6 +754,40 @@ pub(crate) fn gate_message(
     }
 }
 
+/// Who a name query of the requester's members answers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchAudience {
+    /// The coach, on Dravr's own surfaces: every live member of the groups
+    /// they coach is matched, and a refusal may name one.
+    Coach,
+    /// An outside assistant the coach connected (MCP, A2A, an API key): only
+    /// a member who shares their training with the coach is matched. A member
+    /// who does not is never named to it, nor counted by name, nor told apart
+    /// from no one (EFVP 2026-11-17, decision 9.4c).
+    OutsideAssistant,
+}
+
+impl MatchAudience {
+    /// The audience of a call served over `transport`: the coach on one of
+    /// Dravr's own surfaces, an outside assistant otherwise. A call that
+    /// declared no transport is read as outside, as the AI gates read it
+    /// (`ai_scope::result_exposure`).
+    #[must_use]
+    pub fn served_over(transport: Option<Transport>) -> Self {
+        if transport.is_none_or(|served| !served.is_first_party()) {
+            Self::OutsideAssistant
+        } else {
+            Self::Coach
+        }
+    }
+
+    /// The audience of the call running now, by the transport it declared.
+    #[must_use]
+    pub fn current() -> Self {
+        Self::served_over(ai_scope::declared_transport())
+    }
+}
+
 /// The one coached member a name query matched, with the group row that
 /// authorizes acting for them.
 #[derive(Debug)]
@@ -766,6 +814,11 @@ pub enum MemberMiss {
     Requester,
     /// No live member of a group the requester coaches matched.
     NoMatch,
+    /// Asked by an outside assistant ([`MatchAudience::OutsideAssistant`]):
+    /// no member who shares their training with the requester matched. Said
+    /// alike whether a member who does not share matched or no one did, so
+    /// the answer never tells the assistant that such a member exists.
+    NoSharingMatch,
     /// Several distinct members matched: their display names, sorted.
     Ambiguous(Vec<String>),
 }
@@ -782,6 +835,12 @@ impl MemberMiss {
                  member of a group you are attached to as its coach (a coach invite), not merely \
                  a group you belong to."
             ),
+            Self::NoSharingMatch => format!(
+                "No athlete matching '{query}' shares their training with you in a group you \
+                 coach — an athlete is found here only while they share their training with you, \
+                 and only in a group you are attached to as its coach (a coach invite), not \
+                 merely a group you belong to."
+            ),
             Self::Ambiguous(names) => format!(
                 "'{query}' is ambiguous — several athletes you coach match: {}. Use a more \
                  specific name.",
@@ -795,7 +854,7 @@ impl MemberMiss {
         match self {
             Self::NoCoachAccess => NO_COACH_ACCESS,
             Self::Requester => "self",
-            Self::NoMatch => "no_match",
+            Self::NoMatch | Self::NoSharingMatch => "no_match",
             Self::Ambiguous(_) => "ambiguous",
         }
     }
@@ -812,6 +871,11 @@ impl MemberMiss {
 /// name is resolved or listed for them. The same athlete in two coached
 /// groups is one person; the requester is never their own athlete.
 ///
+/// For an outside assistant (`audience`), a member who does not share their
+/// training with the requester is passed over before their name is read: it
+/// is never listed among several matches, and a query only they match is
+/// answered [`MemberMiss::NoSharingMatch`], as one nobody matches is.
+///
 /// The outer `Err` is a repository failure; the inner `Err` says why no one
 /// member matched.
 ///
@@ -823,6 +887,7 @@ pub async fn match_coached_member(
     requester: Uuid,
     query: &str,
     within: Option<Uuid>,
+    audience: MatchAudience,
 ) -> AppResult<Result<CoachedMatch, MemberMiss>> {
     let query_lower = query.to_lowercase();
     let mut matches: Vec<CoachedMatch> = Vec::new();
@@ -838,6 +903,12 @@ pub async fn match_coached_member(
         }
         for member in repos.groups.list_members(&group.id.to_string()).await? {
             if member.left_at.is_some() {
+                continue;
+            }
+            if audience == MatchAudience::OutsideAssistant
+                && member.user_id != requester
+                && !member.coach_sharing_consent
+            {
                 continue;
             }
             let display_name = fetch_user_display_name(repos, member.user_id).await;
@@ -858,10 +929,10 @@ pub async fn match_coached_member(
     }
 
     let Some(first) = matches.first() else {
-        return Ok(Err(if requester_matched {
-            MemberMiss::Requester
-        } else {
-            MemberMiss::NoMatch
+        return Ok(Err(match (requester_matched, audience) {
+            (true, _) => MemberMiss::Requester,
+            (false, MatchAudience::Coach) => MemberMiss::NoMatch,
+            (false, MatchAudience::OutsideAssistant) => MemberMiss::NoSharingMatch,
         }));
     };
     // Ambiguous only when DISTINCT athletes match — the same athlete in two
@@ -908,13 +979,13 @@ pub(crate) async fn other_name(
     query: &str,
 ) -> AppResult<OtherName> {
     Ok(
-        match match_coached_member(repos, requester, query, None).await? {
+        match match_coached_member(repos, requester, query, None, MatchAudience::current()).await? {
             Ok(other) => OtherName::Athlete(other.display_name),
             Err(MemberMiss::NoCoachAccess) => OtherName::NoCoachAccess,
             Err(MemberMiss::Requester) => OtherName::Requester,
             // A coach attached to a group holds no membership in it, so their
             // own name is asked of their own row.
-            Err(MemberMiss::NoMatch | MemberMiss::Ambiguous(_)) => {
+            Err(MemberMiss::NoMatch | MemberMiss::NoSharingMatch | MemberMiss::Ambiguous(_)) => {
                 if names_subject(&fetch_user_display_name(repos, requester).await, query) {
                     OtherName::Requester
                 } else {
@@ -1071,6 +1142,34 @@ mod tests {
             description.len() <= 110,
             "every training tool's listing carries it: {} bytes",
             description.len()
+        );
+    }
+
+    #[test]
+    fn only_dravrs_own_surfaces_match_as_the_coach() {
+        for transport in [
+            Transport::WebApp,
+            Transport::MobileApp,
+            Transport::Messaging,
+            Transport::PlatformJob,
+        ] {
+            assert_eq!(
+                MatchAudience::served_over(Some(transport)),
+                MatchAudience::Coach,
+                "{transport:?}"
+            );
+        }
+        for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
+            assert_eq!(
+                MatchAudience::served_over(Some(transport)),
+                MatchAudience::OutsideAssistant,
+                "{transport:?}"
+            );
+        }
+        assert_eq!(
+            MatchAudience::served_over(None),
+            MatchAudience::OutsideAssistant,
+            "bug: a call that declared no transport is read as outside"
         );
     }
 }

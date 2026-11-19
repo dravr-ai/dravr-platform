@@ -27,7 +27,7 @@
 
 mod athlete_physiology;
 mod athlete_plan;
-mod common;
+pub(crate) mod common;
 mod conversations;
 mod dto;
 mod feedback;

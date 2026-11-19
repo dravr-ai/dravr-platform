@@ -26,13 +26,19 @@ use pierre_commands::group_reads::GroupReadsHandler;
 use pierre_commands::plan::PlanShowHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::{TenantId, TenantPlan, ToolCatalogEntry, ToolCategory};
-use pierre_database::repositories::{CoachDataRead, CoachReadClass, NewCoachDataRead};
+use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::{Transport, UNDECLARED_TRANSPORT};
+use pierre_database::backends::factory::DatabaseBackend;
+use pierre_database::repositories::{
+    CoachDataRead, CoachReadClass, NewCoachDataRead, RecordedTransport,
+};
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::coach_read_retention::purge_expired_coach_reads;
 use pierre_test_support::delegation::add_group_member;
-use pierre_tool_runtime::protocols::UniversalResponse;
+use pierre_tool_runtime::protocols::{UniversalResponse, UniversalToolExecutor};
 use serde_json::{json, Value};
+use sqlx::Row;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -108,6 +114,55 @@ impl Fixture {
         )
     }
 
+    /// The raw `transport` of every row under the athlete's tenant.
+    async fn stored_transports(&self) -> Vec<Option<String>> {
+        const SELECT: &str = "SELECT transport FROM coach_data_reads WHERE tenant_id = $1";
+        let tenant = self.athlete.tenant.to_string();
+        match self.res.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query(SELECT)
+                .bind(tenant)
+                .fetch_all(db.pool())
+                .await
+                .unwrap()
+                .iter()
+                .map(|row| row.get(0))
+                .collect(),
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(db) => sqlx::query(SELECT)
+                .bind(tenant)
+                .fetch_all(db.pool())
+                .await
+                .unwrap()
+                .iter()
+                .map(|row| row.get(0))
+                .collect(),
+        }
+    }
+
+    /// Clear the `transport` of every row under the athlete's tenant, as a
+    /// row recorded before the column holds it.
+    async fn clear_stored_transports(&self) {
+        const CLEAR: &str = "UPDATE coach_data_reads SET transport = NULL WHERE tenant_id = $1";
+        let tenant = self.athlete.tenant.to_string();
+        match self.res.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => {
+                sqlx::query(CLEAR)
+                    .bind(tenant)
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(db) => {
+                sqlx::query(CLEAR)
+                    .bind(tenant)
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+
     /// One read recorded directly, `ago` before now.
     async fn record_at(&self, tenant: TenantId, athlete: Uuid, ago: Duration) {
         self.repos()
@@ -120,6 +175,7 @@ impl Fixture {
                 tool: "get_activities",
                 class: CoachReadClass::Training,
                 read_at: Utc::now() - ago,
+                transport: None,
             })
             .await
             .unwrap();
@@ -140,6 +196,7 @@ async fn a_daily_read_is_recorded_once_per_utc_day_and_a_per_read_one_each_time(
         tool: "group_stats",
         class: CoachReadClass::Training,
         read_at,
+        transport: None,
     };
     let reads = &f.repos().coach_data_reads;
     assert!(
@@ -246,6 +303,140 @@ async fn an_mcp_read_with_athlete_writes_one_row() {
     assert_eq!(
         recorded[0].tool, "get_activities",
         "bug: the row names the source the read was made through"
+    );
+}
+
+// ── Which transport served the read (EFVP 9.4b) ──────────────────────────
+
+/// Every read is recorded with the transport it was served over, so the
+/// athlete's record tells a read by Dravr's own agent from one served to the
+/// coach's outside assistant, which a company outside Dravr runs.
+#[tokio::test]
+async fn each_read_records_the_transport_that_served_it() {
+    let f = fixture().await;
+
+    ok(
+        f.in_thread("get_activities", json!({})).await,
+        "get_activities in the thread",
+    );
+    ok(
+        f.call(
+            &f.mcp_executor(),
+            f.coach,
+            "get_activities",
+            json!({ "athlete": MEMBER }),
+        )
+        .await,
+        "get_activities over MCP",
+    );
+    let a2a = UniversalToolExecutor::new(f.res.clone())
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::A2a)
+        .with_caller_writing_reply();
+    ok(
+        f.call(
+            &a2a,
+            f.coach,
+            "get_training_history",
+            json!({ "athlete": MEMBER }),
+        )
+        .await,
+        "get_training_history over A2A",
+    );
+
+    let mut served: Vec<(String, RecordedTransport)> = f
+        .recorded()
+        .await
+        .into_iter()
+        .map(|read| (read.tool, read.transport))
+        .collect();
+    served.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then(format!("{:?}", a.1).cmp(&format!("{:?}", b.1)))
+    });
+    assert_eq!(
+        served,
+        vec![
+            (
+                "get_activities".to_owned(),
+                RecordedTransport::Served(Transport::McpHttp)
+            ),
+            (
+                "get_activities".to_owned(),
+                RecordedTransport::Served(Transport::WebApp)
+            ),
+            (
+                "get_training_history".to_owned(),
+                RecordedTransport::Served(Transport::A2a)
+            ),
+        ],
+        "bug: each row names the transport its read was served over"
+    );
+}
+
+/// A read recorded inside the tool's body, as the plan tools record theirs,
+/// names the transport too.
+#[tokio::test]
+async fn a_plan_read_over_mcp_records_that_it_was_served_over_mcp() {
+    let f = fixture().await;
+    let _answer = f
+        .call(
+            &f.mcp_executor(),
+            f.coach,
+            "get_training_plan",
+            json!({ "athlete": MEMBER }),
+        )
+        .await;
+    let recorded = f.recorded_from("get_training_plan").await;
+    assert_eq!(recorded.len(), 1, "{recorded:?}");
+    assert_eq!(
+        recorded[0].transport,
+        RecordedTransport::Served(Transport::McpHttp),
+        "bug: the plan read served to the coach's assistant is marked so"
+    );
+}
+
+/// A read that declared no transport is stored under its own label, so it
+/// reads back as undeclared, never as a transport and never as a row recorded
+/// before the column was.
+#[tokio::test]
+async fn a_read_recorded_without_a_transport_reads_back_as_undeclared() {
+    let f = fixture().await;
+    f.record_at(f.athlete.tenant, f.athlete.id, Duration::minutes(5))
+        .await;
+    let recorded = f.recorded().await;
+    assert_eq!(recorded.len(), 1, "bug: the read is recorded once");
+    assert_eq!(
+        recorded[0].transport,
+        RecordedTransport::Undeclared,
+        "bug: an undeclared read reads back as undeclared"
+    );
+    assert_eq!(
+        f.stored_transports().await,
+        vec![Some(UNDECLARED_TRANSPORT.to_owned())],
+        "bug: an undeclared read is stored under its own label, not NULL"
+    );
+}
+
+/// A row recorded before the column, whose transport is NULL, reads back as
+/// not recorded rather than as a guess.
+#[tokio::test]
+async fn a_read_recorded_before_the_column_reads_back_as_not_recorded() {
+    let f = fixture().await;
+    f.record_at(f.athlete.tenant, f.athlete.id, Duration::minutes(5))
+        .await;
+    f.clear_stored_transports().await;
+    assert_eq!(
+        f.stored_transports().await,
+        vec![None],
+        "fixture: the stored transport is cleared to NULL"
+    );
+    let recorded = f.recorded().await;
+    assert_eq!(recorded.len(), 1, "bug: the read is recorded once");
+    assert_eq!(
+        recorded[0].transport,
+        RecordedTransport::NotRecorded,
+        "bug: a NULL transport reads back as not recorded"
     );
 }
 
@@ -506,8 +697,11 @@ async fn a_refused_plan_tool_writes_none() {
             json!({ "athlete": MEMBER }),
         )
         .await;
+    // An outside assistant is not told the member stopped sharing: to it
+    // they read as no match (EFVP 9.4c).
     assert!(
-        says(&refused).contains("stopped sharing"),
+        says(&refused).contains("shares their training with you")
+            && !says(&refused).contains("stopped sharing"),
         "test setup bug: the MCP plan scope refuses: {refused:?}"
     );
     assert!(

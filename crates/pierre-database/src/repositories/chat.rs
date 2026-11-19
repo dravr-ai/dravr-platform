@@ -17,7 +17,7 @@ use pierre_core::models::{MessagePage, ThreadTopic};
 use pierre_core::transport::TransportPolicy;
 use uuid::Uuid;
 
-use super::chat_subject::{NewSubjectConversation, OpenedSubjectThread};
+use super::chat_subject::{NewSubjectConversation, OpenedSubjectThread, SubjectThreads};
 
 /// One assistant reply as the claim-verdict backfill reads it: the message,
 /// where it was said, and who it was said to.
@@ -194,6 +194,8 @@ pub trait ChatRepository: Send + Sync {
     /// with [`TransportPolicy::AnyTransport`] a thread opened from a
     /// first-party-only activity is left out, and every count and preview
     /// reads only unstamped rows — in the statement, so the page fills.
+    /// `subjects` leaves out, for an outside client, a coach's thread about a
+    /// member who does not share with them ([`SubjectThreads`]).
     async fn list_conversations(
         &self,
         user_id: &str,
@@ -201,16 +203,19 @@ pub trait ChatRepository: Send + Sync {
         limit: i64,
         offset: i64,
         readable: TransportPolicy,
+        subjects: SubjectThreads,
     ) -> AppResult<ConversationPage>;
     /// Count every conversation `user_id` participates in, in this tenant —
     /// the `total` of [`Self::list_conversations`]. Membership semantics, so
     /// it must never size a quota: that is [`Self::count_conversations`].
-    /// `readable` leaves out what [`Self::list_conversations`] leaves out.
+    /// `readable` and `subjects` leave out what [`Self::list_conversations`]
+    /// leaves out.
     async fn count_participating_conversations(
         &self,
         user_id: &str,
         tenant_id: TenantId,
         readable: TransportPolicy,
+        subjects: SubjectThreads,
     ) -> AppResult<i64>;
     /// Advance `user_id`'s read marker on a conversation they participate in.
     ///
@@ -778,6 +783,7 @@ macro_rules! message_unread {
         "(p.last_read_at IS NULL OR m.created_at > p.last_read_at)"
     };
 }
+pub(crate) use message_unread;
 
 /// The membership predicate every participant-scoped read shares: the
 /// caller has a participant row on the conversation in the conversation's
@@ -838,84 +844,6 @@ pub(crate) const GET_CONVERSATION_SQL: &str = concat!(
            AND p.tenant_id = c.tenant_id \
        )"
 );
-
-/// One page of a participant's conversations plus the facts each row shows.
-///
-/// The statement asks the row-level questions inline — count of turns, count
-/// of unread turns, and the newest turn — as correlated scalar subqueries over
-/// `chat_messages`, each served by the `(conversation_id, created_at)` index.
-/// A `GROUP BY` over a `LEFT JOIN chat_messages` counted tool rows and could
-/// not say which row was newest; three scoped subqueries can.
-///
-/// `p` is the caller's own participant row, which is where their read marker
-/// lives: "unread" is a question about one participant, so it is answered
-/// from that row and never from the conversation.
-///
-/// A thread bound to one athlete names them through the same join a group
-/// row names its group by: their display name and email come back for the
-/// row parser to apply the roster naming rule to, so a page of athlete
-/// threads costs no read per row.
-pub(crate) const LIST_CONVERSATIONS_SQL: &str = concat!(
-    r"
-    SELECT c.id, c.title, c.model, c.total_tokens, c.agent_id, c.channel_type,
-           c.created_at, c.updated_at, c.group_id, c.archived_at,
-           c.personal, c.subject_user_id, c.subject_group_id,
-           su.display_name AS subject_display_name, su.email AS subject_email,
-           g.name AS group_name, co.slug AS agent_handle, co.title AS agent_title,
-           (SELECT COUNT(*) FROM chat_messages m
-             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
-               AND (m.first_party_only = FALSE OR $6)) AS message_count,
-           (SELECT COUNT(*) FROM chat_messages m
-             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
-               AND (m.first_party_only = FALSE OR $6)
-               AND ",
-    message_unread!(),
-    r") AS unread_count,
-           (SELECT SUBSTR(m.content, 1, $5) FROM chat_messages m
-             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
-               AND (m.first_party_only = FALSE OR $6)
-             ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_content_head,
-           (SELECT m.role FROM chat_messages m
-             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
-               AND (m.first_party_only = FALSE OR $6)
-             ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_role,
-           (SELECT m.created_at FROM chat_messages m
-             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
-               AND (m.first_party_only = FALSE OR $6)
-             ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_created_at,
-           (SELECT m.first_party_only FROM chat_messages m
-             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
-               AND (m.first_party_only = FALSE OR $6)
-             ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_first_party_only
-    FROM chat_conversations c
-    JOIN conversation_participants p ON p.conversation_id = c.id
-    LEFT JOIN coaching_groups g ON g.id = c.group_id
-    LEFT JOIN agents co ON co.id = c.agent_id
-    LEFT JOIN users su ON su.id = c.subject_user_id
-    WHERE p.user_id = $1
-      AND p.tenant_id = c.tenant_id
-      AND (c.tenant_id = $2 OR c.group_id IS NOT NULL)
-      AND ($6 OR NOT EXISTS (
-        SELECT 1 FROM activity_conversations l
-        WHERE l.conversation_id = c.id AND l.first_party_only = TRUE
-      ))
-    ORDER BY c.updated_at DESC, c.id DESC
-    LIMIT $3 OFFSET $4",
-);
-
-/// The participant's total — the same membership and readability predicates
-/// as the page.
-pub(crate) const COUNT_PARTICIPATING_SQL: &str = r"
-    SELECT COUNT(*)
-    FROM chat_conversations c
-    JOIN conversation_participants p ON p.conversation_id = c.id
-    WHERE p.user_id = $1
-      AND p.tenant_id = c.tenant_id
-      AND (c.tenant_id = $2 OR c.group_id IS NOT NULL)
-      AND ($3 OR NOT EXISTS (
-        SELECT 1 FROM activity_conversations l
-        WHERE l.conversation_id = c.id AND l.first_party_only = TRUE
-      ))";
 
 /// The instant a read marker should advance to, gated on membership.
 ///

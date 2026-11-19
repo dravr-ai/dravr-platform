@@ -61,7 +61,7 @@ use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::protocol::coach_calendar::delegation_services;
-use crate::read_subject::{match_coached_member, MemberMiss};
+use crate::read_subject::{match_coached_member, MatchAudience, MemberMiss};
 use crate::runtime::ToolRuntime;
 
 /// What `propose_athlete_link` answers with.
@@ -306,7 +306,7 @@ fn miss_refusal(miss: &MemberMiss, query: &str) -> ToolResult {
     let reason = match miss {
         MemberMiss::NoCoachAccess => NO_COACH_ACCESS,
         MemberMiss::Requester => Refusal::MemberIsCoach.as_str(),
-        MemberMiss::NoMatch => "member_not_found",
+        MemberMiss::NoMatch | MemberMiss::NoSharingMatch => "member_not_found",
         MemberMiss::Ambiguous(_) => "member_ambiguous",
     };
     refusal(
@@ -396,13 +396,18 @@ impl McpTool<dyn ToolRuntime> for ProposeAthleteLinkTool {
             }
 
             // The member is Dravr data, matched before any roster is read.
-            let matched =
-                match match_coached_member(context.resources.repos(), context.user_id, query, None)
-                    .await?
-                {
-                    Ok(matched) => matched,
-                    Err(miss) => return Ok(miss_refusal(&miss, query)),
-                };
+            let matched = match match_coached_member(
+                context.resources.repos(),
+                context.user_id,
+                query,
+                None,
+                MatchAudience::current(),
+            )
+            .await?
+            {
+                Ok(matched) => matched,
+                Err(miss) => return Ok(miss_refusal(&miss, query)),
+            };
             let name = matched.display_name.as_str();
             if !matched.consented {
                 return Ok(refusal(

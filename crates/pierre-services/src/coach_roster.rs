@@ -227,6 +227,24 @@ impl GatheredRoster {
     pub fn roster_members(&self) -> usize {
         self.members.len()
     }
+
+    /// The roster as an outside client acting for the coach is served it:
+    /// without the athletes who share with the coach in none of the groups
+    /// (EFVP 2026-11-17, decision 9.4c), and each group counting only the
+    /// athletes left. Dravr's own surfaces read the whole roster.
+    #[must_use]
+    pub fn served_to_outside_client(mut self) -> Self {
+        self.members
+            .retain(|member| member.status != RosterAthleteStatus::NoCoachConsent);
+        for group in &mut self.groups {
+            group.athlete_count = self
+                .members
+                .iter()
+                .filter(|member| member.groups.iter().any(|held| held.id == group.id))
+                .count();
+        }
+        self
+    }
 }
 
 /// Parse a tenant id read from a stored row. One that does not parse is a

@@ -13,6 +13,7 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use super::{AuthResult, Claims};
+use crate::oauth2_server::first_party::names_third_party;
 
 /// The refusal an impersonation token gets where a session is taken to sign
 /// in: the consent screen's sign-in bridge
@@ -185,6 +186,18 @@ impl AuthMethod {
 }
 
 impl AuthResult {
+    /// Whether the credential is an outside client's acting for the user: an
+    /// API key, an MCP token, or a token naming an OAuth application that is
+    /// not one of Dravr's own apps ([`names_third_party`]).
+    #[must_use]
+    pub fn acts_for_outside_client(&self) -> bool {
+        match &self.auth_method {
+            AuthMethod::ApiKey { .. } | AuthMethod::McpToken { .. } => true,
+            AuthMethod::JwtToken { .. } => names_third_party(self.client_id.as_deref()),
+            AuthMethod::ChannelLink { .. } => false,
+        }
+    }
+
     /// Refuse an action that would leave behind, after a support session
     /// ends, something that authenticates as the athlete or widens who reads
     /// their data: a personal MCP token, an API key, an A2A client, an OAuth
