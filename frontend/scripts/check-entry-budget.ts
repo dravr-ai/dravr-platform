@@ -25,9 +25,12 @@ import { gzipSync } from 'node:zlib';
  * added 1.0 KB before first paint: the mode in the session state, the switch
  * in both shells and nine French strings. Its picker loads lazily; the rest
  * runs at first paint, which took the CI build to 310.7 KB, so the budget is
- * 315 KB.
+ * 315 KB. The assistant-connection consents of 2026-11-19 (EFVP: the MCP
+ * token and API key consents, the coach's AI tools notice, seven French
+ * strings through contremaitre 55d6b7ea) took the CI build to 315.4 KB with
+ * no code change, so the budget is 320 KB.
  */
-const BUDGET_BYTES = 315 * 1024;
+const BUDGET_BYTES = 320 * 1024;
 
 const DIST = resolve(import.meta.dirname, '..', 'dist');
 const html = readFileSync(join(DIST, 'index.html'), 'utf8');
