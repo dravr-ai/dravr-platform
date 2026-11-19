@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Fixture test for ci-verdict.sh — recorded runs JSON against a throwaway repo's workflow filters,
-# ABOUTME: covering green, red, a missing run, pending, a path-filtered lane excluded, and ci-verdict.yml's trigger list.
+# ABOUTME: covering green, red, a missing run, pending, a path-filtered lane excluded, and the retired verdict workflow's runs.
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -18,7 +18,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNDER_TEST="${UNDER_TEST:-$SCRIPT_DIR/ci-verdict.sh}"
-REAL_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -185,41 +184,6 @@ expect "a failed runs call is an error, never green" "$no_runs_dir" 2 "cannot li
 empty="$(make_case empty)"
 EXTRA="--branch main" expect "no runs at all: every expected lane missing" "$empty" 1 "MISSING    CI: Source"
 expect "no runs and no branch given: an error" "$empty" 2 "pass --branch"
-
-# ci-verdict.yml must listen to every workflow a branch push can fire, or the
-# last lane to finish never refreshes the status. One system, read two ways:
-# the trigger list against the workflow names on.push declares.
-if missing_names="$(python3 - "$REAL_ROOT/.github/workflows" <<'PY'
-import glob, os, sys
-import yaml
-root = sys.argv[1]
-names, listened = set(), None
-for path in sorted(glob.glob(os.path.join(root, "*.yml"))):
-    doc = yaml.safe_load(open(path)) or {}
-    on = doc.get("on", doc.get(True))
-    if isinstance(on, list):
-        on = {k: None for k in on}
-    if os.path.basename(path) == "ci-verdict.yml":
-        listened = set(on["workflow_run"]["workflows"])
-        continue
-    if isinstance(on, dict) and "push" in on:
-        trig = on["push"] or {}
-        if ("tags" in trig or "tags-ignore" in trig) and not ("branches" in trig or "branches-ignore" in trig):
-            continue
-        names.add(doc["name"])
-if listened is None:
-    sys.exit("ci-verdict.yml has no workflow_run trigger")
-if not names:
-    sys.exit("no push-triggered workflow found — the scan verified nothing")
-print("\n".join(sorted(names - listened)))
-PY
-)"; then
-    if [ -z "$missing_names" ]; then pass "ci-verdict.yml listens to every branch-push workflow"; else
-        fail "ci-verdict.yml does not listen to: $(tr '\n' ';' <<< "$missing_names")"
-    fi
-else
-    fail "could not read the workflow trigger lists"
-fi
 
 echo ""
 if [ "$failures" -gt 0 ]; then

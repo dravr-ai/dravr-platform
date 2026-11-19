@@ -91,9 +91,6 @@ on:
       - 'infra/artifacts/variables.tf'
       # monitor-scheduled-lanes.test.sh runs the monitor's own python and script.
       - '.github/workflows/monitor-scheduled-lanes.yml'
-      # ci-verdict.test.sh fails when this workflow's trigger list misses a
-      # workflow a branch push can fire.
-      - '.github/workflows/ci-verdict.yml'
       # standing-issue.test.sh checks every monitor that files a standing issue
       # looks it up through scripts/ci/standing-issue.cjs and checks it out.
       - '.github/workflows/billing-drivers-monitor.yml'
