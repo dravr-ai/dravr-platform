@@ -168,7 +168,7 @@ pub fn consent_offer(
 /// The group has a human coach, and it is not the member. No platform
 /// condition: the opt-in is about the coach's assistant, not a platform.
 #[must_use]
-pub fn assistant_read_offered(group: &CoachingGroup, member: Uuid) -> bool {
+fn assistant_read_offered(group: &CoachingGroup, member: Uuid) -> bool {
     group.coach_user_id.is_some_and(|coach| coach != member)
 }
 

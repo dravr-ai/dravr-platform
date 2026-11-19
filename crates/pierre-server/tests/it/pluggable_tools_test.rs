@@ -116,7 +116,10 @@ mod registry_tests {
                 "list_schemas_by_name_set",
                 registry.list_schemas_by_name_set(&catalogued),
             ),
-            ("uncatalogued_schemas", registry.uncatalogued_schemas(&[])),
+            (
+                "uncatalogued_schemas",
+                registry.uncatalogued_schemas(&catalogued),
+            ),
         ];
         for (lister, schemas) in listers {
             assert!(!schemas.is_empty(), "{lister} returned no schema");

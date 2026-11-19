@@ -40,7 +40,7 @@
 //! The `athlete` argument, with which a coach names one coached athlete on a
 //! read, is offered externally to a coach alone, and never on a tool that
 //! writes: carnet#1533 refuses every external write that names an athlete
-//! ([`offers_athlete_argument`]).
+//! (`offers_athlete_argument`, applied by [`retain_offered`]).
 //!
 //! Listing keeps a tool when [`withheld`] answers `None`; the dispatch
 //! chokepoint refuses a call with the same answer. The role is read live on
@@ -198,7 +198,7 @@ fn decide(tool: Declared, caller: &Caller<'_>) -> Option<Withheld> {
 /// never on a tool that writes: an external write that names an athlete is
 /// refused for every role (carnet#1533).
 #[must_use]
-pub fn offers_athlete_argument(tool: &dyn RuntimeTool, caller: &Caller<'_>) -> bool {
+fn offers_athlete_argument(tool: &dyn RuntimeTool, caller: &Caller<'_>) -> bool {
     offers_athlete(tool.capabilities(), caller)
 }
 
@@ -210,7 +210,8 @@ fn offers_athlete(capabilities: ToolCapabilities, caller: &Caller<'_>) -> bool {
 
 /// Narrow a built listing to what `caller` is offered: every tool
 /// [`withheld`] withholds goes, and so does the `athlete` property of every
-/// tool left that does not offer it ([`offers_athlete_argument`]).
+/// tool left that does not offer it: externally a human coach alone is
+/// offered it, and never on a tool that writes.
 pub fn retain_offered(registry: &ToolRegistry, schemas: &mut Vec<ToolSchema>, caller: &Caller<'_>) {
     schemas.retain(|schema| {
         registry

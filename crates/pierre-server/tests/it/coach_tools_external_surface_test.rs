@@ -214,14 +214,16 @@ mod coach_tools_external_surface_tests {
         let first_party_only: BTreeSet<String> = registry
             .tool_names()
             .into_iter()
-            .filter(|name| registry.reach(name) == Some(ToolReach::FirstPartyOnly))
+            .filter(|name| registry.get(name).unwrap().reach() == ToolReach::FirstPartyOnly)
             .map(ToOwned::to_owned)
             .collect();
         let mut declared = platform_tools();
         declared.extend(HIDDEN_TOOLS.map(str::to_owned));
         assert_eq!(first_party_only, declared);
         assert_eq!(
-            registry.reach("publish_training_plan"),
+            registry
+                .get("publish_training_plan")
+                .map(|tool| tool.reach()),
             Some(ToolReach::AppOnly)
         );
     }

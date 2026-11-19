@@ -736,7 +736,14 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 matches.retain(|row| row.requester_is_coach && coach_assistant::includes(&row.member));
                 if matches.is_empty() {
                     let mut message = coach_assistant::not_included_message(member_query);
-                    if ctx.is_admin {
+                    // The no-group note is for an admin who leads no active
+                    // group (Q24); an admin who leads one just missed a name.
+                    if ctx.is_admin
+                        && matches!(
+                            roster_access(data.repos(), requester).await?,
+                            RosterAccess::NotACoach
+                        )
+                    {
                         message.push(' ');
                         message.push_str(coach_assistant::ADMIN_NO_GROUP_NOTE);
                     }

@@ -504,7 +504,8 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
              `no_coach_consent` means they stopped sharing with you (they can share again with \
              `/group consent coach yes`) — never infer their numbers. In a group's room it \
              covers that group only. Outside AI tools see opted-in members; `note` counts \
-             the rest. Use `get_group_member_activities` for one athlete's full session history, and `get_provider_roster` for your coaching platform's roster.",
+             the rest. Use `get_group_member_activities` for one athlete's full session \
+             history, and `get_provider_roster` for your coaching platform's roster.",
             schema,
             annotations(
                 "Get roster overview",

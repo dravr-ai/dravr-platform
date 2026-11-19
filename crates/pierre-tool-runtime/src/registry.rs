@@ -25,7 +25,7 @@ use pierre_mcp_schema::{JsonSchema, ToolSchema};
 
 use crate::chat_catalogue;
 use crate::read_subject::{athlete_property, DataClass, ATHLETE_ARGUMENT};
-use crate::security::{Audience, RuntimeTool, SecurityLabels, ToolReach};
+use crate::security::{Audience, RuntimeTool, SecurityLabels};
 use crate::tool_data::ToolData;
 use dravr_tronc::mcp::schema::{TaskSupport, Tool};
 use dravr_tronc::mcp::tool::ToolCapabilities;
@@ -248,13 +248,6 @@ impl ToolRegistry {
     #[must_use]
     pub fn security_class(&self, name: &str) -> Option<SecurityLabels> {
         self.tools.get(name).map(|tool| tool.security_class())
-    }
-
-    /// Where the tool named `name` may be listed and run, as it declares
-    /// through [`RuntimeTool::reach`]. `None` for an unknown name.
-    #[must_use]
-    pub fn reach(&self, name: &str) -> Option<ToolReach> {
-        self.tools.get(name).map(|tool| tool.reach())
     }
 
     /// Whether the tool named `name` can only fail with no USDA key configured.
