@@ -538,6 +538,20 @@ pub trait CoachingGroupRepository: GroupChatConnectRepository + Send + Sync {
         now: DateTime<Utc>,
     ) -> AppResult<Option<GroupMember>>;
 
+    /// The live member `user_id` of `group_id` turns on (`granted`) or off
+    /// their human coach's AI assistant including them in the roster tools
+    /// (carnet#1511), stamped `now` when the value changes. Scoped to the
+    /// member's own row, so no coach can change it. Returns the membership as
+    /// it now stands, or `None` when `user_id` is not a live member. No
+    /// tenant filter, as [`Self::set_coach_consents`].
+    async fn set_coach_assistant_read(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        granted: bool,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<GroupMember>>;
+
     /// Count active members in a group.
     /// No tenant filter — members join cross-tenant via invite codes.
     async fn count_members(&self, group_id: &str) -> AppResult<i64>;

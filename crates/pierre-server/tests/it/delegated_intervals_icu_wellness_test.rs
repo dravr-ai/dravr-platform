@@ -1144,8 +1144,8 @@ async fn withdrawing_the_consent_or_ending_the_link_purges_and_stops() {
         &w.group().await,
         withdrawn_link.member_user_id,
         ConsentChange {
-            calendar_write: None,
             wellness_read: Some(false),
+            ..ConsentChange::default()
         },
     )
     .await

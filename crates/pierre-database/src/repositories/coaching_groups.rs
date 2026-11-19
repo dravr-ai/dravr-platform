@@ -336,6 +336,8 @@ macro_rules! impl_coaching_group_repository {
                     calendar_write_at: column(r, "coach_calendar_write_at")?,
                     wellness_read: column(r, "coach_wellness_read")?,
                     wellness_read_at: column(r, "coach_wellness_read_at")?,
+                    assistant_read: column(r, "coach_assistant_read")?,
+                    assistant_read_at: column(r, "coach_assistant_read_at")?,
                 },
                 consent_given_at: instant(r, "consent_given_at")?,
                 joined_at: instant(r, "joined_at")?,
@@ -856,6 +858,31 @@ macro_rules! impl_coaching_group_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to set a member's coach consents: {e}"))
+                    })?;
+                if result.rows_affected() == 0 {
+                    return Ok(None);
+                }
+                self.get_member(group_id, user_id).await
+            }
+
+            async fn set_coach_assistant_read(
+                &self,
+                group_id: &str,
+                user_id: Uuid,
+                granted: bool,
+                now: DateTime<Utc>,
+            ) -> AppResult<Option<GroupMember>> {
+                let result = sqlx::query(SET_COACH_ASSISTANT_READ_SQL)
+                    .bind(granted)
+                    .bind(now)
+                    .bind($ids::bind_text(group_id)?)
+                    .bind($ids::bind(user_id))
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to set a member's coach assistant opt-in: {e}"
+                        ))
                     })?;
                 if result.rows_affected() == 0 {
                     return Ok(None);
