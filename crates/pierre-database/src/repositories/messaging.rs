@@ -294,20 +294,20 @@ impl fmt::Debug for CreateChannelLinkParams<'_> {
 
 /// Parameters for moving a sender's channel link and sessions from one channel
 /// identity to another identifier the same sender is now known by.
-pub struct RekeyChannelIdentityParams<'a> {
+pub struct RekeyChannelIdentityParams<'req> {
     /// Tenant that holds the channel link: the bot / channel-owner tenant the
     /// webhook arrived under.
     pub link_tenant_id: TenantId,
     /// The linked user's own tenant, which holds their direct-message sessions.
     pub session_tenant_id: TenantId,
     /// The Pierre user the link names; only that user's link and sessions move.
-    pub user_id: &'a str,
+    pub user_id: &'req str,
     /// Channel type
-    pub channel_type: &'a str,
+    pub channel_type: &'req str,
     /// The channel identity the sender was linked under.
-    pub from_channel_user_id: &'a str,
+    pub from_channel_user_id: &'req str,
     /// The channel identity the sender is known by now.
-    pub to_channel_user_id: &'a str,
+    pub to_channel_user_id: &'req str,
 }
 
 // A channel user id is a phone number on WhatsApp and SMS: never printed.
@@ -549,14 +549,17 @@ pub trait MessagingRepository: Send + Sync {
     ///
     /// # Errors
     ///
-    /// Refuses a channel identity that names no single sender — empty, or a
-    /// parser's placeholder such as `"unknown"` — with an invalid-input error:
-    /// every author-less event carries that id, so whoever linked it would own
-    /// all of them (carnet#1668).
+    /// - Refuses a channel identity that names no single sender — empty, or a
+    ///   parser's placeholder such as `"unknown"` — with an invalid-input
+    ///   error: every author-less event carries that id, so whoever linked it
+    ///   would own all of them (carnet#1668).
+    /// - `MessagingError::ChannelAlreadyLinked` when a link in the tenant
+    ///   already holds the identity.
+    /// - A database error when the write fails for any other reason.
     async fn create_channel_link(&self, params: &CreateChannelLinkParams<'_>) -> AppResult<()>;
 
-    /// Move a sender's channel link, and their sessions on that channel, from
-    /// one channel identity to another, in one transaction.
+    /// Move a sender's channel link, and their sessions and recorded turns on
+    /// that channel, from one channel identity to another, in one transaction.
     ///
     /// For a channel whose platform changed the identifier it names a sender
     /// by — `WhatsApp` moved from the phone number to the business-scoped user
@@ -565,7 +568,9 @@ pub trait MessagingRepository: Send + Sync {
     /// `link_tenant_id` moves, and only when no link there holds the new
     /// identifier already. That user's sessions under either tenant move with
     /// it; a DM session lives under the user's own tenant, and the link under
-    /// the bot tenant.
+    /// the bot tenant. So do the turns recorded for that user under the bot
+    /// tenant, so one recorded before the move still authenticates when it is
+    /// resumed.
     ///
     /// Returns `true` when the link moved and `false` when there was nothing to
     /// move.
@@ -1097,6 +1102,16 @@ pub(crate) const REKEY_CHANNEL_SESSIONS_SQL: &str = r"
             SET channel_user_id = $1
             WHERE tenant_id IN ($2, $3) AND user_id = $4 AND channel_type = $5
               AND channel_user_id = $6
+            ";
+
+/// Re-key, step three: the user's recorded turns follow the link, so a turn
+/// recorded under the old identity still authenticates when it is resumed.
+/// This table keeps its ids as text, so every id binds as a string.
+pub(crate) const REKEY_RESUMABLE_TURNS_SQL: &str = r"
+            UPDATE messaging_resumable_turns
+            SET sender_id = $1
+            WHERE tenant_id IN ($2, $3) AND channel_tenant_id = $3 AND user_id = $4
+              AND channel_type = $5 AND sender_id = $6
             ";
 
 /// The link behind a channel identity, within one tenant.

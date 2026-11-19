@@ -85,7 +85,8 @@ pub(super) async fn adopt_business_scoped_id(
     }
 }
 
-/// Re-key the link (and sessions) a phone number holds onto `business_scoped_id`.
+/// Re-key the link a phone number holds, with its sessions and recorded turns,
+/// onto `business_scoped_id`.
 async fn rekey_phone_link(
     resources: &ServerContext,
     tenant_id: TenantId,

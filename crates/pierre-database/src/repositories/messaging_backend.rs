@@ -677,6 +677,16 @@ macro_rules! impl_messaging_repository {
                     .execute(&mut *tx)
                     .await
                     .map_err(rekey_error)?;
+                sqlx::query(REKEY_RESUMABLE_TURNS_SQL)
+                    .bind(params.to_channel_user_id)
+                    .bind(params.session_tenant_id.to_string())
+                    .bind(params.link_tenant_id.to_string())
+                    .bind(params.user_id)
+                    .bind(params.channel_type)
+                    .bind(params.from_channel_user_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(rekey_error)?;
                 tx.commit().await.map_err(rekey_error)?;
                 Ok(true)
             }

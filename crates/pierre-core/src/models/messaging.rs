@@ -79,14 +79,20 @@ mod tests {
     #[test]
     fn a_real_sender_id_is_routable() {
         for id in ["15149166448", "US.13491208655302741918", "U123", "42"] {
-            assert!(is_routable_sender_id(id), "{id:?}");
+            assert!(
+                is_routable_sender_id(id),
+                "bug: {id:?} names one sender and must be routable"
+            );
         }
     }
 
     #[test]
     fn a_placeholder_or_blank_sender_id_is_not_routable() {
         for id in ["unknown", "UNKNOWN", " unknown ", "", "   "] {
-            assert!(!is_routable_sender_id(id), "{id:?}");
+            assert!(
+                !is_routable_sender_id(id),
+                "bug: {id:?} names no single sender and must never be routed"
+            );
         }
     }
 }
