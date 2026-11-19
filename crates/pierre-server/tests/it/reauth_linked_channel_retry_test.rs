@@ -52,7 +52,7 @@ use uuid::Uuid;
 
 use crate::common::offline_channel::{REFUSED_GATEWAY, REFUSED_STATUS_API};
 use crate::common::{create_test_server_resources, create_test_user};
-use crate::messaging_fixtures::{seed_channel_link, strings};
+use crate::messaging_fixtures::{seed_channel_link, seed_conversation, seed_session, strings};
 
 /// The secret the notifier under test signs reconnect-link tokens with.
 const LINK_SECRET: &str = "test-jwt-secret";
@@ -330,13 +330,28 @@ impl Fixture {
             .unwrap();
     }
 
+    /// Link a chat the athlete wrote from just now: linking one takes writing
+    /// to the bot, and its DM session opens the channel's window, without
+    /// which a `WhatsApp` chat is sent no notice at all (carnet#1672).
     async fn link_chat(&self, channel: &str, channel_user_id: &str) {
+        let owner = self.user_id.to_string();
         seed_channel_link(
             &self.database,
-            &self.user_id.to_string(),
+            &owner,
             self.tenant,
             channel,
             channel_user_id,
+        )
+        .await;
+        let conversation = seed_conversation(&self.database, &owner, self.tenant).await;
+        seed_session(
+            &self.database,
+            &owner,
+            self.tenant,
+            channel,
+            channel_user_id,
+            None,
+            &conversation,
         )
         .await;
     }
@@ -539,7 +554,7 @@ async fn a_refused_linked_chat_is_delivered_once_on_retry_with_a_valid_link() {
     assert_eq!(entry["tenant_id"], f.tenant.to_string());
     assert!(
         entry["message_id"].is_null(),
-        "a linked chat has no session to record a message row in"
+        "a refused send has no message row to point at"
     );
     assert_eq!(entry["user_id"], f.user_id.to_string());
     assert_eq!(entry["reauth_provider"], "sciotte_garmin");
