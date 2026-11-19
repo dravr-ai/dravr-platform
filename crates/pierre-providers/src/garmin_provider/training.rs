@@ -580,6 +580,19 @@ impl StoredWorkout {
         dravr(self.provider.as_ref()) && dravr(self.source_id.as_ref())
     }
 
+    /// Garmin's `updatedDate` on this workout exactly as Garmin sent it, the
+    /// entry's [`CalendarEventRef::revision`](crate::models::CalendarEventRef::revision):
+    /// compared only with another `updatedDate` of the same workout, never
+    /// read as a time, so the zone Garmin leaves out never matters. `None`
+    /// when the answer carried none.
+    pub(super) fn revision(&self) -> Option<String> {
+        match self.updated_date.as_ref()? {
+            Value::Null => None,
+            Value::String(text) => Some(text.clone()),
+            other => Some(other.to_string()),
+        }
+    }
+
     /// How many steps Garmin holds for this workout, repeat blocks included,
     /// or `None` when its answer carried no segments.
     pub(super) fn held_steps(&self) -> Option<usize> {
@@ -642,14 +655,14 @@ impl StoredWorkout {
     }
 
     /// Log the stamps on the workout Garmin answered an update of `sent`
-    /// steps with. Garmin may answer with the workout it now holds, or with
-    /// nothing; an answer that is not a workout logs nothing.
-    pub(super) fn log_update_answer(answer: Option<&str>, sent: Option<usize>) {
-        let updated = answer.and_then(|text| serde_json::from_str::<Self>(text).ok());
-        if let Some(updated) = updated {
-            updated.log_stamps("updated");
-            updated.warn_if_steps_dropped("updated", sent);
-        }
+    /// steps with, and return its [`Self::revision`]. Garmin may answer with
+    /// the workout it now holds, or with nothing; an answer that is not a
+    /// workout logs nothing and names no revision.
+    pub(super) fn log_update_answer(answer: Option<&str>, sent: Option<usize>) -> Option<String> {
+        let updated = answer.and_then(|text| serde_json::from_str::<Self>(text).ok())?;
+        updated.log_stamps("updated");
+        updated.warn_if_steps_dropped("updated", sent);
+        updated.revision()
     }
 }
 

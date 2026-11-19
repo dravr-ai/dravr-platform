@@ -176,6 +176,7 @@ impl FitnessProvider for MockCalendar {
                 external_id: Some(self.calendar_key(&s.external_id)),
                 date: s.date,
                 updated_at: None,
+                revision: None,
             })
             .collect())
     }

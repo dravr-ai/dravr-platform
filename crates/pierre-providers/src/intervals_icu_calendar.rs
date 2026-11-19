@@ -407,6 +407,7 @@ impl IntervalsIcuEvent {
             external_id: self.external_id,
             date,
             updated_at: self.updated.as_deref().and_then(parse_local_dt),
+            revision: None,
         })
     }
 }

@@ -442,6 +442,7 @@ async fn verdicts_profiles_and_prescriptions_keep_their_stamp() {
         plan_week_id: None,
         replaces_id: None,
         payload_hash: Some("h1".to_owned()),
+        provider_revision: None,
         payload_json: "{}".to_owned(),
         status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
         created_at: Utc::now(),

@@ -26,7 +26,8 @@ use crate::uuid_column::UuidColumn;
 #[async_trait]
 pub trait PrescribedWorkoutRepository: Send + Sync {
     /// Insert a ledger row, or refresh an existing row's outcome fields
-    /// (`provider_event_id`, `status`, payload, hash, `updated_at`) by id.
+    /// (`provider_event_id`, `status`, payload, hash, `provider_revision`,
+    /// `updated_at`) by id.
     async fn upsert_prescribed_workout(&self, prescribed: &PrescribedWorkout) -> AppResult<()>;
 
     /// Fetch one row by id. Returns `None` when no row matches the
@@ -66,7 +67,7 @@ macro_rules! prescribed_columns {
         "id, tenant_id, user_id, agent_id, template_slug, sport, \
          prescribed_for_date, provider, provider_event_id, external_id, \
          source, plan_week_id, replaces_id, payload_json, payload_hash, \
-         status, created_at, updated_at, first_party_only"
+         status, created_at, updated_at, first_party_only, provider_revision"
     };
 }
 
@@ -89,12 +90,13 @@ pub(crate) const UPSERT_PRESCRIBED_WORKOUT_SQL: &str = concat!(
             INSERT INTO prescribed_workouts (",
     prescribed_columns!(),
     ")
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
             ON CONFLICT (id) DO UPDATE SET
                 provider_event_id = EXCLUDED.provider_event_id,
                 status = EXCLUDED.status,
                 payload_json = EXCLUDED.payload_json,
                 payload_hash = EXCLUDED.payload_hash,
+                provider_revision = EXCLUDED.provider_revision,
                 updated_at = EXCLUDED.updated_at,
                 first_party_only = CASE WHEN EXCLUDED.first_party_only
                     THEN EXCLUDED.first_party_only ELSE prescribed_workouts.first_party_only END
@@ -228,6 +230,9 @@ where
         payload_hash: row
             .try_get("payload_hash")
             .map_err(|e| AppError::database(format!("read payload_hash: {e}")))?,
+        provider_revision: row
+            .try_get("provider_revision")
+            .map_err(|e| AppError::database(format!("read provider_revision: {e}")))?,
         payload_json,
         status: row
             .try_get("status")
@@ -277,6 +282,7 @@ macro_rules! impl_prescribed_workout_repository {
                     .bind(prescribed.created_at)
                     .bind(prescribed.updated_at)
                     .bind(prescribed.transport_policy.is_first_party_only())
+                    .bind(prescribed.provider_revision.as_deref())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("upsert_prescribed_workout: {e}")))?;

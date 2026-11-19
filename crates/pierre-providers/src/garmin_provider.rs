@@ -143,6 +143,10 @@ pub struct GarminProvider {
     /// Workouts a detail read fetched, by workout id, each taken by the
     /// update that follows it so the update sends without reading again.
     read_workouts: Mutex<HashMap<i64, StoredWorkout>>,
+    /// The workout's `updatedDate` as this provider's last create or update
+    /// of a calendar entry left it, by event id, each taken by
+    /// [`FitnessProvider::written_revision`].
+    written_revisions: Mutex<HashMap<String, String>>,
 }
 
 impl fmt::Debug for GarminProvider {
@@ -187,6 +191,7 @@ impl GarminProvider {
             stores: OnceLock::new(),
             workout_import: OnceCell::new(),
             read_workouts: Mutex::new(HashMap::new()),
+            written_revisions: Mutex::new(HashMap::new()),
         }
     }
 
@@ -395,6 +400,18 @@ impl GarminProvider {
             Some(workout) => Ok(workout),
             None => self.read_workout(workout_id).await,
         }
+    }
+
+    /// Keep the `updatedDate` a write of `event_id` left its workout with,
+    /// for [`FitnessProvider::written_revision`]. A write whose answer named
+    /// none drops what an earlier write kept: that stamp is no longer the
+    /// workout's.
+    async fn keep_written_revision(&self, event_id: &str, revision: Option<String>) {
+        let mut kept = self.written_revisions.lock().await;
+        match revision {
+            Some(revision) => kept.insert(event_id.to_owned(), revision),
+            None => kept.remove(event_id),
+        };
     }
 
     /// Take the workout a detail read kept for `workout_id`, if any.
@@ -654,6 +671,7 @@ impl FitnessProvider for GarminProvider {
                     external_id: None,
                     date,
                     updated_at: None,
+                    revision: None,
                 })
             })
             .collect())
@@ -663,12 +681,13 @@ impl FitnessProvider for GarminProvider {
     /// as its `external_id` when Garmin files the workout under Dravr, none
     /// when another app or the athlete made it. The workout read is kept for
     /// an update that follows, which then sends without reading it again.
-    /// LIMITATION(registre#1389): `GarminProvider::calendar_event_detail` sets no `updated_at`, so an edit made in Garmin Connect is not told apart from Dravr's own last write.
-    /// Garmin documents the workout's `updatedDate` without a zone; read in
-    /// the wrong one, every update would count as the athlete's edit, or none
-    /// would. Every workout Garmin returns — on a create, a read, or an update
-    /// it answers with the workout — logs its stamps beside Dravr's clock
-    /// ([`StoredWorkout::log_stamps`]) so a live push settles the zone.
+    ///
+    /// The workout's `updatedDate` comes back as the entry's `revision`, as
+    /// Garmin sent it, and `updated_at` stays unset: Garmin documents that
+    /// stamp without a zone, so it is never placed on Dravr's clock. The
+    /// reconcile compares it with the `updatedDate` Dravr's own last write
+    /// returned ([`FitnessProvider::written_revision`]); a different one is an
+    /// edit made in Garmin Connect (carnet#1389).
     #[instrument(
         skip(self, event),
         fields(provider = "garmin", api_call = "calendar_event_detail")
@@ -678,12 +697,14 @@ impl FitnessProvider for GarminProvider {
         self.ensure_workout_import().await?;
         let workout = self.read_workout(id.workout_id).await?;
         let external_id = workout.is_dravrs().then(|| WORKOUT_PROVIDER.to_owned());
+        let revision = workout.revision();
         self.read_workouts
             .lock()
             .await
             .insert(id.workout_id, workout);
         Ok(CalendarEventRef {
             external_id,
+            revision,
             ..event
         })
     }
@@ -710,11 +731,16 @@ impl FitnessProvider for GarminProvider {
         workout.log_stamps("created");
         workout.warn_if_steps_dropped("created", training::sent_step_count(&body));
         match self.schedule(workout.workout_id, session.date).await {
-            Ok(schedule_id) => Ok(EventId {
-                workout_id: workout.workout_id,
-                schedule_id,
+            Ok(schedule_id) => {
+                let event_id = EventId {
+                    workout_id: workout.workout_id,
+                    schedule_id,
+                }
+                .to_string();
+                self.keep_written_revision(&event_id, workout.revision())
+                    .await;
+                Ok(event_id)
             }
-            .to_string()),
             Err(e) => {
                 let path = format!("training-api/workout/v2/{}", workout.workout_id);
                 if let Err(cleanup) = self.training_call(Method::DELETE, &path, None).await {
@@ -751,7 +777,8 @@ impl FitnessProvider for GarminProvider {
         let stored = self.stored_workout(id.workout_id).await?;
         let body = training::updated_workout_body(session, &stored)?;
         let answer = self.training_call(Method::PUT, &path, Some(&body)).await?;
-        StoredWorkout::log_update_answer(answer.as_deref(), training::sent_step_count(&body));
+        let revision =
+            StoredWorkout::log_update_answer(answer.as_deref(), training::sent_step_count(&body));
         let schedule = training::schedule_body(id.workout_id, session.date, Some(id.schedule_id));
         self.training_call(
             Method::PUT,
@@ -759,7 +786,16 @@ impl FitnessProvider for GarminProvider {
             Some(&schedule),
         )
         .await?;
+        self.keep_written_revision(provider_event_id, revision)
+            .await;
         Ok(())
+    }
+
+    async fn written_revision(&self, provider_event_id: &str) -> Option<String> {
+        self.written_revisions
+            .lock()
+            .await
+            .remove(provider_event_id)
     }
 
     /// Remove each entry's schedule, then its workout: Dravr wrote both, and

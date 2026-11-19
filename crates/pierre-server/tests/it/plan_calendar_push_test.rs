@@ -115,6 +115,7 @@ fn live_row(user_id: Uuid, entry: &DesiredEntry) -> PrescribedWorkout {
         plan_week_id: Some(entry.plan_week_id.clone()),
         replaces_id: None,
         payload_hash: Some(entry.session.payload_hash().unwrap()),
+        provider_revision: None,
         payload_json: serde_json::to_string(&entry.session).unwrap(),
         status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
         created_at: now,

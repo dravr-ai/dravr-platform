@@ -743,6 +743,13 @@ enum KnownEntry {
 /// ([`FitnessProvider::calendar_event_detail`]), so an edit the athlete made
 /// is still told apart from Dravr's own last write; a read that fails leaves
 /// the update to meet the provider and report its own outcome.
+///
+/// A change is either an `updated_at` past the row's own write, or a
+/// provider `revision` other than the one Dravr's write left
+/// ([`PrescribedWorkout::provider_revision`]) — the provider's stamp against
+/// its own, so a stamp with no zone (Garmin's) is never read as a time. A row
+/// that kept no revision, or a read that returns none, is judged on
+/// `updated_at` alone.
 async fn known_entry(
     calendar: &dyn FitnessProvider,
     row: &PrescribedWorkout,
@@ -751,9 +758,14 @@ async fn known_entry(
 ) -> KnownEntry {
     let slack = Duration::seconds(PROVIDER_EDIT_SLACK_SECONDS);
     let edited = |event: &CalendarEventRef| {
-        event
+        let stamped_later = event
             .updated_at
-            .is_some_and(|stamp| stamp > row.updated_at + slack)
+            .is_some_and(|stamp| stamp > row.updated_at + slack);
+        let revised = matches!(
+            (row.provider_revision.as_deref(), event.revision.as_deref()),
+            (Some(written), Some(current)) if written != current
+        );
+        stamped_later || revised
     };
     if edited(seen) {
         return KnownEntry::EditedOnProvider;
@@ -923,7 +935,11 @@ impl LedgerWrite<'_> {
     ) {
         match calendar.push_planned_session(&self.entry.session).await {
             Ok(event_id) => {
-                if self.settle(Some(event_id), supersedes, report).await {
+                let revision = calendar.written_revision(&event_id).await;
+                if self
+                    .settle(Some(event_id), revision, supersedes, report)
+                    .await
+                {
                     report.created += 1;
                 }
             }
@@ -948,8 +964,9 @@ impl LedgerWrite<'_> {
             .await
         {
             Ok(()) => {
+                let revision = calendar.written_revision(event_id).await;
                 if self
-                    .settle(Some(event_id.to_owned()), supersedes, report)
+                    .settle(Some(event_id.to_owned()), revision, supersedes, report)
                     .await
                 {
                     report.updated += 1;
@@ -963,12 +980,14 @@ impl LedgerWrite<'_> {
     }
 
     /// The provider write landed: supersede the previous live row, then
-    /// record the new one. Returns whether the ledger now reflects the
-    /// calendar; when it does not, the report says so and names the event,
-    /// because the entry IS on the calendar and the next push adopts it.
+    /// record the new one with the `revision` the write left the entry with.
+    /// Returns whether the ledger now reflects the calendar; when it does
+    /// not, the report says so and names the event, because the entry IS on
+    /// the calendar and the next push adopts it.
     async fn settle(
         &self,
         event_id: Option<String>,
+        revision: Option<String>,
         supersedes: Option<Uuid>,
         report: &mut PushReport,
     ) -> bool {
@@ -994,6 +1013,7 @@ impl LedgerWrite<'_> {
         match self
             .record(
                 event_id.clone(),
+                revision,
                 PrescribedWorkout::STATUS_PUSHED,
                 supersedes,
             )
@@ -1013,7 +1033,7 @@ impl LedgerWrite<'_> {
 
     async fn record_failure(&self, error: &str, report: &mut PushReport) {
         if let Err(e) = self
-            .record(None, PrescribedWorkout::STATUS_FAILED, None)
+            .record(None, None, PrescribedWorkout::STATUS_FAILED, None)
             .await
         {
             report.failed.push(self.failed_entry(format!(
@@ -1036,6 +1056,7 @@ impl LedgerWrite<'_> {
     async fn record(
         &self,
         provider_event_id: Option<String>,
+        provider_revision: Option<String>,
         status: &str,
         replaces_id: Option<Uuid>,
     ) -> AppResult<()> {
@@ -1057,6 +1078,7 @@ impl LedgerWrite<'_> {
             plan_week_id: Some(self.entry.plan_week_id.clone()),
             replaces_id,
             payload_hash: Some(self.hash.to_owned()),
+            provider_revision,
             payload_json,
             status: status.to_owned(),
             created_at: now,

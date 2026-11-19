@@ -360,6 +360,54 @@ async fn an_update_replaces_the_workout_in_place_and_moves_its_schedule() {
 }
 
 #[tokio::test]
+async fn each_write_keeps_the_updated_date_garmin_answered_it_with_for_the_ledger() {
+    let (base, stub) = stub(vec![
+        GRANTED,
+        (
+            "200 OK",
+            r#"{"workoutId":41,"ownerId":9000,"updatedDate":"2026-11-10T14:02:11.0"}"#,
+        ),
+        ("200 OK", "77"),
+        (
+            "200 OK",
+            r#"{"workoutId":41,"ownerId":9000,"updatedDate":"2026-11-10T14:02:11.0"}"#,
+        ),
+        (
+            "200 OK",
+            r#"{"workoutId":41,"ownerId":9000,"updatedDate":1731247331000}"#,
+        ),
+        (
+            "200 OK",
+            r#"{"scheduleId":77,"workoutId":41,"date":"2026-11-12"}"#,
+        ),
+    ])
+    .await;
+    let provider = provider(&base).await;
+    let event_id = provider.push_planned_session(&session()).await.unwrap();
+    assert_eq!(
+        provider.written_revision(&event_id).await.as_deref(),
+        Some("2026-11-10T14:02:11.0"),
+        "bug: the create's updatedDate was not kept exactly as Garmin sent it"
+    );
+    assert_eq!(
+        provider.written_revision(&event_id).await,
+        None,
+        "a kept revision is taken once"
+    );
+
+    provider
+        .update_planned_session(&event_id, &session())
+        .await
+        .unwrap();
+    assert_eq!(
+        provider.written_revision(&event_id).await.as_deref(),
+        Some("1731247331000"),
+        "bug: the update's answer did not replace the revision the create left"
+    );
+    assert_eq!(stub.await.unwrap().len(), 6);
+}
+
+#[tokio::test]
 async fn a_delete_removes_each_schedule_and_its_workout_and_skips_one_already_gone() {
     let (base, stub) = stub(vec![
         GRANTED,
@@ -487,6 +535,7 @@ fn listed(event_id: &str) -> CalendarEventRef {
         external_id: None,
         date: date(),
         updated_at: None,
+        revision: None,
     }
 }
 
@@ -524,13 +573,23 @@ async fn a_detail_read_names_dravrs_workout_and_the_update_after_it_reads_nothin
     );
     assert!(
         event.updated_at.is_none(),
-        "no change stamp until Garmin's zone is known (registre#1389)"
+        "bug: Garmin's zone-less stamp was placed on Dravr's clock"
+    );
+    assert_eq!(
+        event.revision.as_deref(),
+        Some("2026-11-10T14:02:11.0"),
+        "bug: the workout's updatedDate is not the entry's revision, as Garmin sent it"
     );
 
     provider
         .update_planned_session("41:77", &session())
         .await
         .unwrap();
+    assert_eq!(
+        provider.written_revision("41:77").await,
+        None,
+        "an update Garmin answered without the workout names no revision"
+    );
     let requests = stub.await.unwrap();
     assert_eq!(
         requests.len(),

@@ -292,6 +292,7 @@ impl WahooWorkout {
             external_id: Some(token.to_owned()),
             date,
             updated_at: self.updated_at.as_deref().and_then(parse_instant),
+            revision: None,
         })
     }
 }

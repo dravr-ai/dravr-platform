@@ -840,6 +840,10 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     |_| (PrescribedWorkout::STATUS_FAILED, None),
                     |id| (PrescribedWorkout::STATUS_PUSHED, Some(id.clone())),
                 );
+                let provider_revision = match &provider_event_id {
+                    Some(id) => provider.written_revision(id).await,
+                    None => None,
+                };
                 match &push {
                     Ok(_) => emit_calendar_sync_completed(
                         tenant_id,
@@ -894,6 +898,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     plan_week_id: None,
                     replaces_id: previous.as_ref().map(|(prev, _)| prev.id),
                     payload_hash: Some(payload_hash),
+                    provider_revision,
                     payload_json,
                     status: status.to_owned(),
                     created_at: now,

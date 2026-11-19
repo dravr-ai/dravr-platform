@@ -711,6 +711,21 @@ pub trait FitnessProvider: Send + Sync {
         )))
     }
 
+    /// The change stamp ([`CalendarEventRef::revision`]) the entry
+    /// `provider_event_id` carried as this provider's last
+    /// [`Self::push_planned_session`] or [`Self::update_planned_session`] of
+    /// it left it, taken once: the caller records it beside the write, and a
+    /// later [`Self::calendar_event_detail`] whose revision differs reads as a
+    /// change made on the provider since.
+    ///
+    /// `None` by default: a provider whose listing carries `updated_at` on
+    /// Dravr's clock (Intervals.icu, Wahoo) has no stamp to keep. Garmin
+    /// answers the workout's `updatedDate` as its write returned it.
+    async fn written_revision(&self, provider_event_id: &str) -> Option<String> {
+        let _ = provider_event_id;
+        None
+    }
+
     /// Delete the calendar entries named by provider id. Ids the provider no
     /// longer knows are ignored; returns how many entries the provider
     /// reports deleted.

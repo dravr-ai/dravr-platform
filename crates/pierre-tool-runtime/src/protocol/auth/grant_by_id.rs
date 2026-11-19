@@ -323,6 +323,10 @@ impl FitnessProvider for GrantByIdFallback {
             .await
     }
 
+    async fn written_revision(&self, provider_event_id: &str) -> Option<String> {
+        self.session.written_revision(provider_event_id).await
+    }
+
     async fn delete_planned_sessions(&self, provider_event_ids: &[String]) -> AppResult<u64> {
         self.session
             .delete_planned_sessions(provider_event_ids)

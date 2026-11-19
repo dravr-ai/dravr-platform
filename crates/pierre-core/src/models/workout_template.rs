@@ -161,6 +161,13 @@ pub struct CalendarEventRef {
     /// When the provider last saw the event change, when it reports that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<DateTime<Utc>>,
+    /// The provider's own change stamp on the event, kept as the opaque text
+    /// it sent, when it reports one that is not an instant Dravr can place on
+    /// its own clock (Garmin's zone-less `updatedDate`). Only compared with
+    /// the same provider's stamp from Dravr's last write
+    /// ([`PrescribedWorkout::provider_revision`]), never with a time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
 }
 
 /// Which write path produced a calendar ledger row.
@@ -258,6 +265,13 @@ pub struct PrescribedWorkout {
     /// [`PlannedSession::payload_hash`] of what was pushed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub payload_hash: Option<String>,
+    /// The provider's change stamp on the entry as Dravr's write left it
+    /// ([`CalendarEventRef::revision`]), when the provider reports one: a
+    /// later read whose stamp differs means the entry was changed on the
+    /// provider since. `None` for a provider with no such stamp, and on rows
+    /// written before the ledger kept it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_revision: Option<String>,
     /// JSON payload that was pushed (kept for debugging + replay).
     pub payload_json: String,
     /// Outcome: [`Self::STATUS_PUSHED`] while the entry is live on the

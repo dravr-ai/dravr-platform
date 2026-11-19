@@ -528,6 +528,7 @@ async fn workout_pushed_by(
             plan_week_id: None,
             replaces_id: None,
             payload_hash: Some("hash-1".to_owned()),
+            provider_revision: None,
             payload_json: "{}".to_owned(),
             status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
             created_at: Utc::now(),

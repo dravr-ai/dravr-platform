@@ -1,5 +1,6 @@
 // ABOUTME: The plan push against a calendar whose listing names identity only, as Garmin's does (carnet#1389)
 // ABOUTME: An entry is read in detail only before it is overwritten or when it may be a lost write; lost writes are adopted by their writer and date
+// ABOUTME: A provider stamp with no zone is compared only with the stamp Dravr's own write left, so an athlete's edit it shows is kept
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,6 +11,7 @@
 use crate::common;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -51,6 +53,10 @@ struct Entry {
     dravrs: bool,
     /// When someone other than Dravr last changed it, if anyone did.
     edited_at: Option<DateTime<Utc>>,
+    /// The calendar's own change counter on the entry, moved by every write
+    /// whoever makes it — a stamp Dravr cannot place on its clock, as
+    /// Garmin's zone-less `updatedDate` is.
+    revision: u32,
 }
 
 #[derive(Debug, Default)]
@@ -61,6 +67,8 @@ struct Calendar {
     /// Entries whose detail read the provider refuses.
     unreadable: HashSet<String>,
     updates: Vec<String>,
+    /// The revision each write of Dravr's left, until the push takes it.
+    written: HashMap<String, String>,
 }
 
 /// A calendar whose listing names each entry's id and date and nothing else,
@@ -74,6 +82,9 @@ struct Calendar {
 struct IdentityOnly {
     config: ProviderConfig,
     calendar: Mutex<Calendar>,
+    /// Whether the detail read and the writes report the entry's revision,
+    /// as Garmin's do; off, the calendar names no revision at all.
+    stamps: AtomicBool,
 }
 
 impl IdentityOnly {
@@ -88,7 +99,35 @@ impl IdentityOnly {
                 default_scopes: Vec::new(),
             },
             calendar: Mutex::new(Calendar::default()),
+            stamps: AtomicBool::new(false),
         }
+    }
+
+    /// A calendar whose detail read and writes report each entry's revision.
+    fn stamping() -> Self {
+        let calendar = Self::new();
+        calendar.report_revisions(true);
+        calendar
+    }
+
+    fn report_revisions(&self, on: bool) {
+        self.stamps.store(on, Ordering::SeqCst);
+    }
+
+    fn stamps(&self) -> bool {
+        self.stamps.load(Ordering::SeqCst)
+    }
+
+    /// The athlete changes `id` on the provider: its revision moves and
+    /// nothing else does, so only a comparison of revisions can see it.
+    fn revise(&self, id: &str) {
+        self.calendar
+            .lock()
+            .unwrap()
+            .entries
+            .get_mut(id)
+            .expect("entry on the calendar")
+            .revision += 1;
     }
 
     fn put(&self, id: &str, date: NaiveDate, dravrs: bool) {
@@ -98,6 +137,7 @@ impl IdentityOnly {
                 date,
                 dravrs,
                 edited_at: None,
+                revision: 1,
             },
         );
     }
@@ -196,6 +236,7 @@ impl FitnessProvider for IdentityOnly {
                 external_id: None,
                 date: entry.date,
                 updated_at: None,
+                revision: None,
             })
             .collect())
     }
@@ -217,6 +258,7 @@ impl FitnessProvider for IdentityOnly {
         Ok(CalendarEventRef {
             external_id: entry.dravrs.then(|| TAG.to_owned()),
             updated_at: entry.edited_at,
+            revision: self.stamps().then(|| entry.revision.to_string()),
             ..event
         })
     }
@@ -231,8 +273,12 @@ impl FitnessProvider for IdentityOnly {
                 date: session.date,
                 dravrs: true,
                 edited_at: None,
+                revision: 1,
             },
         );
+        if self.stamps() {
+            calendar.written.insert(id.clone(), "1".to_owned());
+        }
         Ok(id)
     }
 
@@ -248,8 +294,23 @@ impl FitnessProvider for IdentityOnly {
             .ok_or_else(|| AppError::not_found(provider_event_id.to_owned()))?;
         entry.date = session.date;
         entry.dravrs = true;
+        entry.revision += 1;
+        let revision = entry.revision.to_string();
         calendar.updates.push(provider_event_id.to_owned());
+        if self.stamps() {
+            calendar
+                .written
+                .insert(provider_event_id.to_owned(), revision);
+        }
         Ok(())
+    }
+
+    async fn written_revision(&self, provider_event_id: &str) -> Option<String> {
+        self.calendar
+            .lock()
+            .unwrap()
+            .written
+            .remove(provider_event_id)
     }
 
     async fn delete_planned_sessions(&self, provider_event_ids: &[String]) -> AppResult<u64> {
@@ -430,6 +491,7 @@ impl Fixture {
                 plan_week_id: None,
                 replaces_id: None,
                 payload_hash: None,
+                provider_revision: None,
                 payload_json: "{}".to_owned(),
                 status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
                 created_at: now,
@@ -647,6 +709,115 @@ async fn a_detail_read_that_fails_never_blocks_the_push() -> Result<()> {
         live[&fx.plan_key(2)].provider_event_id.as_deref(),
         Some("lost-wednesday"),
         "bug: an entry whose writer was never read was adopted"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_edit_only_the_providers_own_stamp_shows_is_kept_and_dravrs_own_write_is_not_one(
+) -> Result<()> {
+    let fx = fixture().await?;
+    let calendar = IdentityOnly::stamping();
+    fx.save_week(
+        true,
+        &[(0, "run", "Easy run"), (2, "bike", "Endurance ride")],
+    )
+    .await;
+    let first = fx.push(&calendar).await;
+    assert_eq!(
+        first.created, 2,
+        "the first push creates both days: {first:?}"
+    );
+    let live = fx.live().await;
+    let monday_event = live[&fx.plan_key(0)].provider_event_id.clone().unwrap();
+    let wednesday_event = live[&fx.plan_key(2)].provider_event_id.clone().unwrap();
+    for key in [fx.plan_key(0), fx.plan_key(2)] {
+        assert_eq!(
+            live[&key].provider_revision.as_deref(),
+            Some("1"),
+            "bug: the create's revision was not kept on its ledger row"
+        );
+    }
+
+    // The athlete changes Monday on the provider: its revision moves, and
+    // the calendar reports no time Dravr could compare.
+    calendar.revise(&monday_event);
+    fx.save_week(
+        false,
+        &[(0, "run", "Tempo run"), (2, "bike", "Sweet spot ride")],
+    )
+    .await;
+    let report = fx.push(&calendar).await;
+    assert_eq!(
+        report
+            .skipped
+            .iter()
+            .map(|s| (s.external_id.clone(), s.reason))
+            .collect::<Vec<_>>(),
+        vec![(fx.plan_key(0), SkipReason::EditedOnProvider)],
+        "bug: the athlete's edit, shown by its revision alone, was not seen: {report:?}"
+    );
+    assert_eq!(
+        calendar.updates(),
+        vec![wednesday_event.clone()],
+        "bug: the athlete's edit was overwritten"
+    );
+    assert_eq!(
+        fx.live().await[&fx.plan_key(2)]
+            .provider_revision
+            .as_deref(),
+        Some("2"),
+        "bug: the update's revision was not kept on its new ledger row"
+    );
+
+    // Wednesday changes again: its revision is the one Dravr's own update
+    // left, so it is updated, never taken for the athlete's edit.
+    fx.save_week(
+        false,
+        &[(0, "run", "Tempo run"), (2, "bike", "Threshold ride")],
+    )
+    .await;
+    let again = fx.push(&calendar).await;
+    assert_eq!(
+        again.updated, 1,
+        "bug: Dravr's own last write read as an edit: {again:?}"
+    );
+    assert_eq!(
+        calendar.updates(),
+        vec![wednesday_event.clone(), wednesday_event],
+        "Wednesday is updated once more; Monday stays the athlete's"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_row_that_kept_no_revision_is_judged_as_before() -> Result<()> {
+    let fx = fixture().await?;
+    // The ledger rows are written while the calendar names no revision, as
+    // every row written before the ledger kept one was.
+    let calendar = IdentityOnly::new();
+    fx.save_week(true, &[(0, "run", "Easy run")]).await;
+    let first = fx.push(&calendar).await;
+    assert_eq!(first.created, 1, "the first push creates Monday: {first:?}");
+    let monday = fx.live().await[&fx.plan_key(0)].clone();
+    assert_eq!(monday.provider_revision, None, "no revision to keep");
+    let monday_event = monday.provider_event_id.unwrap();
+
+    calendar.report_revisions(true);
+    calendar.revise(&monday_event);
+    fx.save_week(false, &[(0, "run", "Tempo run")]).await;
+    let report = fx.push(&calendar).await;
+    assert_eq!(
+        (report.updated, report.skipped.len()),
+        (1, 0),
+        "with no revision kept there is nothing to compare, so the update goes ahead: {report:?}"
+    );
+    assert_eq!(
+        fx.live().await[&fx.plan_key(0)]
+            .provider_revision
+            .as_deref(),
+        Some("3"),
+        "the update keeps the revision it left, so the next push can compare"
     );
     Ok(())
 }

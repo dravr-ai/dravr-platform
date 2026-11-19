@@ -63,6 +63,7 @@ fn make_prescribed(
         plan_week_id: None,
         replaces_id: None,
         payload_hash: Some("hash-1".to_owned()),
+        provider_revision: None,
         payload_json: r#"{"slug":"long_run_z2"}"#.to_owned(),
         status: "pushed".to_owned(),
         created_at: now,
