@@ -10,6 +10,7 @@ use pierre_core::models::Activity;
 use serde_json::{Map, Value};
 
 use super::super::activity_route_tracks::joined_route_outcome;
+use super::place::row_place_from_row;
 use super::{
     ActivityFetchFailure, ActivityFetchFailureRecord, BackfillCoverage, CachedActivityRow,
     CaptureFreshness, StoredActivityRow,
@@ -166,7 +167,7 @@ fn json_object(json: &str, column: &str) -> AppResult<Map<String, Value>> {
 
 /// Give `activity` every field of `detail` it lacks. A field the list copy
 /// already carries is its own read of the activity, and stands.
-fn fill_missing(activity: &mut Map<String, Value>, detail: Map<String, Value>) {
+pub(super) fn fill_missing(activity: &mut Map<String, Value>, detail: Map<String, Value>) {
     for (key, value) in detail {
         let slot = activity.entry(key).or_insert(Value::Null);
         if slot.is_null() {
@@ -204,6 +205,7 @@ where
         detail_read,
         segment_read,
         stored_at: Some(timestamp_column(row, "stored_at")?),
+        place: row_place_from_row(row)?,
     })
 }
 

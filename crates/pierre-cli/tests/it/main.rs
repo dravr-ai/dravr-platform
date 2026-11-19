@@ -12,7 +12,6 @@
 //! copy of the crate. Only a suite that writes the process environment stays
 //! one, because the environment is shared by every test in a binary.
 
-mod admin_role_test;
 mod adopt_cache_test;
 mod connect_order_cli_test;
 mod debug_redaction_test;
@@ -25,7 +24,11 @@ mod mint_session_cli_test;
 mod pierre_cli_test;
 mod remote_token_target_test;
 mod sciotte_login_canary_test;
+mod scratch_db;
 mod signup_code_cli_test;
 mod strava_webhook_test;
 mod token_generate_output_test;
+mod token_rotate_cli_test;
+mod user_create_role_cli_test;
+mod user_promote_cli_test;
 mod user_removal_cli_test;

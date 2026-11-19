@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::common::offline_provider_registry;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -14,7 +15,7 @@ use chrono::{Duration, Utc};
 use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    Activity, ActivityBuilder, Athlete, ConnectionType, SportType, Stats, TenantId, UserOAuthToken,
+    Activity, ActivityBuilder, Athlete, ConnectionType, SportType, TenantId, UserOAuthToken,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -24,7 +25,6 @@ use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
 use pierre_providers::provider_terms::NOLIO;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderBundle, ProviderCapabilities,
     ProviderDescriptor,
@@ -151,10 +151,6 @@ impl FitnessProvider for Relay {
             .find(|a| a.id() == id)
             .ok_or_else(|| AppError::not_found(id.to_owned()))
     }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Err(AppError::internal("not read by this test"))
-    }
 }
 
 fn relay_factory(config: ProviderConfig) -> Box<dyn FitnessProvider> {
@@ -164,7 +160,7 @@ fn relay_factory(config: ProviderConfig) -> Box<dyn FitnessProvider> {
 /// The test server, with the relay registered beside the built-in providers.
 async fn server_with_relay() -> Arc<ServerContext> {
     let base = create_test_server_resources().await.unwrap();
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.register_provider_bundle(ProviderBundle::new(
         Box::new(RelayDescriptor),
         relay_factory,

@@ -34,7 +34,7 @@ use pierre_seeders::trainingpeaks_delegation::{
 use pierre_seeders::verdict_conversation::{
     run as run_verdict_conversation, SeedArgs as VerdictConversationArgs,
 };
-use pierre_services::barrage_live_store::{live_record_store, live_store};
+use pierre_services::barrage_live_store::{live_store, record_stores};
 use pierre_services::live_activities::LiveActivityStore;
 use tracing::info;
 
@@ -44,7 +44,7 @@ use crate::helpers::jwks::initialize_jwks_manager;
 #[non_exhaustive]
 #[derive(Subcommand)]
 pub(crate) enum SeedCommand {
-    /// Create admin and demo users for a fresh deployment (idempotent)
+    /// Create the admin, and the demo and test accounts when given a demo password (idempotent)
     Bootstrap(BootstrapArgs),
 
     /// Load agent definitions from markdown files, sync them to the database, and delete catalogue agents whose file is gone
@@ -172,11 +172,12 @@ async fn live_activity_store(
     repos: &Arc<RepositoryRegistry>,
 ) -> AppResult<Arc<dyn LiveActivityStore>> {
     let url = DatabaseUrl::parse_url(database_url)?;
-    let records = live_record_store(database, &url)
+    let records = record_stores(database, &url)
         .await
-        .map_err(|reason| AppError::internal(format!("activity record store: {reason}")))?;
+        .map_err(|reason| AppError::internal(format!("activity record store: {reason}")))?
+        .records;
     // Seeded sessions keep no original, so the seeder's store needs no blobs.
-    Ok(live_store(Some(records), None, repos))
+    Ok(live_store(records, None, repos))
 }
 
 async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppResult<()> {

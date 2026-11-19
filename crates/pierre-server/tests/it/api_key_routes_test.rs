@@ -83,7 +83,7 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
-            Arc::new({
+            common::offline_config(Arc::new({
                 // Create temporary directory for test config files
                 let temp_dir = tempfile::tempdir().unwrap();
 
@@ -220,7 +220,7 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                     website_base_url: "https://dravr.ai".to_owned(),
                     ..ServerConfig::default()
                 }
-            }),
+            })),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -233,6 +233,8 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await

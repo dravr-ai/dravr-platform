@@ -376,13 +376,18 @@ async fn prepare_delivery(
     )
     .await?;
 
-    let Some(adapter) = ctx.adapters.build(channel_type, &config) else {
-        error!(
-            entry_id = %fields.entry_id,
-            channel = %fields.channel_type_str,
-            "Failed to create adapter for retry"
-        );
-        return None;
+    let adapter = match ctx.adapters.build(channel_type, &config) {
+        Ok(adapter) => adapter,
+        Err(e) => {
+            error!(
+                error = %e,
+                entry_id = %fields.entry_id,
+                channel = %fields.channel_type_str,
+                tenant_id = %tenant_id,
+                "Failed to create adapter for retry"
+            );
+            return None;
+        }
     };
 
     let payload: Value = serde_json::from_str(fields.payload_str).unwrap_or_default();

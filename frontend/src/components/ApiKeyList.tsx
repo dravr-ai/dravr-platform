@@ -4,35 +4,41 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Button, Section, Badge, StatusFilter, ConfirmDialog } from './ui';
+import { Button, Section, Badge, StatusFilter, ConfirmDialog, ALERT_TONE } from './ui';
 import type { StatusFilterValue } from './ui';
 import { useAuth } from '../hooks/useAuth';
 import { adminApi } from '../services/api';
 import type { AdminToken } from '../types/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { describeAdminError } from '../utils/adminLocale';
+import { isRotated } from '../utils/adminToken';
 
 interface ApiKeyListProps {
   onViewDetails: (token: AdminToken) => void;
 }
 
+/** The status word a token's badge carries: a rotated token is not revoked. */
+function statusLabel(token: AdminToken): string {
+  if (token.is_active) return 'Active';
+  return isRotated(token) ? 'Rotated' : 'Inactive';
+}
+
 export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const [selectedTokens, setSelectedTokens] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('active');
   const [tokenToRevoke, setTokenToRevoke] = useState<AdminToken | null>(null);
   const [tokensToRevoke, setTokensToRevoke] = useState<Set<string> | null>(null);
 
-  // Gate on `role`, as UnifiedConnections does when it opens this list: a query
-  // left on `is_admin` stays disabled for a skewed operator, who reads an empty list.
-  const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
-
-  // Always fetch all tokens and filter client-side for accurate counts
+  // Always fetch all tokens and filter client-side for accurate counts. No
+  // gate on who is looking: only UnifiedConnections mounts this list, and only
+  // an admin opens that. A query gated on the `is_admin` flag once stayed
+  // disabled for an admin whose flag disagreed, who read an empty list.
   const { data: tokensResponse, isLoading, error } = useQuery({
     queryKey: QUERY_KEYS.adminTokens.list(true),
     queryFn: () => adminApi.getAdminTokens({ include_inactive: true }),
-    enabled: isAuthenticated && isAdminUser,
+    enabled: isAuthenticated,
   });
 
   const revokeTokenMutation = useMutation({
@@ -67,6 +73,9 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
     }
   }, [allTokens, statusFilter]);
 
+  // What a bulk revoke may take: every listed token but a rotated one.
+  const revocable = useMemo(() => tokens.filter(t => !isRotated(t)), [tokens]);
+
   const handleSelectToken = (tokenId: string) => {
     const newSelected = new Set(selectedTokens);
     if (newSelected.has(tokenId)) {
@@ -78,10 +87,10 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
   };
 
   const handleSelectAll = () => {
-    if (selectedTokens.size === tokens.length) {
+    if (selectedTokens.size === revocable.length) {
       setSelectedTokens(new Set());
     } else {
-      setSelectedTokens(new Set(tokens.map(t => t.id)));
+      setSelectedTokens(new Set(revocable.map(t => t.id)));
     }
   };
 
@@ -122,13 +131,13 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
 
   if (error) {
     return (
-      <div className="bg-error/15 border border-error/30 rounded-lg p-6">
+      <div className={`${ALERT_TONE.error.tone} border rounded-lg p-6`}>
         <div className="flex items-center gap-3">
-          <svg className="w-6 h-6 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div>
-            <h3 className="text-lg font-medium text-error">Failed to load API tokens</h3>
+            <h3 className="text-lg font-medium">Failed to load API tokens</h3>
             <p className="text-on-surface mt-1">
               {describeAdminError(error)}
             </p>
@@ -160,8 +169,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                 <Button
                   onClick={handleBulkRevoke}
                   disabled={revokeTokenMutation.isPending}
-                  variant="secondary"
-                  className="text-error hover:bg-error/10"
+                  variant="danger-outline"
                   size="sm"
                 >
                   Revoke Selected
@@ -183,13 +191,14 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
             <div className="flex items-center gap-3 border-b ghost-border-faint py-2">
               <input
                 type="checkbox"
-                checked={selectedTokens.size === tokens.length && tokens.length > 0}
+                checked={selectedTokens.size === revocable.length && revocable.length > 0}
                 onChange={handleSelectAll}
-                aria-label={`Select All (${tokens.length})`}
+                disabled={revocable.length === 0}
+                aria-label={`Select All (${revocable.length})`}
                 className="rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
               />
               <span className="text-sm font-medium text-on-surface">
-                Select All ({tokens.length})
+                Select All ({revocable.length})
               </span>
             </div>
 
@@ -201,6 +210,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                     type="checkbox"
                     checked={selectedTokens.has(token.id)}
                     onChange={() => handleSelectToken(token.id)}
+                    disabled={isRotated(token)}
                     aria-label={`Select ${token.service_name}`}
                     className="mt-1 rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
                   />
@@ -227,7 +237,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                         )}
                         <div className="flex items-center gap-2 mt-2">
                           <Badge variant={token.is_active ? 'success' : 'info'}>
-                            {token.is_active ? 'Active' : 'Inactive'}
+                            {statusLabel(token)}
                           </Badge>
                           {token.is_super_admin && (
                             <Badge variant="warning">Super Admin</Badge>
@@ -247,8 +257,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                           <Button
                             onClick={() => handleSingleRevoke(token)}
                             disabled={revokeTokenMutation.isPending}
-                            variant="secondary"
-                            className="text-error hover:bg-error/10"
+                            variant="danger-outline"
                             size="sm"
                           >
                             Revoke

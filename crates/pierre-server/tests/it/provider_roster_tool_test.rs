@@ -28,6 +28,7 @@
 //! read at all.
 
 use crate::common;
+use crate::common::offline_provider_registry;
 use secrecy::SecretString;
 
 use std::future::Future;
@@ -50,8 +51,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     Activity, Athlete, CoachAccessStatus, ConnectionType, DelegatedConnection, DelegationStatus,
-    ProviderAccountRole, RosterAccess, RosterAthlete, Stats, TenantId, UserOAuthToken,
-    API_KEY_TOKEN_TYPE,
+    ProviderAccountRole, RosterAccess, RosterAthlete, TenantId, UserOAuthToken, API_KEY_TOKEN_TYPE,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::transport::{Transport, TransportPolicy};
@@ -62,7 +62,6 @@ use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
 use pierre_providers::delegation::{CoachRoster, DelegatedReads};
-use pierre_providers::registry::ProviderRegistry;
 use pierre_services::delegated_connections::roster_cache_key;
 use pierre_test_support::delegation::create_group_agent;
 use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
@@ -166,10 +165,6 @@ impl FitnessProvider for StandIn {
         Err(AppError::not_found(id.to_owned()))
     }
 
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Err(AppError::internal("not read by this test"))
-    }
-
     async fn read_coach_roster(&self) -> AppResult<CoachRoster> {
         if self.credentials.lock().unwrap().is_none() {
             return Err(AppError::internal("roster read without a credential"));
@@ -249,7 +244,7 @@ impl World {
         let base = create_test_server_resources().await.unwrap();
         // The built-in providers, each with its own terms; only the
         // Intervals.icu API is stood in.
-        let mut registry = ProviderRegistry::new();
+        let mut registry = offline_provider_registry();
         registry.register_factory(
             INTERVALS_ICU,
             Box::new(Factory {
@@ -453,6 +448,54 @@ impl World {
             .unwrap();
     }
 
+    /// An Intervals.icu link `coach` proposes in `group` for roster athlete
+    /// `athlete` as `member`, storing `email` as the athlete's roster email.
+    async fn proposed(
+        &self,
+        coach: Person,
+        group: &CoachingGroup,
+        member: Person,
+        athlete: &str,
+        email: Option<&str>,
+    ) -> DelegatedConnection {
+        self.res
+            .common
+            .repos
+            .delegated_connections
+            .propose(&DelegatedConnection::propose(
+                INTERVALS_ICU.to_owned(),
+                group.id,
+                coach.id,
+                coach.tenant,
+                member.id,
+                RosterAthlete::new(athlete, None, email.map(str::to_owned)),
+            ))
+            .await
+            .unwrap()
+            .expect("no live link holds this member or athlete yet")
+    }
+
+    /// The same, confirmed by the member. A link that stores no roster email
+    /// binds no one, so it is held and reads nothing.
+    async fn confirmed(
+        &self,
+        coach: Person,
+        group: &CoachingGroup,
+        member: Person,
+        athlete: &str,
+        email: Option<&str>,
+    ) -> DelegatedConnection {
+        let link = self.proposed(coach, group, member, athlete, email).await;
+        self.res
+            .common
+            .repos
+            .delegated_connections
+            .confirm(link.id, member.id, member.tenant, Utc::now())
+            .await
+            .unwrap()
+            .expect("the proposal names the member")
+    }
+
     /// A confirmed Intervals.icu link of `coach`'s in `group` for roster
     /// athlete `athlete` as `member`, whose roster email is `email`.
     async fn linked(
@@ -463,26 +506,8 @@ impl World {
         athlete: &str,
         email: &str,
     ) -> DelegatedConnection {
-        let repos = &self.res.common.repos;
-        let link = repos
-            .delegated_connections
-            .propose(&DelegatedConnection::propose(
-                INTERVALS_ICU.to_owned(),
-                group.id,
-                coach.id,
-                coach.tenant,
-                member.id,
-                RosterAthlete::new(athlete, None, Some(email.to_owned())),
-            ))
+        self.confirmed(coach, group, member, athlete, Some(email))
             .await
-            .unwrap()
-            .expect("no live link holds this member or athlete yet");
-        repos
-            .delegated_connections
-            .confirm(link.id, member.id, member.tenant, Utc::now())
-            .await
-            .unwrap()
-            .expect("the proposal names the member")
     }
 
     /// Call `tool` as `who` with `args`: its payload, and whether it refused.
@@ -497,7 +522,10 @@ impl World {
             .with_user(who.id.to_string())
             .with_tenant(who.tenant.to_string())
             .with_auth_method("jwt_bearer");
-        let response = tool.execute(&runtime, &ctx, args).await;
+        // The coach tools are first-party only: served over the web app, as
+        // the chat route declares it. A call that declares no transport is
+        // read as outside Dravr's own surfaces.
+        let response = serve_over(Transport::WebApp, tool.execute(&runtime, &ctx, args)).await;
         (
             response
                 .structured_content
@@ -777,6 +805,235 @@ async fn a_coach_with_no_group_reads_their_roster_and_how_coach_access_is_grante
     assert!(
         steps[1].contains("You coach no Dravr group yet"),
         "{steps:?}"
+    );
+}
+
+/// A coach still attached to a group whose coach access was withdrawn
+/// (carnet#1511) reads their roster and is told where they stand: coach
+/// access off, no group coached by the one coach rule, still attached, how
+/// coach access is asked for — and never to create a group. The roster says
+/// the same: it names no member of that group as one to link, and proposing
+/// a link matches no member for them.
+#[tokio::test]
+async fn a_coach_still_attached_whose_access_is_off_is_told_so_and_proposes_no_link() {
+    let w = World::new().await;
+    let squad = w.group("Squad", w.coach).await;
+    let sam = person(&w.res, "sam@roster-tool.test", "Sam Swimmer", true).await;
+    w.join(&squad, sam, true).await;
+    w.connect_intervals(w.coach).await;
+    w.roster.set(vec![athlete(
+        "i202",
+        "Samuel Roster",
+        Some("sam@roster-tool.test"),
+        Some(RosterAccess::Coach),
+    )]);
+    let users = &w.res.common.repos.users;
+    users.set_manages_roster(w.coach.id, false).await.unwrap();
+
+    let (payload, refused) = w.roster(w.coach, json!({})).await;
+    assert!(!refused, "the roster is still read: {payload:#}");
+    assert_eq!(payload["coach_access"], false, "{payload:#}");
+    assert_eq!(
+        payload["coach_access_request_pending"], false,
+        "no request for coach access waits: {payload:#}"
+    );
+    assert_eq!(
+        payload["groups_coached"], 0,
+        "no group is coached while coach access is off: {payload:#}"
+    );
+    let steps: Vec<&str> = payload["next_steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    assert_eq!(steps.len(), 1, "{steps:?}");
+    assert!(
+        steps[0].starts_with("Your coach access is off"),
+        "{steps:?}"
+    );
+    assert!(
+        steps[0].contains("still attached to your Dravr groups as their coach"),
+        "{steps:?}"
+    );
+    assert!(
+        steps[0].contains("turns it on when you ask for it in the app"),
+        "how coach access is asked for: {steps:?}"
+    );
+    for absent in ["create one you coach", "You coach no Dravr group yet"] {
+        assert!(
+            !steps[0].contains(absent),
+            "bug: a coach whose groups exist is not told to create one: {steps:?}"
+        );
+    }
+    // They coach no group, so the roster names no member of the group they
+    // are attached to: the athlete is counted as in none of their groups,
+    // never listed as one `propose_athlete_link` would link — the proposal
+    // below is refused.
+    let intervals = platform(&payload, "intervals_icu");
+    assert_eq!(
+        member_states(intervals),
+        [],
+        "bug: a member is named for a caller who coaches no group: {payload:#}"
+    );
+    assert_eq!(
+        intervals["others"],
+        json!([{ "state": "not_in_your_groups", "access": "coach", "athletes": 1 }]),
+        "{payload:#}"
+    );
+    assert_eq!(intervals["roster_size"], 1, "{payload:#}");
+    let text = payload.to_string();
+    for leak in ["Sam Swimmer", "proposable", "Squad"] {
+        assert!(!text.contains(leak), "{leak} leaked: {payload:#}");
+    }
+
+    let (payload, refused) = w.link(w.coach, json!({ "athlete": "sam" })).await;
+    assert!(refused, "{payload:#}");
+    assert_eq!(payload["reason"], "no_coach_access", "{payload:#}");
+    assert!(
+        !payload.to_string().contains("Sam Swimmer"),
+        "bug: a member was matched for a caller without coach access: {payload:#}"
+    );
+    assert!(w.live_links(sam).await.is_empty(), "nothing is proposed");
+
+    users.set_manages_roster(w.coach.id, true).await.unwrap();
+    let (payload, _) = w.roster(w.coach, json!({})).await;
+    assert_eq!(payload["coach_access"], true, "{payload:#}");
+    assert_eq!(payload["groups_coached"], 1, "{payload:#}");
+    // Coach access back: the member is theirs to link again.
+    let intervals = platform(&payload, "intervals_icu");
+    assert_eq!(
+        member_states(intervals),
+        [("Sam Swimmer".to_owned(), "proposable".to_owned())],
+        "{payload:#}"
+    );
+    assert_eq!(intervals["others"], json!([]), "{payload:#}");
+}
+
+/// Coach access off changes no link (carnet#1511): the member behind a link
+/// the caller already holds — one that reads, one that reads nothing, one
+/// the member has not answered — is still named, with the link's state,
+/// while every other roster athlete — a member of the group they are
+/// attached to, a stranger, one the platform shares no email for — is
+/// counted as in none of their groups.
+#[tokio::test]
+async fn a_coach_whose_access_is_off_still_reads_the_links_they_hold() {
+    let w = World::new().await;
+    let squad = w.group("Squad", w.coach).await;
+    let alex = person(&w.res, "alex@roster-tool.test", "Alex Athlete", true).await;
+    let sam = person(&w.res, "sam@roster-tool.test", "Sam Swimmer", true).await;
+    let lee = person(&w.res, "lee@roster-tool.test", "Lee Legacy", true).await;
+    let pat = person(&w.res, "pat@roster-tool.test", "Pat Pending", true).await;
+    for member in [alex, sam, lee, pat] {
+        w.join(&squad, member, true).await;
+    }
+    w.connect_intervals(w.coach).await;
+    w.linked(w.coach, &squad, alex, "i201", "alex@roster-tool.test")
+        .await;
+    // A confirmed link that stored no roster email reads nothing, and a
+    // proposal the member has not answered reads nothing yet.
+    w.confirmed(w.coach, &squad, lee, "i203", None).await;
+    w.proposed(w.coach, &squad, pat, "i204", Some("pat@roster-tool.test"))
+        .await;
+    let coach_access = Some(RosterAccess::Coach);
+    w.roster.set(vec![
+        athlete(
+            "i201",
+            "Alexandra Roster",
+            Some("alex@roster-tool.test"),
+            coach_access,
+        ),
+        athlete(
+            "i202",
+            "Samuel Roster",
+            Some("sam@roster-tool.test"),
+            coach_access,
+        ),
+        athlete(
+            "i203",
+            "Lee Roster",
+            Some("lee@roster-tool.test"),
+            coach_access,
+        ),
+        athlete(
+            "i204",
+            "Pat Roster",
+            Some("pat@roster-tool.test"),
+            coach_access,
+        ),
+        athlete(
+            "i207",
+            "Stranger Roster",
+            Some("stranger@elsewhere.test"),
+            coach_access,
+        ),
+        athlete("i208", "Nomail Roster", None, None),
+    ]);
+    let users = &w.res.common.repos.users;
+    users.set_manages_roster(w.coach.id, false).await.unwrap();
+
+    let (payload, refused) = w.roster(w.coach, json!({})).await;
+    assert!(!refused, "{payload:#}");
+    assert_eq!(payload["coach_access"], false, "{payload:#}");
+    assert_eq!(payload["groups_coached"], 0, "{payload:#}");
+    let intervals = platform(&payload, "intervals_icu");
+    assert_eq!(intervals["roster_size"], 6, "{payload:#}");
+    let held = [
+        ("Alex Athlete".to_owned(), "linked".to_owned()),
+        ("Lee Legacy".to_owned(), "linked_not_reading".to_owned()),
+        ("Pat Pending".to_owned(), "proposed".to_owned()),
+    ];
+    assert_eq!(
+        member_states(intervals),
+        held,
+        "every link they hold is listed in its own state, and no one else is named: {payload:#}"
+    );
+    assert!(
+        intervals["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|m| m["group"] == "Squad"),
+        "{payload:#}"
+    );
+    assert_eq!(
+        intervals["members"][1]["not_reading_because"], "athlete_email_missing",
+        "{payload:#}"
+    );
+    assert_eq!(
+        intervals["others"],
+        json!([
+            { "state": "not_in_your_groups", "access": "coach", "athletes": 2 },
+            { "state": "not_in_your_groups", "access": "unknown", "athletes": 1 },
+        ]),
+        "{payload:#}"
+    );
+    assert!(
+        !payload.to_string().contains("Sam Swimmer"),
+        "bug: a member no link holds is named: {payload:#}"
+    );
+
+    users.set_manages_roster(w.coach.id, true).await.unwrap();
+    let (payload, _) = w.roster(w.coach, json!({})).await;
+    let intervals = platform(&payload, "intervals_icu");
+    assert_eq!(
+        member_states(intervals),
+        [
+            held[0].clone(),
+            held[1].clone(),
+            held[2].clone(),
+            ("Sam Swimmer".to_owned(), "proposable".to_owned()),
+        ],
+        "coach access back, the links read as they did and the member is theirs to link: \
+         {payload:#}"
+    );
+    assert_eq!(
+        intervals["others"],
+        json!([
+            { "state": "roster_email_missing", "access": "unknown", "athletes": 1 },
+            { "state": "not_in_your_groups", "access": "coach", "athletes": 1 },
+        ]),
+        "{payload:#}"
     );
 }
 

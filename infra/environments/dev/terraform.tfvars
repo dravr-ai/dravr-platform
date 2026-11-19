@@ -48,7 +48,11 @@ public_domains = ["app.dravr.ai", "mcp.dravr.ai"]
 # (procedure in public_mcp_monitoring.tf). The ranges are Anthropic's outbound
 # IPv4 list, https://platform.claude.com/docs/en/api/ip-addresses (it publishes
 # no outbound IPv6), checked 2026-11-06.
-armor_enabled            = true
+#
+# Off: with every refusing rule in preview the policy refuses nothing and costs
+# its fixed fees (one policy, seven rules, about CA$17 a month, checked
+# 2026-11-16). Set true to bring it back; the rules return in preview.
+armor_enabled            = false
 marketplace_egress_cidrs = ["160.79.104.0/21", "153.61.208.0/20"]
 
 # The MCP resource identifier (MCP_RESOURCE_URL): the URL a user enters in the
@@ -160,6 +164,21 @@ backend_sciotte_remote = true
 # (identity-token verifier, rev 00013) and the API (IdTokenSource caller,
 # rev 00822) were serving the token auth this depends on.
 backend_sciotte_iam = true
+
+# carnet#1504: the sciotte sign-in service (sciotte_login.tf), min 0, max 1,
+# same image and settings as the read service. Creating it routes nothing;
+# backend_sciotte_login_split below sends sign-ins to it.
+enable_sciotte_login_service = true
+
+# carnet#1504 step 2: every sign-in step (login, code steps, cancel, takeover,
+# the export after it) goes to the sign-in service: sets the API's
+# DRAVR_SCIOTTE_LOGIN_URL and points the login canary at it.
+backend_sciotte_login_split = true
+
+# carnet#1504 step 3: reads spread over two one-instance read services; every
+# call naming a session goes to the one its id picks. The second scales to
+# zero (ChefFamille, 2026-11-16).
+sciotte_read_services = 2
 
 # Coach visuals: deploy the photograveur chart-press service (min=0,
 # cpu_idle=true — ~$0 idle).

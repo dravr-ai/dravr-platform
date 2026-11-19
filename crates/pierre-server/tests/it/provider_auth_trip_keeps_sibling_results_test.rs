@@ -104,6 +104,7 @@ impl LlmProvider for BatchingProvider {
         };
 
         Ok(ChatResponse {
+            replay_blocks: None,
             content: String::new(),
             model: "batch-model".to_owned(),
             usage: None,
@@ -313,6 +314,7 @@ impl LlmProvider for AuthTripThenDenied {
             ),
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: "batch-model".to_owned(),
             usage: None,

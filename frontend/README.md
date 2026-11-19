@@ -84,11 +84,10 @@ The first admin user must be created via CLI before the dashboard can be used:
 cargo run --bin pierre-cli -- user create \
   --email admin@example.com \
   --password SecurePassword123 \
-  --name "Admin User" \
-  --super-admin
+  --name "Admin User"
 ```
 
-This creates a super-admin who can then approve other user registrations and grant admin privileges.
+This creates an admin who can then approve other user registrations and grant admin privileges.
 
 ## Dashboard Tabs
 

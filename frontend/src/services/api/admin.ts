@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Admin API methods - user management, tokens, config, agent management, store moderation
-// ABOUTME: Handles all administrative functionality for super_admin and admin roles
+// ABOUTME: Handles all administrative functionality for the admin role
 
 import { axios } from './client';
 import type { AdminScope } from '../../hooks/useAdminScope';
@@ -309,11 +309,15 @@ export interface ImpersonationSessionsCursor {
   before_id: string;
 }
 
-/** How an audited operator action ended: done, refused by a check, or errored. */
-export type AuditOutcome = 'success' | 'refused' | 'failed';
+/**
+ * How an audited operator action ended: done, refused by a check, or errored.
+ * `started` is an admin-only tool call whose outcome could not be written
+ * after it ran: the row written before the call is all there is.
+ */
+export type AuditOutcome = 'success' | 'refused' | 'failed' | 'started';
 
-/** Which door the action came through: the web console, pierre-cli over HTTP, pierre-cli on the database, or a service token. */
-export type AuditSource = 'console' | 'cli' | 'cli_database' | 'service';
+/** Which door the action came through: the web console, pierre-cli over HTTP, pierre-cli on the database, a service token, a button in the ops Slack room, or an admin-only tool called from outside Dravr (over `/mcp` or A2A, with an API key or an OAuth grant; the metadata names the tool and the transport). */
+export type AuditSource = 'console' | 'cli' | 'cli_database' | 'service' | 'slack' | 'tool_call';
 
 /** The request details the server recorded beside an audit event; every field is optional. */
 export interface AuditEventMetadata {
@@ -708,6 +712,22 @@ export const adminApi = {
     return response.data.data;
   },
 
+  /**
+   * Make an account an admin, or a user again, from the console session
+   * (`POST /api/admin/users/{id}/promote` or `/demote`). The server refuses a
+   * self-demotion and the last active admin.
+   */
+  async setUserAdminRole(userId: string, makeAdmin: boolean): Promise<{
+    id: string;
+    email: string;
+    is_admin: boolean;
+    role: string;
+  }> {
+    const action = makeAdmin ? 'promote' : 'demote';
+    const response = await axios.post(`/api/admin/users/${userId}/${action}`);
+    return response.data.user;
+  },
+
   async clearUserTier(userId: string): Promise<{ removed: boolean }> {
     const response = await axios.delete(`/api/admin/users/${userId}/tier`);
     return { removed: Boolean(response.data?.data?.removed) };
@@ -817,7 +837,7 @@ export const adminApi = {
     return response.data;
   },
 
-  /** One page of the impersonation log, newest first (super admin only); `cursor` resumes after a previous page. */
+  /** One page of the impersonation log, newest first (admin only); `cursor` resumes after a previous page. */
   async listImpersonationSessions(cursor?: ImpersonationSessionsCursor): Promise<ImpersonationSessionsResponse> {
     const response = await axios.get<ImpersonationSessionsResponse>('/api/admin/impersonate/sessions', {
       params: cursor ? { before: cursor.before, before_id: cursor.before_id } : undefined,
@@ -825,7 +845,7 @@ export const adminApi = {
     return response.data;
   },
 
-  /** One impersonation session (super admin only). */
+  /** One impersonation session (admin only). */
   async getImpersonationSession(sessionId: string): Promise<ImpersonationSessionSummary> {
     const response = await axios.get<ImpersonationSessionSummary>(
       `/api/admin/impersonate/sessions/${encodeURIComponent(sessionId)}`
@@ -1344,7 +1364,7 @@ export const adminApi = {
   },
 
   // ==================== MEMORY EXTRACTION WORKER (Phase B C6) ====================
-  /** Every tenant a super admin can pick on a scoped screen; refused for anyone else. */
+  /** Every tenant an admin can pick on a scoped screen; refused for anyone else. */
   async listScopeTenants(): Promise<ScopeTenant[]> {
     const response = await axios.get('/api/admin/tenants');
     return response.data.tenants;
@@ -1647,7 +1667,7 @@ export interface MemoryWorkerMetricsResponse {
   metrics: UserFactMetrics;
 }
 
-/** One tenant a super admin can pick. */
+/** One tenant an admin can pick. */
 export interface ScopeTenant {
   id: string;
   name: string;

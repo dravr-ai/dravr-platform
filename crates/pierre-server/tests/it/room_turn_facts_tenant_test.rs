@@ -77,6 +77,7 @@ impl LlmProvider for RecordingModel {
             .join("\n");
         self.prompts.lock().unwrap().push(system);
         Ok(ChatResponse {
+            replay_blocks: None,
             content: ANSWER.to_owned(),
             model: MODEL.to_owned(),
             usage: None,

@@ -8,7 +8,7 @@ import React from 'react';
 import { ActivityIndicator, StyleSheet } from 'react-native';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { Mail } from 'lucide-react-native';
-import { BOREAL_DARK, PROVIDER_COLORS } from '@pierre/shared-constants';
+import { BOREAL_DARK, PROVIDER_COLORS, contrastHex as contrast } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
 import { SciotteLoginModal } from '../SciotteLoginModal';
 import { oauthApi } from '../../services/api';
@@ -34,21 +34,6 @@ const sciotteSelect2FA = oauthApi.sciotteSelect2FA as jest.Mock;
 
 const WHITE = '#FFFFFF';
 const TARGETS: SciotteTarget[] = ['strava', 'garmin', 'trainingpeaks'];
-
-/** WCAG relative luminance of a `#rrggbb` colour. */
-function luminance(hex: string): number {
-  const value = hex.replace('#', '');
-  const channels = [0, 2, 4].map((offset) => {
-    const c = parseInt(value.slice(offset, offset + 2), 16) / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
-}
-
-function contrast(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
 
 /**
  * The nearest host view above `node` that is a brand plate. The jest setup's
@@ -152,7 +137,7 @@ describe('SciotteLoginModal (mobile) — the brand plates', () => {
     expect(contrast(WHITE, tile)).toBeGreaterThanOrEqual(3);
   });
 
-  it('spins in the Boreal primary, not the brand colour, while signing in', async () => {
+  it('spins in the primary tint\'s bound ink, not the brand colour, while signing in', async () => {
     sciotteLogin.mockReturnValue(new Promise(() => undefined));
     openCredentials('trainingpeaks');
     fillCredentials();
@@ -160,8 +145,9 @@ describe('SciotteLoginModal (mobile) — the brand plates', () => {
 
     await waitFor(() => expect(sciotteLogin).toHaveBeenCalledTimes(1));
     const spinner = screen.UNSAFE_getByType(ActivityIndicator);
-    // Outside a ThemeProvider the palette is the dark default.
-    expect(spinner.props.color).toBe(BOREAL_DARK.primary);
+    // Outside a ThemeProvider the palette is the dark default. The spinner sits
+    // on the badge's primary tint, so it takes that tint's ink (BADGE_TONE).
+    expect(spinner.props.color).toBe(BOREAL_DARK.onPrimaryContainer);
     expect(spinner.props.color).not.toBe(PROVIDER_COLORS.trainingpeaks);
   });
 

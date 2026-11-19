@@ -21,7 +21,7 @@ import {
 import { refusalProvider, refusalReason } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 import { useSetCoachConsents } from '../../hooks/useGroups';
-import { Button, Checkbox, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
+import { Button, Checkbox, ConfirmDialog, useErrorToast, useSuccessToast, ALERT_TONE } from '../ui';
 
 interface CoachConsentsSectionProps {
   groupId: string;
@@ -76,13 +76,13 @@ export default function CoachConsentsSection({ groupId, consents, coach }: Coach
         <div
           role="note"
           aria-labelledby={noticeTitleId}
-          className="space-y-2 rounded-lg border border-info/30 bg-info/10 p-3"
+          className={`${ALERT_TONE.info.tone} space-y-2 rounded-lg border p-3`}
           data-testid="coach-consent-wellness-notice"
         >
-          <p id={noticeTitleId} className="text-sm font-medium text-on-info-container">
+          <p id={noticeTitleId} className="text-sm font-medium">
             {t(WELLNESS_WIDENED_NOTICE_KEYS.title)}
           </p>
-          <p className="text-sm text-on-info-container">
+          <p className="text-sm">
             {t(WELLNESS_WIDENED_NOTICE_KEYS.body, { coach, platform: consentPlatformName('wellness_read') })}
           </p>
           <div className="flex flex-wrap items-center gap-2">

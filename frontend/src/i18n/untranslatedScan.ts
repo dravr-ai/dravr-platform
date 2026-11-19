@@ -461,9 +461,9 @@ export interface UntranslatedString {
 /**
  * Whether a string is a Tailwind class list rather than copy.
  *
- * The chat verdict chips and the A2A client badges pick their styling with
- * `return 'bg-success/15 text-on-success-container hover:bg-success/25'`, the
- * same shape as a returned status line and not copy. A class list is every
+ * The A2A client badges pick their styling with
+ * `return colorMap[capability] || 'bg-surface-container-high text-on-surface-variant border ghost-border'`,
+ * the same shape as a returned status line and not copy. A class list is every
  * token lowercase with at least one `-`, `/` or `:` — the separators Tailwind
  * builds on and prose does not use between words.
  */

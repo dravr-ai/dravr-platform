@@ -55,6 +55,8 @@ use pierre_mcp_server::{
     utils::http_client::initialize_http_clients,
 };
 use pierre_services::agent_package_repair::repair_stored_flavours;
+#[cfg(feature = "client-messaging")]
+use pierre_services::channel_adapters::ConfigChannelAdapters;
 use pierre_services::chat_provider_factory::spawn_llm_health_probe;
 use pierre_services::server_lifecycle;
 use secrecy::ExposeSecret;
@@ -66,7 +68,7 @@ use pierre_mcp_server::services::archive_import::ArchiveImports;
 use pierre_mcp_server::services::originals::blob_store_from_env;
 #[cfg(feature = "client-messaging")]
 use pierre_mcp_server::services::turn_runner::TurnRunner;
-use pierre_services::barrage_live_store::live_record_store;
+use pierre_services::barrage_live_store::{record_stores, RecordStores};
 use tokio::runtime::{Builder, Runtime};
 use tracing::{error, info, warn};
 
@@ -350,7 +352,7 @@ fn log_missing_admin_warning(auto_approve: bool) {
 async fn check_admin_status(repos: &RepositoryRegistry, auto_approve: bool) {
     match repos.users.get_by_status("active", None).await {
         Ok(users) => {
-            let admin_exists = users.iter().any(|u| u.is_admin);
+            let admin_exists = users.iter().any(|u| u.role.is_admin());
             if admin_exists {
                 info!("Admin user configured - server ready for authentication");
             } else {
@@ -488,12 +490,13 @@ async fn create_server(
     let rsa_key_size = get_rsa_key_size();
     info!("Using {}-bit RSA keys for JWT signing", rsa_key_size);
 
-    // Seed messaging channel configs from environment variables (idempotent upsert)
+    // Seed the messaging channel configs the configuration read from the
+    // environment (idempotent upsert)
     #[cfg(feature = "client-messaging")]
     {
         use pierre_mcp_server::messaging_seed;
         let repos = database.repositories();
-        messaging_seed::seed_from_env(repos).await;
+        messaging_seed::seed_from_config(repos, &config.channels, &config.webhooks).await;
     }
 
     // In-memory (test) databases run headless: skip building the ChatProvider so a
@@ -515,12 +518,14 @@ async fn create_server(
 
     // After the platform's own migrations (the database is open) and before
     // any request: on Postgres the barrage schema migrates here.
-    let (blobs, archive_imports) = select_original_stores(&database, &config.database.url).await;
     // Every live provider read is kept here; without it no read can be
     // stored, so the boot stops rather than run on a store it cannot keep.
-    let live_records = live_record_store(&database, &config.database.url)
+    // Imports and the export share the same handle.
+    let barrage = record_stores(&database, &config.database.url)
         .await
         .map_err(|reason| AppError::internal(format!("activity record store: {reason}")))?;
+    let live_records = Arc::clone(&barrage.records);
+    let (blobs, archive_imports) = select_original_stores(&barrage, &config.database.url).await;
 
     let resources_instance = ServerContext::new(
         database,
@@ -541,9 +546,29 @@ async fn create_server(
             archive_imports: Some(archive_imports),
             live_records: Some(Arc::clone(&live_records)),
             blobs: Some(blobs.clone()),
+            // The production factory, named by this binary and by no
+            // constructor of the options: the adapter each tenant's stored
+            // channel config names.
+            #[cfg(feature = "client-messaging")]
+            channel_adapters: Arc::new(ConfigChannelAdapters),
         },
     )
     .await?;
+
+    // Push the catalogue this context dispatches to the bot and the page the
+    // configuration names. A step of this binary's boot and of nothing else:
+    // a context built anywhere else publishes to no one. Detached; it no-ops
+    // for a channel the deployment does not run.
+    #[cfg(feature = "client-messaging")]
+    {
+        use pierre_mcp_server::services::channel_menus::{
+            spawn_channel_menu_publish, ChannelMenuTargets,
+        };
+        spawn_channel_menu_publish(
+            &resources_instance,
+            ChannelMenuTargets::from_config(&config.channels),
+        );
+    }
 
     let resources = spawn_background_workers(resources_instance, live_records, blobs.ok());
 
@@ -576,14 +601,14 @@ fn select_turn_runner(timeouts: &ServerTimeouts) -> Arc<TurnRunner> {
 /// The deployment's blob store, which keeps every original file (an import's
 /// recordings and the files athletes upload), and the archive imports on it.
 async fn select_original_stores(
-    database: &Database,
+    barrage: &RecordStores,
     url: &DatabaseUrl,
 ) -> (result::Result<Arc<dyn BlobStore>, String>, ArchiveImports) {
     let blobs = blob_store_from_env(url).await;
     if let Err(reason) = &blobs {
         warn!(reason = %reason, "No blob store: uploads and archive imports are not available");
     }
-    let archive_imports = ArchiveImports::from_env(database, url, blobs.clone()).await;
+    let archive_imports = ArchiveImports::from_env(barrage, blobs.clone());
     (blobs, archive_imports)
 }
 
@@ -603,14 +628,18 @@ fn spawn_background_workers(
     // a real in-persona agent answer instead of a templated activity list, and
     // lets the coach speak first once a connect lands an athlete's data
     // (carnet#831): the auth routes report connects to the first-sync poster,
-    // which posts through the same handle, as does the check-in on the cadence
-    // each athlete chose.
+    // which posts through the same handle, as do the check-in on the cadence
+    // each athlete chose and the reaction to a workout a live sync landed.
     #[cfg(feature = "client-messaging")]
     {
+        use pierre_mcp_server::services::activity_landed_post::install_activity_landed;
         use pierre_mcp_server::services::check_in_post::start_check_in_scheduler;
         use pierre_mcp_server::services::platform_post::install_platform_post;
         let platform_post = install_platform_post(&resources);
         start_check_in_scheduler(&resources, Arc::clone(&platform_post));
+        // The coach's reaction to a synced workout, layered on the landing
+        // sink every live write reports to (carnet#1486).
+        install_activity_landed(&resources, Arc::clone(&platform_post));
         #[cfg(feature = "health-sync")]
         {
             use pierre_mcp_server::services::first_sync_post::install_first_sync_post;
@@ -778,6 +807,14 @@ fn spawn_background_workers(
         start_upload_streams_backfill(&resources);
     }
 
+    // Start the athlete places worker (carnet#1484): every fifteen minutes,
+    // recomputes the places of up to twenty athletes whose cached activities
+    // changed since their last clustering, from their stored tracks only.
+    {
+        use pierre_mcp_server::start_places_worker;
+        start_places_worker(&resources);
+    }
+
     // Recompute every athlete's training history once after the rule their
     // workouts merge by changed (Athlete Data Consolidation S3): the rollup is
     // scored when computed, so days computed under the previous rule keep its
@@ -812,6 +849,14 @@ fn spawn_background_workers(
     {
         use pierre_mcp_server::start_archive_import_sweeps;
         start_archive_import_sweeps(&resources);
+        // The originals bundles' sweep: stalled builds failed, expired ones deleted.
+        if let Some(bundles) = &resources.common.originals_bundles {
+            use pierre_services::originals_bundle::start_originals_bundle_sweep;
+            drop(start_originals_bundle_sweep(
+                bundles,
+                &resources.common.repos,
+            ));
+        }
     }
 
     // Start the MCP task sweeper (deletes expired mcp_tasks rows hourly). The

@@ -24,9 +24,9 @@
 //! share ([`group_zone`]). With none on file the slot is read on the UTC clock
 //! and opens at [`NO_ZONE_SLOT_START_HOUR_UTC`] instead — the no-zone rule.
 
-use chrono::{DateTime, Datelike, Days, NaiveDate, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Timelike, Utc};
 use chrono_tz::Tz;
-use pierre_core::civil_time::{clock_date, parse_zone};
+use pierre_core::civil_time::{clock_date, monday_of, parse_zone};
 
 /// Local hour the digest lands at on Monday, and the first hour of the day
 /// any catch-up may use.
@@ -71,9 +71,7 @@ pub fn due_week(now: DateTime<Utc>, zone: Option<Tz>, owed_since: DateTime<Utc>)
 /// when that local hour does not exist in `zone` (a transition at the slot
 /// hour, which no zone in use has) — such a week is treated as owed.
 fn monday_slot(date: NaiveDate, zone: Tz, opens: u32) -> Option<DateTime<Utc>> {
-    let monday =
-        date.checked_sub_days(Days::new(u64::from(date.weekday().num_days_from_monday())))?;
-    let local = monday.and_hms_opt(opens, 0, 0)?;
+    let local = monday_of(date).and_hms_opt(opens, 0, 0)?;
     zone.from_local_datetime(&local)
         .earliest()
         .map(|slot| slot.with_timezone(&Utc))

@@ -6,7 +6,41 @@ import type { DelegationReadRefusal } from './groups.js';
 // ========== USER TYPES ==========
 
 /** User role */
-export type UserRole = 'super_admin' | 'admin' | 'user';
+export type UserRole = 'admin' | 'user';
+
+/**
+ * Whether an account holds the admin role: the one way either client asks.
+ *
+ * `role` decides. The `is_admin` field the server sends beside it is derived
+ * from `role`, and no gate reads it where `role` is sent: the two columns once
+ * disagreed, and a gate left on the flag refused both founders (carnet#1574).
+ * Takes the account, not a role string, so a group membership's own `admin`
+ * role is never mistaken for this one.
+ */
+export function hasAdminRole(user: Pick<User, 'role'> | null | undefined): boolean {
+  return user?.role === 'admin';
+}
+
+/**
+ * How an admin chose to use the web app for this sign-in (carnet#1631): the
+ * admin console, or the athlete app on their own account. A view, never an
+ * authority: the server serves an admin's session the same either way.
+ */
+export type ViewMode = 'admin' | 'athlete';
+
+/**
+ * Whether the web app draws the admin console for this account. Only an admin
+ * can, and an admin who chose the athlete mode gets the athlete app. A mode not
+ * chosen yet reads as the console, so nothing personal is fetched for an admin
+ * before they pick. Authority gates (impersonation, the reply model line) keep
+ * reading `hasAdminRole`.
+ */
+export function actsAsAdmin(
+  user: Pick<User, 'role'> | null | undefined,
+  viewMode: ViewMode | null | undefined,
+): boolean {
+  return hasAdminRole(user) && viewMode !== 'athlete';
+}
 
 /** User account status */
 export type UserStatus = 'pending' | 'active' | 'suspended';
@@ -89,6 +123,14 @@ export interface User {
   coaching_persona?: CoachingPersona;
   /** True when the user has access to the Coach-tier roster UI. */
   manages_roster?: boolean;
+  /**
+   * What a pending account waits on, as its sign-up was told: `confirm_email`
+   * activates once the address is confirmed, `review` waits on an
+   * administrator even after that. `active` for an active account. Sent with
+   * the session so the waiting screen words it on any tab or device
+   * (carnet#1650); absent for a suspended account, which waits on nothing.
+   */
+  activation?: 'active' | 'confirm_email' | 'review';
   /**
    * BCP-47 short locale the athlete is answered in (`fr`, `en`, `es`, `de`,
    * `pt`). Sent by `/oauth/token`, `/api/auth/session` and the Firebase login
@@ -226,6 +268,12 @@ export interface RedeemSignupCodeResponse {
   user_status: UserStatus;
   /** Whether a coach's code joined the coach's group; `null` for an admin's code. */
   group_joined: boolean | null;
+  /**
+   * A group invite code that approves nothing: the server holds it until the
+   * account is active and joins (carnet#1648). When true,
+   * `user_status` is `pending` and `group_joined` is `null`.
+   */
+  group_invite_held?: boolean;
 }
 
 // ========== SIGNUP ATTRIBUTION ==========
@@ -507,15 +555,6 @@ export type SciotteLoginResponse =
       provider: string;
       /** Set when a recent stored session answered without a new login */
       short_circuit?: boolean;
-      /**
-       * The provider's own authorization this sign-in goes on to, while the
-       * grant that writes what the session cannot (Garmin's, which pushes
-       * workouts) is still owed and a seat is there for it: sign-in first,
-       * then the grant. `authorization_url` only for the hosted sign-in a
-       * provider's own link opens, and for a hosted sign-in a takeover
-       * concluded on `/sign-in-check`. Absent or `null` otherwise.
-       */
-      oauth_follow_on?: { provider: string; authorization_url?: string } | null;
     }
   | {
       status: 'two_factor_choice';
@@ -617,12 +656,11 @@ export type SciotteTakeoverEvent =
  * in a WebView (`window.ReactNativeWebView.postMessage`, as JSON): the
  * sign-in connected, or the takeover is over without connecting. `closed`
  * carries the step answer the takeover ended with, when one arrived, so the
- * app words it as it words the same answer to an HTTP step. `connected`
- * carries `follow_on`, the provider whose own authorization the sign-in goes
- * on to (the answer's `oauth_follow_on`, carnet#1494), when it has one.
+ * app words it as it words the same answer to an HTTP step. `connected` is
+ * the end of the connect: no authorization follows a sign-in.
  */
 export type SciotteTakeoverBridgeMessage =
-  | { type: 'connected'; follow_on?: string }
+  | { type: 'connected' }
   | { type: 'closed'; outcome?: SciotteTakeoverOutcome };
 
 /**
@@ -633,6 +671,40 @@ export type SciotteTakeoverBridgeMessage =
  */
 export interface SciotteCancelResponse {
   cancelled: boolean;
+}
+
+/**
+ * How one provider is signed in to from the athlete's own browser (the Dravr
+ * extension or the app's WebView), as `GET /api/providers/browser-signin`
+ * serves it from sciotte: the page to open, the URLs that say the athlete is
+ * signed in, and the domain of the session's cookies (carnet#1617).
+ */
+export interface BrowserSignin {
+  /** sciotte's provider name: `garmin`, `strava`, `trainingpeaks`, `coros` */
+  provider: string;
+  login_url: string;
+  success_patterns: string[];
+  cookie_domain: string;
+}
+
+/** Answer of `GET /api/providers/browser-signin`. */
+export interface BrowserSigninCatalog {
+  providers: BrowserSignin[];
+}
+
+/**
+ * One cookie the athlete's browser read after signing in, as
+ * `POST /api/providers/browser-signin/{target}` takes it.
+ */
+export interface BrowserSigninCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  http_only: boolean;
+  /** Seconds since the Unix epoch; absent for a session cookie. */
+  expires?: number;
 }
 
 /** Response from /api/providers endpoint */

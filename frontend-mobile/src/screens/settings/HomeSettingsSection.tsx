@@ -7,7 +7,7 @@
 import React from 'react';
 import { Switch, Text, View } from 'react-native';
 import { useTranslation } from '@pierre/i18n';
-import { Section } from '../../components/ui';
+import { Section, switchColors } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useHomePreferences } from '../../hooks/useHome';
 
@@ -35,7 +35,7 @@ export function HomeSettingsSection(): React.JSX.Element {
           onValueChange={(offered) =>
             home.update({ plan_suggestion_hidden: !offered })
           }
-          trackColor={{ false: colors.border.default, true: colors.tokens.primary }}
+          {...switchColors(colors.tokens, home.preferences ? !home.preferences.plan_suggestion_hidden : true)}
           disabled={home.preferences === null || home.isUpdating}
         />
       </View>

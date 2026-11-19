@@ -9,7 +9,9 @@
 //! `get_activities` stamps `coverage.complete: false` into its own result
 //! when the window it served is partial (carnet#1481), and
 //! `get_segment_history` does the same when the segment efforts of some of
-//! the window's activities were not read (carnet#1483). The `ReAct` and text
+//! the window's activities were not read (carnet#1483); `query_activities`
+//! and `get_stats` carry the one aggregator's coverage, `get_stats` under
+//! its `stats` key (carnet#1485). The `ReAct` and text
 //! loops hold the tool payloads and read that stamp straight off them. The
 //! Copilot-headless loop holds nothing: its tools run inside an ACP
 //! subprocess whose calls reach Dravr through the tool host on a separate
@@ -25,22 +27,31 @@ use serde_json::Value;
 use crate::guardian::TurnKey;
 use crate::turn_store::{Stamp, TurnStore};
 
-/// The tools whose result carries a window's coverage under `coverage`: a
-/// count stated over one that is short of the ask is re-asked.
-const COUNTED_WINDOW_TOOLS: [&str; 2] = ["get_activities", "get_segment_history"];
+/// The tools whose result carries a window's coverage, and where each
+/// carries it (a JSON pointer): a count stated over one that is short of the
+/// ask is re-asked. `get_stats` keeps its totals under `stats`, so its
+/// coverage sits there.
+const COUNTED_WINDOW_TOOLS: [(&str, &str); 4] = [
+    ("get_activities", "/coverage"),
+    ("get_segment_history", "/coverage"),
+    ("get_stats", "/stats/coverage"),
+    ("query_activities", "/coverage"),
+];
 
-/// Whether one tool payload is a `get_activities` or `get_segment_history`
-/// window that says it is incomplete (`coverage.complete` false).
+/// Whether one tool payload is a counted window ([`COUNTED_WINDOW_TOOLS`])
+/// that says it is incomplete (`complete` false, for a reason that leaves it
+/// short of the ask).
 ///
-/// Keyed on the tool name so only the envelope that carries this contract can
-/// raise it — a nested field of some other tool's output cannot.
+/// Keyed on the tool name, and read only where that tool carries its
+/// coverage, so a nested field of some other tool's output cannot raise it.
 #[must_use]
 pub fn incomplete_window_in_payload(tool_name: &str, payload: &Value) -> bool {
     use serde::Deserialize;
 
-    let Some(coverage) = payload
-        .get("coverage")
-        .filter(|_| COUNTED_WINDOW_TOOLS.contains(&tool_name))
+    let Some(coverage) = COUNTED_WINDOW_TOOLS
+        .iter()
+        .find(|(tool, _)| *tool == tool_name)
+        .and_then(|(_, path)| payload.pointer(path))
     else {
         return false;
     };
@@ -65,7 +76,8 @@ pub fn mark_if_incomplete(
     }
 }
 
-/// Whether `reason` leaves the window short of the period asked. A provider
+/// Whether `reason` leaves the window short of the period asked: a count
+/// that leaves out rows the payload shows (`unstored_rows`) does. A provider
 /// that could not be read (`provider_unavailable`) does not: the reconnect
 /// offer answers it, and re-asking every reply until the athlete reconnects
 /// would answer it twice. Nor do segment efforts no backend the athlete holds
@@ -76,6 +88,7 @@ const fn counted_short(reason: IncompleteReason) -> bool {
     match reason {
         IncompleteReason::LiveReadRunning
         | IncompleteReason::ReadCapped
+        | IncompleteReason::UnstoredRows
         | IncompleteReason::HistoryWalkRunning
         | IncompleteReason::SegmentDetailWalking
         | IncompleteReason::SegmentDetailPartial { .. }
@@ -143,6 +156,13 @@ mod tests {
             "bug: a window the history walk has not reached is short of the ask"
         );
         assert!(
+            incomplete_window_in_payload(
+                "get_activities",
+                &json!({ "coverage": { "complete": false, "incomplete_reason": "unstored_rows" } })
+            ),
+            "bug: a count that leaves out shown rows the store lacks is short of the ask"
+        );
+        assert!(
             !incomplete_window_in_payload(
                 "get_activities",
                 &json!({ "coverage": { "complete": false, "incomplete_reason": "provider_unavailable" } })
@@ -150,8 +170,12 @@ mod tests {
             "bug: an unreachable provider is the reconnect offer's, not the count guard's"
         );
         assert!(
-            !incomplete_window_in_payload("get_stats", &incomplete),
+            !incomplete_window_in_payload("get_athlete", &incomplete),
             "bug: another tool's coverage field must not raise the signal"
+        );
+        assert!(
+            !incomplete_window_in_payload("get_stats", &incomplete),
+            "bug: get_stats is read only where it carries its coverage, under stats"
         );
         assert!(
             !incomplete_window_in_payload(
@@ -191,6 +215,26 @@ mod tests {
                 &json!({ "coverage": { "complete": false, "incomplete_reason": "segment_detail_unavailable" } })
             ),
             "bug: segments no backend reads are the connection's to answer, not the count guard's"
+        );
+    }
+
+    #[test]
+    fn each_counting_tool_is_read_where_it_carries_its_coverage() {
+        let walking = json!({ "complete": false, "incomplete_reason": "history_walk_running" });
+        assert!(
+            incomplete_window_in_payload("get_stats", &json!({ "stats": { "coverage": walking } })),
+            "bug: a get_stats total over a window the walk has not reached must be re-asked"
+        );
+        assert!(
+            incomplete_window_in_payload("query_activities", &json!({ "coverage": walking })),
+            "bug: a query_activities count over a window the walk has not reached must be re-asked"
+        );
+        assert!(
+            !incomplete_window_in_payload(
+                "query_activities",
+                &json!({ "coverage": { "complete": false, "incomplete_reason": "shallow_history" } })
+            ),
+            "bug: a shallow history is the truth the store holds, not a count short of the ask"
         );
     }
 

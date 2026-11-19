@@ -88,24 +88,6 @@ macro_rules! person_name_column {
 }
 pub(crate) use person_name_column;
 
-/// The columns every member read decodes, with the member's name joined in
-/// as the display name.
-macro_rules! member_columns {
-    () => {
-        concat!(
-            "m.id, m.group_id, m.user_id, m.tenant_id, m.role,
-              m.peer_sharing_consent, m.coach_sharing_consent, m.coach_sharing_consent_at,
-              m.consent_given_at,
-              m.coach_calendar_write, m.coach_calendar_write_at,
-              m.coach_wellness_read, m.coach_wellness_read_at,
-              m.joined_at, m.left_at,
-              ",
-            person_name_column!(),
-            " AS display_name"
-        )
-    };
-}
-
 // ============================================================================
 // coaching_groups
 // ============================================================================
@@ -220,87 +202,6 @@ pub(crate) const RELEASE_GROUP_MEMBERS_SQL: &str = r"UPDATE coaching_group_membe
 /// Attach or detach the human coach of a group under its tenant.
 pub(crate) const SET_GROUP_COACH_USER_SQL: &str = r"UPDATE coaching_groups SET coach_user_id = $1, updated_at = $2
               WHERE id = $3 AND tenant_id = $4";
-
-// ============================================================================
-// coaching_group_members
-// ============================================================================
-
-/// One membership; `$7` serves the consent, the join and the coach-sharing
-/// instants, `$8` is the coach-sharing grant joining carries, and `$9`..`$12`
-/// the coach consents the membership starts with (none, for a member who
-/// just joined).
-pub(crate) const INSERT_MEMBER_SQL: &str = r"INSERT INTO coaching_group_members
-              (id, group_id, user_id, tenant_id, role, peer_sharing_consent, consent_given_at, joined_at,
-               coach_sharing_consent, coach_sharing_consent_at, coach_calendar_write, coach_calendar_write_at,
-               coach_wellness_read, coach_wellness_read_at)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $7, $9, $10, $11, $12)";
-
-/// Mark a live membership as left.
-pub(crate) const REMOVE_MEMBER_SQL: &str = r"UPDATE coaching_group_members SET left_at = $1
-              WHERE group_id = $2 AND user_id = $3 AND left_at IS NULL";
-
-/// One live membership.
-pub(crate) const GET_MEMBER_SQL: &str = concat!(
-    "SELECT ",
-    member_columns!(),
-    "
-              FROM coaching_group_members m
-              LEFT JOIN users u ON u.id = m.user_id
-              WHERE m.group_id = $1 AND m.user_id = $2 AND m.left_at IS NULL"
-);
-
-/// Every live member of a group, in join order. No tenant filter: members
-/// join cross-tenant via invite codes.
-pub(crate) const LIST_MEMBERS_SQL: &str = concat!(
-    "SELECT ",
-    member_columns!(),
-    "
-              FROM coaching_group_members m
-              LEFT JOIN users u ON u.id = m.user_id
-              WHERE m.group_id = $1 AND m.left_at IS NULL
-              ORDER BY m.joined_at ASC"
-);
-
-/// Change a live member's role.
-pub(crate) const UPDATE_MEMBER_ROLE_SQL: &str = r"UPDATE coaching_group_members SET role = $1
-              WHERE group_id = $2 AND user_id = $3 AND left_at IS NULL";
-
-/// Record a live member's peer-sharing decision and when it was made.
-pub(crate) const UPDATE_PEER_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_group_members SET peer_sharing_consent = $1, consent_given_at = $2
-              WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL";
-
-/// Record a live member's coach-sharing decision and when it was made.
-pub(crate) const UPDATE_COACH_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_group_members SET coach_sharing_consent = $1, consent_given_at = $2,
-              coach_sharing_consent_at = $2
-              WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL";
-
-/// A live member sets what their coach may do beyond reading their training:
-/// `$1` calendar write and `$2` wellness read, NULL to leave one as it
-/// stands. A consent whose value changes is stamped `$3`, and so is every
-/// wellness grant, a standing one included: `coach_wellness_read_at` is when
-/// the member last agreed to the wellness consent as it reads now. Every SET
-/// expression reads the row as it stood before the update, on both engines.
-pub(crate) const SET_COACH_CONSENTS_SQL: &str = r"UPDATE coaching_group_members
-        SET coach_calendar_write = COALESCE($1, coach_calendar_write),
-            coach_calendar_write_at = CASE WHEN $1 IS NULL OR $1 = coach_calendar_write
-                                           THEN coach_calendar_write_at ELSE $3 END,
-            coach_wellness_read = COALESCE($2, coach_wellness_read),
-            coach_wellness_read_at = CASE WHEN $2 THEN $3
-                                          WHEN $2 IS NULL OR $2 = coach_wellness_read
-                                          THEN coach_wellness_read_at ELSE $3 END
-      WHERE group_id = $4 AND user_id = $5 AND left_at IS NULL";
-
-/// Live members of a group, counted by group alone: they may span tenants.
-pub(crate) const COUNT_MEMBERS_SQL: &str = r"SELECT COUNT(*) as cnt FROM coaching_group_members
-              WHERE group_id = $1 AND left_at IS NULL";
-
-/// A group's start, its owner's signup and its earliest non-owner membership
-/// ever. The group is scoped by tenant; its members, like every member read,
-/// are not, since they may span tenants.
-pub(crate) const GROUP_SETUP_TIMELINE_SQL: &str = r"SELECT g.created_at AS group_created_at, u.created_at AS owner_created_at,
-              (SELECT m.id FROM coaching_group_members m WHERE m.group_id = g.id AND m.role <> 'owner'
-               ORDER BY m.joined_at ASC, m.id ASC LIMIT 1) AS first_member_id
-              FROM coaching_groups g JOIN users u ON u.id = g.owner_id WHERE g.id = $1 AND g.tenant_id = $2";
 
 // ============================================================================
 // Context queries (the transcript's statements: `super::group_transcript`)
@@ -866,6 +767,45 @@ macro_rules! impl_coaching_group_repository {
                 Ok(result.rows_affected() > 0)
             }
 
+            async fn assistant_notice_answered_at(
+                &self,
+                group_id: &str,
+                user_id: Uuid,
+            ) -> AppResult<Option<DateTime<Utc>>> {
+                let row = sqlx::query(GET_ASSISTANT_NOTICE_ANSWERED_SQL)
+                    .bind($ids::bind_text(group_id)?)
+                    .bind($ids::bind(user_id))
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to read when a member answered the coach tools notice: {e}"
+                        ))
+                    })?;
+                row.map_or(Ok(None), |r| column(&r, "assistant_notice_answered_at"))
+            }
+
+            async fn answer_assistant_notice(
+                &self,
+                group_id: &str,
+                user_id: Uuid,
+                at: DateTime<Utc>,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(ANSWER_ASSISTANT_NOTICE_SQL)
+                    .bind(at)
+                    .bind($ids::bind_text(group_id)?)
+                    .bind($ids::bind(user_id))
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to record a member's answer to the coach tools notice: {e}"
+                        ))
+                    })?;
+
+                Ok(result.rows_affected() > 0)
+            }
+
             async fn set_coach_consents(
                 &self,
                 group_id: &str,
@@ -961,6 +901,18 @@ macro_rules! impl_coaching_group_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to get invite by code: {e}"))
+                    })?;
+
+                row.as_ref().map(row_to_invite).transpose()
+            }
+
+            async fn find_invite_by_code(&self, code: &str) -> AppResult<Option<GroupInvite>> {
+                let row = sqlx::query(FIND_INVITE_BY_CODE_SQL)
+                    .bind(code)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to find invite by code: {e}"))
                     })?;
 
                 row.as_ref().map(row_to_invite).transpose()

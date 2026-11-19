@@ -26,7 +26,7 @@ use tracing::{error, info, warn};
 use super::calendar::{calendars_held, recorded_calendar, CalendarConnections};
 use super::field_dictionary::{dictionary, FieldDictionary};
 pub use super::oauth_authorize::mint_oauth_authorize_url;
-use crate::context::ToolExecutionContext;
+use crate::context::{refuse_in_support_session, ToolExecutionContext};
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
@@ -462,6 +462,10 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
         let user_uuid = ctx.user_id;
         let registry = &ctx.resources.provider_registry();
         let repos = &ctx.resources.repos();
+        // An admin acting as the athlete connects nothing in their name: the
+        // link outlives the support session (carnet#1634).
+        refuse_in_support_session(repos.admin_audit.as_ref(), user_uuid, "start a provider connection")
+            .await?;
 
         let Some(provider) = args.get("provider").and_then(Value::as_str) else {
             // No provider named starts nothing: picking one for the athlete

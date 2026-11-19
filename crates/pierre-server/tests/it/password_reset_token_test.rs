@@ -14,7 +14,7 @@
 //! 3. Token is consumed atomically (single-use)
 //! 4. User can log in with the new password
 
-use crate::common;
+use crate::common::{self, acting_on};
 use crate::helpers;
 
 use helpers::axum_test::AxumTestRequest;
@@ -25,7 +25,7 @@ use pierre_config::environment::{
 };
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::AuthRoutes;
-use pierre_services::admin_ops::issue_password_reset_token;
+use pierre_services::admin_ops::{issue_password_reset_token, AccountCaller};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -71,7 +71,7 @@ impl ResetTokenTestSetup {
                 (*database).clone(),
                 (*auth_manager).clone(),
                 "test_jwt_secret",
-                config,
+                common::offline_config(config),
                 cache,
                 ServerContextOptions {
                     rsa_key_size_bits: Some(2048),
@@ -84,6 +84,8 @@ impl ResetTokenTestSetup {
                     archive_imports: None,
                     live_records: None,
                     blobs: None,
+                    #[cfg(feature = "client-messaging")]
+                    channel_adapters: common::offline_adapters(),
                 },
             )
             .await
@@ -108,7 +110,9 @@ impl ResetTokenTestSetup {
     /// Exercises the real admin issuance path end-to-end rather than
     /// replicating its token-generation + storage logic.
     async fn issue_reset_token(&self, user_id: uuid::Uuid) -> anyhow::Result<String> {
-        let token = issue_password_reset_token(&self.resources.common.repos, user_id, "test_admin")
+        let repos = &self.resources.common.repos;
+        let host = AccountCaller::host_cli(None);
+        let token = issue_password_reset_token(repos, &acting_on(repos, &host, user_id).await)
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(token)

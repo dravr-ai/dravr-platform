@@ -685,7 +685,7 @@ async fn test_different_users_separate_contexts() {
 #[tokio::test]
 async fn test_register_external_tool() {
     use async_trait::async_trait;
-    use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
+    use dravr_tronc::mcp::schema::{Tool, ToolResponse};
     use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
     use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::Value;
@@ -695,14 +695,11 @@ async fn test_register_external_tool() {
     #[async_trait]
     impl McpTool<dyn ToolRuntime> for ExternalTestTool {
         fn definition(&self) -> Tool {
-            Tool {
-                name: "external_test_tool".to_owned(),
-                description: "Test external tool registration".to_owned(),
-                input_schema: serde_json::json!({"type": "object"}),
-                annotations: None,
-                output_schema: None,
-                execution: None,
-            }
+            Tool::new(
+                "external_test_tool",
+                "Test external tool registration",
+                serde_json::json!({"type": "object"}),
+            )
         }
         fn capabilities(&self) -> ToolCapabilities {
             ToolCapabilities::REQUIRES_AUTH
@@ -713,11 +710,8 @@ async fn test_register_external_tool() {
             _ctx: &ToolContext,
             _args: Value,
         ) -> ToolResponse {
-            ToolResponse {
-                content: vec![Content::text("{\"external\":true}".to_owned())],
-                is_error: false,
-                structured_content: Some(serde_json::json!({"external": true})),
-            }
+            ToolResponse::text("{\"external\":true}".to_owned())
+                .with_structured_content(serde_json::json!({"external": true}))
         }
     }
 
@@ -739,7 +733,7 @@ async fn test_register_external_tool() {
 #[tokio::test]
 async fn test_external_tool_with_builtin_tools() {
     use async_trait::async_trait;
-    use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
+    use dravr_tronc::mcp::schema::{Tool, ToolResponse};
     use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
     use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::Value;
@@ -749,14 +743,11 @@ async fn test_external_tool_with_builtin_tools() {
     #[async_trait]
     impl McpTool<dyn ToolRuntime> for CustomTool {
         fn definition(&self) -> Tool {
-            Tool {
-                name: "custom_integration_tool".to_owned(),
-                description: "Custom integration tool".to_owned(),
-                input_schema: serde_json::json!({"type": "object"}),
-                annotations: None,
-                output_schema: None,
-                execution: None,
-            }
+            Tool::new(
+                "custom_integration_tool",
+                "Custom integration tool",
+                serde_json::json!({"type": "object"}),
+            )
         }
         fn capabilities(&self) -> ToolCapabilities {
             ToolCapabilities::READS_DATA
@@ -767,11 +758,8 @@ async fn test_external_tool_with_builtin_tools() {
             _ctx: &ToolContext,
             _args: Value,
         ) -> ToolResponse {
-            ToolResponse {
-                content: vec![Content::text("{\"custom\":true}".to_owned())],
-                is_error: false,
-                structured_content: Some(serde_json::json!({"custom": true})),
-            }
+            ToolResponse::text("{\"custom\":true}".to_owned())
+                .with_structured_content(serde_json::json!({"custom": true}))
         }
     }
 
@@ -927,6 +915,15 @@ async fn test_list_tools_advertises_task_support() {
         assert!(
             execution_of(name).is_none(),
             "{name} is synchronous and must not advertise task support"
+        );
+    }
+
+    // The totals and the snapshot read only the store: no provider fetch for
+    // a handle to wait on.
+    for name in ["get_stats", "export_latest_snapshot"] {
+        assert!(
+            execution_of(name).is_none(),
+            "bug: {name} reads only the store yet advertises task support"
         );
     }
 

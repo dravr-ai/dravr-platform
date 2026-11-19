@@ -32,6 +32,7 @@
 //!   tenant they read the request in.
 
 use crate::common;
+use crate::common::offline_provider_registry;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -49,7 +50,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     Activity, Athlete, ConnectionType, DelegatedConnection, DelegationStatus, RosterAccess,
-    RosterAthlete, Stats, TenantId, UserOAuthToken,
+    RosterAthlete, TenantId, UserOAuthToken,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -59,7 +60,6 @@ use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
 use pierre_providers::delegation::{CoachRoster, DelegatedReads};
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
 };
@@ -192,10 +192,6 @@ impl FitnessProvider for CoachHub {
         Err(AppError::not_found(id.to_owned()))
     }
 
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Err(AppError::internal("not read by this test"))
-    }
-
     async fn read_coach_roster(&self) -> AppResult<CoachRoster> {
         if self.credentials.lock().unwrap().is_none() {
             return Err(AppError::internal("roster read without a credential"));
@@ -276,7 +272,7 @@ impl World {
     async fn new() -> Self {
         let roster = Roster::default();
         let base = create_test_server_resources().await.unwrap();
-        let mut registry = ProviderRegistry::new();
+        let mut registry = offline_provider_registry();
         registry.set_default_config(COACHHUB, Descriptor.to_config());
         registry.register_descriptor(COACHHUB, Box::new(Descriptor));
         registry.register_factory(

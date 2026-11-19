@@ -46,6 +46,8 @@ pub mod app_attest_keys;
 pub mod archive_erasures;
 /// The athlete's gear ledger (`Postgres`) backing `AthleteGearRepository`.
 pub mod athlete_gear;
+/// The places an athlete trains from (`Postgres`) backing `AthletePlaceRepository`.
+pub mod athlete_places;
 /// The calendar an athlete chose for Dravr's pushes (Postgres)
 pub mod calendar_preferences;
 /// Chat repository implementation
@@ -54,7 +56,7 @@ pub mod chat;
 pub mod check_in_preferences;
 /// Claim verdict repository implementation
 pub mod claim_verdicts;
-/// Coach-access requests a super-admin decides (Postgres)
+/// Coach-access requests an admin decides (Postgres)
 pub mod coach_access_requests;
 /// A coach's "Traité" on Coach Home attention reasons (Postgres)
 pub mod coach_attention_dismissals;
@@ -66,6 +68,8 @@ pub mod coach_reply_reviews;
 pub mod coaching_groups;
 /// Athlete commitments (`Postgres`) backing `CommitmentRepository`.
 pub mod commitments;
+/// The athlete's statutory data access requests (`PostgreSQL`)
+pub mod data_access_requests;
 /// Delegated connections (`Postgres`) backing `DelegatedConnectionRepository`.
 pub mod delegated_connections;
 /// Email-verification token management — proving a registered address
@@ -90,7 +94,7 @@ pub mod fitness_config;
 pub mod garmin_push_inbox;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
-/// Super-admin impersonation session audit records.
+/// Admin impersonation session audit records.
 pub mod impersonation;
 /// Import tombstones (`Postgres`) backing `ImportTombstoneRepository`.
 pub mod import_tombstones;
@@ -179,6 +183,8 @@ pub mod use_case_exposures;
 pub mod user;
 /// An athlete's own data, one page at a time, for the portable export (`Postgres`)
 pub mod user_export;
+/// The PostgreSQL originals-bundle state, emitted from the shared implementation.
+pub mod user_export_bundles;
 /// Per-user Home preferences (`Postgres`) backing `HomePreferencesRepository`.
 pub mod user_home_preferences;
 /// Single-use user invitation links (Postgres)

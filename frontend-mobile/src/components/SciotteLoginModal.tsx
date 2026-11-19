@@ -24,20 +24,28 @@ import * as Linking from 'expo-linking';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mail, ArrowLeft, Eye, EyeOff, Shield, CheckCircle2, AlertCircle, X, Key } from 'lucide-react-native';
 import { PROVIDER_COLORS, useCardStyle, useThemeColors } from '../constants/theme';
+import { ALERT_TONE, alertInkColor, BADGE_TONE, badgeInkColor } from './ui';
 import { oauthApi } from '../services/api';
 import { getOAuthCallbackUrl } from '../utils/oauth';
 import { StravaLogo, GarminLogo, TrainingPeaksLogo, CorosLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
-import type { SciotteLoginResponse, SciotteTakeoverBridgeMessage, SciotteTarget } from '@pierre/shared-types';
+import type {
+  BrowserSignin,
+  BrowserSigninCookie,
+  SciotteLoginResponse,
+  SciotteTakeoverBridgeMessage,
+  SciotteTarget,
+} from '@pierre/shared-types';
 import { OAuthAppSetupModal } from './OAuthAppSetupModal';
 import { TakeoverWebView } from './auth/TakeoverWebView';
+import { BrowserSigninWebView } from './auth/BrowserSigninWebView';
 import { ProviderNotice } from './ProviderNotice';
 import {
   SCIOTTE_CODE_REJECTED,
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
+  SCIOTTE_NUMBER_MATCH_REPOLL_MS,
   loginIdentifierField,
-  oauthFollowOn,
   signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
@@ -57,6 +65,7 @@ import {
 type LoginPhase =
   | 'choose'
   | 'credentials'
+  | 'browser'
   | 'logging-in'
   | 'verifying'
   | 'two-factor'
@@ -72,12 +81,8 @@ type LoginMethod = 'email' | 'google' | 'apple';
 interface SciotteLoginModalProps {
   visible: boolean;
   onClose: () => void;
-  /**
-   * The sign-in stored its session. `followOn` names the provider's own
-   * authorization the sign-in goes on to (Garmin's grant, which pushes
-   * workouts; carnet#1494), which the caller starts.
-   */
-  onConnected: (followOn?: string) => void;
+  /** The sign-in stored its session: the connect is done, and no authorization follows it. */
+  onConnected: () => void;
   target: SciotteTarget;
   /**
    * The account has not yet accepted this provider's exposure notice (the
@@ -377,7 +382,7 @@ export function SciotteLoginModal({
     if (data.status === 'connected') {
       setPhase('success');
       setStatus(t('app.connectedBang'));
-      onConnected(oauthFollowOn(data) ?? undefined);
+      onConnected();
       setTimeout(onClose, 1500);
     } else if (data.status === 'two_factor_choice') {
       setTwoFactorOptions(data.options || []);
@@ -403,6 +408,37 @@ export function SciotteLoginModal({
       setPhase('error');
     }
   }, [onClose, onConnected, t]);
+
+  // The sign-in run on the athlete's phone (carnet#1617): the provider's own
+  // page in a WebView, on the phone's network, signed in with the athlete's
+  // own touches; its cookies are then stored as any sign-in's.
+  const [browserEntry, setBrowserEntry] = useState<BrowserSignin | null>(null);
+  const startBrowserSignin = useCallback(async () => {
+    setError(null);
+    try {
+      const catalog = await oauthApi.browserSigninCatalog();
+      const entry = catalog.providers.find((provider) => provider.provider === target);
+      if (!entry) throw new Error('unavailable');
+      setBrowserEntry(entry);
+      setPhase('browser');
+    } catch (err) {
+      setError(refusalMessage(err, 'auth.loginFailed'));
+      setPhase('error');
+    }
+  }, [refusalMessage, target]);
+  const handleBrowserSignedIn = useCallback(async (cookies: BrowserSigninCookie[]) => {
+    setPhase('logging-in');
+    try {
+      applyLoginAnswer(await oauthApi.browserSignin(target, cookies, { tosConsent: consentAccepted }));
+    } catch (err) {
+      setError(refusalMessage(err, 'auth.loginFailed'));
+      setPhase('error');
+    }
+  }, [applyLoginAnswer, consentAccepted, refusalMessage, target]);
+  const handleBrowserError = useCallback((err: unknown) => {
+    setError(refusalMessage(err, 'auth.loginFailed'));
+    setPhase('error');
+  }, [refusalMessage]);
 
   // A refused credential login — or the same refusal a takeover ends with.
   const applyLoginRefusal = useCallback((err: unknown) => {
@@ -451,8 +487,7 @@ export function SciotteLoginModal({
   const handleTakeoverMessage = useCallback((message: SciotteTakeoverBridgeMessage) => {
     setTakeoverUrl(null);
     if (message.type === 'connected') {
-      const followOn = message.follow_on ? { provider: message.follow_on } : null;
-      applyLoginAnswer({ status: 'connected', provider: preset.backend, oauth_follow_on: followOn });
+      applyLoginAnswer({ status: 'connected', provider: preset.backend });
       return;
     }
     const result = message.outcome ? takeoverResult(message.outcome) : { kind: 'ended' as const };
@@ -478,6 +513,9 @@ export function SciotteLoginModal({
     [refusalMessage]
   );
 
+  // How many number-match polls have answered `number_match` again.
+  const [pollRound, setPollRound] = useState(0);
+
   const handleSelect2FA = useCallback(async (optionId: string) => {
     setIsLoading(true);
     if (optionId === 'app') setPhase('waiting-approval');
@@ -491,7 +529,7 @@ export function SciotteLoginModal({
       if (data.status === 'connected') {
         setPhase('success');
         setStatus(t('app.connectedBang'));
-        onConnected(oauthFollowOn(data) ?? undefined);
+        onConnected();
         setTimeout(onClose, 1500);
       } else if (data.status === 'otp_required') {
         setPhase('otp');
@@ -502,6 +540,7 @@ export function SciotteLoginModal({
         setMatchNumber(data.number || null);
         setPhase('number-match');
         setStatus(t('app.confirmOnDevice'));
+        if (optionId === 'poll') setPollRound((round) => round + 1);
       } else {
         // The provider's refusal is in its own words and in English; the
         // modal words it in the user's language, as the hosted pages do.
@@ -521,16 +560,17 @@ export function SciotteLoginModal({
     }
   }, [beginRequest, attemptId, continuationError, onClose, onConnected, onFallBackToOAuth, t]);
 
-  const [pollingStarted, setPollingStarted] = useState(false);
+  // While the number shows, poll: at once when it first appears, then every
+  // SCIOTTE_NUMBER_MATCH_REPOLL_MS after a poll that answered it again, until
+  // the athlete's tap moves the sign-in on or the modal leaves the phase.
   useEffect(() => {
-    if (phase === 'number-match' && matchNumber && !pollingStarted) {
-      setPollingStarted(true);
-      handleSelect2FA('poll');
-    }
-    if (phase !== 'number-match') {
-      setPollingStarted(false);
-    }
-  }, [phase, matchNumber]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (phase !== 'number-match' || !matchNumber) return undefined;
+    const timer = setTimeout(
+      () => handleSelect2FA('poll'),
+      pollRound === 0 ? 0 : SCIOTTE_NUMBER_MATCH_REPOLL_MS
+    );
+    return () => clearTimeout(timer);
+  }, [phase, matchNumber, pollRound]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleOtpSubmit = useCallback(async () => {
     if (!otpCode) return;
@@ -547,7 +587,7 @@ export function SciotteLoginModal({
       if (data.status === 'connected') {
         setPhase('success');
         setStatus(t('app.connectedBang'));
-        onConnected(oauthFollowOn(data) ?? undefined);
+        onConnected();
         setTimeout(onClose, 1500);
       } else if (data.status === 'otp_required') {
         setPhase('otp');
@@ -709,6 +749,20 @@ export function SciotteLoginModal({
             />
           )}
 
+          {/* The provider's own page on this phone, where it sees a person. */}
+          <TouchableOpacity
+            onPress={() => void startBrowserSignin()}
+            disabled={!!notice && !consentAccepted}
+            accessibilityState={{ disabled: !!notice && !consentAccepted }}
+            activeOpacity={0.8}
+            className="rounded-xl border border-border bg-background-secondary py-3.5 items-center mb-4"
+            testID="sciotte-browser-signin"
+          >
+            <Text className="text-base text-text-primary font-semibold">
+              {t('app.continueWithProvider', { provider: platformName })}
+            </Text>
+          </TouchableOpacity>
+
           <View className="mb-3">
             <Text className="text-xs text-text-tertiary mb-1.5 ml-1 font-medium">
               {t(accountField.labelKey)}
@@ -749,9 +803,9 @@ export function SciotteLoginModal({
           </View>
 
           {error && (
-            <View className="flex-row items-center bg-error/10 rounded-lg px-3 py-2.5 mb-4">
-              <AlertCircle size={16} color={colors.error} />
-              <Text className="text-sm text-error ml-2 flex-1">{error}</Text>
+            <View className={`flex-row items-center ${ALERT_TONE.error.fill} rounded-lg px-3 py-2.5 mb-4`}>
+              <AlertCircle size={16} color={alertInkColor('error', colors)} />
+              <Text className={`text-sm ${ALERT_TONE.error.ink} ml-2 flex-1`}>{error}</Text>
             </View>
           )}
 
@@ -792,8 +846,8 @@ export function SciotteLoginModal({
     if (phase === 'logging-in' || phase === 'waiting-approval') {
       return (
         <View className="items-center py-10">
-          <View className="w-16 h-16 rounded-2xl items-center justify-center mb-5" style={{ backgroundColor: `${colors.tokens.primary}20` }}>
-            <ActivityIndicator size="large" color={colors.tokens.primary} />
+          <View className={`w-16 h-16 rounded-2xl items-center justify-center mb-5 ${BADGE_TONE.primary.fill}`}>
+            <ActivityIndicator size="large" color={badgeInkColor('primary', colors)} />
           </View>
           <Text className="text-base font-medium text-text-primary mb-1">{status}</Text>
           <Text className="text-sm text-text-tertiary text-center px-6">
@@ -809,8 +863,8 @@ export function SciotteLoginModal({
     if (phase === 'verifying') {
       return (
         <View className="items-center py-10" testID="sciotte-verifying">
-          <View className="w-16 h-16 rounded-2xl items-center justify-center mb-5" style={{ backgroundColor: `${colors.tokens.primary}20` }}>
-            <ActivityIndicator size="large" color={colors.tokens.primary} />
+          <View className={`w-16 h-16 rounded-2xl items-center justify-center mb-5 ${BADGE_TONE.primary.fill}`}>
+            <ActivityIndicator size="large" color={badgeInkColor('primary', colors)} />
           </View>
           <Text accessibilityLiveRegion="polite" className="text-base font-medium text-text-primary">{status}</Text>
         </View>
@@ -822,8 +876,8 @@ export function SciotteLoginModal({
       return (
         <View>
           <View className="items-center mb-5">
-            <View className="w-12 h-12 rounded-2xl items-center justify-center mb-3" style={{ backgroundColor: `${colors.pierre.violet}20` }}>
-              <Shield size={24} color={colors.pierre.violet} />
+            <View className={`w-12 h-12 rounded-2xl items-center justify-center mb-3 ${BADGE_TONE.primary.fill}`}>
+              <Shield size={24} color={badgeInkColor('primary', colors)} />
             </View>
             <Text className="text-base font-medium text-text-primary">{t('app.twoFactorAuth')}</Text>
             <Text className="text-sm text-text-tertiary mt-1">{t('app.chooseVerificationMethod')}</Text>
@@ -851,8 +905,8 @@ export function SciotteLoginModal({
     if (phase === 'number-match') {
       return (
         <View className="items-center py-6">
-          <View className="w-12 h-12 rounded-2xl items-center justify-center mb-4" style={{ backgroundColor: `${colors.pierre.violet}20` }}>
-            <Shield size={24} color={colors.pierre.violet} />
+          <View className={`w-12 h-12 rounded-2xl items-center justify-center mb-4 ${BADGE_TONE.primary.fill}`}>
+            <Shield size={24} color={badgeInkColor('primary', colors)} />
           </View>
           <Text className="text-sm text-text-secondary mb-4">{t('app.tapThisNumber')}</Text>
           {matchNumber && (
@@ -871,6 +925,20 @@ export function SciotteLoginModal({
       );
     }
 
+    // The provider's own sign-in page, on this phone
+    if (phase === 'browser' && browserEntry) {
+      return (
+        <View testID="sciotte-browser">
+          <BrowserSigninWebView
+            entry={browserEntry}
+            onSignedIn={(cookies) => void handleBrowserSignedIn(cookies)}
+            onError={handleBrowserError}
+            height={takeoverHeight}
+          />
+        </View>
+      );
+    }
+
     // Takeover: the provider's robot check, answered in the web app's page
     if (phase === 'takeover' && takeoverUrl) {
       return (
@@ -885,8 +953,8 @@ export function SciotteLoginModal({
       return (
         <View>
           <View className="items-center mb-5">
-            <View className="w-12 h-12 rounded-2xl items-center justify-center mb-3" style={{ backgroundColor: `${colors.pierre.violet}20` }}>
-              <Shield size={24} color={colors.pierre.violet} />
+            <View className={`w-12 h-12 rounded-2xl items-center justify-center mb-3 ${BADGE_TONE.primary.fill}`}>
+              <Shield size={24} color={badgeInkColor('primary', colors)} />
             </View>
             <Text className="text-base font-medium text-text-primary">{t('app.verificationCode')}</Text>
             <Text className="text-sm text-text-tertiary mt-1 text-center">
@@ -946,8 +1014,8 @@ export function SciotteLoginModal({
     if (phase === 'success') {
       return (
         <View className="items-center py-10">
-          <View className="w-16 h-16 rounded-full items-center justify-center mb-4" style={{ backgroundColor: `${colors.success}15` }}>
-            <CheckCircle2 size={32} color={colors.success} />
+          <View className={`w-16 h-16 rounded-full items-center justify-center mb-4 ${ALERT_TONE.success.fill}`}>
+            <CheckCircle2 size={32} color={alertInkColor('success', colors)} />
           </View>
           <Text className="text-lg font-bold text-text-primary">{t('app.connectedBang')}</Text>
           <Text className="text-sm text-text-secondary mt-1 text-center" testID="sciotte-success-line">
@@ -963,8 +1031,8 @@ export function SciotteLoginModal({
     if (phase === 'error') {
       return (
         <View className="items-center py-6">
-          <View className="w-16 h-16 rounded-full items-center justify-center mb-4" style={{ backgroundColor: `${colors.error}15` }}>
-            <AlertCircle size={32} color={colors.error} />
+          <View className={`w-16 h-16 rounded-full items-center justify-center mb-4 ${ALERT_TONE.error.fill}`}>
+            <AlertCircle size={32} color={alertInkColor('error', colors)} />
           </View>
           <Text className="text-base font-medium text-text-primary mb-1">{t('app.connectionFailed')}</Text>
           <Text className="text-sm text-error text-center mb-5 px-4">{error}</Text>
@@ -1039,7 +1107,9 @@ export function SciotteLoginModal({
                   <Text className="text-lg font-bold text-text-primary">
                     {platformName}
                   </Text>
-                  {status && phase !== 'choose' && phase !== 'credentials' ? (
+                  {/* A refused sign-in's body names its state; the status the attempt
+                      set on its way ("Signing in to …") must not outlive it here (carnet#1584). */}
+                  {status && phase !== 'choose' && phase !== 'credentials' && phase !== 'error' ? (
                     <Text className="text-xs text-text-tertiary">{status}</Text>
                   ) : historyMode ? (
                     <Text className="text-xs text-text-secondary" testID="sciotte-history-intro">
@@ -1064,10 +1134,10 @@ export function SciotteLoginModal({
             {/* Content */}
             <ScrollView
               className="px-6 pt-2 pb-4"
-              style={{ maxHeight: phase === 'takeover' ? takeoverHeight + 24 : contentMaxHeight }}
+              style={{ maxHeight: phase === 'takeover' || phase === 'browser' ? takeoverHeight + 24 : contentMaxHeight }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              scrollEnabled={phase !== 'takeover'}
+              scrollEnabled={phase !== 'takeover' && phase !== 'browser'}
             >
               {renderContent()}
             </ScrollView>

@@ -58,7 +58,7 @@ use pierre_llm::{
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{ChatRoutes, ReplyBlockResponse, TurnResponse};
 use pierre_services::plan_card::PlanCardDraft;
-use pierre_test_support::delegation::create_group_agent;
+use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::CONVERSATION_ID;
 use pierre_tool_runtime::implementations::training_plans::SaveTrainingPlanTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -186,8 +186,7 @@ impl LlmProvider for ThreadModel {
             .iter()
             .rev()
             .find(|m| matches!(m.role, MessageRole::User))
-            .map(|m| m.content.clone())
-            .unwrap_or_default();
+            .map_or_default(|m| m.content.clone());
         let read = if last_ask.contains(READ_ASK) {
             Some(("get_training_plan", json!({})))
         } else if last_ask.contains(ACTIVITIES_ASK) {
@@ -208,6 +207,7 @@ impl LlmProvider for ThreadModel {
             ANSWER.to_owned()
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: MODEL.to_owned(),
             usage: None,
@@ -353,6 +353,7 @@ impl Fixture {
             )
             .await
             .unwrap();
+        grant_coach_access(repos, coach.id).await.unwrap();
         assert!(repos
             .groups
             .set_group_coach_user(&group.id.to_string(), Some(coach.id), owner.tenant)
@@ -884,6 +885,41 @@ async fn a_detached_coach_is_refused() {
     let (prompt, _) = fx.thread_turn(PLAIN_ASK).await;
 
     assert_refused_with(&prompt, "no longer coaches the group");
+}
+
+/// A coach still attached whose coach access was withdrawn is refused on the
+/// next turn, the athlete unnamed (carnet#1511), and reads again once access
+/// is back.
+#[tokio::test]
+async fn a_coach_whose_access_is_off_is_refused_until_it_is_back() {
+    let fx = Fixture::new().await;
+    fx.subject_season().await;
+    fx.repos()
+        .users
+        .set_manages_roster(fx.coach.id, false)
+        .await
+        .unwrap();
+
+    let (prompt, _) = fx.thread_turn(PLAIN_ASK).await;
+
+    assert_refused_with(&prompt, "their coach access is off");
+    let block = &prompt[prompt.find(SUBJECT_HEADING).unwrap()..];
+    let line = block
+        .lines()
+        .find(|l| l.starts_with(REFUSED_MARKER))
+        .unwrap();
+    assert!(!line.contains(SUBJECT_NAME), "{line}");
+
+    fx.repos()
+        .users
+        .set_manages_roster(fx.coach.id, true)
+        .await
+        .unwrap();
+    let (prompt, _) = fx.thread_turn(PLAIN_ASK).await;
+    assert!(
+        prompt.contains(GRANTED_MARKER) && !prompt.contains(REFUSED_MARKER),
+        "access is back: the turn carries the athlete's view again: {prompt}"
+    );
 }
 
 #[tokio::test]

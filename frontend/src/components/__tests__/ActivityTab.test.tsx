@@ -40,14 +40,9 @@ const activity: RecentActivityResponse = {
 };
 
 const getRecentActivity = vi.fn<(tenantId?: string) => Promise<RecentActivityResponse>>();
-const role = vi.hoisted(() => ({ current: 'admin' }));
 
 vi.mock('../../services/api', () => ({
   dashboardApi: { getRecentActivity: (tenantId?: string) => getRecentActivity(tenantId) },
-}));
-
-vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({ user: { role: role.current } }),
 }));
 
 vi.mock('../../services/api/admin', () => ({
@@ -56,7 +51,6 @@ vi.mock('../../services/api/admin', () => ({
 
 beforeEach(() => {
   localStorage.clear();
-  role.current = 'admin';
   getRecentActivity.mockReset();
   getRecentActivity.mockResolvedValue(activity);
 });
@@ -71,21 +65,16 @@ function renderTab() {
 }
 
 describe('ActivityTab scope', () => {
-  it('states the scope the server read, and a plain admin asks for no tenant', async () => {
-    getRecentActivity.mockResolvedValue({
-      ...activity,
-      scope: { kind: 'tenant', tenant_id: 'mine' },
-    });
+  it('asks for every tenant until the admin picks one, and states the scope the server read', async () => {
     renderTab();
 
     expect(await screen.findByTestId('admin-scope-statement')).toHaveTextContent(
-      'Showing your tenant only.',
+      'Showing every tenant on the platform.',
     );
-    expect(getRecentActivity).toHaveBeenCalledWith(undefined);
+    expect(getRecentActivity).toHaveBeenCalledWith('all');
   });
 
-  it('asks for the tenant a super admin picked', async () => {
-    role.current = 'super_admin';
+  it('asks for the tenant an admin picked', async () => {
     localStorage.setItem('pierre.admin_scope', 'picked-tenant');
     getRecentActivity.mockResolvedValue({
       ...activity,
@@ -173,5 +162,28 @@ describe('ActivityTab says what its numbers are', () => {
     await userEvent.type(screen.getByLabelText('Search activity'), 'athlete@');
     expect(screen.getByText('Taper week')).toBeInTheDocument();
     expect(screen.queryByText('anthropic/claude-sonnet-4-5')).not.toBeInTheDocument();
+  });
+});
+
+describe('ActivityTab category pills', () => {
+  it('draws an LLM call in the primary tone and a conversation in the solid accent', async () => {
+    getRecentActivity.mockResolvedValue({
+      ...activity,
+      recent_conversations: [
+        {
+          id: 'c1',
+          title: 'Taper week',
+          updated_at: new Date(Date.now() - 90_000).toISOString(),
+          user_email: 'athlete@example.com',
+        },
+      ],
+    });
+    renderTab();
+
+    await screen.findByText('Taper week');
+    for (const pill of screen.getAllByTitle('chat')) {
+      expect(pill).toHaveClass('badge-primary');
+    }
+    expect(screen.getByTitle('conversation')).toHaveClass('badge-accent');
   });
 });

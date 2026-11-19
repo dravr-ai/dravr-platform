@@ -103,6 +103,7 @@ impl LlmProvider for StubSummarizer {
             .find(|m| m.role == MessageRole::System)
             .map(|m| m.content.clone());
         Ok(ChatResponse {
+            replay_blocks: None,
             content: STUB_SUMMARY.to_owned(),
             usage: Some(TokenUsage::new(1, 1, 2)),
             model: "stub-model".to_owned(),

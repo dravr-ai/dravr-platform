@@ -8,8 +8,8 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::common::offline_provider_registry;
 
-use pierre_core::models::coverage::Coverage;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
@@ -32,7 +32,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     Activity, ActivityBuilder, AddMessageParams, AnchorProvenance, Athlete, ConnectionType,
-    ConversationTurnId, SportType, Stats, TenantId, ThresholdProvenance, ThresholdStatedOn, User,
+    ConversationTurnId, SportType, TenantId, ThresholdProvenance, ThresholdStatedOn, User,
     UserOAuthToken, UserPhysiologicalProfile,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
@@ -50,7 +50,6 @@ use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
 use pierre_providers::provider_terms::{NOLIO, NOLIO_TRANSPORT};
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderBundle, ProviderCapabilities,
     ProviderDescriptor,
@@ -169,6 +168,7 @@ impl FitnessProvider for Relay {
 
     async fn get_athlete(&self) -> AppResult<Athlete> {
         Ok(Athlete {
+            active_streak: None,
             created_at: None,
             id: "relay-athlete".to_owned(),
             username: "relay_rider".to_owned(),
@@ -200,17 +200,6 @@ impl FitnessProvider for Relay {
             .find(|a| a.id() == id)
             .ok_or_else(|| AppError::not_found(id.to_owned()))
     }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Ok(Stats {
-            total_activities: 412,
-            total_distance: 9_876_000.0,
-            total_duration: 1_234_567,
-            total_elevation_gain: 54_321.0,
-            coverage: Coverage::lifetime(412),
-            year_to_date: None,
-        })
-    }
 }
 
 pub(crate) fn relay_factory(config: ProviderConfig) -> Box<dyn FitnessProvider> {
@@ -218,9 +207,9 @@ pub(crate) fn relay_factory(config: ProviderConfig) -> Box<dyn FitnessProvider> 
 }
 
 /// The test server, with the relay registered beside the built-in providers.
-async fn server_with_relay() -> Arc<ServerContext> {
+pub(crate) async fn server_with_relay() -> Arc<ServerContext> {
     let base = create_test_server_resources().await.unwrap();
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.register_provider_bundle(ProviderBundle::new(
         Box::new(RelayDescriptor),
         relay_factory,
@@ -293,11 +282,7 @@ async fn call(
 }
 
 fn payload_text(response: &UniversalResponse) -> String {
-    response
-        .result
-        .as_ref()
-        .map(Value::to_string)
-        .unwrap_or_default()
+    response.result.as_ref().map_or_default(Value::to_string)
 }
 
 #[tokio::test]
@@ -403,12 +388,16 @@ async fn an_executor_built_inside_an_external_call_stays_external() {
     assert!(!text.contains("Garmin Hills"), "{text}");
 }
 
+/// A profile carries no item provenance, so a `FirstPartyOnly` relay's is
+/// refused whole over an external transport, even once a first-party read
+/// warmed its cache. The totals are counted from the store and filtered item
+/// by item instead (`query_activities_transport_test`, carnet#1485).
 #[tokio::test]
-async fn profile_and_stats_are_refused_externally_even_from_a_warm_cache() {
+async fn the_profile_is_refused_externally_even_from_a_warm_cache() {
     let resources = server_with_relay().await;
     let athlete = athlete_with_relay(&resources).await;
 
-    // First-party reads reach the relay and warm the profile and stats caches.
+    // A first-party read reaches the relay and warms the profile cache.
     let profile = call(
         &resources,
         &athlete,
@@ -418,40 +407,30 @@ async fn profile_and_stats_are_refused_externally_even_from_a_warm_cache() {
     .await;
     assert!(profile.success, "{:?}", profile.error);
     assert!(payload_text(&profile).contains("relay_rider"));
-    let stats = call(
+
+    let refused = call(
         &resources,
         &athlete,
-        Some(Transport::MobileApp),
-        "get_stats",
+        Some(Transport::McpHttp),
+        "get_athlete",
     )
     .await;
-    assert!(stats.success, "{:?}", stats.error);
+    assert!(!refused.success, "bug: get_athlete was served over MCP");
+    let text = payload_text(&refused);
+    assert!(!text.contains("relay_rider"), "bug: {text}");
     assert!(
-        payload_text(&stats).contains("412"),
-        "{}",
-        payload_text(&stats)
+        refused
+            .error
+            .as_deref()
+            .is_some_and(|message| message.contains("not available over this interface")),
+        "bug: {:?}",
+        refused.error
     );
-
-    for tool in ["get_athlete", "get_stats"] {
-        let refused = call(&resources, &athlete, Some(Transport::McpHttp), tool).await;
-        assert!(!refused.success, "{tool} over MCP");
-        let text = payload_text(&refused);
-        assert!(!text.contains("relay_rider"), "{tool}: {text}");
-        assert!(!text.contains("412"), "{tool}: {text}");
-        assert!(
-            refused
-                .error
-                .as_deref()
-                .is_some_and(|message| message.contains("not available over this interface")),
-            "{tool}: {:?}",
-            refused.error
-        );
-        assert_eq!(
-            refused.result.as_ref().expect("a payload")[UNAVAILABLE_HERE]["items_unavailable"],
-            1,
-            "{tool}: a neutral note, never an auth or reconnect signal"
-        );
-    }
+    assert_eq!(
+        refused.result.as_ref().expect("a payload")[UNAVAILABLE_HERE]["items_unavailable"],
+        1,
+        "bug: a neutral note, never an auth or reconnect signal"
+    );
 }
 
 // ── The REST routes, through the production HTTP app ─────────────────────
@@ -1368,8 +1347,7 @@ async fn a_thread_opened_from_a_relay_activity_is_withheld_whole_over_an_api_key
     let (_, external_list) = get(&app, "/api/chat/conversations", &key).await;
     let ids: Vec<&str> = external_list["conversations"]
         .as_array()
-        .map(|rows| rows.iter().filter_map(|c| c["id"].as_str()).collect())
-        .unwrap_or_default();
+        .map_or_default(|rows| rows.iter().filter_map(|c| c["id"].as_str()).collect());
     assert!(ids.contains(&open.as_str()), "{external_list}");
     assert!(!ids.contains(&thread.as_str()), "{external_list}");
     assert!(
@@ -1417,8 +1395,7 @@ async fn stamped_rows_filling_the_first_page_still_leave_an_external_page_full()
     assert_eq!(status, StatusCode::OK, "{external}");
     let objects: Vec<&str> = external["facts"]
         .as_array()
-        .map(|facts| facts.iter().filter_map(|f| f["object"].as_str()).collect())
-        .unwrap_or_default();
+        .map_or_default(|facts| facts.iter().filter_map(|f| f["object"].as_str()).collect());
     assert_eq!(
         objects.len(),
         3,
@@ -1459,14 +1436,11 @@ async fn stamped_rows_filling_the_first_page_still_leave_an_external_page_full()
     }
     let (status, page) = get(&app, "/api/chat/conversations?limit=3", &key).await;
     assert_eq!(status, StatusCode::OK, "{page}");
-    let mut ids: Vec<String> = page["conversations"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|c| c["id"].as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut ids: Vec<String> = page["conversations"].as_array().map_or_default(|rows| {
+        rows.iter()
+            .filter_map(|c| c["id"].as_str().map(str::to_owned))
+            .collect()
+    });
     ids.sort();
     open.sort();
     assert_eq!(
@@ -2075,6 +2049,7 @@ mod scraped {
 
         async fn get_athlete(&self) -> AppResult<Athlete> {
             Ok(Athlete {
+                active_streak: None,
                 created_at: None,
                 id: "scraped-athlete".to_owned(),
                 username: "scraped_runner".to_owned(),
@@ -2106,17 +2081,6 @@ mod scraped {
                 .find(|a| a.id() == id)
                 .ok_or_else(|| AppError::not_found(id.to_owned()))
         }
-
-        async fn get_stats(&self) -> AppResult<Stats> {
-            Ok(Stats {
-                total_activities: 2,
-                total_distance: 20_000.0,
-                total_duration: 5_400,
-                total_elevation_gain: 300.0,
-                coverage: Coverage::lifetime(2),
-                year_to_date: None,
-            })
-        }
     }
 
     struct ScrapedFactory;
@@ -2139,7 +2103,7 @@ mod scraped {
     #[tokio::test]
     async fn a_scraped_item_stays_off_mcp_and_a2a_and_the_note_points_elsewhere() {
         let base = create_test_server_resources().await.unwrap();
-        let mut registry = ProviderRegistry::new();
+        let mut registry = offline_provider_registry();
         assert_eq!(
             registry.transport_policy(SCIOTTE),
             Some(TransportPolicy::FirstPartyOnly),

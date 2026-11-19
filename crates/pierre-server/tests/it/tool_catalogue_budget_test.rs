@@ -73,7 +73,43 @@ use crate::common;
 /// cut to a few words each, and a description that says how to read its
 /// coverage, whose first draft was cut by 202 bytes. Measured 95,871 (~849
 /// bytes).
-const CATALOGUE_BUDGET_BYTES: usize = 95_900;
+///
+/// 2026-11-15: 95,900 → 96,400 for `name_place` (carnet#1484), the athlete
+/// naming a place they train from by a row's place id or an activity id:
+/// four arguments of a few words each, and a description whose first draft
+/// was cut by 60 bytes. Measured 96,358 against 95,871 without it (~487
+/// bytes).
+///
+/// 2026-11-16: 96,400 → 96,500 for Strava's `grade_smooth` and `moving`
+/// channels (carnet#1603): `extract_activity_streams` names them and says they
+/// come only from the Strava source. The sentence was cut to a few words and
+/// the tool's closing sentence trimmed before measuring, which saved 67 bytes
+/// (~105 bytes added).
+///
+/// 2026-11-17: 96,500 → 97,400 for `query_activities` (carnet#1485), every
+/// count, total and breakdown over a period from one read of the store:
+/// sixteen arguments of a few words each, and a description cut from 640 to
+/// 230 bytes before measuring, with `get_stats`' description shortened to a
+/// view of it. The tool measured 2,341 bytes before the cut, 1,726 after;
+/// the catalogue 97,331.
+///
+/// 2026-11-18: 97,400 → 97,700 for the declared home (carnet#1593):
+/// `name_place` takes `home` (here, elsewhere or forget, named in its
+/// one-line description), and its description gains one sentence.
+/// `name_place` measured 794 bytes against 486 (~308 bytes); the catalogue
+/// 97,639.
+///
+/// 2026-11-18: 97,700 → 97,900 for `get_weather_forecast`'s default place and
+/// daylight (carnet#1486): two sentences on omitting the location and on the
+/// sunrise and sunset in the answer, cut by 13 bytes before measuring.
+/// Measured 97,857 against 97,684 without them (~173 bytes).
+///
+/// 2026-11-19: 97,900 → 98,250 for the athlete's own loops (carnet#1665):
+/// `discover_routes`' `effort` argument and the sentences on the loops, on
+/// `osm_unavailable` and on reading the forecast, plus the forecast's own
+/// nudge to be read for every planned outdoor session; the route description
+/// was cut by about 200 bytes before measuring. Measured 98,183.
+const CATALOGUE_BUDGET_BYTES: usize = 98_250;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.
@@ -81,7 +117,11 @@ const CATALOGUE_BUDGET_BYTES: usize = 95_900;
 /// 2026-10-29, against 95,050 for the whole catalogue (carnet#406).
 ///
 /// 2026-11-02: 10,450 → 9,950 with `format` withheld (carnet#1314); measured 9,932.
-const LOADED_PREFIX_BUDGET_BYTES: usize = 9_950;
+///
+/// 2026-11-17: 9,950 → 10,550 with `query_activities` loaded in place of
+/// `get_stats` (carnet#1485): a count over any period is what a turn reaches
+/// for, and `get_stats` is one search away. Measured 10,500.
+const LOADED_PREFIX_BUDGET_BYTES: usize = 10_550;
 
 /// How far under budget the catalogue may fall before the budget follows it down.
 const RATCHET_SLACK_BYTES: usize = 4 * 1024;

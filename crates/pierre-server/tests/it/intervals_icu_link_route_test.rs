@@ -20,18 +20,18 @@
 //! the base URL), so these tests never touch the network.
 
 use crate::common;
+use crate::common::{offline_provider_config, offline_provider_registry};
 use crate::helpers;
 
 use common::{create_test_server_resources, create_test_user};
 use helpers::axum_test::AxumTestRequest;
+use helpers::impersonation::{assert_refusal_audited, assert_support_refused, impersonation_of};
 
 use axum::http::StatusCode;
 use axum::Router;
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::{PhysiologicalSex, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::intervals_icu_provider::default_config;
-use pierre_providers::ProviderRegistry;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -113,9 +113,9 @@ async fn setup_linked_user(base_url: String) -> LinkedUser {
         )
         .unwrap();
 
-    let mut config = default_config();
+    let mut config = offline_provider_config(INTERVALS_ICU);
     config.api_base_url = base_url;
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.set_default_config(INTERVALS_ICU, config);
 
     let mut context = resources.auth_routes_context();
@@ -341,4 +341,55 @@ async fn linking_records_the_sex_the_profile_reports_only_when_none_is_held() {
         .unwrap()
         .unwrap();
     assert_eq!(stored.sex, Some(PhysiologicalSex::Male));
+}
+
+/// An admin acting as the athlete links no Intervals.icu key: it keeps
+/// reading the athlete's account after the support session ends
+/// (carnet#1634). The refusal reaches no provider and is audited; the
+/// athlete's own link is served.
+#[tokio::test]
+async fn a_support_session_links_no_key() {
+    let (base_url, stub) = stub_once(
+        "HTTP/1.1 200 OK",
+        r#"{"id":"i123456","name":"Test Athlete"}"#,
+    )
+    .await;
+    let linked = setup_linked_user(base_url).await;
+    let support = impersonation_of(&linked.resources, &linked.auth).await;
+    let link = |authorization: &str| {
+        AxumTestRequest::post("/api/providers/intervals_icu/link-credentials")
+            .header("authorization", authorization)
+            .json(&json!({ "athlete_id": "i123456", "api_key": "good-key" }))
+            .send(linked.router.clone())
+    };
+    let stored = || async {
+        linked
+            .resources
+            .common
+            .repos
+            .oauth_tokens
+            .get_token(linked.user_id, linked.tenant_id, INTERVALS_ICU)
+            .await
+            .unwrap()
+            .is_some()
+    };
+
+    let response = link(&support).await;
+    assert_support_refused(
+        response.status(),
+        &response.body_text(),
+        "link Intervals.icu",
+    );
+    assert!(!stored().await, "no key was stored");
+    assert_refusal_audited(&linked.resources, linked.user_id, "link Intervals.icu").await;
+
+    let response = link(&linked.auth).await;
+    assert_eq!(
+        response.status_code(),
+        StatusCode::OK,
+        "{}",
+        response.body_text()
+    );
+    assert!(stored().await, "the athlete's own link stores the key");
+    stub.await.expect("stub task joins");
 }

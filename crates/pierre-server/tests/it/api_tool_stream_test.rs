@@ -164,6 +164,7 @@ impl ScriptedStream {
             }
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: self.models[0].clone(),
             usage: None,

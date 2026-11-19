@@ -417,7 +417,7 @@ async fn create_test_executor_with(
             (*database).clone(),
             auth_manager,
             "test_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -430,6 +430,8 @@ async fn create_test_executor_with(
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -458,7 +460,7 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
             (*database).clone(),
             auth_manager,
             "test_secret",
-            create_test_server_config_without_oauth(),
+            common::offline_config(create_test_server_config_without_oauth()),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -471,6 +473,8 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -493,7 +497,6 @@ async fn create_active_user(database: &Database, user_id: Uuid, email: &str) {
         tier: UserTier::Starter,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -990,7 +993,6 @@ async fn test_connection_status_with_oauth_manager() {
         tier: UserTier::Starter,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -1073,7 +1075,6 @@ async fn test_analyze_activity_token_refresh() {
         tier: UserTier::Starter,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -1167,7 +1168,6 @@ async fn test_concurrent_token_operations() {
         tier: UserTier::Starter,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -1258,7 +1258,6 @@ async fn test_oauth_provider_init_failure() {
         tier: UserTier::Starter,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),

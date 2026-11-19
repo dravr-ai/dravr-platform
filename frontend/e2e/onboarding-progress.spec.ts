@@ -6,6 +6,7 @@
 
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { setupDashboardMocks, signInThroughHostedPage } from './test-helpers';
+import { contrast as wcagContrast, type Rgb } from '@pierre/shared-constants';
 
 const json = (route: Route, body: unknown) =>
   route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
@@ -114,17 +115,13 @@ test('the bar names the screens in French, and says the position under 1024px', 
   await expect(onSeat.getByTestId('onboarding-current-step')).toBeVisible();
 });
 
-/** WCAG contrast of two `rgb(r, g, b)` colours. */
+/** WCAG contrast of two `rgb(r, g, b)` colours, through the one shared calculator. */
 function contrast(a: string, b: string): number {
-  const luminance = (rgb: string) => {
-    const [r, g, bl] = (rgb.match(/\d+(\.\d+)?/g) ?? []).slice(0, 3).map(Number).map((c) => {
-      const s = c / 255;
-      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-    });
-    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  const rgb = (css: string): Rgb => {
+    const [r, g, bl] = (css.match(/\d+(\.\d+)?/g) ?? []).slice(0, 3).map(Number);
+    return [r, g, bl];
   };
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
+  return wcagContrast(rgb(a), rgb(b));
 }
 
 for (const theme of ['light', 'dark'] as const) {

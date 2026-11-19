@@ -6,8 +6,8 @@
 
 /**
  * The rail starts a header wherever a tab's section differs from the one above
- * it, so a section split across the definition list (super-admin tabs appended
- * after the developer ones, say) drew its header twice. Grouping here keeps the
+ * it, so a section split across the definition list (tabs appended after
+ * the developer ones, say) drew its header twice. Grouping here keeps the
  * definitions free to be written in any order.
  */
 export function groupBySection<T extends { section?: string }>(tabs: readonly T[]): T[] {

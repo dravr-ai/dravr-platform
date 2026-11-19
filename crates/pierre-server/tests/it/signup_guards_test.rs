@@ -95,7 +95,7 @@ async fn context() -> ServerContext {
         (*database).clone(),
         (*auth_manager).clone(),
         "test_jwt_secret",
-        config,
+        common::offline_config(config),
         cache,
         ServerContextOptions {
             rsa_key_size_bits: Some(2048),
@@ -108,6 +108,8 @@ async fn context() -> ServerContext {
             archive_imports: None,
             live_records: None,
             blobs: None,
+            #[cfg(feature = "client-messaging")]
+            channel_adapters: common::offline_adapters(),
         },
     )
     .await

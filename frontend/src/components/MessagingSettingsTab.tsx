@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { messagingApi } from '../services/api';
 import type { ChannelConfigSummary } from '../services/api/messaging';
-import { Section, Button, Input, Badge, ConfirmDialog } from './ui';
+import { Section, Button, Input, Badge, ConfirmDialog, Alert, ALERT_TONE, BADGE_TONE } from './ui';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
@@ -199,7 +199,7 @@ export default function MessagingSettingsTab() {
                 className={clsx(
                   'p-4 rounded-lg border transition-all',
                   isConfigured
-                    ? 'border-activity/30 bg-activity/10'
+                    ? ALERT_TONE.success.tone
                     : 'ghost-border bg-surface-container-low hover:ghost-border'
                 )}
               >
@@ -208,7 +208,7 @@ export default function MessagingSettingsTab() {
                     <div
                       className={clsx(
                         'p-2 rounded-lg',
-                        isConfigured ? 'bg-activity/20 text-on-activity-container' : 'bg-surface-container-high text-on-surface/60'
+                        isConfigured ? BADGE_TONE.success.tone : 'bg-surface-container-high text-on-surface/60'
                       )}
                     >
                       {info.icon}
@@ -296,16 +296,7 @@ export default function MessagingSettingsTab() {
 
       {/* Status Message */}
       {message && (
-        <div
-          className={clsx(
-            'p-3 rounded-lg text-sm',
-            message.type === 'success'
-              ? 'bg-activity/30 text-on-activity-container'
-              : 'bg-error/20 text-error'
-          )}
-        >
-          {message.text}
-        </div>
+        <Alert tone={message.type}>{message.text}</Alert>
       )}
 
       {/* Delete Confirmation */}

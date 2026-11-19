@@ -5,7 +5,20 @@
 // ABOUTME: The tails are the server's own closing fields (crates/pierre-routes-auth/src/data_export.rs)
 
 import { describe, it, expect } from 'vitest';
-import { EXPORT_PARTIAL_KEYS, exportPartialKey, readExportTail } from '../src/dataExport';
+import {
+  EXPORT_PARTIAL_KEYS,
+  ORIGINALS_KEYS,
+  SEAL_MAX_CHARS,
+  SEAL_MIN_CHARS,
+  exportPartialKey,
+  exportRefusalCode,
+  originalsIncomplete,
+  originalsRefusalKey,
+  originalsStateKey,
+  originalsStillBuilding,
+  readExportTail,
+  sealPassphraseAccepted,
+} from '../src/dataExport';
 
 const ROWS = '{"format":"dravr-user-export","tables":{"users":[{"id":"a","note":"complete"}]';
 
@@ -100,5 +113,67 @@ describe('exportPartialKey', () => {
     expect(tail).not.toBeNull();
     expect(exportPartialKey(tail!)).toBe(key);
     expect(EXPORT_PARTIAL_KEYS).toContain(key);
+  });
+});
+
+describe('the originals bundle', () => {
+  const ready = { status: 'ready' as const, missing: 0, damaged: 0 };
+
+  it('accepts no passphrase, or one of 12 to 1024 characters counted as the server counts them', () => {
+    expect(sealPassphraseAccepted('')).toBe(true);
+    expect(sealPassphraseAccepted('x'.repeat(SEAL_MIN_CHARS - 1))).toBe(false);
+    expect(sealPassphraseAccepted('x'.repeat(SEAL_MIN_CHARS))).toBe(true);
+    expect(sealPassphraseAccepted('x'.repeat(SEAL_MAX_CHARS + 1))).toBe(false);
+    // Eleven emoji are eleven characters, though many more UTF-16 units.
+    expect(sealPassphraseAccepted('🏃'.repeat(11))).toBe(false);
+    expect(sealPassphraseAccepted('🏃'.repeat(12))).toBe(true);
+  });
+
+  it('says what each state is, and polls only while it builds', () => {
+    expect(originalsStateKey({ ...ready, status: 'building' })).toBe('dataExport.originalsBuilding');
+    expect(originalsStateKey({ ...ready, status: 'failed' })).toBe('dataExport.originalsFailed');
+    expect(originalsStateKey(ready)).toBe('dataExport.originalsReady');
+    expect(originalsStillBuilding({ ...ready, status: 'building' })).toBe(true);
+    expect(originalsStillBuilding(ready)).toBe(false);
+    expect(originalsStillBuilding(null)).toBe(false);
+  });
+
+  it('says a ready bundle lacks files only when its manifest names some', () => {
+    expect(originalsIncomplete(ready)).toBe(false);
+    expect(originalsIncomplete({ ...ready, missing: 2 })).toBe(true);
+    expect(originalsIncomplete({ ...ready, damaged: 1 })).toBe(true);
+    expect(originalsIncomplete({ status: 'building', missing: null, damaged: null })).toBe(false);
+  });
+
+  it("reads a refusal's `error` code from its body, and nothing else", () => {
+    expect(exportRefusalCode({ response: { status: 409, data: { error: 'bundle_building', message: 'prose' } } })).toBe(
+      'bundle_building',
+    );
+    expect(exportRefusalCode({ response: { data: { code: 'QuotaExceeded' } } })).toBeUndefined();
+    expect(exportRefusalCode({ response: { data: { error: 42 } } })).toBeUndefined();
+    expect(exportRefusalCode(new Error('network'))).toBeUndefined();
+    expect(exportRefusalCode(null)).toBeUndefined();
+  });
+
+  it('reads a refusal by its status and code, never its prose', () => {
+    expect(originalsRefusalKey(429, 'too_many_bundles')).toBe('dataExport.originalsRateLimited');
+    expect(originalsRefusalKey(503, 'export_busy')).toBe('dataExport.originalsBusy');
+    expect(originalsRefusalKey(409, 'bundle_building')).toBe('dataExport.originalsOtherBuilding');
+    expect(originalsRefusalKey(400, undefined)).toBe('dataExport.originalsSealTooShort');
+    expect(originalsRefusalKey(503, undefined)).toBe('dataExport.originalsFailed');
+    expect(originalsRefusalKey(undefined, undefined)).toBe('dataExport.originalsFailed');
+  });
+
+  it('names every sentence it can answer with in the one list a catalogue check reads', () => {
+    const answers = [
+      originalsStateKey({ ...ready, status: 'building' }),
+      originalsStateKey({ ...ready, status: 'failed' }),
+      originalsStateKey(ready),
+      originalsRefusalKey(429, undefined),
+      originalsRefusalKey(503, 'export_busy'),
+      originalsRefusalKey(409, 'bundle_building'),
+      originalsRefusalKey(400, undefined),
+    ];
+    for (const key of answers) expect(ORIGINALS_KEYS).toContain(key);
   });
 });

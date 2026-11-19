@@ -23,6 +23,7 @@ use pierre_core::models::{
 use pierre_core::models::{Tenant, TenantId, TenantPlan, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_core::transport::TransportPolicy;
+use pierre_database::repositories::SubjectThreads;
 use pierre_database::repositories::WellnessWriteMode;
 use pierre_database::{
     backends::factory::Database, database::AddMessageParams, repositories::SyncCursorRow,
@@ -541,6 +542,7 @@ async fn test_parity_chat_list_conversations() {
             3,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .expect("SQLite: Failed to list")
@@ -554,6 +556,7 @@ async fn test_parity_chat_list_conversations() {
             3,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .expect("PostgreSQL: Failed to list")
@@ -1572,7 +1575,6 @@ async fn create_test_user(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
         tier: UserTier::Starter,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(Utc::now()),

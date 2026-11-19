@@ -4,7 +4,7 @@
 // ABOUTME: What a provider card offers — how it connects or reconnects, and the sign-in its history needs
 // ABOUTME: The one decision both clients render from, so web and mobile cannot disagree on a tap, a pill or a refused grant
 
-import type { ExtendedProviderStatus, HistoryState, SciotteLoginResponse, SciotteTarget } from '@pierre/shared-types';
+import type { ExtendedProviderStatus, HistoryState, SciotteTarget } from '@pierre/shared-types';
 import {
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_PRESETS,
@@ -189,16 +189,19 @@ export const SIGN_IN_UNAVAILABLE = 'sign_in_unavailable' as const;
 
 /**
  * The provider whose OAuth a failed account sign-in on `card` falls back to,
- * or `null` (carnet#1477): a card not yet connected whose account sign-in goes
- * first while an OAuth seat is free — `recommended_backend` `mirror` with
- * `seats_left` above zero, which the default sign-in-first order produces.
- * With the pool full there is no OAuth to fall back to, and a reconnect has
- * none: a dead grant reconnects only through its sign-in (carnet#1494).
+ * or `null` (carnet#1477): a card whose account sign-in goes first while an
+ * OAuth seat is free — `recommended_backend` `mirror` with `seats_left` above
+ * zero — that is not yet connected, or asks for a reconnect. A reconnect signs
+ * in first (carnet#1494) but falls back like a new connection when that
+ * sign-in cannot complete, a provider challenge above all (carnet#1667).
+ * With the pool full there is no OAuth to fall back to, and a connected card
+ * that needs no reconnect (a history copy) never falls back.
  */
 export function oauthFallbackTarget(
-  card: Pick<ConnectPlanCard, 'provider' | 'connected' | 'recommended_backend' | 'seats_left'>,
+  card: Pick<ConnectPlanCard, 'provider' | 'connected' | 'needs_reauth' | 'recommended_backend' | 'seats_left'>,
 ): SciotteTarget | null {
-  if (card.connected || card.recommended_backend !== 'mirror' || !card.seats_left || card.seats_left <= 0) {
+  const settled = card.connected && !card.needs_reauth;
+  if (settled || card.recommended_backend !== 'mirror' || !card.seats_left || card.seats_left <= 0) {
     return null;
   }
   const target = sciotteTargetForBackend(card.provider);
@@ -214,14 +217,4 @@ export function oauthFallbackTarget(
  */
 export function signInFallsBackToOAuth(reason: string | null | undefined): boolean {
   return reason === SIGN_IN_UNAVAILABLE || reason === SCIOTTE_LOGIN_CHALLENGE;
-}
-
-/**
- * The provider whose own authorization a completed sign-in goes on to, or
- * `null` (carnet#1494): a provider whose grant writes what its session cannot
- * (Garmin's, which pushes workouts) connects and reconnects by its sign-in
- * first and its grant right after, while the server says the grant is owed.
- */
-export function oauthFollowOn(answer: SciotteLoginResponse): string | null {
-  return answer.status === 'connected' ? (answer.oauth_follow_on?.provider ?? null) : null;
 }

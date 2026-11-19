@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ADMIN_ONLY_TABS, SUPER_ADMIN_ONLY_TABS } from '../../../../constants/adminTabs';
+import { ADMIN_ONLY_TABS } from '../../../../constants/adminTabs';
 import { CITED_COMMITS, SCREEN_THEORY } from '../screenTheory';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -28,7 +28,7 @@ const cited = entries.flatMap(([tab, entry]) => entry.commits.map((commit) => ({
 
 describe('admin screen theory coverage', () => {
   it('has an entry for every admin screen and none for anything else', () => {
-    const expected = new Set([...ADMIN_ONLY_TABS, ...SUPER_ADMIN_ONLY_TABS, ...OFF_RAIL_ADMIN_SCREENS]);
+    const expected = new Set([...ADMIN_ONLY_TABS, ...OFF_RAIL_ADMIN_SCREENS]);
     expect(new Set(Object.keys(SCREEN_THEORY))).toEqual(expected);
   });
 

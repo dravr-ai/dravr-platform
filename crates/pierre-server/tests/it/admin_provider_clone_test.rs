@@ -1,4 +1,4 @@
-// ABOUTME: carnet#1144 — a super-admin copies one account's scrape-session provider connection onto another
+// ABOUTME: carnet#1144 — an admin copies one account's scrape-session provider connection onto another
 // ABOUTME: The copy decrypts to the same session, the source is untouched; OAuth grants, dead sessions and lesser tokens are refused
 
 // SPDX-License-Identifier: MIT OR Apache-2.0

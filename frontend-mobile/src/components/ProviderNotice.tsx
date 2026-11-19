@@ -8,7 +8,7 @@ import React, { useState } from 'react';
 import { Text, View } from 'react-native';
 import { useTranslation } from '@pierre/i18n';
 import { PROVIDER_NOTICES, type ProviderNoticeKeys } from '@pierre/shared-constants';
-import { Button, Checkbox, Sheet } from './ui';
+import { ALERT_TONE, Button, Checkbox, Sheet } from './ui';
 
 interface ProviderNoticeProps {
   notice: ProviderNoticeKeys;
@@ -33,14 +33,14 @@ export function ProviderNotice({
 }: ProviderNoticeProps) {
   const { t } = useTranslation();
   return (
-    <View className="mb-4 rounded-xl border border-warning/40 bg-warning/10 p-3" testID={testID}>
-      <Text className="text-sm font-semibold text-on-warning-container mb-1">{t(notice.titleKey)}</Text>
-      <Text className="text-sm text-on-warning-container mb-2">{t(notice.bodyKey)}</Text>
+    <View className={`mb-4 rounded-xl border ${ALERT_TONE.warning.edge} ${ALERT_TONE.warning.fill} p-3`} testID={testID}>
+      <Text className={`text-sm font-semibold ${ALERT_TONE.warning.ink} mb-1`}>{t(notice.titleKey)}</Text>
+      <Text className={`text-sm ${ALERT_TONE.warning.ink} mb-2`}>{t(notice.bodyKey)}</Text>
       <Checkbox
         checked={accepted}
         onChange={onAcceptedChange}
         label={t(notice.consentKey)}
-        labelClassName="text-on-warning-container"
+        labelClassName={ALERT_TONE.warning.ink}
         testID={consentTestID ?? `${testID}-consent`}
       />
     </View>

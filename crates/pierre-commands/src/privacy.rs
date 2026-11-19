@@ -56,6 +56,11 @@ pub struct PrivacyOnHandler;
 
 #[async_trait]
 impl CommandHandler for PrivacyOnHandler {
+    /// Turning analytics consent on is a consent only the athlete gives.
+    fn outlives_support_session(&self, _: &[String]) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         ctx.ctx
             .repos()

@@ -6,7 +6,7 @@
 
 import type { Locator, Page } from '@playwright/test';
 import { testUsers } from '../fixtures/test-data';
-import { createTestAdminUser, type TestUser } from './db-setup';
+import { createTestAdminUser, createTestUser, type TestUser } from './db-setup';
 
 export interface LoginResult {
   success: boolean;
@@ -28,6 +28,22 @@ function onHostedSignIn(page: Page): boolean {
 }
 
 /**
+ * What a sign-in waits for once the browser is back on the app.
+ *
+ * `dashboard`: the admin dashboard's content, which an admin lands on.
+ * `session`: the signed-in session alone. A plain user lands on whatever the
+ * app shows an athlete (onboarding, on a new account), so the wait is for
+ * the CSRF token the app stores when the session is established.
+ * `athlete`: an admin who picks the athlete app at the sign-in picker
+ * (carnet#1631), which opens onboarding or the athlete shell. `dashboard`
+ * picks the console when the picker asks.
+ */
+export type LoginLanding = 'dashboard' | 'session' | 'athlete';
+
+/** Where the SPA keeps the CSRF token of the signed-in session. */
+const CSRF_TOKEN_KEY = 'pierre_csrf_token';
+
+/**
  * Perform a real login the way an athlete does: the SPA's sign-in button, the
  * server's hosted login page (`#email`, `#password`, "Sign in"), then back to the
  * app at /auth/callback. This interacts with the actual backend server, not
@@ -36,7 +52,8 @@ function onHostedSignIn(page: Page): boolean {
 export async function loginWithCredentials(
   page: Page,
   email: string,
-  password: string
+  password: string,
+  landing: LoginLanding = 'dashboard'
 ): Promise<LoginResult> {
   try {
     console.log(`[Login] Starting login for ${email}`);
@@ -78,13 +95,60 @@ export async function loginWithCredentials(
       return { success: false, error: 'Login timed out - never returned to the app' };
     }
 
+    if (landing === 'session') {
+      // Back on the app: the session is established once its CSRF token is stored
+      console.log('[Login] Waiting for the signed-in session...');
+      try {
+        await page.waitForFunction(
+          (key) => window.localStorage.getItem(key) !== null,
+          CSRF_TOKEN_KEY,
+          { timeout: loginTimeout }
+        );
+      } catch {
+        console.log('[Login] The session was not established');
+        return { success: false, error: 'Login redirect occurred but no session was established' };
+      }
+      console.log('[Login] Success!');
+      return { success: true };
+    }
+
+    // An admin is asked, at every sign-in, which app to open (carnet#1631):
+    // 'dashboard' takes the console these specs drive, 'athlete' the athlete
+    // app on the admin's own account. An athlete is never asked.
+    const picker = page.getByTestId('view-mode-picker');
+    if (landing === 'athlete') {
+      console.log('[Login] Choosing the athlete app...');
+      try {
+        await picker.waitFor({ state: 'visible', timeout: loginTimeout });
+        await page.getByTestId('view-mode-athlete').click();
+        await page
+          .getByTestId('onboarding-flow')
+          .or(page.getByTestId('icon-rail'))
+          .first()
+          .waitFor({ state: 'visible', timeout: loginTimeout });
+      } catch {
+        console.log('[Login] The athlete app did not open');
+        return { success: false, error: 'Login redirect occurred but the athlete app did not open' };
+      }
+      console.log('[Login] Success!');
+      return { success: true };
+    }
+
     // Back on the app: wait for dashboard content to appear
-    // Use OR pattern since selectors have different syntax (CSS vs Playwright text=)
     console.log('[Login] Waiting for dashboard content...');
     try {
+      // Use OR pattern since selectors have different syntax (CSS vs Playwright text=)
       const dashboardLocator = page.locator('nav')
         .or(page.locator('text=Dravr'))
         .or(page.locator('[class*="dashboard"]'));
+      // The picker, or the console an earlier choice already opened: never the
+      // loading screen's own logo text, which shows before the picker does.
+      await picker.or(page.locator('nav')).first().waitFor({ state: 'visible', timeout: loginTimeout });
+      if (await picker.isVisible()) {
+        console.log('[Login] Choosing the admin console...');
+        await page.getByTestId('view-mode-admin').click();
+        await page.locator('nav').first().waitFor({ state: 'visible', timeout: 10000 });
+      }
       await dashboardLocator.first().waitFor({ state: 'visible', timeout: 10000 });
       console.log('[Login] Dashboard content visible');
     } catch {
@@ -126,32 +190,21 @@ export async function createAndLoginAsAdmin(page: Page): Promise<LoginResult> {
 }
 
 /**
- * Create a test super admin user and log in.
- */
-export async function createAndLoginAsSuperAdmin(page: Page): Promise<LoginResult> {
-  const user = testUsers.superAdmin;
-
-  const createResult = await createTestAdminUser(user);
-  if (!createResult.success) {
-    return { success: false, error: createResult.error };
-  }
-
-  return loginWithCredentials(page, user.email, user.password);
-}
-
-/**
- * Create a custom test user and log in.
+ * Create a custom test user, with the role it names (an admin when it names
+ * none), and log in. A plain user has no admin dashboard to land on, so its
+ * sign-in waits for the session alone.
  */
 export async function createAndLoginTestUser(
   page: Page,
   user: TestUser
 ): Promise<LoginResult> {
-  const createResult = await createTestAdminUser(user);
+  const createResult = await createTestUser(user);
   if (!createResult.success) {
     return { success: false, error: createResult.error };
   }
 
-  return loginWithCredentials(page, user.email, user.password);
+  const landing: LoginLanding = user.role === 'user' ? 'session' : 'dashboard';
+  return loginWithCredentials(page, user.email, user.password, landing);
 }
 
 /**

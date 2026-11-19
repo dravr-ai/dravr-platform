@@ -488,6 +488,27 @@ pub trait CoachingGroupRepository: Send + Sync {
         consent: bool,
     ) -> AppResult<bool>;
 
+    /// When the live member `user_id` of `group_id` answered the one-time
+    /// notice of their coach's AI tools; `None` while they have not, or when
+    /// they are not a live member. No tenant filter, as
+    /// [`Self::update_coach_sharing_consent`].
+    async fn assistant_notice_answered_at(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+    ) -> AppResult<Option<DateTime<Utc>>>;
+
+    /// Record that the live member `user_id` of `group_id` answered the
+    /// one-time notice of their coach's AI tools at `at`. Returns `false`
+    /// when `user_id` is not a live member. No tenant filter, as
+    /// [`Self::update_coach_sharing_consent`].
+    async fn answer_assistant_notice(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        at: DateTime<Utc>,
+    ) -> AppResult<bool>;
+
     /// The live member `user_id` of `group_id` grants or revokes what their
     /// coach may do beyond reading their training: each `Some` sets that
     /// consent, each `None` leaves it as it stands, and a consent whose value
@@ -526,6 +547,11 @@ pub trait CoachingGroupRepository: Send + Sync {
 
     /// Look up an invite by its code (cross-tenant for join flow)
     async fn get_invite_by_code(&self, code: &str) -> AppResult<Option<GroupInvite>>;
+
+    /// Look up an invite by its code whether or not it is still active, for
+    /// the public invite card that says a withdrawn link no longer works
+    /// (cross-tenant, like [`Self::get_invite_by_code`]).
+    async fn find_invite_by_code(&self, code: &str) -> AppResult<Option<GroupInvite>>;
 
     /// Count one more use of an invite while it is under its use limit.
     /// Returns `false` when the invite is missing or already used up.

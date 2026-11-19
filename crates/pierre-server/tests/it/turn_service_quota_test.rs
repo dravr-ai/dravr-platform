@@ -101,6 +101,7 @@ mod turn_service_quota_tests {
 
         async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: "Ta semaine est bien dosée: garde le volume et dors davantage.".to_owned(),
                 model: "mock-model".to_owned(),
                 usage: Some(self.usage.clone()),

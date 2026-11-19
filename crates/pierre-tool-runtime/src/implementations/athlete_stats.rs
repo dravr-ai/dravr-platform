@@ -1,17 +1,17 @@
-// ABOUTME: The two provider-API profile tools — athlete identity and aggregate activity stats
-// ABOUTME: Both bridge into the shared fitness_api handlers the chat prefetch stage also calls
+// ABOUTME: The athlete profile tool, read from a provider, and the athlete's totals, a view over the one aggregator
+// ABOUTME: get_stats answers all-time and this-year totals over every source merged, never one provider's figure
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! # Athlete Profile and Statistics Tools
 //!
-//! - `GetAthleteTool` — get athlete profile information
-//! - `GetStatsTool` — get aggregated activity statistics
-//!
-//! Both read from a fitness provider's API rather than from stored rows, and
-//! both bridge into the shared `fitness_api` handlers because the chat
-//! pipeline's prefetch stage calls those same handlers directly.
+//! - `GetAthleteTool` — the athlete profile a connected provider reports,
+//!   read live within the refresh budget, else the last-known copy.
+//! - `GetStatsTool` — the athlete's all-time and this-year totals: one read
+//!   of the store through the aggregator ([`query_activities`]), every
+//!   source merged, so it agrees with `query_activities` by construction
+//!   (carnet#1485).
 
 use crate::annotations::{annotations, Effect, Reach};
 use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
@@ -21,26 +21,38 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use pierre_core::errors::protocol::ProtocolError;
-use pierre_core::models::TenantId;
-use pierre_core::models::{Athlete, Stats};
+use pierre_core::models::coverage::SourceReach;
+use pierre_core::models::provider_context::ProviderAthleteContext;
+use pierre_core::models::{Athlete, PeriodTotals, Stats};
+use pierre_core::models::{GearKind, TenantId};
+use pierre_database::repositories::PersonalBest;
+use pierre_database::RepositoryRegistry;
 use pierre_formatters::OutputFormat;
 use pierre_providers::core::FitnessProvider;
 use serde::Serialize;
 use serde_json::{json, Value};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use uuid::Uuid;
 
+use crate::activity_query::{
+    parse_query, query_activities, Athlete as QueriedAthlete, GroupKey, KeyValue, MetricValues,
+    QueryAnswer, ReadGate,
+};
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, format_property, object_schema, task_capable, tool_definition,
     tool_result_to_response, Formatted,
 };
+use crate::implementations::activity_query::athlete_today;
 use crate::implementations::data_helpers::parse_output_format;
 use crate::implementations::handler_bridge;
 use crate::implementations::last_known::{self, Fallback};
+use crate::implementations::provider_context_reads::{
+    read_athlete_context, source_label, ContextLimits, LedgerShoes, CONTEXT_READ_BUDGET,
+};
 use crate::protocol::format::formatted_response;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::protocol::types::UniversalResponse;
@@ -52,7 +64,10 @@ use pierre_core::errors::AppResult;
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
+use pierre_providers::provider_context::serves_context;
+use pierre_providers::registry::ProviderRegistry;
 use pierre_tools_core::ToolResult;
+use tokio::time;
 
 /// What `get_athlete` answers with.
 ///
@@ -64,7 +79,61 @@ use pierre_tools_core::ToolResult;
 pub struct GetAthleteResult {
     /// The athlete profile as the provider reports it.
     pub athlete: Athlete,
+    /// The provider's own figures about the athlete, read live on this call
+    /// and labelled with the provider they come from: body weight, all-time
+    /// records, the bikes it keeps and, while the athlete declared no shoes in
+    /// Dravr, its shoes, with their mileage. Context, never Dravr's: the
+    /// weight is not the athlete's weight anchor, the records sit beside
+    /// `dravr_personal_bests` without being reconciled with them, and the gear
+    /// is not in the gear ledger. Quote them as the provider's ("Strava has
+    /// your 5K at 20:12"). Absent when the provider holds none, serves none,
+    /// or did not answer in time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_context: Option<ProviderAthleteContext>,
+    /// The bests Dravr computed from the athlete's own runs, labelled as
+    /// Dravr's. Beside the provider's records, never reconciled with them: the
+    /// two are measured differently and may disagree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dravr_personal_bests: Option<DravrPersonalBests>,
 }
+
+/// Dravr's own computed personal bests, labelled with their source.
+#[derive(Debug, Clone, PartialEq, Serialize, schemars::JsonSchema)]
+pub struct DravrPersonalBests {
+    /// Whose bests these are: always Dravr's computation.
+    pub source: String,
+    /// How to quote the block.
+    pub note: String,
+    /// The fastest effort at each standard distance.
+    pub bests: Vec<DravrPersonalBest>,
+}
+
+/// One of Dravr's computed bests.
+#[derive(Debug, Clone, PartialEq, Serialize, schemars::JsonSchema)]
+pub struct DravrPersonalBest {
+    /// The distance's catalogue code: `5k`, `10k`, `half_marathon` or `marathon`.
+    pub distance: String,
+    /// Elapsed time of the fastest window covering the distance, seconds.
+    pub elapsed_seconds: f64,
+    /// The provider the run came from, as the athlete knows it.
+    pub provider: String,
+    /// The provider's id for the run that set the best.
+    pub activity_id: String,
+    /// When that run started, RFC 3339.
+    pub achieved_at: String,
+}
+
+/// The label of Dravr's own bests beside a provider's records.
+const DRAVR_BESTS_SOURCE: &str = "Dravr";
+
+/// How to quote Dravr's bests.
+const DRAVR_BESTS_NOTE: &str = "Dravr's own computed bests, from the athlete's runs it has \
+     measured. Quote them as Dravr's. They sit beside the provider's records and are not \
+     reconciled with them: the two are measured differently and may disagree.";
+
+/// The longest a profile served from the cache waits for the provider's own
+/// figures: a slow provider never delays the cached answer past it.
+pub(crate) const CACHE_HIT_CONTEXT_WAIT: Duration = Duration::from_secs(2);
 
 /// What `get_stats` answers with.
 ///
@@ -72,8 +141,11 @@ pub struct GetAthleteResult {
 /// `stats` key that the SDK schema reads by name.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct GetStatsResult {
-    /// Lifetime and recent totals as the provider reports them.
+    /// All-time and this-year totals over every source, merged, and how far
+    /// the history behind them reaches.
     pub stats: Stats,
+    /// Each source's part of the coverage.
+    pub coverage_by_source: Vec<SourceReach>,
 }
 
 // ============================================================================
@@ -169,35 +241,79 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
 
             let cache = context.resources.cache();
 
-            // Cache hit short-circuits the provider auth + fetch round-trip.
-            // `try_get_cached_athlete` already builds the formatted response
-            // metadata (id/tenant/cached:true) — wrap it in the same
-            // ToolResult shape `map_universal_response` produces on success.
-            if let Some(cached_response) = handler_bridge::map_protocol_result(
-                "get_athlete",
-                try_get_cached_athlete(
-                    cache,
-                    &cache_key,
-                    context.user_id,
-                    tenant_id_str.as_ref(),
-                    output_format,
-                )
-                .await,
-            )? {
-                return handler_bridge::map_universal_response("get_athlete", Ok(cached_response));
+            // Dravr's own bests are a local read, labelled as Dravr's beside
+            // whatever the provider reports; they never wait on the provider.
+            let dravr_personal_bests = read_dravr_bests(
+                context.resources.repos(),
+                context.resources.provider_registry(),
+                context.user_id,
+                tenant_id,
+            )
+            .await;
+
+            // The provider's own figures are read live on every call, never
+            // stored. Only a backend whose provider serves them is asked at
+            // all (decided from its name, before any I/O); the read runs
+            // beside the profile's own read on a miss and is bounded to
+            // `CACHE_HIT_CONTEXT_WAIT` on a hit, so it never delays either.
+            let executor = UniversalExecutor::new(context.resources.clone());
+            let reader = serves_context(&provider_name).then(|| AthleteContextRead {
+                repos: Arc::clone(context.resources.repos()),
+                registry: Arc::clone(context.resources.provider_registry()),
+                user_id: context.user_id,
+                backend: provider_name.clone(),
+            });
+
+            // Cache hit short-circuits the provider fetch round-trip.
+            if let Some(cached) = lookup_cached_athlete(cache, &cache_key).await {
+                let provider_context = match &reader {
+                    Some(reader) => time::timeout(CACHE_HIT_CONTEXT_WAIT, async {
+                        let provider = executor
+                            .auth_service
+                            .create_authenticated_provider(
+                                &provider_name,
+                                context.user_id,
+                                tenant_id_str.as_deref(),
+                            )
+                            .await
+                            .ok()?;
+                        reader.read(provider.as_ref()).await
+                    })
+                    .await
+                    .unwrap_or_else(|_| {
+                        warn!("the provider's figures were not read in time for a cached profile");
+                        None
+                    }),
+                    None => None,
+                };
+                let response = handler_bridge::map_protocol_result(
+                    "get_athlete",
+                    formatted_response(
+                        &GetAthleteResult {
+                            athlete: cached,
+                            provider_context,
+                            dravr_personal_bests,
+                        },
+                        output_format,
+                        cached_metadata(context.user_id, tenant_id_str.as_ref()),
+                    ),
+                )?;
+                // The provider's profile of the athlete, read outside every
+                // list filter: the result's trust label names its source.
+                ai_scope::note_served_from(&provider_name);
+                return handler_bridge::map_universal_response("get_athlete", Ok(response));
             }
 
-            // Cache miss path — authenticate and fetch from provider.
-            let executor = UniversalExecutor::new(context.resources.clone());
-            let provider = match executor
+            // Cache miss path — fetch from the provider.
+            let authenticated = executor
                 .auth_service
                 .create_authenticated_provider(
                     &provider_name,
                     context.user_id,
                     tenant_id_str.as_deref(),
                 )
-                .await
-            {
+                .await;
+            let provider = match authenticated {
                 Ok(provider) => provider,
                 Err(response) => {
                     let fallback_error = response
@@ -225,6 +341,7 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
                 let (cache, cache_key, last_known_key) =
                     (Arc::clone(cache), cache_key.clone(), last_known_key.clone());
                 let (user_id, tenant) = (context.user_id, tenant_id_str.clone());
+                let dravr_personal_bests = dravr_personal_bests.clone();
                 async move {
                     let keys = [&cache_key, &last_known_key];
                     fetch_and_cache_athlete(
@@ -234,6 +351,10 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
                         user_id,
                         tenant,
                         output_format,
+                        BesideProfile {
+                            reader,
+                            dravr_personal_bests,
+                        },
                     )
                     .await
                     .unwrap_or_else(|e| last_known::failed_read(&e))
@@ -251,10 +372,21 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
                 read,
                 |athlete| {
                     let metadata = cached_metadata(context.user_id, tenant_id_str.as_ref());
-                    formatted_response(&GetAthleteResult { athlete }, output_format, metadata)
+                    formatted_response(
+                        &GetAthleteResult {
+                            athlete,
+                            provider_context: None,
+                            dravr_personal_bests: dravr_personal_bests.clone(),
+                        },
+                        output_format,
+                        metadata,
+                    )
                 },
             )
             .await?;
+            if response.success {
+                ai_scope::note_served_from(&provider_name);
+            }
             handler_bridge::map_universal_response("get_athlete", Ok(response))
         }
         .await;
@@ -263,10 +395,12 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
 }
 
 // ============================================================================
-// GetStatsTool - Get activity statistics
+// GetStatsTool - the athlete's totals, a view over the one aggregator
 // ============================================================================
 
-/// Tool for retrieving aggregated activity statistics from a fitness provider.
+/// Tool answering the athlete's all-time and this-year totals: a view over
+/// the one aggregator ([`query_activities`]), every source merged, never a
+/// provider's own figure.
 #[derive(Debug)]
 pub struct GetStatsTool;
 
@@ -279,7 +413,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(PROVIDER_ARGUMENT.to_owned()),
+                description: Some("One source only.".to_owned()),
                 ..Default::default()
             },
         );
@@ -288,29 +422,18 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
 
         let schema = object_schema(properties, None);
 
-        answers_with::<Formatted<GetStatsResult>>(task_capable(tool_definition(
+        answers_with::<Formatted<GetStatsResult>>(tool_definition(
             "get_stats",
-            "Aggregated activity totals from a connected provider. Read `coverage` before quoting \
-             any total_*: `coverage.window.scope.kind` is `lifetime` (ALL-TIME), \
-             `recent_activities` (only the `coverage.window.total` most recent activities, \
-             oldest on `coverage.window.oldest`; e.g. Wahoo, WHOOP) or `last_days` (only the \
-             last `coverage.window.scope.days` days). Report a \
-             `recent_activities` or `last_days` total as that sample or window ('your last N \
-             workouts since <date>', 'the last N days'), never as lifetime, all-time, career or \
-             total-ever. `year_to_date` (Strava) holds \
-             CURRENT-CALENDAR-YEAR totals: use it for 'this year' and never report the other \
-             totals as annual. IMPORTANT: Strava's ride and run totals count ONLY the base sport \
-             type, EXCLUDING VirtualRide, GravelRide, MountainBikeRide, EBikeRide, TrailRun and \
-             VirtualRun. For a cross-discipline total ('total km cycling this year') do NOT \
-             report them: call get_activities for the period and sum distance across all \
-             related sport types.",
+            "All-time totals over every source, merged; year_to_date is this calendar year. \
+             Read stats.coverage before quoting. For a period or breakdown, call \
+             query_activities.",
             schema,
             annotations(
                 "Get activity totals",
                 Effect::ReadOnly,
                 Reach::AthleteAccount,
             ),
-        )))
+        ))
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -323,150 +446,73 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
         ctx: &ToolContext,
         args: Value,
     ) -> ToolResponse {
+        use chrono::Datelike;
+
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let provider_name = match resolve_provider_for_tool(&args, &context).await {
-                Ok(p) => p,
-                Err(result) => return Ok(result),
+            let athlete = QueriedAthlete {
+                user_id: context.user_id,
+                tenant_id: TenantId::from_uuid(context.require_tenant()?),
             };
-
-            // Canonicalize to the serving backend before any cache op — same
-            // single-key rule as get_activities/get_athlete (explicit "garmin"
-            // vs stored "sciotte_garmin" must share one stats/profile key).
-            let provider_name = backend_resolver::resolve_backend(
-                context.resources.repos(),
-                context.user_id,
-                context.tenant_id.map(TenantId::from_uuid),
-                &provider_name,
-            )
-            .await;
-            // Stats carry no item provenance: refused before the cache, as in
-            // get_athlete (carnet#724).
-            ai_scope::first_party_only_read(
-                context.resources.provider_registry().as_ref(),
-                &provider_name,
-                None,
-            )?;
-
-            let output_format = parse_output_format(&args);
-
-            // get_stats needs an athlete_id (provider-specific u64) for its
-            // cache key shape. The first lookup is cheap when an athlete profile
-            // is already cached; otherwise we fall through to the live API path.
-            let tenant_id = TenantId::from_uuid(context.tenant_id.unwrap_or_else(Uuid::nil));
-            let tenant_id_str = context.tenant_id.map(|t| t.to_string());
-
-            let athlete_cache_key = CacheKey::new(
-                tenant_id,
-                context.user_id,
-                provider_name.clone(),
-                CacheResource::AthleteProfile,
-            );
-
-            let cache = context.resources.cache();
-
-            if let Some(athlete_id) = try_get_athlete_id_from_cache(cache, &athlete_cache_key).await
-            {
-                let stats_cache_key = CacheKey::new(
-                    tenant_id,
-                    context.user_id,
-                    provider_name.clone(),
-                    CacheResource::Stats { athlete_id },
-                );
-
-                if let Some(cached_response) = handler_bridge::map_protocol_result(
-                    "get_stats",
-                    try_get_cached_stats(
-                        cache,
-                        &stats_cache_key,
-                        context.user_id,
-                        tenant_id_str.as_ref(),
-                        output_format,
-                    )
-                    .await,
-                )? {
-                    return handler_bridge::map_universal_response(
-                        "get_stats",
-                        Ok(cached_response),
-                    );
-                }
-            }
-
-            // Cache miss path — authenticate and fetch from provider.
-            let executor = UniversalExecutor::new(context.resources.clone());
-            let provider = match executor
-                .auth_service
-                .create_authenticated_provider(
-                    &provider_name,
-                    context.user_id,
-                    tenant_id_str.as_deref(),
-                )
-                .await
-            {
-                Ok(provider) => provider,
-                Err(response) => {
-                    let fallback_error = response
-                        .error
-                        .clone()
-                        .unwrap_or_else(|| "get_stats authentication failed".to_owned());
-                    let error_payload = response.result.unwrap_or_else(|| {
-                        json!({
-                            "error": fallback_error,
-                        })
-                    });
-                    return Ok(ToolResult::error(error_payload));
-                }
-            };
-
-            // Read live within the refresh budget; past it, or on a failure,
-            // the last-known statistics stand in with a caveat.
-            let last_known_key = CacheKey::new(
-                tenant_id,
-                context.user_id,
-                provider_name.clone(),
-                CacheResource::LastKnownStats,
-            );
-            let read = {
-                let (cache, athlete_cache_key, last_known_key) = (
-                    Arc::clone(cache),
-                    athlete_cache_key.clone(),
-                    last_known_key.clone(),
-                );
-                let (user_id, provider_name) = (context.user_id, provider_name.clone());
-                async move {
-                    fetch_and_cache_stats(
-                        provider.as_ref(),
-                        &cache,
-                        [&athlete_cache_key, &last_known_key],
-                        tenant_id,
-                        user_id,
-                        &provider_name,
-                        output_format,
-                    )
-                    .await
-                    .unwrap_or_else(|e| last_known::failed_read(&e))
-                }
-            };
-            let fallback = Fallback {
-                key: &last_known_key,
-                backend: &provider_name,
-                what: "statistics",
-            };
-            let response = last_known::live_or_last_known(
-                cache,
-                &context.resources.config().timeouts,
-                fallback,
-                read,
-                |stats| {
-                    let metadata = create_stats_metadata(context.user_id, tenant_id, true);
-                    formatted_response(&GetStatsResult { stats }, output_format, metadata)
-                },
+            let runtime = &context.resources;
+            let (today, _) = athlete_today(runtime, athlete).await?;
+            let mut query = parse_query(&json!({ "provider": args.get("provider") }), today)?;
+            query.group_by = vec![GroupKey::Year];
+            let answer = query_activities(
+                runtime,
+                athlete.user_id,
+                athlete.tenant_id,
+                &query,
+                ReadGate::Model,
             )
             .await?;
+            let payload = stats_view(answer, today.year());
+            let response = formatted_response(
+                &payload,
+                parse_output_format(&args),
+                HashMap::<_, Value>::new(),
+            )?;
             handler_bridge::map_universal_response("get_stats", Ok(response))
         }
         .await;
         tool_result_to_response(result)
+    }
+}
+
+/// One period's totals from the aggregator's values; zeros where nothing
+/// was counted.
+fn period_totals(values: &MetricValues) -> PeriodTotals {
+    PeriodTotals {
+        total_activities: values.count.unwrap_or(0),
+        total_distance: values.distance_metres().unwrap_or(0.0),
+        total_duration: values.elapsed_time_s.unwrap_or(0),
+        total_elevation_gain: values.elevation_m.unwrap_or(0.0),
+    }
+}
+
+/// `get_stats`' wire from one all-time count grouped by year: the totals
+/// over every year, and `year`'s group as the year to date (zeros when that
+/// year holds nothing).
+fn stats_view(answer: QueryAnswer, year: i32) -> GetStatsResult {
+    let all_time = period_totals(&answer.totals);
+    let this_year = answer
+        .groups
+        .iter()
+        .find(|group| group.key.get(&GroupKey::Year) == Some(&KeyValue::Year(year)))
+        .map_or_else(
+            || period_totals(&MetricValues::default()),
+            |group| period_totals(&group.values),
+        );
+    GetStatsResult {
+        stats: Stats {
+            total_activities: all_time.total_activities,
+            total_distance: all_time.total_distance,
+            total_duration: all_time.total_duration,
+            total_elevation_gain: all_time.total_elevation_gain,
+            coverage: answer.coverage,
+            year_to_date: Some(this_year),
+        },
+        coverage_by_source: answer.coverage_by_source,
     }
 }
 
@@ -480,25 +526,14 @@ crate::declare_security!(GetStatsTool => empty);
 // Provider reads and their cache, shared by the two tools
 // ============================================================================
 
-/// Try to get athlete from cache
-async fn try_get_cached_athlete(
-    cache: &Arc<Cache>,
-    cache_key: &CacheKey,
-    user_uuid: Uuid,
-    tenant_id: Option<&String>,
-    output_format: OutputFormat,
-) -> Result<Option<UniversalResponse>, ProtocolError> {
+/// The profile the cache holds for `cache_key`, if any.
+async fn lookup_cached_athlete(cache: &Arc<Cache>, cache_key: &CacheKey) -> Option<Athlete> {
     if let Ok(Some(cached_athlete)) = cache.get::<Athlete>(cache_key).await {
         info!("Cache hit for athlete profile");
-        let metadata = cached_metadata(user_uuid, tenant_id);
-
-        let payload = GetAthleteResult {
-            athlete: cached_athlete,
-        };
-        return Ok(Some(formatted_response(&payload, output_format, metadata)?));
+        return Some(cached_athlete);
     }
     info!("Cache miss for athlete profile");
-    Ok(None)
+    None
 }
 
 /// Response metadata for a profile served from a cache.
@@ -533,8 +568,22 @@ async fn fetch_and_cache_athlete(
     user_uuid: Uuid,
     tenant_id: Option<String>,
     output_format: OutputFormat,
+    beside: BesideProfile,
 ) -> Result<UniversalResponse, ProtocolError> {
-    match provider.get_athlete().await {
+    let BesideProfile {
+        reader,
+        dravr_personal_bests,
+    } = beside;
+    // The provider's figures are read beside the profile, so they add nothing
+    // to its time; each read is bounded by `CONTEXT_READ_BUDGET`.
+    let context_read = async {
+        match &reader {
+            Some(reader) => reader.read(provider).await,
+            None => None,
+        }
+    };
+    let (fetched, provider_context) = tokio::join!(provider.get_athlete(), context_read);
+    match fetched {
         Ok(athlete) => {
             cache_athlete_result(cache, cache_key, &athlete).await;
             last_known::remember(cache, last_known_key, &athlete).await;
@@ -547,7 +596,15 @@ async fn fetch_and_cache_athlete(
             );
             metadata.insert("cached".to_owned(), Value::Bool(false));
 
-            formatted_response(&GetAthleteResult { athlete }, output_format, metadata)
+            formatted_response(
+                &GetAthleteResult {
+                    athlete,
+                    provider_context,
+                    dravr_personal_bests,
+                },
+                output_format,
+                metadata,
+            )
         }
         Err(e) => Ok(last_known::provider_failure(
             "Failed to fetch athlete profile",
@@ -556,148 +613,115 @@ async fn fetch_and_cache_athlete(
     }
 }
 
-/// Try to get athlete ID from cached athlete profile
-async fn try_get_athlete_id_from_cache(
-    cache: &Arc<Cache>,
-    athlete_cache_key: &CacheKey,
-) -> Option<u64> {
-    if let Ok(Some(athlete)) = cache.get::<Athlete>(athlete_cache_key).await {
-        return athlete
-            .id
-            .parse::<u64>()
-            .inspect_err(|e| {
-                debug!(
-                    athlete_id_str = %athlete.id,
-                    error = %e,
-                    "Failed to parse athlete ID from cache as u64"
-                );
-            })
-            .ok();
-    }
-    None
+/// What a live profile read carries beside the profile.
+struct BesideProfile {
+    /// The provider's figures, when its backend serves them.
+    reader: Option<AthleteContextRead>,
+    /// Dravr's own bests.
+    dravr_personal_bests: Option<DravrPersonalBests>,
 }
 
-/// Try to get stats from cache
-async fn try_get_cached_stats(
-    cache: &Arc<Cache>,
-    stats_cache_key: &CacheKey,
-    user_uuid: Uuid,
-    tenant_id: Option<&String>,
-    output_format: OutputFormat,
-) -> Result<Option<UniversalResponse>, ProtocolError> {
-    if let Ok(Some(cached_stats)) = cache.get::<Stats>(stats_cache_key).await {
-        info!("Cache hit for stats");
-        let mut metadata = HashMap::new();
-        metadata.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
-        metadata.insert(
-            "tenant_id".to_owned(),
-            tenant_id.map_or(Value::Null, |id| Value::String(id.clone())),
-        );
-        metadata.insert("cached".to_owned(), Value::Bool(true));
+/// What it takes to read the provider's own figures about the athlete.
+struct AthleteContextRead {
+    /// The server's repositories, shared with the runtime: the read moves into
+    /// the profile's bounded future, which cannot borrow the tool context.
+    repos: Arc<RepositoryRegistry>,
+    /// The server's provider registry, shared with the runtime for the same
+    /// reason: it names the provider as the athlete knows it.
+    registry: Arc<ProviderRegistry>,
+    /// The athlete whose gear ledger decides the provider's shoe fallback,
+    /// and whose context-read windows the reads count in.
+    user_id: Uuid,
+    /// The serving backend, never shown to the athlete.
+    backend: String,
+}
 
-        let payload = GetStatsResult {
-            stats: cached_stats,
+impl AthleteContextRead {
+    /// The provider's records, weight and gear, labelled as its own.
+    async fn read(&self, provider: &dyn FitnessProvider) -> Option<ProviderAthleteContext> {
+        let shoes = ledger_shoes(&self.repos, self.user_id).await;
+        let source = source_label(&self.registry, &self.backend);
+        // Through a signed-in session, each read counts in the athlete's own
+        // context-read windows.
+        let budget = self
+            .registry
+            .session_context_budget(provider.name(), self.user_id);
+        let limits = ContextLimits {
+            time: CONTEXT_READ_BUDGET,
+            budget: budget.as_ref(),
         };
-        return Ok(Some(formatted_response(&payload, output_format, metadata)?));
-    }
-    info!("Cache miss for stats");
-    Ok(None)
-}
-
-/// Create metadata for stats responses
-fn create_stats_metadata(
-    user_uuid: Uuid,
-    tenant_id: TenantId,
-    cached: bool,
-) -> HashMap<String, Value> {
-    let mut map = HashMap::new();
-    map.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
-    map.insert("tenant_id".to_owned(), Value::String(tenant_id.to_string()));
-    map.insert("cached".to_owned(), Value::Bool(cached));
-    map
-}
-
-/// Cache a single item with TTL, logging errors
-async fn cache_item<T: Serialize + Send + Sync>(
-    cache: &Arc<Cache>,
-    key: &CacheKey,
-    item: &T,
-    ttl: Duration,
-    item_name: &str,
-) {
-    if let Err(e) = cache.set(key, item, ttl).await {
-        warn!("Failed to cache {}: {}", item_name, e);
+        read_athlete_context(provider, &source, shoes, limits).await
     }
 }
 
-/// Cache athlete and stats data
-async fn cache_athlete_and_stats(
-    cache: &Arc<Cache>,
-    athlete_cache_key: &CacheKey,
-    athlete: &Athlete,
-    stats: &Stats,
-    tenant_id: TenantId,
-    user_uuid: Uuid,
-    provider_name: &str,
-) {
-    let Some(athlete_id) = athlete
-        .id
-        .parse::<u64>()
-        .inspect_err(|e| debug!("Failed to parse athlete ID: {e}"))
-        .ok()
-    else {
-        return;
-    };
-
-    // Cache athlete
-    let athlete_ttl = CacheResource::AthleteProfile.recommended_ttl();
-    cache_item(cache, athlete_cache_key, athlete, athlete_ttl, "athlete").await;
-
-    // Cache stats
-    let stats_cache_key = CacheKey::new(
-        tenant_id,
-        user_uuid,
-        provider_name.to_owned(),
-        CacheResource::Stats { athlete_id },
-    );
-    let stats_ttl = CacheResource::Stats { athlete_id }.recommended_ttl();
-    cache_item(cache, &stats_cache_key, stats, stats_ttl, "stats").await;
-    info!("Cached stats with TTL {:?}", stats_ttl);
+/// Whether the athlete's own Dravr gear ledger holds shoes, for the provider's
+/// shoe fallback: a ledger that cannot be read is never read as empty. The
+/// ledger has no bike kind, so bikes never depend on it.
+async fn ledger_shoes(repos: &RepositoryRegistry, user_id: Uuid) -> LedgerShoes {
+    match repos.athlete_gear.list_gear(user_id).await {
+        Ok(pairs)
+            if pairs
+                .iter()
+                .all(|pair| pair.declaration.kind != GearKind::Shoe) =>
+        {
+            LedgerShoes::Empty
+        }
+        Ok(_) => LedgerShoes::Declared,
+        Err(e) => {
+            warn!(error = %e, "the gear ledger is unreadable; the provider's shoes are not shown");
+            LedgerShoes::Unreadable
+        }
+    }
 }
 
-/// Fetch stats from API and cache both athlete and stats
-///
-/// `keys` are the athlete's 24 h entry and the stats' last-known copy.
-async fn fetch_and_cache_stats(
-    provider: &dyn FitnessProvider,
-    cache: &Arc<Cache>,
-    [athlete_cache_key, last_known_key]: [&CacheKey; 2],
+/// Dravr's computed bests for the athlete, labelled as Dravr's. Never fatal:
+/// a store that cannot be read leaves the block out. Scoped to the athlete's
+/// tenant by the repository.
+async fn read_dravr_bests(
+    repos: &RepositoryRegistry,
+    registry: &ProviderRegistry,
+    user_id: Uuid,
     tenant_id: TenantId,
-    user_uuid: Uuid,
-    provider_name: &str,
-    output_format: OutputFormat,
-) -> Result<UniversalResponse, ProtocolError> {
-    let stats = match provider.get_stats().await {
-        Ok(stats) => stats,
-        Err(e) => return Ok(last_known::provider_failure("Failed to fetch stats", &e)),
-    };
-
-    last_known::remember(cache, last_known_key, &stats).await;
-
-    // Get athlete to extract athlete_id for caching
-    if let Ok(athlete) = provider.get_athlete().await {
-        cache_athlete_and_stats(
-            cache,
-            athlete_cache_key,
-            &athlete,
-            &stats,
-            tenant_id,
-            user_uuid,
-            provider_name,
-        )
-        .await;
+) -> Option<DravrPersonalBests> {
+    match repos
+        .personal_bests
+        .personal_bests(user_id, tenant_id)
+        .await
+    {
+        Ok(bests) => {
+            // Each best carries its own run's terms. The profile gate covers
+            // only the provider the caller named, so over an external
+            // transport a best set on a first-party-only provider's run is
+            // dropped here whichever provider was asked for (carnet#1622).
+            let bests = ai_scope::retain_served_here(registry, bests, |best| {
+                (best.provider.as_str(), None)
+            });
+            if bests.is_empty() {
+                None
+            } else {
+                Some(DravrPersonalBests {
+                    source: DRAVR_BESTS_SOURCE.to_owned(),
+                    note: DRAVR_BESTS_NOTE.to_owned(),
+                    bests: bests
+                        .into_iter()
+                        .map(|best| dravr_best(registry, best))
+                        .collect(),
+                })
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "Dravr's personal bests could not be read; they are left out");
+            None
+        }
     }
+}
 
-    let metadata = create_stats_metadata(user_uuid, tenant_id, false);
-    formatted_response(&GetStatsResult { stats }, output_format, metadata)
+fn dravr_best(registry: &ProviderRegistry, best: PersonalBest) -> DravrPersonalBest {
+    DravrPersonalBest {
+        distance: best.distance,
+        elapsed_seconds: best.elapsed_seconds,
+        provider: source_label(registry, &best.provider),
+        activity_id: best.activity_id,
+        achieved_at: best.achieved_at.to_rfc3339(),
+    }
 }

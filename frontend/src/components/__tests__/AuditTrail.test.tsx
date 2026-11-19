@@ -61,6 +61,19 @@ const FAILED_BY_GONE_OPERATOR: AuditEvent = {
   metadata: null,
 };
 
+const REVOKED_FROM_THE_ROOM: AuditEvent = {
+  id: 'ev-4',
+  occurred_at: '2026-11-02T08:00:00.000Z',
+  action: 'admin.credentials.revoke',
+  summary: 'Revoked 1 device login(s) and ended 0 impersonation(s) of a deactivated admin',
+  outcome: 'success',
+  source: 'slack',
+  actor_user_id: null,
+  actor_email: null,
+  tenant_id: null,
+  metadata: null,
+};
+
 function renderView() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -103,6 +116,49 @@ describe('AuditTrail', () => {
     expect(screen.getByTestId('audit-event-ev-3').textContent).toContain('By: deleted account');
 
     expect(screen.queryByRole('button', { name: 'Load older' })).toBeNull();
+  });
+
+  it('names the Slack room as the actor and the door of a tap made there', async () => {
+    vi.mocked(adminApi.getAuditEvents).mockResolvedValue({
+      events: [REVOKED_FROM_THE_ROOM],
+      next_before: null,
+      next_before_id: null,
+    });
+
+    renderView();
+
+    // A tap in the ops Slack room names no account: the room is the actor.
+    const row = await screen.findByTestId('audit-event-ev-4');
+    expect(row.textContent).toContain('By: Slack room');
+    expect(row.textContent).toContain('Via: Slack room');
+  });
+
+  it('names an admin tool call from an outside assistant, and one whose outcome was never written', async () => {
+    const toolCall: AuditEvent = {
+      id: 'ev-5',
+      occurred_at: '2026-11-19T08:00:00.000Z',
+      action: 'tool.admin_list_users',
+      summary: 'Called admin_list_users',
+      outcome: 'started',
+      source: 'tool_call',
+      actor_user_id: 'op-1',
+      actor_email: 'admin@dravr.ai',
+      tenant_id: null,
+      metadata: { tool: 'admin_list_users', transport: 'mcp_http' },
+    };
+    vi.mocked(adminApi.getAuditEvents).mockResolvedValue({ events: [toolCall], next_before: null, next_before_id: null });
+
+    renderView();
+
+    const row = await screen.findByTestId('audit-event-ev-5');
+    expect(row.textContent).toContain('Via: tool call from an AI assistant');
+    expect(row.textContent).toContain('By: admin@dravr.ai');
+    expect(screen.getByText('started').className).toContain('badge-info');
+
+    fireEvent.change(screen.getByLabelText('Outcome'), { target: { value: 'started' } });
+    await waitFor(() =>
+      expect(adminApi.getAuditEvents).toHaveBeenLastCalledWith({ limit: 50, outcome: 'started' }),
+    );
   });
 
   it('opens a row onto before → after and the raw metadata', async () => {

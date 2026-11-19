@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, TenantId};
+use pierre_core::models::{Activity, PlaceRef, TenantId};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -131,6 +131,10 @@ pub struct CachedActivityRow {
     /// no later write of the same activity moves); `None` for a row built
     /// in memory, never read from the store.
     pub stored_at: Option<DateTime<Utc>>,
+    /// The place the row's start belongs to, as served; `None` when the row
+    /// has none, its `place_id` names a place that no longer exists, or the
+    /// row was built in memory.
+    pub place: Option<PlaceRef>,
 }
 
 /// How many cached activities one user holds under one key in a tenant.
@@ -206,6 +210,25 @@ pub trait ActivityCacheRepository: Send + Sync {
         activities: &[Activity],
         synced_at: DateTime<Utc>,
     ) -> AppResult<u64>;
+
+    /// Fill the tags and gear a provider's own list page carries into the
+    /// rows already stored under `provider` for `activities`, and nothing
+    /// else.
+    ///
+    /// Only a row that exists is amended: no row is created, no other field
+    /// of it moves, and its `synced_at` stands, so the list head's freshness
+    /// is untouched. A tag read the page carries replaces the stored one; a
+    /// page row without one leaves the stored tags alone. Gear is filled
+    /// where the row holds none, or holds a name without the provider's id.
+    /// A row another write changed between the read and the amend is left
+    /// as that write made it.
+    async fn amend_listed_reads(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        activities: &[Activity],
+    ) -> AppResult<AmendedReads>;
 
     /// Fetch cached activities for a user within `[start, end]`, newest first.
     ///
@@ -479,7 +502,10 @@ pub(crate) mod sql;
 /// The `data_json` a row stores: the activity without its samples
 pub(crate) mod stored_json;
 
-pub use records::{ActivityDetail, ActivityFetchFailure, ActivityFetchFailureRecord};
+/// The place a cached row's start belongs to, as every rows read returns it
+mod place;
+
+pub use records::{ActivityDetail, ActivityFetchFailure, ActivityFetchFailureRecord, AmendedReads};
 /// Which rows a rows read takes
 mod rows_query;
 pub(crate) use rows::{
@@ -489,6 +515,7 @@ pub(crate) use rows::{
 };
 pub use rows_query::{CachedRowCursor, CachedRowsQuery};
 pub use stored_json::amended_summary;
+pub(crate) use stored_json::stored_json_with_listed_reads;
 
 /// String form of an activity's sport type for the indexed column.
 ///
@@ -541,6 +568,43 @@ macro_rules! impl_activity_cache_repository {
             row.map(|r| timestamp_column(&r, "fetched_at")).transpose()
         }
 
+        /// The list copies already stored for `ids`, by activity id, in one
+        /// read per `STORED_DATA_JSON_CHUNK` ids.
+        async fn stored_data_json_by_id(
+            db: &$ty,
+            user_id: &str,
+            tenant_id: &str,
+            provider: &str,
+            ids: &[&str],
+        ) -> AppResult<HashMap<String, String>> {
+            let mut stored = HashMap::new();
+            for chunk in
+                ids.chunks($crate::repositories::activity_cache::sql::STORED_DATA_JSON_CHUNK)
+            {
+                let sql =
+                    $crate::repositories::activity_cache::sql::stored_data_json_sql(chunk.len());
+                let mut read = sqlx::query(&sql)
+                    .bind(user_id)
+                    .bind(tenant_id)
+                    .bind(provider);
+                for id in chunk {
+                    read = read.bind(*id);
+                }
+                let rows = read.fetch_all(db.pool()).await.map_err(|e| {
+                    AppError::database(format!("Failed to read stored activities: {e}"))
+                })?;
+                for row in &rows {
+                    let id = sqlx::Row::try_get::<String, _>(row, "activity_id").map_err(|e| {
+                        AppError::database(format!("activity col activity_id: {e}"))
+                    })?;
+                    let json = sqlx::Row::try_get::<String, _>(row, "data_json")
+                        .map_err(|e| AppError::database(format!("activity col data_json: {e}")))?;
+                    stored.insert(id, json);
+                }
+            }
+            Ok(stored)
+        }
+
         #[async_trait::async_trait]
         impl ActivityCacheRepository for $ty {
             async fn upsert_activities_synced_at(
@@ -561,32 +625,134 @@ macro_rules! impl_activity_cache_repository {
                 // count to the user.
                 let mut distinct_ids = HashSet::new();
 
+                // A list page read deeper than the first carries no tags, and a
+                // read that did not resolve gear carries none: what an earlier
+                // read stored stands. One read for the whole batch, not one per
+                // activity; a copy written below replaces its entry, so a later
+                // copy of the same id in the batch keeps what this one stored.
+                let lacking: Vec<&str> = activities
+                    .iter()
+                    .filter(|a| a.tags().is_none() || a.gear().is_none())
+                    .map(Activity::id)
+                    .collect();
+                let mut stored = if lacking.is_empty() {
+                    HashMap::new()
+                } else {
+                    stored_data_json_by_id(self, &user_id_str, &tenant_str, provider, &lacking)
+                        .await?
+                };
+
+                let merged: HashSet<&str> = lacking.iter().copied().collect();
                 for activity in activities {
                     let id = Uuid::new_v4().to_string();
                     let sport = sport_type_string(activity);
-                    let data_json = stored_activity_json(activity)?;
-
-                    let written = sqlx::query(UPSERT_CACHED_ACTIVITY_SQL)
-                        .bind(&id)
-                        .bind(&user_id_str)
-                        .bind(&tenant_str)
-                        .bind(provider)
-                        .bind(activity.id())
-                        .bind(&sport)
-                        .bind(activity.start_date())
-                        .bind(synced_at)
-                        .bind(&data_json)
-                        .execute(self.pool())
-                        .await
-                        .map_err(|e| AppError::database(format!("Failed to upsert activity: {e}")))?
-                        .rows_affected();
+                    // Merged over the stored copy and written only while the row
+                    // still holds it, or is still absent when none was stored: a
+                    // write that moved the row since (a tag walk's amend) is read
+                    // again and merged over, never erased.
+                    let mut held = stored.get(activity.id()).cloned();
+                    let guarded = held.is_some() || merged.contains(activity.id());
+                    let mut settled = false;
+                    let mut data_json = String::new();
+                    let mut written = 0;
+                    for _ in 0..UPSERT_MERGE_ATTEMPTS {
+                        data_json = stored_activity_json_over(activity, held.as_deref())?;
+                        written = sqlx::query(UPSERT_CACHED_ACTIVITY_SQL)
+                            .bind(&id)
+                            .bind(&user_id_str)
+                            .bind(&tenant_str)
+                            .bind(provider)
+                            .bind(activity.id())
+                            .bind(&sport)
+                            .bind(activity.start_date())
+                            .bind(synced_at)
+                            .bind(&data_json)
+                            .bind(held.as_deref())
+                            .bind(guarded)
+                            .execute(self.pool())
+                            .await
+                            .map_err(|e| {
+                                AppError::database(format!("Failed to upsert activity: {e}"))
+                            })?
+                            .rows_affected();
+                        if written > 0 {
+                            settled = true;
+                            break;
+                        }
+                        // Refused: a later-synced copy stands (the copy read is
+                        // unchanged, or the write was not guarded), or another
+                        // write moved or created the row since.
+                        if !guarded {
+                            settled = true;
+                            break;
+                        }
+                        let now = stored_data_json_by_id(
+                            self,
+                            &user_id_str,
+                            &tenant_str,
+                            provider,
+                            &[activity.id()],
+                        )
+                        .await?
+                        .remove(activity.id());
+                        if now == held {
+                            settled = true;
+                            break;
+                        }
+                        held = now;
+                    }
+                    if !settled {
+                        return Err(AppError::database(format!(
+                            "Activity {} kept changing under its upsert",
+                            activity.id()
+                        )));
+                    }
 
                     if written > 0 {
                         distinct_ids.insert(activity.id().to_owned());
+                        stored.insert(activity.id().to_owned(), data_json);
                     }
                 }
 
                 Ok(u64::try_from(distinct_ids.len()).unwrap_or(u64::MAX))
+            }
+
+            async fn amend_listed_reads(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                activities: &[Activity],
+            ) -> AppResult<AmendedReads> {
+                let (user_id_str, tenant_str) = (user_id.to_string(), tenant_id.to_string());
+                let ids: Vec<&str> = activities.iter().map(Activity::id).collect();
+                let stored =
+                    stored_data_json_by_id(self, &user_id_str, &tenant_str, provider, &ids).await?;
+                let mut amended = AmendedReads::default();
+                for activity in activities {
+                    let Some(held) = stored.get(activity.id()) else {
+                        continue;
+                    };
+                    amended.present += 1;
+                    let Some(filled) = stored_json_with_listed_reads(held, activity)? else {
+                        continue;
+                    };
+                    let written = sqlx::query(AMEND_LISTED_READS_SQL)
+                        .bind(&user_id_str)
+                        .bind(&tenant_str)
+                        .bind(provider)
+                        .bind(activity.id())
+                        .bind(&filled)
+                        .bind(held)
+                        .execute(self.pool())
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!("Failed to amend listed reads: {e}"))
+                        })?
+                        .rows_affected();
+                    amended.filled += written;
+                }
+                Ok(amended)
             }
 
             async fn get_cached_activities(
@@ -620,11 +786,15 @@ macro_rules! impl_activity_cache_repository {
                 query: &$crate::repositories::activity_cache::CachedRowsQuery<'_>,
             ) -> AppResult<Vec<CachedActivityRow>> {
                 let keys = query.keys.unwrap_or_default();
-                if query.keys.is_some() && keys.is_empty() {
+                let ids = query.ids.unwrap_or_default();
+                if (query.keys.is_some() && keys.is_empty())
+                    || (query.ids.is_some() && ids.is_empty())
+                {
                     return Ok(Vec::new());
                 }
                 let sql = $crate::repositories::activity_cache::sql::cached_activity_rows_sql(
                     keys.len(),
+                    ids.len(),
                     query.below.is_some(),
                 );
                 let mut read = sqlx::query(&sql)
@@ -640,8 +810,9 @@ macro_rules! impl_activity_cache_repository {
                         .bind(&below.provider)
                         .bind(&below.activity_id);
                 }
-                for key in keys {
-                    read = read.bind(*key);
+                let values = keys.iter().chain(ids);
+                for value in values {
+                    read = read.bind(*value);
                 }
                 let rows = read.fetch_all(self.pool()).await.map_err(|e| {
                     AppError::database(format!("Failed to get cached activity rows: {e}"))

@@ -15,6 +15,7 @@ import type {
 } from '@pierre/shared-types';
 
 import { useTranslation } from '@pierre/i18n';
+import { Badge } from '../../components/ui';
 import { EvidenceChip } from './EvidenceChip';
 
 interface WorkoutPlanCardProps {
@@ -221,9 +222,7 @@ export function DayRow({ day }: { day: PlanDay }) {
           </Text>
         )}
         {day.outside_evidence ? (
-          <View className="mt-1 self-start rounded-full bg-warning/15 px-3 py-1">
-            <Text className="text-xs font-medium text-on-warning-container">{day.outside_evidence}</Text>
-          </View>
+          <Badge variant="warning" label={day.outside_evidence} className="mt-1 self-start" />
         ) : null}
         {day.evidence ? <EvidenceChip evidence={day.evidence} /> : null}
         {day.counts_as ? (

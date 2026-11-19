@@ -3,31 +3,37 @@
 
 import React from 'react';
 import { clsx } from 'clsx';
+import { BADGE_TONE, type BadgeTone } from './badgeTone';
+
+/** The tones by name, plus the admin alias `destructive`, which names the error tone. */
+type BadgeVariant = BadgeTone | 'destructive';
+
+/** An action name drawn in an existing tone rather than one of its own. */
+const VARIANT_TONE: Record<BadgeVariant, BadgeTone> = {
+  neutral: 'neutral',
+  primary: 'primary',
+  success: 'success',
+  warning: 'warning',
+  error: 'error',
+  info: 'info',
+  accent: 'accent',
+  activity: 'activity',
+  nutrition: 'nutrition',
+  recovery: 'recovery',
+  mobility: 'mobility',
+  secondary: 'secondary',
+  destructive: 'error',
+};
 
 interface BadgeProps {
-  variant: 'success' | 'warning' | 'error' | 'info' | 'trial' | 'starter' | 'professional' | 'enterprise' | 'destructive' | 'secondary' | 'mobility';
+  variant: BadgeVariant;
   children: React.ReactNode;
   className?: string;
+  'data-testid'?: string;
 }
 
-export const Badge: React.FC<BadgeProps> = ({ variant, children, className }) => {
-  const classes = clsx(
-    'badge',
-    {
-      'badge-success': variant === 'success',
-      'badge-warning': variant === 'warning',
-      'badge-error': variant === 'error',
-      'badge-info': variant === 'info',
-      'badge-trial': variant === 'trial',
-      'badge-starter': variant === 'starter',
-      'badge-professional': variant === 'professional',
-      'badge-enterprise': variant === 'enterprise',
-      'badge-destructive': variant === 'destructive',
-      'badge-secondary': variant === 'secondary',
-      'badge-mobility': variant === 'mobility',
-    },
-    className
-  );
-
-  return <span className={classes}>{children}</span>;
-};
+export const Badge: React.FC<BadgeProps> = ({ variant, children, className, 'data-testid': testId }) => (
+  <span className={clsx('badge', BADGE_TONE[VARIANT_TONE[variant]].tone, className)} data-testid={testId}>
+    {children}
+  </span>
+);

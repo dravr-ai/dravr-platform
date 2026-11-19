@@ -15,8 +15,9 @@
 //! transcript.
 //!
 //! Deletion is [`user_removal::remove_user`], the path the app's
-//! `POST /api/user/account-deletion` and the operator console run, so the
-//! refusals are the same: an operator account is refused, and rows other
+//! `POST /api/user/account-deletion` and the admin console run, so the
+//! refusals are the same: the platform's last active admin is refused (an
+//! admin deletes its own account otherwise, carnet#1589), and rows other
 //! people rely on refuse the delete naming each, with nothing touched.
 
 use async_trait::async_trait;
@@ -32,12 +33,11 @@ use pierre_contremaitre::messaging_strings::{
     KEY_DELETE_ACCOUNT_BLOCKER_OWNS_COACHING_GROUP, KEY_DELETE_ACCOUNT_BLOCKER_OWNS_TENANT,
     KEY_DELETE_ACCOUNT_BLOCKER_TENANT_OAUTH_CREDENTIALS, KEY_DELETE_ACCOUNT_DM_ONLY,
     KEY_DELETE_ACCOUNT_DONE, KEY_DELETE_ACCOUNT_EMAIL_MISMATCH, KEY_DELETE_ACCOUNT_FAILED,
-    KEY_DELETE_ACCOUNT_OPERATOR, KEY_DELETE_ACCOUNT_PROVIDERS, KEY_DELETE_ACCOUNT_WARNING,
+    KEY_DELETE_ACCOUNT_PROVIDERS, KEY_DELETE_ACCOUNT_WARNING,
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::{normalize_email, UserReference, UserReferenceKind};
-use pierre_core::permissions::UserRole;
-use pierre_database::repositories::DeletionActor;
+use pierre_services::admin_ops::AccountCaller;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::user_removal::{self, UserRemoval};
 use std::collections::BTreeSet;
@@ -92,6 +92,13 @@ pub struct DeleteAccountHandler;
 
 #[async_trait]
 impl CommandHandler for DeleteAccountHandler {
+    /// Deleting the account is the owner's decision alone: an admin deletes
+    /// through the admin console, never from a support session's chat
+    /// (carnet#1634). The bare warning deletes nothing, so it is still read.
+    fn outlives_support_session(&self, args: &[String]) -> bool {
+        !args.is_empty()
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let repos = ctx.ctx.repos();
         let reg = ctx.ctx.messaging_strings_registry();
@@ -101,14 +108,6 @@ impl CommandHandler for DeleteAccountHandler {
             .get_global(ctx.user_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("User {}", ctx.user_id)))?;
-
-        if user.is_admin || user.role != UserRole::User {
-            return Ok(CommandResponse::text(reg.render(
-                KEY_DELETE_ACCOUNT_OPERATOR,
-                locale,
-                &[],
-            )));
-        }
 
         let blockers = repos.users.deletion_blockers(user.id).await?;
         if !blockers.is_empty() {
@@ -152,19 +151,20 @@ impl CommandHandler for DeleteAccountHandler {
         let runtime = &ctx.tool_runtime;
         let disconnector = OAuthService::new(runtime.data(), runtime.config().clone());
         let firebase = FirebaseIdentityDeleter::from_config(&runtime.config().firebase);
+        let user_id = user.id;
+        let holder = AccountCaller::account_holder_on_messaging(user_id);
         let outcome = user_removal::remove_user(
             repos,
             Some(&disconnector),
             firebase.as_ref(),
             Some(runtime.data().cache().as_ref()),
-            user.id,
-            DeletionActor::Messaging,
+            &holder.acting_on(user)?,
         )
         .await?;
         let text = match outcome {
             UserRemoval::Removed(report) => {
                 info!(
-                    user_id = %user.id,
+                    user_id = %user_id,
                     channel = %ctx.channel_type,
                     disconnected = report.disconnected.len(),
                     "Account deleted by its owner from a chat command"
@@ -174,7 +174,7 @@ impl CommandHandler for DeleteAccountHandler {
             UserRemoval::Blocked(blockers) => blocked_text(reg, locale, &blockers),
             UserRemoval::Interrupted(interruption) => {
                 warn!(
-                    user_id = %user.id,
+                    user_id = %user_id,
                     error = %interruption.error,
                     "Account deletion from a chat command was interrupted"
                 );

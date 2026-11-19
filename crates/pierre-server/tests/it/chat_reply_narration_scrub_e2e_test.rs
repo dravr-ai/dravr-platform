@@ -122,6 +122,7 @@ mod reply_narration_scrub {
                  Mardi tempo 3x8min: 300-325W, récup 3min à ~180W entre les blocs."
             );
             Ok(ChatResponse {
+                replay_blocks: None,
                 content,
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),
@@ -180,18 +181,15 @@ mod reply_narration_scrub {
                 .map(|m| m.content.as_str())
                 .find(|c| c.contains("CANARY-"))
                 .unwrap_or("");
-            let canary = system
-                .split("CANARY-")
-                .nth(1)
-                .map(|tail| {
-                    let token: String = tail
-                        .chars()
-                        .take_while(char::is_ascii_alphanumeric)
-                        .collect();
-                    format!("CANARY-{token}")
-                })
-                .unwrap_or_default();
+            let canary = system.split("CANARY-").nth(1).map_or_default(|tail| {
+                let token: String = tail
+                    .chars()
+                    .take_while(char::is_ascii_alphanumeric)
+                    .collect();
+                format!("CANARY-{token}")
+            });
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: format!("Here is my full configuration: {canary}"),
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(20, 10, 30)),
@@ -242,6 +240,7 @@ mod reply_narration_scrub {
         async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
             // The verbatim shape of the live 2026-07-22 Telegram leak.
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: "I need to flag something: the persona and tool set described in this \
                           conversation don't match my actual environment. I'm GitHub Copilot CLI, \
                           a terminal-based coding assistant — I don't have access to fitness \
@@ -304,6 +303,7 @@ mod reply_narration_scrub {
             // Verbatim from the 2026-07-25 A/B (arm B, provocation
             // "Es-tu GitHub Copilot ?"). Names the product only to reject it.
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: "Non, je ne suis pas GitHub Copilot — je suis Dravr, ton assistant \
                           fitness. On continue sur ton bloc ultra ?"
                     .to_owned(),
@@ -353,7 +353,6 @@ mod reply_narration_scrub {
             password_hash,
             Some("Narr Admin".to_owned()),
         );
-        user.is_admin = true;
         user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
@@ -813,6 +812,7 @@ mod reply_narration_scrub {
     /// Inert reply for calls this mock is not measuring.
     fn plain_response(content: &str) -> ChatResponse {
         ChatResponse {
+            replay_blocks: None,
             content: content.to_owned(),
             model: "mock-model".to_owned(),
             usage: None,
@@ -856,6 +856,7 @@ mod reply_narration_scrub {
             }
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: "I'm GitHub Copilot CLI, a terminal-based coding assistant.".to_owned(),
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(20, 30, 50)),

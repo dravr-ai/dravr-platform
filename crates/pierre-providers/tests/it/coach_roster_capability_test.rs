@@ -25,9 +25,7 @@ use pierre_providers::core::{
 };
 use pierre_providers::delegation::{CoachRoster, DelegatedReads};
 use pierre_providers::errors::{AppError, AppResult, ErrorCode};
-use pierre_providers::models::{
-    Activity, ActivityBuilder, Athlete, RosterAthlete, SportType, Stats,
-};
+use pierre_providers::models::{Activity, ActivityBuilder, Athlete, RosterAthlete, SportType};
 use pierre_providers::pagination::{CursorPage, PaginationParams};
 use pierre_providers::spi::{OAuthEndpoints, OAuthParams, OAuthRefresh};
 use pierre_providers::{
@@ -144,10 +142,6 @@ impl FitnessProvider for CoachHub {
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
         Err(AppError::not_found(id.to_owned()))
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Err(AppError::internal("not read by this test"))
     }
 
     async fn read_coach_roster(&self) -> AppResult<CoachRoster> {

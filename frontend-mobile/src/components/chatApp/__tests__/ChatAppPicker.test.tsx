@@ -23,7 +23,9 @@ describe('ChatAppPicker', () => {
     render(<ChatAppPicker channels={CHANNELS} onSelect={jest.fn()} />);
     expect(screen.getByText('Telegram')).toBeTruthy();
     expect(screen.getByText('Slack')).toBeTruthy();
-    expect(screen.getByText('Recommended')).toBeTruthy();
+    // The Badge's primary variant, the web's `.badge-primary`: the brand hue's
+    // tint under its container ink.
+    expect(screen.getByText('Recommended').props.className).toContain('text-on-primary-container');
   });
 
   it('chooses a channel on tap, once', () => {

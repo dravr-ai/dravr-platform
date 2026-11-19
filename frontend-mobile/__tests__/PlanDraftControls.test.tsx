@@ -233,6 +233,7 @@ describe("a coach's draft on the phone's plan card", () => {
     fireEvent.press(await screen.findByTestId('plan-draft-publish'));
 
     const conflict = await screen.findByTestId('plan-draft-conflict');
+    expect(conflict.props.className).toContain('bg-warning/10');
     expect(conflict).toHaveTextContent(/Alice Runner's plan changed since this draft began/);
     // Both weeks are named; how they are joined is the engine's list grammar
     // where it has one (Node here), a comma on Hermes.

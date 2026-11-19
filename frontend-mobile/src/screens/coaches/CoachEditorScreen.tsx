@@ -19,7 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Feather } from '@expo/vector-icons';
-import { spacing, useCardStyle, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
+import { spacing, useCardStyle, useThemeColors, categoryDotClass } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { CollapsibleSection } from '../../components/ui';
 import type { Agent, UpdateAgentRequest } from '../../types';
@@ -31,8 +31,8 @@ import { estimatePromptTokens, PROMPT_TOKEN_ESTIMATE_KEY } from '@pierre/ui-logi
 // Category options with colors matching Stitch UX spec
 // `key` is the value stored on the coach and sent to the API, so it stays
 // English; `labelKey` is what the chip shows and is resolved at render.
-// The colour is no longer carried here: it comes from `categoryAccent`, which
-// reads the live pillar tokens, so this table holds only what is genuinely
+// The colour is no longer carried here: it comes from `categoryDotClass`,
+// which names the live pillar tokens, so this table holds only what is genuinely
 // static about a category.
 const CATEGORY_OPTIONS: Array<{ key: string; labelKey: string }> = [
   { key: 'training', labelKey: 'app.training' },
@@ -347,20 +347,19 @@ export function CoachEditorScreen() {
               onPress={showCategoryPicker}
               testID="category-picker"
             >
-              {/* The selected category reads as a TINT of its pillar accent,
-                  labelled in that accent's bound ink. A pillar hue is a fill,
-                  never a ground for `on-surface`: the pale dark-scheme set
-                  under near-white ink measures 1.32-2.11:1, the pairing
-                  DESIGN.md §5 lists under Forbidden. `categoryAccent` at /20
-                  with `categoryInk` on top clears AA for every category in
-                  both schemes. Both read `category`, so an unknown one takes
-                  the primary/on-primary-container pair together. */}
-              <View
-                className="px-3 py-1.5 rounded-full"
-                style={{ backgroundColor: `${categoryAccent(colors, category)}20` }}
-                testID="selected-category"
-              >
-                <Text className="text-sm font-semibold" style={{ color: categoryInk(colors, category) }}>
+              {/* The field shows its value the way the picker below lists it:
+                  the pillar dot beside the category word, in the field's body
+                  ink — a selected value, not a tinted chip (the web form is a
+                  plain select). The dot is a fill, never a ground for text, so
+                  it takes `categoryDotClass` and the word stays `on-surface`. */}
+              <View className="flex-row items-center" testID="selected-category">
+                <View
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                  className={`w-3 h-3 rounded-full mr-3 ${categoryDotClass(category)}`}
+                  testID="selected-category-dot"
+                />
+                <Text className="text-text-primary text-base">
                   {currentCategory ? t(currentCategory.labelKey) : undefined}
                 </Text>
               </View>
@@ -740,10 +739,7 @@ export function CoachEditorScreen() {
                 onPress={() => selectCategory(cat.key)}
                 testID={`category-option-${cat.key}`}
               >
-                <View
-                  className="w-3 h-3 rounded-full mr-3"
-                  style={{ backgroundColor: categoryAccent(colors, cat.key) }}
-                />
+                <View className={`w-3 h-3 rounded-full mr-3 ${categoryDotClass(cat.key)}`} />
                 <Text className="text-text-primary text-base">{t(cat.labelKey)}</Text>
               </TouchableOpacity>
             ))}

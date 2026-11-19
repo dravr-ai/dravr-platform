@@ -1,86 +1,44 @@
-// ABOUTME: Unit tests for the role-based permission system
-// ABOUTME: Tests UserRole hierarchy, Permissions bitflags, and permission checker logic
+// ABOUTME: Unit tests for the two user roles and the impersonation session record
+// ABOUTME: Tests which role is an admin, role parsing and display, and a session's lifecycle
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 #![allow(clippy::unwrap_used, missing_docs)]
 
-use pierre_core::permissions::{
-    impersonation::{ImpersonationSession, PermissionDelegation},
-    Permissions, UserRole,
-};
+use pierre_core::permissions::{impersonation::ImpersonationSession, UserRole};
 use std::str::FromStr;
 use uuid::Uuid;
 
 #[test]
-fn test_role_hierarchy() {
-    assert!(UserRole::SuperAdmin.has_privilege(UserRole::Admin));
-    assert!(UserRole::SuperAdmin.has_privilege(UserRole::User));
-    assert!(UserRole::Admin.has_privilege(UserRole::User));
-    assert!(!UserRole::User.has_privilege(UserRole::Admin));
-    assert!(!UserRole::Admin.has_privilege(UserRole::SuperAdmin));
+fn only_the_admin_role_is_an_admin() {
+    assert!(UserRole::Admin.is_admin());
+    assert!(!UserRole::User.is_admin());
 }
 
 #[test]
 fn test_role_parsing() {
-    assert_eq!(
-        "super_admin".parse::<UserRole>().unwrap(),
-        UserRole::SuperAdmin
-    );
     assert_eq!("admin".parse::<UserRole>().unwrap(), UserRole::Admin);
     assert_eq!("user".parse::<UserRole>().unwrap(), UserRole::User);
     assert!(UserRole::from_str("invalid").is_err());
 }
 
+/// The role carnet#1567 folded into `admin` is not a role any more: a strict
+/// parse refuses it, and the lossy parse a stored row goes through reads it
+/// as a plain user, never as an admin. The data migration rewrites every such
+/// row before the server serves.
+#[test]
+fn the_retired_super_admin_value_is_not_a_role() {
+    assert!(UserRole::from_str("super_admin").is_err());
+    assert_eq!(UserRole::from_str_lossy("super_admin"), UserRole::User);
+    assert_eq!(UserRole::from_str_lossy("admin"), UserRole::Admin);
+    assert_eq!(UserRole::from_str_lossy("anything else"), UserRole::User);
+}
+
 #[test]
 fn test_role_display() {
-    assert_eq!(UserRole::SuperAdmin.as_str(), "super_admin");
     assert_eq!(UserRole::Admin.as_str(), "admin");
     assert_eq!(UserRole::User.as_str(), "user");
-}
-
-#[test]
-fn test_permissions_user_default() {
-    let perms = Permissions::USER_DEFAULT;
-    assert!(perms.has_all(Permissions::VIEW_OWN_DATA));
-    assert!(perms.has_all(Permissions::CREATE_MCP_TOKENS));
-    assert!(!perms.has_any(Permissions::VIEW_ALL_USERS));
-    assert!(!perms.has_any(Permissions::IMPERSONATE_USERS));
-}
-
-#[test]
-fn test_permissions_admin_default() {
-    let perms = Permissions::ADMIN_DEFAULT;
-    assert!(perms.has_all(Permissions::VIEW_OWN_DATA));
-    assert!(perms.has_all(Permissions::VIEW_ALL_USERS));
-    assert!(perms.has_all(Permissions::APPROVE_USERS));
-    assert!(!perms.has_any(Permissions::IMPERSONATE_USERS));
-}
-
-#[test]
-fn test_permissions_super_admin() {
-    let perms = Permissions::all();
-    assert!(perms.has_all(Permissions::VIEW_OWN_DATA));
-    assert!(perms.has_all(Permissions::VIEW_ALL_USERS));
-    assert!(perms.has_all(Permissions::IMPERSONATE_USERS));
-    assert!(perms.has_all(Permissions::MANAGE_ADMINS));
-}
-
-#[test]
-fn test_role_default_permissions() {
-    assert_eq!(
-        UserRole::User.default_permissions(),
-        Permissions::USER_DEFAULT
-    );
-    assert_eq!(
-        UserRole::Admin.default_permissions(),
-        Permissions::ADMIN_DEFAULT
-    );
-    assert_eq!(
-        UserRole::SuperAdmin.default_permissions(),
-        Permissions::all()
-    );
 }
 
 #[test]
@@ -101,40 +59,4 @@ fn test_impersonation_session_lifecycle() {
     assert!(!session.is_active);
     assert!(session.ended_at.is_some());
     assert!(session.duration_seconds() >= 0);
-}
-
-#[test]
-fn test_permission_delegation() {
-    let grantor = Uuid::new_v4();
-    let grantee = Uuid::new_v4();
-
-    let mut delegation = PermissionDelegation::new(
-        grantor, grantee, 0x1F, // Some permissions
-        None,
-    );
-
-    assert!(delegation.is_active());
-
-    delegation.revoke();
-
-    assert!(!delegation.is_active());
-}
-
-#[test]
-fn test_delegation_expiration() {
-    let grantor = Uuid::new_v4();
-    let grantee = Uuid::new_v4();
-
-    // Create expired delegation
-    let delegation = PermissionDelegation {
-        id: Uuid::new_v4().to_string(),
-        grantor_id: grantor,
-        grantee_id: grantee,
-        permissions: 0x1F,
-        expires_at: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
-        revoked_at: None,
-        created_at: chrono::Utc::now() - chrono::Duration::hours(2),
-    };
-
-    assert!(!delegation.is_active());
 }

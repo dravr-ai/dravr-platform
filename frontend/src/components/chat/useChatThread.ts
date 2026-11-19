@@ -50,6 +50,7 @@ import type {
   TurnEnvelope,
   TurnSendOptions,
 } from '@pierre/shared-types';
+import { hasAdminRole } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { chatApi, groupsApi, providersApi } from '../../services/api';
 import { track } from '../../services/analytics';
@@ -129,7 +130,7 @@ export interface UseChatThreadOptions {
   onSelectConversation: (id: string | null) => void;
   /** How this surface opens a thread when a turn needs one. */
   openThread: OpenThread;
-  /** Text the host wants drafted or sent in the thread — the invite deep link, an activity's chips. */
+  /** Text the host wants drafted or sent in the thread — the activity view's prompts and chips. */
   pendingComposerAction?: PendingComposerAction | null;
   /** Called once the action above has been drafted or dispatched. */
   onPendingComposerActionConsumed?: () => void;
@@ -312,7 +313,7 @@ export function useChatThread({
   // Which model wrote a reply, and how long it took, is an operator's reading
   // (carnet#1147): an athlete talks to their agent, never to a model id.
   const { user } = useAuth();
-  const showsReplyModel = user?.role === 'admin' || user?.role === 'super_admin';
+  const showsReplyModel = hasAdminRole(user);
   // What the server decided this turn draws, keyed by assistant message id.
   // Not persisted: a reloaded conversation has no block list on the wire, so
   // its rows are decoded back into the same shape by the renderer.
@@ -1186,8 +1187,7 @@ export function useChatThread({
     setNewMessage(action.text);
   }, [selectedConversation, startConversation, sendTurn, holdQueuedSend]);
 
-  // The host's own composer action — the `/groups/join/:code` deep link, which
-  // lands on chat and sends `/group join CODE` as its first turn.
+  // The host's own composer action — an activity view prompt or chip — drafted or sent once.
   useEffect(() => {
     if (!pendingComposerAction) return;
     runComposerAction(pendingComposerAction);

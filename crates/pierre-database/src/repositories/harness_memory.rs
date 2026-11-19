@@ -353,7 +353,7 @@ pub trait HarnessMemoryRepository: Send + Sync {
     ) -> AppResult<u64>;
 
     /// Aggregate snapshot of the rows in `user_facts` of `scope`: one tenant,
-    /// or every tenant on the super-admin path of the memory worker screen.
+    /// or every tenant on the platform-wide path of the memory worker screen.
     ///
     /// This describes the store, which other writers also touch. The worker's
     /// own health is its run ledger (`MemoryExtractionJobRepository::extraction_run_stats`).

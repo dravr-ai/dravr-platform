@@ -281,57 +281,22 @@ pub fn create_auth_error_response(provider_name: &str, error: &str) -> Universal
     }
 }
 
-/// Fetch activities from the user's connected provider
-///
-/// Authenticates through [`AuthService::create_authenticated_provider`], the
-/// chokepoint every provider read goes through, and fetches recent activities.
-///
-/// # Errors
-///
-/// Returns [`AppError`] when:
-/// - the connection needs reconnecting ([`AppError::provider_auth_required`])
-///   or the provider cannot be authenticated for another reason
-/// - The provider's `get_activities` call fails (network, auth refresh, etc.)
-pub async fn fetch_activities_from_provider(
-    resources: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    provider_name: &str,
-    tenant_id: Option<&str>,
-    limit: Option<usize>,
-) -> Result<Vec<Activity>, AppError> {
-    let provider = configured_provider(resources, user_id, provider_name, tenant_id).await?;
-
-    // Fetch activities. Preserve a `ProviderAuthRequired` error verbatim so it
-    // keeps its code (and provider slug in `details`) across the `?` boundary:
-    // the tool executor short-circuits on it and the chat-pipeline
-    // `auth_recovery` stage mints a hosted-login link and renders the
-    // reconnect copy. Wrapping it in `internal` here erased the code and the
-    // user got a generic "internal error" instead of a reconnect prompt.
-    provider.get_activities(limit, None).await.map_err(|e| {
-        if e.code == ErrorCode::ProviderAuthRequired {
-            e
-        } else {
-            AppError::internal(format!("Failed to fetch activities: {e}"))
-        }
-    })
-}
-
 /// Fetch ONE activity by id from the user's connected provider.
 ///
-/// The single-activity sibling of [`fetch_activities_from_provider`]: the
-/// same authentication, but one
-/// `get_activity_with_streams` round trip instead of a paged list scan — 200× cheaper for the callers
-/// that previously pulled a whole window to find one id, able to reach
-/// activities older than any recent window, and on providers with a real
-/// detail endpoint (Strava, Garmin) the returned activity carries the
-/// laps/splits list rows never had.
+/// Authenticates through [`AuthService::create_authenticated_provider`], the
+/// chokepoint every provider read goes through, and makes one
+/// `get_activity_with_streams` round trip instead of a paged list scan — 200×
+/// cheaper for the callers that previously pulled a whole window to find one
+/// id, able to reach activities older than any recent window, and on providers
+/// with a real detail endpoint (Strava, Garmin) the returned activity carries
+/// the laps/splits list rows never had.
 ///
 /// # Errors
 ///
 /// Returns [`AppError`] when authentication fails, and preserves a
-/// `ProviderAuthRequired` error verbatim (same reconnect contract as the list
-/// sibling); any other fetch failure reads as the activity being unreachable
-/// by this id.
+/// `ProviderAuthRequired` error verbatim, so the tool executor and the chat
+/// pipeline's `auth_recovery` stage offer a reconnect; any other fetch failure
+/// reads as the activity being unreachable by this id.
 pub async fn fetch_activity_from_provider(
     resources: &Arc<dyn ToolRuntime>,
     user_id: Uuid,

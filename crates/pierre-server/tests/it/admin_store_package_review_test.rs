@@ -49,7 +49,6 @@ async fn admin(resources: &Arc<ServerContext>) -> Result<(Uuid, TenantId, String
     let email = format!("store-admin-{}@example.com", Uuid::new_v4());
     let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST)?;
     let mut user = User::new(email.clone(), password_hash, Some("Store Admin".to_owned()));
-    user.is_admin = true;
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);

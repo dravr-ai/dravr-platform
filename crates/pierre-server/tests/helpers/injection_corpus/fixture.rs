@@ -493,7 +493,7 @@ fn planned_workout(tag: &str, now: DateTime<Utc>, description: &str) -> Value {
     })
 }
 
-/// Seed the system-agent catalogue as the deployed seed job does: an operator,
+/// Seed the system-agent catalogue as the deployed seed job does: an admin,
 /// then every coach in the dravr-contremaitre tree this build compiled against.
 /// Once per server, before any fixture: each fixture's thread is answered by
 /// an agent from it.
@@ -501,13 +501,14 @@ pub(crate) async fn seed_catalogue(resources: &Arc<ServerContext>) {
     let repos = &resources.common.repos;
     bootstrap::run(
         BootstrapArgs {
-            admin_email: "operator@dravr.test".to_owned(),
-            admin_password: "OperatorPass123!".to_owned(),
+            admin_email: "admin@dravr.test".to_owned(),
+            admin_password: "AdminPass123!".to_owned(),
+            demo_password: None,
         },
         repos,
     )
     .await
-    .expect("bootstrap an operator to own the catalogue");
+    .expect("bootstrap an admin to own the catalogue");
     agent_seeder::run(
         AgentSeedArgs {
             agents_dir: contremaitre_tree().join("prompts/agents"),

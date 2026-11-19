@@ -5,23 +5,27 @@
 // ABOUTME: Kept beside the row rather than in it so the row module exports a component and nothing else
 
 import { AVATAR_SLOT_HUES, AVATAR_SLOTS, type AvatarSlotHue } from '@pierre/chat-utils';
+import { BADGE_TONE } from '../ui/badgeTone';
 
 /**
  * The Tailwind pair each shared hue resolves to on the web: the fill and its ink.
  *
  * DESIGN.md §2 pairs — the primary tint and its ink, tertiary, and the four
  * pillar accents — so a row's colour follows the theme like every other
- * surface. Each entry is a complete literal so the Tailwind scanner sees
- * every class in source. Keyed by `AvatarSlotHue`, so a hue added to the
- * shared list without a binding here fails to compile instead of rendering
- * an unstyled avatar.
+ * surface. The primary and pillar pairs are the badge's tones (BADGE_TONE,
+ * measured on every ground); tertiary has no badge tone and is its own pair,
+ * drawn in its own near-black hue rather than `on-tertiary-container`, which is
+ * the light ink of the dark tertiary container and reads 1.30:1 on this tint
+ * in light (badgeTone.test.ts measures every slot over every ground).
+ * Keyed by `AvatarSlotHue`, so a hue added to the shared list without a
+ * binding here fails to compile instead of rendering an unstyled avatar.
  */
 const HUE_CLASSES: Record<AvatarSlotHue, string> = {
-  primary: 'bg-primary-container text-on-primary-container',
-  activity: 'bg-activity/15 text-on-activity-container',
-  nutrition: 'bg-nutrition/15 text-on-nutrition-container',
-  recovery: 'bg-recovery/15 text-on-recovery-container',
-  mobility: 'bg-mobility/15 text-on-mobility-container',
+  primary: BADGE_TONE.accent.tone,
+  activity: BADGE_TONE.activity.tone,
+  nutrition: BADGE_TONE.nutrition.tone,
+  recovery: BADGE_TONE.recovery.tone,
+  mobility: BADGE_TONE.mobility.tone,
   tertiary: 'bg-tertiary/15 text-tertiary',
 };
 

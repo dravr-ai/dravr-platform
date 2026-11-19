@@ -53,6 +53,7 @@ use pierre_routes_admin::handlers::types::ResetAccountRequest;
 use pierre_routes_admin::handlers::user_removal::handle_reset_user;
 use pierre_routes_admin::handlers::users::handle_get_user;
 use pierre_routes_admin::AdminApiContext;
+use pierre_services::live_activities::WriteOrigin;
 use pierre_test_support::fit::FitWorkout;
 use sqlx::Row;
 use uuid::Uuid;
@@ -1151,7 +1152,14 @@ async fn reset_erases_the_activity_stores_provider_reads_where_imports_do_not_ru
     )
     .build();
     let kept = live
-        .ingest(user_id, tenant_id, "garmin", &[ride], Utc::now())
+        .ingest(
+            user_id,
+            tenant_id,
+            "garmin",
+            &[ride],
+            Utc::now(),
+            WriteOrigin::Import,
+        )
         .await
         .unwrap();
     assert_eq!(kept.stored, 1, "test setup: the store holds the read");
@@ -1324,7 +1332,7 @@ async fn the_user_read_names_what_would_refuse_a_reset() {
         async move {
             let response = handle_get_user(
                 State(context),
-                Extension(manage_users_token()),
+                Extension(super_admin_token()),
                 Path(id.to_string()),
             )
             .await

@@ -4,12 +4,13 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Button, Card, CardHeader, Badge, Textarea } from './ui';
+import { Button, Card, CardHeader, Badge, Textarea, ALERT_TONE } from './ui';
 import { adminApi } from '../services/api';
 import type { AdminToken } from '../types/api';
 import type { RotateAdminTokenResponse } from '@pierre/shared-types';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
+import { isRotated } from '../utils/adminToken';
 import { useDialog } from '../hooks/useDialog';
 
 interface ApiKeyDetailsProps {
@@ -67,13 +68,13 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
         />
 
         <div className="space-y-6">
-          <div className="bg-nutrition/15 border border-nutrition/30 rounded-lg p-4">
+          <div className={`${ALERT_TONE.warning.tone} border rounded-lg p-4`}>
             <div className="flex items-start gap-3">
-              <svg className="w-6 h-6 text-nutrition mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-6 h-6 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
               <div>
-                <h4 className="font-medium text-nutrition">Important Security Notice</h4>
+                <h4 className="font-medium">Important Security Notice</h4>
                 <p className="text-sm text-on-surface mt-1">
                   This is the only time the full API token will be displayed. Please copy it now and store it securely.
                   The old token has been invalidated and will no longer work.
@@ -180,6 +181,10 @@ export default function ApiKeyDetails({ token, onBack }: ApiKeyDetailsProps) {
   };
 
   const getStatusBadge = () => {
+    // A rotated token was retired with a live replacement: not revoked.
+    if (isRotated(token)) {
+      return <Badge variant="info">Rotated</Badge>;
+    }
     if (!token.is_active) {
       return <Badge variant="error">Revoked</Badge>;
     }
@@ -197,7 +202,7 @@ export default function ApiKeyDetails({ token, onBack }: ApiKeyDetailsProps) {
     }
     
     if (token.is_super_admin) {
-      return <Badge variant="enterprise">Super Admin</Badge>;
+      return <Badge variant="warning">Super Admin</Badge>;
     }
     
     return <Badge variant="success">Active</Badge>;
@@ -310,7 +315,7 @@ export default function ApiKeyDetails({ token, onBack }: ApiKeyDetailsProps) {
             <label className="block text-sm font-medium text-on-surface-variant mb-1">Permissions</label>
             <div className="flex flex-wrap gap-2">
               {token.is_super_admin ? (
-                <Badge variant="enterprise">All Permissions (Super Admin)</Badge>
+                <Badge variant="warning">All Permissions (Super Admin)</Badge>
               ) : (
                 (token.permissions ?? []).map(permission => (
                   <Badge key={permission} variant="info">

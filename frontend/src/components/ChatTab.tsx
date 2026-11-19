@@ -19,7 +19,6 @@ import CoachAccessRequest from './CoachAccessRequest';
 import ThreadInfoDrawer from './chat/ThreadInfoDrawer';
 import { useThreadInfo } from './chat/useThreadInfo';
 import { useChatThread, type OpenThread } from './chat/useChatThread';
-import type { PendingComposerAction } from './chat/types';
 import ConversationList from './dashboard/ConversationList';
 import { useIsDesktop, useIsMobile } from '../hooks/useBreakpoint';
 import { useConversationList } from '../hooks/useConversationList';
@@ -47,10 +46,6 @@ interface ChatTabProps {
   openInfoFor?: string | null;
   /** Called once the drawer above has been opened. */
   onOpenInfoConsumed?: () => void;
-  /** Text the shell wants drafted or sent in a thread — the invite deep link uses it. */
-  pendingComposerAction?: PendingComposerAction | null;
-  /** Called once the action above has been drafted or dispatched. */
-  onPendingComposerActionConsumed?: () => void;
 }
 
 /** The Groups tab creates a thread for a turn sent with none open; the server names it. */
@@ -62,16 +57,12 @@ export default function ChatTab({
   onNavigate,
   openInfoFor = null,
   onOpenInfoConsumed,
-  pendingComposerAction,
-  onPendingComposerActionConsumed,
 }: ChatTabProps) {
   const { t } = useTranslation();
   const thread = useChatThread({
     conversationId: selectedConversation,
     onSelectConversation,
     openThread: createThread,
-    pendingComposerAction,
-    onPendingComposerActionConsumed,
   });
   const { runComposerAction, activeConversation } = thread;
   const info = useThreadInfo(selectedConversation);

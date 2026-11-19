@@ -17,7 +17,6 @@ import {
   type ConnectPlanCard,
   SIGN_IN_UNAVAILABLE,
   oauthFallbackTarget,
-  oauthFollowOn,
   signInFallsBackToOAuth,
 } from '../src/connect-plan';
 
@@ -280,16 +279,26 @@ describe('the OAuth a failed sign-in falls back to (carnet#1477)', () => {
     expect(oauthFallbackTarget(signInFirst('sciotte_garmin', 1))).toBe('garmin');
   });
 
-  it('has no OAuth to fall back to with the pool full, on OAuth first, once connected (a reconnect too), or for COROS', () => {
-    expect(oauthFallbackTarget(signInFirst('sciotte', 0))).toBeNull();
-    expect(oauthFallbackTarget(card({ provider: 'sciotte', recommended_backend: 'oauth', seats_left: 3 }))).toBeNull();
-    expect(oauthFallbackTarget(signInFirst('sciotte', 3, true))).toBeNull();
+  it('falls back on a reconnect whose sign-in goes first with a seat free (carnet#1667)', () => {
     const deadGrant: ConnectPlanCard = {
       ...signInFirst('sciotte_garmin', 3, true),
       connected_backend: 'garmin',
       needs_reauth: true,
     };
-    expect(oauthFallbackTarget(deadGrant)).toBeNull();
+    expect(oauthFallbackTarget(deadGrant)).toBe('garmin');
+    const deadSession: ConnectPlanCard = {
+      ...signInFirst('sciotte', 2, true),
+      connected_backend: 'sciotte',
+      needs_reauth: true,
+    };
+    expect(oauthFallbackTarget(deadSession)).toBe('strava');
+    expect(oauthFallbackTarget({ ...deadGrant, seats_left: 0 })).toBeNull();
+  });
+
+  it('has no OAuth to fall back to with the pool full, on OAuth first, once connected and healthy, or for COROS', () => {
+    expect(oauthFallbackTarget(signInFirst('sciotte', 0))).toBeNull();
+    expect(oauthFallbackTarget(card({ provider: 'sciotte', recommended_backend: 'oauth', seats_left: 3 }))).toBeNull();
+    expect(oauthFallbackTarget(signInFirst('sciotte', 3, true))).toBeNull();
     expect(oauthFallbackTarget(signInFirst('sciotte_coros', 3))).toBeNull();
     expect(oauthFallbackTarget(card({ provider: 'sciotte', recommended_backend: 'mirror' }))).toBeNull();
   });
@@ -300,19 +309,5 @@ describe('the OAuth a failed sign-in falls back to (carnet#1477)', () => {
     for (const reason of ['login_flow_expired', 'login_cancelled', 'no_seat', null, undefined]) {
       expect(signInFallsBackToOAuth(reason)).toBe(false);
     }
-  });
-});
-
-describe('oauthFollowOn', () => {
-  it('names the grant a connected Garmin sign-in goes on to (carnet#1494)', () => {
-    expect(
-      oauthFollowOn({ status: 'connected', provider: 'sciotte_garmin', oauth_follow_on: { provider: 'garmin' } }),
-    ).toBe('garmin');
-  });
-
-  it('is null when no grant is owed, and for any step short of connected', () => {
-    expect(oauthFollowOn({ status: 'connected', provider: 'sciotte', oauth_follow_on: null })).toBeNull();
-    expect(oauthFollowOn({ status: 'connected', provider: 'sciotte_coros' })).toBeNull();
-    expect(oauthFollowOn({ status: 'otp_required' })).toBeNull();
   });
 });

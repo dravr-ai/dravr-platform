@@ -842,11 +842,16 @@ mod tests {
     #[tokio::test]
     async fn with_slack_notify_events_still_reach_posthog() {
         let (analytics, events) = recording_analytics();
-        let slack = Arc::new(SlackClient::new(&SlackConfig {
-            bot_token: "xoxb-test".to_owned(),
-            error_channel: "#test".to_owned(),
-            signing_secret: None,
-        }));
+        // On a loopback port nothing listens on, never Slack's own host: a
+        // post this test did not mean to make is refused on this machine.
+        let slack = Arc::new(SlackClient::with_api_origin(
+            &SlackConfig {
+                bot_token: "xoxb-test".to_owned(),
+                error_channel: "#test".to_owned(),
+                signing_secret: None,
+            },
+            "http://127.0.0.1:1",
+        ));
         // An empty routing table is disabled, so no event is ever posted:
         // the compiled-in table would route every event to a real channel.
         let routing = Arc::new(ContremaitreRoutingProvider::new_empty());

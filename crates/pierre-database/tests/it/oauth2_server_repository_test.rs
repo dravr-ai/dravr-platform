@@ -380,14 +380,19 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
         scope: "read".to_owned(),
         granted_at: Utc::now(),
         revoked_at: None,
+        consent_version: Some("text-v1".to_owned()),
+        consent_locale: Some("fr".to_owned()),
     };
     repos
         .oauth2_server
         .store_client_grant(&grant)
         .await
         .unwrap();
+    // Approved again under a newer consent text, read in English.
     let again = OAuthClientGrant {
         id: Uuid::new_v4().to_string(),
+        consent_version: Some("text-v2".to_owned()),
+        consent_locale: Some("en".to_owned()),
         ..grant.clone()
     };
     repos
@@ -401,8 +406,16 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
         .list_client_grants(&user_id, "tenant-d")
         .await
         .unwrap();
-    assert_eq!(listed.len(), 1, "re-consent is a no-op, not a second grant");
+    assert_eq!(listed.len(), 1, "re-consent is not a second grant");
     assert_eq!(listed[0].id, grant.id, "the first grant is the one kept");
+    assert_eq!(
+        (
+            listed[0].consent_version.as_deref(),
+            listed[0].consent_locale.as_deref()
+        ),
+        (Some("text-v2"), Some("en")),
+        "bug: the kept grant records the consent text it was last approved under"
+    );
     assert_eq!(listed[0].client_id, client.client_id);
     assert_eq!(listed[0].scope, "read");
     assert_eq!(listed[0].revoked_at, None);
@@ -543,4 +556,102 @@ async fn a_device_authorization_is_approved_once_and_consumed_once() {
         .await
         .unwrap()
         .is_none());
+}
+
+/// A device authorization with `user_code`, opened at `created_at` and
+/// expiring at `expires_at` (epoch seconds).
+fn device_authorization(user_code: &str, created_at: i64, expires_at: i64) -> DeviceAuthorization {
+    DeviceAuthorization {
+        device_code_hash: format!("hash-{}", Uuid::new_v4()),
+        user_code: user_code.to_owned(),
+        status: "pending".to_owned(),
+        approved_by: None,
+        created_at,
+        expires_at,
+    }
+}
+
+/// Nothing consumes a login its device stopped polling for, so opening a new
+/// one deletes every authorization already past its expiry (carnet#1589):
+/// the abandoned one, the approved one nobody collected, and the one
+/// expiring this very second, which the token endpoint refuses too. A login
+/// still inside its window stays, whatever its state, and so does the new
+/// one.
+#[tokio::test]
+async fn opening_a_device_authorization_sweeps_the_expired_ones_and_no_live_one() {
+    let db = create_test_db().await.unwrap();
+    let store = &db.repositories().oauth2_server;
+    let now = Utc::now().timestamp();
+    // All five were opened before any of them expired, so opening one
+    // swept none of the others.
+    let opened_at = now - 1200;
+    let abandoned = device_authorization("UC-ABANDONED", opened_at, now - 600);
+    let uncollected = device_authorization("UC-UNCOLLECTED", opened_at, now - 1);
+    let on_the_second = device_authorization("UC-ON-THE-SECOND", opened_at, now);
+    let live = device_authorization("UC-LIVE", opened_at, now + 300);
+    let live_approved = device_authorization("UC-LIVE-APPROVED", opened_at, now + 1);
+    for da in [
+        &abandoned,
+        &uncollected,
+        &on_the_second,
+        &live,
+        &live_approved,
+    ] {
+        store.create_device_authorization(da).await.unwrap();
+    }
+    for approved in [&uncollected, &live_approved] {
+        assert!(store
+            .approve_device_authorization(&approved.user_code, "an-admin-id")
+            .await
+            .unwrap());
+    }
+    for da in [
+        &abandoned,
+        &uncollected,
+        &on_the_second,
+        &live,
+        &live_approved,
+    ] {
+        assert!(
+            store
+                .get_device_authorization_by_user_code(&da.user_code)
+                .await
+                .unwrap()
+                .is_some(),
+            "{} is stored before the next login opens",
+            da.user_code
+        );
+    }
+
+    let opened = device_authorization("UC-OPENED", now, now + 600);
+    store.create_device_authorization(&opened).await.unwrap();
+
+    for swept in [&abandoned, &uncollected, &on_the_second] {
+        assert!(
+            store
+                .get_device_authorization_by_code_hash(&swept.device_code_hash)
+                .await
+                .unwrap()
+                .is_none(),
+            "{} expired and is gone",
+            swept.user_code
+        );
+    }
+    for kept in [&live, &live_approved, &opened] {
+        assert!(
+            store
+                .get_device_authorization_by_code_hash(&kept.device_code_hash)
+                .await
+                .unwrap()
+                .is_some(),
+            "{} is still inside its window",
+            kept.user_code
+        );
+    }
+    let still_approved = store
+        .get_device_authorization_by_user_code(&live_approved.user_code)
+        .await
+        .unwrap()
+        .expect("the live approved login");
+    assert_eq!(still_approved.status, "approved");
 }

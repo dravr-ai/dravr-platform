@@ -85,7 +85,10 @@ MOBILE_TEST_EMAIL="mobiletest@pierre.dev"
 MOBILE_TEST_PASSWORD="MobileTest1234"
 PHIL_TEST_EMAIL="phil_test@dravr.ai"
 JF_TEST_EMAIL="jf_test@dravr.ai"
-DRAVR_TEST_PASSWORD='fougeresEtSapin2017#!$'
+# Local-only: these two accounts exist on the deployed environment too, under
+# passwords managed out of band (carnet#1597). This value seeds only the local
+# database this script resets, and must never be the deployed one.
+DRAVR_TEST_PASSWORD='DravrLocalTest123!'
 DEMO_PASSWORD="DemoUser123!"
 
 print_step() {
@@ -211,16 +214,13 @@ print_step 4 "Running migrations and seeders..."
 
 PIERRE_CLI="./target/$TARGET_DIR/pierre-cli"
 
-# Create admin user (also runs database migrations)
-# Operators get the SuperAdmin role: cookie_admin_middleware derives console
-# permissions from the user's role, so the operator account must be super_admin
-# to retain full console access (contremaitre config, store moderation,
-# impersonation). A plain `admin` role is intentionally limited.
+# Create admin user (also runs database migrations). There is one admin role
+# and it holds every power: contremaitre config, store moderation,
+# impersonation, managing other admins.
 echo "    Creating admin user (runs migrations)..."
 "$PIERRE_CLI" user create \
     --email "$ADMIN_EMAIL" \
     --password "$ADMIN_PASSWORD" \
-    --super-admin \
     --locale en \
     --force 2>&1 | tail -3
 

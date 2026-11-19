@@ -70,6 +70,8 @@ fn run_streams_payload() -> Value {
         "distance": { "data": [0.0, 3.2, 6.5, null, 13.1, 16.4] },
         "heartrate": { "data": [140, 142, 145, 147, 150, 151] },
         "velocity_smooth": { "data": [0.0, 3.2, 3.3, 3.3, 3.3, 3.3] },
+        "grade_smooth": { "data": [0.0, 1.5, 2.0, 2.5, 3.0, 3.5] },
+        "moving": { "data": [false, true, true, true, true, true] },
         "latlng": { "data": [[45.5, -73.6], [45.50003, -73.6], [45.50006, -73.6], [45.50009, -73.6], [45.50012, -73.6], [45.50015, -73.6]] }
     })
 }
@@ -312,10 +314,45 @@ async fn a_run_stream_fills_the_cumulative_distance_channel() {
         "the distance stream must be asked for, or Strava never sends it: {}",
         requested[0]
     );
+    for key in ["grade_smooth", "moving"] {
+        assert!(
+            requested[0].split(',').any(|asked| asked == key),
+            "the {key} stream must be asked for, or Strava never sends it: {}",
+            requested[0]
+        );
+    }
     let stream = activity
         .time_series_data()
         .expect("streams must be attached");
     assert_eq!(stream.timestamps, vec![0, 1, 2, 3, 4, 5]);
+    assert_eq!(
+        stream.grade_smooth.as_deref(),
+        Some(
+            &[
+                Some(0.0),
+                Some(1.5),
+                Some(2.0),
+                Some(2.5),
+                Some(3.0),
+                Some(3.5)
+            ][..]
+        ),
+        "grade_smooth maps as served"
+    );
+    assert_eq!(
+        stream.moving.as_deref(),
+        Some(
+            &[
+                Some(false),
+                Some(true),
+                Some(true),
+                Some(true),
+                Some(true),
+                Some(true)
+            ][..]
+        ),
+        "moving maps as served"
+    );
     assert_eq!(
         stream.distance.as_deref(),
         Some(

@@ -7,7 +7,13 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { COACH_READ_LOG_ALL_KEYS, coachReadClassKey, coachReadSourceKey } from '../src/coach-reads';
+import {
+  COACH_ASSISTANT_NOTICE_KEYS,
+  COACH_READ_LOG_ALL_KEYS,
+  COACH_READ_LOG_KEYS,
+  coachReadClassKey,
+  coachReadSourceKey,
+} from '../src/coach-reads';
 
 const LOCALES = ['en', 'fr', 'es', 'de', 'pt'] as const;
 
@@ -49,6 +55,16 @@ describe('coachReadSourceKey', () => {
   it('leaves a tool name to be shown as it is', () => {
     expect(coachReadSourceKey('get_activities')).toBeNull();
     expect(coachReadSourceKey('toString')).toBeNull();
+  });
+});
+
+describe('the outside-tool words', () => {
+  // Each key's words are pinned where they render (CoachReadLog, GroupInfoPanel);
+  // this asks only that the catalogue test below covers them.
+  it('the catalogue test asks for the read-log mark and every word of the notice', () => {
+    for (const key of [COACH_READ_LOG_KEYS.servedToAssistant, ...Object.values(COACH_ASSISTANT_NOTICE_KEYS)]) {
+      expect(COACH_READ_LOG_ALL_KEYS).toContain(key);
+    }
   });
 });
 

@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import MessageBubble from '../chat/MessageBubble';
 import CoachAvatar from '../chat/CoachAvatar';
+import { BADGE_TONE } from '../ui';
 import type { GroupChatAppOfferState } from './useGroupChatAppOffer';
 
 interface GroupChatAppOfferProps {
@@ -58,7 +59,7 @@ export function GroupChatAppOffer({ offer, agentLabel, continuesRun = false, onC
             onClick={() => onConfigure(offer.app.channel)}
             disabled={declining}
             data-testid="group-chat-app-offer-configure"
-            className="touch-target inline-flex items-center rounded-lg bg-primary/15 px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/25 focus-ring disabled:opacity-50"
+            className={`${BADGE_TONE.primary.tone} ${BADGE_TONE.primary.hover} touch-target inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium transition-colors focus-ring disabled:opacity-50`}
           >
             {t('chatApp.offer.configure', { app })}
           </button>

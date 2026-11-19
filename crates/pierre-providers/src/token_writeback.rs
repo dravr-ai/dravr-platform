@@ -15,7 +15,7 @@
 //! and a scrape session row must still carry the session's `session_id`.
 //! The write is a compare-and-swap on the row exactly as it was just read
 //! ([`OAuthTokenRepository::refresh_token`]), scoped to that row's user,
-//! tenant and provider. No other row is written, a super admin's clone of the
+//! tenant and provider. No other row is written, an admin's clone of the
 //! session included.
 
 use std::sync::Arc;
@@ -115,8 +115,7 @@ impl StoredTokenRow {
         let access_token = credentials
             .access_token
             .as_ref()
-            .map(ExposeSecret::expose_secret)
-            .unwrap_or_default();
+            .map_or_default(ExposeSecret::expose_secret);
         let Some(stored) = self.standing(tokens).await else {
             return;
         };

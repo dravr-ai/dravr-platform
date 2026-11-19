@@ -216,6 +216,12 @@ impl NotificationRoutes {
         Json(request): Json<RegisterDeviceTokenRequest>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
+        // A registered device keeps receiving the athlete's notifications.
+        auth.refuse_impersonation(
+            resources.repos().admin_audit.as_ref(),
+            "register a push device",
+        )
+        .await?;
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;

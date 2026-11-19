@@ -52,7 +52,7 @@ const INTERVALS_ICU_LABEL: &str = "Intervals.icu";
 ///
 /// `providers` is the array of
 /// `{ provider, display_name, description, connected, history_state,
-/// archive_url?, kind, target, oauth_owed?, … }`
+/// archive_url?, kind, target, … }`
 /// [`crate::connect_hosted::build_connect_providers`] produced. It and the
 /// strings the page's script sets go into the `<script>` as JSON, so neither
 /// is ever markup.

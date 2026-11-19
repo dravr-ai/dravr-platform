@@ -1,4 +1,4 @@
-// ABOUTME: Whether a group's human coach may act for one athlete, by id: coach of the active group, live member, consent, one home tenant
+// ABOUTME: Whether a group's human coach may act for one athlete, by id: the coach rule for the group, live member, consent, one home tenant
 // ABOUTME: The one check the coach's athlete thread route and the plan tools' scope both run, with a typed refusal each words its own way
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -14,8 +14,14 @@
 //! one athlete on every call made in it, and the route that opens that thread
 //! (carnet#1070).
 //!
-//! 1. **The coach attachment.** The group is active and the caller is its
-//!    `coach_user_id`. Owner and admin roles do not qualify — on a
+//! 1. **The coach rule.** The caller holds coach access, and the group is an
+//!    active one whose `coach_user_id` is the caller: the roster rule, asked
+//!    of [`roster_access`] and restated nowhere (carnet#1511). A coach whose
+//!    access was withdrawn after they were attached stays attached and acts
+//!    for no one: asked about a group they are attached to, they are told
+//!    their coach access is off ([`CoachedAthleteRefusal::NoCoachAccess`]);
+//!    asked about any other group, that they are not its coach, as anyone
+//!    is. A group's owner and its admin roles do not qualify — on a
 //!    channel-bound group the owner is whoever spoke first.
 //! 2. **A live member.** The athlete belongs to the group and has not left
 //!    it. A coach is never their own athlete.
@@ -41,6 +47,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::athlete_display_name::fetch_user_display_name;
+use crate::coach_roster::{roster_access, RosterAccess, NO_COACH_ACCESS};
 
 /// The coach may act for the athlete: where their plan lives, how they are
 /// named, and the group that lets the coach.
@@ -64,6 +71,9 @@ pub struct CoachedAthleteAccess {
 /// Why the coach may not act for the athlete.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoachedAthleteRefusal {
+    /// The caller is attached to the group as its coach and does not hold
+    /// coach access: it was withdrawn after they were attached.
+    NoCoachAccess,
     /// The group is missing or archived, or the caller is not its human
     /// coach.
     NotGroupCoach,
@@ -93,6 +103,7 @@ impl CoachedAthleteRefusal {
     #[must_use]
     pub const fn reason(&self) -> &'static str {
         match self {
+            Self::NoCoachAccess => NO_COACH_ACCESS,
             Self::NotGroupCoach => "not_group_coach",
             Self::NotAMember => "not_a_member",
             Self::CoachSharingRevoked { .. } => "coach_sharing_revoked",
@@ -101,15 +112,20 @@ impl CoachedAthleteRefusal {
         }
     }
 
-    /// The refusal as an HTTP error: 403 for a caller who does not coach the
-    /// athlete in the group or whose athlete withdrew consent, 404 for a
-    /// person who is not a live member of it, 409 for an athlete whose
-    /// tenancy leaves no one place for their plan. The message is English and
-    /// addressed to an API caller; `details.reason` is what a client words.
+    /// The refusal as an HTTP error: 403 for a caller whose coach access is
+    /// off, who does not coach the athlete in the group, or whose athlete
+    /// withdrew consent; 404 for a person who is not a live member of it; 409
+    /// for an athlete whose tenancy leaves no one place for their plan. The
+    /// message is English and addressed to an API caller; `details.reason` is
+    /// what a client words.
     #[must_use]
     pub fn into_error(self) -> AppError {
         let reason = self.reason();
         let mut error = match self {
+            Self::NoCoachAccess => AppError::new(
+                ErrorCode::PermissionDenied,
+                "Your coach access is off, so you cannot act for this group's athletes",
+            ),
             Self::NotGroupCoach => AppError::new(
                 ErrorCode::PermissionDenied,
                 "Only the group's coach can act for its athletes",
@@ -149,24 +165,30 @@ impl CoachedAthleteRefusal {
 ///
 /// # Errors
 ///
-/// Returns the repository error from the group, member or tenant lookups.
+/// Returns the repository error from the user, group, member or tenant
+/// lookups.
 pub async fn coached_athlete_access(
     repos: &RepositoryRegistry,
     coach: Uuid,
     athlete: Uuid,
     group_id: Uuid,
 ) -> AppResult<Result<CoachedAthleteAccess, CoachedAthleteRefusal>> {
-    // Walked from the active groups the caller is attached to as their human
-    // coach — never from the groups they merely belong to or own.
-    let Some(group) = repos
-        .groups
-        .list_groups_coached_by(coach)
-        .await?
-        .into_iter()
-        .find(|group| group.id == group_id && group.is_active)
-    else {
+    // The roster rule: walked from the active groups the caller is attached
+    // to as their human coach — never from the groups they merely belong to
+    // or own — and only while the caller holds coach access. The group is
+    // looked for first, so that coach access being off is the answer for a
+    // group the caller is attached to and for no other.
+    let (attached, holds_coach_access) = match roster_access(repos, coach).await? {
+        RosterAccess::Granted(groups) => (groups, true),
+        RosterAccess::NoCoachAccess(groups) => (groups, false),
+        RosterAccess::NotACoach => return Ok(Err(CoachedAthleteRefusal::NotGroupCoach)),
+    };
+    let Some(group) = attached.into_iter().find(|group| group.id == group_id) else {
         return Ok(Err(CoachedAthleteRefusal::NotGroupCoach));
     };
+    if !holds_coach_access {
+        return Ok(Err(CoachedAthleteRefusal::NoCoachAccess));
+    }
     let group_key = group_id.to_string();
 
     if athlete == coach {
@@ -251,6 +273,7 @@ mod tests {
     fn every_refusal_carries_its_status_and_reason() {
         let athlete = "Mira Subject".to_owned();
         for (refusal, status, reason) in [
+            (CoachedAthleteRefusal::NoCoachAccess, 403, "no_coach_access"),
             (CoachedAthleteRefusal::NotGroupCoach, 403, "not_group_coach"),
             (CoachedAthleteRefusal::NotAMember, 404, "not_a_member"),
             (
@@ -278,7 +301,9 @@ mod tests {
         ] {
             let names_athlete = !matches!(
                 refusal,
-                CoachedAthleteRefusal::NotGroupCoach | CoachedAthleteRefusal::NotAMember
+                CoachedAthleteRefusal::NoCoachAccess
+                    | CoachedAthleteRefusal::NotGroupCoach
+                    | CoachedAthleteRefusal::NotAMember
             );
             let error = refusal.into_error();
             assert_eq!(error.code.http_status(), status, "{reason}");

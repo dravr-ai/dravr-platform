@@ -1,5 +1,5 @@
 // ABOUTME: Regression tests for cross-tenant authz on web-admin financial endpoints
-// ABOUTME: A tenant-scoped admin must not read another tenant's LLM usage or the platform billing export (CWE-863)
+// ABOUTME: Only an admin reads another tenant's LLM usage or the platform billing export; a tenant owner who is not one is refused (CWE-863)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -47,7 +47,6 @@ async fn create_user_with_role(
         password_hash,
         Some("Test User".to_owned()),
     );
-    user.is_admin = role.is_admin_or_higher();
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
@@ -125,14 +124,16 @@ async fn seed_usage(resources: &Arc<ServerContext>, tenant_id: &str, user_id: &s
 // handle_export_billing — /api/admin/billing/export (platform-wide)
 // ============================================================================
 
-/// The platform-wide billing export must be super-admin-only: a regular admin
-/// is denied (403).
+/// The platform-wide billing export is an admin's only: the owner of a
+/// tenant, who is not an admin, is denied (403). There is one admin role
+/// (carnet#1567), so the boundary this pinned between a tenant admin and the
+/// tier above it now sits between a user and an admin.
 #[tokio::test]
 #[serial]
-async fn test_billing_export_denied_for_tenant_admin() -> Result<()> {
+async fn test_billing_export_denied_for_a_tenant_owner_who_is_not_an_admin() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let (_a_id, _a_tenant, a_token) =
-        create_user_with_role(&resources, "authz_export_admin@test.com", UserRole::Admin).await;
+        create_user_with_role(&resources, "authz_export_owner@test.com", UserRole::User).await;
 
     let response = AxumTestRequest::get("/api/admin/billing/export?period=2026-07&format=json")
         .header("authorization", &a_token)
@@ -142,22 +143,18 @@ async fn test_billing_export_denied_for_tenant_admin() -> Result<()> {
     assert_eq!(
         response.status(),
         403,
-        "platform-wide billing export must be super-admin only"
+        "platform-wide billing export must be admin only"
     );
     Ok(())
 }
 
-/// A super-admin is allowed the platform-wide billing export (200).
+/// An admin is allowed the platform-wide billing export (200).
 #[tokio::test]
 #[serial]
-async fn test_billing_export_allowed_for_super_admin() -> Result<()> {
+async fn test_billing_export_allowed_for_admin() -> Result<()> {
     let resources = create_test_server_resources().await?;
-    let (_s_id, _s_tenant, s_token) = create_user_with_role(
-        &resources,
-        "authz_export_super@test.com",
-        UserRole::SuperAdmin,
-    )
-    .await;
+    let (_s_id, _s_tenant, s_token) =
+        create_user_with_role(&resources, "authz_export_super@test.com", UserRole::Admin).await;
 
     let response = AxumTestRequest::get("/api/admin/billing/export?period=2026-07&format=json")
         .header("authorization", &s_token)
@@ -167,7 +164,7 @@ async fn test_billing_export_allowed_for_super_admin() -> Result<()> {
     assert_eq!(
         response.status(),
         200,
-        "super-admin must be allowed the platform-wide billing export"
+        "an admin must be allowed the platform-wide billing export"
     );
     Ok(())
 }
@@ -178,12 +175,8 @@ async fn test_billing_export_allowed_for_super_admin() -> Result<()> {
 #[serial]
 async fn test_billing_export_holds_only_the_requested_month() -> Result<()> {
     let resources = create_test_server_resources().await?;
-    let (s_id, s_tenant, s_token) = create_user_with_role(
-        &resources,
-        "authz_export_month@test.com",
-        UserRole::SuperAdmin,
-    )
-    .await;
+    let (s_id, s_tenant, s_token) =
+        create_user_with_role(&resources, "authz_export_month@test.com", UserRole::Admin).await;
     seed_usage(&resources, &s_tenant.to_string(), &s_id.to_string(), 3).await;
 
     let export = |period: String| {
@@ -221,16 +214,16 @@ async fn test_billing_export_holds_only_the_requested_month() -> Result<()> {
 // handle_get_user_usage — /api/admin/users/{user_id}/usage (per-user)
 // ============================================================================
 
-/// A tenant-scoped admin must be denied the per-user usage of a user who
-/// belongs to a different tenant (403).
+/// The owner of one tenant, who is not an admin, must be denied the per-user
+/// usage of a user who belongs to a different tenant (403).
 #[tokio::test]
 #[serial]
-async fn test_tenant_admin_denied_cross_tenant_user_usage() -> Result<()> {
+async fn test_tenant_owner_denied_cross_tenant_user_usage() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let (_a_id, _a_tenant, a_token) = create_user_with_role(
         &resources,
-        "authz_user_usage_admin@test.com",
-        UserRole::Admin,
+        "authz_user_usage_owner@test.com",
+        UserRole::User,
     )
     .await;
     let (target_id, target_tenant, _t_token) = create_user_with_role(
@@ -255,20 +248,20 @@ async fn test_tenant_admin_denied_cross_tenant_user_usage() -> Result<()> {
     assert_eq!(
         response.status(),
         403,
-        "admin must not read a foreign-tenant user's per-user usage"
+        "a tenant owner must not read a foreign-tenant user's per-user usage"
     );
     Ok(())
 }
 
-/// A super-admin may read any user's per-user usage (200).
+/// An admin may read any user's per-user usage (200).
 #[tokio::test]
 #[serial]
-async fn test_super_admin_allowed_cross_tenant_user_usage() -> Result<()> {
+async fn test_admin_allowed_cross_tenant_user_usage() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let (_s_id, _s_tenant, s_token) = create_user_with_role(
         &resources,
         "authz_user_usage_super@test.com",
-        UserRole::SuperAdmin,
+        UserRole::Admin,
     )
     .await;
     let (target_id, target_tenant, _t_token) = create_user_with_role(
@@ -293,7 +286,7 @@ async fn test_super_admin_allowed_cross_tenant_user_usage() -> Result<()> {
     assert_eq!(
         response.status(),
         200,
-        "super-admin must be allowed any user's per-user usage"
+        "an admin must be allowed any user's per-user usage"
     );
     Ok(())
 }

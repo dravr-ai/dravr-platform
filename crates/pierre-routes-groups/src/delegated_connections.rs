@@ -622,6 +622,12 @@ impl DelegatedConnectionRoutes {
         body: Option<Json<ConfirmDelegatedConnectionRequest>>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
+        // A confirm is the member's consent to their coach's reads.
+        auth.refuse_impersonation(
+            MiddlewareCtx::repos(&*resources).admin_audit.as_ref(),
+            "confirm a coach's link",
+        )
+        .await?;
         let (group, tenant) = Self::open_group(&resources, &auth, &group_id).await?;
         let connection_id = Self::connection_id(&connection_id)?;
         let repos = MiddlewareCtx::repos(resources.as_ref());
@@ -636,7 +642,7 @@ impl DelegatedConnectionRoutes {
             return Err(AppError::not_found("Pending link"));
         }
 
-        let body = body.map(|Json(body)| body).unwrap_or_default();
+        let body = body.map_or_default(|Json(body)| body);
         let requested = ConsentChange::grants(body.calendar_write, body.wellness_read);
         let confirmed =
             confirm(Self::services(&resources), &group, &link, tenant, requested).await?;
@@ -729,6 +735,18 @@ impl DelegatedConnectionRoutes {
         Json(body): Json<UpdateCoachConsentsRequest>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
+        let change = ConsentChange {
+            calendar_write: body.calendar_write,
+            wellness_read: body.wellness_read,
+        };
+        // A consent is the member's own; a support session revokes, never grants.
+        if change.grants_any() {
+            auth.refuse_impersonation(
+                MiddlewareCtx::repos(&*resources).admin_audit.as_ref(),
+                "grant a coach consent",
+            )
+            .await?;
+        }
         let (group, _) = Self::open_group(&resources, &auth, &group_id).await?;
         if group.coach_user_id == Some(auth.user_id) {
             return Err(AppError::new(
@@ -744,10 +762,7 @@ impl DelegatedConnectionRoutes {
             registry,
             &group,
             auth.user_id,
-            ConsentChange {
-                calendar_write: body.calendar_write,
-                wellness_read: body.wellness_read,
-            },
+            change,
         )
         .await?;
         let response = Self::coach_consents_response(

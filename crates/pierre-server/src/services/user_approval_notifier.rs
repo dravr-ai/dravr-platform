@@ -22,6 +22,7 @@ use pierre_core::models::InvitationKind;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 use pierre_middleware::redaction::mask_email;
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::invitation::{IssuedInvitation, INVITATION_TTL_DAYS};
 use pierre_services::messaging_broadcast::send_to_linked_channels;
 use pierre_services::user_approval::UserApprovalNotifier;
@@ -38,6 +39,9 @@ pub(crate) struct ApprovalNotifier {
     email_service: Option<Arc<ResendEmailService>>,
     strings: Arc<MessagingStringsRegistry>,
     frontend_url: Option<String>,
+    /// Builds the adapter each linked chat is reached through: the factory
+    /// the context was built on.
+    adapters: Arc<dyn ChannelAdapterFactory>,
 }
 
 impl ApprovalNotifier {
@@ -49,6 +53,7 @@ impl ApprovalNotifier {
             email_service: resources.common.email_service.clone(),
             strings: resources.mcp.messaging_strings_registry.clone(),
             frontend_url: resources.common.config.frontend_url.clone(),
+            adapters: Arc::clone(&resources.mcp.channel_adapters),
         })
     }
 
@@ -76,9 +81,12 @@ impl ApprovalNotifier {
     /// path reads the user's links across every tenant that stores one, each
     /// link once, so a single call reaches every chat without sending twice.
     async fn send_channel_messages(&self, user_id: Uuid) {
-        send_to_linked_channels(self.repos.messaging.as_ref(), user_id, |locale| {
-            self.strings.render(KEY_REGISTRATION_APPROVED, locale, &[])
-        })
+        send_to_linked_channels(
+            self.repos.messaging.as_ref(),
+            self.adapters.as_ref(),
+            user_id,
+            |locale| self.strings.render(KEY_REGISTRATION_APPROVED, locale, &[]),
+        )
         .await;
     }
 }
@@ -90,7 +98,13 @@ impl UserApprovalNotifier for ApprovalNotifier {
         self.send_channel_messages(user_id).await;
         // A chat sign-up linked while pending was not asked at link time; it
         // is asked now, after the approval message (carnet#1366).
-        ask_linked_chats_after_approval(&self.repos, &self.strings, user_id).await;
+        ask_linked_chats_after_approval(
+            &self.repos,
+            self.adapters.as_ref(),
+            &self.strings,
+            user_id,
+        )
+        .await;
     }
 
     async fn notify_user_invited(&self, invitation: &IssuedInvitation) -> bool {

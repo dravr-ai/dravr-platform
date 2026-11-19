@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { GroupMember } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { COACH_PHYSIOLOGY_KEY } from '@pierre/shared-constants';
 import { Button } from '../ui';
 import RoleWord from './RoleWord';
 import { PersonAvatar, RowBox, SharingState } from './GroupInfoParts';
@@ -27,6 +28,8 @@ interface CoachAthleteCardProps {
   busy: boolean;
   /** Read the athlete's live plan without opening the thread (carnet#1244). */
   onViewPlan?: (member: GroupMember) => void;
+  /** Read and set the athlete's thresholds per sport (carnet#1561). */
+  onViewThresholds?: (member: GroupMember) => void;
   /** Open this athlete on coach Home, for a coach who has one. */
   onOpenCoachHome?: (member: GroupMember) => void;
   /** The `⋯` menu, for an owner or admin who may change their role or remove them. */
@@ -46,6 +49,7 @@ export default function CoachAthleteCard({
   opening,
   busy,
   onViewPlan,
+  onViewThresholds,
   onOpenCoachHome,
   menu,
 }: CoachAthleteCardProps) {
@@ -70,7 +74,7 @@ export default function CoachAthleteCard({
           </div>
           {menu}
         </div>
-        {(onWorkOnPlan || onViewPlan) && (
+        {(onWorkOnPlan || onViewPlan || onViewThresholds) && (
           <div className="flex flex-wrap gap-2">
             {onWorkOnPlan && (
               <Button
@@ -87,6 +91,16 @@ export default function CoachAthleteCard({
             {onViewPlan && (
               <Button variant="outline" onClick={() => onViewPlan(member)} data-testid={`member-view-plan-${member.user_id}`}>
                 {t('humanCoach.athleteCard.viewPlan')}
+                <span className="sr-only"> · {name}</span>
+              </Button>
+            )}
+            {onViewThresholds && (
+              <Button
+                variant="outline"
+                onClick={() => onViewThresholds(member)}
+                data-testid={`member-thresholds-${member.user_id}`}
+              >
+                {t(COACH_PHYSIOLOGY_KEY.open)}
                 <span className="sr-only"> · {name}</span>
               </Button>
             )}

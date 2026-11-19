@@ -1,5 +1,5 @@
-// ABOUTME: A super-admin decides a coach-access request from its Slack notice: Grant/Decline taps on the ops route
-// ABOUTME: Pins the room per event, the super-admin gate through the channel link, decided_by and the conflict answer
+// ABOUTME: An admin decides a coach-access request from its Slack notice: Grant/Decline taps on the ops route
+// ABOUTME: Pins the room per event, the admin gate through the channel link, decided_by and the conflict answer
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,9 +11,9 @@
 //!
 //! `coach_access.requested` posts Grant and Decline under its notice. A tap
 //! is honoured only in the room that event is routed to, and only from a
-//! Slack identity whose channel link names an active super-admin: the room's
+//! Slack identity whose channel link names an active admin: the room's
 //! membership approves sign-ups, but a grant gives `manages_roster`, which
-//! only a super-admin decides. The decision goes through the console's own
+//! only an admin decides. The decision goes through the console's own
 //! implementation, so `decided_by` names the admin and
 //! `coach_access.granted` / `.declined` fire as they do from the console.
 
@@ -76,7 +76,6 @@ mod slack_coach_access_action {
         status: UserStatus,
     ) -> (Uuid, TenantId) {
         let mut user = User::new(email.to_owned(), "not-a-login-path".to_owned(), None);
-        user.is_admin = role.is_admin_or_higher();
         user.role = role;
         user.user_status = status;
         let user_id = user.id;
@@ -250,14 +249,14 @@ mod slack_coach_access_action {
 
     #[tokio::test]
     #[serial]
-    async fn a_linked_super_admin_grants_from_the_coach_access_room() {
+    async fn a_linked_admin_grants_from_the_coach_access_room() {
         let resources = signing_server().await;
         let room = coach_access_room();
         let (request_id, requester) = pending_request(&resources).await;
         let admin = linked(
             &resources,
             "U0SUPERGRANT",
-            UserRole::SuperAdmin,
+            UserRole::Admin,
             UserStatus::Active,
         )
         .await;
@@ -281,14 +280,14 @@ mod slack_coach_access_action {
 
     #[tokio::test]
     #[serial]
-    async fn a_linked_super_admin_declines_from_the_coach_access_room() {
+    async fn a_linked_admin_declines_from_the_coach_access_room() {
         let resources = signing_server().await;
         let room = coach_access_room();
         let (request_id, requester) = pending_request(&resources).await;
         let admin = linked(
             &resources,
             "U0SUPERDECLINE",
-            UserRole::SuperAdmin,
+            UserRole::Admin,
             UserStatus::Active,
         )
         .await;
@@ -307,26 +306,23 @@ mod slack_coach_access_action {
     }
 
     /// The room approves sign-ups without a Dravr role; coach access it does
-    /// not. An operator in the room who is an admin, or no admin at all, is
-    /// refused, and the refusal says so.
+    /// not. Someone in the room whose account is not an admin's, whatever
+    /// its standing, is refused, and the refusal says so.
     #[tokio::test]
     #[serial]
-    async fn a_linked_operator_who_is_not_a_super_admin_is_refused() {
+    async fn a_linked_account_that_is_not_an_admin_is_refused() {
         let resources = signing_server().await;
         let room = coach_access_room();
         let (request_id, requester) = pending_request(&resources).await;
 
-        for (slack_user, role) in [
-            ("U0ROOMADMIN", UserRole::Admin),
-            ("U0ROOMUSER", UserRole::User),
-        ] {
+        for (slack_user, role) in [("U0ROOMUSER", UserRole::User)] {
             linked(&resources, slack_user, role, UserStatus::Active).await;
 
             let (events, _guard) = capture_notify();
             for action_id in [grant(request_id), decline(request_id)] {
                 let answer = tap(&resources, slack_user, &room, &action_id).await;
                 assert!(
-                    refusal(&answer).contains("decided only by an active super-admin"),
+                    refusal(&answer).contains("decided only by an active admin"),
                     "{role:?} {action_id}: {answer}"
                 );
             }
@@ -340,11 +336,11 @@ mod slack_coach_access_action {
         let resources = signing_server().await;
         let room = coach_access_room();
         let (request_id, requester) = pending_request(&resources).await;
-        // A super-admin exists, but never linked this Slack identity.
+        // An admin exists, but never linked this Slack identity.
         account(
             &resources,
             "unlinked-super@example.com",
-            UserRole::SuperAdmin,
+            UserRole::Admin,
             UserStatus::Active,
         )
         .await;
@@ -361,14 +357,14 @@ mod slack_coach_access_action {
 
     #[tokio::test]
     #[serial]
-    async fn a_suspended_super_admin_is_refused() {
+    async fn a_suspended_admin_is_refused() {
         let resources = signing_server().await;
         let room = coach_access_room();
         let (request_id, requester) = pending_request(&resources).await;
         linked(
             &resources,
             "U0SUSPENDEDSUPER",
-            UserRole::SuperAdmin,
+            UserRole::Admin,
             UserStatus::Suspended,
         )
         .await;
@@ -387,14 +383,14 @@ mod slack_coach_access_action {
     /// else is refused before the clicker is even looked up.
     #[tokio::test]
     #[serial]
-    async fn a_super_admin_grant_outside_the_coach_access_room_is_refused() {
+    async fn an_admin_grant_outside_the_coach_access_room_is_refused() {
         let resources = signing_server().await;
         let room = coach_access_room();
         let (request_id, requester) = pending_request(&resources).await;
         linked(
             &resources,
             "U0SUPERELSEWHERE",
-            UserRole::SuperAdmin,
+            UserRole::Admin,
             UserStatus::Active,
         )
         .await;
@@ -425,7 +421,7 @@ mod slack_coach_access_action {
         linked(
             &resources,
             "U0SUPERGONE",
-            UserRole::SuperAdmin,
+            UserRole::Admin,
             UserStatus::Active,
         )
         .await;
@@ -440,7 +436,7 @@ mod slack_coach_access_action {
         assert_still_pending(&resources, &events, request_id, requester).await;
     }
 
-    /// Two super-admins tapping one card: the first decides, the second is
+    /// Two admins tapping one card: the first decides, the second is
     /// told it was already decided, and the first decision stands.
     #[tokio::test]
     #[serial]
@@ -451,14 +447,14 @@ mod slack_coach_access_action {
         let first = linked(
             &resources,
             "U0SUPERFIRST",
-            UserRole::SuperAdmin,
+            UserRole::Admin,
             UserStatus::Active,
         )
         .await;
         linked(
             &resources,
             "U0SUPERSECOND",
-            UserRole::SuperAdmin,
+            UserRole::Admin,
             UserStatus::Active,
         )
         .await;

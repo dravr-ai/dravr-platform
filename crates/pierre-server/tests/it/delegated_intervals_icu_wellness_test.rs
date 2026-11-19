@@ -14,8 +14,9 @@
 //! time against a loopback Intervals.icu stand-in (a test double, per the
 //! repo's mock rule) that records the key and path of every request: the
 //! roster read on the platform registry the server builds, and the wellness
-//! read on an orchestrator whose Intervals.icu provider points at the same
-//! stand-in. Each case builds its own server over its own stand-in.
+//! read on the server's own orchestrator, whose Intervals.icu reader asks
+//! where that registry names the API: the same stand-in. Each case builds
+//! its own server over its own stand-in.
 //
 // This `//!` must precede the crate-level `#![cfg]`: when a feature is off the
 // cfg empties the crate (dropping any inner `#![allow(missing_docs)]`), so
@@ -45,10 +46,8 @@ use common::{
     test_server_config_with_api_base,
 };
 use dravr_enforme::models::connection::{CredentialKind, ProviderCredentials};
-use dravr_enforme::providers::intervals_icu::IntervalsIcuProvider;
 use dravr_enforme::traits::credential_store::CredentialStore;
-use dravr_enforme::traits::sync_provider::SyncProvider;
-use dravr_enforme::{SyncConfig, SyncDeps, SyncOrchestrator};
+use dravr_enforme::SyncOrchestrator;
 use dravr_equilibre_sync::{StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::providers::{
@@ -280,31 +279,6 @@ async fn person(res: &Arc<ServerContext>, email: &str) -> Person {
     Person { id, tenant }
 }
 
-/// An orchestrator over `storage` whose Intervals.icu wellness reads go to
-/// the stand-in at `base`.
-fn orchestrator_over(storage: &Arc<PierreSyncStorage>, base: &str) -> SyncOrchestrator {
-    let deps = Arc::new(SyncDeps {
-        sleep: Arc::<PierreSyncStorage>::clone(storage),
-        recovery: Arc::<PierreSyncStorage>::clone(storage),
-        health: Arc::<PierreSyncStorage>::clone(storage),
-        daily_activity: Arc::<PierreSyncStorage>::clone(storage),
-        time_series: Arc::<PierreSyncStorage>::clone(storage),
-        data_sources: Arc::<PierreSyncStorage>::clone(storage),
-        cursors: Arc::<PierreSyncStorage>::clone(storage),
-        credentials: Arc::<PierreSyncStorage>::clone(storage),
-        connections: Arc::<PierreSyncStorage>::clone(storage),
-    });
-    let mut providers: HashMap<String, Box<dyn SyncProvider>> = HashMap::new();
-    providers.insert(
-        INTERVALS_ICU.to_owned(),
-        Box::new(IntervalsIcuProvider::with_base_url(
-            reqwest::Client::new(),
-            format!("{base}/api/v1"),
-        )),
-    );
-    SyncOrchestrator::new(deps, providers, SyncConfig::from_env())
-}
-
 fn agent_request() -> CreateAgentRequest {
     CreateAgentRequest {
         title: "Group Agent".to_owned(),
@@ -337,19 +311,20 @@ async fn world() -> World {
     ))
     .await
     .unwrap();
-    let mut context = Arc::try_unwrap(res)
-        .map_err(|_| "the fresh context has one owner")
-        .unwrap();
+    // The context's own orchestrator: its Intervals.icu wellness reader
+    // asks where the provider registry names the API, which is the stand-in.
     let storage = Arc::clone(
-        context
-            .fitness
+        res.fitness
             .sync_storage
             .as_ref()
             .expect("health sync is wired"),
     );
-    let orchestrator = Arc::new(orchestrator_over(&storage, &base));
-    context.fitness.sync_orchestrator = Some(Arc::clone(&orchestrator));
-    let res = Arc::new(context);
+    let orchestrator = Arc::clone(
+        res.fitness
+            .sync_orchestrator
+            .as_ref()
+            .expect("health sync is wired"),
+    );
     install_health_sync_refresher(&res);
 
     let repos = Arc::clone(&res.common.repos);

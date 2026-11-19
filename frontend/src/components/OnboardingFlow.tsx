@@ -12,6 +12,7 @@ import OnboardingConnectProvider from './OnboardingConnectProvider';
 import OnboardingCoachProposal from './OnboardingCoachProposal';
 import OnboardingProgress from './OnboardingProgress';
 import OnboardingShell from './OnboardingShell';
+import InviteJourneyLine from './InviteJourneyLine';
 import { currentOnboardingStep, onboardingProgress, type OnboardingStepId } from '../onboarding/steps';
 import type { OnboardingState } from '../hooks/useOnboardingState';
 
@@ -44,6 +45,9 @@ export default function OnboardingFlow({
   // The positioned parent the progress bar is laid over: it starts wherever
   // the flow does, so a strip App mounts above it stacks instead of overlapping.
   return (
+    <>
+    {/* The invite this account is joining stays in view above every step. */}
+    <InviteJourneyLine />
     <div className="relative" data-testid="onboarding-flow">
       {step.hiddenFromProgress ? null : (
         <OnboardingProgress steps={onboardingProgress(state.ctx)} settledByInvite={state.settledByInvite} />
@@ -63,6 +67,7 @@ export default function OnboardingFlow({
         {renderStep(step.id, state, userDisplayName)}
       </Suspense>
     </div>
+    </>
   );
 }
 

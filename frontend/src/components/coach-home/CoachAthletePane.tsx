@@ -44,7 +44,7 @@ import {
 } from '@pierre/ui-logic';
 import { coachRepliesApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
-import { Button, EmptyState } from '../ui';
+import { BADGE_TONE, Button, EmptyState } from '../ui';
 import { AthleteAvatar, FormStrip, StatusDot } from './parts';
 import { phaseClass } from './phaseStyle';
 import { PhaseBand } from './PhaseBand';
@@ -295,7 +295,7 @@ function AgentBlock({ athlete }: { athlete: CoachRosterAthlete }) {
               <div className="flex flex-wrap items-center gap-2">
                 <span
                   data-testid="coach-agent-verdict"
-                  className="inline-flex h-[22px] items-center gap-1.5 rounded-full bg-surface-container-high px-2 text-xs font-medium text-on-surface"
+                  className={`${BADGE_TONE.neutral.tone} inline-flex h-[22px] items-center gap-1.5 rounded-full px-2 text-xs font-medium`}
                 >
                   <StatusDot tone={chip?.alerts === true ? 'warn' : 'ok'} />
                   {chip?.text}

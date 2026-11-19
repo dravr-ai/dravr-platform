@@ -10,6 +10,7 @@
 use crate::common;
 
 use pierre_core::models::User;
+use pierre_core::permissions::UserRole;
 use uuid::Uuid;
 
 fn user(email: &str) -> User {
@@ -34,7 +35,7 @@ async fn create_refuses_an_email_that_is_already_taken() {
 
     let mut second = user("taken@dravr.ai");
     second.password_hash = "a_different_hash".to_owned();
-    second.is_admin = true;
+    second.role = UserRole::Admin;
     let err = repos
         .users
         .create(&second)
@@ -53,7 +54,11 @@ async fn create_refuses_an_email_that_is_already_taken() {
         .expect("the first user survives");
     assert_eq!(stored.id, first.id, "the original row is untouched");
     assert_eq!(stored.password_hash, "hash_not_verified");
-    assert!(!stored.is_admin, "a refused create grants no privileges");
+    assert_eq!(
+        stored.role,
+        UserRole::User,
+        "a refused create grants no privileges"
+    );
 }
 
 /// The linking path in `AuthService` loads a user by email, stamps the Firebase UID
@@ -114,7 +119,7 @@ async fn update_writes_the_whole_mutable_row() {
     loaded.display_name = Some("Renamed".to_owned());
     loaded.password_hash = "rehashed".to_owned();
     loaded.locale = "en".to_owned();
-    loaded.is_admin = true;
+    loaded.role = UserRole::Admin;
     loaded.manages_roster = true;
     loaded.timezone = Some("America/Montreal".to_owned());
     repos.users.update(&loaded).await.unwrap();
@@ -128,7 +133,7 @@ async fn update_writes_the_whole_mutable_row() {
     assert_eq!(after.display_name, Some("Renamed".to_owned()));
     assert_eq!(after.password_hash, "rehashed");
     assert_eq!(after.locale, "en");
-    assert!(after.is_admin);
+    assert_eq!(after.role, UserRole::Admin);
     assert!(after.manages_roster);
     assert_eq!(after.timezone, Some("America/Montreal".to_owned()));
     assert_eq!(

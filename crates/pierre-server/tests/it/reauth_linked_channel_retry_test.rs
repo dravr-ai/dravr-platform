@@ -50,6 +50,7 @@ use serde_json::{json, Value};
 use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
+use crate::common::offline_channel::{REFUSED_GATEWAY, REFUSED_STATUS_API};
 use crate::common::{create_test_server_resources, create_test_user};
 use crate::messaging_fixtures::{seed_channel_link, strings};
 
@@ -208,8 +209,25 @@ impl ChannelAdapterFactory for ScriptedChannels {
         &self,
         channel_type: ChannelType,
         _config: &Value,
-    ) -> Option<Arc<dyn MessagingChannel>> {
+    ) -> MessagingResult<Arc<dyn MessagingChannel>> {
         self.get(channel_type)
+            .ok_or_else(|| MessagingError::ChannelNotConfigured {
+                channel: channel_type.to_string(),
+            })
+    }
+
+    // The scripted adapters call no one; what the factory answers beside
+    // them is the offline factory's, never the production default.
+    fn status_api_base(&self) -> Option<String> {
+        Some(REFUSED_STATUS_API.to_owned())
+    }
+
+    fn destination_api_base(&self, _channel_type: ChannelType) -> Option<String> {
+        Some(REFUSED_STATUS_API.to_owned())
+    }
+
+    fn discord_gateway_url(&self) -> Option<String> {
+        Some(REFUSED_GATEWAY.to_owned())
     }
 }
 

@@ -88,8 +88,9 @@ async fn an_unchanged_legacy_row_is_claimed_by_the_next_seed() {
     let repos = db.repositories();
     bootstrap::run(
         BootstrapArgs {
-            admin_email: "operator@dravr.ai".to_owned(),
-            admin_password: "OperatorPass123!".to_owned(),
+            admin_email: "admin@dravr.ai".to_owned(),
+            admin_password: "AdminPass123!".to_owned(),
+            demo_password: None,
         },
         repos,
     )
@@ -131,7 +132,7 @@ async fn an_unchanged_legacy_row_is_claimed_by_the_next_seed() {
     );
 }
 
-/// Put the row into a state the catalogue does not own, the way an operator's
+/// Put the row into a state the catalogue does not own, the way an admin's
 /// own agent sits in the table.
 async fn stamp_source(db: &Database, slug: &str, source: &str) {
     match db.backend() {
@@ -159,7 +160,7 @@ async fn stamp_source(db: &Database, slug: &str, source: &str) {
 ///
 /// "Catalogue-owned" is the `source IN ('contremaitre', 'seed')` pair, spelled
 /// in four queries across two engines and now shared as one constant. A row
-/// outside the pair belongs to an operator, and listing it would have the gate
+/// outside the pair belongs to an admin, and listing it would have the gate
 /// report an agent it does not manage as an orphan every morning.
 #[tokio::test]
 async fn the_catalogue_roster_excludes_a_row_it_does_not_own() {
@@ -168,7 +169,8 @@ async fn the_catalogue_roster_excludes_a_row_it_does_not_own() {
     bootstrap::run(
         BootstrapArgs {
             admin_email: "roster@dravr.ai".to_owned(),
-            admin_password: "OperatorPass123!".to_owned(),
+            admin_password: "AdminPass123!".to_owned(),
+            demo_password: None,
         },
         repos,
     )
@@ -196,6 +198,6 @@ async fn the_catalogue_roster_excludes_a_row_it_does_not_own() {
             .await
             .unwrap()
             .contains(&SLUG.to_owned()),
-        "source='custom' is an operator's coach; the catalogue roster must not claim it"
+        "source='custom' is an admin's coach; the catalogue roster must not claim it"
     );
 }

@@ -36,8 +36,7 @@ impl CommandHandler for LanguageHandler {
         let requested = ctx
             .args
             .first()
-            .map(|code| code.trim().to_lowercase())
-            .unwrap_or_default();
+            .map_or_default(|code| code.trim().to_lowercase());
         let Some(locale) = SUPPORTED_LOCALES
             .iter()
             .find(|supported| **supported == requested)

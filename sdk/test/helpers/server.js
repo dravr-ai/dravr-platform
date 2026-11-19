@@ -255,7 +255,7 @@ async function promoteUserToGlobalAdmin(email, password, databaseUrl, encryption
 
   await runPierreCli(
     cliPath,
-    ['user', 'create', '--email', email, '--password', password, '--force', '--super-admin'],
+    ['user', 'create', '--email', email, '--password', password, '--force'],
     databaseUrl,
     encryptionKey
   );

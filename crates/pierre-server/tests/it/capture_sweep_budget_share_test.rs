@@ -16,6 +16,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::common::offline_provider_registry;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -25,7 +26,6 @@ use axum::{Json, Router};
 use chrono::{Duration, Utc};
 use pierre_core::models::{ConnectionType, UserOAuthToken};
 use pierre_providers::core::ActivityQueryParams;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{
     budget_counter_key, budget_period, ProviderRateLimiter, BACKGROUND_SHARE_PERCENT, ONE_DAY,
     PLATFORM_SCOPE,
@@ -87,7 +87,7 @@ async fn the_sweep_takes_only_the_background_share_of_the_app() {
     limiter.set_budgets("strava", &[(DAY_BUDGET, ONE_DAY)]);
     let mut context = (*resources).clone();
     context.fitness.provider_registry = Arc::new(
-        ProviderRegistry::new()
+        offline_provider_registry()
             .with_endpoint_overrides(&resources.common.config.oauth.endpoints)
             .with_request_limiter(Arc::new(limiter)),
     );

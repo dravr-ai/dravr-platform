@@ -221,9 +221,15 @@ describe('CoachingStyleScreen', () => {
 
 type Json = { type: string; props: Record<string, unknown>; children: Array<Json | string> | null };
 
-/** Every style object in a rendered tree, flat or nested arrays alike. */
+/**
+ * Every style object in a rendered tree, flat or nested arrays alike. The
+ * native switch is left out: React Native rounds its own off-track ground to
+ * 16 when `ios_backgroundColor` is set (switchColors sets it), which is the
+ * platform control, not a card or a pill.
+ */
 function allStyles(node: Json | string | null | undefined, out: Array<Record<string, unknown>> = []) {
   if (!node || typeof node === 'string') return out;
+  if (node.type === 'RCTSwitch' || node.type === 'AndroidSwitch') return out;
   const flatten = (style: unknown): void => {
     if (Array.isArray(style)) style.forEach(flatten);
     else if (style && typeof style === 'object') out.push(style as Record<string, unknown>);

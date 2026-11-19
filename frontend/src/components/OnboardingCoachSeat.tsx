@@ -17,7 +17,7 @@ import { providersApi, userApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useAuth } from '../hooks/useAuth';
 import { useSeatAfterPlatformLink } from '../hooks/coachAccessHooks';
-import { Button } from './ui';
+import { BADGE_TONE, Button } from './ui';
 import OnboardingShell from './OnboardingShell';
 import ProviderConnectionCards from './ProviderConnectionCards';
 
@@ -216,7 +216,7 @@ export function CheckDisc() {
   return (
     <span
       aria-hidden="true"
-      className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-success/15 text-on-success-container"
+      className={`${BADGE_TONE.success.tone} flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full`}
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="m5 12.5 4.5 4.5L19 7.5" />

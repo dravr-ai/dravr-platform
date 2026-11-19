@@ -14,7 +14,7 @@ import { PALETTE_KEYS } from '@pierre/ui-logic';
 import type { PrivateLaneComposerText } from '@pierre/chat-utils';
 import type { MessageAudience } from '@pierre/shared-types';
 import { useThemeColors } from '../../constants/theme';
-import { VoiceButton } from '../../components/ui';
+import { BADGE_TONE, badgeInkColor, VoiceButton } from '../../components/ui';
 import { CommandPalette } from '../../components/CommandPalette';
 import { MentionPalette } from '../../components/MentionPalette';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
@@ -94,6 +94,9 @@ const BAR_BOTTOM_PADDING = 8;
 export function composerBottomPadding(keyboardShown: boolean, bottomInset: number): number {
   return keyboardShown ? BAR_BOTTOM_PADDING : bottomInset + BAR_BOTTOM_PADDING;
 }
+
+/** The private lane's label beside its lock: the warning chip's bound ink. */
+const PRIVATE_LABEL_INK = `ml-1 ${BADGE_TONE.warning.ink}`;
 
 export function ChatInputBar({
   inputText,
@@ -231,12 +234,12 @@ export function ChatInputBar({
             testID="composer-audience-switch"
           >
             <View
-              className={`flex-row items-center rounded-lg px-2.5 py-1.5 ${isPrivate ? 'bg-warning/15' : 'bg-surface-container'}`}
+              className={`flex-row items-center rounded-lg px-2.5 py-1.5 ${isPrivate ? BADGE_TONE.warning.fill : 'bg-surface-container'}`}
               testID="composer-audience-chip"
             >
-              {isPrivate ? <Ionicons name="lock-closed" size={14} color={colors.ink.warning} /> : null}
+              {isPrivate ? <Ionicons name="lock-closed" size={14} color={badgeInkColor('warning', colors)} /> : null}
               <Text
-                className={`text-xs font-semibold ${isPrivate ? 'ml-1 text-on-warning-container' : 'text-text-secondary'}`}
+                className={`text-xs font-semibold ${isPrivate ? PRIVATE_LABEL_INK : 'text-text-secondary'}`}
               >
                 {audience.text.label}
               </Text>
@@ -251,10 +254,10 @@ export function ChatInputBar({
           </Pressable>
           {quote ? (
             <View
-              className="ml-2 flex-1 flex-row items-center rounded-lg bg-warning/15 pl-2.5"
+              className={`ml-2 flex-1 flex-row items-center rounded-lg ${BADGE_TONE.warning.fill} pl-2.5`}
               testID="composer-quote-chip"
             >
-              <Text numberOfLines={1} className="flex-1 text-xs font-medium text-on-warning-container">
+              <Text numberOfLines={1} className={`flex-1 text-xs font-medium ${BADGE_TONE.warning.ink}`}>
                 {quote.label}
               </Text>
               <Pressable

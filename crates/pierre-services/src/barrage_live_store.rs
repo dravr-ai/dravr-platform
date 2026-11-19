@@ -10,7 +10,7 @@
 //! Barrage owns the record and its retention; the cache readers read the
 //! projection ([`LiveCacheSink`](crate::activity_cache_sink::LiveCacheSink)).
 //! The record store is chosen from the deployment's database
-//! ([`live_record_store`](crate::barrage_live_store::live_record_store)):
+//! ([`record_stores`](crate::barrage_live_store::record_stores)), once:
 //! Postgres schema `barrage` on the platform's own pool when deployed, a
 //! separate SQLite file locally
 //! ([`ENV_SQLITE_URL`](crate::barrage_live_store::ENV_SQLITE_URL)), memory in
@@ -22,18 +22,22 @@ use std::env;
 use std::fmt;
 #[cfg(not(feature = "postgresql"))]
 use std::future::{self, Ready};
+use std::path::{Path, PathBuf};
 use std::slice;
 use std::sync::Arc;
 
-use crate::live_activities::{LiveActivityStore, LiveIngest};
+use crate::live_activities::{
+    landed_session, LandedSession, LiveActivityStore, LiveIngest, WriteOrigin,
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::BlobStore;
 use dravr_barrage::record::{StreamsState, SummaryWindow, TotalsFrom};
 use dravr_barrage::store::memory::{MemoryActivityRecordStore, MemoryImportJobStore};
 use dravr_barrage::store::sql::sqlite::{self, SqliteJobStore, SqliteRecordStore};
-use dravr_barrage::store::{ActivityRecordStore, PageReq, RecordQuery, MAX_PAGE_LIMIT};
+use dravr_barrage::store::{
+    ActivityRecordStore, ImportJobStore, PageReq, RecordQuery, MAX_PAGE_LIMIT,
+};
 use dravr_barrage::{
     ActivityId, ActivityIngest, ActivityRecord, BarrageError, BarrageStores, LiveSource,
     ProjectionSink, Provenance, RetractReason, Scope, SourceKey, UserId,
@@ -44,6 +48,8 @@ use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::amended_summary;
 use pierre_database::RepositoryRegistry;
+use pierre_providers::deduplication::DedupConfig;
+use tokio::fs;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -66,12 +72,25 @@ const WINDOW_PAGE: i64 = 500;
 /// text and as a timestamp alike.
 const EVERY_READ_HORIZON_DAYS: i64 = 36_500;
 
+/// Cached rows a landing reads around a live write. A window that reaches it
+/// lands nothing (logged): the rule could not see every copy.
+const LANDING_READ_LIMIT: i64 = 500;
+
+/// How far before the newest held start a landing reads: every held row that
+/// can be a copy of a new one starts within it — a date-only row of the
+/// candidate's day at that day's midnight, a timed copy within dedup's start
+/// window.
+const LANDING_READ_BEFORE_HOURS: i64 = 24;
+
 /// Every live provider read, kept in barrage.
 pub struct BarrageLiveStore {
     records: Arc<dyn ActivityRecordStore>,
     sink: Arc<dyn ProjectionSink>,
     ingest: ActivityIngest,
     repos: Arc<RepositoryRegistry>,
+    /// How every reader groups copies of one workout; a landing groups the
+    /// same way. Read once, when the store is built.
+    dedup: DedupConfig,
 }
 
 impl fmt::Debug for BarrageLiveStore {
@@ -97,6 +116,7 @@ impl BarrageLiveStore {
             records,
             sink,
             repos,
+            dedup: DedupConfig::from_env(),
         }
     }
 
@@ -129,8 +149,120 @@ impl BarrageLiveStore {
             inserted: counts.inserted,
             refused: counts.erased + report.future_dated,
             newer_session: report.newer_session,
+            landed: None,
         })
     }
+
+    /// The newest start the athlete held from any source before a write of
+    /// `origin`: `Some(None)` when they held nothing. `None` — no landing to
+    /// compute — for a walk or an import, and when the read failed (logged).
+    async fn held_before(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        origin: WriteOrigin,
+    ) -> Option<Option<DateTime<Utc>>> {
+        if origin != WriteOrigin::Live {
+            return None;
+        }
+        match self
+            .repos
+            .activity_cache
+            .latest_activity_start(user_id, &tenant_id)
+            .await
+        {
+            Ok(latest) => Some(latest),
+            Err(e) => {
+                warn!(user_id = %user_id, error = %e, "newest held start unreadable; the write lands nothing");
+                None
+            }
+        }
+    }
+
+    /// What a live write of `written` under `provider` landed, read after
+    /// the write: barrage awaited its projection, so the cache rows around it
+    /// are the rows it kept ([`landed_session`]).
+    async fn landing(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        written: &[Activity],
+        report: &LiveIngest,
+        held_before: Option<DateTime<Utc>>,
+    ) -> Option<LandedSession> {
+        if !report.newer_session {
+            return None;
+        }
+        let starts = written.iter().map(Activity::start_date);
+        let from = match held_before {
+            Some(held) => held - Duration::hours(LANDING_READ_BEFORE_HOURS),
+            None => starts.clone().min()?,
+        };
+        let to = starts
+            .max()
+            .map_or_else(Utc::now, |newest| newest.max(Utc::now()));
+        let kept_around = match self
+            .repos
+            .activity_cache
+            .get_cached_activities(user_id, &tenant_id, None, from, to, LANDING_READ_LIMIT)
+            .await
+        {
+            Ok(rows) if rows.len() >= usize::try_from(LANDING_READ_LIMIT).unwrap_or(usize::MAX) => {
+                warn!(user_id = %user_id, provider, "landing window holds too many rows; the write lands nothing");
+                return None;
+            }
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!(user_id = %user_id, provider, error = %e, "rows around the write unreadable; the write lands nothing");
+                return None;
+            }
+        };
+        landed_session(
+            provider,
+            written,
+            report.newer_session,
+            held_before,
+            &kept_around,
+            &self.dedup,
+        )
+    }
+
+    /// Store `rows` (the records of `written`) and, for a live write, report
+    /// what it landed: the newest held start is read before the write and
+    /// the rows around it after.
+    async fn store_and_land(
+        &self,
+        written: Written<'_>,
+        (scope, live, rows): (Scope, LiveSource, Vec<ActivityRecord>),
+        origin: WriteOrigin,
+    ) -> AppResult<LiveIngest> {
+        let held_before = self
+            .held_before(written.user_id, written.tenant_id, origin)
+            .await;
+        let mut report = self.store(scope, live, rows).await?;
+        if let Some(held_before) = held_before {
+            report.landed = self
+                .landing(
+                    written.user_id,
+                    written.tenant_id,
+                    written.provider,
+                    written.activities,
+                    &report,
+                    held_before,
+                )
+                .await;
+        }
+        Ok(report)
+    }
+}
+
+/// Whose activities a write keeps, under which provider.
+struct Written<'write> {
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &'write str,
+    activities: &'write [Activity],
 }
 
 /// `provider` as the live source its records are kept under.
@@ -238,6 +370,7 @@ impl LiveActivityStore for BarrageLiveStore {
         provider: &str,
         activities: &[Activity],
         synced_at: DateTime<Utc>,
+        origin: WriteOrigin,
     ) -> AppResult<LiveIngest> {
         let live = live_source(provider)?;
         let scope = Scope::new(tenant_id.as_uuid(), user_id);
@@ -246,7 +379,17 @@ impl LiveActivityStore for BarrageLiveStore {
             .iter()
             .filter_map(|activity| record_of(scope, source, activity, synced_at))
             .collect();
-        self.store(scope, live, rows).await
+        self.store_and_land(
+            Written {
+                user_id,
+                tenant_id,
+                provider,
+                activities,
+            },
+            (scope, live, rows),
+            origin,
+        )
+        .await
     }
 
     async fn ingest_received(
@@ -256,12 +399,12 @@ impl LiveActivityStore for BarrageLiveStore {
         provider: &str,
         activity: &Activity,
         received_at: DateTime<Utc>,
-    ) -> AppResult<bool> {
+    ) -> AppResult<LiveIngest> {
         let live = live_source(provider)?;
         let scope = Scope::new(tenant_id.as_uuid(), user_id);
         let source = SourceKey::Live(live);
         let Some(row) = record_of(scope, source, activity, received_at) else {
-            return Ok(false);
+            return Ok(LiveIngest::default());
         };
         // The record's receipt is its last change's: a copy received later
         // than this one stands.
@@ -271,9 +414,19 @@ impl LiveActivityStore for BarrageLiveStore {
             .await
             .map_err(|e| store_error(source, &e))?;
         if held.is_some_and(|held| held.provenance.ingested_at > received_at) {
-            return Ok(false);
+            return Ok(LiveIngest::default());
         }
-        Ok(self.store(scope, live, vec![row]).await?.stored > 0)
+        self.store_and_land(
+            Written {
+                user_id,
+                tenant_id,
+                provider,
+                activities: slice::from_ref(activity),
+            },
+            (scope, live, vec![row]),
+            WriteOrigin::Live,
+        )
+        .await
     }
 
     async fn amend(
@@ -669,16 +822,16 @@ impl BarrageLiveStore {
     }
 }
 
-/// The live store a server runs on: over `records` when the binary selected
-/// them, in memory otherwise, with the originals they keep in `blobs`,
-/// projecting into `repos`' activity cache.
+/// The live store a server runs on, over the context's one record store.
+///
+/// `records` is the store archive imports write and the export reads too;
+/// `blobs` keeps the originals; the projection goes to `repos`' activity cache.
 #[must_use]
 pub fn live_store(
-    records: Option<Arc<dyn ActivityRecordStore>>,
+    records: Arc<dyn ActivityRecordStore>,
     blobs: Option<Arc<dyn BlobStore>>,
     repos: &Arc<RepositoryRegistry>,
 ) -> Arc<dyn LiveActivityStore> {
-    let records = records.unwrap_or_else(|| Arc::new(MemoryActivityRecordStore::new()));
     let sink = Arc::new(LiveCacheSink::new(Arc::clone(repos)));
     Arc::new(BarrageLiveStore::new(
         records,
@@ -699,47 +852,69 @@ const DEFAULT_SQLITE_URL: &str = "sqlite:./data/barrage.db";
 /// The platform's Postgres pool, when the platform runs on Postgres: the
 /// pool barrage's record and job stores run their statements on.
 #[derive(Clone, Debug)]
-pub struct PlatformPool(#[cfg(feature = "postgresql")] Option<sqlx::PgPool>);
+struct PlatformPool(#[cfg(feature = "postgresql")] Option<sqlx::PgPool>);
 
 impl PlatformPool {
     /// `database`'s pool, when it is a Postgres one.
     #[cfg(feature = "postgresql")]
     #[must_use]
-    pub fn of(database: &Database) -> Self {
+    fn of(database: &Database) -> Self {
         Self(database.postgres_pool().cloned())
     }
 
     /// No pool: a build without Postgres support runs on no Postgres.
     #[cfg(not(feature = "postgresql"))]
     #[must_use]
-    pub const fn of(_database: &Database) -> Self {
+    const fn of(_database: &Database) -> Self {
         Self()
     }
 }
 
-/// The activity record store live provider reads are kept in, on the
-/// deployment's database (carnet#1482).
+/// Barrage's record and job stores on the deployment's database: the one
+/// handle every reader and writer of a record shares.
 ///
-/// It is the selection [`stores_for`] makes, without the blob store only
-/// imports need. Unlike imports, it is not
-/// optional: every live read is written through it.
-///
-/// # Errors
-///
-/// Why the store cannot be placed: the boot, or the seeder, stops on it.
-pub async fn live_record_store(
-    database: &Database,
-    url: &DatabaseUrl,
-) -> Result<Arc<dyn ActivityRecordStore>, String> {
-    let blobs: Arc<dyn BlobStore> = Arc::new(MemoryBlobStore::new());
-    Ok(stores_for(PlatformPool::of(database), url, blobs)
-        .await?
-        .records)
+/// Live provider reads, archive imports and the athlete's export all go
+/// through the same `records`: two handles over an in-memory database would
+/// be two stores, and an import's records would be invisible to the export.
+#[derive(Clone)]
+pub struct RecordStores {
+    /// Activity records: live reads, archive imports, the export.
+    pub records: Arc<dyn ActivityRecordStore>,
+    /// Import jobs.
+    pub jobs: Arc<dyn ImportJobStore>,
 }
 
-/// The stores the deployment's database selects, over its blob store
-/// `blobs`; `pool` is the platform's, which a Postgres deployment's stores
-/// run their statements on.
+impl fmt::Debug for RecordStores {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RecordStores").finish_non_exhaustive()
+    }
+}
+
+impl RecordStores {
+    /// Fresh stores in memory, for a context its binary gave none.
+    #[must_use]
+    pub fn in_memory() -> Self {
+        Self {
+            records: Arc::new(MemoryActivityRecordStore::new()),
+            jobs: Arc::new(MemoryImportJobStore::new()),
+        }
+    }
+
+    /// These stores over the blob store `blobs`: what an import runs on.
+    #[must_use]
+    pub fn with_blobs(&self, blobs: Arc<dyn BlobStore>) -> BarrageStores {
+        BarrageStores {
+            blobs,
+            records: Arc::clone(&self.records),
+            jobs: Arc::clone(&self.jobs),
+        }
+    }
+}
+
+/// The record and job stores the deployment's database selects, placed once.
+///
+/// At boot (carnet#1482): Postgres schema `barrage` on the platform's own
+/// pool, a separate SQLite file locally, memory over an in-memory database.
 ///
 /// Awaited before anything that must be `Send` is built: sqlx's migrator
 /// holds a connection across awaits, which the compiler cannot prove `Send`
@@ -748,41 +923,58 @@ pub async fn live_record_store(
 /// # Errors
 ///
 /// Why the stores cannot be placed: the SQLite file does not open, the
-/// `barrage` schema cannot be migrated, or this build has no Postgres.
-pub async fn stores_for(
-    pool: PlatformPool,
-    url: &DatabaseUrl,
-    blobs: Arc<dyn BlobStore>,
-) -> Result<BarrageStores, String> {
+/// `barrage` schema cannot be migrated, or this build has no Postgres. Every
+/// live read is written through them, so the boot, or the seeder, stops.
+pub async fn record_stores(database: &Database, url: &DatabaseUrl) -> Result<RecordStores, String> {
     if url.is_memory() {
-        return Ok(BarrageStores {
-            blobs,
-            records: Arc::new(MemoryActivityRecordStore::new()),
-            jobs: Arc::new(MemoryImportJobStore::new()),
-        });
+        return Ok(RecordStores::in_memory());
     }
     if url.is_postgresql() {
-        return postgres_stores(pool, url, blobs).await;
+        return postgres_stores(PlatformPool::of(database), url).await;
     }
     let sqlite_url = env::var(ENV_SQLITE_URL).unwrap_or_else(|_| DEFAULT_SQLITE_URL.to_owned());
-    let pool = sqlite::open(&sqlite_url)
+    sqlite_stores(&sqlite_url).await
+}
+
+/// The record and job stores in barrage's SQLite file at `url`, its
+/// directory created first.
+///
+/// SQLite creates a missing file but never a missing directory, and the
+/// default lives under `./data`, relative to wherever the server was started.
+async fn sqlite_stores(url: &str) -> Result<RecordStores, String> {
+    if let Some(dir) = sqlite_file_dir(url) {
+        fs::create_dir_all(&dir)
+            .await
+            .map_err(|e| format!("barrage SQLite directory {}: {e}", dir.display()))?;
+    }
+    let pool = sqlite::open(url)
         .await
         .map_err(|e| format!("barrage SQLite database: {e}"))?;
-    Ok(BarrageStores {
-        blobs,
+    Ok(RecordStores {
         records: Arc::new(SqliteRecordStore::new(pool.clone())),
         jobs: Arc::new(SqliteJobStore::new(pool)),
     })
 }
 
+/// The directory holding the SQLite file `url` names: none for an in-memory
+/// database, or for a file in the working directory itself.
+fn sqlite_file_dir(url: &str) -> Option<PathBuf> {
+    let path = url.strip_prefix("sqlite:").unwrap_or(url);
+    let path = path.split_once('?').map_or(path, |(file, _)| file);
+    let path = path.strip_prefix("//").unwrap_or(path);
+    if path.is_empty() || path.contains(":memory:") {
+        return None;
+    }
+    Path::new(path)
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+}
+
 /// The `barrage` schema migrated on a connection of its own, then the record
 /// and job stores on the platform's pool: no connection slot is added.
 #[cfg(feature = "postgresql")]
-async fn postgres_stores(
-    pool: PlatformPool,
-    url: &DatabaseUrl,
-    blobs: Arc<dyn BlobStore>,
-) -> Result<BarrageStores, String> {
+async fn postgres_stores(pool: PlatformPool, url: &DatabaseUrl) -> Result<RecordStores, String> {
     use std::str::FromStr;
 
     use dravr_barrage::store::sql::postgres::{migrate, PostgresJobStore, PostgresRecordStore};
@@ -797,8 +989,7 @@ async fn postgres_stores(
     migrate(&options)
         .await
         .map_err(|e| format!("the barrage schema could not be migrated: {e}"))?;
-    Ok(BarrageStores {
-        blobs,
+    Ok(RecordStores {
         records: Arc::new(PostgresRecordStore::new(pool.clone())),
         jobs: Arc::new(PostgresJobStore::new(pool)),
     })
@@ -807,10 +998,58 @@ async fn postgres_stores(
 /// A build without Postgres support has no Postgres deployment to serve:
 /// the refusal is ready at once, awaited as the Postgres build's migration is.
 #[cfg(not(feature = "postgresql"))]
-fn postgres_stores(
-    _pool: PlatformPool,
-    _url: &DatabaseUrl,
-    _blobs: Arc<dyn BlobStore>,
-) -> Ready<Result<BarrageStores, String>> {
+fn postgres_stores(_pool: PlatformPool, _url: &DatabaseUrl) -> Ready<Result<RecordStores, String>> {
     future::ready(Err("this build has no Postgres support".to_owned()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+    use std::fs;
+    use std::path::PathBuf;
+
+    use uuid::Uuid;
+
+    use super::{sqlite_file_dir, sqlite_stores};
+
+    #[test]
+    fn sqlite_file_dir_names_the_directory_of_each_url_shape() {
+        assert_eq!(
+            sqlite_file_dir("sqlite:./data/barrage.db"),
+            Some(PathBuf::from("./data")),
+            "a relative path's directory"
+        );
+        assert_eq!(
+            sqlite_file_dir("sqlite:///tmp/x/barrage.db?mode=rwc"),
+            Some(PathBuf::from("/tmp/x")),
+            "an absolute URL, its query dropped"
+        );
+        assert_eq!(
+            sqlite_file_dir("sqlite::memory:"),
+            None,
+            "memory has no directory"
+        );
+        assert_eq!(
+            sqlite_file_dir("sqlite:barrage.db"),
+            None,
+            "the working directory exists"
+        );
+    }
+
+    #[tokio::test]
+    async fn sqlite_stores_create_a_missing_directory() {
+        let root = env::temp_dir().join(format!("barrage-open-{}", Uuid::new_v4()));
+        let file = root.join("nested").join("barrage.db");
+        let url = format!("sqlite:{}", file.display());
+
+        let opened = sqlite_stores(&url).await;
+
+        assert!(
+            opened.is_ok(),
+            "the store opens under a missing directory: {opened:?}"
+        );
+        assert!(file.exists(), "the SQLite file is created");
+        drop(opened);
+        drop(fs::remove_dir_all(&root));
+    }
 }

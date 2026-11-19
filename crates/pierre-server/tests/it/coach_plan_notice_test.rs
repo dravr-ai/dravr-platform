@@ -34,6 +34,7 @@
 //! the events written to it, so a second push reads them back as current.
 
 use crate::common;
+use crate::common::{offline_provider_config, offline_provider_registry};
 use crate::helpers;
 use secrecy::SecretString;
 
@@ -75,9 +76,7 @@ use pierre_notifications::models::{
 };
 use pierre_notifications::TenantId as NoticeTenantId;
 use pierre_providers::ai_scope::serve_over;
-use pierre_providers::intervals_icu_provider::default_config;
-use pierre_providers::ProviderRegistry;
-use pierre_test_support::delegation::create_group_agent;
+use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::CONVERSATION_ID;
 use pierre_tool_runtime::implementations::training_plan_drafts::PublishTrainingPlanTool;
 use pierre_tool_runtime::implementations::training_plan_push::PushTrainingPlanTool;
@@ -401,8 +400,8 @@ impl World {
         let api = Api::default();
         let base = spawn_api(api.clone()).await;
         let resources = create_test_server_resources().await.unwrap();
-        let mut registry = ProviderRegistry::new();
-        let mut config = default_config();
+        let mut registry = offline_provider_registry();
+        let mut config = offline_provider_config(INTERVALS_ICU);
         config.api_base_url = base;
         registry.set_default_config(INTERVALS_ICU, config);
         let mut context = (*resources).clone();
@@ -703,6 +702,7 @@ async fn coached_group(
         )
         .await
         .unwrap();
+    grant_coach_access(repos, coach.id).await.unwrap();
     assert!(repos
         .groups
         .set_group_coach_user(&group.id.to_string(), Some(coach.id), owner.tenant)

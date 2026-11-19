@@ -240,14 +240,11 @@ async fn test_cancellation_request_format() {
 #[tokio::test]
 async fn test_tool_response_format_compliance() {
     // Test successful tool response
-    let success_response = ToolResponse {
-        content: vec![Content::text("Operation completed successfully".to_owned())],
-        is_error: false,
-        structured_content: Some(json!({
+    let success_response = ToolResponse::text("Operation completed successfully".to_owned())
+        .with_structured_content(json!({
             "result": "success",
             "data": {"count": 42}
-        })),
-    };
+        }));
 
     let serialized = serde_json::to_value(&success_response).expect("Should serialize");
 
@@ -260,16 +257,13 @@ async fn test_tool_response_format_compliance() {
     assert_eq!(content["text"], "Operation completed successfully");
 
     // Test error tool response
-    let error_response = ToolResponse {
-        content: vec![Content::text("Tool execution failed".to_owned())],
-        is_error: true,
-        structured_content: Some(json!({
+    let error_response = ToolResponse::error("Tool execution failed".to_owned())
+        .with_structured_content(json!({
             "error": {
                 "code": ERROR_TOOL_EXECUTION,
                 "message": "Failed to process request"
             }
-        })),
-    };
+        }));
 
     let serialized = serde_json::to_value(&error_response).expect("Should serialize");
     assert_eq!(serialized["isError"], true);

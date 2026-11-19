@@ -1,5 +1,5 @@
 // ABOUTME: carnet#482 — an athlete deletes their own account from a signed-in session, re-proving who they are
-// ABOUTME: Grants revoked upstream, no row of theirs survives, refusals touch nothing, operators and blockers refused
+// ABOUTME: Grants revoked upstream, no row of theirs survives, refusals touch nothing; the last admin and blockers refused
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -844,26 +844,36 @@ async fn a_group_owner_is_refused_naming_the_group_and_nothing_is_touched() {
     );
 }
 
+/// An admin deletes its own account as anyone does (carnet#1589). The
+/// platform's last active admin is refused by the deletion itself (400) and
+/// stands; with a second admin, the same request deletes it.
 #[tokio::test]
-async fn an_operator_account_cannot_delete_itself() {
+async fn an_admin_deletes_its_own_account_unless_it_is_the_last_one() {
     let setup = Setup::new().await;
     let registry = setup.repos();
     let repos = registry.as_ref();
     let (mut user, _) = seed_password_account(repos).await;
     user.role = UserRole::Admin;
-    user.is_admin = true;
     repos.users.update(&user).await.unwrap();
+    let body = json!({ "confirm_email": user.email, "password": PASSWORD });
 
     let preview = setup.preview(&user).await;
-    assert_eq!(preview.status(), 403);
-    let response = setup
-        .delete(
-            &user,
-            &json!({ "confirm_email": user.email, "password": PASSWORD }),
-        )
-        .await;
-    assert_eq!(response.status(), 403);
+    assert_eq!(preview.status(), 200, "the preview answers an admin");
+    let response = setup.delete(&user, &body).await;
+    let status = response.status();
+    let answer = response.text();
+    assert_eq!(status, 400, "the last active admin: {answer}");
+    assert!(answer.contains("last active admin"), "{answer}");
     assert!(repos.users.get_global(user.id).await.unwrap().is_some());
+
+    let (mut other, _) = seed_password_account(repos).await;
+    other.role = UserRole::Admin;
+    repos.users.update(&other).await.unwrap();
+    let response = setup.delete(&user, &body).await;
+    let status = response.status();
+    assert_eq!(status, 200, "{}", response.text());
+    assert!(repos.users.get_global(user.id).await.unwrap().is_none());
+    assert!(repos.users.get_global(other.id).await.unwrap().is_some());
 }
 
 /// Only a signed-in session deletes: the athlete's API key and a personal MCP

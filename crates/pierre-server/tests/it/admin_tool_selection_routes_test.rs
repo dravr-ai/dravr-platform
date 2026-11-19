@@ -1,5 +1,5 @@
 // ABOUTME: Per-tenant tool selection through one handler set, over the console and admin-token mounts
-// ABOUTME: Tenant admins reach their own tenant only, and an override is attributed to its operator
+// ABOUTME: An admin reaches every tenant, a scoped token its own only, and an override is attributed to its operator
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,7 +7,7 @@
 //! The console's tool-availability tab used to have its own handlers in
 //! `pierre-routes-web-admin`, twins of `ToolSelectionRoutes` (carnet#604). The
 //! twins disagreed: the console let a tenant's admins manage its tools, the
-//! token API demanded a super-admin; and the token API attributed an override
+//! token API demanded an admin; and the token API attributed an override
 //! by parsing the token *id* as a user id, which no admin token id is, so every
 //! override it was asked to set failed.
 //!
@@ -54,7 +54,6 @@ async fn session(resources: &Arc<ServerContext>, email: &str, role: UserRole) ->
         password_hash,
         Some("Tools Test".to_owned()),
     );
-    user.is_admin = role.is_admin_or_higher();
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
@@ -140,11 +139,11 @@ async fn stored_override(
         .map(|o| (o.is_enabled, o.enabled_by_user_id)))
 }
 
-/// The console's tab: a plain Admin manages its own tenant's tools, and the
+/// The console's tab: an admin manages its own tenant's tools, and the
 /// override is attributed to it.
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_manages_its_own_tenants_tools() -> Result<()> {
+async fn an_admin_manages_its_own_tenants_tools() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let admin = session(&resources, "tenant-admin@example.com", UserRole::Admin).await?;
     let tenant = admin.tenant_id;
@@ -153,7 +152,11 @@ async fn a_plain_admin_manages_its_own_tenants_tools() -> Result<()> {
         .header("authorization", &admin.auth)
         .send(app(&resources))
         .await;
-    assert_eq!(response.status(), 200, "a tenant admin reads its tools");
+    assert_eq!(
+        response.status(),
+        200,
+        "an admin reads its own tenant's tools"
+    );
     let body: Value = response.json();
     assert!(
         body["data"]
@@ -167,7 +170,11 @@ async fn a_plain_admin_manages_its_own_tenants_tools() -> Result<()> {
         .json(&json!({ "tool_name": TOOL, "is_enabled": false, "reason": "pilot" }))
         .send(app(&resources))
         .await;
-    assert_eq!(response.status(), 200, "a tenant admin sets an override");
+    assert_eq!(
+        response.status(),
+        200,
+        "an admin sets an override on its own tenant"
+    );
     assert_eq!(
         stored_override(&resources, tenant).await?,
         Some((false, Some(admin.user_id))),
@@ -194,29 +201,57 @@ async fn a_plain_admin_manages_its_own_tenants_tools() -> Result<()> {
     assert_eq!(
         response.status(),
         200,
-        "a tenant admin removes its override"
+        "an admin removes the override on its own tenant"
     );
     assert_eq!(stored_override(&resources, tenant).await?, None);
     Ok(())
 }
 
-/// Membership is the gate: another tenant's tools are out of a plain Admin's
-/// reach, and nothing is written.
+/// An admin reaches every tenant's tools (carnet#1567: one admin role, with
+/// cross-tenant reach). What is still refused: an account that is not an
+/// admin, before any handler runs, and a service token minted without the
+/// super-admin flag, which is bound to no tenant. Neither writes anything.
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_cannot_touch_another_tenants_tools() -> Result<()> {
+async fn another_tenants_tools_are_an_admins_and_no_one_elses() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let admin = session(&resources, "own-tenant@example.com", UserRole::Admin).await?;
-    let other = session(&resources, "other-tenant@example.com", UserRole::Admin).await?;
+    let other = session(&resources, "other-tenant@example.com", UserRole::User).await?;
+    let outsider = session(&resources, "outsider@example.com", UserRole::User).await?;
 
-    let response = AxumTestRequest::post(&format!(
-        "/api/admin/tools/tenant/{}/override",
-        other.tenant_id
-    ))
-    .header("authorization", &admin.auth)
-    .json(&json!({ "tool_name": TOOL, "is_enabled": false }))
-    .send(app(&resources))
-    .await;
+    // A user's session is not an admin's: refused on the other tenant and on
+    // its own, since the console is for admins.
+    for tenant in [other.tenant_id, outsider.tenant_id] {
+        let response = AxumTestRequest::post(&format!("/api/admin/tools/tenant/{tenant}/override"))
+            .header("authorization", &outsider.auth)
+            .json(&json!({ "tool_name": TOOL, "is_enabled": false }))
+            .send(app(&resources))
+            .await;
+        assert_eq!(response.status(), 403, "a user is not an admin");
+        assert_eq!(stored_override(&resources, tenant).await?, None);
+    }
+
+    // A service token as `pierre-cli token generate` mints one without
+    // `--super-admin`: it names no tenant and acts for no one.
+    let scoped = resources
+        .common
+        .repos
+        .admin
+        .create_token(
+            &CreateAdminTokenRequest::new("scoped-tools".to_owned()),
+            resources.auth.admin_jwt_secret.as_ref(),
+            &resources.auth.jwks_manager,
+        )
+        .await?;
+    let response =
+        AxumTestRequest::post(&format!("/admin/tools/tenant/{}/override", other.tenant_id))
+            .header(
+                "authorization",
+                &format!("Bearer {}", scoped.jwt_token.expose_secret()),
+            )
+            .json(&json!({ "tool_name": TOOL, "is_enabled": false }))
+            .send(app(&resources))
+            .await;
     assert_eq!(response.status(), 403);
     let body: Value = response.json();
     assert_eq!(
@@ -226,11 +261,29 @@ async fn a_plain_admin_cannot_touch_another_tenants_tools() -> Result<()> {
     );
     assert_eq!(stored_override(&resources, other.tenant_id).await?, None);
 
+    // The admin does reach it, and the override is attributed to the admin.
     let response = AxumTestRequest::get(&format!("/api/admin/tools/tenant/{}", other.tenant_id))
         .header("authorization", &admin.auth)
         .send(app(&resources))
         .await;
-    assert_eq!(response.status(), 403);
+    assert_eq!(response.status(), 200, "an admin reads any tenant's tools");
+    let response = AxumTestRequest::post(&format!(
+        "/api/admin/tools/tenant/{}/override",
+        other.tenant_id
+    ))
+    .header("authorization", &admin.auth)
+    .json(&json!({ "tool_name": TOOL, "is_enabled": false }))
+    .send(app(&resources))
+    .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "an admin sets any tenant's override"
+    );
+    assert_eq!(
+        stored_override(&resources, other.tenant_id).await?,
+        Some((false, Some(admin.user_id))),
+    );
     Ok(())
 }
 
@@ -242,12 +295,7 @@ async fn a_plain_admin_cannot_touch_another_tenants_tools() -> Result<()> {
 async fn the_token_api_attributes_an_override_to_its_operator() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let owner = session(&resources, "tenant-owner@example.com", UserRole::User).await?;
-    let operator = session(
-        &resources,
-        "device-operator@example.com",
-        UserRole::SuperAdmin,
-    )
-    .await?;
+    let operator = session(&resources, "device-operator@example.com", UserRole::Admin).await?;
     let device = super_token(&resources, "device-login-shaped", Some(operator.user_id)).await?;
     let service = super_token(&resources, "service-token", None).await?;
     let tenant = owner.tenant_id;

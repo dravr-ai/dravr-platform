@@ -64,7 +64,7 @@ use pierre_core::ai_policy::{
     filter_items, first_party_only, Exposure, ProviderTerms, WithConsent, Withheld,
 };
 use pierre_core::constants::oauth_providers::{
-    garmin_device, source_attribution, GARMIN_ATTRIBUTION,
+    garmin_device, source_attribution, source_class_of, GARMIN_ATTRIBUTION,
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, PlannedWorkout};
@@ -81,6 +81,8 @@ mod governed;
 mod human_coach;
 /// The provenance accumulator, and the group members it records (carnet#1174).
 mod provenance;
+/// Where served content came from, for a result's trust label (owl phase 1).
+mod source_classes;
 /// Provider-terms filtering of stored health records.
 mod stored_health;
 
@@ -91,6 +93,10 @@ pub use governed::AiGovernedProvider;
 pub use human_coach::for_human_coach;
 pub use provenance::{
     derived_member, note_member_read, reading_about, reading_members, sole, Provenance,
+};
+pub use source_classes::{
+    admit_agent_written, admit_profile, judging, note_agent_written, note_served_from,
+    note_source_classes, note_sport_anchors,
 };
 pub use stored_health::{filter_stored_health, StoredHealthRecord};
 
@@ -123,15 +129,9 @@ pub async fn tracking<F: Future>(provenance: Provenance, fut: F) -> F::Output {
     let enclosing = current_provenance();
     let output = PROVENANCE.scope(provenance.clone(), fut).await;
     if let Some(enclosing) = enclosing {
-        if provenance.policy().is_first_party_only() {
-            enclosing.mark();
-        }
-        if provenance.served_provider_data() {
-            enclosing.mark_provider_data();
-        }
-        provenance.attribute_to(&enclosing);
-        for member in provenance.members_read() {
-            enclosing.note_member(member);
+        provenance.pass_to(&enclosing);
+        for class in provenance.source_classes() {
+            enclosing.note_source_class(class);
         }
     }
     output
@@ -198,6 +198,9 @@ fn note_served(lookup: &dyn ProviderTerms, provider: &str, source: Option<&str>)
     // What it was recorded by, for the attribution its derivation owes
     // (carnet#521).
     note_attribution(source_attribution(source));
+    // Where it came from, for the trust label a result carries. Not under
+    // `unfiltered`, for the reason marking is not.
+    source_classes::note_source_class(source_class_of(provider));
 }
 
 /// Record `attribution` on the running derivation.
@@ -313,6 +316,17 @@ pub async fn serve_over<F: Future>(transport: Transport, fut: F) -> F::Output {
 #[must_use]
 pub fn declared_transport() -> Option<Transport> {
     TRANSPORT.try_with(|transport| *transport).ok()
+}
+
+/// Whether the current request is served to an outside client.
+///
+/// It is when its credential is an outside client's (`outside_credential`:
+/// an API key, an MCP token, an OAuth application's grant), or when the
+/// transport layer declared it outside Dravr's own surfaces. A request no
+/// layer declared is read by its credential alone.
+#[must_use]
+pub fn served_outside(outside_credential: bool) -> bool {
+    outside_credential || declared_transport().is_some_and(|served| !served.is_first_party())
 }
 
 /// The transport a call bound to `bound` serves when it runs here: the
@@ -514,7 +528,7 @@ fn withheld_error(id: &str) -> AppError {
 /// this transport.
 ///
 /// With its own code, never an auth or reconnect one: the connection is fine.
-/// Covers the reads whose result carries no item provenance (profile, stats,
+/// Covers the reads whose result carries no item provenance (profile,
 /// calendar) and single-item reads, and a tool that serves such a read from a
 /// cache before any provider is asked.
 ///
@@ -551,8 +565,8 @@ mod tests {
     use chrono::{TimeZone, Utc};
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::errors::ErrorCode;
+    use pierre_core::models::Athlete;
     use pierre_core::models::{ActivityBuilder, SportType};
-    use pierre_core::models::{Athlete, Stats};
     use pierre_core::pagination::{CursorPage, PaginationParams};
     use pierre_core::transport::TransportPolicy;
 
@@ -588,7 +602,7 @@ mod tests {
         );
     }
 
-    struct NolioOnly;
+    pub(super) struct NolioOnly;
 
     impl ProviderTerms for NolioOnly {
         fn ai_policy(&self, provider: &str) -> Option<&'static SourcePolicy> {
@@ -615,12 +629,12 @@ mod tests {
     }
 
     /// A Nolio account relaying one Garmin, one Strava and one Zepp session.
-    struct Relay {
+    pub(super) struct Relay {
         config: ProviderConfig,
     }
 
     impl Relay {
-        fn governed() -> Box<dyn FitnessProvider> {
+        pub(super) fn governed() -> Box<dyn FitnessProvider> {
             let relay = Self {
                 config: ProviderConfig {
                     name: "nolio".to_owned(),
@@ -688,10 +702,6 @@ mod tests {
                 .into_iter()
                 .find(|a| a.id() == id)
                 .ok_or_else(|| AppError::not_found(id.to_owned()))
-        }
-
-        async fn get_stats(&self) -> AppResult<Stats> {
-            Err(AppError::internal("not used by these tests"))
         }
     }
 
@@ -847,23 +857,30 @@ mod tests {
     #[tokio::test]
     async fn reads_without_item_provenance_are_refused_with_their_own_code() {
         let provider = Relay::governed();
-        let (stats, _) = serve_over(Transport::McpHttp, ai_read(provider.get_stats())).await;
-        let error = stats.expect_err("an external call reads no first-party-only stats");
-        assert_eq!(error.code, ErrorCode::UnavailableOverTransport);
-
-        let (profile, _) = serve_over(Transport::ApiKey, ai_read(provider.get_athlete())).await;
+        let (over_mcp, _) = serve_over(Transport::McpHttp, ai_read(provider.get_athlete())).await;
         assert_eq!(
-            profile.expect_err("nor its profile").code,
-            ErrorCode::UnavailableOverTransport
+            over_mcp
+                .expect_err("bug: an external call reads no first-party-only profile")
+                .code,
+            ErrorCode::UnavailableOverTransport,
+            "bug: an MCP read with no item provenance is refused with its own code"
         );
 
-        let (first_party_stats, _) = first_party(ai_read(provider.get_stats())).await;
+        let (over_api_key, _) =
+            serve_over(Transport::ApiKey, ai_read(provider.get_athlete())).await;
         assert_eq!(
-            first_party_stats
-                .expect_err("the relay itself serves no stats")
+            over_api_key.expect_err("bug: nor over an API key").code,
+            ErrorCode::UnavailableOverTransport,
+            "bug: an API-key read with no item provenance is refused with its own code"
+        );
+
+        let (first_party_profile, _) = first_party(ai_read(provider.get_athlete())).await;
+        assert_eq!(
+            first_party_profile
+                .expect_err("bug: the relay itself serves no profile")
                 .code,
             ErrorCode::InternalError,
-            "a first-party read reaches the provider"
+            "bug: a first-party read reaches the provider"
         );
     }
 
@@ -930,11 +947,11 @@ mod tests {
             "a cache write serves no one"
         );
 
-        let (_, stats) = derived(first_party(ai_read(provider.get_stats()))).await;
+        let (_, profile) = derived(first_party(ai_read(provider.get_athlete()))).await;
         assert_eq!(
-            stats,
+            profile,
             TransportPolicy::FirstPartyOnly,
-            "a read with no item provenance is the relay's"
+            "bug: a read with no item provenance is the relay's"
         );
     }
 

@@ -745,6 +745,7 @@ impl LlmProvider for AsksForRecovery {
             "Your recovery held steady this week.".to_owned()
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: "mock-model".to_owned(),
             usage: None,

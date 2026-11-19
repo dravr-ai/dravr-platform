@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
@@ -18,10 +18,12 @@ import {
   OAUTH_RESULT_KEY,
   historySignInAfterGrant,
   refusalAnswer,
+  startOAuthInNewTab,
   startOAuthInThisTab,
   type OAuthResult,
 } from '../utils/oauthReturn';
 import type { ProviderStatus } from '../services/api';
+import { actsAsAdmin } from '@pierre/shared-types';
 import type { LimitCheckResult, OAuthGrant, SciotteTarget, ThemePreference } from '@pierre/shared-types';
 import {
   ACCOUNT_ROLE_LABEL_KEY,
@@ -29,12 +31,13 @@ import {
   AI_CONSENT_KEYS,
   APP_VERSION,
   countKey,
+  CREDENTIAL_CONSENT_KEYS,
   HELP_URL,
   LEGAL_URL,
   providerGlyphInk,
   settingsPaneSections,
 } from '@pierre/shared-constants';
-import { Button, Badge, ConfirmDialog, Input, Modal, ModalActions, Select, useErrorToast, Section, EmptyState } from './ui';
+import { Button, Badge, ConfirmDialog, Input, Modal, ModalActions, Select, useErrorToast, Section, EmptyState, Alert, ALERT_TONE } from './ui';
 import { clsx } from 'clsx';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
@@ -104,15 +107,15 @@ const CONNECTED_APPS_QUERY_KEY = ['user-connected-apps'] as const;
 
 /** Return Tailwind color class based on usage percentage: green < 70%, amber 70-90%, red > 90% */
 function getUsageBarColor(current: number, limit: number): string {
-  if (limit <= 0) return 'bg-activity';
+  if (limit <= 0) return 'bg-success';
   const pct = (current / limit) * 100;
   if (pct > 90) return 'bg-error';
-  if (pct > 70) return 'bg-nutrition';
-  return 'bg-activity';
+  if (pct > 70) return 'bg-warning';
+  return 'bg-success';
 }
 
 export default function UserSettings({ initialTab = 'profile', hideTabNav = false }: { initialTab?: SettingsTab; hideTabNav?: boolean }) {
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated, viewMode } = useAuth();
   const { scheme, toggle: toggleTheme } = useTheme();
   const { t, language } = useTranslation();
   const showErrorToast = useErrorToast();
@@ -132,10 +135,11 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   };
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
 
-  // Admin users don't get the panes about an athlete's own account.
-  // Gate on `role` (not is_admin) to stay consistent with Dashboard.tsx —
-  // see migration 20260518000001 for the historic skew between the two.
-  const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
+  // The admin console doesn't get the panes about an athlete's own account.
+  // The role decides, as in Dashboard.tsx, with the admin's chosen mode
+  // (carnet#1631); the `is_admin` flag has disagreed with it before
+  // (migration 20260518000001).
+  const isAdminUser = actsAsAdmin(user, viewMode);
   const { flags: featureFlags } = useFeatureFlags();
   // API Tokens and API keys tabs are gated behind the per-tenant/per-user flag; default
   // off until an admin flips it on.
@@ -493,10 +497,13 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   };
 
   // A sign-in that could not complete hands over to its provider's OAuth
-  // (carnet#1477): the window closes and the authorization starts instead.
+  // (carnet#1477), a reconnect's too (carnet#1667): the window closes and the
+  // authorization opens in a new tab, so this one stays on Settings, which
+  // reads the grant the other tab leaves (`answerOAuthResult`).
   const fallBackToOAuth = (provider: SciotteTarget) => () => {
     setSignIn(null);
-    handleConnectProvider(provider);
+    setProviderMessage(null);
+    startOAuthInNewTab(oauthApi.authorizeUrl(provider, { signInBlocked: true }));
   };
 
   const handleConnectProvider = (providerId: string, tosConsent = false) => {
@@ -513,63 +520,79 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   // Settings answers it and removes it — a grant with its message, a refusal
   // with the way in that is left — so a later remount within the freshness
   // window (Settings remounts on every section change) does not repeat it.
-  // Read once, as Settings opens on the connect's return, after the provider
-  // list has answered so the message names the provider by its card.
+  // It is read once, as Settings opens on the connect's return, after the
+  // provider list has answered so the message names the provider by its card;
+  // and again whenever another tab leaves a result — the fallback's
+  // authorization runs in a new tab (carnet#1667) — once the cards are reloaded.
+  const answerOAuthResult = useCallback(
+    (providers: readonly ProviderStatus[]) => {
+      let result: OAuthResult;
+      try {
+        const stored = localStorage.getItem(OAUTH_RESULT_KEY);
+        if (!stored) return;
+        result = JSON.parse(stored);
+      } catch {
+        return;
+      }
+      if (!result.timestamp || Date.now() - result.timestamp > OAUTH_RESULT_FRESH_MS) return;
+      // The card's display name for the backend the connect launched. The
+      // server withholds the raw card of a backend with a scrape mirror (native
+      // `garmin`), so that backend is matched to the card it serves through the
+      // card's `connected_backend`. Native `strava` reads as the Strava card's
+      // label, and a backend no card serves by its capitalised id.
+      const card = providers.find(
+        (p) => p.provider === result.provider || p.connected_backend === result.provider,
+      );
+      const name =
+        result.provider === 'strava'
+          ? t('shell.sciotteTargetStrava')
+          : (card?.display_name ?? result.provider.charAt(0).toUpperCase() + result.provider.slice(1));
+      localStorage.removeItem(OAUTH_RESULT_KEY);
+      if (result.success) {
+        setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: name }) });
+        // A grant whose card still needs its history (Garmin pushes only what
+        // comes after it) opens the sign-in that copies it, at once (carnet#1472).
+        const chained = historySignInAfterGrant(result, providers);
+        if (chained) {
+          setSignIn({ target: chained.target, consentRequired: chained.card.consent_required, historyMode: true, fallback: null });
+        }
+        return;
+      }
+      // The account belonged to a deleted Dravr account: the callback page
+      // worded it and offered to start fresh. Another way in to the same
+      // account would only be refused the same way.
+      if (result.tombstoned) return;
+      // A refused Strava grant falls back to its sign-in, same data; a refused
+      // Garmin grant signs in only while the seats are out, and otherwise says
+      // it failed, the card's Connect trying again (`refusalAnswer`).
+      const answer = refusalAnswer(result, providers);
+      if (answer?.kind === 'sign_in') {
+        setSignIn({
+          target: answer.target,
+          consentRequired: answer.card?.consent_required ?? false,
+          historyMode: false,
+          fallback: null,
+        });
+      } else {
+        setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: name }) });
+      }
+    },
+    [t]
+  );
   const oauthReturnRead = useRef(false);
   useEffect(() => {
     if (oauthReturnRead.current || isLoadingProviders) return;
     oauthReturnRead.current = true;
-    let result: OAuthResult;
-    try {
-      const stored = localStorage.getItem(OAUTH_RESULT_KEY);
-      if (!stored) return;
-      result = JSON.parse(stored);
-    } catch {
-      return;
-    }
-    if (!result.timestamp || Date.now() - result.timestamp > OAUTH_RESULT_FRESH_MS) return;
-    // The card's display name for the backend the connect launched. The
-    // server withholds the raw card of a backend with a scrape mirror (native
-    // `garmin`), so that backend is matched to the card it serves through the
-    // card's `connected_backend`. Native `strava` reads as the Strava card's
-    // label, and a backend no card serves by its capitalised id.
-    const card = providersResponse?.providers?.find(
-      (p) => p.provider === result.provider || p.connected_backend === result.provider,
-    );
-    const name =
-      result.provider === 'strava'
-        ? t('shell.sciotteTargetStrava')
-        : (card?.display_name ?? result.provider.charAt(0).toUpperCase() + result.provider.slice(1));
-    localStorage.removeItem(OAUTH_RESULT_KEY);
-    if (result.success) {
-      setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: name }) });
-      // A grant whose card still needs its history (Garmin pushes only what
-      // comes after it) opens the sign-in that copies it, at once (carnet#1472).
-      const chained = historySignInAfterGrant(result, providersResponse?.providers ?? []);
-      if (chained) {
-        setSignIn({ target: chained.target, consentRequired: chained.card.consent_required, historyMode: true, fallback: null });
-      }
-      return;
-    }
-    // The account belonged to a deleted Dravr account: the callback page
-    // worded it and offered to start fresh. Another way in to the same
-    // account would only be refused the same way.
-    if (result.tombstoned) return;
-    // A refused Strava grant falls back to its sign-in, same data; a refused
-    // Garmin grant signs in only while the seats are out, and otherwise says
-    // it failed, the card's Connect trying again (`refusalAnswer`).
-    const answer = refusalAnswer(result, providersResponse?.providers ?? []);
-    if (answer?.kind === 'sign_in') {
-      setSignIn({
-        target: answer.target,
-        consentRequired: answer.card?.consent_required ?? false,
-        historyMode: false,
-        fallback: null,
-      });
-    } else {
-      setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: name }) });
-    }
-  }, [isLoadingProviders, providersResponse, t]);
+    answerOAuthResult(providersResponse?.providers ?? []);
+  }, [isLoadingProviders, providersResponse, answerOAuthResult]);
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== OAUTH_RESULT_KEY || !event.newValue) return;
+      void refetchProviders().then(({ data }) => answerOAuthResult(data?.providers ?? []));
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [refetchProviders, answerOAuthResult]);
 
   // Disconnect a fitness provider
   const handleDisconnectProvider = async (providerId: string, displayName: string) => {
@@ -709,15 +732,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 </div>
 
                 {message && (
-                  <div
-                    className={`p-3 rounded-lg text-sm ${
-                      message.type === 'success'
-                        ? 'bg-activity/20 text-on-activity-container border border-activity/30'
-                        : 'bg-error/20 text-error border border-error/30'
-                    }`}
-                  >
+                  <Alert tone={message.type} className="border">
                     {message.text}
-                  </div>
+                  </Alert>
                 )}
 
                 <Button
@@ -800,16 +817,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
             <Section title={t('providers.fitnessTitle')} description={t('providers.fitnessHint')}>
 
               {providerMessage && (
-                <div
-                  className={clsx(
-                    'p-3 rounded-lg text-sm mb-4',
-                    providerMessage.type === 'success'
-                      ? 'bg-activity/20 text-on-activity-container border border-activity/30'
-                      : 'bg-error/20 text-error border border-error/30'
-                  )}
-                >
+                <Alert tone={providerMessage.type} className="mb-4 border">
                   {providerMessage.text}
-                </div>
+                </Alert>
               )}
 
               {isLoadingProviders ? (
@@ -865,15 +875,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
             >
 
             {credentialMessage && (
-              <div
-                className={`p-3 rounded-lg text-sm mb-4 ${
-                  credentialMessage.type === 'success'
-                    ? 'bg-activity/20 text-on-activity-container border border-activity/30'
-                    : 'bg-error/20 text-error border border-error/30'
-                }`}
-              >
+              <Alert tone={credentialMessage.type} className="mb-4 border">
                 {credentialMessage.text}
-              </div>
+              </Alert>
             )}
 
             {isLoadingApps ? (
@@ -956,13 +960,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               <p className="text-sm text-on-surface-variant mb-5">{t('credentials.useOwnAppHint')}</p>
 
               {credentialMessage && (
-                <div className={`p-3 rounded-lg text-sm mb-4 ${
-                  credentialMessage.type === 'success'
-                    ? 'bg-activity/20 text-on-activity-container border border-activity/30'
-                    : 'bg-error/20 text-error border border-error/30'
-                }`}>
+                <Alert tone={credentialMessage.type} className="mb-4 border">
                   {credentialMessage.text}
-                </div>
+                </Alert>
               )}
 
               <div className="space-y-4">
@@ -1025,9 +1025,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
           <>
             {/* Created Token Display */}
             {createdToken && (
-              <div className="bg-success/10 border border-success/30 rounded-lg p-6">
+              <div className={`${ALERT_TONE.success.tone} border rounded-lg p-6`}>
                 <div className="flex items-start gap-3">
-                  <svg className="w-6 h-6 text-success mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-6 h-6 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -1036,8 +1036,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                     />
                   </svg>
                   <div className="flex-1">
-                    <h3 className="text-lg font-medium text-success">{t('frag.tokenCreatedLabel')} {createdToken.name}</h3>
-                    <p className="text-success/80 mt-1 mb-3">{t('settingsUi.copyTokenNow')}</p>
+                    <h3 className="text-lg font-medium">{t('frag.tokenCreatedLabel')} {createdToken.name}</h3>
+                    <p className="mt-1 mb-3">{t('settingsUi.copyTokenNow')}</p>
                     <div className="flex items-center gap-2">
                       <code className="flex-1 px-3 py-2 bg-surface-container-low border border-success/30 rounded font-mono text-sm break-all text-on-surface">
                         {createdToken.token_value}
@@ -1086,6 +1086,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                         ]}
                       />
                     </div>
+                    {/* Always in view beside the action: creating the token after it is the express consent. */}
+                    <p className="text-xs text-on-surface-variant" data-testid="mcp-token-consent">
+                      {t(CREDENTIAL_CONSENT_KEYS.mcpToken)}
+                    </p>
                     <div className="flex gap-2">
                       <Button
                         onClick={handleCreateToken}
@@ -1153,8 +1157,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                           <Button
                             onClick={() => setTokenToRevoke(token)}
                             disabled={revokeTokenMutation.isPending}
-                            variant="secondary"
-                            className="text-error hover:bg-error/20"
+                            variant="danger-outline"
                             size="sm"
                           >
                             {t('settingsUi.revoke')}
@@ -1477,12 +1480,12 @@ Authorization: Bearer <your-token-here>`}
                             <div className="pierre-spinner w-6 h-6"></div>
                           </div>
                         ) : connectedAppsError ? (
-                          <div className="p-3 rounded-lg text-sm bg-error/20 text-error border border-error/30">
+                          <Alert tone="error" className="border">
                             {describeApiError(connectedAppsError, {
                               t,
                               fallbackKey: 'settingsErr.loadAppsFailed',
                             })}
-                          </div>
+                          </Alert>
                         ) : connectedApps && connectedApps.length > 0 ? (
                           <div>
                             {connectedApps.map((app) => (
@@ -1501,11 +1504,11 @@ Authorization: Bearer <your-token-here>`}
                                   </p>
                                 </div>
                                 <Button
-                                  variant="secondary"
+                                  variant="danger-outline"
                                   size="sm"
                                   onClick={() => setAppToRevoke(app)}
                                   disabled={revokeConnectedAppMutation.isPending}
-                                  className="flex-shrink-0 text-error hover:bg-error/20"
+                                  className="flex-shrink-0"
                                 >
                                   {t('settingsUi.revoke')}
                                 </Button>
@@ -1581,15 +1584,9 @@ Authorization: Bearer <your-token-here>`}
       >
         <div className="space-y-4">
           {passwordMessage && (
-            <div
-              className={`p-3 rounded-lg text-sm ${
-                passwordMessage.type === 'success'
-                  ? 'bg-activity/20 text-on-activity-container border border-activity/30'
-                  : 'bg-error/20 text-error border border-error/30'
-              }`}
-            >
+            <Alert tone={passwordMessage.type} className="border">
               {passwordMessage.text}
-            </div>
+            </Alert>
           )}
           <Input
             variant="dark"

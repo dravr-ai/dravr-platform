@@ -212,7 +212,7 @@ pub trait MemoryExtractionJobRepository: Send + Sync {
     async fn prune_extraction_runs(&self, before_ms: i64) -> AppResult<u64>;
 
     /// The runs and backlog of `scope`: one tenant, or every tenant on the
-    /// super-admin path of the memory worker screen. A job counts as backlog
+    /// platform-wide path of the memory worker screen. A job counts as backlog
     /// once it was recorded at or before `owed_since_ms`.
     async fn extraction_run_stats(
         &self,

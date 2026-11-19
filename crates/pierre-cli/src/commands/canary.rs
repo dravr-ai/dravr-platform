@@ -8,8 +8,10 @@
 //!
 //! Runs in the `*-sciotte-login-canary-job` Cloud Run job on a schedule. The
 //! account comes from `SCIOTTE_CANARY_EMAIL` / `SCIOTTE_CANARY_PASSWORD`
-//! (Secret Manager), never from arguments, and the service from the same
-//! `DRAVR_SCIOTTE_REMOTE_URL` / `DRAVR_SCIOTTE_AUDIENCE` the API reads. A login
+//! (Secret Manager), never from arguments, and the service from
+//! `DRAVR_SCIOTTE_REMOTE_URL` / `DRAVR_SCIOTTE_AUDIENCE`, which the job points
+//! at the service athletes sign in through (the sign-in service once the API's
+//! `DRAVR_SCIOTTE_LOGIN_URL` splits sign-ins off, carnet#1504). A login
 //! the provider stopped logs at ERROR and fails the job, which is what the
 //! `dravr-mcp-server-job-failures` alert counts.
 

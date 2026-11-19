@@ -297,8 +297,11 @@ impl AdminApiContext {
     #[must_use]
     pub fn new(init: AdminApiContextInit) -> Self {
         info!("AdminApiContext initialized with JWT signing key");
-        let auth_service =
-            AdminAuthService::new(Arc::clone(&init.repos.admin), init.jwks_manager.clone());
+        let auth_service = AdminAuthService::new(
+            Arc::clone(&init.repos.admin),
+            Arc::clone(&init.repos.users),
+            init.jwks_manager.clone(),
+        );
         Self {
             database: init.database,
             repos: init.repos,

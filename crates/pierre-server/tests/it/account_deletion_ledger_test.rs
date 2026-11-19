@@ -47,6 +47,7 @@ use pierre_routes_admin::handlers::deletion_ledger::{
 };
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_routes_auth::AuthRoutes;
+use pierre_services::admin_ops::AccountCaller;
 use pierre_services::analytics::{cache_user_email, resolve_user_email};
 use pierre_services::import_tombstones::clear_by_operator;
 use pierre_services::provider_revocation::{DisconnectReason, RevocationOutcome};
@@ -65,7 +66,7 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::Extension;
 
-use crate::common::create_test_server_resources;
+use crate::common::{acting_on, create_test_server_resources};
 use crate::helpers::axum_test::AxumTestRequest;
 
 /// The provider-side id the deleted athlete's Strava token held.
@@ -401,16 +402,26 @@ async fn a_deletion_appends_a_receipt_chained_to_the_one_before() {
             Some(&ConfirmsRevocation),
             None,
             None,
-            first,
-            DeletionActor::Athlete,
+            &acting_on(repos, &AccountCaller::account_holder(first), first).await,
         )
         .await
         .unwrap(),
     );
     let second_report = removed(
-        remove_user(repos, None, None, None, second, DeletionActor::Messaging)
-            .await
-            .unwrap(),
+        remove_user(
+            repos,
+            None,
+            None,
+            None,
+            &acting_on(
+                repos,
+                &AccountCaller::account_holder_on_messaging(second),
+                second,
+            )
+            .await,
+        )
+        .await
+        .unwrap(),
     );
 
     let chain = receipts(repos).await;
@@ -509,9 +520,15 @@ async fn a_tampered_receipt_is_named_as_the_first_broken_link() {
     for label in ["tamper-a", "tamper-b"] {
         let (user_id, _, _) = seed_athlete(repos, label).await;
         removed(
-            remove_user(repos, None, None, None, user_id, DeletionActor::Athlete)
-                .await
-                .unwrap(),
+            remove_user(
+                repos,
+                None,
+                None,
+                None,
+                &acting_on(repos, &AccountCaller::account_holder(user_id), user_id).await,
+            )
+            .await
+            .unwrap(),
         );
     }
     let context = admin_context(&resources);
@@ -572,8 +589,7 @@ async fn cache_entries_and_the_cached_email_are_gone_after_the_deletion() {
             None,
             None,
             Some(cache.as_ref()),
-            user_id,
-            DeletionActor::Operator,
+            &acting_on(repos, &AccountCaller::host_cli(None), user_id).await,
         )
         .await
         .unwrap(),
@@ -607,8 +623,7 @@ async fn a_webhook_for_a_tombstoned_provider_account_is_dropped_until_cleared() 
             Some(&ConfirmsRevocation),
             None,
             None,
-            deleted,
-            DeletionActor::Athlete,
+            &acting_on(repos, &AccountCaller::account_holder(deleted), deleted).await,
         )
         .await
         .unwrap(),
@@ -649,9 +664,15 @@ async fn a_deleted_email_is_not_auto_approved_until_its_holder_clears_it() {
     let repos = &resources.common.repos;
     let (deleted, _, email) = seed_athlete(repos, "returning").await;
     removed(
-        remove_user(repos, None, None, None, deleted, DeletionActor::Athlete)
-            .await
-            .unwrap(),
+        remove_user(
+            repos,
+            None,
+            None,
+            None,
+            &acting_on(repos, &AccountCaller::account_holder(deleted), deleted).await,
+        )
+        .await
+        .unwrap(),
     );
     let tombstone = repos
         .import_tombstones

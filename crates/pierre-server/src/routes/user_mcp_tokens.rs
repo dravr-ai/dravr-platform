@@ -103,6 +103,12 @@ impl UserMcpTokenRoutes {
         Json(request): Json<CreateTokenRequest>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
+        // A token outlives the support session that would mint it.
+        auth.refuse_impersonation(
+            resources.common.repos.admin_audit.as_ref(),
+            "create a personal MCP token",
+        )
+        .await?;
 
         // Create token
         let db_request = CreateUserMcpTokenRequest {

@@ -20,6 +20,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::common::offline_provider_registry;
 use pierre_core::config::fitness::{EXPENSIVE_DETAIL_PROMOTION_BUDGET, EXPLICIT_DETAIL_CAP};
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::ProviderCapabilities;
@@ -36,7 +37,7 @@ fn declares_cheap_detail(registry: &ProviderRegistry, provider: &str) -> bool {
 
 #[test]
 fn scrape_backed_providers_do_not_claim_cheap_detail() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     for provider in ["sciotte", "sciotte_garmin", "sciotte_trainingpeaks"] {
         assert!(
             !declares_cheap_detail(&registry, provider),
@@ -48,7 +49,7 @@ fn scrape_backed_providers_do_not_claim_cheap_detail() {
 
 #[test]
 fn api_providers_keep_unrationed_detail() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     for provider in ["strava", "whoop", "garmin", "intervals_icu"] {
         assert!(
             declares_cheap_detail(&registry, provider),

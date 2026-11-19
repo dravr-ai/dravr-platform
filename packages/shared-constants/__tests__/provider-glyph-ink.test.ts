@@ -12,26 +12,11 @@ import {
   providerGlyphInk,
   type ColorScheme,
 } from '../src/design-system';
+import { contrastHex as contrast } from '../src/wcag';
 
 /** WCAG 1.4.11: a graphic that identifies something needs 3:1 against its ground. */
 const ICON_FLOOR = 3;
 const SCHEMES: readonly ColorScheme[] = ['light', 'dark'];
-
-function channel(value: number): number {
-  const c = value / 255;
-  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-}
-
-function luminance(hex: string): number {
-  const h = hex.replace('#', '');
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
-  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-}
-
-function contrast(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
 
 /** The ink a client actually draws: the brand hex, or the scheme's body ink for `null`. */
 function drawnInk(providerId: string, scheme: ColorScheme): string {

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { createContext } from 'react';
-import type { User, UserRole, UserStatus, FirebaseLoginResponse } from '@pierre/shared-types';
+import type { User, UserRole, UserStatus, FirebaseLoginResponse, ViewMode } from '@pierre/shared-types';
 import type { SignInFailure } from '@pierre/ui-logic';
 import type { CompleteSignIn } from '@pierre/api-client';
 
@@ -50,6 +50,14 @@ interface AuthContextType {
   impersonation: ImpersonationState;
   startImpersonation: (targetUserId: string, reason?: string) => Promise<void>;
   endImpersonation: () => Promise<void>;
+  /**
+   * The mode an admin chose for this sign-in (carnet#1631), or null while
+   * none is chosen. Always null for an athlete. Kept across reloads, asked
+   * again at every sign-in.
+   */
+  viewMode: ViewMode | null;
+  /** Record the admin's mode for this sign-in. */
+  chooseViewMode: (mode: ViewMode) => void;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);

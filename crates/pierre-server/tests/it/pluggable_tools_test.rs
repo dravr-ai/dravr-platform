@@ -16,7 +16,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
 
-use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext as TroncToolContext};
 
 // A simple stub tool for testing. The tronc trait keys discovery and gating off
@@ -35,14 +35,11 @@ impl StubTool {
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for StubTool {
     fn definition(&self) -> Tool {
-        Tool {
-            name: self.name.to_owned(),
-            description: "Stub tool for unit testing".to_owned(),
-            input_schema: serde_json::json!({"type": "object"}),
-            annotations: None,
-            output_schema: None,
-            execution: None,
-        }
+        Tool::new(
+            self.name,
+            "Stub tool for unit testing",
+            serde_json::json!({"type": "object"}),
+        )
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -55,13 +52,8 @@ impl McpTool<dyn ToolRuntime> for StubTool {
         _ctx: &TroncToolContext,
         _args: Value,
     ) -> ToolResponse {
-        ToolResponse {
-            content: vec![Content::text(
-                serde_json::json!({"status": "ok"}).to_string(),
-            )],
-            is_error: false,
-            structured_content: Some(serde_json::json!({"status": "ok"})),
-        }
+        ToolResponse::text(serde_json::json!({"status": "ok"}).to_string())
+            .with_structured_content(serde_json::json!({"status": "ok"}))
     }
 }
 
@@ -359,14 +351,11 @@ mod audited_tool_tests {
     #[async_trait]
     impl McpTool<dyn ToolRuntime> for AdminStubTool {
         fn definition(&self) -> Tool {
-            Tool {
-                name: "admin_stub_tool".to_owned(),
-                description: "Test tool for unit testing".to_owned(),
-                input_schema: serde_json::json!({"type": "object"}),
-                annotations: None,
-                output_schema: None,
-                execution: None,
-            }
+            Tool::new(
+                "admin_stub_tool",
+                "Test tool for unit testing",
+                serde_json::json!({"type": "object"}),
+            )
         }
 
         fn capabilities(&self) -> ToolCapabilities {

@@ -27,14 +27,20 @@ use pierre_test_support::account::delete_account;
 use helpers::axum_test::AxumTestRequest;
 use helpers::first_party_sign_in::SignIn;
 use helpers::notify_capture::{capture_notify, named, only};
+use pierre_auth::dto::auth::LoginRequest;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
-use pierre_core::models::UserStatus;
+use pierre_core::errors::ErrorCode;
+use pierre_core::models::{User, UserStatus};
+use pierre_core::permissions::UserRole;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::AuthRoutes;
+use pierre_services::admin_ops::AccountCaller;
+use pierre_services::auth::{FederatedIdentity, SignupSource};
 use pierre_services::pre_approval::{self, AllowOutcome};
+use secrecy::SecretString;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -78,7 +84,7 @@ async fn setup() -> anyhow::Result<Arc<ServerContext>> {
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -91,6 +97,8 @@ async fn setup() -> anyhow::Result<Arc<ServerContext>> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -404,6 +412,66 @@ async fn pending_user_promoted_on_next_login_with_attribution() {
     );
 }
 
+/// An admin is approved by an admin, never by a sign-up rule (carnet#1589).
+/// A pending account that holds the admin role (set back to pending, or
+/// given the role by a write that did not look at its status) stays pending
+/// at its next login though a standing allow names its address, where a
+/// sign-up in the same position is let in
+/// (`pending_user_promoted_on_next_login_with_attribution`).
+#[tokio::test]
+async fn a_pending_admin_stays_pending_on_login_whatever_allows_its_address() {
+    let resources = setup().await.expect("server context setup failed");
+    let repos = &resources.common.repos;
+    let allowed_by = register_operator(&resources, "allowing-admin@example.com").await;
+    let email = "pending-admin@example.com";
+    let password = "securePassword123";
+
+    let (status, body) = register(&resources, email, password).await;
+    assert_eq!(status, 201, "registration must succeed: {body}");
+    assert_eq!(body["user_status"].as_str(), Some("pending"));
+    // The role, written past the promotion (which refuses a pending account).
+    let mut account = repos
+        .users
+        .get_by_email(email)
+        .await
+        .unwrap()
+        .expect("the account");
+    account.role = UserRole::Admin;
+    repos.users.update(&account).await.unwrap();
+    repos
+        .pre_approved_emails
+        .allow(email, Some(allowed_by), None)
+        .await
+        .expect("recording the allow must succeed");
+
+    let login = SignIn::new(email, password).run(&resources).await.token();
+    assert_eq!(login.status(), 200, "a pending account still signs in");
+    // Only the account is printed on a failure: the body beside it is the
+    // session's tokens.
+    let signed_in: Value = login.json::<Value>()["user"].clone();
+    assert_eq!(
+        signed_in["user_status"].as_str(),
+        Some("pending"),
+        "the login activated an admin nobody approved: {signed_in}"
+    );
+
+    let stored = repos
+        .users
+        .get_by_email(email)
+        .await
+        .unwrap()
+        .expect("the account");
+    assert!(
+        stored.role.is_admin(),
+        "the fixture held the role throughout"
+    );
+    assert_eq!(stored.user_status, UserStatus::Pending);
+    assert_eq!(
+        stored.approved_by, None,
+        "and nobody is recorded as approving it"
+    );
+}
+
 /// The allow-list matches an address, not a spelling of it: a registration
 /// differing from the allow only in casing and surrounding whitespace is the
 /// allowed person, and lands active.
@@ -453,7 +521,8 @@ async fn an_allow_approves_a_pending_account_registered_in_another_casing() {
     assert_eq!(status, 201, "registration must succeed: {body}");
     assert_eq!(body["user_status"].as_str(), Some("pending"));
 
-    let result = pre_approval::allow(repos, "late.cohort@example.com", Some(operator), None)
+    let host = AccountCaller::host_cli(Some(operator));
+    let result = pre_approval::allow(repos, &host, "late.cohort@example.com", None)
         .await
         .expect("the allow must succeed");
     assert_eq!(result.outcome, AllowOutcome::PendingApproved);
@@ -478,5 +547,272 @@ async fn an_allow_approves_a_pending_account_registered_in_another_casing() {
             .expect("lookup must succeed")
             .is_none(),
         "the pending account was approved, not a standing allow recorded"
+    );
+}
+
+/// A pending account registered at `email`, as the store holds it.
+async fn pending_account(resources: &Arc<ServerContext>, email: &str, password: &str) -> User {
+    let (status, body) = register(resources, email, password).await;
+    assert_eq!(status, 201, "registration must succeed: {body}");
+    assert_eq!(body["user_status"].as_str(), Some("pending"));
+    resources
+        .common
+        .repos
+        .users
+        .get_by_email(email)
+        .await
+        .expect("user lookup must succeed")
+        .expect("user must exist")
+}
+
+/// A suspension that lands while a login is being answered stands
+/// (carnet#1589). The login reads the account pending, takes its time over
+/// the password, and only then activates the account a standing allow lets
+/// in; an admin who rejects the sign-up in between has decided it. The
+/// activation is written only while the account is still pending, so the
+/// account stays suspended and the login is refused as any suspended
+/// account's is. Checked on the earlier read and then written, the login
+/// set the account active again and signed its holder in.
+#[tokio::test]
+async fn a_login_never_reactivates_an_account_suspended_while_it_was_answered() {
+    let resources = setup().await.expect("server context setup failed");
+    let repos = &resources.common.repos;
+    let (email, password) = ("suspended-mid-login@example.com", "securePassword123");
+    let user = pending_account(&resources, email, password).await;
+    repos
+        .pre_approved_emails
+        .allow(email, None, None)
+        .await
+        .expect("recording the allow must succeed");
+    let service = resources.auth_routes_context().account_service();
+
+    // The login is polled first, so its read of the account is the first
+    // statement; the suspension is done long before the password is checked.
+    let (login, suspension) = tokio::join!(
+        service.login(LoginRequest {
+            email: email.to_owned(),
+            password: SecretString::from(password),
+            timezone: None,
+        }),
+        repos
+            .users
+            .update_status(user.id, UserStatus::Suspended, None),
+    );
+
+    suspension.expect("the suspension is written");
+    let stored = repos.users.get_global(user.id).await.unwrap().unwrap();
+    assert_eq!(
+        stored.user_status,
+        UserStatus::Suspended,
+        "the suspension stands"
+    );
+    let refused = login.expect_err("a suspended account is not signed in");
+    assert_eq!(refused.code, ErrorCode::AccountSuspended, "{refused}");
+}
+
+/// The same for a federated sign-in (carnet#1589): it finds the pending
+/// account by its Firebase UID, and a suspension that lands before the
+/// allow's activation is written stands. The sign-in is refused, and the
+/// account is not handed a session.
+#[tokio::test]
+async fn a_federated_sign_in_never_reactivates_an_account_suspended_meanwhile() {
+    let resources = setup().await.expect("server context setup failed");
+    let repos = &resources.common.repos;
+    let email = "suspended-mid-google@example.com";
+    let mut user = User::new(email.to_owned(), "not-a-login-path".to_owned(), None);
+    user.user_status = UserStatus::Pending;
+    user.firebase_uid = Some("fb-suspended-mid-sign-in".to_owned());
+    user.auth_provider = "google.com".to_owned();
+    repos.users.create(&user).await.unwrap();
+    repos
+        .pre_approved_emails
+        .allow(email, None, None)
+        .await
+        .expect("recording the allow must succeed");
+    let service = resources.auth_routes_context().account_service();
+
+    // The sign-in is polled first, so its read of the account by UID is the
+    // first statement.
+    let (sign_in, suspension) = tokio::join!(
+        service.login_with_federated_identity(FederatedIdentity {
+            firebase_uid: Some("fb-suspended-mid-sign-in"),
+            google_subject: None,
+            email: email.to_owned(),
+            email_verified: true,
+            display_name: None,
+            provider: "google.com",
+            signup_source: SignupSource::Firebase,
+            locale: None,
+        }),
+        repos
+            .users
+            .update_status(user.id, UserStatus::Suspended, None),
+    );
+
+    suspension.expect("the suspension is written");
+    let stored = repos.users.get_global(user.id).await.unwrap().unwrap();
+    assert_eq!(
+        stored.user_status,
+        UserStatus::Suspended,
+        "the suspension stands"
+    );
+    // Signed in before the suspension landed, the account was active then.
+    match sign_in {
+        Ok(signed_in) => assert_eq!(signed_in.user.user_status, "active"),
+        Err(refused) => assert_eq!(refused.code, ErrorCode::AccountSuspended, "{refused}"),
+    }
+}
+
+/// An allow recorded while an admin rejects the same sign-up never
+/// overrides the rejection (carnet#1589): whichever order the two land in,
+/// the account ends suspended. An allow that finds the sign-up already
+/// decided says so, approves nobody and provisions nothing. Checked and
+/// then written, it set the suspended account active.
+#[tokio::test]
+async fn an_allow_never_reactivates_an_account_suspended_while_it_was_recorded() {
+    let resources = setup().await.expect("server context setup failed");
+    let repos = &resources.common.repos;
+    let email = "suspended-mid-allow@example.com";
+    let user = pending_account(&resources, email, "securePassword123").await;
+
+    let host = AccountCaller::host_cli(None);
+    let (allowed, suspension) = tokio::join!(
+        pre_approval::allow(repos, &host, email, None),
+        repos
+            .users
+            .update_status(user.id, UserStatus::Suspended, None),
+    );
+
+    suspension.expect("the suspension is written");
+    let allowed = allowed.expect("the allow answers");
+    let stored = repos.users.get_global(user.id).await.unwrap().unwrap();
+    assert_eq!(
+        stored.user_status,
+        UserStatus::Suspended,
+        "the suspension stands"
+    );
+    // The allow either landed first, and was then suspended like any active
+    // account, or found the account decided.
+    if allowed.outcome != AllowOutcome::PendingApproved {
+        assert_eq!(allowed.outcome, AllowOutcome::SuspendedUnchanged);
+        assert!(allowed.approved_user.is_none(), "nobody to announce");
+        let tokens = repos.user_mcp_tokens.list_tokens(user.id).await.unwrap();
+        assert!(tokens.is_empty(), "nothing is provisioned");
+    }
+}
+
+/// What an admin does to an account while its first federated sign-in is
+/// being linked.
+#[derive(Clone, Copy, Debug)]
+enum MeanwhileWrite {
+    Suspends,
+    Demotes,
+    Promotes,
+}
+
+/// How many accounts each admin write is raced on: the order the link and
+/// the write reach the store in is the runtime's, so one round proves little.
+const LINK_RACE_ROUNDS: usize = 4;
+
+/// A first federated sign-in that finds an account by its email links the
+/// identity to it (carnet#1589). The link read the account, took its time
+/// over the account's earlier credentials, and then wrote the whole row
+/// back from what it had read, role, status and activity included: a
+/// suspension, a demotion or a promotion that landed in between was undone
+/// by a sign-in. The link writes the identity it proved and nothing else,
+/// so whichever order the two land in, the standing is the admin's.
+#[tokio::test]
+async fn a_first_federated_link_never_writes_back_the_standing_an_admin_changed_meanwhile() {
+    let resources = setup().await.expect("server context setup failed");
+    let repos = &resources.common.repos;
+    // A second admin in good standing, so a demotion is never the last one's.
+    let mut standing = User::new("standing@example.com".to_owned(), "hash".to_owned(), None);
+    standing.user_status = UserStatus::Active;
+    standing.role = UserRole::Admin;
+    repos.users.create(&standing).await.unwrap();
+    let service = resources.auth_routes_context().account_service();
+    let mut undone = Vec::new();
+
+    for write in [
+        MeanwhileWrite::Suspends,
+        MeanwhileWrite::Demotes,
+        MeanwhileWrite::Promotes,
+    ] {
+        for round in 0..LINK_RACE_ROUNDS {
+            let email = format!("{write:?}-mid-link-{round}@example.com").to_lowercase();
+            // Registered with a password and never verified: the link has
+            // the account's earlier credentials to retire before it writes.
+            let mut user = User::new(email.clone(), "not-a-login-path".to_owned(), None);
+            user.user_status = UserStatus::Active;
+            user.role = match write {
+                MeanwhileWrite::Demotes => UserRole::Admin,
+                MeanwhileWrite::Suspends | MeanwhileWrite::Promotes => UserRole::User,
+            };
+            repos.users.create(&user).await.unwrap();
+
+            // The sign-in is polled first, and its identity carries no
+            // provider id to look an account up by, so its read of the
+            // account by email is the first statement; the admin's write
+            // lands while it works.
+            let (sign_in, written) = tokio::join!(
+                service.login_with_federated_identity(FederatedIdentity {
+                    firebase_uid: None,
+                    google_subject: None,
+                    email: email.clone(),
+                    email_verified: true,
+                    display_name: None,
+                    provider: "google.com",
+                    signup_source: SignupSource::Google,
+                    locale: None,
+                }),
+                async {
+                    match write {
+                        MeanwhileWrite::Suspends => {
+                            repos
+                                .users
+                                .update_status(user.id, UserStatus::Suspended, None)
+                                .await
+                        }
+                        MeanwhileWrite::Demotes => {
+                            repos.users.set_admin_status(user.id, false).await
+                        }
+                        MeanwhileWrite::Promotes => {
+                            repos.users.set_admin_status(user.id, true).await
+                        }
+                    }
+                },
+            );
+
+            written.expect("the admin's write lands");
+            let stored = repos.users.get_global(user.id).await.unwrap().unwrap();
+            let standing = (stored.user_status, stored.role, stored.is_active);
+            let expected = match write {
+                MeanwhileWrite::Suspends => (UserStatus::Suspended, UserRole::User, true),
+                MeanwhileWrite::Demotes => (UserStatus::Active, UserRole::User, true),
+                MeanwhileWrite::Promotes => (UserStatus::Active, UserRole::Admin, true),
+            };
+            if standing != expected {
+                undone.push(format!(
+                    "{write:?}, round {round}: {standing:?}, not {expected:?}"
+                ));
+            }
+            match sign_in {
+                Ok(_) => assert_eq!(
+                    stored.auth_provider, "google.com",
+                    "{write:?}, round {round}: the sign-in that was answered linked the identity"
+                ),
+                // Suspended before the link was answered.
+                Err(refused) => {
+                    assert_eq!(refused.code, ErrorCode::AccountSuspended, "{refused}");
+                }
+            }
+        }
+    }
+    // Every case is raced before any is judged, so a failure names each
+    // kind of write a link undid.
+    assert_eq!(
+        undone,
+        Vec::<String>::new(),
+        "the admin's write stands, whichever order the two land in"
     );
 }

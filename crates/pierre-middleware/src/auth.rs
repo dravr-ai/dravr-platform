@@ -7,29 +7,38 @@
 use axum::http::header::AUTHORIZATION;
 use axum::http::HeaderMap;
 use chrono::{Duration, Utc};
+use futures_util::future::BoxFuture;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::ApiKeyManager;
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult, Claims, ImpersonationGrant};
 use pierre_auth::oauth2_server::grant_standing::GrantStandings;
 use pierre_auth::rate_limiting::{
-    api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit, RequestBudget,
+    api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit,
 };
 use pierre_auth::security::cookies::{auth_cookie_name, get_cookie_value};
 use pierre_auth::user_status::enforce_user_status;
 use pierre_core::auth_header::{is_api_key_format, is_user_mcp_token_format};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::JwtUsage;
-use pierre_core::models::{TenantId, User};
+use pierre_core::models::{ApiKey, TenantId, User, ValidatedUserMcpToken};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
 // Trait methods dispatched through repos.api_keys / repos.messaging / repos.tenants / repos.usage / repos.users
 use pierre_database::RepositoryRegistry;
-use pierre_logging::{record_identity, record_in_scope};
+use pierre_logging::record_identity;
 use std::sync::Arc;
 use tracing::field::Empty;
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
-use crate::rate_limiting::{enforce_request_budget, report_api_key_request, report_request_budget};
+use crate::rate_limiting::{enforce_request_budget, report_api_key_request};
+
+mod impersonation;
+/// One credential's outcome, and how it becomes the request's answer.
+mod outcome;
+
+pub use outcome::AuthRefusal;
+use outcome::{settle, Admitted, Checked, Refused};
 
 /// How stale `users.last_active` may grow before an authenticated request
 /// writes it again, in minutes.
@@ -84,9 +93,9 @@ fn delegated_grant_refused() -> AppError {
 /// The refusal a first-party session token meets on a path that takes
 /// delegated grants: the MCP transport and A2A.
 ///
-/// A session — the self grant, which no authorization server ever mints for
-/// an integration, since `admin` is never delegable — is how Dravr's own web
-/// and mobile apps are signed in. It is not an integration's credential, so
+/// A session — a token naming one of Dravr's own apps or no client, holding
+/// the self grant ([`Claims::is_session`]) — is how Dravr's own web and mobile
+/// apps are signed in. It is not an integration's credential, so
 /// it is refused as one: `AuthInvalid`, which `/mcp` answers with a 401
 /// `invalid_token` challenge, sending a spec-following client into the OAuth
 /// flow that mints the delegated grant it should hold. The athlete's API key
@@ -116,7 +125,7 @@ fn mcp_token_refused() -> AppError {
 /// subject is the client (RFC 9068 §2.2). It is refused on the claims' own
 /// shape before `sub` is parsed, so whatever form a client id takes, it is
 /// never looked up as a user.
-fn token_user_id(claims: &Claims) -> AppResult<uuid::Uuid> {
+fn token_user_id(claims: &Claims) -> AppResult<Uuid> {
     if let Some(client_id) = claims.client_credentials_client() {
         warn!(
             client_id = %client_id,
@@ -129,72 +138,12 @@ fn token_user_id(claims: &Claims) -> AppResult<uuid::Uuid> {
     parse_uuid(&claims.sub).map_err(|_| AppError::auth_invalid("Invalid user ID in token"))
 }
 
-/// A credential its request budget admitted, and that budget.
-struct Admitted {
-    auth: AuthResult,
-    budget: RequestBudget,
-}
-
-/// Why one credential did not authenticate the request.
-enum Refused {
-    /// Its own request budget is spent: the 429, and the budget that
-    /// produced it.
-    OverBudget {
-        budget: RequestBudget,
-        error: AppError,
-    },
-    /// Refused before any budget decided: a bad credential, a delegated grant
-    /// on a path that reads no scope, an owner the account-status gate turns
-    /// away, a server fault.
-    Failed(AppError),
-}
-
-impl Refused {
-    const fn error(&self) -> &AppError {
-        match self {
-            Self::OverBudget { error, .. } | Self::Failed(error) => error,
-        }
-    }
-}
-
-impl From<AppError> for Refused {
-    fn from(error: AppError) -> Self {
-        Self::Failed(error)
-    }
-}
-
-/// One credential checked, before its outcome is the request's answer.
-type Checked = Result<Admitted, Refused>;
-
 /// Record who an admitted request is for on every enclosing span that
 /// declares `user_id` / `tenant_id` — the HTTP root span included — so the
 /// identity outlives this function's own span for every log line and trace
 /// that follows authentication.
 fn record_authenticated(auth: &AuthResult) {
     record_identity(auth.user_id, auth.active_tenant_id);
-}
-
-/// Make one credential's outcome the request's answer, and report the budget
-/// that decided it to the response's `X-RateLimit-*` headers.
-///
-/// The only place authentication reports a budget, so the headers name one
-/// credential: the one that admitted the request, or the one whose own spent
-/// budget produced the 429. A credential checked and then superseded (a spent
-/// cookie falling through to the `Authorization` header) is never settled,
-/// and a refusal no budget decided (a malformed token, a suspended owner, a
-/// server fault) reports nothing.
-fn settle(checked: Checked) -> AppResult<AuthResult> {
-    match checked {
-        Ok(Admitted { auth, budget }) => {
-            report_request_budget(budget);
-            Ok(auth)
-        }
-        Err(Refused::OverBudget { budget, error }) => {
-            report_request_budget(budget);
-            Err(error)
-        }
-        Err(Refused::Failed(error)) => Err(error),
-    }
 }
 
 /// Middleware for `MCP` protocol authentication
@@ -294,7 +243,7 @@ impl McpAuthMiddleware {
                         "JWT cookie authentication successful for user: {}",
                         admitted.auth.user_id
                     );
-                    return settle(Ok(admitted));
+                    return settle(Ok(admitted)).map_err(|refusal| refusal.error);
                 }
                 // A spent budget on the only credential presented is the
                 // answer: falling through would turn it into "missing
@@ -302,7 +251,7 @@ impl McpAuthMiddleware {
                 Err(refused @ Refused::OverBudget { .. })
                     if !headers.contains_key(AUTHORIZATION) =>
                 {
-                    return settle(Err(refused));
+                    return settle(Err(refused)).map_err(|refusal| refusal.error);
                 }
                 Err(refused) => {
                     // Cookie auth failed — fall through to Authorization header
@@ -347,6 +296,7 @@ impl McpAuthMiddleware {
     pub async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult> {
         self.authenticate_header(auth_header, GrantPolicy::DirectOnly)
             .await
+            .map_err(|refusal| refusal.error)
     }
 
     /// Authenticate a request on a path that enforces the credential's scopes
@@ -373,11 +323,34 @@ impl McpAuthMiddleware {
         auth_header: Option<&str>,
         resources: &[&str],
     ) -> AppResult<AuthResult> {
+        self.authenticate_scoped_request_naming_caller(auth_header, resources)
+            .await
+            .map_err(|refusal| refusal.error)
+    }
+
+    /// [`Self::authenticate_scoped_request`], whose refusal names the caller
+    /// when the credential was checked far enough to name one, so a door
+    /// that audits admin-only calls writes the refused attempt (EFVP
+    /// 2026-11-17, decision 9.4d): an API key over its request budget, an
+    /// owner the account-status gate turns away, a delegated grant whose
+    /// consent was withdrawn.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::authenticate_scoped_request`], with the caller beside it.
+    pub async fn authenticate_scoped_request_naming_caller(
+        &self,
+        auth_header: Option<&str>,
+        resources: &[&str],
+    ) -> Result<AuthResult, AuthRefusal> {
         self.authenticate_header(auth_header, GrantPolicy::ScopesEnforced { resources })
             .await
     }
 
     /// Authenticate an `Authorization` header value under `policy`.
+    ///
+    /// Boxed rather than `async fn` so its body is compiled once, not again in
+    /// every codegen unit that awaits it (binary size).
     #[tracing::instrument(
         skip(self, auth_header),
         fields(
@@ -388,102 +361,110 @@ impl McpAuthMiddleware {
             success = Empty,
         )
     )]
-    async fn authenticate_header(
-        &self,
-        auth_header: Option<&str>,
-        policy: GrantPolicy<'_>,
-    ) -> AppResult<AuthResult> {
-        debug!("=== AUTH MIDDLEWARE AUTHENTICATE_REQUEST START ===");
-        debug!("Auth header provided: {}", auth_header.is_some());
+    fn authenticate_header<'a>(
+        &'a self,
+        auth_header: Option<&'a str>,
+        policy: GrantPolicy<'a>,
+    ) -> BoxFuture<'a, Result<AuthResult, AuthRefusal>> {
+        Box::pin(async move {
+            debug!("=== AUTH MIDDLEWARE AUTHENTICATE_REQUEST START ===");
+            debug!("Auth header provided: {}", auth_header.is_some());
 
-        let auth_str = if let Some(header) = auth_header {
-            // Security: Do not log auth header content to prevent token leakage
-            debug!(
-                "Authentication attempt with header type: {}",
-                if is_api_key_format(header) {
-                    "API_KEY"
-                } else if header.starts_with("Bearer ") {
-                    "JWT_TOKEN"
-                } else {
-                    "UNKNOWN"
-                }
-            );
-            header
-        } else {
-            warn!("Authentication failed: Missing authorization header");
-            return Err(AppError::auth_invalid("Authentication failed: Missing authorization header - Request authentication requires Authorization header with Bearer token or API key"));
-        };
+            let auth_str = if let Some(header) = auth_header {
+                // Security: Do not log auth header content to prevent token leakage
+                debug!(
+                    "Authentication attempt with header type: {}",
+                    if is_api_key_format(header) {
+                        "API_KEY"
+                    } else if header.starts_with("Bearer ") {
+                        "JWT_TOKEN"
+                    } else {
+                        "UNKNOWN"
+                    }
+                );
+                header
+            } else {
+                warn!("Authentication failed: Missing authorization header");
+                return Err(AuthRefusal::from(AppError::auth_invalid(
+                    "Authentication failed: Missing authorization header - Request authentication requires Authorization header with Bearer token or API key",
+                )));
+            };
 
-        // Try API key authentication first (starts with pk_live_ or pk_trial_)
-        if is_api_key_format(auth_str) {
-            tracing::Span::current().record("auth_method", "API_KEY");
-            debug!("Attempting API key authentication");
-            match settle(self.authenticate_api_key(auth_str).await) {
-                Ok(result) => {
-                    tracing::Span::current().record("success", true);
-                    record_authenticated(&result);
-                    info!(
-                        "API key authentication successful for user: {}",
-                        result.user_id
-                    );
-                    Ok(result)
-                }
-                Err(e) => {
-                    tracing::Span::current().record("success", false);
-                    warn!("API key authentication failed: {}", e);
-                    Err(e)
-                }
-            }
-        }
-        // Then a personal MCP token, which an MCP client sends as a bearer
-        // token but which is no JWT: it resolves through its own table
-        else if let Some(token) = auth_str
-            .strip_prefix("Bearer ")
-            .filter(|token| is_user_mcp_token_format(token))
-        {
-            tracing::Span::current().record("auth_method", "MCP_TOKEN");
-            debug!("Attempting personal MCP token authentication");
-            match settle(self.authenticate_user_mcp_token(token, policy).await) {
-                Ok(result) => {
-                    tracing::Span::current().record("success", true);
-                    record_authenticated(&result);
-                    info!(
-                        "MCP token authentication successful for user: {}",
-                        result.user_id
-                    );
-                    Ok(result)
-                }
-                Err(e) => {
-                    tracing::Span::current().record("success", false);
-                    warn!("MCP token authentication failed: {}", e);
-                    Err(e)
+            // Try API key authentication first (starts with pk_live_ or pk_trial_)
+            if is_api_key_format(auth_str) {
+                tracing::Span::current().record("auth_method", "API_KEY");
+                debug!("Attempting API key authentication");
+                match settle(self.authenticate_api_key(auth_str).await) {
+                    Ok(result) => {
+                        tracing::Span::current().record("success", true);
+                        record_authenticated(&result);
+                        info!(
+                            "API key authentication successful for user: {}",
+                            result.user_id
+                        );
+                        Ok(result)
+                    }
+                    Err(e) => {
+                        tracing::Span::current().record("success", false);
+                        warn!("API key authentication failed: {}", e.error);
+                        Err(e)
+                    }
                 }
             }
-        }
-        // Then try Bearer token authentication
-        else if let Some(token) = auth_str.strip_prefix("Bearer ") {
-            tracing::Span::current().record("auth_method", "JWT_TOKEN");
-            debug!("Attempting JWT token authentication");
-            match settle(self.authenticate_jwt_token(token, policy).await) {
-                Ok(result) => {
-                    tracing::Span::current().record("success", true);
-                    record_authenticated(&result);
-                    info!("JWT authentication successful for user: {}", result.user_id);
-                    Ok(result)
-                }
-                Err(e) => {
-                    tracing::Span::current().record("success", false);
-                    warn!("JWT authentication failed: {}", e);
-                    Err(e)
+            // Then a personal MCP token, which an MCP client sends as a bearer
+            // token but which is no JWT: it resolves through its own table
+            else if let Some(token) = auth_str
+                .strip_prefix("Bearer ")
+                .filter(|token| is_user_mcp_token_format(token))
+            {
+                tracing::Span::current().record("auth_method", "MCP_TOKEN");
+                debug!("Attempting personal MCP token authentication");
+                match settle(self.authenticate_user_mcp_token(token, policy).await) {
+                    Ok(result) => {
+                        tracing::Span::current().record("success", true);
+                        record_authenticated(&result);
+                        info!(
+                            "MCP token authentication successful for user: {}",
+                            result.user_id
+                        );
+                        Ok(result)
+                    }
+                    Err(e) => {
+                        tracing::Span::current().record("success", false);
+                        warn!("MCP token authentication failed: {}", e.error);
+                        Err(e)
+                    }
                 }
             }
-        } else {
-            tracing::Span::current()
-                .record("auth_method", "INVALID")
-                .record("success", false);
-            warn!("Authentication failed: Invalid authorization header format (expected 'Bearer ...', 'pk_live_...' or 'pk_trial_...')");
-            Err(AppError::auth_invalid("Invalid authorization header format - must be 'Bearer <token>' or an API key ('pk_live_<key>' or 'pk_trial_<key>')"))
-        }
+            // Then try Bearer token authentication
+            else if let Some(token) = auth_str.strip_prefix("Bearer ") {
+                tracing::Span::current().record("auth_method", "JWT_TOKEN");
+                debug!("Attempting JWT token authentication");
+                match settle(self.authenticate_jwt_token(token, policy).await) {
+                    Ok(result) => {
+                        tracing::Span::current().record("success", true);
+                        record_authenticated(&result);
+                        info!("JWT authentication successful for user: {}", result.user_id);
+                        Ok(result)
+                    }
+                    Err(e) => {
+                        tracing::Span::current().record("success", false);
+                        warn!("JWT authentication failed: {}", e.error);
+                        Err(e)
+                    }
+                }
+            } else {
+                tracing::Span::current()
+                    .record("auth_method", "INVALID")
+                    .record("success", false);
+                warn!(
+                    "Authentication failed: Invalid authorization header format (expected 'Bearer ...', 'pk_live_...' or 'pk_trial_...')"
+                );
+                Err(AuthRefusal::from(AppError::auth_invalid(
+                    "Invalid authorization header format - must be 'Bearer <token>' or an API key ('pk_live_<key>' or 'pk_trial_<key>')",
+                )))
+            }
+        })
     }
 
     /// Authenticate using `API` key
@@ -504,7 +485,15 @@ impl McpAuthMiddleware {
             .ok_or_else(|| {
                 AppError::auth_invalid(format!("API key not found or invalid: {key_prefix}"))
             })?;
+        let caller = db_key.user_id;
+        self.admit_api_key(db_key)
+            .await
+            .map_err(|refused| refused.of_caller(caller))
+    }
 
+    /// Admit a stored API key's request: the key valid, its owner in good
+    /// standing, its window's budget unspent.
+    async fn admit_api_key(&self, db_key: ApiKey) -> Checked {
         // Validate key status
         self.api_key_manager.is_key_valid(&db_key)?;
 
@@ -539,8 +528,11 @@ impl McpAuthMiddleware {
             .get_api_key_window_usage(&db_key.id, api_key_window_start(&db_key, now))
             .await?;
         let budget = calculate_api_key_rate_limit(&db_key, &window_usage, now);
-        enforce_request_budget(budget, now)
-            .map_err(|error| Refused::OverBudget { budget, error })?;
+        enforce_request_budget(budget, now).map_err(|error| Refused::OverBudget {
+            budget,
+            error,
+            caller: db_key.user_id,
+        })?;
 
         // Update last used timestamp. The call is counted against the window
         // the next request reads by the request-budget layer, which writes
@@ -598,11 +590,20 @@ impl McpAuthMiddleware {
     async fn authenticate_user_mcp_token(&self, token: &str, policy: GrantPolicy<'_>) -> Checked {
         if policy == GrantPolicy::DirectOnly {
             warn!("Personal MCP token refused on a path that does not enforce scopes");
-            return Err(Refused::Failed(mcp_token_refused()));
+            return Err(Refused::from(mcp_token_refused()));
         }
 
         // Unknown, revoked and expired tokens are refused as invalid here.
         let validated = self.repos.user_mcp_tokens.validate_token(token).await?;
+        let caller = validated.user_id;
+        self.admit_user_mcp_token(validated)
+            .await
+            .map_err(|refused| refused.of_caller(caller))
+    }
+
+    /// Admit a valid personal MCP token's request: its owner in good
+    /// standing, their monthly budget unspent.
+    async fn admit_user_mcp_token(&self, validated: ValidatedUserMcpToken) -> Checked {
         let user_id = validated.user_id;
 
         // SECURITY: Global lookup — token validation, no tenant context yet.
@@ -624,8 +625,11 @@ impl McpAuthMiddleware {
         let now = Utc::now();
         let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
         let budget = calculate_jwt_rate_limit(&user, usage, now);
-        enforce_request_budget(budget, now)
-            .map_err(|error| Refused::OverBudget { budget, error })?;
+        enforce_request_budget(budget, now).map_err(|error| Refused::OverBudget {
+            budget,
+            error,
+            caller: user_id,
+        })?;
         record_jwt_usage_for_request(&self.repos, user_id, "mcp:token", "AUTH").await;
         self.note_activity(&user).await;
 
@@ -793,27 +797,45 @@ impl McpAuthMiddleware {
 
     /// Authenticate using RS256 JWT token
     ///
-    /// Under [`GrantPolicy::DirectOnly`] a token whose grant is narrower than
-    /// the self grant is refused before anything is read or written for it —
-    /// no usage row, no activity, no budget — since the request it carries is
-    /// not served.
-    async fn authenticate_jwt_token(&self, token: &str, policy: GrantPolicy<'_>) -> Checked {
-        // The audience check: every path takes the platform audience, and the
-        // protected resource also takes a token bound to itself — never one
-        // bound to another resource.
-        let claims = match policy {
-            GrantPolicy::DirectOnly => self
-                .auth_manager
-                .validate_token_detailed(token, &self.jwks_manager),
-            GrantPolicy::ScopesEnforced { resources } => self
-                .auth_manager
-                .validate_resource_token_detailed(token, &self.jwks_manager, resources),
-        }
-        .map_err(|e| AppError::auth_invalid(format!("JWT validation failed: {e}")))?;
+    /// Under [`GrantPolicy::DirectOnly`] a token that is not a session
+    /// ([`Claims::is_session`]: one an application holds, or one whose grant is
+    /// narrower than the self grant) is refused before anything is read or
+    /// written for it — no usage row, no activity, no budget — since the
+    /// request it carries is not served.
+    ///
+    /// Boxed rather than `async fn` so its body is compiled once, not again in
+    /// every codegen unit that awaits it (binary size).
+    fn authenticate_jwt_token<'a>(
+        &'a self,
+        token: &'a str,
+        policy: GrantPolicy<'a>,
+    ) -> BoxFuture<'a, Checked> {
+        Box::pin(async move {
+            // The audience check: every path takes the platform audience, and the
+            // protected resource also takes a token bound to itself — never one
+            // bound to another resource.
+            let claims = match policy {
+                GrantPolicy::DirectOnly => self
+                    .auth_manager
+                    .validate_token_detailed(token, &self.jwks_manager),
+                GrantPolicy::ScopesEnforced { resources } => self
+                    .auth_manager
+                    .validate_resource_token_detailed(token, &self.jwks_manager, resources),
+            }
+            .map_err(|e| AppError::auth_invalid(format!("JWT validation failed: {e}")))?;
 
-        // A client-credentials token names no user, and is refused here.
-        let user_id = token_user_id(&claims)?;
+            // A client-credentials token names no user, and is refused here.
+            let user_id = token_user_id(&claims)?;
+            self.admit_jwt(claims, user_id, policy)
+                .await
+                .map_err(|refused| refused.of_caller(user_id))
+        })
+    }
 
+    /// Admit a valid JWT's request for `user_id`: a live impersonation, a
+    /// grant the path takes, an account in good standing, consent not
+    /// withdrawn, a monthly budget unspent.
+    async fn admit_jwt(&self, claims: Claims, user_id: Uuid, policy: GrantPolicy<'_>) -> Checked {
         // An impersonation token acts only while its session is live: ending
         // the session revokes it, rather than leaving it good until its hour
         // runs out. The impersonation rides on the credential, so a handler
@@ -834,7 +856,9 @@ impl McpAuthMiddleware {
         // reads or writes — deliberate, and the reason this shipped with a
         // re-authentication rather than a compatibility path.
         let scopes = OAuthScope::parse_granted(&claims.scope);
-        let is_session = OAuthScope::is_self_grant(&scopes);
+        // A session by the client the token names, then by its grant: a token
+        // an application holds is its delegation however wide the grant.
+        let is_session = claims.is_session();
         match policy {
             GrantPolicy::DirectOnly if !is_session => {
                 warn!(
@@ -842,7 +866,7 @@ impl McpAuthMiddleware {
                     granted = %OAuthScope::render_granted(&scopes),
                     "Delegated OAuth grant refused on a path that does not enforce scopes"
                 );
-                return Err(Refused::Failed(delegated_grant_refused()));
+                return Err(Refused::from(delegated_grant_refused()));
             }
             // The mirror image (carnet#768): a first-party session token is
             // Dravr's own app signed in, never an integration's credential.
@@ -854,7 +878,7 @@ impl McpAuthMiddleware {
                     user_id = %user_id,
                     "First-party session token refused on a delegated-access endpoint"
                 );
-                return Err(Refused::Failed(session_token_refused()));
+                return Err(Refused::from(session_token_refused()));
             }
             GrantPolicy::DirectOnly | GrantPolicy::ScopesEnforced { .. } => {}
         }
@@ -876,7 +900,7 @@ impl McpAuthMiddleware {
 
         // A delegated token speaks for the athlete only while they let it. It
         // is refused before it spends anything of theirs, as any bad credential.
-        self.require_unwithdrawn_grant(&claims, user_id, is_session, policy)
+        self.require_unwithdrawn_grant(&claims, user_id, policy)
             .await?;
 
         // The user's month-to-date requests against its monthly limit (an
@@ -889,8 +913,11 @@ impl McpAuthMiddleware {
         let now = Utc::now();
         let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
         let budget = calculate_jwt_rate_limit(&user, usage, now);
-        enforce_request_budget(budget, now)
-            .map_err(|error| Refused::OverBudget { budget, error })?;
+        enforce_request_budget(budget, now).map_err(|error| Refused::OverBudget {
+            budget,
+            error,
+            caller: user_id,
+        })?;
 
         // Record JWT usage so the *next* request sees an accurate
         // `get_jwt_current_usage` and the rate-limit gate actually fires.
@@ -922,7 +949,7 @@ impl McpAuthMiddleware {
     /// # Errors
     /// `NotFound` for a deleted account, the status gate's refusal for one that
     /// is pending or suspended, a database error when it cannot be read.
-    async fn standing_account(&self, user_id: uuid::Uuid) -> AppResult<User> {
+    async fn standing_account(&self, user_id: Uuid) -> AppResult<User> {
         // SECURITY: Global lookup — JWT validation, no tenant context yet
         let user = self
             .repos
@@ -945,10 +972,11 @@ impl McpAuthMiddleware {
     /// Refuse a delegated token whose athlete has withdrawn the client's access.
     ///
     /// The JWT stays good until it expires, so this is what makes revocation
-    /// take effect within seconds on the paths that take such a token. A
-    /// first-party session, or a token naming no client, is not one a grant
-    /// governs. A read that fails refuses the request, as a quota that cannot
-    /// be read does.
+    /// take effect within seconds on the paths that take such a token. Only
+    /// the scoped paths take one, and the caller has refused a first-party
+    /// session there before this runs; a token naming no client is not one a
+    /// grant governs. A read that fails refuses the request, as a quota that
+    /// cannot be read does.
     ///
     /// # Errors
     /// `AuthInvalid` when the consent was withdrawn, so a client re-authorizes;
@@ -956,14 +984,13 @@ impl McpAuthMiddleware {
     async fn require_unwithdrawn_grant(
         &self,
         claims: &Claims,
-        user_id: uuid::Uuid,
-        is_session: bool,
+        user_id: Uuid,
         policy: GrantPolicy<'_>,
     ) -> AppResult<()> {
         let GrantPolicy::ScopesEnforced { .. } = policy else {
             return Ok(());
         };
-        let Some(client_id) = claims.client_id.as_deref().filter(|_| !is_session) else {
+        let Some(client_id) = claims.client_id.as_deref() else {
             return Ok(());
         };
         let tenant_id = match claims.active_tenant_id.clone() {
@@ -994,47 +1021,6 @@ impl McpAuthMiddleware {
         Err(AppError::auth_invalid(
             "The athlete withdrew this application's access; authorize it again",
         ))
-    }
-
-    /// Refuse an impersonation token whose session was ended, or that names a
-    /// session of another user, and attribute the request to the operator
-    /// acting through it.
-    ///
-    /// The impersonator is written to the request span and to an audit event
-    /// by id, so a request made under impersonation is never recorded as the
-    /// target user acting alone.
-    ///
-    /// # Errors
-    /// Returns `AuthInvalid` when the session is unknown, ended, or for another
-    /// target, and a database error when the lookup fails.
-    async fn require_live_impersonation(
-        &self,
-        session_id: &str,
-        user_id: uuid::Uuid,
-    ) -> AppResult<uuid::Uuid> {
-        let session = self
-            .repos
-            .impersonation
-            .get_session(session_id)
-            .await?
-            .filter(|session| session.is_active && session.target_user_id == user_id)
-            .ok_or_else(|| {
-                warn!(
-                    user_id = %user_id,
-                    session_id = %session_id,
-                    "Impersonation token refused: its session has ended"
-                );
-                AppError::auth_invalid("Impersonation session has ended")
-            })?;
-        let impersonator_id = session.impersonator_id.to_string();
-        record_in_scope("impersonator_id", &impersonator_id.as_str());
-        info!(
-            user_id = %user_id,
-            impersonator_id = %impersonator_id,
-            session_id = %session_id,
-            "Request authenticated under impersonation"
-        );
-        Ok(session.impersonator_id)
     }
 
     /// Get reference to the auth manager for testing purposes
@@ -1086,7 +1072,7 @@ impl McpAuthMiddleware {
 /// `services::messaging_ingress::record_channel_usage`.
 pub async fn record_jwt_usage_for_request(
     repos: &RepositoryRegistry,
-    user_id: uuid::Uuid,
+    user_id: Uuid,
     endpoint: &str,
     method: &str,
 ) {
@@ -1140,7 +1126,7 @@ mod tests {
 
     #[test]
     fn a_user_token_acts_for_its_subject_whichever_client_holds_it() {
-        let user = uuid::Uuid::new_v4();
+        let user = Uuid::new_v4();
         let subject = user.to_string();
 
         assert_eq!(token_user_id(&claims(&subject, None)).unwrap(), user);
@@ -1156,7 +1142,7 @@ mod tests {
 
         // The claims' shape decides, not the id's form: a client id that
         // would parse as a UUID is still refused rather than looked up.
-        let uuid_shaped = uuid::Uuid::new_v4().to_string();
+        let uuid_shaped = Uuid::new_v4().to_string();
         assert!(token_user_id(&claims(&uuid_shaped, Some(&uuid_shaped))).is_err());
     }
 }

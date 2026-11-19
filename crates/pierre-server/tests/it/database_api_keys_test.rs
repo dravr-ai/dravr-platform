@@ -24,7 +24,6 @@ async fn create_test_user(db: &Database) -> User {
     user.id = uuid;
     user.tier = UserTier::Professional;
     user.user_status = UserStatus::Active;
-    user.is_admin = false;
 
     let repos = db.repositories();
     repos

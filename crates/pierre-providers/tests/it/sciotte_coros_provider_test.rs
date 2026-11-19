@@ -22,7 +22,6 @@ use secrecy::SecretString;
 use std::sync::{Arc, Mutex};
 
 use chrono::{TimeZone, Utc};
-use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::AuthSession;
 use pierre_core::constants::oauth_providers::SCIOTTE_COROS;
 use pierre_providers::core::{
@@ -31,7 +30,9 @@ use pierre_providers::core::{
 use pierre_providers::coros_self_report::feel_from_coros;
 use pierre_providers::models::Feel;
 use pierre_providers::registry::ProviderRegistry;
-use pierre_providers::sciotte_provider::{SciotteCorosProviderFactory, SciotteTarget};
+use pierre_providers::sciotte_provider::{
+    startup_reads, SciotteCorosProviderFactory, SciotteTarget,
+};
 use pierre_providers::spi::ProviderCapabilities;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -170,7 +171,8 @@ async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
         revoke_url: None,
         default_scopes: vec![],
     };
-    let client = SciotteClient::new(base_url, None).expect("a loopback client needs no audience"); // Safe: loopback URL
+    let client = startup_reads(&[String::from(base_url)], None)
+        .expect("a loopback client needs no audience"); // Safe: loopback URL
     let provider = SciotteCorosProviderFactory::new(Some(client))
         .create(config)
         .expect("sciotte provider construction is infallible"); // Safe: factory returns Ok unconditionally

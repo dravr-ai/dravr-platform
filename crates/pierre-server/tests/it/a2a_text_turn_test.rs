@@ -17,6 +17,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::common::offline_provider_registry;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -45,7 +46,6 @@ use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::USER_EXPORT_TABLES;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::a2a_coaching::PipelineCoachingTurns;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::ProviderBundle;
 use pierre_routes_a2a::{A2ARoutes, A2ARoutesState};
 use pierre_runtime_context::default_admin_config;
@@ -118,7 +118,7 @@ async fn server_over(model: Arc<dyn LlmProvider>) -> Arc<ServerContext> {
     let base = common::create_test_server_resources_with_chat_provider(model)
         .await
         .unwrap();
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.register_provider_bundle(ProviderBundle::new(
         Box::new(RelayDescriptor),
         relay_factory,
@@ -830,6 +830,7 @@ impl LlmProvider for GatedModel {
             self.release.notified().await;
         }
         Ok(ChatResponse {
+            replay_blocks: None,
             content: ANSWER.to_owned(),
             model: "mock-model".to_owned(),
             usage: None,

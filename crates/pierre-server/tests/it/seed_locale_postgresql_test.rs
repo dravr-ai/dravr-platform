@@ -27,21 +27,22 @@ async fn test_pg_seeded_accounts_are_english() {
 
     bootstrap::run(
         SeedArgs {
-            admin_email: "operator@dravr.ai".to_owned(),
-            admin_password: "OperatorPass123!".to_owned(),
+            admin_email: "admin@dravr.ai".to_owned(),
+            admin_password: "AdminPass123!".to_owned(),
+            demo_password: Some("TestDemoPass123!".to_owned()),
         },
         repos,
     )
     .await
     .unwrap();
 
-    let operator = repos
+    let admin = repos
         .users
-        .get_by_email("operator@dravr.ai")
+        .get_by_email("admin@dravr.ai")
         .await
         .unwrap()
-        .expect("operator seeded on PG");
-    assert_eq!(operator.locale, "en", "the PG-seeded operator is English");
+        .expect("admin seeded on PG");
+    assert_eq!(admin.locale, "en", "the PG-seeded admin is English");
 
     let alice = repos
         .users
@@ -55,8 +56,9 @@ async fn test_pg_seeded_accounts_are_english() {
     repos.users.update_locale(alice.id, "fr").await.unwrap();
     bootstrap::run(
         SeedArgs {
-            admin_email: "operator@dravr.ai".to_owned(),
-            admin_password: "OperatorPass123!".to_owned(),
+            admin_email: "admin@dravr.ai".to_owned(),
+            admin_password: "AdminPass123!".to_owned(),
+            demo_password: Some("TestDemoPass123!".to_owned()),
         },
         repos,
     )

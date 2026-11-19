@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { coachesApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
-import { Button, ConfirmDialog } from '../ui';
+import { Button, ConfirmDialog, ALERT_TONE } from '../ui';
 import CoachFormModal from './CoachFormModal';
 import CoachVersionHistory from './CoachVersionHistory';
 import CoachStoreSubmit from './CoachStoreSubmit';
@@ -153,7 +153,7 @@ export default function CoachEditSheet({ agentId, onClose }: AgentEditSheetProps
         isLoading={remove.isPending}
       />
       {remove.isError && (
-        <p role="alert" className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-error/10 border border-error/30 text-sm text-error">
+        <p role="alert" className={`${ALERT_TONE.error.tone} fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg border text-sm`}>
           {describeApiError(remove.error, { t, fallbackKey: 'discover.deleteAgentFailed' })}
         </p>
       )}

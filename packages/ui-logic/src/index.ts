@@ -65,6 +65,11 @@ export {
   takeoverTextChunks,
   takeoverTokenProvider,
 } from './sciotteTakeover';
+export {
+  browserSigninLanded,
+  hostOfHttps as browserSigninHost,
+  hostUnder as browserSigninHostUnder,
+} from './browserSignin';
 
 // API error classification — one classifier for web and mobile, so a failed
 // request is named by its transport state and status, never by matching on
@@ -83,6 +88,8 @@ export {
   refusalReason,
   INVALID_SIGNUP_CODE_REASON,
   isInvalidSignupCode,
+  COACH_INVITE_NOT_FOR_ACCOUNT_REASON,
+  isCoachInviteNotForAccount,
   refusalProvider,
   providerAuthRefusalKey,
   apiErrorStatus,
@@ -105,7 +112,19 @@ export {
   type ExportPartialKey,
   type ExportTail,
   exportPartialKey,
+  exportRefusalCode,
   readExportTail,
+  ORIGINALS_KEYS,
+  ORIGINALS_POLL_MS,
+  SEAL_MAX_CHARS,
+  SEAL_MIN_CHARS,
+  type OriginalsBundleState,
+  type OriginalsKey,
+  originalsIncomplete,
+  originalsRefusalKey,
+  originalsStateKey,
+  originalsStillBuilding,
+  sealPassphraseAccepted,
 } from './dataExport';
 // What both clients say about an import of the athlete's own data
 export type { CopyLine, ImportPhase, ImportSourceCopy, LinkSourceCopy, UploadSourceCopy } from './archiveImport';
@@ -190,6 +209,38 @@ export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFla
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
 // Consent to AI use of one provider's data: the privacy toggle and the connection card share it (carnet#726).
 export { type AiConsentChange, createAiConsentHook } from './aiConsentHook';
+// Statutory access requests to a company: the letter the athlete sends and its legal deadline (carnet#1646).
+export {
+  type DataAccessAction,
+  type DataAccessDateLine,
+  type DataAccessDraftErrors,
+  type DataAccessDraftForm,
+  type DataAccessOutcome,
+  type DataAccessRequestHooks,
+  type DataAccessTone,
+  DATA_ACCESS_COMPANY_SUGGESTIONS,
+  DATA_ACCESS_FIELD_LIMITS,
+  DATA_ACCESS_LAW_OPTIONS,
+  DATA_ACCESS_RECOURSE_KEY,
+  DATA_ACCESS_SCOPE_OPTIONS,
+  addCivilDays,
+  addCivilMonths,
+  createDataAccessRequestHooks,
+  dataAccessDateLines,
+  dataAccessDraftBody,
+  dataAccessFailureKey,
+  dataAccessShowsRecourse,
+  dataAccessStatus,
+  dataAccessToday,
+  defaultLetterLocale,
+  earliestSentOn,
+  gdprExtensionWindow,
+  isCivilDate,
+  validateAnsweredOn,
+  validateDataAccessDraft,
+  validateExtension,
+  validateSentOn,
+} from './dataAccessRequests';
 // The calendar Dravr's plan and workout pushes go to: Connections settings and the agent write it (carnet#1393).
 export {
   type UsePreferredCalendarResult,
@@ -208,6 +259,23 @@ export {
 } from './unitsHook';
 // Settings › Physiology: the read of the athlete's anchors and the facts under each one (carnet#1516).
 export { type PhysiologyPlatform, createPhysiologyHook, physiologyAnchorFacts } from './physiology';
+// Setting one anchor, the athlete's own or a coached athlete's from Group info (carnet#1561).
+export {
+  type AnchorForm,
+  type AnchorFormProblem,
+  type AnchorFormRead,
+  type AnchorFormTarget,
+  type AnchorSave,
+  type AthletePhysiologyRead,
+  type UseAthletePhysiologyResult,
+  anchorEntryUnit,
+  createCoachPhysiologyHooks,
+  createPhysiologyEditHook,
+  initialAnchorForm,
+  newAnchorForm,
+  paceDistanceFor,
+  readAnchorForm,
+} from './physiologyEdit';
 export {
   type ActivityUploadFailure,
   type ActivityUploadOutcome,
@@ -385,6 +453,26 @@ export {
 } from './coachAccessHooks';
 // Coach Home's invited-but-not-joined rows (carnet#1524).
 export { COACH_PENDING_INVITE_KEYS, groupsAwaitingAthlete, usableMemberInvite } from './coachPendingInvites';
+export {
+  inviteCardNamesGroupBelow,
+  inviteCardTitle,
+  inviteDeadLink,
+  inviteJourneyLine,
+  inviteJourneyPromise,
+  inviteShares,
+  joinStripFull,
+  joinStripJoin,
+  joinStripTitle,
+  type InviteCopyLine,
+  type InvitePeople,
+} from './inviteCopy';
+export {
+  INVITE_FUNNEL_KEYS,
+  inviteFunnelSteps,
+  type InviteFunnelStep,
+  type InviteFunnelStepKey,
+  type InviteFunnelStepState,
+} from './inviteFunnel';
 export {
   ALL_COACHED_ATHLETES,
   coachedAthleteOptions,

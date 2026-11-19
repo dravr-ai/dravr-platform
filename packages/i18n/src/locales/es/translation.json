@@ -117,7 +117,8 @@
       "owns_tenant": "Eres el único propietario del espacio «{{detail}}»",
       "authored_agent": "Otras personas usan tu agente «{{detail}}»",
       "billing_subscription": "Tu suscripción sigue activa: {{detail}}"
-    }
+    },
+    "adminBody": "Una cuenta de admin no puede eliminarse a sí misma. Otro admin la elimina."
   },
   "agents": {
     "team_offer": {
@@ -467,6 +468,7 @@
     "maxLengthSystemPrompt": "El prompt del sistema debe tener {{max}} caracteres o menos",
     "maxLengthTitle": "El título debe tener {{max}} caracteres o menos",
     "mcpTokenBlurb": "Credenciales Bearer que los clientes MCP externos usan para leer tus datos de forma física.",
+    "mcpTokenConsent": "Una herramienta de IA que usted conecte con este token puede leer sus datos de entrenamiento, sueño y recuperación, las lesiones que le contó a Dravr y los lugares de sus actividades. La empresa que la opera puede tratar esta información fuera de Quebec. Al crear este token, usted consiente expresamente que Dravr comparta esos datos con la herramienta que conecte.",
     "mcpTokens": "Tokens MCP",
     "memberInvite": "Invitación de miembro",
     "memberIsNowRole": "{{member}} ahora es {{role}}.",
@@ -626,8 +628,8 @@
     "saveFailed": "No se pudo guardar",
     "saving": "Guardando…",
     "scanQrOrTap": "Escanea un QR o toca para abrir la app",
-    "scanQrThenStart": "Escanea el QR con otro dispositivo, o toca abajo para abrir {{channel}}. Después pulsa Iniciar para terminar.",
-    "scanQrThenSend": "Escanea el QR con otro dispositivo o toca abajo para abrir {{channel}}. Después envía el mensaje ya escrito para terminar.",
+    "scanQrThenStart": "Escanea el QR con otro dispositivo, o toca abajo para abrir {{channel}}. Después pulsa Iniciar y responde «si» para terminar.",
+    "scanQrThenSend": "Escanea el QR con otro dispositivo o toca abajo para abrir {{channel}}. Después envía el mensaje ya escrito y responde «si» para terminar.",
     "secureConnection": "Conexión segura",
     "secureSessionBlurb": "Dravr usa una sesión de navegador segura para conectar tu cuenta. Tus credenciales nunca se almacenan.",
     "selectCategory": "Elegir categoría",
@@ -914,7 +916,8 @@
     "signupCodeInvalid": "Este código no es válido. Revísalo e inténtalo de nuevo.",
     "analyticsConsentLabel": "Ayuda a mejorar Dravr con estadísticas de uso",
     "analyticsConsentHint": "Opcional. PostHog registra qué funciones usas, vinculado al correo de tu cuenta. Puedes cambiarlo cuando quieras en Ajustes.",
-    "analyticsConsentPolicyLink": "Cómo usamos las estadísticas de uso"
+    "analyticsConsentPolicyLink": "Cómo usamos las estadísticas de uso",
+    "signupCodeAcceptedConfirmEmailReview": "Código aceptado. Confirma tu correo electrónico; después, un administrador aprobará tu cuenta."
   },
   "chat": {
     "aboutThisClaim": "Sobre esta afirmación",
@@ -1697,7 +1700,8 @@
       "reads_source_group_stats": "las estadísticas del grupo",
       "reads_source_group_report": "el informe semanal del grupo",
       "reads_source_group_health": "las alertas de salud del grupo",
-      "reads_source_weekly_digest": "su resumen semanal del grupo"
+      "reads_source_weekly_digest": "su resumen semanal del grupo",
+      "reads_source_physiology_view": "tus umbrales, desde Info del grupo"
     },
     "group-coach": {
       "description": "Elegir el agente Dravr de este grupo, o desvincular a su coach humano"
@@ -1939,7 +1943,7 @@
     "originalsSealHint": "Al menos 12 caracteres. Dravr nunca guarda tu frase de contraseña: si la pierdes, el archivo no se puede abrir, y puedes preparar uno nuevo.",
     "originalsSealLabel": "Proteger el archivo con una frase de contraseña (opcional)",
     "originalsSealTooShort": "Usa al menos 12 caracteres.",
-    "originalsSealed": "Este archivo está protegido con tu frase de contraseña.",
+    "originalsSealed": "Este archivo está protegido con tu frase de contraseña. Ábrelo con age, una herramienta de cifrado gratuita (age-encryption.org): ejecuta age -d e introduce tu frase de contraseña.",
     "originalsTitle": "Tus archivos originales",
     "partial": "Tu archivo está listo, pero está incompleto: no se pudo leer parte de tus datos. El archivo indica las partes que faltan en failed_tables. Inténtalo de nuevo en un momento.",
     "partialLimit": "Tu archivo está listo, pero está incompleto: alcanzó un límite de exportación antes de que se escribieran todos tus datos. El archivo indica lo que quedó fuera en skipped_tables.",
@@ -1951,6 +1955,112 @@
     "preparing": "Preparando tu archivo…",
     "rateLimited": "Ya has exportado tus datos varias veces esta hora. Inténtalo más tarde.",
     "title": "Descarga tus datos"
+  },
+  "dataAccess": {
+    "title": "Pedir tus datos a una empresa",
+    "description": "La ley te permite pedir a una empresa una copia de la información personal que guarda sobre ti. Dravr redacta la solicitud y cuenta el plazo legal; tú la envías desde tu propio correo.",
+    "fallbackNote": "Úsalo para una empresa desde la que Dravr no puede importar, o para datos que la exportación de la empresa deja fuera. Para Strava, Garmin, COROS, WHOOP y Apple, empieza por la pantalla de importación: enlaza la exportación de cada empresa.",
+    "fallbackAction": "Ir a la pantalla de importación",
+    "listTitle": "Tus solicitudes",
+    "newRequest": "Nueva solicitud",
+    "empty": "Aún no hay solicitudes. Las que redactes aparecerán aquí con su fecha límite.",
+    "letterTitle": "Tu carta",
+    "reference": "Referencia {{reference}}",
+    "form": {
+      "company": "Empresa",
+      "companyHint": "Elige una de las empresas con las que trabaja Dravr, o escribe cualquier otra.",
+      "contact": "Dirección de contacto de privacidad",
+      "contactHint": "El correo del responsable de privacidad o del delegado de protección de datos de la empresa. Suele estar en su política de privacidad.",
+      "identifier": "El identificador que usas allí",
+      "identifierHint": "Normalmente, el correo electrónico de tu cuenta en esa empresa.",
+      "law": "Qué ley",
+      "lawQuebec": "Quebec — ley de privacidad del sector privado (P-39.1)",
+      "lawQuebecHint": "Para una empresa que opera en Quebec. Tiene 30 días para responder.",
+      "lawGdpr": "Unión Europea — RGPD",
+      "lawGdprHint": "Para una empresa de la Unión Europea, o que ofrece sus servicios a personas que viven allí. Tiene un mes para responder.",
+      "scope": "Qué pides",
+      "scopeAccess": "Una copia de mis datos",
+      "scopeAccessHint": "La empresa confirma qué guarda sobre ti y te envía una copia.",
+      "scopeAccessPortability": "Una copia y un archivo reutilizable",
+      "scopeAccessPortabilityHint": "Pide también los datos recogidos de ti en un formato estructurado y de uso común que puedes llevar a otro sitio.",
+      "letterLanguage": "Idioma de la carta",
+      "letterLanguageHint": "Escríbela en un idioma que la empresa lea. Empieza en el idioma de tu app."
+    },
+    "action": {
+      "create": "Redactar la carta",
+      "save": "Guardar cambios",
+      "edit": "Editar borrador",
+      "copy": "Copiar la carta",
+      "copied": "Carta copiada",
+      "download": "Descargar (.txt)",
+      "openMail": "Abrir en mi app de correo",
+      "markSent": "La he enviado",
+      "sentOn": "Fecha de envío",
+      "recordExtension": "La empresa amplió el plazo",
+      "extendedUntil": "Nueva fecha límite",
+      "markAnswered": "La empresa respondió",
+      "answeredOn": "Fecha de la respuesta",
+      "close": "Cerrar la solicitud",
+      "closeConfirm": "¿Cerrar esta solicitud? Dravr deja de contar y no te envía más recordatorios."
+    },
+    "status": {
+      "drafted": "Borrador",
+      "sent": "Enviada",
+      "dueSoon": "Vence pronto",
+      "overdue": "Vencida",
+      "answered": "Respondida",
+      "closed": "Cerrada"
+    },
+    "dates": {
+      "sentOn": "Enviada el {{date}}",
+      "dueOn": "Vence el {{date}}",
+      "dueOnExtended": "Vence el {{date}}, ampliado",
+      "answeredOn": "Respondida el {{date}}",
+      "countsFrom": "Dravr cuenta desde el día en que la marcas como enviada. Si la empresa la recibió más tarde, cambia la fecha.",
+      "extensionHint": "Según el RGPD, una empresa puede tardar hasta dos meses más si te explica el motivo durante el primer mes."
+    },
+    "recourse": {
+      "quebec": "Sin respuesta en 30 días, la solicitud se considera denegada. Puedes presentar entonces una demande d'examen de mésentente ante la Commission d'accès à l'information, en los 30 días siguientes a la denegación o al fin del plazo.",
+      "gdpr": "Si la empresa no responde, o se niega, puedes presentar una reclamación ante una autoridad de control de protección de datos, por ejemplo la del país donde vives o trabajas."
+    },
+    "error": {
+      "loadFailed": "No se pudieron cargar tus solicitudes. Inténtalo de nuevo en un momento.",
+      "saveFailed": "No se pudo guardar tu solicitud. Inténtalo de nuevo en un momento.",
+      "letterFailed": "No se pudo redactar la carta. Inténtalo de nuevo en un momento.",
+      "copyFailed": "No se pudo copiar la carta. Selecciónala y cópiala a mano.",
+      "notFound": "Esta solicitud ya no existe.",
+      "companyRequired": "Escribe el nombre de la empresa.",
+      "contactRequired": "Escribe la dirección de contacto de privacidad de la empresa.",
+      "contactInvalid": "Escribe una dirección de correo, como privacidad@empresa.com.",
+      "identifierRequired": "Escribe el identificador que usas en esa empresa.",
+      "sentOnFuture": "La fecha de envío no puede estar en el futuro.",
+      "answeredBeforeSent": "La fecha de la respuesta no puede ser anterior a la de envío.",
+      "extensionInvalid": "La nueva fecha límite debe ser posterior a la actual y como mucho dos meses más tarde.",
+      "extensionGdprOnly": "Solo se puede ampliar una solicitud del RGPD."
+    },
+    "letter": {
+      "access": "Les ruego que me confirmen si tienen datos personales que me conciernan y, en tal caso, que me envíen una copia.",
+      "identifier": "La cuenta o la dirección de correo electrónico que utilizo con ustedes es: {0}. Si necesitan algo más para verificar mi identidad, les ruego que me indiquen qué.",
+      "reference": "Les ruego que indiquen la referencia {0} en su respuesta.",
+      "closing": "Atentamente,\n{0}",
+      "date": "Fecha: {0}",
+      "quebec": {
+        "subject": "Solicitud de acceso a información personal — referencia {0}",
+        "salutation": "A la persona responsable de la protección de la información personal de {0}:",
+        "opening": "Les dirijo una solicitud de acceso a mi información personal en virtud de la Loi sur la protection des renseignements personnels dans le secteur privé (RLRQ, c. P-39.1), art. 27, la ley de Quebec sobre la protección de la información personal en el sector privado.",
+        "portability": "En virtud del párrafo tercero del artículo 27 de dicha ley, les pido también que me comuniquen la información personal informatizada recogida de mí en un formato tecnológico estructurado y de uso común.",
+        "deadline": "En virtud del artículo 32 de dicha ley, deben responder por escrito a esta solicitud en un plazo de 30 días desde su recepción; a falta de respuesta en ese plazo, la solicitud se considera denegada.",
+        "cost": "En virtud del artículo 33 de dicha ley, el acceso es gratuito. Si tienen intención de cobrar gastos razonables por la transcripción, la reproducción o la transmisión de la información, les ruego que me indiquen el importe antes de tramitar la solicitud."
+      },
+      "gdpr": {
+        "subject": "Solicitud de acceso a datos personales — referencia {0}",
+        "salutation": "Al delegado de protección de datos, o a la persona responsable de los datos personales, de {0}:",
+        "opening": "Les dirijo una solicitud en virtud del artículo 15 del Reglamento (UE) 2016/679 (Reglamento General de Protección de Datos), que abarca una copia de mis datos personales y la información enumerada en su apartado 1, como los fines del tratamiento, los destinatarios y el plazo de conservación de los datos.",
+        "portability": "En virtud del artículo 20 del Reglamento, solicito también recibir los datos personales que me conciernen y que les he facilitado en un formato estructurado, de uso común y lectura mecánica.",
+        "deadline": "En virtud del artículo 12, apartado 3, del Reglamento, les ruego que respondan sin dilación indebida y, en cualquier caso, en el plazo de un mes a partir de la recepción de esta solicitud.",
+        "cost": "En virtud del artículo 12, apartado 5, del Reglamento, esta información se facilita a título gratuito."
+      }
+    }
   },
   "delegation": {
     "actionFailed": "No se completó. Inténtalo de nuevo.",
@@ -2813,6 +2923,7 @@
     "requestAccessDeclined": "Tu última solicitud fue rechazada. Puedes volver a pedirlo.",
     "requestAccessFailed": "No pudimos enviar tu solicitud. Inténtalo de nuevo.",
     "reply_corrected": "{0} corrigió la respuesta de Dravr a {1} («{2}»):\n\n{3}",
+    "reads_served_to_assistant": "leído por una herramienta de IA que tu entrenador conecta a Dravr",
     "planPublishedRoomPost": "{0} ha publicado una actualización de tu plan: {1}.",
     "planPublishedRoomPostMore": "+{0} más",
     "planPublishedRoomPostNew": "{0} ha publicado tu nuevo plan.",
@@ -2890,13 +3001,19 @@
       "sourceGroupStats": "Las estadísticas del grupo",
       "sourceGroupReport": "El informe semanal del grupo",
       "sourceGroupHealth": "Las alertas de salud del grupo",
-      "sourceWeeklyDigest": "Su resumen semanal del grupo"
+      "sourceWeeklyDigest": "Su resumen semanal del grupo",
+      "sourcePhysiologyView": "Tus umbrales, en Info del grupo",
+      "servedToAssistant": "Leído por una herramienta de IA que tu entrenador conecta a Dravr. La empresa que la opera recibió estos datos."
     },
     "shareTraining": "Compartir mi entrenamiento con mi coach",
     "shareTrainingHint": "Tu coach ve tu entrenamiento, tu plan y tus mensajes en el chat de este grupo. Las herramientas de IA que tu coach conecta a Dravr, como Claude, también pueden leer tu entrenamiento y tu plan. Al desactivarlo se detienen ambas cosas. Solo afecta a este grupo.",
     "shareTrainingPendingHint": "Aún no hay coach. El coach que se una a este grupo verá tu entrenamiento, tu plan y tus mensajes en su chat.",
     "sharingOnNotice": "Tu coach vuelve a ver tu entrenamiento en este grupo.",
     "sharingOffNotice": "Tu coach ya no ve tu entrenamiento, tu plan ni tus mensajes en este grupo.",
+    "assistantNotice": {
+      "title": "Las herramientas de IA de tu entrenador",
+      "body": "Mientras compartas tu entrenamiento con {{coach}}, las herramientas de IA que {{coach}} conecta a Dravr, como Claude, pueden leer tu entrenamiento y tu plan con tu nombre. La empresa que opera cada herramienta recibe lo que esta lee y puede tratarlo fuera de Quebec. Puedes seguir compartiendo o dejar de hacerlo: dejar de compartir pone fin al acceso de tu entrenador y al de sus herramientas."
+    },
     "seat": {
       "title": "Todavía no eres el coach de este grupo",
       "stripBody": "Para ver el entrenamiento de tus atletas y crear sus planes, necesitas el acceso de coach. Lo activa el equipo de Dravr.",
@@ -2990,7 +3107,8 @@
       "titleOne": "Tu atleta",
       "titleMany": "Tus atletas",
       "viewPlan": "Ver el plan",
-      "seeOnCoachHome": "Ver en el Inicio de coach"
+      "seeOnCoachHome": "Ver en el Inicio de coach",
+      "thresholds": "Umbrales"
     },
     "whoSees": {
       "sharing": "{{coach}} ve tu entrenamiento, tu plan y tus mensajes aquí.",
@@ -2999,7 +3117,88 @@
     },
     "removeCoachRow": "Quitar al coach…",
     "removeCoachTitle": "¿Quitar al coach?",
-    "removeCoachConfirm": "Quitar al coach"
+    "removeCoachConfirm": "Quitar al coach",
+    "physiology": {
+      "title": "Umbrales de {{name}}",
+      "blurb": "Los valores sobre los que se fijan las sesiones de {{name}}. Un valor que guardes queda registrado como fijado por su entrenador, y {{name}} recibe un aviso.",
+      "empty": "{{name}} todavía no tiene umbrales. Añade uno aquí.",
+      "loadFailed": "No se han podido cargar los umbrales de {{name}}.",
+      "consentRevoked": "{{name}} ha dejado de compartir sus datos contigo, así que sus umbrales están ocultos.",
+      "saved": "Guardado. {{name}} recibe un aviso."
+    },
+    "anchorSource": {
+      "forAthlete": "fijado por tu entrenador",
+      "forCoach": "fijado por un entrenador"
+    },
+    "inviteCard": {
+      "title": "{{name}} te invita",
+      "titleCoach": "{{name}} te invita a ser coach de este grupo",
+      "shares": "Al unirte, {{name}} verá tus actividades, tu carga y tu plan. Puedes dejar de compartir cuando quieras.",
+      "sharesCoach": "Como coach del grupo, verás el entrenamiento de los atletas que lo compartan contigo.",
+      "create": "Crear mi cuenta y unirme",
+      "join": "Unirme",
+      "joining": "Uniéndote al grupo…",
+      "haveAccount": "Ya tengo una cuenta",
+      "validUntil": "Enlace válido hasta el {{date}}",
+      "expired": "Este enlace ha caducado. Pide a {{name}} que te envíe uno nuevo.",
+      "usedUp": "Este enlace ya se ha usado todas las veces previstas. Pide a {{name}} que te envíe uno nuevo.",
+      "inactive": "{{name}} desactivó este enlace. Pídele uno nuevo.",
+      "unknown": "Este enlace de invitación no existe. Revísalo o pide un enlace nuevo.",
+      "loadFailed": "No se pudo leer esta invitación. Inténtalo de nuevo.",
+      "tooMany": "Demasiados intentos. Inténtalo de nuevo en unos minutos.",
+      "retry": "Reintentar",
+      "continueWithout": "Continuar sin unirme",
+      "titleNoName": "Una invitación a «{{group}}»",
+      "titleCoachNoName": "Una invitación para ser coach de «{{group}}»",
+      "sharesUnnamedCoach": "Al unirte, el coach del grupo verá tus actividades, tu carga y tu plan. Puedes dejar de compartir cuando quieras.",
+      "expiredNoName": "Este enlace ha caducado. Pide uno nuevo a quien te lo envió.",
+      "usedUpNoName": "Este enlace ya se ha usado todas las veces previstas. Pide uno nuevo a quien te lo envió.",
+      "inactiveNoName": "Este enlace se desactivó. Pide uno nuevo a quien te lo envió.",
+      "coachLinkNotForAccount": "Este enlace añade un coach al grupo, y tu cuenta no tiene acceso de coach. Pide a quien te lo envió un enlace para unirte como atleta."
+    },
+    "inviteJourney": {
+      "line": "Invitación de {{name}} · «{{group}}»",
+      "confirmEmailPromise": "Después, te unes a {{name}} en «{{group}}». No tienes que repetir nada.",
+      "reviewPromise": "Cuando aprueben tu cuenta, te unes a {{name}} en «{{group}}». No tienes que repetir nada.",
+      "teamChosen": "{{name}} · tu coach, ya elegido",
+      "yourCoach": "{{name}} · tu coach",
+      "lineNoName": "Invitación · «{{group}}»",
+      "confirmEmailPromiseNoName": "Después, te unes a «{{group}}». No tienes que repetir nada.",
+      "reviewPromiseNoName": "Cuando aprueben tu cuenta, te unes a «{{group}}». No tienes que repetir nada."
+    },
+    "inviteFunnel": {
+      "label": "Estado de la invitación",
+      "sent": "Enlace enviado",
+      "notOpened": "Aún no abierto",
+      "opened_one": "Abierto · una vez",
+      "opened_other": "Abierto · {{count}} veces",
+      "accountCreated_one": "Cuenta creada · {{date}}",
+      "accountCreated_other": "{{count}} cuentas creadas · la última el {{date}}",
+      "notJoined": "Aún no está en el grupo",
+      "groupFull": "Grupo completo · tiene que liberarse una plaza"
+    },
+    "joinStrip": {
+      "title": "{{name}} te invita a «{{group}}».",
+      "titleCoach": "{{name}} te invita a ser coach de «{{group}}».",
+      "join": "Unirme al grupo de {{name}}",
+      "joining": "Uniéndote al grupo…",
+      "full": "El grupo de {{name}} está completo por ahora. Inténtalo de nuevo cuando se libere una plaza.",
+      "retry": "Reintentar",
+      "failed": "No se pudo unirte al grupo. Inténtalo de nuevo.",
+      "joined": "Te uniste a «{{group}}».",
+      "titleNoName": "Te espera una invitación a «{{group}}».",
+      "titleCoachNoName": "Te espera una invitación para ser coach de «{{group}}».",
+      "joinNoName": "Unirme al grupo",
+      "fullNoName": "Este grupo está completo por ahora. Inténtalo de nuevo cuando se libere una plaza."
+    },
+    "claimCoach": {
+      "none": "Este grupo aún no tiene coach",
+      "body": "Verás el entrenamiento de los atletas que lo compartan contigo.",
+      "action": "Ser el coach de este grupo",
+      "claiming": "Un momento…",
+      "done": "Ahora eres el coach de este grupo.",
+      "failed": "No se pudo asignarte como coach. Inténtalo de nuevo."
+    }
   },
   "messaging": {
     "account": {
@@ -3024,6 +3223,12 @@
     },
     "live_read": {
       "overtaken": "✅ Ya llegaron los datos de tu pregunta anterior."
+    },
+    "name_place": {
+      "activity_has_no_route": "Esta actividad no tiene una ruta registrada, así que no se puede asociar a un lugar.",
+      "activity_not_found": "No encuentro esa actividad entre las tuyas.",
+      "invalid_name": "El nombre de un lugar debe tener entre 1 y {0} caracteres.",
+      "place_not_found": "No encuentro ese lugar entre tus lugares."
     },
     "capability": {
       "refusal": "No puedo hacerlo con las herramientas que tengo."
@@ -3144,8 +3349,11 @@
       },
       "relabelled": "Ahora cuenta como {0}.",
       "source_athlete": "el valor propio del atleta",
+      "source_estimated": "aún sin medir",
       "source_from": "de {0}",
-      "source_own": "tu propio valor"
+      "source_imported": "de otra app",
+      "source_own": "tu propio valor",
+      "source_promoted": "de mediciones recientes"
     },
     "evidence": {
       "convention": "Convención de entrenamiento",
@@ -3192,6 +3400,7 @@
         "hide_agent": "Ocultar el agente",
         "import_provider_thresholds": "Importar los umbrales del servicio",
         "install_agent_from_store": "Instalar el agente desde la tienda",
+        "name_place": "Nombrar un lugar",
         "prescribe_workout": "Prescribir el entrenamiento",
         "propose_athlete_link": "Proponer un vínculo con el atleta",
         "publish_training_plan": "Publicar el plan de entrenamiento",
@@ -3243,6 +3452,7 @@
     },
     "link": {
       "cancelled": "Vinculación cancelada. Envía un mensaje cuando quieras para empezar de nuevo.",
+      "confirm_prompt": "Este enlace vincula esta cuenta de {0} con la cuenta de Dravr {1}. Responde «si» para vincularla, o «cancel» si no es tu cuenta.",
       "email_not_configured": "El envío de correos no está configurado. Contacta con tu administrador.",
       "email_prompt": "¡Hola! Para vincular tu cuenta de Dravr, escribe tu correo electrónico.\nEscribe «cancel» para detener.",
       "email_send_failed": "No se pudo enviar el correo de verificación. Inténtalo de nuevo más tarde.",
@@ -3264,6 +3474,7 @@
       "too_many_attempts": "Demasiados intentos incorrectos. La sesión de vinculación se ha cancelado. Envía un mensaje para empezar de nuevo.",
       "verification_error": "Ocurrió un error al verificar tu cuenta. Inténtalo de nuevo."
     },
+    "media_text_only": "Por ahora solo puedo leer texto, así que no he podido leer eso. Escríbemelo y sigo desde ahí.",
     "memory": {
       "predicate": {
         "aim_long_term": "En unos años apuntas a {0}",
@@ -3300,7 +3511,8 @@
       "reauth_oauth_served_no_link": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. {0} ahora se conecta mediante su inicio de sesión oficial. Abre Conexiones en Dravr, elige Conectar {0} y vuelve a preguntarme.",
       "reauth_grant_writes": "Un apunte: tus actividades de {0} se siguen sincronizando, pero para enviar entrenamientos y entradas de calendario a {0} necesitas volver a conectar {0}. Conéctalo aquí (enlace válido durante 1 hora):\n\n{1}",
       "reauth_grant_writes_no_link": "Un apunte: tus actividades de {0} se siguen sincronizando, pero para enviar entrenamientos y entradas de calendario a {0} necesitas volver a conectar {0}. Abre Conexiones en Dravr y elige Conectar {0}.",
-      "reconnect_button": "Volver a conectar {0}"
+      "reconnect_button": "Volver a conectar {0}",
+      "reconnect_cta": "Volver a conectar"
     },
     "quota_exceeded": "Has alcanzado el límite de conversación de tu plan por ahora. Se reinicia automáticamente — vuelve un poco más tarde.",
     "quota_warning": "Aviso: has usado {0} de {1} de tu plan. El contador se reinicia el {2}.",
@@ -3465,6 +3677,14 @@
         "body": "{0} ha añadido los entrenamientos de tu plan a tu calendario de {1}.",
         "title": "Entrenamientos en tu calendario de {1}"
       },
+      "data_access_request_due_soon": {
+        "title": "{0} debe responder pronto a tu solicitud de datos",
+        "body": "{0} tiene hasta el {2} para responder a tu solicitud {1}. Cuando responda, márcala como respondida en Privacidad y datos."
+      },
+      "data_access_request_overdue": {
+        "title": "{0} no ha respondido a tu solicitud de datos",
+        "body": "{0} no respondió a tu solicitud {1} antes del {2}. Puedes enviarle un recordatorio, o acudir a la autoridad que vela por la privacidad; Privacidad y datos te explica cómo."
+      },
       "delegation_confirmed": {
         "body": "{0} ha confirmado tu vínculo con {2} en {1}. Sus entrenamientos se leen ahora a través de tu cuenta.",
         "title": "Vínculo con {0} confirmado"
@@ -3514,6 +3734,10 @@
       "training_load_alert": {
         "body": "Tu carga aguda es de {0} — considera un día de recuperación",
         "title": "Carga de entrenamiento elevada"
+      },
+      "coach_physiology_set": {
+        "title": "{0} ha actualizado tus umbrales",
+        "body": "{0} ha fijado tu valor de {1}. Lo encontrarás en Ajustes › Fisiología."
       }
     },
     "group_digest": {
@@ -3650,7 +3874,7 @@
     "imAnAthlete": "Soy deportista",
     "messagingChannelIntro": "¿Dónde quieres chatear con tu agente? Elige la app que ya usas — puedes añadir más luego en Ajustes.",
     "messagingScanPrefix": "Escanea el QR con tu teléfono, o toca abajo para abrir {{app}}. Después pulsa",
-    "messagingScanSuffix": "para terminar.",
+    "messagingScanSuffix": "y responde «si» para terminar.",
     "messagingSendButton": "Enviar",
     "messagingStartButton": "Iniciar",
     "northStarLabel": "¿Y por qué te importa?",
@@ -3818,6 +4042,29 @@
       "threshold_speed": "Ritmo de umbral",
       "max_heart_rate": "FC máxima",
       "threshold_heart_rate": "FC de umbral"
+    },
+    "blurbEditable": "Los valores sobre los que se fijan tus sesiones, tal como Dravr los tiene guardados. Un valor de confianza baja se muestra como un rango o una estimación. Cámbialos aquí, o díselo a tu agente en el chat.",
+    "emptyEditable": "Todavía no hay umbrales. Añade uno aquí, o dile a tu agente tu FTP, tu ritmo de umbral o tu FC máxima en el chat.",
+    "edit": {
+      "add": "Añadir un umbral",
+      "titleEdit": "Editar un umbral",
+      "sport": "Deporte",
+      "anchor": "Umbral",
+      "value": "Valor ({{unit}})",
+      "paceUnit": "min:s/{{distance}}",
+      "rangeLow": "Rango, desde (opcional)",
+      "rangeHigh": "Rango, hasta (opcional)",
+      "kind": "Cómo se obtuvo",
+      "kindMeasured": "Medido en una prueba concreta",
+      "kindEstimated": "Estimado",
+      "confidence": "Confianza",
+      "confidenceHint": "Alta para una prueba con protocolo de menos de 6 semanas, media para una de 6 a 12 semanas o un modelo de dos esfuerzos, baja en otro caso.",
+      "method": "Prueba o método (opcional)",
+      "measuredOn": "Fecha (opcional, hoy si se deja vacía)",
+      "saving": "Guardando…",
+      "saveFailed": "No se ha podido guardar este valor.",
+      "invalidNumber": "Escribe un número.",
+      "invalidPace": "Escribe un ritmo en minutos:segundos, por ejemplo 4:10."
     }
   },
   "plan": {
@@ -3903,6 +4150,9 @@
       "daily_prompt": "Seguimiento de la mañana. Lee lo que mis servicios conectados registraron desde ayer por la mañana (entrenamientos, sueño, recuperación) y escríbeme una nota corta: una o dos observaciones concretas, citando solo cifras que hayas obtenido de verdad, y qué significan para hoy. Describe la carga frente a mi nivel habitual, nunca como un riesgo. Si tengo un plan de entrenamiento activo, di en qué queda la sesión prevista para hoy a la luz de esto; si no lo tengo, aconséjame qué tipo de día debería ser hoy. Si no ha llegado nada nuevo, dilo en una frase. Termina preguntándome cómo me siento hoy. Sin títulos, menos de 110 palabras.",
       "three_per_week_prompt": "Seguimiento. Lee lo que mis servicios conectados registraron en los últimos tres días (entrenamientos, sueño, recuperación) y escríbeme una nota corta: dos observaciones concretas, citando solo cifras que hayas obtenido de verdad, y una cosa a tener en cuenta en los próximos días. Describe la carga frente a mi nivel habitual, nunca como un riesgo. Si tengo un plan de entrenamiento activo, di si las sesiones de los próximos días deberían cambiar; si no lo tengo, aconséjame cómo deberían ser los próximos días. Si no ha llegado nada nuevo, dilo en una frase. Termina preguntándome cómo me siento y cómo va el entrenamiento. Sin títulos, menos de 120 palabras.",
       "weekly_prompt": "Seguimiento semanal. Lee mis últimos siete días en mis servicios conectados (entrenamientos, sueño, recuperación) y escríbeme un repaso corto: cómo fue la semana frente a mi semana habitual (volumen, constancia, tipos de sesiones), citando solo cifras que hayas obtenido de verdad, y una cosa en la que centrarme esta semana. Describe la carga frente a mi nivel habitual, nunca como un riesgo. Si tengo un plan de entrenamiento activo, di si las sesiones de esta semana deberían cambiar; si no lo tengo, aconséjame qué forma debería tener esta semana. Termina preguntándome cómo me siento al empezar la semana. Sin títulos, menos de 140 palabras."
+    },
+    "activity_landed": {
+      "prompt": "Mi entrenamiento del {0} acaba de sincronizarse (actividad {1} en {2}). Léelo con sus detalles y escríbeme una reacción corta: una o dos observaciones concretas, citando solo cifras que hayas obtenido de verdad, y qué significa para mis próximas sesiones. Describe la carga frente a mi nivel habitual, nunca como un riesgo."
     }
   },
   "profile": {
@@ -4281,6 +4531,7 @@
     "accountHint": "Contraseña, correo, cierre de la cuenta",
     "apiKeys": "Claves de API",
     "apiKeysHint": "Las claves que usan tus scripts para llamar a Dravr",
+    "apiKeysConsent": "Una herramienta de IA que usted conecte con esta clave puede leer sus datos de entrenamiento, sueño y recuperación, las lesiones que le contó a Dravr y los lugares de sus actividades. La empresa que la opera puede tratar esta información fuera de Quebec. Al crear esta clave, usted consiente expresamente que Dravr comparta esos datos con la herramienta que conecte.",
     "coaching": "Estilo de coaching",
     "coachingHint": "Cómo te habla tu agente",
     "connections": "Fuentes de datos",
@@ -4469,7 +4720,6 @@
     "oauthConnectionFailed": "La conexión falló",
     "offlineBanner": "Estás sin conexión: Dravr se reconectará solo.",
     "roleAdmin": "Admin",
-    "roleSuperAdmin": "Super Admin",
     "roleUser": "Usuario",
     "sciotteAppleAccount": "Cuenta de Apple",
     "sciotteApproveOnPhone": "Mira tu teléfono y aprueba el inicio de sesión",
@@ -4534,7 +4784,15 @@
     "intervalsAuthorizeHint": "Inicias sesión en Intervals.icu y autorizas a Dravr allí: no hay ninguna clave que copiar.",
     "intervalsCoachKeyAction": "¿Entrenas a atletas? Conéctate con tu clave de API",
     "notificationsBellUnreadOne": "Notificaciones, {{count}} sin leer",
-    "notificationsBellUnreadN": "Notificaciones, {{count}} sin leer"
+    "notificationsBellUnreadN": "Notificaciones, {{count}} sin leer",
+    "modePickerTitle": "¿Cómo quieres usar Dravr?",
+    "modePickerBody": "Puedes cambiar en cualquier momento desde el menú.",
+    "modeAdminTitle": "Admin",
+    "modeAdminBody": "Gestiona usuarios, agentes y la plataforma.",
+    "modeAthleteTitle": "Atleta",
+    "modeAthleteBody": "Entrena con tus propios datos, tu agente y tus grupos.",
+    "switchToAdmin": "Cambiar a admin",
+    "switchToAthlete": "Cambiar a atleta"
   },
   "tokens": {
     "activeCountOne": "{{count}} token activo para conexiones de clientes de IA",

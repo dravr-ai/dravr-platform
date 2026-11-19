@@ -10,7 +10,7 @@ import { useTranslation } from '@pierre/i18n';
 import { describeApiError, importTombstoneRefusal, type ImportTombstoneRefusal } from '@pierre/ui-logic';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDialog } from '../hooks/useDialog';
-import { RevealButton } from './ui';
+import { ALERT_TONE, BADGE_TONE, RevealButton } from './ui';
 import ProviderTombstoneNotice from './ProviderTombstoneNotice';
 import { coachPlatformName } from '@pierre/shared-constants';
 
@@ -149,8 +149,8 @@ export default function IntervalsIcuLinkModal({
         <div className="p-6">
           {success ? (
             <div className="flex flex-col items-center gap-3 py-4 text-center">
-              <div className="w-12 h-12 rounded-full bg-success/15 flex items-center justify-center">
-                <svg className="w-6 h-6 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className={`${BADGE_TONE.success.tone} w-12 h-12 rounded-full flex items-center justify-center`}>
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
@@ -248,7 +248,7 @@ export default function IntervalsIcuLinkModal({
               </div>
 
               {error && (
-                <p className="text-sm text-error bg-error/10 border border-error/20 rounded-lg px-3 py-2">
+                <p className={`${ALERT_TONE.error.tone} text-sm border rounded-lg px-3 py-2`}>
                   {error}
                 </p>
               )}

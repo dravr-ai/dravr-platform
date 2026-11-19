@@ -347,6 +347,13 @@ async fn save_llm_credentials<C: MiddlewareCtx>(
     Json(request): Json<SaveLlmCredentialsRequest>,
 ) -> Result<Json<SaveCredentialsResponse>, AppError> {
     let auth = auth.into_inner();
+    // A stored key steers where the account's chats go after an admin's
+    // support session ends, for the user or the whole tenant (carnet#1634).
+    auth.refuse_impersonation(
+        resources.repos().admin_audit.as_ref(),
+        "store an LLM provider key",
+    )
+    .await?;
     let user_id = auth.user_id;
     let tenant_id = get_tenant_id(&auth, &resources).await?;
     let llm_creds = resources.repos().llm_credentials.as_ref();

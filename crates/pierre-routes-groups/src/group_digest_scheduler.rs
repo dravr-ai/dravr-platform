@@ -509,7 +509,7 @@ fn manager_covers(
     coach_view: Option<&GroupView>,
 ) -> HashSet<Uuid> {
     if group.coach_user_id == Some(manager) {
-        return coach_view.map(GroupView::member_ids).unwrap_or_default();
+        return coach_view.map_or_default(GroupView::member_ids);
     }
     GroupService::visible_member_ids(group, members, manager)
 }

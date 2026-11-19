@@ -20,6 +20,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use super::addressing::reply_recipient;
+use super::linking::{self, AWAITING_LINK_CONFIRM};
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
 use pierre_auth::dto::auth::{RegisterRequest, RegisterResponse};
@@ -167,11 +168,22 @@ pub(super) async fn handle_otp_flow(
 
     // Handle cancel command: invalidate any active flow
     if is_cancel_command(content) {
-        if let Ok(Some(_)) = db
+        if let Ok(Some(state)) = db
             .get_active_otp_link_state(tenant_id, channel, sender_id)
             .await
         {
-            invalidate_otp_flows(db, tenant_id, channel, sender_id, "on cancel").await;
+            if state["otp_step"].as_str() == Some(AWAITING_LINK_CONFIRM) {
+                // A pairing code belongs to the account that started it: the
+                // sender who declines hands it back unspent (carnet#1596).
+                if let Err(e) = db
+                    .release_link_confirmations(tenant_id, channel, sender_id)
+                    .await
+                {
+                    error!(error = %e, "Failed to release a held pairing code on cancel");
+                }
+            } else {
+                invalidate_otp_flows(db, tenant_id, channel, sender_id, "on cancel").await;
+            }
             return Some(otp_reply(
                 channel_type,
                 sender_id,
@@ -196,6 +208,9 @@ pub(super) async fn handle_otp_flow(
 
     let text = match content {
         MessageContent::Text { body } => body.trim().to_owned(),
+        // A held pairing code waits for a yes, so a photo or a sticker asks
+        // again. Falling through would open an OTP flow that spends the code.
+        _ if otp_step == AWAITING_LINK_CONFIRM => String::new(),
         _ => return None,
     };
 
@@ -203,6 +218,18 @@ pub(super) async fn handle_otp_flow(
     let email = state["email"].as_str().unwrap_or_default().to_owned();
 
     match otp_step {
+        AWAITING_LINK_CONFIRM => Some(
+            linking::confirm_held_link(
+                resources,
+                tenant_id,
+                channel_type,
+                channel,
+                sender_id,
+                &state,
+                &text,
+            )
+            .await,
+        ),
         "awaiting_otp" if email.is_empty() => Some(
             handle_email_step(
                 resources,
@@ -668,7 +695,7 @@ async fn handle_otp_verification_step(
         "Account linked via in-chat OTP verification"
     );
 
-    super::linking::emit_linking_success(
+    linking::emit_linking_success(
         &user.id.to_string(),
         params.tenant_id,
         params.channel,
@@ -680,7 +707,7 @@ async fn handle_otp_verification_step(
     // the next inbound message will produce. Pending / Suspended users see
     // the translated denial copy at link time; everyone else sees the
     // localized link-success template.
-    let body = super::linking::link_time_reply(
+    let body = linking::link_time_reply(
         params.resources,
         params.tenant_id,
         params.channel,
@@ -725,6 +752,7 @@ pub async fn start_otp_flow(
         method: "otp",
         channel_user_id: Some(sender_id),
         sender_name,
+        app_return_uri: None,
         expires_at: &expires_at.to_rfc3339(),
     };
 
@@ -790,6 +818,7 @@ async fn offer_signup(
         );
     }
 
+    // LIMITATION(registre#1673): `KEY_LINK_SIGNUP_OFFER` (and the signup created / failed keys) read in French without their accents.
     let template = resources
         .mcp
         .messaging_strings_registry
@@ -801,12 +830,18 @@ async fn offer_signup(
     )
 }
 
-/// Affirmative replies accepted on the signup offer, in all five locales.
+/// Affirmative replies accepted on the signup offer and on a held pairing
+/// code, in all five locales.
 ///
 /// Kept deliberately narrow: anything else re-asks rather than guessing,
-/// because the alternative is creating an account for someone who typed
-/// something unrelated.
-const SIGNUP_YES: [&str; 8] = ["yes", "y", "oui", "si", "sí", "ja", "sim", "ok"];
+/// because the alternative is creating an account, or linking a chat, for
+/// someone who typed something unrelated.
+const YES_REPLIES: [&str; 8] = ["yes", "y", "oui", "si", "sí", "ja", "sim", "ok"];
+
+/// Whether `text` is one of the [`YES_REPLIES`], ignoring case and padding.
+pub(super) fn is_yes_reply(text: &str) -> bool {
+    YES_REPLIES.contains(&text.trim().to_lowercase().as_str())
+}
 
 /// Handle the reply to the signup offer.
 ///
@@ -821,8 +856,7 @@ async fn handle_signup_confirm_step(
     email: &str,
     text: &str,
 ) -> OutgoingMessage {
-    let answer = text.trim().to_lowercase();
-    if !SIGNUP_YES.contains(&answer.as_str()) {
+    if !is_yes_reply(text) {
         let template = resources
             .mcp
             .messaging_strings_registry

@@ -31,10 +31,6 @@ vi.mock('../../services/api', () => ({
   },
 }));
 
-vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({ user: { role: 'admin' } }),
-}));
-
 vi.mock('../UsageAnalytics', () => ({ default: () => <div data-testid="usage-panel" /> }));
 vi.mock('../LlmConsumptionPanel', () => ({ default: () => <div data-testid="llm-panel" /> }));
 vi.mock('../ToolUsagePanel', () => ({ default: () => <div data-testid="tools-panel" /> }));

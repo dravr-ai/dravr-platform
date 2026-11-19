@@ -171,21 +171,21 @@ pub(crate) async fn run_api_tool_loop(
                     return Ok(tally.provider_auth_required(Some(spend.usage), provider));
                 }
 
-                // Add assistant's text to messages if present (strip synthetic function syntax)
-                let assistant_round_text =
-                    response
-                        .content
-                        .as_deref()
-                        .map_or_else(String::new, |text| {
-                            let cleaned = strip_synthetic_function_calls(text);
-                            if cleaned.is_empty() {
-                                String::new()
-                            } else {
-                                let owned = cleaned.into_owned();
-                                llm_messages.push(ChatMessage::assistant(&owned));
-                                owned
-                            }
-                        });
+                // Add assistant's text to messages if present (strip synthetic
+                // function syntax), carrying the provider's replay blocks: a
+                // tool search the provider ran this call keeps the tools it
+                // found loaded only while its blocks ride the next requests.
+                let assistant_round_text = response
+                    .content
+                    .as_deref()
+                    .map_or_else(String::new, |text| {
+                        strip_synthetic_function_calls(text).into_owned()
+                    });
+                if let Some(message) =
+                    assistant_round_message(&assistant_round_text, response.replay_blocks)
+                {
+                    llm_messages.push(message);
+                }
 
                 // Add function responses as user messages, capturing activity list if present
                 let round_responses =
@@ -217,8 +217,7 @@ pub(crate) async fn run_api_tool_loop(
         let text_tool_calls = response
             .content
             .as_deref()
-            .map(parse_lenient_tool_call_blocks)
-            .unwrap_or_default();
+            .map_or_default(parse_lenient_tool_call_blocks);
         if !text_tool_calls.is_empty() {
             info!(
                 "Iteration {}: executing {} text <tool_call> block(s) from a native-tool response",
@@ -294,8 +293,7 @@ pub(crate) async fn run_api_tool_loop(
         // No tool calls - we have a text response (strip any synthetic function syntax)
         let content = response
             .content
-            .map(|c| strip_synthetic_function_calls(&c).into_owned())
-            .unwrap_or_default();
+            .map_or_default(|c| strip_synthetic_function_calls(&c).into_owned());
         return Ok(tally.answered(content, Some(spend.usage), response.finish_reason));
     }
 
@@ -669,6 +667,20 @@ pub struct AddedFunctionResponses {
     pub combined_text: String,
 }
 
+/// The assistant message a tool round leaves in the conversation: its text and
+/// the provider's replay blocks. `None` when it has neither, since an empty
+/// assistant turn is dropped on the wire anyway.
+fn assistant_round_message(
+    text: &str,
+    replay_blocks: Option<Vec<serde_json::Value>>,
+) -> Option<ChatMessage> {
+    let replay_blocks = replay_blocks.unwrap_or_default();
+    if text.is_empty() && replay_blocks.is_empty() {
+        return None;
+    }
+    Some(ChatMessage::assistant(text).with_replay_blocks(replay_blocks))
+}
+
 /// Add function responses as user messages for the next LLM iteration.
 ///
 /// Returns the captured `get_activities` list (to prepend to the final
@@ -963,6 +975,27 @@ mod tests {
             headless_tools_asked(&reply("Tu as roulé 0 km.", Vec::new())),
             Vec::<String>::new(),
             "a reply with no tool_call block names no tool"
+        );
+    }
+
+    /// A round whose call ran a tool search keeps the search on the assistant
+    /// message even with no text, so the next call does not search again and
+    /// is not billed the prompt twice (carnet#1633).
+    #[test]
+    fn a_round_keeps_its_replay_blocks_even_without_text() {
+        let search = serde_json::json!({"type": "server_tool_use", "id": "srvtoolu_1"});
+        let message = assistant_round_message("", Some(vec![search.clone()]))
+            .expect("a round that searched leaves its search in the conversation");
+        assert_eq!(message.replay_blocks, Some(vec![search]));
+        assert_eq!(message.content, "");
+
+        let with_text = assistant_round_message("Looking up templates.", None)
+            .expect("text alone is kept as before");
+        assert!(with_text.replay_blocks.is_none());
+
+        assert!(
+            assistant_round_message("", Some(Vec::new())).is_none(),
+            "nothing to say and nothing to replay leaves no assistant turn"
         );
     }
 }

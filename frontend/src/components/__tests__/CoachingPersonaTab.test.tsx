@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PersonasResponse } from '@pierre/shared-types';
 import CoachingPersonaTab from '../CoachingPersonaTab';
@@ -97,6 +97,10 @@ describe('CoachingPersonaTab', () => {
     const power = screen.getByTestId('persona-card-power_athlete');
     expect(power).toHaveAttribute('data-enforcement', 'advisory');
     expect(power).toHaveTextContent('Advisory');
+    // The enforcement pill reads the badge tone table: verified is a success,
+    // advisory the muted tone.
+    expect(within(casual).getByText('Verified')).toHaveClass('badge-success');
+    expect(within(power).getByText('Advisory')).toHaveClass('badge-secondary');
   });
 
   it('marks the stored persona active and sends the slug on selection', async () => {
@@ -114,6 +118,8 @@ describe('CoachingPersonaTab', () => {
     await waitFor(() => expect(userApi.setCoachingPersona).toHaveBeenCalledWith('power_athlete'));
     // The confirmation names the persona the way the card does.
     expect(await screen.findByTestId('persona-status')).toHaveTextContent('Power-athlete');
+    // A confirmation is a state: the success alert's tint and ink (carnet#1584).
+    expect(screen.getByTestId('persona-status')).toHaveClass('alert', 'alert-success');
   });
 
   it('shows the cards nothing rather than a hand-written fallback when the read fails', async () => {

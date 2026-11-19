@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The token screen's API Tokens tab follows `role`, the same field that decides the admin rail
-// ABOUTME: `is_admin` has skewed from `role`, and an operator on it would land on a screen missing its token list
+// ABOUTME: The token screen opens on its API Tokens tab and shows a minted token once, in a dialog
+// ABOUTME: Only an admin reaches it (the Dashboard's ADMIN_ONLY_TABS guard), so it asks nothing about the viewer
 
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import UnifiedConnections from '../UnifiedConnections';
 
-const viewer = vi.hoisted(() => ({ role: 'admin', is_admin: false }));
-
-vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ user: viewer }) }));
 vi.mock('../ApiKeyList', () => ({ default: () => <div data-testid="token-list" /> }));
 vi.mock('../A2AClientList', () => ({ default: () => <div data-testid="a2a-list" /> }));
 // The form mints the token; the stand-in hands back a fixed one.
@@ -35,25 +32,20 @@ vi.mock('../CreateApiKey', () => ({
 }));
 
 describe('UnifiedConnections', () => {
-  it('opens on the token list for a role admin whose is_admin is false', () => {
-    viewer.role = 'admin';
-    viewer.is_admin = false;
+  it('opens on the token list, with the connected apps one tab away', () => {
     render(<UnifiedConnections />);
     expect(screen.getByTestId('token-list')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'API Tokens' })).toBeInTheDocument();
-  });
+    expect(screen.queryByTestId('a2a-list')).toBeNull();
 
-  it('offers a plain user only the OAuth apps, whatever a stale is_admin says', () => {
-    viewer.role = 'user';
-    viewer.is_admin = true;
-    render(<UnifiedConnections />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connected Apps' }));
     expect(screen.getByTestId('a2a-list')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'API Tokens' })).toBeNull();
+    expect(screen.queryByTestId('token-list')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'API Tokens' }));
+    expect(screen.getByTestId('token-list')).toBeInTheDocument();
   });
 
   it('shows a minted token as a dialog that holds focus and outlasts an Escape', () => {
-    viewer.role = 'admin';
-    viewer.is_admin = false;
     render(<UnifiedConnections />);
     fireEvent.click(screen.getByRole('button', { name: /Create API Token/ }));
     fireEvent.click(screen.getByRole('button', { name: 'mint' }));

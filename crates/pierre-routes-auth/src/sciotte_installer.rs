@@ -1,4 +1,4 @@
-// ABOUTME: The super admin's session clone onto a test account: a sciotte login's store and warm-up, unannounced
+// ABOUTME: The admin's session clone onto a test account: a sciotte login's store and warm-up, unannounced
 // ABOUTME: No provider.connected event, since copying a session is not an athlete connecting
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,8 +13,8 @@ use uuid::Uuid;
 use crate::sciotte::warm_from_session;
 use crate::AuthRoutesContext;
 
-/// The super admin clone's install: the same store and warm-up as a login,
-/// with no `provider.connected` event, since a super admin copying a session
+/// The admin clone's install: the same store and warm-up as a login,
+/// with no `provider.connected` event, since an admin copying a session
 /// onto a test account is not an athlete connecting and must not count as one.
 #[async_trait::async_trait]
 impl ScrapeSessionInstaller for AuthRoutesContext {

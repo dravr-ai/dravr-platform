@@ -44,7 +44,7 @@ mod coach_home_seed_tests {
     /// record store of the test's own, projecting into `res`' cache.
     fn store(res: &Arc<ServerContext>) -> Arc<dyn LiveActivityStore> {
         live_store(
-            Some(Arc::new(MemoryActivityRecordStore::new())),
+            Arc::new(MemoryActivityRecordStore::new()),
             None,
             &res.common.repos,
         )
@@ -252,7 +252,7 @@ mod coach_home_seed_tests {
 
         let coach = repos.users.get_by_email_required(COACH).await.unwrap();
         assert!(
-            !coach.is_admin,
+            !coach.role.is_admin(),
             "an admin lands on the admin console, never on Coach Home"
         );
         assert!(coach.manages_roster, "the coach reads their roster");

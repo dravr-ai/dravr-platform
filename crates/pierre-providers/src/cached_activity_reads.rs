@@ -133,16 +133,6 @@ impl CachedActivities<'_> {
             .await?
             .ok_or_else(|| AppError::not_found(format!("{what} {id}")))
     }
-
-    /// Every cached activity under this provider key, newest first: what a
-    /// totals read sums over.
-    pub(crate) async fn all(&self) -> AppResult<Vec<Activity>> {
-        self.window(&ActivityQueryParams::with_pagination(
-            Some(usize::MAX / 2),
-            None,
-        ))
-        .await
-    }
 }
 
 /// The store-backed half of the per-activity sample reads

@@ -28,7 +28,10 @@ use axum::http::StatusCode;
 use axum::routing::delete;
 use axum::{Json, Router};
 use chrono::Utc;
-use common::{create_test_server_resources_with_sciotte, create_test_user_with_email};
+use common::{
+    create_test_server_resources_with_config, create_test_server_resources_with_sciotte,
+    create_test_user_with_email, test_server_config,
+};
 use pierre_core::constants::oauth_providers::{
     GARMIN, SCIOTTE, SCIOTTE_GARMIN, SCIOTTE_TRAININGPEAKS, STRAVA, TOKEN_TYPE_SESSION,
     TRAININGPEAKS,
@@ -277,4 +280,68 @@ async fn an_unreachable_service_never_blocks_the_disconnect() {
     disconnect(resources, user_id, tenant_id, TRAININGPEAKS).await;
 
     assert_disconnected(resources, user_id, tenant_id, SCIOTTE_TRAININGPEAKS).await;
+}
+
+/// With several read services, a disconnect asks every one of them to drop
+/// the session, not only the one its id names: a sign-in that ran on the
+/// first read service, or a change in their number, can leave a copy on
+/// another (carnet#1504). One that holds nothing answers 404 and the
+/// disconnect still completes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_disconnect_drops_the_session_from_every_read_service() {
+    let holder = Scraper::holding(&["sess-strava-sharded"]);
+    let other = Scraper::default();
+    let mut config = test_server_config();
+    config.external_services.sciotte.read_urls = vec![
+        spawn_scraper(other.clone()).await,
+        spawn_scraper(holder.clone()).await,
+    ];
+    let resources = &create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
+    let (user_id, tenant_id) =
+        connected_by_session(resources, SCIOTTE, "sess-strava-sharded").await;
+
+    disconnect(resources, user_id, tenant_id, STRAVA).await;
+
+    for (service, scraper) in [("first", &other), ("second", &holder)] {
+        assert_eq!(
+            scraper.deletes(),
+            vec!["sess-strava-sharded".to_owned()],
+            "the {service} read service was asked to drop the session"
+        );
+    }
+    assert!(
+        !holder.holds("sess-strava-sharded"),
+        "the service that held the cookies no longer does"
+    );
+    assert_disconnected(resources, user_id, tenant_id, SCIOTTE).await;
+}
+
+/// A read service that cannot be reached never stops the others: the next one
+/// still drops the session, and the disconnect completes (carnet#1504).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unreachable_read_service_never_stops_the_others_dropping_the_session() {
+    let holder = Scraper::holding(&["sess-garmin-sharded"]);
+    let mut config = test_server_config();
+    config.external_services.sciotte.read_urls =
+        vec![unreachable_url().await, spawn_scraper(holder.clone()).await];
+    let resources = &create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
+    let (user_id, tenant_id) =
+        connected_by_session(resources, SCIOTTE_GARMIN, "sess-garmin-sharded").await;
+
+    disconnect(resources, user_id, tenant_id, GARMIN).await;
+
+    assert_eq!(
+        holder.deletes(),
+        vec!["sess-garmin-sharded".to_owned()],
+        "the reachable service was still asked to drop the session"
+    );
+    assert!(
+        !holder.holds("sess-garmin-sharded"),
+        "the reachable service no longer holds the cookies"
+    );
+    assert_disconnected(resources, user_id, tenant_id, SCIOTTE_GARMIN).await;
 }

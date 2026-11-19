@@ -75,7 +75,7 @@ mod turns {
     use pierre_llm::MessageRole;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_providers::ai_scope::{self, Provenance};
-    use pierre_test_support::delegation::create_group_agent;
+    use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
     use serde_json::{json, Value};
 
     use crate::common::{
@@ -190,6 +190,7 @@ mod turns {
                 REPLY.to_owned()
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content,
                 model: MODEL.to_owned(),
                 usage: None,
@@ -327,6 +328,7 @@ mod turns {
                 )
                 .await
                 .unwrap();
+            grant_coach_access(repos, coach.id).await.unwrap();
             assert!(
                 repos
                     .groups
@@ -608,6 +610,39 @@ mod turns {
             later.contains(BRUNO_RACE),
             "Bruno still shares: his earlier status stays: {later}"
         );
+    }
+
+    /// A coach still attached whose coach access was withdrawn is replayed no
+    /// athlete's rows (carnet#1511): the rows stay, the read withholds them,
+    /// and they are replayed again once access is back.
+    #[tokio::test]
+    async fn a_coach_whose_access_is_off_is_replayed_no_athletes_rows() {
+        let fx = Fixture::new().await;
+        fx.read_both().await;
+
+        let users = &fx.repos().users;
+        users.set_manages_roster(fx.coach.id, false).await.unwrap();
+        let later = fx.turn(LATER).await;
+
+        for race in [ALICE_RACE, BRUNO_RACE] {
+            assert!(
+                !later.contains(race),
+                "bug: {race} reached the model for a coach whose coach access is off: {later}"
+            );
+        }
+        assert!(
+            later.contains(ASK_ONE),
+            "the coach's own question stays in the thread: {later}"
+        );
+
+        users.set_manages_roster(fx.coach.id, true).await.unwrap();
+        let back = fx.turn(LATER).await;
+        for race in [ALICE_RACE, BRUNO_RACE] {
+            assert!(
+                back.contains(race),
+                "access is back: {race} is replayed again: {back}"
+            );
+        }
     }
 
     /// No turn has compacted the room yet, so each summary is seeded over one
@@ -968,6 +1003,7 @@ impl LlmProvider for StubSummarizer {
                 .join("\n"),
         );
         Ok(ChatResponse {
+            replay_blocks: None,
             content: "SUMMARY of the earlier turns.".to_owned(),
             usage: Some(TokenUsage::new(1, 1, 2)),
             model: "stub-model".to_owned(),

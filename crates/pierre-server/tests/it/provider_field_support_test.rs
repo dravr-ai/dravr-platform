@@ -27,13 +27,13 @@
 //! provider's two modes join, and that both tool answers carry the
 //! dictionary to the model, in the words `backend` uses.
 
+use crate::common::offline_provider_registry;
 use std::sync::Arc;
 
 use chrono::{TimeZone, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_providers::field_support::{field_support, ActivityFields, FieldMode};
-use pierre_providers::ProviderRegistry;
 use pierre_tool_runtime::implementations::field_dictionary::served_header;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -61,7 +61,7 @@ const READ_BOTH_WAYS: ActivityFields = ActivityFields::DESCRIPTION
 
 #[test]
 fn every_activity_backend_the_registry_builds_declares_its_fields() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     let mut declared = Vec::new();
     for name in registry.supported_providers() {
         let descriptor = registry.get_descriptor(name).unwrap();
@@ -90,7 +90,7 @@ fn every_activity_backend_the_registry_builds_declares_its_fields() {
 
 #[test]
 fn strava_is_read_two_ways_and_both_carry_the_athletes_words_and_flags() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     let support = field_support(&registry, "strava", Some(FieldMode::Mirror)).unwrap();
     assert_eq!(
         support.provider, "strava",
@@ -125,7 +125,7 @@ fn strava_is_read_two_ways_and_both_carry_the_athletes_words_and_flags() {
 
 #[test]
 fn a_provider_read_one_way_has_only_that_mode() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
 
     let trainingpeaks = field_support(&registry, "trainingpeaks", Some(FieldMode::Oauth)).unwrap();
     assert!(trainingpeaks.mirror.is_some(), "TrainingPeaks is scraped");
@@ -160,7 +160,7 @@ fn a_provider_read_one_way_has_only_that_mode() {
 /// model reads and the notes the prefetch appends.
 #[test]
 fn trainingpeaks_and_coros_comments_reach_the_model() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     for provider in ["trainingpeaks", "coros"] {
         let support = field_support(&registry, provider, Some(FieldMode::Mirror)).unwrap();
         let mirror = support.mirror.expect("the provider is scraped");
@@ -255,6 +255,10 @@ fn the_activities_header_names_what_each_serving_connection_never_supplies() {
         );
     }
     assert!(
+        !not_supplied(0).contains(&"tags") && not_supplied(1).contains(&"tags"),
+        "tags are read by the scrape alone (carnet#1618): {connections:#}"
+    );
+    assert!(
         connections[0]["detail_only"]
             .as_array()
             .unwrap()
@@ -339,6 +343,12 @@ async fn connection_status_carries_each_providers_dictionary_and_the_mode_servin
             "bug: the mirror is said to supply {field}: {fields:#}"
         );
     }
+    assert!(
+        names(&fields["mirror"]["list"]).contains(&"tags")
+            && !names(&fields["oauth"]["list"]).contains(&"tags")
+            && !names(&fields["oauth"]["detail_only"]).contains(&"tags"),
+        "tags are scrape-only: {fields:#}"
+    );
     assert!(
         names(&fields["oauth"]["detail_only"]).contains(&"description"),
         "the API's detail read carries the description: {fields:#}"

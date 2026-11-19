@@ -10,7 +10,7 @@
 //! and `DELETE /admin/coach-seat-invitations/{email}`, mounted for the admin
 //! token and, under `/api/admin/…`, for the console session.
 //!
-//! A coach-seat invitation is the decision ADR-018 leaves to a super-admin —
+//! A coach-seat invitation is the decision ADR-018 leaves to an admin —
 //! who may coach — taken before the coach signs up instead of after a
 //! request: the single-use mailed link of every invitation, locked to the
 //! address, whose redemption also grants coach access and records the coach

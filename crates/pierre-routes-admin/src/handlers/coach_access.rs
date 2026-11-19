@@ -10,7 +10,7 @@
 //! `POST /admin/coach-access-requests/{id}/grant` and
 //! `POST /admin/coach-access-requests/{id}/decline` (body
 //! `{"reason": "…"}`, optional), mounted for the admin token and, under
-//! `/api/admin/…`, for the console session. A grant is the same super-admin
+//! `/api/admin/…`, for the console session. A grant is the same admin
 //! decision as `POST /admin/users/{id}/manages-roster`, plus attaching the
 //! coach to every coachless group they own (carnet#1521), so every route here
 //! is super-admin only. Either decision is told to the coach through the
@@ -47,7 +47,7 @@ pub(crate) struct CoachAccessListQuery {
     pub status: Option<String>,
 }
 
-/// Body of a decline: the reason the super-admin gives the coach, if any.
+/// Body of a decline: the reason the admin gives the coach, if any.
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct CoachAccessDeclineBody {
     /// Shown to the coach in the notice, the email and the declined state;
@@ -157,7 +157,7 @@ pub(crate) async fn handle_grant_coach_access_request(
 }
 
 /// `POST /admin/coach-access-requests/{id}/decline` — decline a request,
-/// with the reason the super-admin typed when they typed one.
+/// with the reason the admin typed when they typed one.
 pub(crate) async fn handle_decline_coach_access_request(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -168,7 +168,7 @@ pub(crate) async fn handle_decline_coach_access_request(
         return Ok(denied.into_response());
     }
     let request_id = parse_request_id(&request_id)?;
-    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let body = body.map_or_default(|Json(b)| b);
 
     let request = coach_access::decline(
         &context.repos,

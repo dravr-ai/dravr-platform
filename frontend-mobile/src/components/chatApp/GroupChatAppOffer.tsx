@@ -18,6 +18,7 @@ import {
   withStepRecorded,
 } from '@pierre/shared-constants';
 import { useAuth } from '../../contexts/AuthContext';
+import { BADGE_TONE } from '../ui';
 import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
 import { messagingApi, userApi } from '../../services/api';
 import { AVAILABLE_CHANNELS_KEY } from './ChatAppSheet';
@@ -124,9 +125,9 @@ export function GroupChatAppOffer({ offer, agentLabel, continuesRun = false, onC
           accessibilityRole="button"
           accessibilityState={{ disabled: declining }}
           testID="group-chat-app-offer-configure"
-          className={`min-h-11 justify-center rounded-lg bg-primary/15 px-3 ${declining ? 'opacity-50' : ''}`}
+          className={`min-h-11 justify-center rounded-lg ${BADGE_TONE.primary.fill} px-3 ${declining ? 'opacity-50' : ''}`}
         >
-          <Text className="text-sm font-medium text-primary">{t('chatApp.offer.configure', { app })}</Text>
+          <Text className={`text-sm font-medium ${BADGE_TONE.primary.ink}`}>{t('chatApp.offer.configure', { app })}</Text>
         </Pressable>
         <Pressable
           onPress={decline}

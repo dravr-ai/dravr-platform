@@ -88,7 +88,6 @@ async fn prompt_size_bands_price_to_the_sum_of_their_calls_in_every_scope() {
     insert(repos, "tenant-a", "alice", "memory_extraction", MIXED[4]).await;
 
     let priced = |records: &[&LlmUsageRecord]| records.iter().map(|r| cost_for_record(r)).sum();
-    let alice_rows: Vec<&LlmUsageRecord> = alice.iter().collect();
     let tenant_rows: Vec<&LlmUsageRecord> = alice.iter().chain([&bob]).collect();
     let user_rows: Vec<&LlmUsageRecord> = alice.iter().chain([&elsewhere]).collect();
     let all_rows: Vec<&LlmUsageRecord> = alice.iter().chain([&bob, &elsewhere]).collect();
@@ -103,13 +102,6 @@ async fn prompt_size_bands_price_to_the_sum_of_their_calls_in_every_scope() {
         .unwrap();
 
     for (scope, rows) in [
-        (
-            LlmUsageScope::UserInTenant {
-                user_id: "alice",
-                tenant_id: "tenant-a",
-            },
-            &alice_rows,
-        ),
         (LlmUsageScope::Tenant("tenant-a"), &tenant_rows),
         (LlmUsageScope::User("alice"), &user_rows),
         (LlmUsageScope::AllTenants, &all_rows),

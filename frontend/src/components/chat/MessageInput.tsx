@@ -11,11 +11,14 @@ import type { MessageAudience, RoomQuote } from '@pierre/shared-types';
 import { PRIVATE_LANE_KEYS, privateLaneComposerText } from '@pierre/chat-utils';
 import CommandPalette from '../CommandPalette';
 import MentionPalette from './MentionPalette';
-import { IconButton } from '../ui';
+import { BADGE_TONE, IconButton } from '../ui';
+import { WASH_TONE } from '../ui/washTone';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
 import { useMentionPalette } from '../../hooks/useMentionPalette';
 import { useTranslation } from '@pierre/i18n';
 import { keepComposerFocus } from '../../hooks/useComposerFocused';
+
+const PRIVATE = WASH_TONE.privateLane;
 
 /**
  * The most lines the composer shows before it scrolls, so a long draft never
@@ -244,13 +247,13 @@ export default function MessageInput({
         {privateLane?.quote ? (
           <div
             data-testid="composer-quote"
-            className="mb-2 flex min-w-0 items-center gap-2 rounded-lg border border-dashed border-warning/60 bg-warning/5 py-0.5 pl-2.5 pr-0.5"
+            className={`mb-2 flex min-w-0 items-center gap-2 rounded-lg border border-dashed border-warning/60 py-0.5 pl-2.5 pr-0.5 ${PRIVATE.fill}`}
           >
-            <Quote className="h-3.5 w-3.5 shrink-0 text-on-warning-container" aria-hidden="true" />
-            <span className="shrink-0 text-xs font-medium text-on-warning-container">
+            <Quote className={`h-3.5 w-3.5 shrink-0 ${PRIVATE.inks.quoteLabel}`} aria-hidden="true" />
+            <span className={`shrink-0 text-xs font-medium ${PRIVATE.inks.quoteLabel}`}>
               {t(PRIVATE_LANE_KEYS.quoteChip, { name: privateLane.quote.author_display_name })}
             </span>
-            <span className="min-w-0 flex-1 truncate text-xs text-on-surface-variant">{privateLane.quote.content}</span>
+            <span className={`min-w-0 flex-1 truncate text-xs ${PRIVATE.inks.quoted}`}>{privateLane.quote.content}</span>
             <IconButton
               variant="ghost"
               size="sm"
@@ -299,7 +302,7 @@ export default function MessageInput({
                 className={clsx(
                   'touch-target inline-flex h-7 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-2 text-xs font-semibold transition-colors focus-ring',
                   isPrivate
-                    ? 'bg-warning/15 text-on-warning-container hover:bg-warning/25'
+                    ? `${BADGE_TONE.warning.tone} ${BADGE_TONE.warning.hover}`
                     : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface',
                 )}
               >
@@ -356,9 +359,11 @@ export default function MessageInput({
             // While private the field is drawn dashed in the private accent,
             // and keeps that edge while focused: the cue matters most then.
             className={clsx(
-              'block w-full resize-none overflow-hidden rounded-xl border py-2 pl-11 pr-12 text-base text-on-surface transition-colors placeholder:text-outline focus:outline-none focus:ring-2 [@media(pointer:coarse)]:min-h-[48px] [@media(pointer:coarse)]:py-3',
+              'block w-full resize-none overflow-hidden rounded-xl border py-2 pl-11 pr-12 text-base transition-colors placeholder:text-outline focus:outline-none focus:ring-2 [@media(pointer:coarse)]:min-h-[48px] [@media(pointer:coarse)]:py-3',
+              // The typed text keeps body ink on the private wash and on the plain field alike.
+              PRIVATE.inks.typed,
               isPrivate
-                ? 'border-dashed border-warning/60 bg-warning/5 focus:ring-warning/30'
+                ? `border-dashed border-warning/60 focus:ring-warning/30 ${PRIVATE.fill}`
                 : 'ghost-border bg-surface-container-lowest focus:border-transparent focus:ring-primary/40',
             )}
             // The measured slot: the left padding clears the switch and the slash.

@@ -1,0 +1,48 @@
+{
+  "noticeLang": {
+    "message": "pt",
+    "description": "The language tag of these messages, set on the notice page so assistive technology reads it in this language"
+  },
+  "extName": {
+    "message": "Login do Dravr"
+  },
+  "extDescription": {
+    "message": "Entre no Garmin, Strava, TrainingPeaks ou COROS no seu próprio navegador e conecte essa conta ao Dravr."
+  },
+  "noticeTitle": {
+    "message": "Antes de usar o login do Dravr"
+  },
+  "noticeIntro": {
+    "message": "Esta extensão permite que você mesmo entre no Garmin, Strava, TrainingPeaks ou COROS, neste navegador, e entrega esse login ao Dravr para que ele importe seu treino."
+  },
+  "noticeReadsTitle": {
+    "message": "O que ela lê"
+  },
+  "noticeReads": {
+    "message": "Somente os cookies do serviço que você escolheu (garmin.com, strava.com, trainingpeaks.com ou coros.com), e somente depois que você clicar em “Continuar com” esse serviço no Dravr e terminar de entrar na página dele. Ela não lê nenhum outro site nem nada do que você digita."
+  },
+  "noticeSendsTitle": {
+    "message": "Para onde vai"
+  },
+  "noticeSends": {
+    "message": "Direto para o Dravr (app.dravr.ai), por uma conexão criptografada, e para nenhum outro lugar. O Dravr guarda a sessão criptografada e a usa somente para buscar seus dados desse serviço. A extensão não guarda nenhuma cópia."
+  },
+  "noticeControlTitle": {
+    "message": "Você mantém o controle"
+  },
+  "noticeControl": {
+    "message": "Desconecte o serviço no Dravr para apagar a sessão guardada e remova esta extensão para pará-la."
+  },
+  "noticeAccept": {
+    "message": "Concordo"
+  },
+  "noticeDecline": {
+    "message": "Agora não"
+  },
+  "noticePolicy": {
+    "message": "Política de privacidade do Dravr"
+  },
+  "noticeDone": {
+    "message": "Pronto. Volte ao Dravr e escolha “Continuar com” o seu serviço."
+  }
+}

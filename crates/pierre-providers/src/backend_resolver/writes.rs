@@ -73,9 +73,9 @@ pub const GRANT_OWED_REASON: &str = "grant_owed";
 /// mirror cannot, else `None`. Accepts either half of a pair.
 ///
 /// Garmin's: its session reads everything the athlete records, and only its
-/// grant pushes workouts and writes the calendar. So Garmin connects and
-/// reconnects by its hosted sign-in first and its OAuth grant after it, and
-/// the grant is owed while it is not live (JF's directive 8). Strava's grant
+/// grant pushes workouts and writes the calendar. So the grant is owed while
+/// it is not live, and a write that needs it is refused with its
+/// authorization link; a sign-in never redirects to it. Strava's grant
 /// writes nothing its session cannot, so it is never owed.
 #[must_use]
 pub fn grant_writes_beside_mirror(
@@ -104,10 +104,9 @@ pub fn grant_writes_beside_mirror(
 /// flagged or revoked) while the athlete is signed in to the pair's session
 /// (held and not revoked). `None` when the provider has no such grant, the
 /// athlete's grant is live, or no session is held: an athlete with no
-/// session connects by the hosted sign-in first, which then goes on to the
-/// grant (JF's directive 8), so nothing points them at the grant alone. A
-/// store that cannot be read reads the grant as live: nothing is asked on a
-/// guess.
+/// session connects by the hosted sign-in first, so nothing points them at
+/// the grant alone. A store that cannot be read reads the grant as live:
+/// nothing is asked on a guess.
 pub async fn grant_owed(
     repos: &RepositoryRegistry,
     registry: &ProviderRegistry,

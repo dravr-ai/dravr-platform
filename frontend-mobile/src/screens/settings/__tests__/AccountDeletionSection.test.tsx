@@ -11,6 +11,8 @@ import { AccountDeletionSection } from '../AccountDeletionSection';
 import { userApi } from '../../../services/api';
 
 const mockLogout = jest.fn();
+// The signed-in account's role; an admin's own delete is refused by the server.
+let mockRole: 'user' | 'admin' = 'user';
 
 jest.mock('../../../services/api', () => ({
   userApi: {
@@ -19,7 +21,7 @@ jest.mock('../../../services/api', () => ({
   },
 }));
 jest.mock('../../../contexts/AuthContext', () => ({
-  useAuth: () => ({ logout: mockLogout }),
+  useAuth: () => ({ logout: mockLogout, user: { id: 'u1', role: mockRole } }),
 }));
 
 const getPreview = userApi.getAccountDeletionPreview as jest.Mock;
@@ -44,6 +46,16 @@ describe('AccountDeletionSection', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockLogout.mockResolvedValue(undefined);
+    mockRole = 'user';
+  });
+
+  it('tells an admin another admin removes the account, and offers no delete (carnet#1631)', () => {
+    mockRole = 'admin';
+    renderSection();
+
+    expect(screen.getByTestId('privacy-section-account-deletion')).toBeTruthy();
+    expect(screen.queryByTestId('account-deletion-open')).toBeNull();
+    expect(getPreview).not.toHaveBeenCalled();
   });
 
   it('deletes once the email matches and the password is given, then signs out', async () => {

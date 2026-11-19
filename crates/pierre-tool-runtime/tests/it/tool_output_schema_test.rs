@@ -18,13 +18,18 @@
 //! one.
 
 use chrono::NaiveDate;
+use chrono_tz::America::Montreal;
 use dravr_meteo::{
     DummyWeatherProvider, GeocodeError, Geocoded, Geocoder, Place, PlaceQuery, WeatherError,
     WeatherProvider, WeatherQuery, WeatherSample,
 };
+use dravr_tronc::mcp::schema::Tool;
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
+use pierre_core::models::provider_context::{
+    ProviderActivityContext, ProviderHeartRateZone, PROVIDER_FIGURES_NOTE,
+};
 use pierre_core::models::{
     AnchorProvenance, AnchorStamp, MeasurementKind, Merged, MetricProvenance, ProvenancedValue,
     SportAnchor, SportAnchorName, SportType, StoredDailyActivity, ThresholdProvenance,
@@ -34,9 +39,15 @@ use pierre_fitness_compute::weather::WeatherDifficulty;
 use pierre_providers::field_support::FieldMode;
 use pierre_providers::precedence::wellness_source;
 use pierre_providers::ProviderRegistry;
+use pierre_services::athlete_loops::Effort;
+use pierre_services::athlete_places::HomeState;
 use pierre_services::coach_roster::RosterAthleteStatus;
 use pierre_services::continuous_series::SourceSeries;
 use pierre_services::plan_calendar_push::PushReport;
+use pierre_tool_runtime::activity_query::{
+    parse_query, AppliedQuery, GroupKey, KeyValue, MetricValues, QueryAnswer, QueryGroup,
+    UnknownCounts,
+};
 use pierre_tool_runtime::conversions::output_schema_for;
 use pierre_tool_runtime::conversions::Formatted;
 use pierre_tool_runtime::implementations::activities_output::GetActivitiesResult;
@@ -110,6 +121,7 @@ use pierre_tool_runtime::implementations::connection::{
 use pierre_tool_runtime::implementations::continuous_series::{
     GetHeartRateSeriesTool, HeartRateSeriesResult, SeriesWindow,
 };
+use pierre_tool_runtime::implementations::data::create_data_tools;
 use pierre_tool_runtime::implementations::endurance_workouts::{
     ListWorkoutTemplatesTool, PrescribeWorkoutTool, WithdrawPrescribedWorkoutTool,
 };
@@ -168,6 +180,9 @@ use pierre_tool_runtime::implementations::physiology_import::{
 use pierre_tool_runtime::implementations::physiology_output::{
     PhysiologyProfile, SetPhysiologyResult,
 };
+use pierre_tool_runtime::implementations::places::{
+    HomeView, NamePlaceResult, NamePlaceTool, NamedPlaceView,
+};
 use pierre_tool_runtime::implementations::plan_flavour_output::PlanFlavourResult;
 use pierre_tool_runtime::implementations::planned_workouts::{
     GetPlannedWorkoutsResult, GetPlannedWorkoutsTool, UnavailableCalendar,
@@ -190,7 +205,7 @@ use pierre_tool_runtime::implementations::routes::{
     DiscoverRoutesResult, DiscoverRoutesTool, DiscoveredRouteEntry, RouteSearchCenter,
 };
 use pierre_tool_runtime::implementations::segments::answer::{
-    AnsweredBy, MatchedSegment, SegmentHistoryEffort, SegmentHistoryResult, SegmentSummary,
+    MatchedSegment, SegmentHistoryEffort, SegmentHistoryResult, SegmentSummary,
 };
 use pierre_tool_runtime::implementations::segments::GetSegmentHistoryTool;
 use pierre_tool_runtime::implementations::sleep::output::{
@@ -205,7 +220,7 @@ use pierre_tool_runtime::implementations::store::{
     InstallAgentFromStoreTool, SearchAgentStoreResult, SearchAgentStoreTool, StoreAgentEntry,
 };
 use pierre_tool_runtime::implementations::stored_data::{
-    DataSourcesResult, DateRange, GetHealthSnapshotsTool, GetRecoveryMetricsTool,
+    DataSourcesResult, DateRange, DayReading, GetHealthSnapshotsTool, GetRecoveryMetricsTool,
     GetSleepSessionsTool, HealthSnapshotsResult, ListDataSourcesTool, RecoveryMetricsResult,
     SleepSessionsResult,
 };
@@ -1233,12 +1248,12 @@ fn get_health_snapshots_declares_a_schema_that_accepts_its_payload() {
     let sample = Formatted::Json(HealthSnapshotsResult {
         count: 0,
         snapshots: vec![],
-        daily_activity: vec![Merged {
+        daily_activity: vec![DayReading(Merged {
             primary: wellness_source(&day.source_name, None),
             record: day,
             sources: vec!["garmin_archive".to_owned()],
             filled: vec![],
-        }],
+        })],
         attribution: None,
         // One source synced, one never: both shapes the schema must accept.
         last_synced_at: BTreeMap::from([
@@ -1343,9 +1358,9 @@ fn get_heart_rate_series_declares_a_schema_that_accepts_its_payload() {
     );
 }
 
-/// Every coverage a segments answer carries: complete from the live
-/// listing, still being read with the walk's progress, and short of what
-/// could not be read, its reason an object.
+/// Every coverage a segments answer carries: complete, still being read
+/// with the walk's progress, and short of what could not be read, its
+/// reason an object.
 #[test]
 fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
     use std::collections::BTreeMap;
@@ -1359,7 +1374,7 @@ fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
         provider: provider.to_owned(),
         source: provider.to_owned(),
         activity_id: "16101".to_owned(),
-        activity_name: Some("Morning ride".to_owned()),
+        activity_name: "Morning ride".to_owned(),
         start_date: "2026-11-07T13:10:00+00:00".to_owned(),
         elapsed_time: 412,
         moving_time: Some(410),
@@ -1387,26 +1402,17 @@ fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
     let declared =
         <GetSegmentHistoryTool as McpTool<dyn ToolRuntime>>::definition(&GetSegmentHistoryTool)
             .output_schema;
-    for (answered_by, coverage) in [
-        (
-            AnsweredBy::LiveSegmentHistory,
-            coverage(Completeness::Complete, None, None),
+    for coverage in [
+        coverage(Completeness::Complete, Some(12), None),
+        coverage(
+            Completeness::Incomplete(IncompleteReason::SegmentDetailWalking),
+            Some(40),
+            Some(Pending::detail_walk_running(12, Some(40), Some(1_728.0))),
         ),
-        (
-            AnsweredBy::StoredDetails,
-            coverage(
-                Completeness::Incomplete(IncompleteReason::SegmentDetailWalking),
-                Some(40),
-                Some(Pending::detail_walk_running(12, Some(40), Some(1_728.0))),
-            ),
-        ),
-        (
-            AnsweredBy::StoredDetails,
-            coverage(
-                Completeness::Incomplete(IncompleteReason::SegmentDetailPartial { unreadable: 3 }),
-                Some(15),
-                None,
-            ),
+        coverage(
+            Completeness::Incomplete(IncompleteReason::SegmentDetailPartial { unreadable: 3 }),
+            Some(15),
+            None,
         ),
     ] {
         let sample = SegmentHistoryResult {
@@ -1427,7 +1433,6 @@ fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
                 best_elapsed_time: 412,
                 best_start_date: "2026-11-07T13:10:00+00:00".to_owned(),
             }],
-            answered_by,
             coverage,
         };
         assert_declares_and_accepts(
@@ -3518,6 +3523,67 @@ fn a_duplicate_commitment_is_a_valid_answer_not_an_error() {
     }
 }
 
+/// A named place, and the same place read where its automatic name is not
+/// shown: `name` is `null`, never absent.
+#[test]
+fn name_place_declares_a_schema_that_accepts_both_of_its_answers() {
+    let declared = <NamePlaceTool as McpTool<dyn ToolRuntime>>::definition(&NamePlaceTool);
+    for name in [Some("Gai-Luron".to_owned()), None] {
+        let sample = NamePlaceResult {
+            place: Some(NamedPlaceView {
+                id: "5f0c7a52-9d1e-4b1f-8f43-0c2f3e1a9b77".to_owned(),
+                name,
+            }),
+            home: None,
+        };
+        let value = serde_json::to_value(&sample).expect("serializes");
+        assert!(
+            value["place"].get("name").is_some(),
+            "bug: a place with no name shown dropped the key instead of answering null: {value}"
+        );
+        assert_declares_and_accepts(
+            declared.output_schema.clone(),
+            &output_schema_for::<NamePlaceResult>(),
+            &sample,
+            "name_place",
+        );
+    }
+}
+
+/// A home call answers its state word alone (carnet#1593): no place, and
+/// no state the schema does not name.
+#[test]
+fn name_place_declares_a_schema_that_accepts_each_home_answer() {
+    let declared = <NamePlaceTool as McpTool<dyn ToolRuntime>>::definition(&NamePlaceTool);
+    for (state, word) in [
+        (HomeState::Declared, "declared"),
+        (HomeState::Elsewhere, "elsewhere"),
+        (HomeState::Inferred, "inferred"),
+    ] {
+        let sample = NamePlaceResult {
+            place: None,
+            home: Some(HomeView { state }),
+        };
+        assert_eq!(
+            serde_json::to_value(&sample).expect("bug: a home answer serializes"),
+            json!({ "home": { "state": word } }),
+            "bug: a home answer carries more than its state word"
+        );
+        assert_declares_and_accepts(
+            declared.output_schema.clone(),
+            &output_schema_for::<NamePlaceResult>(),
+            &sample,
+            "name_place",
+        );
+    }
+    let validator = jsonschema::validator_for(&output_schema_for::<NamePlaceResult>())
+        .expect("bug: the name_place schema compiles");
+    assert!(
+        !validator.is_valid(&json!({ "home": { "state": "here" } })),
+        "bug: the name_place schema accepts a home state it never answers"
+    );
+}
+
 #[test]
 fn cancelling_nothing_is_a_valid_answer_too() {
     // False means nothing open matched. The athlete is not committed either
@@ -3747,6 +3813,11 @@ fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
             ),
             output_schema_for::<SetPreferredCalendarResult>(),
         ),
+        (
+            "name_place",
+            <NamePlaceTool as McpTool<dyn ToolRuntime>>::definition(&NamePlaceTool),
+            output_schema_for::<NamePlaceResult>(),
+        ),
     ] {
         assert_eq!(
             declared.name, tool_name,
@@ -3897,7 +3968,7 @@ fn the_forecast_takes_meteos_input_schema() {
 }
 
 #[tokio::test]
-async fn a_forecast_answers_with_meteos_shape_and_validates() {
+async fn a_forecast_answers_with_meteos_shape_plus_daylight_and_validates() {
     let validator =
         jsonschema::validator_for(&output_schema_for::<WeatherForecastResult>()).expect("compiles");
     let args = json!({
@@ -3906,9 +3977,14 @@ async fn a_forecast_answers_with_meteos_shape_and_validates() {
         "timestamp": "2026-09-28T07:30:00Z",
     });
 
-    let full = forecast(&DummyWeatherProvider::temperate(), &StubGeocoder, &args)
-        .await
-        .expect("renders");
+    let full = forecast(
+        &DummyWeatherProvider::temperate(),
+        &StubGeocoder,
+        &args,
+        Montreal,
+    )
+    .await
+    .expect("renders");
     assert!(!full.is_error, "{:#}", full.content);
     assert_eq!(full.content["provider"], "dummy");
     assert_eq!(full.content["latitude"], 45.5);
@@ -3917,6 +3993,16 @@ async fn a_forecast_answers_with_meteos_shape_and_validates() {
     assert_eq!(full.content["sample"]["temperature_celsius"], 15.0);
     assert_eq!(full.content["sample"]["humidity_percentage"], 55.0);
     assert_eq!(full.content["sample"]["conditions"], "clear sky");
+    // The day's daylight, on the athlete's clock (carnet#1486).
+    let sunrise = full.content["daylight"]["sunrise"]
+        .as_str()
+        .expect("bug: a Montréal forecast carries its sunrise");
+    assert!(
+        sunrise.starts_with("2026-09-28T06:") && sunrise.ends_with("-04:00"),
+        "bug: the sunrise must read on the athlete's clock: {sunrise}"
+    );
+    assert!(full.content["daylight"].get("polar").is_none());
+    assert!(full.content.get("default_place").is_none());
     // Coordinates were given: no place resolved, nothing to note.
     assert!(full.content.get("place").is_none());
     assert!(full.content.get("note").is_none());
@@ -3930,7 +4016,7 @@ async fn a_forecast_answers_with_meteos_shape_and_validates() {
         wind_speed_kmh: None,
         conditions: "snow".to_owned(),
     });
-    let bare = forecast(&bare, &StubGeocoder, &args)
+    let bare = forecast(&bare, &StubGeocoder, &args, chrono_tz::UTC)
         .await
         .expect("renders");
     assert!(bare.content["sample"].get("humidity_percentage").is_none());
@@ -3945,7 +4031,7 @@ async fn a_forecast_by_place_reads_the_geocoded_coordinates() {
     let provider = RecordingProvider::new();
     let args = json!({ "place": "Chamonix", "timestamp": "2026-09-28T07:30:00Z" });
 
-    let result = forecast(&provider, &StubGeocoder, &args)
+    let result = forecast(&provider, &StubGeocoder, &args, chrono_tz::UTC)
         .await
         .expect("renders");
     assert!(!result.is_error, "{:#}", result.content);
@@ -3987,6 +4073,7 @@ async fn an_ambiguous_place_takes_the_top_match_and_says_so() {
         &provider,
         &StubGeocoder,
         &json!({ "place": "Paris", "timestamp": "2026-09-28T07:30:00Z" }),
+        chrono_tz::UTC,
     )
     .await
     .expect("renders");
@@ -4002,6 +4089,7 @@ async fn an_ambiguous_place_takes_the_top_match_and_says_so() {
         &provider,
         &StubGeocoder,
         &json!({ "place": "Paris", "country_code": "us", "timestamp": "2026-09-28T07:30:00Z" }),
+        chrono_tz::UTC,
     )
     .await
     .expect("renders");
@@ -4021,6 +4109,7 @@ async fn coordinates_win_over_a_place_and_the_answer_says_so() {
             "place": "Chamonix",
             "timestamp": "2026-09-28T07:30:00Z",
         }),
+        chrono_tz::UTC,
     )
     .await
     .expect("renders");
@@ -4070,7 +4159,7 @@ async fn a_forecast_refuses_what_meteo_refuses() {
             "timestamp must be RFC 3339",
         ),
     ] {
-        let result = forecast(&provider, &StubGeocoder, &args)
+        let result = forecast(&provider, &StubGeocoder, &args, chrono_tz::UTC)
             .await
             .expect("renders");
         assert!(result.is_error, "{args} must be refused");
@@ -4115,7 +4204,14 @@ fn a_route_with_almost_no_osm_tags_still_validates() {
             distance_from_center_meters: 3_400.0,
             route_ref: None,
             connects_to: Vec::new(),
+            activity_id: None,
+            date: None,
+            place_name: None,
+            elevation_gain_meters: None,
+            relative_effort: None,
         }],
+        osm_unavailable: None,
+        next_step: "call get_weather_forecast".to_owned(),
     })
     .expect("serializes");
 
@@ -4159,7 +4255,14 @@ fn a_route_ranked_against_a_target_says_how_it_covers_it() {
             distance_from_center_meters: 3_400.0,
             route_ref: Some("rt_3f9a0c41d27b8e65".to_owned()),
             connects_to: vec!["rt_c07e5d2a9b146f38".to_owned()],
+            activity_id: None,
+            date: None,
+            place_name: None,
+            elevation_gain_meters: None,
+            relative_effort: None,
         }],
+        osm_unavailable: None,
+        next_step: "call get_weather_forecast".to_owned(),
     })
     .expect("serializes");
 
@@ -4170,6 +4273,73 @@ fn a_route_ranked_against_a_target_says_how_it_covers_it() {
     assert_eq!(value["routes"][0]["distance_source"], "mapped_geometry");
     assert_eq!(value["routes"][0]["route_ref"], "rt_3f9a0c41d27b8e65");
     assert_eq!(value["routes"][0]["connects_to"][0], "rt_c07e5d2a9b146f38");
+}
+
+// carnet#1665: the athlete's own loop answers when OpenStreetMap does not,
+// and its answer validates with the fields only a loop carries.
+#[test]
+fn an_own_loop_answering_alone_validates_and_names_its_ride() {
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<DiscoverRoutesResult>()).expect("compiles");
+    let value = serde_json::to_value(DiscoverRoutesResult {
+        sport_type: "mountain_bike".to_owned(),
+        center: RouteSearchCenter {
+            latitude: 45.87,
+            longitude: -74.05,
+            display_name: Some("Prévost, Quebec, Canada".to_owned()),
+        },
+        radius_meters: 10_000,
+        target_distance_meters: None,
+        count: 1,
+        routes: vec![DiscoveredRouteEntry {
+            name: "VTT Gai-Luron".to_owned(),
+            route_type: "cycling".to_owned(),
+            distance_meters: Some(8_700.0),
+            distance_source: Some("recorded".to_owned()),
+            target_fit: None,
+            passes_for_target: None,
+            difficulty: None,
+            source: "your_rides".to_owned(),
+            latitude: 45.871,
+            longitude: -74.052,
+            distance_from_center_meters: 260.0,
+            route_ref: Some("rt_9d0e1f2a3b4c5d6e".to_owned()),
+            connects_to: Vec::new(),
+            activity_id: Some("19876543210".to_owned()),
+            date: Some("2026-11-13".to_owned()),
+            place_name: Some("Gai-Luron".to_owned()),
+            elevation_gain_meters: Some(191.0),
+            relative_effort: Some(Effort::Easy),
+        }],
+        osm_unavailable: Some("no public OpenStreetMap (Overpass) server answered".to_owned()),
+        next_step: "call get_weather_forecast".to_owned(),
+    })
+    .expect("serializes");
+
+    assert!(
+        validator.is_valid(&value),
+        "bug: an own loop answering alone must validate:\n{value:#}"
+    );
+    let entry = &value["routes"][0];
+    assert_eq!(
+        (
+            entry["source"].as_str(),
+            entry["relative_effort"].as_str(),
+            entry["activity_id"].as_str(),
+            entry["elevation_gain_meters"].as_f64(),
+        ),
+        (
+            Some("your_rides"),
+            Some("easy"),
+            Some("19876543210"),
+            Some(191.0)
+        ),
+        "bug: an own loop names its source, effort, ride and climb: {value:#}"
+    );
+    assert!(
+        value["osm_unavailable"].is_string(),
+        "bug: the reason OpenStreetMap listed nothing is carried: {value:#}"
+    );
 }
 
 #[test]
@@ -4593,6 +4763,138 @@ fn the_toon_envelope_key_is_fixed_rather_than_named_after_the_tool() {
     assert!(
         keys.iter().any(|k| k == "toon"),
         "and it must carry the fixed toon key: {keys:?}"
+    );
+}
+
+/// A count's answer as it travels: a cross-tab, every metric, an incomplete
+/// coverage with a walk owed, and one source's reach.
+fn sample_query_answer() -> QueryAnswer {
+    use std::collections::BTreeMap;
+
+    use pierre_core::constants::oauth_providers::GarminContribution;
+    use pierre_core::models::coverage::{
+        Completeness, Coverage, CoverageWindow, IncompleteReason, Pending, SourceReach,
+        WindowScope, WindowTotals,
+    };
+
+    let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).expect("a real day");
+    let values = MetricValues {
+        count: Some(12),
+        distance_km: Some(254.3),
+        moving_time_s: Some(36_000),
+        moving_time_sessions: Some(11),
+        elapsed_time_s: Some(38_000),
+        elevation_m: Some(1_840.5),
+        avg_hr: Some(142.4),
+        avg_hr_sessions: Some(10),
+    };
+    let query = parse_query(
+        &serde_json::json!({
+            "from": "2020-01-01",
+            "sport_type": ["TrailRunning"],
+            "group_by": ["year", "sport_type"],
+            "metrics": ["count", "distance_km", "moving_time_s", "elapsed_time_s",
+                        "elevation_m", "avg_hr"],
+        }),
+        day(2026, 11, 17),
+    )
+    .expect("the sample's arguments parse");
+    let coverage = Coverage {
+        completeness: Completeness::Incomplete(IncompleteReason::HistoryWalkRunning),
+        window: CoverageWindow {
+            scope: WindowScope::Asked,
+            asked_from: Some(day(2020, 1, 1)),
+            asked_to: Some(day(2026, 11, 17)),
+            oldest: Some(day(2022, 12, 3)),
+            newest: Some(day(2026, 11, 16)),
+            total: Some(12),
+            returned: 12,
+            totals: Some(WindowTotals {
+                count: 12,
+                distance_km: 254.3,
+                duration_seconds: 38_000,
+                elevation_gain_m: 1_840.5,
+            }),
+            ..CoverageWindow::default()
+        },
+        trustworthy_from: None,
+        pending: Some(Pending::HistoryNotWalked),
+    };
+    QueryAnswer {
+        applied: AppliedQuery::of(&query),
+        totals: values,
+        groups: vec![QueryGroup {
+            key: BTreeMap::from([
+                (GroupKey::Year, KeyValue::Year(2024)),
+                (
+                    GroupKey::SportType,
+                    KeyValue::Text("TrailRunning".to_owned()),
+                ),
+            ]),
+            label: BTreeMap::new(),
+            values,
+        }],
+        groups_total: 1,
+        groups_truncated: false,
+        unknown: UnknownCounts::default(),
+        coverage: coverage.clone(),
+        coverage_by_source: vec![SourceReach {
+            source: "strava".to_owned(),
+            copies: 14,
+            coverage,
+        }],
+        garmin_contribution: Some(GarminContribution::Part),
+        segments: None,
+    }
+}
+
+/// The tool registered under `name` among the data tools.
+fn data_tool(name: &str) -> Tool {
+    create_data_tools()
+        .into_iter()
+        .map(|tool| tool.definition())
+        .find(|definition| definition.name == name)
+        .unwrap_or_else(|| panic!("bug: {name} is not registered among the data tools"))
+}
+
+#[test]
+fn query_activities_declares_a_schema_that_accepts_its_payload() {
+    let sample = sample_query_answer();
+    assert_declares_and_accepts(
+        data_tool("query_activities").output_schema,
+        &output_schema_for::<Formatted<QueryAnswer>>(),
+        &Formatted::Json(sample),
+        "query_activities",
+    );
+}
+
+#[test]
+fn get_stats_declares_a_schema_that_accepts_its_view() {
+    use pierre_core::models::{PeriodTotals, Stats};
+
+    let answer = sample_query_answer();
+    let year = PeriodTotals {
+        total_activities: 3,
+        total_distance: 42_195.0,
+        total_duration: 12_000,
+        total_elevation_gain: 300.0,
+    };
+    let sample = GetStatsResult {
+        stats: Stats {
+            total_activities: 12,
+            total_distance: 254_300.0,
+            total_duration: 38_000,
+            total_elevation_gain: 1_840.5,
+            coverage: answer.coverage,
+            year_to_date: Some(year),
+        },
+        coverage_by_source: answer.coverage_by_source,
+    };
+    assert_declares_and_accepts(
+        data_tool("get_stats").output_schema,
+        &output_schema_for::<Formatted<GetStatsResult>>(),
+        &Formatted::Json(sample),
+        "get_stats",
     );
 }
 
@@ -5607,6 +5909,20 @@ fn get_activity_intelligence_declares_the_shape_it_now_enforces() {
             calories: Some(710),
         },
         auto_selected: None,
+        provider_context: Some(ProviderActivityContext {
+            source: "Strava".to_owned(),
+            note: PROVIDER_FIGURES_NOTE.to_owned(),
+            heart_rate_zones: Some(vec![ProviderHeartRateZone {
+                zone: 2,
+                label: "Endurance".to_owned(),
+                min_bpm: 120,
+                max_bpm: Some(150),
+                seconds: 1800.0,
+            }]),
+            pace_zones: None,
+            best_efforts: None,
+            not_read: vec!["best efforts".to_owned()],
+        }),
     })
     .expect("serializes");
     assert!(
@@ -5640,6 +5956,7 @@ fn get_activity_intelligence_declares_the_shape_it_now_enforces() {
             max_heart_rate: None,
             calories: None,
         },
+        provider_context: None,
         auto_selected: Some(AutoSelectedActivity {
             reason: "Activity 'strava-1' not found".to_owned(),
             selected_activity: "strava-77".to_owned(),

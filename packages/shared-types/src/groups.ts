@@ -119,6 +119,70 @@ export interface GroupInvite {
   /** Whether redeeming it also approves a pending account: a coach's signup code */
   approves_signup: boolean;
   created_at: string;
+  /**
+   * How far the link got, for the group's owner and coach: present on the list
+   * read (`GET /api/groups/:id/invites`), absent from the invite a create
+   * returns (carnet#1650).
+   */
+  funnel?: GroupInviteFunnel;
+}
+
+/**
+ * How far one invite link got, as Coach Home's pending row shows it: sent,
+ * opened, account created, joined (carnet#1650). "Joined" is not here: the
+ * athlete is then a member, and the group leaves the awaiting list.
+ */
+export interface GroupInviteFunnel {
+  /**
+   * Times the link's invite card was opened. Opens by the coach who sent it,
+   * or by the group's owner or coach, are not counted.
+   */
+  open_count: number;
+  /** When the card was last opened; null when it never was */
+  last_opened_at: string | null;
+  /**
+   * Accounts the server holds this invite for that have not joined yet:
+   * signed up, or signed in, from the link (carnet#1648's hold).
+   */
+  held_count: number;
+  /** When the latest of those accounts took the hold; null when none holds it */
+  last_held_at: string | null;
+  /** Of `held_count`, how many were refused because the group is full */
+  full_count: number;
+}
+
+/** Whether an invite link still works, as its public card reads it. */
+export type GroupInvitePreviewStatus = 'live' | 'expired' | 'used_up' | 'inactive';
+
+/**
+ * Body of the public, rate-limited `GET /api/invites/:code`: what the invite
+ * card at `/groups/join/<code>` shows before any form (carnet#1649). The code
+ * is a bearer secret, so this is all it reveals: who sent the link, to which
+ * group, and whether it still works. No ids, no member count. An unknown code
+ * answers 404, the same for every code.
+ */
+export interface GroupInvitePreview {
+  status: GroupInvitePreviewStatus;
+  /** A member's invite, or the group's coach seat */
+  kind: GroupInviteKind;
+  /**
+   * Who sent the link: their first name and last initial, e.g. "Jeremy B.";
+   * null when they have no display name (never a stand-in, never the email)
+   */
+  inviter_name: string | null;
+  /** One or two initials for the avatar, e.g. "JB"; null with the name */
+  inviter_initials: string | null;
+  group_name: string;
+  /**
+   * Whether the group has a human coach. Joining shares training with the
+   * group's coach (ADR-002), so the card says what joining shares only when
+   * there is one, and says the group has none otherwise.
+   */
+  has_coach: boolean;
+  /** That coach's first name and last initial; null without a coach or a name */
+  coach_name: string | null;
+  /** When a live link stops working; null when it never expires */
+  expires_at: string | null;
 }
 
 // ========== REQUEST TYPES ==========
@@ -168,6 +232,17 @@ export interface CoachSharing {
   consent: boolean;
 }
 
+/**
+ * The caller's coach sharing as the server answers its read and its write.
+ * `assistant_notice_due` asks the apps to tell the member, once, that AI tools
+ * the coach connects to Dravr read them by name while they share. Keeping or
+ * stopping through the coach-sharing write from Dravr's own app answers it;
+ * the same write over an API key leaves it due.
+ */
+export interface CoachSharingState extends CoachSharing {
+  assistant_notice_due: boolean;
+}
+
 /** What a read of the athlete by their human coach read (carnet#1445). */
 export type CoachReadDataClass = 'training' | 'wellness';
 
@@ -184,6 +259,11 @@ export interface CoachRead {
   data_class: CoachReadDataClass;
   /** When the coach read it (RFC 3339). */
   read_at: string;
+  /**
+   * Whether the server marked the read as served to an AI tool the coach
+   * connects to Dravr from outside it, whose company received the data.
+   */
+  served_to_assistant: boolean;
 }
 
 /**
@@ -312,6 +392,94 @@ export interface GroupPermissionsResponse {
    * report and health-flag panels off it rather than deriving a tier locally.
    */
   weekly_digest: boolean;
+}
+
+/**
+ * Body of `PUT /api/user/group-invite`: the server now holds the invite a
+ * `/groups/join/<code>` link carried, against the signed-in account, until
+ * that account is active and joins (carnet#1648).
+ */
+export interface HoldGroupInviteResponse {
+  held: boolean;
+  /** A member's invite, or the group's coach seat. */
+  kind: GroupInviteKind;
+}
+
+/**
+ * Body of `POST /api/chat/groups/join`: what came of the invite the server
+ * holds for the caller. Every decided outcome answers 200 and drops the hold;
+ * a failed call keeps it for the next page load.
+ */
+export type JoinHeldInviteResponse =
+  /** No invite is held for the caller. */
+  | { outcome: 'none' }
+  /**
+   * Joined now. The caller's conversation is filed in the group's room, with
+   * the join notice — the welcome and what joining shares with the coach —
+   * written into it as an unread assistant message. `conversation_id` is
+   * `null` when the room could not be filed: the membership stands, and the
+   * room is filed when the caller first opens it from the list.
+   */
+  | {
+      outcome: 'joined';
+      /** Joined as a member, or attached as the group's human coach. */
+      kind: GroupInviteKind;
+      group_id: string;
+      group_name: string;
+      conversation_id: string | null;
+    }
+  /** The caller was already in the group, as the invite's kind: nothing to show. */
+  | { outcome: 'already_member'; kind: GroupInviteKind; group_id: string; group_name: string }
+  /**
+   * The invite could not be used; `message` is localized. `group_full` keeps
+   * the hold, so the athlete can try again from Home once a seat opens
+   * (carnet#1650); every other refusal (`invalid`) drops it.
+   */
+  | { outcome: 'refused'; reason: JoinHeldInviteRefusal; message: string };
+
+/** Why a held invite's join was refused. */
+export type JoinHeldInviteRefusal = 'group_full' | 'invalid';
+
+/**
+ * Where a held invite stands: `pending` waits for the account to join (the web
+ * app joins on its next load; Home offers the join), `group_full` was refused
+ * because the group is full and is kept for a retry (carnet#1650).
+ */
+export type HeldGroupInviteState = 'pending' | 'group_full';
+
+/** The invite the server holds for the signed-in account. */
+export interface HeldGroupInvite {
+  /** A member's invite, or the group's coach seat */
+  kind: GroupInviteKind;
+  group_name: string;
+  /** Who sent the link, as the invite card shows it; null without a display name */
+  inviter_name: string | null;
+  /** One or two initials for the avatar; null with the name */
+  inviter_initials: string | null;
+  /** Whether the group has a human coach, who reads a member's training */
+  has_coach: boolean;
+  /** That coach's first name and last initial; null without a coach or a name */
+  coach_name: string | null;
+  /** When the account took the hold */
+  held_at: string;
+  state: HeldGroupInviteState;
+}
+
+/**
+ * Body of `GET /api/user/group-invite`: the invite the server holds for the
+ * caller, or null (carnet#1650). Home reads it to offer « Rejoindre le groupe
+ * de <coach> » to an account that holds an invite and has not joined.
+ */
+export interface HeldGroupInviteResponse {
+  held: HeldGroupInvite | null;
+}
+
+/**
+ * Body of `PUT /api/groups/:id/coach`: the caller, the group's owner holding
+ * coach access, became the coach of their coachless group (carnet#1650).
+ */
+export interface ClaimGroupCoachResponse {
+  group: CoachingGroup;
 }
 
 /**

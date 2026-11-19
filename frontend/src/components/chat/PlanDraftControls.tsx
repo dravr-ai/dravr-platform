@@ -15,7 +15,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { usePlanDraftCard } from '../../hooks/useCoachPlan';
 import { cachedConversations } from '../../hooks/useConversationList';
 import { QUERY_KEYS } from '../../constants/queryKeys';
-import { Button, ConfirmDialog, useErrorToast } from '../ui';
+import { Badge, Button, ConfirmDialog, useErrorToast, ALERT_TONE } from '../ui';
 
 interface PlanDraftControlsProps {
   /** The coach's plan thread the card is in. */
@@ -97,7 +97,7 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
       <div className="border-t ghost-border-faint px-3 py-2.5" data-testid="plan-draft-controls">
         <p
           role="alert"
-          className="rounded-lg bg-error/10 px-3 py-2 text-sm text-on-error-container"
+          className={`${ALERT_TONE.error.tone} rounded-lg px-3 py-2 text-sm`}
           data-testid="plan-draft-consent-revoked"
         >
           {t(PLAN_DRAFT_KEYS.consentRevoked, { name })}
@@ -110,14 +110,14 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
 
   return (
     <div className="space-y-2.5 border-t ghost-border-faint px-3 py-2.5" data-testid="plan-draft-controls">
-      <span className="badge-warning" data-testid="plan-draft-badge">
+      <Badge variant="warning" data-testid="plan-draft-badge">
         {t(PLAN_DRAFT_KEYS.badge, { name })}
-      </span>
+      </Badge>
 
       {conflict && (
         <div
           role="alert"
-          className="space-y-1 rounded-lg bg-warning/10 px-3 py-2 text-on-warning-container"
+          className={`${ALERT_TONE.warning.tone} space-y-1 rounded-lg px-3 py-2`}
           data-testid="plan-draft-conflict"
         >
           <p className="text-sm font-semibold">{conflict.title}</p>

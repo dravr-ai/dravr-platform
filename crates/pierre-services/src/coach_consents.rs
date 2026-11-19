@@ -165,6 +165,30 @@ pub fn wellness_notice_due(offer: ConsentOffer, consents: CoachConsents) -> bool
             .is_none_or(|at| at < WELLNESS_READ_WIDENED_AT)
 }
 
+/// Whether the apps tell `member` that `group`'s human coach's AI tools read
+/// them by name, and ask whether to keep sharing (EFVP "AI Assistant
+/// Connections", decision 9.2b).
+///
+/// Due while the group has a human coach other than the member, the member
+/// shares their training with them, and they have not answered the notice
+/// yet (`answered_at`, when they did). Every member sharing with a human
+/// coach is told once, whenever they joined. Only the app's coach-sharing
+/// write records an answer, and only when served in the app
+/// ([`served_in_app`]): a coach-sharing change from an API key, an MCP
+/// client or the messaging `/group consent coach` leaves it due.
+#[must_use]
+pub fn assistant_notice_due(
+    group: &CoachingGroup,
+    member: &GroupMember,
+    answered_at: Option<DateTime<Utc>>,
+) -> bool {
+    group
+        .coach_user_id
+        .is_some_and(|coach| coach != member.user_id)
+        && member.coach_sharing_consent
+        && answered_at.is_none()
+}
+
 /// The consents `member` gave the coach of the group `group_id`: those on
 /// their live membership, none when they are no longer a member.
 ///
@@ -179,8 +203,7 @@ pub async fn member_consents(
     Ok(groups
         .get_member(&group_id.to_string(), member)
         .await?
-        .map(|membership| membership.coach_consents)
-        .unwrap_or_default())
+        .map_or_default(|membership| membership.coach_consents))
 }
 
 /// The consents `link`'s member gave the coach of the link's group.
@@ -294,7 +317,8 @@ impl ConsentChange {
     }
 
     /// Whether the change grants anything.
-    pub(crate) const fn grants_any(self) -> bool {
+    #[must_use]
+    pub const fn grants_any(self) -> bool {
         matches!(self.calendar_write, Some(true)) || matches!(self.wellness_read, Some(true))
     }
 
@@ -420,6 +444,17 @@ async fn purge_member_wellness(
     Ok(())
 }
 
+/// Whether the call is declared served over one of Dravr's own transports.
+///
+/// That is [`Transport::is_first_party`]; on REST, the member's session in
+/// Dravr's app. Only there does a member grant their coach a consent or
+/// answer the notice of the coach's AI tools; an API key, an MCP or A2A
+/// client, or an undeclared caller does not.
+#[must_use]
+pub fn served_in_app() -> bool {
+    ai_scope::declared_transport().is_some_and(Transport::is_first_party)
+}
+
 /// Refuse a grant made anywhere but Dravr's own app.
 ///
 /// `grants` says whether the request grants anything. A grant is accepted
@@ -432,7 +467,7 @@ async fn purge_member_wellness(
 /// Returns a permission-denied error (`consent_grant_needs_app`) for a grant
 /// made outside Dravr's own app.
 pub(crate) fn require_app_for_grant(grants: bool) -> AppResult<()> {
-    if !grants || ai_scope::declared_transport().is_some_and(Transport::is_first_party) {
+    if !grants || served_in_app() {
         return Ok(());
     }
     let mut error = AppError::new(
@@ -557,6 +592,73 @@ mod tests {
         assert!(
             !wellness_notice_due(no_coach, granted_at(Some(before))),
             "a group with no coach asks nothing"
+        );
+    }
+
+    /// A member sharing with the group's human coach is told once that the
+    /// coach's AI tools read them, until they answer; a member who stopped,
+    /// the coach themselves and a group with no coach are not.
+    #[test]
+    fn only_a_sharing_member_who_never_answered_is_told_of_the_coachs_tools() {
+        use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode, GroupRole};
+
+        let now = Utc::now();
+        let coach = Uuid::new_v4();
+        let group = |coach_user_id: Option<Uuid>| CoachingGroup {
+            id: Uuid::new_v4(),
+            tenant_id: Uuid::new_v4().to_string(),
+            name: "Les Rouleurs".to_owned(),
+            description: None,
+            agent_id: Uuid::new_v4().to_string(),
+            owner_id: coach,
+            coach_user_id,
+            peer_data_sharing: false,
+            respond_mode: GroupRespondMode::default(),
+            digest_mode: GroupDigestMode::default(),
+            max_members: 20,
+            is_active: true,
+            channel_type: None,
+            channel_chat_id: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let member = |sharing: bool| GroupMember {
+            id: Uuid::new_v4(),
+            group_id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            tenant_id: Uuid::new_v4().to_string(),
+            role: GroupRole::Member,
+            peer_sharing_consent: false,
+            coach_sharing_consent: sharing,
+            coach_sharing_consent_at: Some(now),
+            coach_consents: CoachConsents::default(),
+            consent_given_at: now,
+            joined_at: now,
+            left_at: None,
+            display_name: None,
+        };
+        let coached = group(Some(coach));
+        assert!(
+            assistant_notice_due(&coached, &member(true), None),
+            "a member sharing who never answered is told, however recently they joined"
+        );
+        assert!(
+            !assistant_notice_due(&coached, &member(true), Some(now)),
+            "an answer is given once"
+        );
+        assert!(
+            !assistant_notice_due(&coached, &member(false), None),
+            "nothing to keep once stopped"
+        );
+        assert!(
+            !assistant_notice_due(&group(None), &member(true), None),
+            "a group with no coach asks nothing"
+        );
+        let mut the_coach = member(true);
+        the_coach.user_id = coach;
+        assert!(
+            !assistant_notice_due(&coached, &the_coach, None),
+            "the coach is never told of their own tools"
         );
     }
 

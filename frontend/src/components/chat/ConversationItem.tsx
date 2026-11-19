@@ -9,7 +9,7 @@ import { clsx } from 'clsx';
 import { Clipboard, Mail, Pencil, Send, Trash2, Users } from 'lucide-react';
 import { PLAN_THREAD_KEYS, type ConversationRowModel } from '@pierre/chat-utils';
 import { badgeLabel, countKey, UNREAD_COUNT_ARIA_KEYS } from '@pierre/shared-constants';
-import { Input, OverflowMenu } from '../ui';
+import { BADGE_TONE, Input, OverflowMenu } from '../ui';
 import { avatarShapeClass, avatarSlotClass } from './avatarSlots';
 import { useTranslation } from '@pierre/i18n';
 
@@ -130,7 +130,7 @@ function KindGlyph({ row }: { row: ConversationRowModel }) {
   if (row.kind === 'channel' && row.channel) {
     return (
       <span
-        className="inline-flex items-center gap-1 flex-shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary"
+        className={`inline-flex items-center gap-1 flex-shrink-0 rounded-full px-1.5 py-0.5 text-xs font-medium ${BADGE_TONE.primary.tone}`}
         title={t('chat.fromChannel', { channel: row.channel.label })}
         aria-label={t('chat.fromChannel', { channel: row.channel.label })}
         data-testid="conversation-channel-badge"

@@ -1,12 +1,12 @@
-// ABOUTME: Email to the operators — who receives it, and the alert for a sign-up awaiting approval
+// ABOUTME: Email to the admins — who receives it, and the alert for a sign-up awaiting approval
 // ABOUTME: Best-effort: a failed or unconfigured send is logged and never fails what raised it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Operator email.
+//! Admin email.
 //!
-//! The decisions only a super-admin makes (granting coach access, approving a
+//! The decisions only an admin makes (granting coach access, approving a
 //! new account) reach them by email as well as by Slack, so a Slack outage, a
 //! bot dropped from the room or a renamed channel cannot silence them.
 
@@ -26,23 +26,23 @@ pub fn console_users_url(frontend_url: &str) -> String {
     format!("{}/#users", frontend_url.trim_end_matches('/'))
 }
 
-/// The addresses of every active super-admin ([`User::is_active_super_admin`]):
-/// a suspended one is left out, since the mail names the applicant.
+/// The addresses of every active admin ([`User::is_active_admin`]): a
+/// suspended one is left out, since the mail names the applicant.
 ///
 /// # Errors
 ///
 /// Returns the repository's error when the admins cannot be listed.
-pub async fn super_admin_emails(users: &dyn UserRepository) -> AppResult<Vec<String>> {
+pub async fn admin_emails(users: &dyn UserRepository) -> AppResult<Vec<String>> {
     Ok(users
         .list_admins()
         .await?
         .into_iter()
-        .filter(User::is_active_super_admin)
+        .filter(User::is_active_admin)
         .map(|a| a.email)
         .collect())
 }
 
-/// Emails every super-admin when a new account waits for approval
+/// Emails every admin when a new account waits for approval
 /// (carnet#1056), next to the `user.pending_approval` Slack ping.
 #[derive(Clone, Debug)]
 pub struct PendingSignupMail {
@@ -64,18 +64,18 @@ impl PendingSignupMail {
         }
     }
 
-    /// Email every active super-admin about `applicant`. Best-effort: a
+    /// Email every active admin about `applicant`. Best-effort: a
     /// failure is logged per recipient and never reaches the sign-up.
     pub async fn send(&self, users: &dyn UserRepository, applicant: &User) {
-        let recipients = match super_admin_emails(users).await {
+        let recipients = match admin_emails(users).await {
             Ok(recipients) => recipients,
             Err(e) => {
-                warn!(user_id = %applicant.id, error = %e, "Could not list super-admins for a pending sign-up");
+                warn!(user_id = %applicant.id, error = %e, "Could not list admins for a pending sign-up");
                 return;
             }
         };
         if recipients.is_empty() {
-            warn!(user_id = %applicant.id, "No active super-admin to email about a pending sign-up");
+            warn!(user_id = %applicant.id, "No active admin to email about a pending sign-up");
             return;
         }
         for to in &recipients {
@@ -93,7 +93,7 @@ impl PendingSignupMail {
     }
 }
 
-/// Log one operator email's outcome against the masked recipient.
+/// Log one admin email's outcome against the masked recipient.
 fn log_outcome(to: &str, applicant: &User, sent: Result<(), AppError>) {
     let recipient = mask_email(to);
     match sent {
@@ -108,7 +108,6 @@ fn log_outcome(to: &str, applicant: &User, sent: Result<(), AppError>) {
 mod tests {
     use super::*;
     use pierre_core::models::UserStatus;
-    use pierre_core::permissions::UserRole;
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::server::{create_test_admin_user, create_test_user};
 
@@ -121,26 +120,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_active_super_admins_are_operator_recipients() {
+    async fn only_active_admins_are_admin_mail_recipients() {
         let db = create_test_db().await.unwrap();
         let users = db.repositories().users.as_ref();
 
-        let mut deciding = create_test_admin_user("deciding@example.com", None);
-        deciding.role = UserRole::SuperAdmin;
+        let deciding = create_test_admin_user("deciding@example.com", None);
         let mut departed = create_test_admin_user("departed@example.com", None);
-        departed.role = UserRole::SuperAdmin;
         departed.is_active = false;
         let mut suspended = create_test_admin_user("suspended@example.com", None);
-        suspended.role = UserRole::SuperAdmin;
         suspended.user_status = UserStatus::Suspended;
-        let admin = create_test_admin_user("admin@example.com", None);
         let athlete = create_test_user("athlete@example.com", None);
-        for user in [&deciding, &departed, &suspended, &admin, &athlete] {
+        for user in [&deciding, &departed, &suspended, &athlete] {
             users.create(user).await.unwrap();
         }
 
         assert_eq!(
-            super_admin_emails(users).await.unwrap(),
+            admin_emails(users).await.unwrap(),
             vec!["deciding@example.com".to_owned()]
         );
     }

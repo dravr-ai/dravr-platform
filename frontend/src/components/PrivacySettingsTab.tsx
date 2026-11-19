@@ -1,4 +1,4 @@
-// ABOUTME: Privacy settings tab — analytics consent, each provider's AI consent and self-serve account deletion
+// ABOUTME: Privacy settings tab — analytics consent, each provider's AI consent, data export, access requests to a company, account deletion
 // ABOUTME: Allows users to opt in/out of anonymized usage analytics tracking, or delete their account
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,9 +7,10 @@
 import { useState, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { userApi } from '../services/api';
-import { Section } from './ui';
+import { Section, Alert, Switch } from './ui';
 import AccountDeletionSection from './AccountDeletionSection';
 import DataExportSection from './DataExportSection';
+import DataAccessRequestsSection from './dataAccess/DataAccessRequestsSection';
 import AiConsentSettings from './settings/AiConsentSettings';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '@pierre/i18n';
@@ -68,23 +69,12 @@ export default function PrivacySettingsTab() {
             </div>
 
             {/* Toggle Switch */}
-            <button
-              type="button"
-              role="switch"
-              aria-checked={enabled}
-              aria-label={t('app.usageAnalytics')}
-              onClick={handleToggle}
+            <Switch
+              checked={enabled}
+              onChange={handleToggle}
+              label={t('app.usageAnalytics')}
               disabled={mutation.isPending}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-zinc-900 disabled:opacity-50 ${
-                enabled ? 'bg-primary' : 'bg-surface-container-high'
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                  enabled ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
+            />
           </div>
 
           {/* What We Track */}
@@ -136,19 +126,14 @@ export default function PrivacySettingsTab() {
 
           {/* Status Message */}
           {message && (
-            <div
-              className={`p-3 rounded-lg text-sm ${
-                message.type === 'success'
-                  ? 'bg-success/10 text-on-success-container border border-success/20'
-                  : 'bg-error/10 text-error border border-error/20'
-              }`}
-            >
+            <Alert tone={message.type} className="border">
               {message.text}
-            </div>
+            </Alert>
           )}
         </div>
       </Section>
       <DataExportSection />
+      <DataAccessRequestsSection />
       <AccountDeletionSection />
     </div>
   );

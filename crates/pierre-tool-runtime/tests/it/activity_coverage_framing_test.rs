@@ -10,13 +10,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{NaiveDate, TimeZone, Utc};
-use pierre_core::models::coverage::{Completeness, IncompleteReason};
-use pierre_core::models::{Activity, ActivityBuilder, SportType};
-use pierre_tool_runtime::activity_fetch::{activity_date_span, activity_window_totals};
+use chrono::NaiveDate;
+use pierre_core::models::coverage::{Completeness, IncompleteReason, WindowTotals};
 use pierre_tool_runtime::implementations::data_helpers::{
     activity_coverage, historical_backfill_fetch_limit, pagination_has_more, window_fetch_limit,
-    AskedWindow, HISTORICAL_WINDOW_READ_LIMIT,
+    AskedWindow, WindowCount, HISTORICAL_WINDOW_READ_LIMIT,
 };
 use serde_json::Value;
 
@@ -24,7 +22,8 @@ fn day(year: i32, month: u32, d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(year, month, d).unwrap()
 }
 
-/// The `coverage` sidecar as the model reads it, totals left unsummed.
+/// The `coverage` sidecar as the model reads it, totals left unsummed, for
+/// a list that read the whole window it counts.
 fn coverage_json(
     window_total: Option<usize>,
     returned: usize,
@@ -32,23 +31,14 @@ fn coverage_json(
     asked: AskedWindow,
     completeness: Completeness,
 ) -> Option<Value> {
-    activity_coverage(window_total, returned, span, asked, completeness, None)
+    let count = WindowCount {
+        total: window_total,
+        fetched: window_total.unwrap_or(returned),
+        span,
+        ..WindowCount::default()
+    };
+    activity_coverage(count, returned, asked, completeness)
         .map(|coverage| serde_json::to_value(coverage).unwrap())
-}
-
-fn act_on(id: &str, year: i32, month: u32, day: u32) -> Activity {
-    ActivityBuilder::new(
-        id.to_owned(),
-        id.to_owned(),
-        SportType::Run,
-        Utc.with_ymd_and_hms(year, month, day, 12, 0, 0)
-            .single()
-            .unwrap(),
-        3600,
-        "strava".to_owned(),
-    )
-    .distance_meters(10_000.0)
-    .build()
 }
 
 #[test]
@@ -215,32 +205,6 @@ fn coverage_count_only_is_lower_bound_when_read_is_capped() {
     );
 }
 
-#[test]
-fn date_span_spans_oldest_to_newest_regardless_of_order() {
-    // Deliberately out of order: newest, oldest, middle.
-    let activities = vec![
-        act_on("a", 2024, 12, 28),
-        act_on("b", 2024, 1, 15),
-        act_on("c", 2024, 6, 1),
-    ];
-    let (oldest, newest) = activity_date_span(&activities, None).expect("non-empty span");
-    assert_eq!(
-        oldest,
-        day(2024, 1, 15),
-        "bug: the span starts at the oldest"
-    );
-    assert_eq!(
-        newest,
-        day(2024, 12, 28),
-        "bug: the span ends at the newest"
-    );
-}
-
-#[test]
-fn date_span_is_none_for_empty_slice() {
-    assert!(activity_date_span(&[], None).is_none());
-}
-
 // carnet#874: "compare my 2011 cycling with this year" read 2011 as its last
 // three December rides. The provider was asked for the display limit (20) of
 // every sport, newest first; the ride filter left three, and `has_more` said
@@ -281,57 +245,6 @@ fn more_is_reported_when_the_window_holds_more_than_is_shown() {
     assert!(pagination_has_more(3, 3, true));
     // The whole window shown, and the provider stopped short of its page.
     assert!(!pagination_has_more(3, 3, false));
-}
-
-#[test]
-fn window_totals_sum_the_whole_window() {
-    // Twelve rides with distance and climb, plus one that reports neither:
-    // it counts and adds its hour, and adds no distance or climb.
-    let mut window: Vec<Activity> = (1..=12)
-        .map(|month| {
-            ActivityBuilder::new(
-                format!("ride-{month}"),
-                format!("ride-{month}"),
-                SportType::Ride,
-                Utc.with_ymd_and_hms(2011, month, 15, 12, 0, 0)
-                    .single()
-                    .unwrap(),
-                3600,
-                "strava".to_owned(),
-            )
-            .distance_meters(10_000.0)
-            .elevation_gain(125.0)
-            .build()
-        })
-        .collect();
-    window.push(
-        ActivityBuilder::new(
-            "trainer".to_owned(),
-            "trainer".to_owned(),
-            SportType::Ride,
-            Utc.with_ymd_and_hms(2011, 12, 20, 12, 0, 0)
-                .single()
-                .unwrap(),
-            3600,
-            "strava".to_owned(),
-        )
-        .build(),
-    );
-    let totals = activity_window_totals(&window);
-    assert_eq!(totals.count, 13);
-    assert!((totals.distance_km - 120.0).abs() < f64::EPSILON);
-    assert_eq!(totals.duration_seconds, 13 * 3_600);
-    assert!((totals.elevation_gain_m - 1500.0).abs() < f64::EPSILON);
-    assert_eq!(
-        serde_json::to_value(&totals).unwrap(),
-        serde_json::json!({
-            "count": 13,
-            "distance_km": 120.0,
-            "duration_seconds": 46_800,
-            "elevation_gain_m": 1500.0,
-        }),
-        "bug: the totals serialize as the window's `totals` object"
-    );
 }
 
 /// The replay's Q3: a 151-row cached window served while the live read ran
@@ -388,21 +301,116 @@ fn a_complete_dated_window_says_complete() {
 /// model to them for a comparison (carnet#874).
 #[test]
 fn window_totals_ride_in_the_window_and_the_note_names_them() {
-    let window = vec![act_on("a", 2011, 3, 1), act_on("b", 2011, 9, 1)];
-    let coverage = activity_coverage(
-        Some(2),
-        1,
-        activity_date_span(&window, None),
-        AskedWindow::default(),
-        Completeness::Complete,
-        Some(activity_window_totals(&window)),
-    )
-    .expect("a truncated window carries coverage");
+    let count = WindowCount {
+        total: Some(2),
+        fetched: 2,
+        span: Some((day(2011, 3, 1), day(2011, 9, 1))),
+        totals: Some(WindowTotals {
+            count: 2,
+            distance_km: 20.0,
+            duration_seconds: 7_200,
+            elevation_gain_m: 0.0,
+        }),
+        unstored: 0,
+    };
+    let coverage = activity_coverage(count, 1, AskedWindow::default(), Completeness::Complete)
+        .expect("a truncated window carries coverage");
     let note = serde_json::to_value(coverage).unwrap();
     assert_eq!(note["window"]["totals"]["count"], 2, "bug: {note}");
     assert_eq!(note["window"]["totals"]["distance_km"], 20.0, "bug: {note}");
     assert!(
         note["note"].as_str().unwrap().contains("use window.totals"),
         "bug: the note must send a comparison to the totals: {note}"
+    );
+}
+
+/// A shown row the store does not hold is left out of the store's count,
+/// and the coverage names it even where nothing else would carry one: a
+/// complete, undated window whose count is no larger than what is shown.
+#[test]
+fn a_shown_row_the_store_lacks_is_named_and_left_out_of_the_count() {
+    let count = WindowCount {
+        total: Some(0),
+        fetched: 1,
+        unstored: 1,
+        ..WindowCount::default()
+    };
+    let coverage = activity_coverage(count, 1, AskedWindow::default(), Completeness::Complete)
+        .map(|coverage| serde_json::to_value(coverage).unwrap())
+        .expect("bug: a shown row the store lacks carries no coverage");
+    assert_eq!(coverage["window"]["unstored"], 1, "bug: {coverage}");
+    assert_eq!(coverage["window"]["total"], 0, "bug: {coverage}");
+    let note = coverage["note"].as_str().unwrap();
+    assert!(
+        note.contains("1 activity shown is not in the store yet"),
+        "bug: the note does not say the shown row is left out: {note}"
+    );
+    assert_eq!(
+        coverage["complete"], false,
+        "bug: a count that leaves out a shown row reads complete: {coverage}"
+    );
+    assert_eq!(
+        coverage["incomplete_reason"], "unstored_rows",
+        "bug: the incomplete reason does not name the unstored rows: {coverage}"
+    );
+    assert!(
+        note.contains("This window is INCOMPLETE."),
+        "bug: the note does not say the window is incomplete: {note}"
+    );
+}
+
+/// A window already short for another reason keeps that reason when a shown
+/// row is unstored too: a running live read stays the reason, and the note
+/// still names the unstored row.
+#[test]
+fn an_unstored_row_keeps_a_window_already_short_for_another_reason() {
+    let count = WindowCount {
+        total: Some(0),
+        fetched: 1,
+        unstored: 1,
+        ..WindowCount::default()
+    };
+    let coverage = activity_coverage(
+        count,
+        1,
+        AskedWindow::default(),
+        Completeness::Incomplete(IncompleteReason::LiveReadRunning),
+    )
+    .map(|coverage| serde_json::to_value(coverage).unwrap())
+    .expect("bug: an incomplete window carries no coverage");
+    assert_eq!(
+        coverage["incomplete_reason"], "live_read_running",
+        "bug: an unstored row replaced the window's own reason: {coverage}"
+    );
+    assert!(
+        coverage["note"]
+            .as_str()
+            .unwrap()
+            .contains("1 activity shown is not in the store yet"),
+        "bug: the note does not name the unstored row: {coverage}"
+    );
+}
+
+/// The store's count is not capped: a window it counts past the read cap is
+/// an exact count when the list itself read less than the cap. Only a read
+/// that filled the cap is framed as a lower bound.
+#[test]
+fn a_store_count_past_the_read_cap_is_exact_when_the_read_was_not_capped() {
+    let count = WindowCount {
+        total: Some(HISTORICAL_WINDOW_READ_LIMIT + 100),
+        fetched: 200,
+        ..WindowCount::default()
+    };
+    let coverage = activity_coverage(count, 200, AskedWindow::default(), Completeness::Complete)
+        .map(|coverage| serde_json::to_value(coverage).unwrap())
+        .expect("bug: a truncated window carries no coverage");
+    assert!(
+        coverage["window"].get("total_is_lower_bound").is_none(),
+        "bug: an uncapped read's store count is framed as a lower bound: {coverage}"
+    );
+    let text = coverage["note"].as_str().unwrap();
+    assert!(
+        !text.contains("at least"),
+        "bug: an exact store count is hedged as a lower bound: {text}"
     );
 }

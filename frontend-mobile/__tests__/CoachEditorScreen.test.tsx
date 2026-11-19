@@ -149,6 +149,27 @@ describe('CoachEditorScreen', () => {
     expect(queryByText('Forked from a system agent')).toBeNull();
   });
 
+  it('shows the selected category as its pillar dot beside the word, not a tinted chip', async () => {
+    const { findByTestId } = render(<CoachEditorScreen />);
+
+    const field = await findByTestId('selected-category');
+    expect(field).toHaveTextContent('Training');
+    expect(field.props.style).toBeUndefined();
+    // The dot is hidden from assistive tech (the word carries the meaning).
+    const dot = within(field).getByTestId('selected-category-dot', { includeHiddenElements: true });
+    expect(dot.props.className).toContain('bg-activity');
+  });
+
+  it('draws a custom agent\'s selected category with a neutral dot', async () => {
+    mockGet.mockResolvedValue(storedCoach({ category: 'custom' }));
+    const { findByTestId } = render(<CoachEditorScreen />);
+
+    const field = await findByTestId('selected-category');
+    expect(field).toHaveTextContent('Custom');
+    const dot = within(field).getByTestId('selected-category-dot', { includeHiddenElements: true });
+    expect(dot.props.className).toContain('bg-outline-variant');
+  });
+
   it('saves through coachesApi.update and goes back', async () => {
     const { findByTestId, getByTestId } = render(<CoachEditorScreen />);
     await findByTestId('coach-editor-screen');

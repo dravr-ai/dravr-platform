@@ -32,6 +32,7 @@ use pierre_core::models::{
     default_locale, normalize_email, CoachingPersona, User, UserTier, FEDERATED_ONLY_PASSWORD_HASH,
 };
 use pierre_core::permissions::UserRole;
+use pierre_database::repositories::FederatedLink;
 use pierre_middleware::mask_email;
 
 use super::{invalid_credentials, AuthService};
@@ -118,8 +119,11 @@ impl AuthService {
 
         let first_proof = self.record_federated_email_proof(&user, &identity).await?;
 
-        // Retroactively approve pending users whose domain now qualifies
+        // Retroactively approve pending users whose domain now qualifies. An
+        // account a rule admits is read again by that write: one suspended
+        // since the check above is refused here.
         self.auto_approve_if_eligible(&mut user).await?;
+        Self::reject_if_suspended(&user)?;
         if first_proof {
             self.mail_admins_if_pending(&user);
         }
@@ -234,28 +238,51 @@ impl AuthService {
     /// Attach `identity` to the existing account `user` its email found,
     /// once [`Self::may_attach`] allows it, retiring the account's earlier
     /// credentials when its email was never verified.
+    ///
+    /// The link writes what it owns, in one statement: the Firebase UID,
+    /// the provider, and the password marker of an account whose
+    /// credentials were retired ([`FederatedLink`]). It writes nothing of
+    /// the account's role, status or `is_active` flag. `user` was read
+    /// before the credentials were retired, and a suspension, a demotion or
+    /// a promotion can land in between: the whole row written back from
+    /// that read would undo it (carnet#1589). The account returned is the
+    /// row as the link left it, so the sign-in goes on with its standing as
+    /// it is now.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of [`Self::may_attach`], a not-found error for an
+    /// account deleted since it was read, and the repository error when a
+    /// read or write fails.
     async fn attach_federated_user(
         &self,
-        mut user: User,
+        user: User,
         identity: &FederatedIdentity<'_>,
     ) -> AppResult<User> {
         self.may_attach(&user, identity).await?;
 
-        let repos = self.data.repos();
-        if !self.email_already_proven(&user).await? {
-            self.retire_unproven_credentials(&mut user, identity)
-                .await?;
+        let retired = !self.email_already_proven(&user).await?;
+        if retired {
+            self.retire_unproven_credentials(&user).await?;
         }
 
         info!(user_id = %user.id, provider = %identity.provider, "Linking existing account to the federated identity");
-        if let Some(uid) = identity.firebase_uid {
-            user.firebase_uid = Some(uid.to_owned());
-        }
-        identity.provider.clone_into(&mut user.auth_provider);
-        // `update`, not `create`: the row exists.
-        repos.users.update(&user).await?;
-        self.link_google_subject(user.id, identity).await?;
-        Ok(user)
+        let linked = self
+            .data
+            .repos()
+            .users
+            .link_federated_identity(
+                user.id,
+                &FederatedLink {
+                    firebase_uid: identity.firebase_uid,
+                    auth_provider: identity.provider,
+                    retired_password_hash: retired.then_some(FEDERATED_ONLY_PASSWORD_HASH),
+                },
+            )
+            .await?
+            .ok_or_else(|| AppError::not_found("User"))?;
+        self.link_google_subject(linked.id, identity).await?;
+        Ok(linked)
     }
 
     /// Whether `identity` may attach to `user`: it proves the account's
@@ -311,20 +338,16 @@ impl AuthService {
     ///
     /// Anyone can register an address they do not hold and wait for its
     /// owner to sign in with Google. So when a sign-in proves an address the
-    /// account never verified, the password is replaced by the
-    /// federated-only marker, a Firebase link other than this sign-in's is
-    /// dropped, and the device refresh tokens, `OAuth2` refresh tokens,
-    /// connector grants, MCP tokens and API keys issued so far are revoked. The caller
-    /// writes the user row. A first-party access JWT already minted runs to its
-    /// expiry, as after a password change; a connector's stops with its grant.
-    async fn retire_unproven_credentials(
-        &self,
-        user: &mut User,
-        identity: &FederatedIdentity<'_>,
-    ) -> AppResult<()> {
+    /// account never verified, the device refresh tokens, `OAuth2` refresh
+    /// tokens, connector grants, MCP tokens and API keys issued so far are
+    /// revoked here. The caller's link then replaces the password by the
+    /// federated-only marker and drops a Firebase link other than this
+    /// sign-in's, in its one write on the user row
+    /// ([`Self::attach_federated_user`]). A first-party access JWT already
+    /// minted runs to its expiry, as after a password change; a connector's
+    /// stops with its grant.
+    async fn retire_unproven_credentials(&self, user: &User) -> AppResult<()> {
         let repos = self.data.repos();
-        FEDERATED_ONLY_PASSWORD_HASH.clone_into(&mut user.password_hash);
-        user.firebase_uid = identity.firebase_uid.map(str::to_owned);
 
         let sessions = repos
             .session_refresh_tokens
@@ -433,7 +456,6 @@ impl AuthService {
             last_active: now,
             is_active: true,
             user_status,
-            is_admin: false,
             role: UserRole::User,
             approved_by,
             approved_at,
@@ -504,5 +526,96 @@ impl AuthService {
             expires_at: expires_at.to_rfc3339(),
             user: user_info,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use pierre_auth::admin::jwks::JwksManager;
+    use pierre_auth::auth::AuthManager;
+    use pierre_cache::{Cache, CacheConfig};
+    use pierre_config::environment::ServerConfig;
+    use pierre_core::models::UserStatus;
+    use pierre_database::backends::factory::Database;
+    use pierre_providers::ProviderRegistry;
+    use pierre_runtime_context::DataContext;
+    use pierre_test_support::db::create_test_db;
+    use pierre_test_support::server::create_test_user;
+
+    use super::*;
+
+    /// The service over `database`, with nothing wired that a link reads.
+    async fn service(database: Database) -> AuthService {
+        let repos = Arc::clone(database.repositories());
+        let cache = Cache::new(CacheConfig {
+            enable_background_cleanup: false,
+            ..CacheConfig::default()
+        })
+        .await
+        .unwrap();
+        AuthService::new(
+            Arc::new(AuthManager::new(24)),
+            Arc::new(JwksManager::new()),
+            Arc::new(ServerConfig::default()),
+            DataContext::new(
+                Arc::new(database),
+                repos,
+                Arc::new(cache),
+                Arc::new(ProviderRegistry::new()),
+            ),
+        )
+    }
+
+    /// The sign-in goes on with the account the link returns, not with the
+    /// one it read before linking: an admin who suspended the account in
+    /// between is not overruled by a sign-in that was already under way.
+    /// The store keeping the suspension is pinned elsewhere
+    /// (`federated_link_test`); this is the value handed back, which the
+    /// sign-in's suspension check reads (carnet#1589, test review).
+    #[tokio::test]
+    async fn the_account_a_link_returns_is_the_account_as_it_stands_now() {
+        let database = create_test_db().await.unwrap();
+        let repos = Arc::clone(database.repositories());
+        let service = service(database).await;
+        let account = create_test_user("linked@example.com", None);
+        repos.users.create(&account).await.unwrap();
+
+        let as_read = repos.users.get_global(account.id).await.unwrap().unwrap();
+        assert_eq!(as_read.user_status, UserStatus::Active);
+        repos
+            .users
+            .update_status(account.id, UserStatus::Suspended, None)
+            .await
+            .unwrap();
+
+        let identity = FederatedIdentity {
+            firebase_uid: Some("firebase-uid-of-the-link"),
+            google_subject: None,
+            email: account.email.clone(),
+            email_verified: true,
+            display_name: None,
+            provider: GOOGLE_PROVIDER,
+            signup_source: SignupSource::Firebase,
+            locale: None,
+        };
+        let linked = service
+            .attach_federated_user(as_read, &identity)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            linked.firebase_uid.as_deref(),
+            Some("firebase-uid-of-the-link"),
+            "the identity is linked"
+        );
+        assert_eq!(
+            linked.user_status,
+            UserStatus::Suspended,
+            "the account returned carries the suspension written since it was read"
+        );
+        AuthService::reject_if_suspended(&linked)
+            .expect_err("so the sign-in that goes on with it is refused");
     }
 }

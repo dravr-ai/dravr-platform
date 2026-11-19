@@ -16,6 +16,7 @@ import { i18n } from '@pierre/i18n';
 import ConversationItem from '../ConversationItem';
 import { Sheet } from '../../ui/Sheet';
 import { AVATAR_SLOT_CLASSES, avatarSlotClass } from '../avatarSlots';
+import { BADGE_TONE } from '../../ui/badgeTone';
 
 const NOW = new Date('2026-08-27T12:00:00');
 
@@ -160,6 +161,7 @@ describe('ConversationItem anatomy', () => {
     const badge = screen.getByTestId('conversation-channel-badge');
     expect(badge).toHaveTextContent('Telegram');
     expect(badge).toHaveAccessibleName('From Telegram');
+    expect(badge).toHaveClass('badge-primary');
   });
 
   it('prints the stored title as-is, and draws a room as a square and an agent as a circle', () => {
@@ -368,12 +370,13 @@ describe('avatar palette', () => {
   it('binds every slot to the hue the shared list names for it', () => {
     // Slot n must be the same hue on web and on the phone; both bind the
     // shared list, so each class pair carries the hue at its own index.
+    // The primary slot is the badge's accent tone (the primary container pair).
     AVATAR_SLOT_HUES.forEach((hue, slot) => {
-      expect(AVATAR_SLOT_CLASSES[slot]).toContain(`bg-${hue}`);
+      expect(AVATAR_SLOT_CLASSES[slot]).toMatch(new RegExp(`\\b(bg|badge)-${hue === 'primary' ? 'accent' : hue}\\b`));
     });
     // Pinned by value so a reorder of the shared list that both clients follow
     // still surfaces here as a deliberate test change.
-    expect(AVATAR_SLOT_CLASSES[1]).toBe('bg-activity/15 text-on-activity-container');
+    expect(AVATAR_SLOT_CLASSES[1]).toBe(BADGE_TONE.activity.tone);
     expect(AVATAR_SLOT_CLASSES[5]).toBe('bg-tertiary/15 text-tertiary');
   });
 

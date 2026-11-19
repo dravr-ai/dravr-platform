@@ -158,6 +158,8 @@ impl ChannelDelivery<'_> {
     /// Send the parts in order, stopping at the first failure. Returns whether
     /// every part went out.
     ///
+    /// LIMITATION(registre#1672): `send_parts` skips the 24-hour window check, and Meta reports 131047 asynchronously, so an out-of-window `WhatsApp` notice is accepted, then fails unqueued.
+    ///
     /// Path parity with the synchronous reply: a failed channel send (e.g. Meta
     /// `WhatsApp` error 131047, out-of-24h-window/template-required) is
     /// persisted + queued for the background retry worker, never silently

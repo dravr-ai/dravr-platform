@@ -92,6 +92,8 @@ describe('NotificationSettingsTab', () => {
     expect(screen.getByText('Coaching')).toBeTruthy();
     expect(screen.getByTestId('notification-pref-switch-training').getAttribute('aria-checked')).toBe('true');
     expect(screen.getByTestId('notification-pref-switch-coach').getAttribute('aria-checked')).toBe('false');
+    // The shared ui/Switch: a named switch, by role.
+    expect(screen.getByRole('switch', { name: 'Coaching notifications' })).toHaveAttribute('aria-checked', 'false');
   });
 
   // Turns red if the switch sends the wrong category, the pre-toggle value, or

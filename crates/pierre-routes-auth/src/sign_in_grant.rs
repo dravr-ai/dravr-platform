@@ -1,5 +1,5 @@
-// ABOUTME: What a completed account sign-in does to its pair's OAuth grant: replaces a dead one, then asks for the grant it still owes
-// ABOUTME: Garmin connects and reconnects by its hosted sign-in first, then its OAuth grant, which pushes workouts and writes the calendar
+// ABOUTME: What a completed account sign-in does to its pair's OAuth grant: replaces a dead one
+// ABOUTME: A sign-in ends at `connected`: it never sends the athlete on to the provider's own authorization
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,165 +7,34 @@
 //! A sign-in and its pair's grant (carnet#1494).
 //!
 //! A sign-in over a dead grant deletes the grant's rows and keeps its data
-//! ([`replace_dead_grant`], JF's directive 3). Then the follow-on
-//! authorization (JF's directive 8):
+//! ([`replace_dead_grant`], JF's directive 3).
 //!
-//! Garmin's account sign-in (`sciotte_garmin`) reads everything the athlete
-//! records, and only Garmin's own OAuth grant pushes workouts and writes the
-//! calendar (`backend_resolver::grant_writes_beside_mirror`). So a Garmin
-//! connect or reconnect signs in first and authorizes the grant right after.
-//! The one decision lives here, on the answer every sign-in client reads
-//! (`POST /api/providers/sciotte/{login,select-2fa,submit-otp}`): a
-//! `connected` answer carries `oauth_follow_on` while the grant is owed
-//! (`backend_resolver::grant_owed`) and Garmin's client has a seat for the
-//! athlete. The web and mobile sign-in and the hosted connect picker start
-//! that authorization their own way; the hosted sign-in a provider's own
-//! link opens holds no token that can start it, so its answer carries the
-//! authorization URL, minted here, returning to that page's success screen.
-//!
-//! Strava's grant writes nothing its session cannot, so a Strava sign-in is
-//! never followed by its OAuth.
+//! A completed sign-in answers `connected` and nothing more: the connect ends
+//! there, and no client is sent on to the provider's own authorization.
+//! Garmin's grant, which only workout push and calendar writes need, is asked
+//! for when such a write is refused for it
+//! (`backend_resolver::grant_owed_refusal`), with its authorization link.
 
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use pierre_core::models::TenantId;
-use pierre_middleware::provider_link_token::CONNECT_PROVIDER;
 use pierre_providers::backend_resolver;
-use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
-use serde::Serialize;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::card_seats::require_garmin_seat;
-use crate::oauth::require_oauth_start_notice;
-use crate::sciotte_caller::LinkContext;
 use crate::AuthRoutesContext;
 
-/// The authorization a completed sign-in is followed by.
-#[derive(Debug, Serialize)]
-pub(crate) struct OAuthFollowOn {
-    /// The provider whose OAuth to start (`garmin`).
-    pub(crate) provider: &'static str,
-    /// The authorization URL itself, for the hosted sign-in a provider's own
-    /// link opened, whose token cannot start an authorization, and for any
-    /// hosted sign-in a takeover concluded, whose page is gone. Absent for
-    /// every other client, which starts it its own way.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    authorization_url: Option<String>,
-}
-
-/// The `connected` answer to a sign-in of `backend`, with the authorization
-/// it is followed by ([`oauth_follow_on`]). `short_circuit` when a session
-/// stored moments ago answered it without a new login: a sign-in repeated
-/// after its grant's authorization was left unfinished still goes on to it.
-pub(crate) async fn connected_response(
-    resources: &AuthRoutesContext,
-    user_id: Uuid,
-    tenant_id: Uuid,
-    backend: &str,
-    link: Option<&LinkContext>,
-    short_circuit: bool,
-) -> Response {
-    let follow_on = oauth_follow_on(
-        resources,
-        user_id,
-        TenantId::from_uuid(tenant_id),
-        backend,
-        link,
-    )
-    .await;
-    if let Some(follow_on) = &follow_on {
-        info!(
-            user_id = %user_id,
-            backend,
-            grant = follow_on.provider,
-            "Sign-in completed; its grant's authorization follows"
-        );
-    }
+/// The `connected` answer to a sign-in of `backend`. `short_circuit` when a
+/// session stored moments ago answered it without a new login.
+pub(crate) fn connected_response(backend: &str, short_circuit: bool) -> Response {
     let mut answer = serde_json::json!({
         "status": "connected",
         "provider": backend,
-        "oauth_follow_on": follow_on,
     });
     if short_circuit {
         answer["short_circuit"] = serde_json::Value::Bool(true);
     }
     Json(answer).into_response()
-}
-
-/// The authorization a completed sign-in of `backend` is followed by: the
-/// pair's grant while it is owed for its writes and a seat is there for the
-/// athlete, else `None`. A grant with no seat left stays owed; the write it
-/// would carry is refused with its authorization link later. The hosted
-/// picker reads it too, for a connected card that still owes its grant.
-pub(crate) async fn oauth_follow_on(
-    resources: &AuthRoutesContext,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    backend: &str,
-    link: Option<&LinkContext>,
-) -> Option<OAuthFollowOn> {
-    let grant = backend_resolver::grant_owed(
-        &resources.repos,
-        &resources.provider_registry,
-        user_id,
-        tenant_id,
-        backend,
-    )
-    .await?;
-    require_garmin_seat(resources, user_id, tenant_id, grant)
-        .await
-        .ok()?;
-    let authorization_url = match link {
-        Some(link) if link.target != CONNECT_PROVIDER || link.on_takeover_page => {
-            mint_follow_on_url(resources, user_id, tenant_id, grant, link).await
-        }
-        _ => None,
-    };
-    Some(OAuthFollowOn {
-        provider: grant,
-        authorization_url,
-    })
-}
-
-/// The authorization URL of `grant`, returning to the hosted sign-in's success
-/// page for `link`'s channel, or `None` when its notice is outstanding or the
-/// URL cannot be minted.
-async fn mint_follow_on_url(
-    resources: &AuthRoutesContext,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    grant: &str,
-    link: &LinkContext,
-) -> Option<String> {
-    require_oauth_start_notice(resources, user_id, tenant_id, grant, false)
-        .await
-        .ok()?;
-    let success = format!(
-        "{}/providers/signin/success?channel={}&target={grant}",
-        resources.config.base_url.trim_end_matches('/'),
-        urlencoding::encode(&link.channel),
-    );
-    OAuthService::new(resources.data.clone(), resources.config.clone())
-        .get_auth_url(
-            user_id,
-            tenant_id,
-            grant,
-            AuthUrlOptions {
-                return_redirect: Some(&success),
-            },
-        )
-        .await
-        .inspect_err(|e| {
-            warn!(
-                user_id = %user_id,
-                grant,
-                error = %e,
-                "Sign-in completed; its grant's authorization URL could not be minted"
-            );
-        })
-        .ok()
-        .map(|authorization| authorization.authorization_url)
 }
 
 /// Delete the dead OAuth grant a sign-in of `backend` just replaced, keeping

@@ -20,10 +20,11 @@ use crate::services::originals::blob_store_when_unset;
 use crate::services::photograveur_client::PhotograveurClient;
 #[cfg(feature = "client-messaging")]
 use crate::services::platform_post::PlatformPost;
+#[cfg(feature = "client-notifications")]
+use crate::services::session_landed::SessionDigest;
+use crate::services::session_landed::SessionLandedRouter;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
-#[cfg(feature = "client-messaging")]
-use dravr_canot::commands::CommandDefinition;
 use pierre_auth::admin::jwks::{load_or_store_first_keypair, JwksManager};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
@@ -75,12 +76,8 @@ use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 #[cfg(feature = "client-notifications")]
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_providers::originals::OriginalsStore;
-use pierre_services::barrage_live_store::live_store;
 use pierre_services::provider_purge::ProviderPurgeService;
-
-/// One `setMyCommands` call: the entries, the scope and the `language_code` they are for.
-#[cfg(feature = "client-messaging")]
-type TelegramMenuList = (Vec<(String, String)>, CommandScope, Option<&'static str>);
+use pierre_services::{barrage_live_store::live_store, originals_bundle::OriginalsBundleService};
 
 #[cfg(feature = "client-messaging")]
 use dravr_canot::commands::CommandRegistry;
@@ -91,24 +88,22 @@ use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::dummy::DummyProvider;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppResult;
-#[cfg(feature = "client-messaging")]
-use pierre_core::models::SUPPORTED_LOCALES;
+use pierre_core::http_client::api_inner_client;
 use pierre_database::backends::factory::Database;
 #[cfg(feature = "client-notifications")]
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::backends::shared::key_material::KeyStoreQueue;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
+use pierre_fitness_compute::weather_clients::WeatherClients;
 #[cfg(feature = "tools-groups")]
 use pierre_groups::delegation::DelegationStore;
 #[cfg(feature = "tools-groups")]
 use pierre_groups::strategies::tier::tier_strategy_for;
 #[cfg(feature = "tools-groups")]
 use pierre_groups::AthleteBilling;
-use pierre_llm::config::LlmChain;
 use pierre_llm::health::LlmHealthState;
 use pierre_llm::ChatProvider;
-use pierre_llm::FunctionDeclaration;
 #[cfg(feature = "provider-sciotte")]
 use pierre_middleware::provider_link_token::NonceStore;
 use pierre_middleware::redaction::RedactionConfig;
@@ -119,13 +114,13 @@ use pierre_notifications::NotificationService;
 use pierre_providers::ai_scope;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{ProviderRateLimiter, FIFTEEN_MINUTES, ONE_DAY};
-use pierre_providers::sciotte_provider::startup_client;
+use pierre_providers::sciotte_provider::{startup_login_client, startup_reads};
 use pierre_services::api_key_cleanup::start_api_key_cleanup_task;
+#[cfg(feature = "client-messaging")]
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::coach_read_retention::start_coach_read_retention_task;
 #[cfg(feature = "health-sync")]
-use pierre_services::health_sync::PierreSyncStorage;
-#[cfg(feature = "client-messaging")]
-use pierre_services::messenger_persistent_menu::publish_messenger_menu;
+use pierre_services::health_sync::{PierreSyncStorage, WellnessOrigins};
 #[cfg(all(feature = "client-notifications", feature = "client-messaging"))]
 use pierre_services::notification_channel_sink::MessagingChannelSink;
 #[cfg(feature = "client-notifications")]
@@ -135,11 +130,6 @@ use pierre_services::persona_notification_policy_gate::PersonaNotificationPolicy
 use pierre_services::pricing_loader;
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::SyncFailureNotices;
-#[cfg(feature = "client-messaging")]
-use pierre_services::telegram_bot_commands::{
-    publish_telegram_commands, publish_telegram_descriptions, telegram_description_calls,
-    CommandScope, PERSONAL_MARKER,
-};
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_services::usage_pruning::start_usage_pruning_task;
 #[cfg(feature = "transport-sse")]
@@ -236,10 +226,12 @@ impl ServerContext {
         let blobs = options
             .blobs
             .unwrap_or_else(|| blob_store_when_unset(&config.database.url));
-        // One live store over the same blob store, and the one purge over it
-        // every disconnect takes.
-        let live_activities = live_store(options.live_records, blobs.clone().ok(), &repos);
+        // One record store (imports write it, the export reads it), one live
+        // store over it and the blob store, and the one purge every disconnect takes.
+        let activity_records = archive_imports.record_store(options.live_records)?;
+        let live_activities = live_store(Arc::clone(&activity_records), blobs.clone().ok(), &repos);
         let provider_purge = ProviderPurgeService::shared(&repos, Arc::clone(&live_activities));
+        let originals_bundles = OriginalsBundleService::over(&activity_records, &blobs, &repos);
         let originals = Arc::new(OriginalsStore::new(
             blobs,
             Arc::clone(&repos.uploaded_activity_files),
@@ -249,15 +241,20 @@ impl ServerContext {
 
         // Create the provider registry once, over the deployment's endpoint
         // overrides, admitting every provider call against the signing app's
-        // budget, and holding the server's one sciotte client every scraper
-        // call shares
+        // budget, and holding the server's sciotte clients: the read services
+        // (a session's calls on the one its id picks) and the sign-in client
+        // every step of a sign-in shares (carnet#1504)
         let sciotte = &config.external_services.sciotte;
         let provider_registry = Arc::new(
             ProviderRegistry::new()
                 .with_endpoint_overrides(&config.oauth.endpoints)
                 .with_request_limiter(Self::create_provider_rate_limiter(&config, &repos))
-                .with_sciotte_client(startup_client(
-                    sciotte.remote_url.as_deref(),
+                .with_sciotte_reads(startup_reads(
+                    &sciotte.read_urls,
+                    sciotte.audience.as_deref(),
+                ))
+                .with_sciotte_login_client(startup_login_client(
+                    sciotte.login_url.as_deref(),
                     sciotte.audience.as_deref(),
                 )),
         );
@@ -407,7 +404,7 @@ impl ServerContext {
 
         // Load messaging slash commands + handlers (see `build_command_registries`).
         #[cfg(feature = "client-messaging")]
-        let (command_registry, command_handler_registry, command_arg_specs, personal) =
+        let (command_registry, command_handler_registry, command_arg_specs, personal_commands) =
             Self::build_command_registries();
 
         // Initialize contremaitre registries (prompts + tool descriptions +
@@ -423,88 +420,6 @@ impl ServerContext {
             messaging_strings: contremaitre_messaging_strings_registry,
             training_catalogue: contremaitre_training_catalogue_registry,
         } = init_contremaitre_registries(&cageux_config_registry, &persona_contract_registry);
-
-        // Push that same catalogue to Telegram's `/` menu, per locale and as
-        // two lists each: the default scope every chat falls back to, and a
-        // group list carrying the SAME commands with the personal ones
-        // marked, so a shared room can tell which entries act on one member
-        // alone without losing the ability to discover them. Descriptions
-        // come from the five-locale strings registry, so the menu reads in
-        // the athlete's language; a list with no `language_code` is the
-        // fallback for a locale the registry does not speak. Detached because
-        // a slow or unreachable Telegram API must not stall the bind path;
-        // the publisher no-ops when TELEGRAM_BOT_TOKEN is unset.
-        #[cfg(feature = "client-messaging")]
-        if let Some(registry) = command_registry.as_ref() {
-            let strings = Arc::clone(&contremaitre_messaging_strings_registry);
-            let mut lists: Vec<TelegramMenuList> = Vec::new();
-            // The `/` menu is published in every locale the platform speaks —
-            // the one list, not a copy of it.
-            for locale in SUPPORTED_LOCALES {
-                let describe = |d: &CommandDefinition| {
-                    strings.command_description(&d.name, &d.description, locale)
-                };
-                let all_commands = registry.bot_command_list_described(describe);
-                let group_commands = registry.bot_command_list_described(|d| {
-                    if personal.contains(&d.name) {
-                        format!("{PERSONAL_MARKER}{}", describe(d))
-                    } else {
-                        describe(d)
-                    }
-                });
-                lists.push((all_commands, CommandScope::Default, Some(locale)));
-                lists.push((group_commands, CommandScope::AllGroupChats, Some(locale)));
-            }
-            // The frontmatter's own English line is the fallback list.
-            lists.push((registry.bot_command_list(), CommandScope::Default, None));
-            lists.push((
-                registry.bot_command_list_described(|d| {
-                    if personal.contains(&d.name) {
-                        format!("{PERSONAL_MARKER}{}", d.description)
-                    } else {
-                        d.description.clone()
-                    }
-                }),
-                CommandScope::AllGroupChats,
-                None,
-            ));
-            // Messenger's menu is the plain DM list in the frontmatter's language.
-            let messenger_commands = registry.bot_command_list();
-            // The bot's description — the empty chat's text and the profile's
-            // one-line pitch — in the same languages as the menu (carnet#829).
-            let descriptions = telegram_description_calls(&strings, &SUPPORTED_LOCALES);
-            let publish = tokio::spawn(async move {
-                for (commands, scope, language_code) in &lists {
-                    publish_telegram_commands(commands, *scope, *language_code).await;
-                }
-                publish_telegram_descriptions(&descriptions).await;
-                // Messenger has no group thread, so its menu is the DM list —
-                // the same one, unmarked.
-                // `publish_messenger_menu` and `publish_telegram_commands` are
-                // the only always-on menu publishers, by decision: elsewhere
-                // `/help` is the menu. WhatsApp has no persistent-menu API; Slack's
-                // only programmatic path replaces the whole app config
-                // app-globally behind a 12h human-bootstrapped token, and its
-                // slash commands cannot be invoked in threads, where the
-                // agent conversation lives. Discord has a bulk-register
-                // endpoint (`PUT /applications/{app_id}/commands`), but a
-                // registered name moves `/name` off the Gateway text path it
-                // arrives on today and onto the Interactions webhook, which
-                // cannot serve it: dravr-canot keeps an APPLICATION_COMMAND's
-                // first option value and drops `data.name`, and the webhook
-                // answers `{"status":"ok"}` where Discord requires an
-                // interaction response. Publishing a menu there would turn
-                // working typed commands into failed ones.
-                publish_messenger_menu(&messenger_commands).await;
-            });
-            // A panic in a detached task is otherwise swallowed, leaving a
-            // stale menu with nothing in the logs to explain it.
-            tokio::spawn(async move {
-                if let Err(e) = publish.await {
-                    warn!(error = %e, "Telegram command-menu publish task failed");
-                }
-            });
-        }
 
         // Create and populate tool registry with all built-in tools. Any
         // `extra_tools` supplied via `ServerContextOptions` (used by
@@ -537,6 +452,12 @@ impl ServerContext {
         // notification service, which spawns every trigger dispatch onto it.
         let turns = Arc::new(InFlightTurns::new());
 
+        // The one adapter factory of this context (carnet#1600), named by
+        // whoever built it and never defaulted here. Taken ahead of the
+        // notification service because its messaging sink sends through it.
+        #[cfg(feature = "client-messaging")]
+        let channel_adapters: Arc<dyn ChannelAdapterFactory> = options.channel_adapters;
+
         // Create notification service and start scheduler if notifications
         // feature is enabled. Built after the contremaitre registries because
         // the messaging sink renders notification bodies through the localized
@@ -548,6 +469,8 @@ impl ServerContext {
             &contremaitre_messaging_strings_registry,
             &persona_contract_registry,
             &turns,
+            #[cfg(feature = "client-messaging")]
+            &channel_adapters,
         ));
 
         // Start the background notification scheduler if service is available.
@@ -609,6 +532,8 @@ impl ServerContext {
                 .unwrap_or_else(|| Arc::new(TurnRunner::InProcess)),
             archive_imports,
             live_activities,
+            activity_records,
+            originals_bundles,
             provider_purge,
             originals,
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
@@ -635,6 +560,8 @@ impl ServerContext {
             command_handler_registry,
             #[cfg(feature = "client-messaging")]
             command_arg_specs,
+            #[cfg(feature = "client-messaging")]
+            personal_commands,
         };
 
         let auth = super::slices::AuthSlice {
@@ -663,6 +590,9 @@ impl ServerContext {
 
         let fitness = super::slices::FitnessSlice {
             provider_registry,
+            weather: Arc::new(WeatherClients::new(
+                common.config.fitness.weather_api.as_ref(),
+            )),
             #[cfg(feature = "health-sync")]
             sync_orchestrator: Some(sync_orchestrator),
             #[cfg(feature = "health-sync")]
@@ -710,11 +640,25 @@ impl ServerContext {
             platform_post.clone(),
             admin_jwt_secret.into(),
             base_url,
+            Arc::clone(&channel_adapters),
             // The in-app arm's ping. Cloned from the already-assembled common
             // slice, the same handle the commitment sweep is given.
             #[cfg(feature = "client-notifications")]
             common.notification_service.clone(),
         ));
+
+        // Where a live write's landing goes. Built here, in every build and
+        // every test resource, so a landing always reaches the per-session
+        // digest; the landing post is layered on post-`Arc` by
+        // `install_activity_landed`.
+        #[cfg(feature = "client-notifications")]
+        let session_landed = Arc::new(SessionLandedRouter::with_digest(SessionDigest {
+            repos: common.repos.clone(),
+            notifications: common.notification_service.clone(),
+            strings: contremaitre_messaging_strings_registry.clone(),
+        }));
+        #[cfg(not(feature = "client-notifications"))]
+        let session_landed = Arc::new(SessionLandedRouter::default());
 
         let mcp = super::slices::McpSlice {
             tool_registry,
@@ -727,9 +671,15 @@ impl ServerContext {
             #[cfg(feature = "client-messaging")]
             backfill_notifier,
             #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
-            group_chat_poster: ServerGroupChatPoster::from_repos(common.repos.clone()),
+            group_chat_poster: ServerGroupChatPoster::from_repos(
+                common.repos.clone(),
+                Arc::clone(&channel_adapters),
+            ),
+            #[cfg(feature = "client-messaging")]
+            channel_adapters,
             #[cfg(feature = "client-messaging")]
             platform_post,
+            session_landed,
             // The coach's first post, installed post-`Arc` the same way.
             #[cfg(feature = "protocol-rest")]
             first_sync: Arc::new(OnceLock::new()),
@@ -765,7 +715,11 @@ impl ServerContext {
             }
             return None;
         };
-        ResendEmailService::new(api_key.to_owned(), from_email.to_owned())
+        ResendEmailService::try_new(
+            api_inner_client().clone(),
+            api_key.to_owned(),
+            from_email.to_owned(),
+        )
             .inspect(|_| info!("Resend email service configured"))
             .inspect_err(|e| {
                 warn!(error = %e, "Resend email service not built — transactional email will be skipped");
@@ -889,6 +843,7 @@ impl ServerContext {
         messaging_strings: &Arc<MessagingStringsRegistry>,
         persona_contracts: &Arc<PersonaContractRegistry>,
         turns: &InFlightTurns,
+        #[cfg(feature = "client-messaging")] channel_adapters: &Arc<dyn ChannelAdapterFactory>,
     ) -> Arc<NotificationService> {
         let service = match database.backend() {
             DatabaseBackend::SQLite(db) => {
@@ -903,6 +858,7 @@ impl ServerContext {
         let service = service.with_channel_sink(Arc::new(MessagingChannelSink::new(
             Arc::clone(repos),
             Arc::clone(messaging_strings),
+            Arc::clone(channel_adapters),
         )));
         let service = service.with_policy_gate(Arc::new(PersonaNotificationPolicyGate::new(
             Arc::clone(repos),
@@ -982,18 +938,23 @@ impl ServerContext {
         use pierre_services::provider_refresh::start_scheduled_sync;
 
         use pierre_services::provider_refresh::SyncNotifier;
+        // The wellness readers ask Intervals.icu and WHOOP at the API the
+        // provider registry names for each, as the activity and link calls
+        // do. A build that registers no provider for one of them reads none
+        // of its wellness.
         let adapter = Arc::new(PierreSyncStorage::new(repos));
         let orchestrator = adapter
-            .build_orchestrator(provider_registry.sciotte_client().cloned())
+            .build_orchestrator(
+                provider_registry.sciotte_reads().cloned(),
+                WellnessOrigins::named_by(provider_registry),
+            )
             .map_err(|e| {
                 AppError::internal(format!("health sync providers could not be built: {e}"))
             })?;
         let notifier: Arc<dyn SyncNotifier> = Arc::<SseManager>::clone(sse_manager);
-        let auth_repos = repos.auth_repos();
         let abort_handle = start_scheduled_sync(
             Arc::clone(&orchestrator),
             Arc::clone(&adapter),
-            &auth_repos,
             notifier,
             notices,
         );
@@ -1008,114 +969,6 @@ impl ServerContext {
         let mut registry = ToolRegistry::new();
         register_builtin_tools(&mut registry);
         registry
-    }
-
-    /// Log the chat tool catalogue's wire size once per boot, and have
-    /// Anthropic count it off the boot path (carnet#1196).
-    ///
-    /// Two surfaces: the athlete's own turn, which sends every chat-callable
-    /// tool — and, with the rest deferred, holds only the loaded core in
-    /// context — and the coach's seat, which withholds the coach's own data
-    /// tools.
-    /// The contremaitre overlay has not synced yet at this point, so this is
-    /// the compiled-in text; every turn's dispatch line carries the size and
-    /// digest it actually sent.
-    fn report_tool_catalogue_size(registry: &ToolRegistry, chain: &LlmChain) {
-        use pierre_tool_runtime::chat_catalogue::{
-            build_mcp_tools, defer_beyond_core, measure_catalogue,
-        };
-        use pierre_tool_runtime::coach_seat::TurnSeat;
-
-        /// How many of the largest tools the line names
-        const LARGEST_LOGGED: usize = 20;
-
-        let mut tools = build_mcp_tools(registry);
-        let chat = measure_catalogue(&tools);
-        // What a turn holds in context when the rest is deferred, on a
-        // provider with tool search (carnet#406).
-        let mut deferred = tools.clone();
-        defer_beyond_core(&mut deferred);
-        let loaded = measure_catalogue(&deferred);
-        // The detached count owns its copy: the coach-seat filter below
-        // narrows `tools` in place.
-        Self::spawn_tool_catalogue_token_count(
-            chain.anthropic_models(),
-            tools.function_declarations.clone(),
-            chat.bytes,
-        );
-        tools
-            .function_declarations
-            .retain(|decl| !TurnSeat::Coach.withholds(registry, &decl.name));
-        // LIMITATION(registre#1208): `coach_seat` sizes `TurnSeat::Coach`
-        // (a group's room) only; `TurnSeat::AthleteThread` is sized per turn
-        // by the dispatch line, never here.
-        let coach_seat = measure_catalogue(&tools);
-        info!(
-            event_type = "tool_catalogue_size",
-            tool_count = chat.tool_count,
-            bytes = chat.bytes,
-            estimated_tokens = chat.estimated_tokens,
-            digest = %chat.digest,
-            loaded_tool_count = loaded.tool_count - loaded.deferred_count,
-            loaded_bytes = loaded.loaded_bytes,
-            loaded_estimated_tokens = loaded.loaded_estimated_tokens,
-            coach_seat_tool_count = coach_seat.tool_count,
-            coach_seat_bytes = coach_seat.bytes,
-            coach_seat_estimated_tokens = coach_seat.estimated_tokens,
-            largest = %chat.largest(LARGEST_LOGGED),
-            "Chat tool catalogue size at startup"
-        );
-    }
-
-    /// Count the chat catalogue on every model the chain runs on the Anthropic
-    /// API, in a detached task (carnet#1196).
-    ///
-    /// `count_tokens` is free and rate-limited apart from Messages. It counts
-    /// the same compiled-in set `tool_catalogue_size` sized, so `bytes_per_token`
-    /// converts any turn's `tools_bytes` on that model. A chain without the
-    /// Anthropic API counts nothing, and a refused count is a warning, never a
-    /// failed boot.
-    fn spawn_tool_catalogue_token_count(
-        models: Vec<String>,
-        tools: Vec<FunctionDeclaration>,
-        bytes: usize,
-    ) {
-        use pierre_llm::http_env;
-
-        if models.is_empty() {
-            return;
-        }
-        let count = tokio::spawn(async move {
-            for model in models {
-                match http_env::anthropic_tool_tokens(&model, &tools).await {
-                    Ok(tokens) => {
-                        // Byte and token counts sit far below 2^52.
-                        #[allow(clippy::cast_precision_loss)]
-                        let bytes_per_token = bytes as f64 / f64::from(tokens.max(1));
-                        info!(
-                            event_type = "tool_catalogue_tokens",
-                            model = %model,
-                            tokens,
-                            bytes,
-                            bytes_per_token,
-                            "Chat tool catalogue counted by Anthropic"
-                        );
-                    }
-                    Err(error) => warn!(
-                        model = %model,
-                        error = %error,
-                        "Chat tool catalogue token count failed"
-                    ),
-                }
-            }
-        });
-        // A panic in a detached task is otherwise swallowed, leaving the
-        // token line missing with nothing in the logs to explain it.
-        tokio::spawn(async move {
-            if let Err(e) = count.await {
-                warn!(error = %e, "Chat tool catalogue token count task failed");
-            }
-        });
     }
 
     /// Sync tool catalog table with the live tool registry at startup.

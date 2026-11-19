@@ -25,7 +25,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
-use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
+use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use futures_util::stream;
 use pierre_chat_pipeline::stages::prompt_builder::build_llm_messages;
@@ -76,15 +76,11 @@ struct StubTool;
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for StubTool {
     fn definition(&self) -> Tool {
-        Tool {
-            name: STUB_TOOL_NAME.to_owned(),
-            description: "Turn-stop stub tool — returns canned data so a tool round completes."
-                .to_owned(),
-            input_schema: json!({"type": "object"}),
-            annotations: None,
-            output_schema: None,
-            execution: None,
-        }
+        Tool::new(
+            STUB_TOOL_NAME,
+            "Turn-stop stub tool — returns canned data so a tool round completes.",
+            json!({"type": "object"}),
+        )
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -98,11 +94,7 @@ impl McpTool<dyn ToolRuntime> for StubTool {
         _args: Value,
     ) -> ToolResponse {
         let payload = json!({"watts": 212});
-        ToolResponse {
-            content: vec![Content::text(payload.to_string())],
-            is_error: false,
-            structured_content: Some(payload),
-        }
+        ToolResponse::text(payload.to_string()).with_structured_content(payload)
     }
 }
 
@@ -142,6 +134,7 @@ impl LlmProvider for ToolRoundThenHangProvider {
             return Err(AppError::internal("the second call must never answer"));
         }
         Ok(ChatResponse {
+            replay_blocks: None,
             // The sentence ahead of the block is what survives the recorder's
             // scaffolding strip, so the round leaves a `tool_call` row behind
             // the question — a round of pure scaffolding stores nothing.

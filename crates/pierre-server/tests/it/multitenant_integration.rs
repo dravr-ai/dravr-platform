@@ -333,7 +333,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -346,6 +346,8 @@ async fn test_multitenant_auth_flow() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -396,7 +398,6 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -835,7 +836,7 @@ async fn test_input_validation() -> Result<()> {
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -848,6 +849,8 @@ async fn test_input_validation() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await

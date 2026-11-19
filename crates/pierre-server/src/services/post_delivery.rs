@@ -19,14 +19,18 @@
 //!   Messenger). A DM whose window is closed is *held*: no turn runs for it,
 //!   and the caller says so.
 //!
+//! A post owed one destination — the check-in, the landing reaction — takes
+//! the open DM, else the app's thread ([`post_to_one`]).
+//!
 //! Each destination is its own turn, laid out for its surface and stored in
 //! its own conversation, so a reply in either thread reads the post as
 //! history. A DM that writes into the personal thread (carnet#840) is one
 //! destination, not two: the post made there is the one the app shows.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
+use chrono_tz::Tz;
 use pierre_core::models::messaging::ChannelType;
-use pierre_core::models::TenantId;
+use pierre_core::models::{PostPurpose, TenantId};
 use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
 use pierre_services::messaging_broadcast::resolve_linked_targets;
 use pierre_services::personal_thread::{
@@ -44,6 +48,17 @@ use crate::services::messaging_ingress::block_render::render_reply;
 use crate::services::messaging_ingress::fresh_title_fallback;
 use crate::services::messaging_ingress::surface::messaging_render_profile;
 use crate::services::platform_post::{PlatformPost, PlatformPostRequest, PostSurface};
+
+/// How long an unposted, unreleased once-claim is a post under way.
+///
+/// Past it, the instance holding the claim is presumed gone and the next
+/// trigger retakes it: a post is a turn or two, minutes at the very most, so
+/// an athlete still hears from the coach within the quarter hour.
+pub(crate) const POST_CLAIM_LEASE: Duration = Duration::minutes(15);
+
+/// Why a post on a DM whose window closed was not sent there, as
+/// `messaging.proactive_held` reports it.
+const HELD_WINDOW_CLOSED: &str = "window_closed";
 
 /// The athlete a post is for.
 #[derive(Debug, Clone, Copy)]
@@ -71,6 +86,11 @@ pub(crate) struct OpenDm {
 }
 
 impl OpenDm {
+    /// The Pierre conversation the DM's turns are stored in.
+    pub(crate) fn conversation_id(&self) -> &str {
+        &self.conversation_id
+    }
+
     /// Whether the DM writes into the athlete's personal thread (carnet#840),
     /// so a post made there is the in-app post as well: the app shows that
     /// thread, and a second post into it would say the same thing twice.
@@ -337,4 +357,110 @@ pub(crate) async fn linked_dms(
         open: open.into_iter().max_by_key(|dm| dm.last_inbound),
         held,
     }
+}
+
+/// Post into the one destination a post owed once gets: the DM the athlete
+/// last wrote from while its window is open, otherwise their in-app thread. A
+/// DM whose window closed is reported held for `purpose` and gets no turn.
+///
+/// Answers the destination and whether the reply was stored, or `None` when
+/// nothing could be attempted anywhere.
+pub(crate) async fn post_to_one(
+    resources: &ServerContext,
+    post: &dyn PlatformPost,
+    resolver: &dyn AdapterResolver,
+    athlete: PostAthlete,
+    dms: LinkedDms,
+    prompt: &(dyn Fn(&str) -> Option<String> + Sync),
+    purpose: PostPurpose,
+) -> Option<(PostSurface, bool)> {
+    if let Some(dm) = dms.open {
+        let surface = PostSurface::Channel(dm.channel_type);
+        if let Some(posted) = post_to_dm(resources, post, resolver, athlete, dm, prompt).await {
+            return Some((surface, posted));
+        }
+        // No instruction in the DM's language: the app's thread, in the
+        // athlete's own, is still a destination.
+    } else {
+        for channel in &dms.held {
+            report_held(athlete.tenant_id, *channel, purpose);
+        }
+    }
+    post_in_app(resources, post, athlete, prompt)
+        .await
+        .map(|posted| (PostSurface::InApp, posted))
+}
+
+/// Report a DM whose window had closed, so the post for `purpose` was not
+/// sent there.
+fn report_held(tenant_id: TenantId, channel: ChannelType, purpose: PostPurpose) {
+    info!(
+        target: "notify",
+        event = "messaging.proactive_held",
+        tenant_id = %tenant_id,
+        channel = %channel,
+        purpose = purpose.as_str(),
+        reason = HELD_WINDOW_CLOSED,
+        "proactive post held"
+    );
+}
+
+/// Whether the athlete's quiet hours for coach notifications cover `now`:
+/// the rule that holds a push holds a check-in and a landing post alike.
+///
+/// Read on the clock the preference names, else the athlete's own zone. An
+/// athlete with no such preference, or an unreadable one, has none.
+#[cfg(feature = "client-notifications")]
+pub(crate) async fn coach_quiet_hours(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    now: DateTime<Utc>,
+    zone: Tz,
+) -> bool {
+    use pierre_core::models::check_in::within_quiet_hours;
+    use pierre_notifications::models::NotificationCategory;
+    use pierre_notifications::TenantId as CommTenantId;
+
+    let Some(service) = resources.common.notification_service.as_ref() else {
+        return false;
+    };
+    let preferences = match service
+        .get_notification_preferences(user_id, CommTenantId(tenant_id.as_uuid()))
+        .await
+    {
+        Ok(preferences) => preferences,
+        Err(e) => {
+            warn!(error = %e, "Platform post: notification preferences unreadable; no quiet hours applied");
+            return false;
+        }
+    };
+    let Some(coach) = preferences
+        .iter()
+        .find(|preference| preference.category == NotificationCategory::Coach)
+    else {
+        return false;
+    };
+    let (Some(start), Some(end)) = (coach.quiet_hours_start, coach.quiet_hours_end) else {
+        return false;
+    };
+    let clock = coach
+        .timezone
+        .as_deref()
+        .and_then(|name| name.parse::<Tz>().ok())
+        .unwrap_or(zone);
+    within_quiet_hours(start, end, now.with_timezone(&clock).time())
+}
+
+/// Notification preferences are compiled out of this build, so no quiet
+/// hours are on record to hold a post.
+#[cfg(not(feature = "client-notifications"))]
+pub(crate) async fn coach_quiet_hours(
+    _resources: &ServerContext,
+    _user_id: Uuid,
+    _tenant_id: TenantId,
+    _now: DateTime<Utc>,
+    _zone: Tz,
+) -> bool {
+    false
 }

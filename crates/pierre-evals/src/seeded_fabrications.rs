@@ -196,6 +196,7 @@ impl SyntheticAthlete {
             activities,
             today: self.today,
             locale: self.locale.clone(),
+            named_subsets: Vec::new(),
             history,
         })
     }

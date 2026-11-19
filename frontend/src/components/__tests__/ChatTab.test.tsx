@@ -17,7 +17,6 @@ import type {
 } from '@pierre/shared-types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ChatTab from '../ChatTab';
-import type { PendingComposerAction } from '../chat/types';
 import { ToastProvider } from '../ui';
 
 const CONVERSATION_ID = 'conv-1';
@@ -110,7 +109,6 @@ function renderChatTab(
   props: {
     onNavigate?: (route: string) => void;
     onSelectConversation?: (id: string | null) => void;
-    pendingComposerAction?: PendingComposerAction | null;
     openInfoFor?: string | null;
     onOpenInfoConsumed?: () => void;
   } = {},
@@ -121,8 +119,7 @@ function renderChatTab(
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <ComposerActionHost
-          initial={props.pendingComposerAction ?? null}
+        <InfoRequestHost
           initialInfoFor={props.openInfoFor ?? null}
           onOpenInfoConsumed={props.onOpenInfoConsumed}
           onSelectConversation={props.onSelectConversation ?? vi.fn()}
@@ -134,17 +131,15 @@ function renderChatTab(
 }
 
 /**
- * Holds a composer action and a request to open a thread's info, and clears
- * each once consumed, as the app's hosts do.
+ * Holds a request to open a thread's info, and clears it once consumed, as the
+ * dashboard does.
  */
-function ComposerActionHost(props: {
-  initial: PendingComposerAction | null;
+function InfoRequestHost(props: {
   initialInfoFor: string | null;
   onOpenInfoConsumed?: () => void;
   onSelectConversation: (id: string | null) => void;
   onNavigate?: (route: string) => void;
 }) {
-  const [action, setAction] = useState<PendingComposerAction | null>(props.initial);
   const [infoFor, setInfoFor] = useState<string | null>(props.initialInfoFor);
   return (
     <ChatTab
@@ -156,8 +151,6 @@ function ComposerActionHost(props: {
         setInfoFor(null);
         props.onOpenInfoConsumed?.();
       }}
-      pendingComposerAction={action}
-      onPendingComposerActionConsumed={() => setAction(null)}
     />
   );
 }
@@ -974,44 +967,6 @@ describe('ChatTab message origin', () => {
 
     await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
     expect(sendTurn.mock.calls[0][2].origin).toBeUndefined();
-  });
-
-  it('reports a draft the athlete sends as a draft', async () => {
-    renderChatTab({
-      pendingComposerAction: { kind: 'draft', text: 'Suggest a route for today' },
-    });
-    const user = userEvent.setup();
-    const input = await screen.findByPlaceholderText('Message Dravr...');
-    await waitFor(() => expect(input).toHaveValue('Suggest a route for today'));
-    await user.type(input, ' near the river');
-    await user.click(screen.getByRole('button', { name: 'Send message' }));
-
-    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
-    expect(sendTurn.mock.calls[0][1]).toBe('Suggest a route for today near the river');
-    expect(sendTurn.mock.calls[0][2].origin).toBe('draft');
-  });
-
-  it('forgets a draft the athlete erased and retyped', async () => {
-    renderChatTab({ pendingComposerAction: { kind: 'draft', text: 'Draft' } });
-    const user = userEvent.setup();
-    const input = await screen.findByPlaceholderText('Message Dravr...');
-    await waitFor(() => expect(input).toHaveValue('Draft'));
-    await user.clear(input);
-    await user.type(input, 'My own words');
-    await user.click(screen.getByRole('button', { name: 'Send message' }));
-
-    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
-    expect(sendTurn.mock.calls[0][2].origin).toBeUndefined();
-  });
-
-  it('passes a chip send on as a chip', async () => {
-    renderChatTab({
-      pendingComposerAction: { kind: 'send', text: 'How was my pacing?', origin: 'chip' },
-    });
-
-    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
-    expect(sendTurn.mock.calls[0][1]).toBe('How was my pacing?');
-    expect(sendTurn.mock.calls[0][2].origin).toBe('chip');
   });
 });
 

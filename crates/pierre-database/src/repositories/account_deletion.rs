@@ -10,16 +10,34 @@
 //! owes a deleted account in ONE transaction, after the caller has withdrawn
 //! the grants upstream (network calls never run inside it):
 //!
-//! 1. it reads, before anything is deleted, the account's email and every
-//!    provider-side id its tokens hold;
+//! 1. it refuses the last admin in good standing, under the lock every write
+//!    that removes an admin takes, so two of them cannot each count the
+//!    other's admin as the one left; then it reads, before anything is
+//!    deleted, the account's email and every provider-side id its tokens
+//!    hold;
 //! 2. it deletes every row each planned provider backend contributed, with
 //!    the same statements a disconnect's purge runs, without the purge's
 //!    attestation row (that row names the user, and would be deleted with
 //!    the account in this same transaction: the receipt records the counts
 //!    instead);
-//! 3. it clears the account itself (`clear_user_in_transaction`),
-//!    re-reading every purged table and refusing to commit while a row
-//!    survives;
+//! 3. it retires the device logins the account approved as an admin
+//!    (`RETIRE_DEVICE_LOGINS_SQL`): each row is kept, inactive, under a name
+//!    that names no one and an operator that is no account, so its request
+//!    log and its record of the keys it provisioned stay while a deleted
+//!    admin's tokens end in this transaction and never after it. The log
+//!    keeps each request's action, target and time; the IP address and
+//!    user agent it came from are set `NULL` next, under the logins the
+//!    retirement named (`SCRUB_DEVICE_LOGIN_REQUESTS_SQL`). Retiring first
+//!    is what closes the log against a request in flight: a log write
+//!    waits for a retirement it meets and then records no caller, and one
+//!    that got in before it is committed where the scrub finds it
+//!    (`AdminRepository::record_token_usage`). A token
+//!    that carries the id only in its name has the id rewritten out of it
+//!    (`SCRUB_TOKEN_NAME_SQL`). Then it clears the account itself
+//!    (`clear_user_in_transaction`), re-reading every purged table, and the
+//!    two it kept those rows in, and refusing to commit while a row
+//!    survives: no `admin_tokens` or `admin_provisioned_keys` row names a
+//!    deleted account;
 //! 4. it makes sure a live tombstone names each provider-side id and the
 //!    email ([`super::import_tombstones`]);
 //! 5. it appends a [`DeletionReceipt`] chained to the previous one.
@@ -43,7 +61,7 @@
 //!
 //! ISOLATION EXEMPTION: `deletion_receipts` carries neither `tenant_id` nor
 //! `user_id`: it outlives the account and must not point at it, and an
-//! account deletion spans every tenant. It is read only by the super-admin
+//! account deletion spans every tenant. It is read only by the admin
 //! route an operator verifies the chain through.
 
 use std::collections::BTreeMap;
@@ -287,6 +305,11 @@ pub struct AccountDeletion {
     pub receipt: DeletionReceipt,
     /// The live tombstones the deletion left (written, or already live).
     pub tombstone_ids: Vec<String>,
+    /// The device logins the account approved as an admin that were still
+    /// live, by token id. Their rows stay, retired with the ones already
+    /// withdrawn and naming no account, so `rows_removed` counts none of
+    /// them.
+    pub device_logins_revoked: Vec<String>,
 }
 
 impl AccountDeletion {
@@ -304,7 +327,8 @@ pub trait AccountDeletionRepository: Send + Sync {
     /// documentation describes.
     ///
     /// # Errors
-    /// Returns a not-found error for an unknown account, the conflict a row
+    /// Returns `invalid_input` for the last active admin, a not-found error
+    /// for an unknown account, the conflict a row
     /// still referencing the account raises (`ErrorCode::ResourceLocked`),
     /// an internal error when a purged table still holds a row for it, and a
     /// database error for any other failure, including a receipt racing
@@ -423,13 +447,17 @@ pub fn json_list(items: &[String]) -> AppResult<String> {
 }
 
 /// Emit the whole [`AccountDeletionRepository`] implementation for one
-/// backend type: `$ids` is its uuid codec and `$purge` its `UserPurge`. The
+/// backend type: `$ids` is its uuid codec, `$purge` its `UserPurge` and
+/// `$begin` the statement the deletion's transaction opens with, the one the
+/// backend's other admin-removing writes use (see `impl_user_repository!`).
+/// The backend's `refuse_removing_the_last_active_admin` comes from that
+/// macro's expansion on the same type. The
 /// invoking shell must `use` every statement and helper named here, the user
 /// clear's own (see `clear_user_in_transaction`), the tombstone ones
-/// (`ensure_tombstone_in_transaction`), the provider purge statements and
-/// `TransactionGuard`.
+/// (`ensure_tombstone_in_transaction`), the provider purge statements, the
+/// device-login statements and names, and `TransactionGuard`.
 macro_rules! impl_account_deletion_repository {
-    ($ty:ty, $ids:ident, $purge:ident) => {
+    ($ty:ty, $ids:ident, $purge:ident, $begin:literal) => {
         #[async_trait::async_trait]
         impl AccountDeletionRepository for $ty {
             async fn delete_account(
@@ -438,10 +466,12 @@ macro_rules! impl_account_deletion_repository {
             ) -> AppResult<AccountDeletion> {
                 let user_id = plan.user_id;
                 let owner = user_id.to_string();
-                let tx = self.pool().begin().await.map_err(|e| {
+                let tx = self.pool().begin_with($begin).await.map_err(|e| {
                     AppError::database(format!("Failed to begin the account deletion: {e}"))
                 })?;
                 let mut guard = TransactionGuard::new(tx);
+                Self::refuse_removing_the_last_active_admin(guard.executor()?, user_id, "delete")
+                    .await?;
 
                 // What the tombstones name, read before anything is deleted.
                 let email: String = sqlx::query(SUBJECT_EMAIL_SQL)
@@ -495,6 +525,71 @@ macro_rules! impl_account_deletion_repository {
                     }
                     provider_rows_removed.insert(format!("{}@{tenant}", planned.backend), removed);
                 }
+
+                // The device logins the account approved: the live ones are
+                // what this deletion revokes, read before it retires them
+                // all. Each row stays, inactive and acting as no account, so
+                // its request log and provisioned-keys record stay with it;
+                // the log then loses the address and user agent of each
+                // request, under the logins the retirement named. Retired
+                // first: from then on no log write records a caller under
+                // them, and the scrub sees every row written before.
+                // A token that only carries the id in its name is someone
+                // else's, and loses the id from it.
+                let admin_token = |e: sqlx::Error| {
+                    AppError::database(format!(
+                        "Failed to end the device logins of a deleted account: {e}"
+                    ))
+                };
+                let device_logins_revoked = sqlx::query(LIVE_DEVICE_LOGINS_SQL)
+                    .bind(&owner)
+                    .fetch_all(guard.executor()?)
+                    .await
+                    .map_err(admin_token)?
+                    .iter()
+                    .map(|row| row.try_get("id").map_err(admin_token))
+                    .collect::<AppResult<Vec<String>>>()?;
+                let retired_logins = sqlx::query(RETIRE_DEVICE_LOGINS_SQL)
+                    .bind(DELETED_ACCOUNT_OPERATOR.to_string())
+                    .bind(DEVICE_CLI_DELETED_ACCOUNT_SERVICE)
+                    .bind(&owner)
+                    .fetch_all(guard.executor()?)
+                    .await
+                    .map_err(admin_token)?
+                    .iter()
+                    .map(|row| row.try_get("id").map_err(admin_token))
+                    .collect::<AppResult<Vec<String>>>()?;
+                for retired_login in &retired_logins {
+                    sqlx::query(SCRUB_DEVICE_LOGIN_REQUESTS_SQL)
+                        .bind(retired_login)
+                        .execute(guard.executor()?)
+                        .await
+                        .map_err(admin_token)?;
+                }
+                for statement in [SCRUB_TOKEN_NAME_SQL, SCRUB_PROVISIONED_BY_NAME_SQL] {
+                    sqlx::query(statement)
+                        .bind(DELETED_ACCOUNT_LABEL)
+                        .bind(&owner)
+                        .execute(guard.executor()?)
+                        .await
+                        .map_err(admin_token)?;
+                }
+
+                // The trail rows the account wrote as an admin stay, as its
+                // request log does, without its address, user agent or name
+                // in them; rewritten before the purge, which deletes the rows
+                // that still name it: the ones about it.
+                sqlx::query(SCRUB_ACTOR_AUDIT_EVENTS_SQL)
+                    .bind(&owner)
+                    .bind(DELETED_ACCOUNT_LABEL)
+                    .bind(&email)
+                    .execute(guard.executor()?)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to take a deleted account out of the trail rows it wrote: {e}"
+                        ))
+                    })?;
 
                 let rows_removed = clear_user_in_transaction!(
                     guard,
@@ -556,7 +651,7 @@ macro_rules! impl_account_deletion_repository {
                     subject_hash: subject,
                     actor: plan.actor.as_str().to_owned(),
                     scan_result: scan_result_json(
-                        $purge.tables,
+                        &$purge.rescanned(),
                         &rows_removed,
                         &provider_rows_removed,
                     )?,
@@ -589,6 +684,7 @@ macro_rules! impl_account_deletion_repository {
                     provider_rows_removed,
                     receipt,
                     tombstone_ids,
+                    device_logins_revoked,
                 })
             }
 

@@ -31,9 +31,12 @@
 //!    shared room (it lives under the bot tenant), and a messaging group chat
 //!    whose binding failed keeps no group either (carnet#1422). The room
 //!    classifier (`call_room::CallRoom::of`) decides.
-//! 2. **The agent attachment.** The athlete must be an active member of a
-//!    group the requester is `coach_user_id` of. Owner and admin roles do not
-//!    qualify — on a channel-bound group the owner is whoever spoke first.
+//! 2. **The coach rule.** The athlete must be an active member of a group
+//!    the requester is `coach_user_id` of, and the requester must hold coach
+//!    access: the roster rule, which the name match and the by-id check both
+//!    ask (`pierre_services::coach_roster::roster_access`). A group's owner
+//!    and its admin roles do not qualify — on a channel-bound group the owner
+//!    is whoever spoke first.
 //! 3. **The athlete's consent.** The gate `get_group_member_activities`
 //!    applies to a group's coach: the member's own `coach_sharing_consent`.
 //!    Joining grants it (ADR-002: membership is consent to share with the
@@ -131,7 +134,8 @@ use crate::guardian::{
 };
 use crate::read_subject::{
     gate_message, match_coached_member, names_subject, other_name, record_coach_read,
-    thread_unreached, GateObject, MemberMiss, OtherName, WellnessWithheld,
+    thread_unreached, GateObject, MatchAudience, MemberMiss, OtherName, WellnessWithheld,
+    COACH_ACCESS_OFF,
 };
 use crate::runtime::ToolRuntime;
 
@@ -296,8 +300,9 @@ const PLAN_READ_TOOL: &str = "get_training_plan";
 /// Why a group's human coach may not read a coached athlete's live plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoachedPlanRefusal {
-    /// A coaching gate refused: the coach attachment, the membership, the
-    /// athlete's consent, or their one home tenant.
+    /// A coaching gate refused: the coach rule (coach access and the
+    /// attachment), the membership, the athlete's consent, or their one home
+    /// tenant.
     Coaching(CoachedAthleteRefusal),
     /// The athlete's tenant has `get_training_plan` turned off.
     PlansDisabled {
@@ -471,14 +476,16 @@ pub async fn resolve_plan_scope(
 
     // The name, resolved to one live member of a group the requester is
     // attached to as its coach — never one they merely belong to.
-    let resolved = match match_coached_member(data.repos(), requester, query, None).await? {
-        Ok(resolved) => resolved,
-        Err(miss) => {
-            return Ok(Err(refusal(
-                &miss.message(query, "omit `athlete` to act on your own plan."),
-            )));
-        }
-    };
+    let audience = MatchAudience::current();
+    let resolved =
+        match match_coached_member(data.repos(), requester, query, None, audience).await? {
+            Ok(resolved) => resolved,
+            Err(miss) => {
+                return Ok(Err(refusal(
+                    &miss.message(query, "omit `athlete` to act on your own plan."),
+                )));
+            }
+        };
 
     // Gates 2 to 4, by id. The match prefers a group where the athlete shares
     // with the coach, so a consent refusal, when there is one, names the most
@@ -488,6 +495,16 @@ pub async fn resolve_plan_scope(
         .await?
     {
         Ok(access) => acting_for(&request, writer, access).await,
+        // Sharing turned off since the match: an outside assistant is told
+        // no match, so the member is not named to it.
+        Err(CoachedAthleteRefusal::CoachSharingRevoked { .. })
+            if audience == MatchAudience::OutsideAssistant =>
+        {
+            Ok(Err(refusal(&MemberMiss::NoSharingMatch.message(
+                query,
+                "omit `athlete` to act on your own plan.",
+            ))))
+        }
         Err(refused) => Ok(Err(gate_refusal(&refused, || {
             MemberMiss::NoMatch.message(query, "omit `athlete` to act on your own plan.")
         }))),
@@ -540,6 +557,9 @@ async fn resolve_subject_scope(
                 "This thread works on {name}'s plan, and '{query}' does not name them — omit \
                  `athlete` to act on {name}'s plan."
             ),
+            // Reached only when coach access is lost between the gates above
+            // and this lookup: the gates refuse such a caller first.
+            OtherName::NoCoachAccess => COACH_ACCESS_OFF.to_owned(),
         };
         return Ok(Err(refusal(&message)));
     }

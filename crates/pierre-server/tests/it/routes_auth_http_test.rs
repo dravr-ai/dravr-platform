@@ -77,7 +77,7 @@ impl AuthTestSetup {
                 (*database).clone(),
                 (*auth_manager).clone(),
                 "test_jwt_secret",
-                config,
+                common::offline_config(config),
                 cache,
                 ServerContextOptions {
                     rsa_key_size_bits: Some(2048),
@@ -90,6 +90,8 @@ impl AuthTestSetup {
                     archive_imports: None,
                     live_records: None,
                     blobs: None,
+                    #[cfg(feature = "client-messaging")]
+                    channel_adapters: common::offline_adapters(),
                 },
             )
             .await
@@ -111,7 +113,7 @@ impl AuthTestSetup {
         let request = CreateAdminTokenRequest {
             service_name: "test_admin".to_owned(),
             service_description: Some("Auto-generated test admin token".to_owned()),
-            permissions: None, // Super admin by default
+            permissions: None, // Admin by default
             expires_in_days: Some(1),
             is_super_admin: true,
             tenant_id: None,

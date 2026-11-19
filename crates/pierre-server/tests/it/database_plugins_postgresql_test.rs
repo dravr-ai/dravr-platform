@@ -17,6 +17,7 @@ use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_core::transport::TransportPolicy;
+use pierre_database::repositories::SubjectThreads;
 use pierre_database::{backends::factory::Database, database::AddMessageParams};
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -306,6 +307,7 @@ async fn test_pg_chat_list_conversations() {
             3,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .expect("Failed to list conversations")
@@ -322,6 +324,7 @@ async fn test_pg_chat_list_conversations() {
             3,
             3,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .expect("Failed to list page 2")
@@ -597,7 +600,6 @@ async fn create_pg_test_user(db: &Database) -> Uuid {
         tier: UserTier::Starter,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(Utc::now()),

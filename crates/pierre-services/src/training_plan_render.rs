@@ -535,8 +535,7 @@ fn render_phase_header(
     let mut out = String::with_capacity(512);
     let weeks_left = phase
         .end_exclusive()
-        .map(|end| ((end - today).num_days() + 6) / 7)
-        .unwrap_or_default();
+        .map_or_default(|end| ((end - today).num_days() + 6) / 7);
     let _ = writeln!(
         out,
         "\nCurrent phase: {} ({} of {}), {weeks_left} week(s) left{}",

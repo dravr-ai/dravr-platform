@@ -77,6 +77,7 @@ mod reset_locale {
     use pierre_core::models::{MessageRecord, PersistedReplyBlock, AGENT_WELCOME_FINISH_REASON};
     use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::factory::DatabaseBackend;
+    use pierre_database::repositories::SubjectThreads;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_services::first_run::{self, FINISH_PROFILE};
     use serial_test::serial;
@@ -308,7 +309,8 @@ mod reset_locale {
                 member.home_tenant,
                 50,
                 0,
-                TransportPolicy::FirstPartyOnly
+                TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All
             )
             .await
             .unwrap()
@@ -570,7 +572,8 @@ mod reset_locale {
                 tenant,
                 DEFAULT_MAX_ACTIVE_CONVERSATIONS + 1,
                 0,
-                TransportPolicy::FirstPartyOnly
+                TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All
             )
             .await
             .unwrap()
@@ -970,6 +973,7 @@ mod reset_locale {
                 50,
                 0,
                 TransportPolicy::FirstPartyOnly,
+                SubjectThreads::All,
             )
             .await
             .unwrap()

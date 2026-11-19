@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::transport::TransportPolicy;
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
@@ -432,7 +432,12 @@ pub struct OperatorRosterGrant {
 /// Multi-tenant membership is managed via the `tenant_users` junction table,
 /// allowing users to belong to multiple tenants (like Slack workspaces).
 /// The active tenant context is determined per-session via JWT claims.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// A `User` carries its `password_hash`, so it neither serializes nor
+/// deserializes: an API answers with a response type that names the fields
+/// it returns, and a row is read by the repository. `Debug` is written by
+/// hand for the same reason and prints a fixed placeholder for the hash.
+#[derive(Clone)]
 pub struct User {
     /// Unique user identifier
     pub id: Uuid,
@@ -454,9 +459,8 @@ pub struct User {
     pub is_active: bool,
     /// User account status for admin approval workflow
     pub user_status: UserStatus,
-    /// Whether this user has admin privileges
-    pub is_admin: bool,
-    /// User role for permission system (`super_admin`, `admin`, `user`)
+    /// User role for permission system (`admin`, `user`): the one source of
+    /// truth for who is an admin
     pub role: UserRole,
     /// Admin who approved this user (if approved)
     pub approved_by: Option<Uuid>,
@@ -475,14 +479,12 @@ pub struct User {
     /// [`default_locale()`] when not explicitly set. Resolved at messaging
     /// dispatch time via `messaging_channel_links.locale` override →
     /// `users.locale` → `DEFAULT_LOCALE`.
-    #[serde(default = "default_locale")]
     pub locale: String,
     /// Agent output persona controlling format / citation density /
     /// notification cadence. Defaults to [`CoachingPersona::Casual`] for
     /// new users; users opt up via the post-auth onboarding prompt or
     /// the Settings UI. Persisted serde-side as `snake_case` (`"casual"`,
     /// `"enthusiast"`, `"power_athlete"`, `"coach"`).
-    #[serde(default)]
     pub coaching_persona: CoachingPersona,
     /// Whether this user may redeem a coach invite, joining a coaching group
     /// as its human coach (`coaching_groups.coach_user_id`). Independent from
@@ -497,7 +499,6 @@ pub struct User {
     /// admin console or `pierre-cli user set --manages-roster`, and an
     /// operator grant ([`OperatorRosterGrant`]) is never revoked by the
     /// TrainingPeaks reconciler.
-    #[serde(default)]
     pub manages_roster: bool,
     /// IANA timezone database name (e.g. `"America/Toronto"`,
     /// `"Europe/Paris"`). Captured client-side via
@@ -510,7 +511,6 @@ pub struct User {
     /// prompt-assembly stage to resolve `{{CURRENT_DATE}}` to the
     /// user's local calendar day so the agent interprets "today"
     /// correctly.
-    #[serde(default)]
     pub timezone: Option<String>,
     /// Colour-scheme preference pinned across the user's devices:
     /// `"light"` or `"dark"`. `None` means no pin — clients follow the
@@ -518,8 +518,40 @@ pub struct User {
     /// (messaging chart PNGs) fall back to dark, the scheme messaging
     /// clients overwhelmingly draw media bubbles on. Written via
     /// `PUT /api/user/theme`.
-    #[serde(default)]
     pub theme: Option<String>,
+}
+
+/// Every field as stored, except `password_hash`, which prints as
+/// `[REDACTED]` whatever it holds. The Strava tokens are `SecretString`s,
+/// which print as redacted themselves. A field prints only once it is
+/// listed here, so a new one is left out until someone decides it may.
+impl Debug for User {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.debug_struct("User")
+            .field("id", &self.id)
+            .field("email", &self.email)
+            .field("display_name", &self.display_name)
+            .field("password_hash", &"[REDACTED]")
+            .field("tier", &self.tier)
+            .field("strava_token", &self.strava_token)
+            .field("created_at", &self.created_at)
+            .field("last_active", &self.last_active)
+            .field("is_active", &self.is_active)
+            .field("user_status", &self.user_status)
+            .field("role", &self.role)
+            .field("approved_by", &self.approved_by)
+            .field("approved_at", &self.approved_at)
+            .field("firebase_uid", &self.firebase_uid)
+            .field("auth_provider", &self.auth_provider)
+            .field("analytics_consent", &self.analytics_consent)
+            .field("analytics_consent_at", &self.analytics_consent_at)
+            .field("locale", &self.locale)
+            .field("coaching_persona", &self.coaching_persona)
+            .field("manages_roster", &self.manages_roster)
+            .field("timezone", &self.timezone)
+            .field("theme", &self.theme)
+            .finish()
+    }
 }
 
 /// Every locale the platform speaks, in the order the language menus list them.
@@ -531,11 +563,10 @@ pub struct User {
 /// sixth locale is added here first. The first entry is the default.
 pub const SUPPORTED_LOCALES: [&str; 5] = ["fr", "en", "es", "de", "pt"];
 
-/// Default locale (`"fr"`) used when deserializing a pre-locale `User`.
+/// Default locale (`"fr"`) of a user who has not set one.
 ///
-/// Backward-compat for in-memory JSON payloads (e.g. tests) that predate the
-/// `locale` column. The DB column has `NOT NULL DEFAULT 'fr'` so persisted
-/// rows always carry a concrete value.
+/// The DB column has `NOT NULL DEFAULT 'fr'`, so persisted rows always carry
+/// a concrete value; this is what a row that cannot be read falls back to.
 #[must_use]
 pub fn default_locale() -> String {
     SUPPORTED_LOCALES[0].to_owned()
@@ -639,7 +670,6 @@ impl User {
             last_active: now,
             is_active: true,
             user_status: UserStatus::Active, // Callers set Pending when needed (register, Firebase)
-            is_admin: false,                 // Regular users are not admins by default
             role: UserRole::User,            // Default to regular user
             approved_by: None,
             approved_at: None,
@@ -678,12 +708,21 @@ impl User {
         self.last_active = Utc::now();
     }
 
-    /// Whether this account may take a super-admin's decisions now: a
-    /// super-admin that is neither deactivated nor suspended. Suspension
-    /// changes `user_status`, never `is_active`, so both are read.
+    /// Whether this account may take an admin's decisions now: an admin that
+    /// is neither deactivated nor suspended. Suspension changes `user_status`,
+    /// never `is_active`, so both are read.
     #[must_use]
-    pub fn is_active_super_admin(&self) -> bool {
-        self.is_active && self.user_status == UserStatus::Active && self.role.is_super_admin()
+    pub fn is_active_admin(&self) -> bool {
+        self.is_active && self.user_status == UserStatus::Active && self.role.is_admin()
+    }
+
+    /// Whether this user holds coach access: the [`Self::manages_roster`]
+    /// flag, or the platform admin role. It is what being attached to a group
+    /// as its coach takes, and what every act for that group's athletes asks
+    /// again, so access withdrawn after the attachment withdraws the acts.
+    #[must_use]
+    pub const fn holds_coach_access(&self) -> bool {
+        self.manages_roster || self.role.is_admin()
     }
 }
 
@@ -1118,18 +1157,32 @@ mod tests {
     }
 
     #[test]
-    fn only_a_super_admin_in_good_standing_is_an_active_super_admin() {
-        assert!(with_role(UserRole::SuperAdmin).is_active_super_admin());
-        assert!(!with_role(UserRole::Admin).is_active_super_admin());
-        assert!(!with_role(UserRole::User).is_active_super_admin());
+    fn only_an_admin_in_good_standing_is_an_active_admin() {
+        assert!(with_role(UserRole::Admin).is_active_admin());
+        assert!(!with_role(UserRole::User).is_active_admin());
 
         for status in [UserStatus::Pending, UserStatus::Suspended] {
-            let mut held = with_role(UserRole::SuperAdmin);
+            let mut held = with_role(UserRole::Admin);
             held.user_status = status;
-            assert!(!held.is_active_super_admin(), "{status:?}");
+            assert!(!held.is_active_admin(), "{status:?}");
         }
-        let mut deactivated = with_role(UserRole::SuperAdmin);
+        let mut deactivated = with_role(UserRole::Admin);
         deactivated.is_active = false;
-        assert!(!deactivated.is_active_super_admin());
+        assert!(!deactivated.is_active_admin());
+    }
+
+    #[test]
+    fn coach_access_is_the_roster_flag_or_the_admin_role() {
+        assert!(
+            !with_role(UserRole::User).holds_coach_access(),
+            "a user without the flag holds no coach access"
+        );
+        let mut flagged = with_role(UserRole::User);
+        flagged.manages_roster = true;
+        assert!(flagged.holds_coach_access(), "the flag alone grants it");
+        assert!(
+            with_role(UserRole::Admin).holds_coach_access(),
+            "an admin holds it without the flag"
+        );
     }
 }

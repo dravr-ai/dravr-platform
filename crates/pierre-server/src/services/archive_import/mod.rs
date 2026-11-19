@@ -15,9 +15,10 @@
 //! - **the stores** barrage runs on, chosen here from the deployment
 //!   ([`ArchiveImports::from_env`]): Postgres schema `barrage` on the
 //!   platform's own pool with GCS blobs when deployed, a separate SQLite file
-//!   with blobs on disk locally, memory in tests (the record and job stores
-//!   are opened by `pierre_services::barrage_live_store`, which the live
-//!   activity store shares);
+//!   with blobs on disk locally, memory in tests. The record and job stores
+//!   are placed once by `pierre_services::barrage_live_store::record_stores`,
+//!   and the context hands imports the same record store its live store and
+//!   export read ([`ArchiveImports::record_store`]);
 //! - **the projection** of each chunk into the activity cache and the one
 //!   per-activity sample store ([`sink::CachedActivitiesSink`]);
 //! - **the link**, encrypted bound to the athlete it was pasted by
@@ -54,11 +55,10 @@ use std::fmt;
 use std::sync::Arc;
 
 use dravr_barrage::blob::BlobStore;
+use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::BarrageStores;
-use pierre_config::database::DatabaseUrl;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::backends::factory::Database;
-use pierre_services::barrage_live_store::{stores_for, PlatformPool};
+use pierre_services::barrage_live_store::RecordStores;
 use tracing::{info, warn};
 
 use self::fetch::{ExportFetcher, GuardedExportFetcher};
@@ -124,20 +124,16 @@ impl ArchiveImports {
         self.wiring.is_ok()
     }
 
-    /// The imports this deployment can run, chosen from its database and the
-    /// environment, on the deployment's blob store `blobs`
+    /// The imports this deployment can run, on its record and job stores
+    /// `stores` (the ones its live store runs on) and its blob store `blobs`
     /// ([`crate::services::originals::blob_store_from_env`], which the
-    /// originals store shares), and the `barrage` schema migrated when on
-    /// Postgres.
+    /// originals store shares), with the fetcher and runner the environment
+    /// selects.
     ///
-    /// Never fails the boot: a deployment that cannot place the stores runs
-    /// with imports disabled, and says why once here.
-    pub async fn from_env(
-        database: &Database,
-        url: &DatabaseUrl,
-        blobs: Result<Arc<dyn BlobStore>, String>,
-    ) -> Self {
-        let imports = match build(PlatformPool::of(database), url.clone(), blobs).await {
+    /// Never fails the boot: a deployment that cannot run them runs with
+    /// imports disabled, and says why once here.
+    pub fn from_env(stores: &RecordStores, blobs: Result<Arc<dyn BlobStore>, String>) -> Self {
+        let imports = match build(stores, blobs) {
             Ok(wiring) => Self::new(wiring),
             Err(reason) => Self::disabled(reason),
         };
@@ -147,20 +143,40 @@ impl ArchiveImports {
         }
         imports
     }
+
+    /// The context's one record store: the one these imports write, which
+    /// the live store and the export must read, or `live` when imports do not
+    /// run here, or a memory store when neither names one.
+    ///
+    /// # Errors
+    ///
+    /// An internal error when imports and `live` name two stores: an import's
+    /// records would be invisible to the export and the live store.
+    pub fn record_store(
+        &self,
+        live: Option<Arc<dyn ActivityRecordStore>>,
+    ) -> AppResult<Arc<dyn ActivityRecordStore>> {
+        let imported = self
+            .wiring
+            .as_ref()
+            .ok()
+            .map(|wiring| Arc::clone(&wiring.stores.records));
+        match (imported, live) {
+            (Some(imported), Some(live)) if !Arc::ptr_eq(&imported, &live) => Err(
+                AppError::internal("archive imports and live reads were given two record stores"),
+            ),
+            (Some(records), _) | (None, Some(records)) => Ok(records),
+            (None, None) => Ok(RecordStores::in_memory().records),
+        }
+    }
 }
 
-/// The wiring the deployment selects, on the stores
-/// [`pierre_services::barrage_live_store::stores_for`] places.
-///
-/// Awaited by the binary before the server context is built, never inside
-/// a future that must be `Send`: sqlx's migrator holds a connection across
-/// awaits, which the compiler cannot prove `Send` for every lifetime.
-async fn build(
-    pool: PlatformPool,
-    url: DatabaseUrl,
+/// The wiring the deployment selects, on its record and job `stores`.
+fn build(
+    stores: &RecordStores,
     blobs: Result<Arc<dyn BlobStore>, String>,
 ) -> Result<ImportWiring, String> {
-    let stores = stores_for(pool, &url, blobs?).await?;
+    let stores = stores.with_blobs(blobs?);
     let fetcher: Arc<dyn ExportFetcher> = Arc::new(
         GuardedExportFetcher::try_from_env().map_err(|e| format!("export fetch client: {e}"))?,
     );

@@ -1,5 +1,5 @@
-// ABOUTME: Pins the Strava segment-effort requests on the wire: the detail read asks for every effort
-// ABOUTME: and one segment's efforts are listed page by page until a short page, through a loopback stub
+// ABOUTME: Pins the Strava segment-effort request on the wire: the detail read asks for every effort
+// ABOUTME: and a missing activity is told apart from a failed request, through a loopback stub
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,16 +7,13 @@
 //! Strava segment efforts, on the wire.
 //!
 //! Strava's detail endpoint returns only an activity's "important" efforts
-//! unless asked for all of them (`include_all_efforts=true`), and its
-//! segment-efforts endpoint pages. A loopback socket stands in for Strava so
-//! the request the provider sends is the one asserted, query string and all.
+//! unless asked for all of them (`include_all_efforts=true`). A loopback
+//! socket stands in for Strava so the request the provider sends is the one
+//! asserted, query string and all.
 
-use chrono::{Duration, NaiveDate, Utc};
-use pierre_providers::core::{
-    is_segment_listing_refused, FitnessProvider, OAuth2Credentials, SegmentEffortWindow,
-};
+use chrono::{Duration, Utc};
+use pierre_providers::core::{FitnessProvider, OAuth2Credentials};
 use pierre_providers::errors::ErrorCode;
-use pierre_providers::models::SportType;
 use pierre_providers::strava_provider::StravaProvider;
 use secrecy::SecretString;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -171,213 +168,6 @@ async fn a_missing_activity_is_not_a_failed_request() {
         assert_eq!(
             err.code, code,
             "bug: Strava's {status} (body {body:?}) is read as the wrong failure: {err}"
-        );
-    }
-}
-
-/// One row of `GET /segment_efforts` on segment 611413, in activity
-/// `activity`; `None` for a row that names no activity.
-fn listed_effort(id: usize, activity: Option<usize>) -> String {
-    let activity = activity.map_or_else(String::new, |a| format!(r#""activity":{{"id":{a}}},"#));
-    format!(
-        r#"{{"id":{id},{activity}"name":"Camillien-Houde","elapsed_time":{},"start_date":"2026-06-01T12:00:00Z","distance":1820.5,"pr_rank":null,"segment":{{"id":611413,"name":"Camillien-Houde","activity_type":"Ride"}}}}"#,
-        400 + id % 60
-    )
-}
-
-fn window() -> SegmentEffortWindow {
-    SegmentEffortWindow {
-        from: NaiveDate::from_ymd_opt(2016, 11, 13).unwrap(),
-        to: NaiveDate::from_ymd_opt(2026, 11, 13).unwrap(),
-    }
-}
-
-/// A full page of 200 means more may follow; a short page ends the listing.
-#[tokio::test]
-async fn one_segments_efforts_are_listed_page_by_page_until_a_short_page() {
-    let page_one: Vec<String> = (0..200)
-        .map(|i| listed_effort(i, Some(1_000 + i)))
-        .collect();
-    let page_two: Vec<String> = (200..202)
-        .map(|i| listed_effort(i, Some(1_000 + i)))
-        .collect();
-    let (base_url, served) = stub(vec![
-        ("200 OK", format!("[{}]", page_one.join(","))),
-        ("200 OK", format!("[{}]", page_two.join(","))),
-    ])
-    .await;
-
-    let hits = provider(base_url)
-        .await
-        .segment_effort_history("611413", window())
-        .await
-        .unwrap();
-    let lines = served.await.unwrap();
-
-    let query = "segment_id=611413&start_date_local=2016-11-13T00:00:00Z&end_date_local=2026-11-13T23:59:59Z&per_page=200";
-    assert_eq!(
-        lines,
-        vec![
-            format!("GET /segment_efforts?{query}&page=1 HTTP/1.1"),
-            format!("GET /segment_efforts?{query}&page=2 HTTP/1.1"),
-        ],
-        "bug: the listing pages until a short page, over the athlete's calendar days"
-    );
-    assert_eq!(
-        hits.len(),
-        202,
-        "bug: every effort the listing holds is a hit"
-    );
-    assert_eq!(
-        hits[0].activity_id, "1000",
-        "bug: a hit is addressed by the activity its effort names"
-    );
-    assert_eq!(
-        hits[0].effort.segment_id.as_deref(),
-        Some("611413"),
-        "bug: a listed effort keeps the segment it was ridden on"
-    );
-    assert_eq!(
-        hits[0].activity_type,
-        Some(SportType::Ride),
-        "bug: a hit carries its segment's sport"
-    );
-}
-
-/// Strava's documented `DetailedSegmentEffort` names its activity flat
-/// (`activity_id`) as well as nested: a row naming it either way is a hit.
-#[tokio::test]
-async fn an_effort_naming_its_activity_flat_is_a_hit() {
-    let flat = listed_effort(1, None).replacen('{', r#"{"activity_id":2001,"#, 1);
-    let (base_url, served) = stub(vec![("200 OK", format!("[{flat}]"))]).await;
-
-    let hits = provider(base_url)
-        .await
-        .segment_effort_history("611413", window())
-        .await
-        .unwrap();
-    served.await.unwrap();
-
-    assert_eq!(
-        hits.len(),
-        1,
-        "bug: an effort naming its activity flat is dropped"
-    );
-    assert_eq!(
-        hits[0].activity_id, "2001",
-        "bug: a flat activity id does not address the hit"
-    );
-}
-
-/// A row the mapping cannot read refuses the listing: answered short, the
-/// listing would read as an athlete who never rode what Strava listed.
-#[tokio::test]
-async fn a_listing_holding_a_row_it_cannot_read_is_refused_not_answered_short() {
-    let rows = [listed_effort(1, Some(2_001)), listed_effort(2, None)];
-    let (base_url, served) = stub(vec![("200 OK", format!("[{}]", rows.join(",")))]).await;
-
-    let refused = provider(base_url)
-        .await
-        .segment_effort_history("611413", window())
-        .await;
-    served.await.unwrap();
-
-    let error = refused.expect_err("bug: a listing missing a row it listed answers short");
-    assert!(
-        error.to_string().contains("1 could not be read"),
-        "bug: the refusal does not say how many rows were unreadable: {error}"
-    );
-}
-
-/// Twenty full pages are 4,000 efforts and the listing's ceiling: the
-/// provider refuses rather than answering with a list that silently stops,
-/// and never asks for a twenty-first page.
-#[tokio::test]
-async fn a_segment_with_more_efforts_than_twenty_pages_is_refused_not_listed_short() {
-    let full_page = format!(
-        "[{}]",
-        (0..200)
-            .map(|i| listed_effort(i, Some(1_000 + i)))
-            .collect::<Vec<_>>()
-            .join(",")
-    );
-    let answers: Vec<(&'static str, String)> =
-        (0..20).map(|_| ("200 OK", full_page.clone())).collect();
-    let (base_url, served) = stub(answers).await;
-
-    let err = provider(base_url)
-        .await
-        .segment_effort_history("611413", window())
-        .await
-        .expect_err("bug: a listing that reached its page ceiling answered as if complete");
-    let lines = served.await.unwrap();
-
-    assert_eq!(
-        lines.len(),
-        20,
-        "bug: the listing reads exactly twenty pages before refusing: {lines:?}"
-    );
-    assert_eq!(
-        lines.last().map(String::as_str),
-        Some(
-            "GET /segment_efforts?segment_id=611413&start_date_local=2016-11-13T00:00:00Z&end_date_local=2026-11-13T23:59:59Z&per_page=200&page=20 HTTP/1.1"
-        ),
-        "bug: the last page read is the twentieth"
-    );
-    assert_eq!(
-        err.code,
-        ErrorCode::ExternalServiceError,
-        "bug: a listing past its ceiling is Strava's answer being too long, not the caller's input: {err}"
-    );
-    assert!(
-        err.message
-            .contains("segment 611413 holds more than 4000 efforts in the window"),
-        "bug: the refusal names the segment and the ceiling it passed: {err}"
-    );
-}
-
-#[tokio::test]
-async fn a_segment_id_that_is_not_a_number_is_refused_before_any_request() {
-    let err = provider("http://127.0.0.1:9".to_owned())
-        .await
-        .segment_effort_history("611413&per_page=1", window())
-        .await
-        .expect_err("a segment id is a number");
-    assert_eq!(
-        err.code,
-        ErrorCode::InvalidInput,
-        "bug: a segment id that is not a number is the caller's misuse: {err}"
-    );
-    assert!(
-        err.message.contains("segment id is a number"),
-        "bug: the refusal is the id's, not the provider's: {err}"
-    );
-}
-
-/// Strava answers a non-subscriber's listing `402` (or `403`): that refusal
-/// is the athlete's, and stands for every segment, so it is told apart from
-/// a failure of this one request. Anything else Strava answers is not it.
-#[tokio::test]
-async fn only_strava_refusing_the_athlete_the_listing_reads_as_that_refusal() {
-    for (status, refused) in [
-        ("402 Payment Required", true),
-        ("403 Forbidden", true),
-        ("404 Not Found", false),
-        ("500 Internal Server Error", false),
-        ("503 Service Unavailable", false),
-    ] {
-        let (base_url, served) = stub(vec![(status, r#"{"message":"no"}"#.to_owned())]).await;
-        let err = provider(base_url)
-            .await
-            .segment_effort_history("611413", window())
-            .await
-            .expect_err("a non-success status is a failure");
-        served.await.unwrap();
-        assert_eq!(
-            is_segment_listing_refused(&err),
-            refused,
-            "bug: Strava's {status} to the listing read as refused={}: {err:?}",
-            !refused
         );
     }
 }

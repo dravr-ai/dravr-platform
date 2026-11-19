@@ -37,6 +37,7 @@ use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, Utc};
 use helpers::axum_test::AxumTestRequest;
+use helpers::impersonation::{assert_refusal_audited, assert_support_refused, impersonation_of};
 use pierre_cache::{Cache, CacheConfig};
 use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -558,4 +559,98 @@ async fn a_forgotten_flow_is_refused() {
         "refusal must tell the user how to recover: {}",
         error.sanitized_message()
     );
+}
+
+/// An admin acting as the athlete signs in to no provider, at any step: the
+/// session it stores keeps reading the athlete's account after the support
+/// session ends (carnet#1634). Each refusal is audited, and the parked flow
+/// is left as it was; the athlete's own login and continuation are served.
+#[tokio::test]
+async fn a_support_session_signs_in_to_no_provider() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user_id, user) = common::create_test_user(&resources.agent.database)
+        .await
+        .unwrap();
+    let session = format!(
+        "Bearer {}",
+        common::generate_test_token(&resources, &user).await
+    );
+    let support = impersonation_of(&resources, &session).await;
+    let tenant_id = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap()[0]
+        .id;
+    seed_fresh_session(&resources, user_id, tenant_id).await;
+    remember_remote_flow(
+        &resources.common.cache,
+        tenant_id.as_uuid(),
+        user_id,
+        "parked-flow".to_owned(),
+        "sciotte",
+    )
+    .await;
+    let login = serde_json::json!({
+        "email": "athlete@example.com",
+        "password": "correct horse battery staple",
+        "target": "strava",
+    });
+    let send = |path: &'static str, authorization: &str, body: &serde_json::Value| {
+        AxumTestRequest::post(path)
+            .header("authorization", authorization)
+            .json(body)
+            .send(AuthRoutes::routes(resources.auth_routes_context()))
+    };
+
+    for (path, body, action) in [
+        (
+            "/api/providers/sciotte/login",
+            login.clone(),
+            "sign in to a provider",
+        ),
+        (
+            "/api/providers/sciotte/select-2fa",
+            serde_json::json!({ "option_id": "sms" }),
+            "choose a provider sign-in's second factor",
+        ),
+        (
+            "/api/providers/sciotte/submit-otp",
+            serde_json::json!({ "code": "123456" }),
+            "submit a provider sign-in code",
+        ),
+    ] {
+        let resp = send(path, &support, &body).await;
+        assert_support_refused(resp.status(), &resp.text(), action);
+        assert_refusal_audited(&resources, user_id, action).await;
+        assert_eq!(
+            require_remote_flow(&resources.common.cache, tenant_id.as_uuid(), user_id)
+                .await
+                .expect("a refused step leaves the parked flow alone")
+                .0,
+            "parked-flow",
+            "{path} reached the handler"
+        );
+    }
+
+    let resp = send("/api/providers/sciotte/login", &session, &login).await;
+    let status = resp.status();
+    let body = resp.text();
+    assert_eq!(status, 200, "the athlete's own login is served: {body}");
+    assert!(body.contains("\"short_circuit\":true"), "{body}");
+    let resp = send(
+        "/api/providers/sciotte/submit-otp",
+        &session,
+        &serde_json::json!({ "code": "123456" }),
+    )
+    .await;
+    let status = resp.status();
+    let body = resp.text();
+    assert_eq!(
+        status, 400,
+        "the athlete's own continuation reaches the flow gate: {body}"
+    );
+    assert!(body.contains(RESTART_HINT), "{body}");
 }

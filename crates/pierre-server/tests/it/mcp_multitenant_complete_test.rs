@@ -214,7 +214,6 @@ impl MultiTenantMcpClient {
             strava_token: None,
             is_active: true,
             user_status: UserStatus::Active, // Already active
-            is_admin: false,
             role: UserRole::User,
             approved_by: Some(user_id), // Self-approved for test
             approved_at: Some(chrono::Utc::now()),
@@ -581,7 +580,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
             database,
             auth_manager,
             &stored_jwt_secret,
-            create_test_config(server_port),
+            common::offline_config(create_test_config(server_port)),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -594,6 +593,8 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -821,7 +822,7 @@ async fn test_mcp_authentication_required() -> Result<()> {
             database,
             auth_manager,
             &stored_jwt_secret,
-            create_test_config(server_port),
+            common::offline_config(create_test_config(server_port)),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -834,6 +835,8 @@ async fn test_mcp_authentication_required() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -926,7 +929,7 @@ async fn test_mcp_initialization_no_auth_is_rejected() -> Result<()> {
             database,
             auth_manager,
             &stored_jwt_secret,
-            create_test_config(server_port),
+            common::offline_config(create_test_config(server_port)),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -939,6 +942,8 @@ async fn test_mcp_initialization_no_auth_is_rejected() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -1019,7 +1024,7 @@ async fn test_oauth_protected_resource_metadata_endpoint() -> Result<()> {
             database,
             auth_manager,
             &stored_jwt_secret,
-            create_test_config(server_port),
+            common::offline_config(create_test_config(server_port)),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1032,6 +1037,8 @@ async fn test_oauth_protected_resource_metadata_endpoint() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -1118,7 +1125,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
             database,
             auth_manager,
             &stored_jwt_secret,
-            create_test_config(server_port),
+            common::offline_config(create_test_config(server_port)),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1131,6 +1138,8 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -1240,7 +1249,7 @@ async fn test_multitenant_server_config() -> Result<()> {
             database,
             auth_manager,
             &stored_jwt_secret,
-            config.clone(),
+            common::offline_config(config.clone()),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1253,6 +1262,8 @@ async fn test_multitenant_server_config() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await

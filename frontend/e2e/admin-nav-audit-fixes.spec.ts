@@ -7,7 +7,6 @@
 import { test, expect } from "@playwright/test";
 import {
   setupAndLoginAsAdmin,
-  setupAndLoginAsSuperAdmin,
   navigateToTab,
   TOKENS_TAB_LABEL,
 } from "./test-helpers";
@@ -240,8 +239,8 @@ test.describe("Admin nav audit fixes (gist 56c1c1d7)", () => {
         }),
       }),
     );
-    // The harness settings are a super admin's: a console admin holds no ViewConfiguration.
-    await setupAndLoginAsSuperAdmin(page);
+    // The harness settings need ViewConfiguration, which every admin holds.
+    await setupAndLoginAsAdmin(page);
     await navigateToTab(page, "Harness Config");
     const windowTokens = page.locator('input[type="number"]').first();
     const max = await windowTokens.getAttribute("max");

@@ -211,7 +211,7 @@ async fn guardian_set(args: GuardianSetArgs) -> AppResult<()> {
     Ok(())
 }
 
-/// What the save's 409 tells the super admin to do. An unknown code still prints the
+/// What the save's 409 tells the admin to do. An unknown code still prints the
 /// server's own sentence, because the save did not land either way.
 pub(super) fn conflict_message(refusal: &Value) -> String {
     let message = refusal
@@ -295,8 +295,7 @@ fn stored_cell(value: Option<&Value>) -> String {
 fn string_list(value: Option<&Value>) -> Vec<&str> {
     value
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(Value::as_str).collect())
-        .unwrap_or_default()
+        .map_or_default(|items| items.iter().filter_map(Value::as_str).collect())
 }
 
 /// The PUT body: the document's fields beside the base the save edits.
@@ -566,7 +565,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stale_save_tells_the_super_admin_nothing_landed_and_what_to_do() {
+    fn a_stale_save_tells_the_admin_nothing_landed_and_what_to_do() {
         let message = conflict_message(&json!({
             "code": STALE_CODE,
             "message": "The Guardian policy changed since you read it, and nothing was saved."

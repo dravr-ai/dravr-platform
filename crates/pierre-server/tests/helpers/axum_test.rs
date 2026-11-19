@@ -69,6 +69,19 @@ impl AxumTestRequest {
         }
     }
 
+    /// Create a new PATCH request
+    /// Note: Used by `data_access_requests_route_test.rs`; the other test
+    /// binaries that include this helper do not use it
+    #[allow(dead_code)]
+    pub(crate) fn patch(uri: &str) -> Self {
+        Self {
+            method: Method::PATCH,
+            uri: uri.to_owned(),
+            headers: Vec::new(),
+            body: None,
+        }
+    }
+
     /// Add a header to the request
     pub(crate) fn header(mut self, key: &str, value: &str) -> Self {
         self.headers.push((key.to_owned(), value.to_owned()));

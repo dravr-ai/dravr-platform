@@ -570,6 +570,7 @@ async fn live_twins(
             detail_read: false,
             segment_read: false,
             stored_at: None,
+            place: None,
         });
     }
     // A cached id the store cannot name is left as the window's discard

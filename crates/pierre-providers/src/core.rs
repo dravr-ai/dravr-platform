@@ -25,7 +25,6 @@
 //! All providers return standardized domain models:
 //! - **Activity**: Unified workout/activity representation
 //! - **Athlete**: User profile information
-//! - **Stats**: Aggregate performance statistics
 //!
 //! Sleep, recovery and body metrics are not read through this trait: every
 //! source's health data is synced into stored rows by dravr-enforme and read
@@ -50,8 +49,7 @@
 //!
 //! ```rust,no_run
 //! use pierre_providers::core::{FitnessProvider, ProviderConfig, OAuth2Credentials};
-//! use pierre_core::models::coverage::WindowScope;
-//! use pierre_core::models::{Activity, Athlete, Stats};
+//! use pierre_core::models::{Activity, Athlete};
 //! use pierre_core::errors::AppResult;
 //! use async_trait::async_trait;
 //!
@@ -88,6 +86,7 @@
 //!             provider: "custom".to_owned(),
 //!             sex: None,
 //!             created_at: None,
+//!             active_streak: None,
 //!         })
 //!     }
 //!
@@ -108,9 +107,6 @@
 //! #   async fn get_activity(&self, _id: &str) -> AppResult<Activity> {
 //! #       Err(pierre_core::errors::AppError::not_found("Activity not found"))
 //! #   }
-//! #   async fn get_stats(&self) -> AppResult<Stats> {
-//! #       Ok(Stats::summed_over(&[], WindowScope::Lifetime))
-//! #   }
 //! }
 //! ```
 //!
@@ -125,12 +121,17 @@
 
 use crate::backend_resolver::user_facing_name;
 use crate::delegation::{CoachRoster, DelegatedReads};
-use crate::errors::{AppError, AppResult, ErrorCode};
+use crate::errors::{AppError, AppResult};
+use crate::models::provider_context::{
+    ProviderActivitySearch, ProviderActivitySearchPage, ProviderActivityZones, ProviderBestEffort,
+    ProviderGear, ProviderPersonalRecord, ProviderWeight,
+};
 use crate::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
-    SegmentEffort, SportType, Stats, TenantId, TimeSeriesData, API_KEY_TOKEN_TYPE,
+    SportType, TenantId, TimeSeriesData, API_KEY_TOKEN_TYPE,
 };
 use crate::pagination::{CursorPage, PaginationParams};
+use crate::provider_context::unsupported as context_unsupported;
 use crate::request_budget::RequestBudget;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -348,7 +349,7 @@ impl ActivityQueryParams {
 /// # Shared Request/Response Contract
 ///
 /// - **Request Parameters**: Standardized method signatures (IDs, pagination, dates)
-/// - **Response Types**: Unified domain models (Activity, Athlete, Stats, etc.)
+/// - **Response Types**: Unified domain models (Activity, Athlete, etc.)
 /// - **Error Handling**: Consistent `AppResult<T>` for all operations
 /// - **Authentication**: Uniform `OAuth2Credentials` flow
 ///
@@ -528,7 +529,7 @@ pub trait FitnessProvider: Send + Sync {
     ///
     /// `false` by default, and for every integration that inherits the
     /// streams-less default below: WHOOP serves no per-sample data upstream,
-    /// and COROS (registre#1265) and Terra (registre#1264) are not wired to
+    /// and COROS (registre#509) and Terra (registre#859) are not wired to
     /// theirs. A caller that needs a track asks this
     /// before spending a detail read that can never carry one — the Home
     /// route read settles such an activity as having no track to draw instead
@@ -578,23 +579,6 @@ pub trait FitnessProvider: Send + Sync {
             .cloned())
     }
 
-    /// Get user's aggregate statistics
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use pierre_providers::core::FitnessProvider;
-    /// # async fn example(provider: &impl FitnessProvider) -> Result<(), pierre_core::errors::AppError> {
-    /// let stats = provider.get_stats().await?;
-    /// println!("Total activities: {}", stats.total_activities);
-    /// println!("Total distance: {:.1} km", stats.total_distance / 1000.0);
-    /// println!("Total duration: {} hours", stats.total_duration / 3600);
-    /// println!("Total elevation: {:.0} m", stats.total_elevation_gain);
-    /// # Ok(())
-    /// # }
-    /// ```
-    async fn get_stats(&self) -> AppResult<Stats>;
-
     // ── Training-calendar reads ──────────────────────────────────────────
 
     /// Read the workouts the provider's calendar plans for the athlete over
@@ -615,23 +599,63 @@ pub trait FitnessProvider: Send + Sync {
         Err(planned_workouts_unsupported(self.name()))
     }
 
-    // ── Segment efforts ──────────────────────────────────────────────────
+    // ── Provider context ─────────────────────────────────────────────────
+    //
+    // What the provider itself says about the athlete beyond their activities
+    // (carnet#1622): its zones, gear, all-time records, best efforts and
+    // weight. These are the provider's figures, read live, handed on as the
+    // provider's, and never stored or fed into a Dravr calculation (see
+    // `pierre_core::models::provider_context`). Each read defaults to the
+    // refusal of `crate::provider_context::unsupported`: an empty answer
+    // would read as an athlete with none. `Ok(None)` is a read that found
+    // nothing there; `Ok(Some(vec![]))` is a read that found an empty list.
 
-    /// Every effort the athlete made on segment `segment_id` over `window`,
-    /// read live from the provider, in the order it lists them.
-    ///
-    /// A provider overrides this when its descriptor declares
-    /// [`ProviderCapabilities::SEGMENT_EFFORT_HISTORY`](crate::spi::ProviderCapabilities::SEGMENT_EFFORT_HISTORY).
-    /// Every other provider inherits the refusal from
-    /// `segment_effort_history_unsupported`: an empty list would read as a
-    /// segment the athlete never rode.
-    async fn segment_effort_history(
+    /// The provider's heart rate and pace zones of activity `id`, with the
+    /// time the activity spent in each. `None` when the provider reported no
+    /// zones for it.
+    async fn read_activity_zones(&self, id: &str) -> AppResult<Option<ProviderActivityZones>> {
+        let _ = id;
+        Err(context_unsupported(self.name(), "activity zones"))
+    }
+
+    /// The shoes and bikes the athlete keeps with the provider, with their
+    /// mileage. Read-only context: never written into the gear ledger.
+    async fn read_gear(&self) -> AppResult<Option<Vec<ProviderGear>>> {
+        Err(context_unsupported(self.name(), "the athlete's gear"))
+    }
+
+    /// The all-time records the provider lists on the athlete's profile.
+    async fn read_personal_records(&self) -> AppResult<Option<Vec<ProviderPersonalRecord>>> {
+        Err(context_unsupported(self.name(), "personal records"))
+    }
+
+    /// The best efforts the provider found in activity `id`.
+    async fn read_activity_best_efforts(
         &self,
-        segment_id: &str,
-        window: SegmentEffortWindow,
-    ) -> AppResult<Vec<SegmentEffortHit>> {
-        let _ = (segment_id, window);
-        Err(segment_effort_history_unsupported(self.name()))
+        id: &str,
+    ) -> AppResult<Option<Vec<ProviderBestEffort>>> {
+        let _ = id;
+        Err(context_unsupported(self.name(), "activity best efforts"))
+    }
+
+    /// The athlete's weight as the provider holds it. Provider context only:
+    /// it never enters the effective physiology.
+    async fn read_weight(&self) -> AppResult<Option<ProviderWeight>> {
+        Err(context_unsupported(self.name(), "the athlete's weight"))
+    }
+
+    /// A page of the provider's own filtered list of the athlete's
+    /// activities, for a backfill that must reach past the newest rows
+    /// [`get_activities_with_params`](Self::get_activities_with_params) sees.
+    async fn search_activities(
+        &self,
+        search: &ProviderActivitySearch,
+    ) -> AppResult<ProviderActivitySearchPage> {
+        let _ = search;
+        Err(context_unsupported(
+            self.name(),
+            "a filtered activity search",
+        ))
     }
 
     // ── Coach roster ─────────────────────────────────────────────────────
@@ -776,83 +800,6 @@ pub fn planned_workouts_unsupported(provider: &str) -> AppError {
     ))
 }
 
-/// The refusal of a segment-effort listing by a provider that has none.
-///
-/// Names the provider the way the athlete knows it, as
-/// [`planned_workouts_unsupported`] does. A caller reads it as "ask the
-/// stored details instead", never as a segment with no efforts.
-#[must_use]
-pub(crate) fn segment_effort_history_unsupported(provider: &str) -> AppError {
-    AppError::invalid_input(format!(
-        "{} does not list a segment's efforts",
-        user_facing_name(provider)
-    ))
-}
-
-/// The details key marking [`segment_listing_refused`], holding the status
-/// the provider answered.
-const SEGMENT_LISTING_REFUSED: &str = "segment_listing_refused";
-
-/// The provider's refusal to list this athlete a segment's efforts at all:
-/// Strava answers a `402` (or a `403`) to an athlete whose subscription does
-/// not cover the listing.
-///
-/// It is the athlete's, whatever segment was asked, so a caller may remember
-/// it and stop asking for a while ([`is_segment_listing_refused`]). It is
-/// deliberately not the generic external-service error every other status
-/// maps to: a `404` for a segment id the caller mistyped, a `5xx`, a request
-/// that could not be sent or an open circuit breaker says nothing of the
-/// athlete, and must not keep them off the listing.
-#[must_use]
-pub fn segment_listing_refused(provider: &str, status: u16) -> AppError {
-    let service = user_facing_name(provider);
-    let mut error = AppError::new(
-        ErrorCode::PermissionDenied,
-        format!("{service} refused to list this athlete's segment efforts"),
-    );
-    let mut details = serde_json::Map::new();
-    details.insert(
-        SEGMENT_LISTING_REFUSED.to_owned(),
-        serde_json::Value::from(status),
-    );
-    error.details = Some(Box::new(serde_json::Value::Object(details)));
-    error
-}
-
-/// Whether `error` is the provider refusing the athlete the segment-effort
-/// listing ([`segment_listing_refused`]), never any other failure of it.
-#[must_use]
-pub fn is_segment_listing_refused(error: &AppError) -> bool {
-    error.code == ErrorCode::PermissionDenied
-        && error
-            .details
-            .as_ref()
-            .is_some_and(|details| details.get(SEGMENT_LISTING_REFUSED).is_some())
-}
-
-/// The calendar days a segment's efforts are listed over, both included, in
-/// the athlete's own calendar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SegmentEffortWindow {
-    /// The first day listed.
-    pub from: NaiveDate,
-    /// The last day listed.
-    pub to: NaiveDate,
-}
-
-/// One effort on a segment, as a provider's listing of the athlete's efforts
-/// on it returns it: the effort, and the activity it was made in.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SegmentEffortHit {
-    /// The effort itself.
-    pub effort: SegmentEffort,
-    /// The provider's id of the activity the effort belongs to.
-    pub activity_id: String,
-    /// The sport the segment is for, when the provider names it: Strava names
-    /// the segment's sport (`Ride`, `Run`), not the activity's own.
-    pub activity_type: Option<SportType>,
-}
-
 /// The stream set of an activity its provider holds no samples for: zero
 /// samples on every channel.
 ///
@@ -874,6 +821,8 @@ pub const fn no_recorded_samples() -> TimeSeriesData {
         temperature: None,
         gps_coordinates: None,
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 
@@ -914,6 +863,8 @@ pub fn stream_sample_count(series: &TimeSeriesData) -> usize {
         series.temperature.as_ref().map(Vec::len),
         series.gps_coordinates.as_ref().map(Vec::len),
         series.distance.as_ref().map(Vec::len),
+        series.grade_smooth.as_ref().map(Vec::len),
+        series.moving.as_ref().map(Vec::len),
     ]
     .into_iter()
     .flatten()
@@ -939,32 +890,5 @@ pub trait ProviderFactory: Send + Sync {
     /// credential, or `None` when it cannot be read on anyone's behalf.
     fn delegated_reads(&self) -> Option<&dyn DelegatedReads> {
         None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use pierre_core::errors::ErrorCode;
-
-    use super::segment_effort_history_unsupported;
-
-    /// A provider that lists no segment's efforts says so under the name the
-    /// athlete knows it by, never a backend slug, so the caller falls back to
-    /// the stored details instead of reporting a segment never ridden.
-    #[test]
-    fn the_listing_refusal_names_the_service_the_athlete_connected() {
-        let refusal = segment_effort_history_unsupported("sciotte");
-        assert_eq!(
-            refusal.code,
-            ErrorCode::InvalidInput,
-            "bug: asking a provider that lists no efforts is the caller's misuse: {refusal}"
-        );
-        assert!(
-            refusal
-                .message
-                .contains("does not list a segment's efforts")
-                && !refusal.message.contains("sciotte"),
-            "bug: the refusal leaks the backend slug: {refusal}"
-        );
     }
 }

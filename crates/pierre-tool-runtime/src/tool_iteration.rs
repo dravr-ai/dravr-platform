@@ -226,8 +226,7 @@ pub(crate) fn requested_tools(response: &ChatResponseWithTools) -> Vec<String> {
     let written = response
         .content
         .as_deref()
-        .map(parse_lenient_tool_call_blocks)
-        .unwrap_or_default()
+        .map_or_default(parse_lenient_tool_call_blocks)
         .into_iter()
         .map(|call| call.name);
     structured.chain(written).collect()
@@ -369,8 +368,7 @@ impl CallFacts<'_> {
             response
                 .function_calls
                 .as_ref()
-                .map(|fcs| fcs.iter().map(|c| c.name.clone()).collect())
-                .unwrap_or_default()
+                .map_or_default(|fcs| fcs.iter().map(|c| c.name.clone()).collect())
         };
         emit_call_record(CallRecordInputs {
             recorder: self.params.call_recorder.as_ref(),

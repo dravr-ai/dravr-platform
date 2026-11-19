@@ -558,14 +558,13 @@ pub(crate) async fn reset_onboarding(
         let kept: Vec<String> = user
             .get("kept_on_onboarding_reset")
             .and_then(Value::as_array)
-            .map(|names| {
+            .map_or_default(|names| {
                 names
                     .iter()
                     .filter_map(Value::as_str)
                     .map(str::to_owned)
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         for entry in provider_entries(&body, "connected_providers") {
             if kept.contains(&field(&entry, "provider")) {
                 println!(
@@ -691,6 +690,74 @@ pub(crate) async fn set_user_manages_roster(
         .post_json(
             &format!("/admin/users/{user_id}/manages-roster"),
             &json!({ "manages_roster": manages_roster }),
+        )
+        .await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&body).unwrap_or_default()
+    );
+    Ok(())
+}
+
+/// The fields `user set` writes, each only when it was given.
+pub(crate) struct UserFields {
+    /// Tier: starter, professional or enterprise.
+    pub(crate) tier: Option<String>,
+    /// Grant or revoke the permission to coach a group.
+    pub(crate) manages_roster: Option<bool>,
+    /// `admin` or `user`.
+    pub(crate) role: Option<String>,
+    /// The note recorded on a tier override.
+    pub(crate) note: Option<String>,
+}
+
+/// Write every field of `fields` that was given to the account `user_id`:
+/// the role first, then the tier, then the group coach permission.
+///
+/// # Errors
+///
+/// Returns the first write's error; the writes after it are not sent.
+pub(crate) async fn set_user_fields(
+    client: &RemoteClient,
+    user_id: &str,
+    fields: &UserFields,
+) -> AppResult<()> {
+    if let Some(role) = &fields.role {
+        set_user_role(client, user_id, role).await?;
+    }
+    if let Some(tier) = &fields.tier {
+        set_user_tier(client, user_id, tier, fields.note.as_deref()).await?;
+    }
+    if let Some(manages_roster) = fields.manages_roster {
+        set_user_manages_roster(client, user_id, manages_roster).await?;
+    }
+    Ok(())
+}
+
+/// Make an account an admin, or a user again.
+///
+/// # Errors
+///
+/// Returns [`AppError::invalid_input`] for a role that is neither `admin` nor
+/// `user`, rejected here as well as server-side so a typo costs no round trip,
+/// and the client's error when the write fails, including the server's
+/// refusal of a token that is not super-admin, a self-demotion and the last
+/// active admin.
+pub(crate) async fn set_user_role(
+    client: &RemoteClient,
+    user_id: &str,
+    role: &str,
+) -> AppResult<()> {
+    let role = role.to_ascii_lowercase();
+    if !matches!(role.as_str(), "admin" | "user") {
+        return Err(AppError::invalid_input(format!(
+            "Unknown role '{role}': expected admin or user"
+        )));
+    }
+    let body: Value = client
+        .post_json(
+            &format!("/admin/users/{user_id}/role"),
+            &json!({ "role": role }),
         )
         .await?;
     println!(

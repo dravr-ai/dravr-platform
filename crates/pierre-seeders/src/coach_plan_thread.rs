@@ -17,8 +17,10 @@
 //!
 //! - a group named [`GROUP_NAME`], owned by the athlete — its one member, who
 //!   shares with its coach — and coached by the coach, who holds no
-//!   membership row, as a coach invite leaves them; the coach's group thread
-//!   is filed, which is how they reach Group info;
+//!   membership row, as a coach invite leaves them; the coach is granted
+//!   coach access first, which attaching one takes and the coaching gates
+//!   ask on every act; the coach's group thread is filed, which is how they
+//!   reach Group info;
 //! - the athlete's live season, aimed at [`LIVE_RACE`], with this week's
 //!   sessions built around [`LIVE_WORKOUT`];
 //! - the coach's thread about the athlete, opened as Group info opens it;
@@ -41,8 +43,9 @@
 //! pierre-cli seed coach-plan-thread
 //! ```
 
-use chrono::{Datelike, Days, NaiveDate};
+use chrono::{Days, NaiveDate};
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+use pierre_core::civil_time::monday_of;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::GroupRole;
 use pierre_core::models::{AddMessageParams, ConversationSubject};
@@ -136,6 +139,8 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
         return Ok(());
     }
 
+    // Attaching a coach takes coach access, and the gates below ask it again.
+    repos.users.set_manages_roster(coach.id, true).await?;
     let group = seed_coached_group(
         repos,
         &GROUP,
@@ -167,7 +172,7 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
         .await?
         .map_err(CoachedAthleteRefusal::into_error)?;
     let today = athlete_today(repos, athlete.id).await;
-    let week_start = today - Days::new(u64::from(today.weekday().num_days_from_monday()));
+    let week_start = monday_of(today);
     seed_live_season(repos, &access, &group.agent_id, today, week_start).await?;
 
     let thread = repos

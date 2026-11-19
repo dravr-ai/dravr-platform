@@ -22,7 +22,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use dravr_canot::channel::MessagingChannel;
-use dravr_canot::factory::create_adapter_from_config;
 use dravr_canot::rich_text::{parse_markdown, render_rich_text};
 use dravr_canot::turn::ConversationTurnId;
 use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
@@ -32,6 +31,8 @@ use pierre_database::backends::MessagingRepository;
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
+
+use crate::channel_adapters::ChannelAdapterFactory;
 
 /// Build a proactive text message: a fresh conversation turn with no reply or
 /// thread linkage.
@@ -204,6 +205,7 @@ pub async fn resolve_linked_targets(
 /// who only uses the app.
 pub async fn send_to_linked_channels<F>(
     messaging: &dyn MessagingRepository,
+    adapters: &dyn ChannelAdapterFactory,
     user_id: Uuid,
     body_for_locale: F,
 ) -> usize
@@ -222,7 +224,7 @@ where
         let channel_str = target.channel_type.to_string();
         let bot = (target.tenant_id, target.channel_type);
         if let Entry::Vacant(slot) = senders.entry(bot) {
-            let Some(sender) = resolve_target_sender(messaging, target).await else {
+            let Some(sender) = resolve_target_sender(messaging, adapters, target).await else {
                 continue;
             };
             slot.insert(sender);
@@ -250,13 +252,16 @@ where
 /// Resolve the adapter and config of the bot that posts into `target`'s chat.
 ///
 /// That is the bot the link's own tenant ([`LinkedChannelTarget::tenant_id`])
-/// holds on the link's channel. `None` (logged) when that bot is unconfigured
-/// or its config cannot be read.
+/// holds on the link's channel, built by `adapters`: the factory of the
+/// server context the send belongs to, so a proactive message leaves through
+/// what a webhook reply leaves through. `None` (logged) when that bot is
+/// unconfigured or its config cannot be read.
 ///
 /// The half of [`send_to_linked_channels`] that picks the sending bot, so the
 /// choice can be checked without posting to a channel host.
 pub async fn resolve_target_sender(
     messaging: &dyn MessagingRepository,
+    adapters: &dyn ChannelAdapterFactory,
     target: &LinkedChannelTarget,
 ) -> Option<(Arc<dyn MessagingChannel>, ChannelConfig)> {
     let channel_type = target.channel_type;
@@ -275,9 +280,15 @@ pub async fn resolve_target_sender(
             return None;
         }
     };
-    let adapter = create_adapter_from_config(channel_type, &raw_config)
+    let adapter = adapters
+        .build(channel_type, &raw_config)
         .inspect_err(|e| {
-            warn!(error = %e, channel = %channel_str, "Failed to build adapter for proactive send");
+            warn!(
+                error = %e,
+                channel = %channel_str,
+                tenant_id = %target.tenant_id,
+                "Failed to build adapter for proactive send"
+            );
         })
         .ok()?;
     let config: ChannelConfig = serde_json::from_value(raw_config)

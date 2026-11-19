@@ -394,6 +394,7 @@ mod roster_overview_tests {
                 "Noted.".to_owned()
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content,
                 model: TURN_MODEL.to_owned(),
                 usage: None,
@@ -692,7 +693,14 @@ mod roster_overview_tests {
             .unwrap();
 
         let payload = overview(&resources, &coach, json!({})).await;
-        assert_eq!(payload["reason"], "not_a_coach", "{payload:#}");
+        assert_eq!(payload["reason"], "no_coach_access", "{payload:#}");
+        assert!(
+            payload["error"]
+                .as_str()
+                .is_some_and(|error| error.starts_with("Your coach access is off")
+                    && error.contains("The Dravr team turns coach access on")),
+            "the refusal says the coach access is off and who turns it on: {payload:#}"
+        );
         assert!(
             payload.get("athletes").is_none(),
             "a withdrawn coach is named no athlete: {payload:#}"
@@ -807,6 +815,124 @@ mod roster_overview_tests {
         let payload = overview_in(&resources, &coach, club_thread.id).await;
         assert_eq!(payload["reason"], "not_this_groups_coach", "{payload:#}");
         assert!(payload.get("athletes").is_none());
+    }
+
+    /// carnet#1511: coach access being off is the answer for the caller's
+    /// own conversation and for the room of a group they are attached to,
+    /// and for no other place. In the room of a group someone else coaches,
+    /// and in a conversation not confirmed private to them, a coach whose
+    /// access was withdrawn is answered as a coach who holds it is: the
+    /// members who read that reply are not told about the caller's coach
+    /// access.
+    #[tokio::test]
+    async fn a_withdrawn_coach_is_answered_by_the_room_first() {
+        let resources = create_test_server_resources().await.unwrap();
+        let coach = seed_coach(&resources, "Coach Lina").await;
+        let mine = create_group(
+            &resources,
+            coach.tenant,
+            coach.agent,
+            "Track",
+            coach.user,
+            Some(coach.user),
+        )
+        .await;
+        let (alice, alice_tenant) = seed_athlete(&resources, "Alice").await;
+        add_member(&resources, mine, alice, alice_tenant, true).await;
+        // A group someone else coaches, which the caller belongs to as a
+        // plain member.
+        let other = seed_coach(&resources, "Coach Other").await;
+        let theirs = create_group(
+            &resources,
+            other.tenant,
+            other.agent,
+            "Club",
+            other.user,
+            Some(other.user),
+        )
+        .await;
+        add_member(&resources, theirs, coach.user, coach.tenant, true).await;
+
+        let chat = &resources.common.repos.chat;
+        let mut threads = Vec::new();
+        for group in [None, Some(mine), Some(theirs)] {
+            let group = group.map(|id| id.to_string());
+            let thread = chat
+                .create_conversation(
+                    &coach.user.to_string(),
+                    coach.tenant,
+                    "thread",
+                    "gemini-2.0-flash",
+                    None,
+                    group.as_deref(),
+                )
+                .await
+                .unwrap();
+            threads.push(thread.id);
+        }
+        let [own, track_room, club_room] = <[String; 3]>::try_from(threads).unwrap();
+
+        let answers = |label: &'static str| {
+            let (resources, coach) = (&resources, &coach);
+            let (own, track_room, club_room) = (own.clone(), track_room.clone(), club_room.clone());
+            async move {
+                let mut answers = Vec::new();
+                for (place, payload) in [
+                    ("own", overview_in(resources, coach, own.clone()).await),
+                    (
+                        "their room",
+                        overview_in(resources, coach, track_room).await,
+                    ),
+                    (
+                        "another room",
+                        overview_in(resources, coach, club_room).await,
+                    ),
+                    // The same conversation on a turn other people read.
+                    (
+                        "shared chat",
+                        overview_from_turn(resources, coach, own, false).await,
+                    ),
+                ] {
+                    let reason = payload["reason"].as_str().map_or_else(
+                        || format!("read {}", names(&payload).join(", ")),
+                        str::to_owned,
+                    );
+                    assert!(
+                        payload.get("athletes").is_none() || reason.starts_with("read"),
+                        "{label}, {place}: {payload:#}"
+                    );
+                    answers.push((place, reason));
+                }
+                answers
+            }
+        };
+        let expected = |own: &str, room: &str| {
+            [
+                ("own", own.to_owned()),
+                ("their room", room.to_owned()),
+                ("another room", "not_this_groups_coach".to_owned()),
+                ("shared chat", "room_unresolved".to_owned()),
+            ]
+        };
+        assert_eq!(
+            answers("access on").await,
+            expected("read Alice", "read Alice"),
+            "test setup bug: a coach who holds coach access reads their group and no other"
+        );
+
+        resources
+            .common
+            .repos
+            .users
+            .set_manages_roster(coach.user, false)
+            .await
+            .unwrap();
+        assert_eq!(
+            answers("access off").await,
+            expected("no_coach_access", "no_coach_access"),
+            "bug: a room the caller is not the coach of, or a chat other people read, is \
+             told their coach access is off"
+        );
     }
 
     /// A conversation the caller cannot resolve — a messaging room filed under

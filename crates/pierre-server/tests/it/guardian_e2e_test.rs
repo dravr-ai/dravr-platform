@@ -312,7 +312,7 @@ async fn a_blocked_call_in_a_chat_batch_is_reported_as_never_run() {
     );
 }
 
-/// The MCP annotation a super admin reads and the label the Guardian enforces say
+/// The MCP annotation an admin reads and the label the Guardian enforces say
 /// the same thing about every registered tool, in both directions. A tool
 /// annotated destructive but unlabelled escapes the per-turn cap; one labelled
 /// irreversible but annotated otherwise tells a client it is safe to run without
@@ -431,6 +431,7 @@ impl LlmProvider for AnswersPlainly {
     }
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
         Ok(ChatResponse {
+            replay_blocks: None,
             content: "the agent's answer".to_owned(),
             model: "plain-model".to_owned(),
             usage: None,
@@ -590,14 +591,11 @@ struct NeverAnswers {
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for NeverAnswers {
     fn definition(&self) -> McpToolDefinition {
-        McpToolDefinition {
-            name: "never_answers".to_owned(),
-            description: "Starts, then never answers".to_owned(),
-            input_schema: json!({ "type": "object" }),
-            annotations: None,
-            output_schema: None,
-            execution: None,
-        }
+        McpToolDefinition::new(
+            "never_answers",
+            "Starts, then never answers",
+            json!({ "type": "object" }),
+        )
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -702,14 +700,11 @@ struct ReturnsAFailure;
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for ReturnsAFailure {
     fn definition(&self) -> McpToolDefinition {
-        McpToolDefinition {
-            name: "returns_a_failure".to_owned(),
-            description: "Runs and reports a failure".to_owned(),
-            input_schema: json!({ "type": "object" }),
-            annotations: None,
-            output_schema: None,
-            execution: None,
-        }
+        McpToolDefinition::new(
+            "returns_a_failure",
+            "Runs and reports a failure",
+            json!({ "type": "object" }),
+        )
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -770,14 +765,11 @@ struct CommitsAnAction;
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for CommitsAnAction {
     fn definition(&self) -> McpToolDefinition {
-        McpToolDefinition {
-            name: "commits_an_action".to_owned(),
-            description: "Runs and reports success".to_owned(),
-            input_schema: json!({ "type": "object" }),
-            annotations: None,
-            output_schema: None,
-            execution: None,
-        }
+        McpToolDefinition::new(
+            "commits_an_action",
+            "Runs and reports success",
+            json!({ "type": "object" }),
+        )
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -897,7 +889,7 @@ async fn three_irreversible_calls_commit_and_the_fourth_is_denied() {
 /// carnet#1492 (superseding carnet#1403's "separate step"): the writing plan
 /// tools' own descriptions, on every surface that lists them, say the write
 /// puts the plan on the calendar and point at the reply's `calendar_push`, and
-/// none repeats a budget a super admin can change.
+/// none repeats a budget an admin can change.
 #[tokio::test]
 async fn the_plan_writes_say_they_push_and_where_the_reply_says_so() {
     common::init_server_config();

@@ -317,7 +317,7 @@ async fn test_oauth_flow_through_mcp() {
             database,
             auth_manager,
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -330,6 +330,8 @@ async fn test_oauth_flow_through_mcp() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -421,7 +423,6 @@ async fn test_oauth_callback_error_handling() {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -472,7 +473,6 @@ async fn test_oauth_callback_error_handling() {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -633,7 +633,7 @@ async fn test_oauth_callback_error_handling() {
             database.clone(),
             auth_manager,
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -646,6 +646,8 @@ async fn test_oauth_callback_error_handling() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -748,7 +750,6 @@ async fn test_oauth_state_csrf_protection() {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -945,7 +946,7 @@ async fn test_oauth_state_csrf_protection() {
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -958,6 +959,8 @@ async fn test_oauth_state_csrf_protection() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -1113,7 +1116,7 @@ async fn test_connection_status_tracking() {
             database.clone(),
             auth_manager,
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1126,6 +1129,8 @@ async fn test_connection_status_tracking() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await

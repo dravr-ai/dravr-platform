@@ -29,7 +29,9 @@ use serde::Serialize;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::admin_ops::{create_default_mcp_token_for_user, transition_user_status};
+use crate::admin_ops::{
+    activate_pending_sign_up, create_default_mcp_token_for_user, AccountCaller, ActingOn,
+};
 use crate::auth::AuthService;
 use crate::invitation;
 
@@ -198,49 +200,62 @@ pub struct AllowedEmail {
 /// exactly as `user approve` would, default MCP token included; an active
 /// account is a no-op; a suspended account is left untouched, because
 /// suspension is a deliberate operator act reversed explicitly, never as a
-/// side effect of allowing an address.
+/// side effect of allowing an address. That holds for an account suspended
+/// while the allow is being recorded too ([`approve_pending`]).
+///
+/// `caller` is who allows the address; the allow is recorded against
+/// [`AccountCaller::recorded_as`]. Approving a pending account is acting on
+/// it, so a pending admin's address takes the caller approving that admin
+/// by id takes ([`AccountCaller::acting_on`]). The account is read, and
+/// that rule applied, before the address is checked for its form, so an
+/// address is refused for the account it names before anything else. An
+/// address with no account, or whose account is not pending, changes no
+/// account and is any caller's to allow.
 ///
 /// # Errors
 ///
-/// Returns [`AppError::invalid_input`] for a malformed address, or the
-/// repository's error when a lookup, the insert, or the status transition
-/// fails.
+/// Returns a permission error for a pending admin's address and a caller
+/// that may not act on an admin account, [`AppError::invalid_input`] for a
+/// malformed address or an account whose standing changed twice under the
+/// allow, or the repository's error when a lookup, the insert, or the
+/// status write fails.
 pub async fn allow(
     repos: &RepositoryRegistry,
+    caller: &AccountCaller,
     email: &str,
-    allowed_by: Option<Uuid>,
     note: Option<&str>,
 ) -> AppResult<AllowResult> {
+    // SECURITY: Global lookup — an allow names an address, which is in no tenant
+    let account = repos.users.get_by_email(&normalize_email(email)).await?;
+    let (pending, decided) = match account {
+        Some(user) if user.user_status == UserStatus::Pending => {
+            (Some(caller.acting_on(user)?), None)
+        }
+        Some(user) if user.user_status == UserStatus::Active => {
+            (None, Some(AllowOutcome::AlreadyActive))
+        }
+        Some(_) => (None, Some(AllowOutcome::SuspendedUnchanged)),
+        None => (None, None),
+    };
     let email = valid_email(email)?;
 
-    if let Some(user) = repos.users.get_by_email(&email).await? {
-        let (outcome, approved_user) = match user.user_status {
-            UserStatus::Active => (AllowOutcome::AlreadyActive, None),
-            UserStatus::Suspended => (AllowOutcome::SuspendedUnchanged, None),
-            UserStatus::Pending => {
-                transition_user_status(repos, user.id, UserStatus::Active, allowed_by).await?;
-                create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), user.id).await;
-                info!(
-                    target_user_id = %user.id,
-                    "Pending user approved via pre-approval allow"
-                );
-                (
-                    AllowOutcome::PendingApproved,
-                    Some(ApprovedUser {
-                        id: user.id,
-                        email: user.email.clone(),
-                        display_name: user.display_name.clone(),
-                    }),
-                )
-            }
-        };
+    if let Some(acting) = pending {
+        let (outcome, approved_user) = approve_pending(repos, &acting).await?;
         return Ok(AllowResult {
             email,
             outcome,
             approved_user,
         });
     }
+    if let Some(outcome) = decided {
+        return Ok(AllowResult {
+            email,
+            outcome,
+            approved_user: None,
+        });
+    }
 
+    let allowed_by = caller.recorded_as();
     let added = repos
         .pre_approved_emails
         .allow(&email, allowed_by, note)
@@ -257,6 +272,45 @@ pub async fn allow(
         },
         approved_user: None,
     })
+}
+
+/// Approve the account `acting` names, which the allow read as pending:
+/// what the allow did, and the account to announce when it approved one.
+///
+/// The approval lands only while the account is still pending
+/// ([`activate_pending_sign_up`]). An admin who decided the sign-up between
+/// the allow's read and this write has the last word: the allow answers
+/// what it would have answered had it read the account then, announces
+/// nobody and provisions nothing.
+async fn approve_pending(
+    repos: &RepositoryRegistry,
+    acting: &ActingOn<'_>,
+) -> AppResult<(AllowOutcome, Option<ApprovedUser>)> {
+    let user = acting.account();
+    let activation = activate_pending_sign_up(repos, acting).await?;
+    if !activation.activated {
+        return match activation.user.user_status {
+            UserStatus::Active => Ok((AllowOutcome::AlreadyActive, None)),
+            UserStatus::Suspended => Ok((AllowOutcome::SuspendedUnchanged, None)),
+            UserStatus::Pending => Err(AppError::invalid_input(
+                "This account's standing changed while the allow was recorded. Nothing was \
+                 changed; allow the address again.",
+            )),
+        };
+    }
+    create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), user.id).await;
+    info!(
+        target_user_id = %user.id,
+        "Pending user approved via pre-approval allow"
+    );
+    Ok((
+        AllowOutcome::PendingApproved,
+        Some(ApprovedUser {
+            id: user.id,
+            email: user.email.clone(),
+            display_name: user.display_name.clone(),
+        }),
+    ))
 }
 
 /// Remove a standing pre-approval, and revoke the invitation link sent with it.

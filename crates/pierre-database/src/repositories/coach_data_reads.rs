@@ -22,6 +22,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use pierre_core::transport::{Transport, UNDECLARED_TRANSPORT};
 use uuid::Uuid;
 
 /// Which kind of the athlete's data a coach's read reached.
@@ -93,11 +94,14 @@ pub enum CoachReadSurface {
     /// The coach's copy of the group's weekly digest. Recorded at most once a
     /// day.
     WeeklyDigest,
+    /// Group info's view of the athlete's thresholds, where the coach also
+    /// sets one (`GET`/`PUT /api/chat/athletes/{id}/physiology`, carnet#1561).
+    PhysiologyView,
 }
 
 impl CoachReadSurface {
     /// Every surface, for a caller that maps each to its words.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::PlanView,
         Self::PlanCommand,
         Self::Roster,
@@ -107,6 +111,7 @@ impl CoachReadSurface {
         Self::GroupReport,
         Self::GroupHealth,
         Self::WeeklyDigest,
+        Self::PhysiologyView,
     ];
 
     /// The label the `tool_name` column stores for a read made here.
@@ -122,6 +127,7 @@ impl CoachReadSurface {
             Self::GroupReport => "group_report",
             Self::GroupHealth => "group_health",
             Self::WeeklyDigest => "weekly_digest",
+            Self::PhysiologyView => "physiology_view",
         }
     }
 
@@ -152,6 +158,12 @@ pub struct NewCoachDataRead<'read> {
     pub class: CoachReadClass,
     /// When the coach read it.
     pub read_at: DateTime<Utc>,
+    /// The transport the read was served over: an external one when the
+    /// coach's outside assistant (an MCP client, an A2A agent, an API key)
+    /// received the data, a first-party one for Dravr's own surfaces.
+    /// `None` when the read declared no transport, which is stored under its
+    /// own label ([`UNDECLARED_TRANSPORT`]).
+    pub transport: Option<Transport>,
 }
 
 /// One recorded read, as the athlete lists it.
@@ -167,6 +179,50 @@ pub struct CoachDataRead {
     pub class: CoachReadClass,
     /// When the coach read it.
     pub read_at: DateTime<Utc>,
+    /// What the row says the read was served over.
+    pub transport: RecordedTransport,
+}
+
+/// What a recorded read says it was served over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordedTransport {
+    /// The transport the read declared.
+    Served(Transport),
+    /// The read declared no transport.
+    Undeclared,
+    /// The read was recorded before the transport was.
+    NotRecorded,
+}
+
+impl RecordedTransport {
+    /// Whether the read was served to a client outside Dravr's own surfaces —
+    /// the coach's outside assistant over MCP, A2A or an API key — so the
+    /// company running it received the data. Only a declared external
+    /// transport says so; an undeclared read and one recorded before the
+    /// transport was are not marked, as nothing shows where they went.
+    #[must_use]
+    pub const fn served_to_outside_client(self) -> bool {
+        matches!(self, Self::Served(transport) if !transport.is_first_party())
+    }
+}
+
+/// What a stored `transport` says a read was served over.
+///
+/// # Errors
+///
+/// Returns a database error for a label no transport stores.
+pub(crate) fn parse_transport(stored: Option<&str>) -> AppResult<RecordedTransport> {
+    match stored {
+        None => Ok(RecordedTransport::NotRecorded),
+        Some(UNDECLARED_TRANSPORT) => Ok(RecordedTransport::Undeclared),
+        Some(label) => Transport::of_label(label)
+            .map(RecordedTransport::Served)
+            .ok_or_else(|| {
+                AppError::database(format!(
+                    "coach_data_reads.transport holds an unknown transport {label:?}"
+                ))
+            }),
+    }
 }
 
 /// Record and list the athlete's record of their coach's reads.
@@ -206,6 +262,10 @@ pub trait CoachDataReadRepository: Send + Sync {
 /// ids bind through the backend's uuid codec (see [`super::uuid_columns`]);
 /// the tenant, group and day are `TEXT` on both.
 ///
+/// `$10` is the transport the read was served over ([`Transport::label_of`]:
+/// [`UNDECLARED_TRANSPORT`] when it declared none). `NULL` is left to the
+/// rows recorded before the column.
+///
 /// `$9`, the `read_day`, is the UTC day of a read recorded once a day and
 /// `NULL` for one recorded each time. The conflict target is the unique
 /// index `idx_coach_data_reads_daily`, which holds the day: a repeat that day
@@ -214,8 +274,8 @@ pub trait CoachDataReadRepository: Send + Sync {
 pub(crate) const RECORD_COACH_READ_SQL: &str = r"
             INSERT INTO coach_data_reads
                 (id, tenant_id, user_id, coach_user_id, group_id, tool_name, data_class, read_at,
-                 read_day)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                 read_day, transport)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (tenant_id, user_id, coach_user_id, group_id, tool_name, data_class, read_day)
             DO NOTHING
             ";
@@ -228,7 +288,7 @@ pub(crate) fn read_day(read: &NewCoachDataRead<'_>) -> String {
 
 /// The athlete's reads in one group under their tenant, newest first.
 pub(crate) const LIST_COACH_READS_SQL: &str = r"
-            SELECT coach_user_id, group_id, tool_name, data_class, read_at
+            SELECT coach_user_id, group_id, tool_name, data_class, read_at, transport
             FROM coach_data_reads
             WHERE tenant_id = $1 AND user_id = $2 AND group_id = $3
             ORDER BY read_at DESC
@@ -268,6 +328,7 @@ macro_rules! impl_coach_data_read_repository {
                     .bind(read.class.as_str())
                     .bind(read.read_at)
                     .bind(None::<String>)
+                    .bind(Transport::label_of(read.transport))
                     .execute(self.pool())
                     .await
                     .map_err(|e| coach_read_error("record", e))?;
@@ -288,6 +349,7 @@ macro_rules! impl_coach_data_read_repository {
                     .bind(read.class.as_str())
                     .bind(read.read_at)
                     .bind(Some(read_day(read)))
+                    .bind(Transport::label_of(read.transport))
                     .execute(self.pool())
                     .await
                     .map_err(|e| coach_read_error("record", e))?;
@@ -317,6 +379,9 @@ macro_rules! impl_coach_data_read_repository {
                         let class: String = row
                             .try_get("data_class")
                             .map_err(|e| coach_read_error("decode", e))?;
+                        let transport: Option<String> = row
+                            .try_get("transport")
+                            .map_err(|e| coach_read_error("decode", e))?;
                         Ok(CoachDataRead {
                             coach: $ids::read_opt(row, "coach_user_id")?,
                             group: Uuid::parse_str(&group)
@@ -328,6 +393,7 @@ macro_rules! impl_coach_data_read_repository {
                             read_at: row
                                 .try_get("read_at")
                                 .map_err(|e| coach_read_error("decode", e))?,
+                            transport: parse_transport(transport.as_deref())?,
                         })
                     })
                     .collect()
@@ -378,6 +444,25 @@ mod tests {
             CoachReadSurface::of_label("get_activities"),
             None,
             "bug: a tool name is no surface"
+        );
+    }
+
+    #[test]
+    fn only_a_read_served_over_an_external_transport_is_marked_as_outside() {
+        for transport in Transport::ALL {
+            assert_eq!(
+                RecordedTransport::Served(transport).served_to_outside_client(),
+                !transport.is_first_party(),
+                "bug: {transport:?} is marked by its class"
+            );
+        }
+        assert!(
+            !RecordedTransport::Undeclared.served_to_outside_client(),
+            "bug: an undeclared read shows nowhere it went"
+        );
+        assert!(
+            !RecordedTransport::NotRecorded.served_to_outside_client(),
+            "bug: a read from before the column shows nowhere it went"
         );
     }
 }

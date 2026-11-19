@@ -100,7 +100,10 @@ async fn admin_bearer(resources: &Arc<ServerContext>) -> String {
                 service_description: None,
                 permissions: Some(vec![AdminPermission::ManageUsers]),
                 expires_in_days: Some(1),
-                is_super_admin: false,
+                // A sign-up is approved by a caller that reaches every
+                // tenant: one bound to none without the flag reaches no
+                // account (carnet#1589).
+                is_super_admin: true,
                 tenant_id: None,
                 operator_user_id: None,
             },

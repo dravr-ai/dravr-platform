@@ -26,8 +26,9 @@
 
 use tracing::info;
 
-use pierre_tool_runtime::read_subject::DataClass;
 use pierre_tool_runtime::registry::ToolRegistry;
+
+use super::tool_data;
 
 /// Register all built-in tools based on feature flags.
 ///
@@ -131,6 +132,8 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-memory")]
     register_calendar_preference_tools(registry);
     #[cfg(feature = "tools-memory")]
+    register_place_tools(registry);
+    #[cfg(feature = "tools-memory")]
     register_training_plan_publish_tools(registry);
 
     // Coaching playbook GDPR/transparency tools (list / forget)
@@ -145,109 +148,9 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-verification")]
     register_verification_tools(registry);
 
-    declare_data_classes(registry);
+    tool_data::declare_tool_data(registry);
 
     info!("Registered {} built-in tools", registry.len());
-}
-
-/// What the tools registered above read, beside their categories
-/// (carnet#1387).
-///
-/// A training-class tool reads a coached athlete's training when a call names
-/// one: the athlete of a coach's thread about them, or `athlete=` over MCP
-/// and A2A. A wellness-class tool reads their wellness the same two ways,
-/// under their `coach_wellness_read` too. A tool that reads no person's data
-/// stays callable in that thread. A tool that reads data and is declared here
-/// under none of them reads only its caller's own, and the thread withholds
-/// it.
-const DATA_CLASSES: &[(&str, DataClass)] = &[
-    // The daily load history and the activities it is computed from, each
-    // session's detail and streams.
-    ("get_training_history", DataClass::Training),
-    ("analyze_training_load", DataClass::Training),
-    ("calculate_fitness_score", DataClass::Training),
-    ("get_activities", DataClass::Training),
-    ("analyze_activity", DataClass::Training),
-    ("get_activity_intelligence", DataClass::Training),
-    ("extract_activity_streams", DataClass::Training),
-    ("export_intervals", DataClass::Training),
-    ("export_routes", DataClass::Training),
-    ("calculate_metrics", DataClass::Training),
-    ("compare_activities", DataClass::Training),
-    ("analyze_weather_impact", DataClass::Training),
-    ("export_latest_snapshot", DataClass::Training),
-    // One segment's efforts across the sessions, read from their details or
-    // the provider's live listing.
-    ("get_segment_history", DataClass::Training),
-    // Trends, best efforts, predictions and the advice derived from the
-    // sessions; a mode that would read the athlete's wellness is refused on a
-    // coach's read.
-    ("analyze_performance_trends", DataClass::Training),
-    ("detect_patterns", DataClass::Training),
-    ("predict_performance", DataClass::Training),
-    ("generate_recommendations", DataClass::Training),
-    // Goals and the progress toward them.
-    ("suggest_goals", DataClass::Training),
-    ("track_progress", DataClass::Training),
-    ("analyze_goal_feasibility", DataClass::Training),
-    // Training physiology, the estimates read against it, and the zones and
-    // configuration it sets; the wellness fields of the physiology show only
-    // where a wellness read could.
-    ("estimate_vo2max", DataClass::Training),
-    ("estimate_lactate_thresholds", DataClass::Training),
-    ("calculate_personalized_zones", DataClass::Training),
-    ("get_user_configuration", DataClass::Training),
-    // The athlete's provider profile and totals, their connected sources and
-    // how fresh each is.
-    ("get_athlete", DataClass::Training),
-    ("get_stats", DataClass::Training),
-    ("list_data_sources", DataClass::Training),
-    ("get_data_freshness", DataClass::Training),
-    // The athlete's wellness: the sleep, recovery and readiness, health
-    // snapshots and intraday heart rate their sources sync, and what is
-    // derived from them.
-    ("get_sleep_sessions", DataClass::Wellness),
-    ("get_recovery_metrics", DataClass::Wellness),
-    ("get_health_snapshots", DataClass::Wellness),
-    ("get_heart_rate_series", DataClass::Wellness),
-    ("analyze_sleep_quality", DataClass::Wellness),
-    ("calculate_recovery_score", DataClass::Wellness),
-    ("suggest_rest_day", DataClass::Wellness),
-    ("track_sleep_trends", DataClass::Wellness),
-    ("optimize_sleep_schedule", DataClass::Wellness),
-    // Nutrition targets, which the athlete's medical flag governs.
-    ("calculate_daily_nutrition", DataClass::Wellness),
-    ("get_nutrient_timing", DataClass::Wellness),
-    // Route and weather lookups: OpenStreetMap and forecast data, cached for
-    // the caller's own next call.
-    ("discover_routes", DataClass::NoSubject),
-    ("compose_route", DataClass::NoSubject),
-    ("get_weather_forecast", DataClass::NoSubject),
-    // The caller's own catalogue of workouts and agents, not anyone's
-    // training: what a coach prescribes from.
-    ("list_workout_templates", DataClass::NoSubject),
-    ("browse_agent_store", DataClass::NoSubject),
-    ("search_agent_store", DataClass::NoSubject),
-    // Food references and pure calculators.
-    ("search_food", DataClass::NoSubject),
-    ("get_food_details", DataClass::NoSubject),
-    ("analyze_meal_nutrition", DataClass::NoSubject),
-    ("get_recipe_constraints", DataClass::NoSubject),
-    ("validate_recipe", DataClass::NoSubject),
-    // The shared stretching and yoga references.
-    ("get_stretching_exercise", DataClass::NoSubject),
-    ("get_yoga_pose", DataClass::NoSubject),
-    ("list_stretching_exercises", DataClass::NoSubject),
-    ("list_yoga_poses", DataClass::NoSubject),
-    ("suggest_stretches_for_activity", DataClass::NoSubject),
-    ("suggest_yoga_sequence", DataClass::NoSubject),
-];
-
-/// Declare [`DATA_CLASSES`] on the tools this build registered.
-fn declare_data_classes(registry: &mut ToolRegistry) {
-    for (tool, class) in DATA_CLASSES {
-        registry.declare_data_class(tool, *class);
-    }
 }
 
 /// Register Tier 3 agent-authored memory tools.
@@ -328,6 +231,27 @@ fn register_calendar_preference_tools(registry: &mut ToolRegistry) {
 
     info!(
         "Registered preferred-calendar tools (registry now has {} tools)",
+        registry.len()
+    );
+}
+
+/// Register the place-naming tool (`name_place`).
+///
+/// Chat-callable (category `memory`, beside the other athlete-authored
+/// writes): the athlete names the place a row serves, or the start of an
+/// activity, on every transport (carnet#1484). In no data class: it acts for
+/// the caller only, so a coach's thread about an athlete withholds it.
+#[cfg(feature = "tools-memory")]
+fn register_place_tools(registry: &mut ToolRegistry) {
+    use pierre_tool_runtime::implementations::places::create_place_tools;
+    use std::sync::Arc;
+
+    for tool in create_place_tools() {
+        registry.register_with_category(Arc::from(tool), "memory");
+    }
+
+    info!(
+        "Registered place tools (registry now has {} tools)",
         registry.len()
     );
 }

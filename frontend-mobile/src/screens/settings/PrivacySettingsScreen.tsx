@@ -1,11 +1,11 @@
-// ABOUTME: Privacy settings screen — analytics consent (GDPR), each provider's AI consent and account deletion, as on web
+// ABOUTME: Privacy settings screen — analytics consent (GDPR), each provider's AI consent, data export, access requests and account deletion, as on web
 // ABOUTME: Optimistic switch that writes through userApi.updateAnalyticsConsent and reverts when the write fails
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 import React, { useState, useEffect } from 'react';
 import { View, Text, Switch, Alert } from 'react-native';
-import { PaneScrollView, Section } from '../../components/ui';
+import { PaneScrollView, Section, switchColors } from '../../components/ui';
 import { useMutation } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import { spacing, useThemeColors } from '../../constants/theme';
@@ -15,6 +15,7 @@ import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 import { AccountDeletionSection } from './AccountDeletionSection';
 import { DataExportSection } from './DataExportSection';
+import { DataAccessRequestsSection } from './dataAccess/DataAccessRequestsSection';
 import { AiConsentSection } from './AiConsentSection';
 
 // Same lists the web Privacy & Data tab shows, so the two surfaces cannot
@@ -32,9 +33,10 @@ const NEVER_COLLECTED_KEYS = [
 ] as const;
 
 /**
- * Five sections separated by space, not by cards: the consent switch as the
+ * Six sections separated by space, not by cards: the consent switch as the
  * first section's action, the two promise lists as glyph-led lines
- * (DESIGN.md §10), then the data export and account deletion last.
+ * (DESIGN.md §10), then the data export, the access requests to a company,
+ * and account deletion last.
  */
 export function PrivacySettingsScreen(): React.JSX.Element {
   const { t } = useTranslation();
@@ -90,7 +92,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
                 testID="analytics-consent-switch"
                 value={analyticsConsent}
                 onValueChange={handleToggle}
-                trackColor={{ false: colors.border.default, true: colors.tokens.primary }}
+                {...switchColors(colors.tokens, analyticsConsent)}
                 disabled={consentMutation.isPending}
               />
             }
@@ -122,6 +124,8 @@ export function PrivacySettingsScreen(): React.JSX.Element {
           </Section>
 
           <DataExportSection />
+
+          <DataAccessRequestsSection />
 
           <AccountDeletionSection />
         </View>

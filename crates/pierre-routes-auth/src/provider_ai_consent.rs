@@ -49,6 +49,13 @@ pub(crate) async fn handle_grant_ai_consent(
         .auth_middleware
         .authenticate_request_with_headers(&headers)
         .await?;
+    // A consent is the athlete's to give; an admin's support session may
+    // withdraw one, never give it (carnet#1634).
+    auth.refuse_impersonation(
+        resources.repos.admin_audit.as_ref(),
+        "give consent to AI use of a provider's data",
+    )
+    .await?;
     let tenant_id = auth
         .active_tenant_id
         .ok_or_else(|| AppError::invalid_input("No active tenant for this session"))?;

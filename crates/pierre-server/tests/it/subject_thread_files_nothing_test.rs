@@ -39,6 +39,7 @@
 use crate::common;
 use crate::helpers;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_test_support::delegation::grant_coach_access;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -371,6 +372,7 @@ impl LlmProvider for ScriptedModel {
             }
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: MODEL.to_owned(),
             usage: None,
@@ -601,6 +603,7 @@ impl Fixture {
     async fn room(&self) -> Room {
         let repos = self.repos();
         let now = Utc::now();
+        grant_coach_access(repos, self.coach.id).await.unwrap();
         let group = repos
             .groups
             .create_group(
@@ -942,6 +945,7 @@ async fn coached_group(
         )
         .await
         .unwrap();
+    grant_coach_access(repos, coach.id).await.unwrap();
     assert!(repos
         .groups
         .set_group_coach_user(&group.id.to_string(), Some(coach.id), owner.tenant)

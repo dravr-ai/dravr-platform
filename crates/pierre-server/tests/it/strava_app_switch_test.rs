@@ -18,7 +18,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use crate::common;
+use crate::common::{self, acting_on};
 use pierre_config::environment::ProviderEndpointOverride;
 use secrecy::ExposeSecret;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -53,7 +53,7 @@ use pierre_core::models::{
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::backends::factory::DatabaseBackend;
-use pierre_database::repositories::{athlete_marker, DeletionActor};
+use pierre_database::repositories::athlete_marker;
 use pierre_database::RepositoryRegistry;
 #[cfg(feature = "client-chat")]
 use pierre_llm::ChatMessage;
@@ -63,6 +63,7 @@ use pierre_mcp_server::services::health_sync_refresher::install_health_sync_refr
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_routes_auth::AuthRoutes;
 use pierre_runtime_context::IdentityCtx;
+use pierre_services::admin_ops::AccountCaller;
 use pierre_services::import_tombstones::{clear_for_account, refused_tombstone_id};
 use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use pierre_services::oauth_redirects::oauth_failure_url;
@@ -2014,13 +2015,60 @@ async fn an_unreadable_token_row_is_an_error_and_flags_nothing() {
     );
 }
 
-/// An expired token of a provider whose refresh endpoint this service does not
-/// call has nothing a refresh here can renew: the lookup reports no usable
-/// token, so the athlete is asked to reconnect, rather than an error saying a
-/// later request retries a refresh that is never attempted.
+/// A Garmin token endpoint that refuses every refresh as Garmin refuses a
+/// dead grant, and how many refreshes it was asked for.
+async fn garmin_auth_refusing_every_grant() -> (String, Arc<AtomicUsize>) {
+    let asked = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&asked);
+    let app = Router::new().route(
+        "/di-oauth2-service/oauth/token",
+        post(move || {
+            let counter = Arc::clone(&counter);
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "invalid_grant",
+                        "error_description": "refresh token is invalid or expired"
+                    })),
+                )
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (
+        format!("http://{addr}/di-oauth2-service/oauth/token"),
+        asked,
+    )
+}
+
+/// An expired token no refresh here renews: the provider refuses the refresh
+/// grant, so the lookup reports no usable token and the athlete is asked to
+/// reconnect, rather than an error saying a later request retries a refresh
+/// that cannot succeed.
+///
+/// The refusal is a stand-in's. This test used to pass only because the real
+/// `diauth.garmin.com` refused the fixture refresh token (carnet#1615).
 #[tokio::test]
 async fn an_expired_token_no_refresh_here_renews_asks_for_a_reconnect() {
-    let resources = common::create_test_server_resources().await.unwrap();
+    let (token_url, refreshes) = garmin_auth_refusing_every_grant().await;
+    let mut config = common::test_server_config();
+    common::set_provider_endpoints(
+        &mut config,
+        "garmin",
+        ProviderEndpointOverride {
+            token_url: Some(token_url),
+            ..ProviderEndpointOverride::default()
+        },
+    );
+    let resources = common::create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
     let (user_id, tenant) = athlete(&resources, "no-refresh-endpoint").await;
     let token = UserOAuthToken::new(
         user_id,
@@ -2044,6 +2092,11 @@ async fn an_expired_token_no_refresh_here_renews_asks_for_a_reconnect() {
         .await;
 
     assert!(matches!(lookup, Ok(None)), "{lookup:?}");
+    assert_eq!(
+        refreshes.load(Ordering::SeqCst),
+        1,
+        "the refusal read is the stand-in's, asked once"
+    );
 }
 
 /// An athlete holds a live grant on a pool app in one tenant and a dead token
@@ -2275,8 +2328,7 @@ async fn a_strava_account_of_a_deleted_account_is_refused_until_cleared() {
         Some(&service),
         None,
         Some(resources.data().cache().as_ref()),
-        deleted,
-        DeletionActor::Athlete,
+        &acting_on(repos, &AccountCaller::account_holder(deleted), deleted).await,
     )
     .await
     .unwrap() else {

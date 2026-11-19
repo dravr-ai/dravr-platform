@@ -153,6 +153,12 @@ jobs:
     secrets: inherit
     with:
       service: sciotte
+      # sciotte runs as several services on the one sciotte image — the read
+      # service, extra read services and the sign-in service, all labelled
+      # component=sciotte by terraform (carnet#1504) — and every one of them
+      # moves with this deploy, so none is left serving an older image.
+      image_name: sciotte
+      also_label: component=sciotte
       image: ${{ needs.image.outputs.image }}
       digest: ${{ needs.image.outputs.digest }}
       probe_audience: dravr-sciotte-development

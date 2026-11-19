@@ -148,27 +148,59 @@
     @apply btn-base bg-error text-on-error hover:bg-error-container hover:text-on-error-container;
   }
 
+  /* An affirmative state action — approve, reactivate — in the success hue,
+     never a pillar hue (a pillar marks a category). Raw declarations so
+     Button.test.tsx can read and measure them: white on success is 5.0:1 in
+     light, the dark ink 6.26:1 in dark. Hover moves to the success ink, which
+     is deeper in light and lighter in dark, so the label's contrast grows
+     either way; a translucent `activity/80` hover under white ink reads 3.5:1
+     in light. */
   .btn-success {
-    @apply btn-base bg-primary text-on-primary hover:bg-primary-container;
+    @apply btn-base disabled:opacity-50 disabled:cursor-not-allowed;
+    background: rgb(var(--color-success));
+    color: rgb(var(--color-on-primary));
+  }
+
+  .btn-success:hover {
+    background: rgb(var(--color-on-success-container));
+    color: rgb(var(--color-on-primary));
+  }
+
+  /* A quiet destructive action — revoke, suspend, reject, remove — in the
+     outline shape, edged in the error hue. Its label takes the error
+     container ink at rest and on hover: the bare `error` reads 4.13:1 on its
+     own /10 hover tint over surface-container in light and 4.10:1 at rest on
+     the top tier (Button.test.tsx measures both). */
+  .btn-danger-outline {
+    @apply btn-base disabled:opacity-50 disabled:cursor-not-allowed;
+    background: transparent;
+    color: rgb(var(--color-on-error-container));
+    box-shadow: inset 0 0 0 1px rgb(var(--color-error) / 0.3);
+  }
+
+  .btn-danger-outline:hover {
+    background: rgb(var(--color-error) / 0.1);
+    color: rgb(var(--color-on-error-container));
+  }
+
+  /* A cautionary action in the outline shape — impersonate a user — edged in
+     the warning hue with its bound ink at rest and on its /10 hover tint, the
+     way danger-outline is for a destructive one (Button.test.tsx measures it). */
+  .btn-warning-outline {
+    @apply btn-base disabled:opacity-50 disabled:cursor-not-allowed;
+    background: transparent;
+    color: rgb(var(--color-on-warning-container));
+    box-shadow: inset 0 0 0 1px rgb(var(--color-warning) / 0.3);
+  }
+
+  .btn-warning-outline:hover {
+    background: rgb(var(--color-warning) / 0.1);
+    color: rgb(var(--color-on-warning-container));
   }
 
   .btn-outline {
     @apply btn-base bg-transparent text-primary hover:bg-surface-container-low;
     box-shadow: inset 0 0 0 1px rgba(192, 200, 195, 0.25);
-  }
-
-  /* Pillar-flavored buttons map to their retuned pillar color. Used sparingly
-     for fitness data CTAs; default CTA is always btn-primary. */
-  .btn-activity {
-    @apply btn-base bg-activity text-on-primary hover:opacity-90;
-  }
-
-  .btn-nutrition {
-    @apply btn-base bg-nutrition text-on-primary hover:opacity-90;
-  }
-
-  .btn-recovery {
-    @apply btn-base bg-recovery text-on-primary hover:opacity-90;
   }
 
   .btn-sm {
@@ -351,54 +383,127 @@
      `full` radius only for small tags/chips)
      ========================================================================== */
 
-  /* Every badge reads its tone from the theme tokens, so the same chip is
-     legible on the light canvas and the dark one — a fixed hex was
-     dark-on-dark the moment the theme flipped. */
+  /* The badge's shape. Its colour is a tone class below, picked through
+     `BADGE_TONE` in components/ui/badgeTone.ts — the one table the Badge,
+     the verdict chip and the verdict drawer's status word all read. */
   .badge {
     @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-medium;
+  }
+
+  /* Tones: colour only, so a chip with its own shape takes the same pair.
+     Every tint is the hue at /15 under the ink the token tree binds to it,
+     which clears AA on every ground from surface to surface-container-highest
+     in both schemes (badgeTone.test.ts measures each pair). Error and primary
+     label in their container inks: the bare hue falls to 4.2:1 (error, light,
+     surface-container-low) and 4.17:1 (primary, light,
+     surface-container-high) on its own tint. Every reader is in
+     components/ui/badgeTone.ts; a new tone goes there and here together. */
+  .badge-neutral {
     background: rgb(var(--color-surface-container-high));
     color: rgb(var(--color-on-surface));
   }
 
-  .badge-success,
-  .badge-professional {
-    @apply badge;
+  /* The brand hue on its own tint: a recommendation, not a state. */
+  .badge-primary {
+    background: rgb(var(--color-primary) / 0.15);
+    color: rgb(var(--color-on-primary-container));
+  }
+
+  .badge-success {
     background: rgb(var(--color-success) / 0.15);
     color: rgb(var(--color-on-success-container));
   }
 
-  .badge-warning,
-  .badge-trial {
-    @apply badge;
+  .badge-warning {
     background: rgb(var(--color-warning) / 0.15);
     color: rgb(var(--color-on-warning-container));
   }
 
-  .badge-error,
-  .badge-destructive {
-    @apply badge;
+  .badge-error {
     background: rgb(var(--color-error) / 0.15);
-    color: rgb(var(--color-error));
+    color: rgb(var(--color-on-error-container));
   }
 
-  .badge-info,
-  .badge-starter {
-    @apply badge;
+  .badge-info {
     background: rgb(var(--color-info) / 0.15);
     color: rgb(var(--color-on-info-container));
   }
 
-  .badge-enterprise,
+  /* A second primary-family pill beside a `primary` one: the solid container
+     under its own ink. */
+  .badge-accent {
+    background: rgb(var(--color-primary-container));
+    color: rgb(var(--color-on-primary-container));
+  }
+
+  /* The pillars, for a category pill. */
+  .badge-activity {
+    background: rgb(var(--color-activity) / 0.15);
+    color: rgb(var(--color-on-activity-container));
+  }
+
+  .badge-nutrition {
+    background: rgb(var(--color-nutrition) / 0.15);
+    color: rgb(var(--color-on-nutrition-container));
+  }
+
+  .badge-recovery {
+    background: rgb(var(--color-recovery) / 0.15);
+    color: rgb(var(--color-on-recovery-container));
+  }
+
   .badge-mobility {
-    @apply badge;
     background: rgb(var(--color-mobility) / 0.15);
     color: rgb(var(--color-on-mobility-container));
   }
 
   .badge-secondary {
-    @apply badge;
     background: rgb(var(--color-surface-container));
     color: rgb(var(--color-on-surface-variant));
+  }
+
+  /* ==========================================================================
+     Alerts — tinted message blocks (DESIGN.md §5 "Alerts")
+     ========================================================================== */
+
+  /* The standard block: ui/Alert's shape. A `border` utility on the block
+     draws the tone's edge. A banner with its own shape (a header strip, a
+     structured notice with a title) skips it and takes a tone class alone;
+     its utilities override this either way. */
+  .alert {
+    @apply rounded-lg p-3 text-sm;
+  }
+
+  /* Tones: colour only, picked through `ALERT_TONE` in
+     components/ui/alertTone.ts. Every tint is the feedback hue at /10, edged
+     at /30, under the ink the token tree binds to it — never the bare hue,
+     which falls to 2.03:1 (warning, light, surface-container-highest) on its
+     own tint. The ink clears AA on every ground from surface to
+     surface-container-highest in both schemes (alertTone.test.tsx measures
+     each pair). A pillar hue never colours an alert: a state takes its
+     feedback tone. */
+  .alert-success {
+    background: rgb(var(--color-success) / 0.1);
+    border-color: rgb(var(--color-success) / 0.3);
+    color: rgb(var(--color-on-success-container));
+  }
+
+  .alert-warning {
+    background: rgb(var(--color-warning) / 0.1);
+    border-color: rgb(var(--color-warning) / 0.3);
+    color: rgb(var(--color-on-warning-container));
+  }
+
+  .alert-error {
+    background: rgb(var(--color-error) / 0.1);
+    border-color: rgb(var(--color-error) / 0.3);
+    color: rgb(var(--color-on-error-container));
+  }
+
+  .alert-info {
+    background: rgb(var(--color-info) / 0.1);
+    border-color: rgb(var(--color-info) / 0.3);
+    color: rgb(var(--color-on-info-container));
   }
 
   /* ==========================================================================
@@ -619,7 +724,7 @@
   }
 
   /* ==========================================================================
-     Admin surfaces — card-admin / stat-card-dark / table-dark / badge-dark-*.
+     Admin surfaces — card-admin / stat-card-dark / table-dark.
      Rebuilt on the light palette — the "dark" suffix is legacy; the system is
      light. Form fields are NOT here: they come from the ui/ primitives, which
      own the editorial underline of DESIGN.md §5.
@@ -627,26 +732,6 @@
 
   .stat-card-dark {
     @apply stat-card;
-  }
-
-  .badge-dark,
-  .badge-dark-success,
-  .badge-dark-warning,
-  .badge-dark-error,
-  .badge-dark-info,
-  .badge-dark-violet,
-  .badge-dark-cyan {
-    @apply badge;
-  }
-
-  .badge-dark-success { @apply badge-success; }
-  .badge-dark-warning { @apply badge-warning; }
-  .badge-dark-error   { @apply badge-error; }
-  .badge-dark-info    { @apply badge-info; }
-  .badge-dark-violet,
-  .badge-dark-cyan {
-    background: rgb(var(--color-primary-container));
-    color: rgb(var(--color-on-primary-container));
   }
 
   .btn-dark-secondary {

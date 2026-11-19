@@ -36,12 +36,16 @@ use pierre_config::environment::{
     SciotteServiceConfig, ServerConfig,
 };
 use pierre_core::billing::BillingProvider;
+use pierre_core::config::fitness::WeatherApiConfig;
+use pierre_core::errors::AppResult;
 use pierre_core::llm::LlmProvider;
 use pierre_core::models::ConnectionType;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
+use pierre_database::RepositoryRegistry;
+use pierre_email::ResendEmailService;
 use pierre_llm::config::LlmChain;
 use pierre_llm::ChatProvider;
 use pierre_mcp_server::services::archive_import::ArchiveImports;
@@ -54,6 +58,13 @@ use pierre_mcp_server::{
     utils,
 };
 use pierre_middleware::McpAuthMiddleware;
+use pierre_providers::core::ProviderConfig;
+use pierre_providers::registry::ProviderRegistry;
+use pierre_services::admin_ops::{AccountCaller, ActingOn};
+#[cfg(feature = "client-messaging")]
+use pierre_services::channel_adapters::ChannelAdapterFactory;
+#[cfg(feature = "health-sync")]
+use pierre_services::health_sync::WellnessOrigins;
 use pierre_test_support::db::create_test_db_with_key;
 use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::guardian::GuardianConfigDocument;
@@ -72,6 +83,7 @@ use std::{
     time::Duration as StdDuration,
 };
 use tokio::{net::TcpListener as TokioTcpListener, task::JoinHandle, time::sleep as tokio_sleep};
+use url::{Host, Url};
 use uuid::Uuid;
 
 static INIT_LOGGER: Once = Once::new();
@@ -355,6 +367,24 @@ pub(crate) async fn generate_test_token(resources: &Arc<ServerContext>, user: &U
         .auth_manager
         .generate_token_with_tenant(user, &resources.auth.jwks_manager, tenant_id)
         .unwrap()
+}
+
+/// The stored account `user_id`, taken by `caller`: what an account write of
+/// the service layer takes, for a test that calls one directly.
+pub(crate) async fn acting_on<'c>(
+    repos: &RepositoryRegistry,
+    caller: &'c AccountCaller,
+    user_id: Uuid,
+) -> ActingOn<'c> {
+    let account = repos
+        .users
+        .get_global(user_id)
+        .await
+        .unwrap()
+        .expect("the account exists");
+    caller
+        .acting_on(account)
+        .expect("the caller may act on the account")
 }
 
 /// Run `call`, a tool call `user` makes in `tenant`, as a turn of Dravr's web
@@ -653,7 +683,7 @@ pub(crate) fn placeholder_llm_chain() -> LlmChain {
 /// The config every test server runs with unless the test supplies its own.
 #[must_use]
 pub(crate) fn test_server_config() -> ServerConfig {
-    ServerConfig {
+    let mut config = ServerConfig {
         llm_chain: placeholder_llm_chain(),
         oauth: test_oauth_config(),
         // A key the listing can see, whatever the process exports: `tools/list`
@@ -666,7 +696,9 @@ pub(crate) fn test_server_config() -> ServerConfig {
         // LIMIT 0 and return nothing, so give tests a realistic value.
         activity_fetch_limit: 100,
         ..ServerConfig::default()
-    }
+    };
+    refuse_unnamed_provider_endpoints(&mut config);
+    config
 }
 
 /// The server-level OAuth apps every test server holds unless the test
@@ -736,8 +768,280 @@ pub(crate) fn set_server_app(
     *slot = app;
 }
 
+/// Where a test server sends every call a test names no stand-in for: a
+/// loopback port nothing listens on (1 is reserved for TCPMUX, and no test
+/// binds it), so the connection is refused at once.
+///
+/// A registry built with no override holds each provider's real token, API
+/// and revocation URLs, and a test that stood one of them in still sent the
+/// others to the real host with its fixture credentials: a refresh answered
+/// by a stub was followed by a read of `api.prod.whoop.com`, and an expired
+/// Garmin grant was refreshed at `diauth.garmin.com` (carnet#1615).
+pub(crate) const REFUSED_ORIGIN: &str = "http://127.0.0.1:1";
+
+/// Where a suite that builds a sync orchestrator itself has it read the
+/// wellness dravr-enforme would read on a host of its own (Intervals.icu,
+/// WHOOP): refused, as a test context's provider registry names them.
+#[cfg(feature = "health-sync")]
+pub(crate) const REFUSED_WELLNESS: WellnessOrigins<'static> = WellnessOrigins {
+    intervals_icu_api: Some(REFUSED_ORIGIN),
+    whoop_api: Some(REFUSED_ORIGIN),
+};
+
+/// Whether a request to `url` would leave the machine: it names a host, and
+/// that host is neither `localhost` nor a loopback address. Empty text, or
+/// text that is no URL, names nothing a client can connect to.
+#[must_use]
+pub(crate) fn leaves_the_machine(url: &str) -> bool {
+    match Url::parse(url).ok().as_ref().and_then(Url::host) {
+        Some(Host::Domain(name)) => name != "localhost",
+        Some(Host::Ipv4(address)) => !address.is_loopback(),
+        Some(Host::Ipv6(address)) => !address.is_loopback(),
+        None => false,
+    }
+}
+
+/// The providers whose endpoints a server configuration can override, as the
+/// provider registry names them. `startup_channel_egress_test` reads every
+/// endpoint of a test context's registry and fails on one that names a real
+/// host, so a provider this list leaves out is caught there.
+const ENDPOINT_PROVIDERS: [&str; 7] = [
+    "strava",
+    "garmin",
+    "terra",
+    "whoop",
+    "coros",
+    "intervals_icu",
+    "wahoo",
+];
+
+/// `endpoints` with every URL the server itself calls (token, API,
+/// revocation) that it leaves unset at [`REFUSED_ORIGIN`]. The
+/// authorize URL is where the athlete's browser goes, never the server, and
+/// keeps the provider's own.
+fn refusing_what_is_unset(endpoints: ProviderEndpointOverride) -> ProviderEndpointOverride {
+    let refused = || Some(REFUSED_ORIGIN.to_owned());
+    ProviderEndpointOverride {
+        token_url: endpoints.token_url.or_else(refused),
+        api_base_url: endpoints.api_base_url.or_else(refused),
+        revoke_url: endpoints.revoke_url.or_else(refused),
+        ..endpoints
+    }
+}
+
+/// Send every provider endpoint `config` names no stand-in for to
+/// [`REFUSED_ORIGIN`]. An endpoint the test already pointed
+/// somewhere is left where the test put it.
+pub(crate) fn refuse_unnamed_provider_endpoints(config: &mut ServerConfig) {
+    for provider in ENDPOINT_PROVIDERS {
+        let named = config.oauth.endpoints.remove(provider).unwrap_or_default();
+        config
+            .oauth
+            .endpoints
+            .insert(provider.to_owned(), refusing_what_is_unset(named));
+    }
+}
+
+/// Send every Strava and Garmin URL of `config.external_services` the server
+/// itself calls (API, token, revocation) that names a real host to
+/// [`REFUSED_ORIGIN`]. A URL a test pointed at a loopback stand-in, and one
+/// left empty, stay as they are; so does the authorize URL, which only the
+/// athlete's browser follows.
+///
+/// A disconnect revokes at these URLs and the Garmin webhook worker reads at
+/// them, not at the provider registry's, and some twenty suites write their
+/// configuration out by hand with the providers' real ones (carnet#1615).
+pub(crate) fn refuse_real_external_service_urls(config: &mut ServerConfig) {
+    for url in server_called_service_urls(config) {
+        if leaves_the_machine(url) {
+            REFUSED_ORIGIN.clone_into(url);
+        }
+    }
+}
+
+/// The Strava and Garmin URLs of `config.external_services` the server
+/// itself calls: API, token and revocation, never the authorize URL.
+fn server_called_service_urls(config: &mut ServerConfig) -> [&mut String; 6] {
+    let services = &mut config.external_services;
+    [
+        &mut services.strava_api.base_url,
+        &mut services.strava_api.token_url,
+        &mut services.strava_api.revoke_url,
+        &mut services.garmin_api.base_url,
+        &mut services.garmin_api.token_url,
+        &mut services.garmin_api.revoke_url,
+    ]
+}
+
+/// Send the weather calls of a context built on `config` to
+/// [`REFUSED_ORIGIN`], with the activity list's temperature backfill off,
+/// unless the test named a stand-in for the weather vendors.
+///
+/// `FitnessConfig::default()` carries a `weather_api` at the vendors' own
+/// hosts with the backfill on, as a deployment runs, and none at all means
+/// the vendors' own hosts for the weather tools (carnet#1615). A `base_url`
+/// a test pointed at loopback ([`test_server_config_with_weather`]) stays as
+/// it is, with the `enabled` the test gave it.
+pub(crate) fn refuse_real_weather_origin(config: &mut ServerConfig) {
+    let weather_api = &mut config.fitness.weather_api;
+    if weather_api
+        .as_ref()
+        .is_some_and(|api| !api.base_url.is_empty() && !leaves_the_machine(&api.base_url))
+    {
+        return;
+    }
+    *weather_api = Some(WeatherApiConfig {
+        base_url: REFUSED_ORIGIN.to_owned(),
+        enabled: false,
+        ..weather_api.take().unwrap_or_default()
+    });
+}
+
+/// [`test_server_config`] with every weather vendor asked at `origin`, a
+/// loopback stand-in, and the activity list's temperature backfill on.
+#[must_use]
+pub(crate) fn test_server_config_with_weather(origin: &str) -> ServerConfig {
+    let mut config = test_server_config();
+    config.fitness.weather_api = Some(WeatherApiConfig {
+        base_url: origin.to_owned(),
+        enabled: true,
+        ..WeatherApiConfig::default()
+    });
+    config
+}
+
+/// Take out of `config` everything that could aim a test server's own
+/// request at a real host: the provider endpoints it names no stand-in for,
+/// the Strava and Garmin URLs that name one, the weather vendors' hosts, and
+/// the Resend credentials.
+///
+/// The email service a context builds from Resend credentials sends on the
+/// server's shared HTTP client, to a host fixed inside dravr-tronc. A test
+/// context builds none; a test that needs one puts [`offline_email_service`]
+/// on.
+fn refuse_what_leaves_the_machine(config: &mut ServerConfig) {
+    refuse_unnamed_provider_endpoints(config);
+    refuse_real_external_service_urls(config);
+    refuse_real_weather_origin(config);
+    config.resend_api_key = None;
+}
+
+/// The configuration a suite hands `ServerContext::new` itself, with
+/// everything that could aim the server's own request at a real host taken
+/// out, as the `create_test_server_resources*` helpers do for theirs.
+///
+/// Every `ServerContext::new` in the server's tests is given its
+/// configuration through this; `startup_channel_egress_test` reads the test
+/// sources and fails on one that is not (carnet#1615).
+#[must_use]
+pub(crate) fn offline_config(config: Arc<ServerConfig>) -> Arc<ServerConfig> {
+    let mut config = Arc::unwrap_or_clone(config);
+    refuse_what_leaves_the_machine(&mut config);
+    Arc::new(config)
+}
+
+/// A provider registry a suite builds itself, with every endpoint the server
+/// calls (token, API, revocation) that names a real host sent to
+/// [`REFUSED_ORIGIN`], as [`offline_config`] does for a context's.
+///
+/// `ProviderRegistry::new()` holds each provider's real endpoints, so a
+/// suite that built one and stood a single provider in was one refresh, read
+/// or disconnect from every other provider's real host. A suite names its
+/// stand-in on what this returns (`set_default_config`,
+/// `with_endpoint_overrides`); the authorize URL, which only the athlete's
+/// browser follows, keeps the provider's own. `startup_channel_egress_test`
+/// reads the test sources and fails on a registry built any other way
+/// (carnet#1615).
+#[must_use]
+pub(crate) fn offline_provider_registry() -> ProviderRegistry {
+    offline_registry(ProviderRegistry::new())
+}
+
+/// `registry` with every endpoint the server calls (token, API, revocation)
+/// that names a real host sent to [`REFUSED_ORIGIN`]; a loopback stand-in
+/// and the authorize URL stay as they are.
+///
+/// For a suite that registers a provider's real descriptor, or sets a
+/// configuration built from one, after [`offline_provider_registry`]: that
+/// puts the provider's real endpoints back, and this takes them out of the
+/// finished registry.
+#[must_use]
+pub(crate) fn offline_registry(mut registry: ProviderRegistry) -> ProviderRegistry {
+    for provider in registry.supported_providers() {
+        let Some(mut config) = registry.default_config(provider).cloned() else {
+            continue;
+        };
+        for url in [&mut config.token_url, &mut config.api_base_url] {
+            if leaves_the_machine(url) {
+                REFUSED_ORIGIN.clone_into(url);
+            }
+        }
+        if config.revoke_url.as_deref().is_some_and(leaves_the_machine) {
+            config.revoke_url = Some(REFUSED_ORIGIN.to_owned());
+        }
+        registry.set_default_config(provider, config);
+    }
+    registry
+}
+
+/// `provider`'s configuration as [`offline_provider_registry`] holds it, for
+/// a suite that points one endpoint at its stand-in and puts the
+/// configuration back with `set_default_config`: the endpoints it does not
+/// name stay refused, where the provider's own `default_config()` would
+/// bring its real token and revocation URLs back.
+///
+/// # Panics
+///
+/// Panics for a provider the registry does not carry.
+#[must_use]
+pub(crate) fn offline_provider_config(provider: &str) -> ProviderConfig {
+    offline_provider_registry()
+        .default_config(provider)
+        .cloned()
+        .unwrap_or_else(|| panic!("the provider registry carries no {provider}"))
+}
+
+/// The configuration a server reads from the process environment, for the
+/// suites that boot theirs that way, with every address and credential that
+/// could aim a request at a real host taken out.
+///
+/// `ServerConfig::from_env()` reads whatever the developer's shell exports:
+/// provider endpoint overrides, the scraper service's address, a Graph API
+/// base that outranks the offline adapter factory on a `WhatsApp` link, and
+/// the deployment's real Slack bot token, which the ops card redraw and the
+/// feedback screenshot upload send with. Those calls go where the context's
+/// adapter factory says, never to Slack from a test context, but a real
+/// credential has no place in one. A test configuration carries none of
+/// them (carnet#1615); a suite that needs one sets it on the configuration
+/// this returns.
+///
+/// # Errors
+///
+/// Returns what `ServerConfig::from_env()` does for an environment it
+/// cannot read a configuration from.
+pub(crate) fn server_config_from_env() -> AppResult<ServerConfig> {
+    init_server_config();
+    let mut config = ServerConfig::from_env()?;
+    config.oauth.endpoints.clear();
+    refuse_unnamed_provider_endpoints(&mut config);
+    // Whatever the shell names, loopback included: a test names its own.
+    for url in server_called_service_urls(&mut config) {
+        REFUSED_ORIGIN.clone_into(url);
+    }
+    let services = &mut config.external_services;
+    services.sciotte = SciotteServiceConfig::default();
+    services.meta_graph_api_base = None;
+    // The environment names the weather vendors' own hosts, with the
+    // activity list's temperature backfill on unless it says otherwise.
+    refuse_real_weather_origin(&mut config);
+    config.webhooks.slack_bot_token = None;
+    Ok(config)
+}
+
 /// Point `provider`'s endpoints in `config` at a stand-in: each `Some` replaces
-/// the provider's default when the server builds its provider registry.
+/// the provider's default when the server builds its provider registry. A
+/// server-called endpoint left `None` is refused
+/// ([`REFUSED_ORIGIN`]), never the provider's real one.
 pub(crate) fn set_provider_endpoints(
     config: &mut ServerConfig,
     provider: &str,
@@ -746,7 +1050,31 @@ pub(crate) fn set_provider_endpoints(
     config
         .oauth
         .endpoints
-        .insert(provider.to_owned(), endpoints);
+        .insert(provider.to_owned(), refusing_what_is_unset(endpoints));
+}
+
+/// An email service a test puts on its context so the flows that need one
+/// run, whose sends cannot leave the machine.
+///
+/// The Resend endpoint is fixed inside dravr-tronc, so the service is built
+/// on an HTTP client that reaches every host through a proxy at
+/// [`REFUSED_ORIGIN`]: a send fails as it did when the real Resend refused
+/// the fixture key, without the real Resend being asked (carnet#1615).
+#[must_use]
+pub(crate) fn offline_email_service() -> Arc<ResendEmailService> {
+    let proxy = reqwest::Proxy::all(REFUSED_ORIGIN).expect("a loopback origin is a proxy address");
+    let http = reqwest::Client::builder()
+        .proxy(proxy)
+        .build()
+        .expect("a client behind a proxy builds");
+    Arc::new(
+        ResendEmailService::try_new(
+            http,
+            "re_fake_test_api_key".to_owned(),
+            "Pierre <noreply@test.pierre.dev>".to_owned(),
+        )
+        .expect("a non-empty key builds the email service"),
+    )
 }
 
 /// Put `resources` under a Guardian destructive budget of `budget`, as an
@@ -791,8 +1119,26 @@ pub(crate) fn test_server_config_with_api_base(provider: &str, api_base: &str) -
 pub(crate) fn test_server_config_with_sciotte(url: &str) -> ServerConfig {
     let mut config = test_server_config();
     config.external_services.sciotte = SciotteServiceConfig {
-        remote_url: Some(url.to_owned()),
+        read_urls: vec![url.to_owned()],
         audience: None,
+        login_url: None,
+    };
+    config
+}
+
+/// [`test_server_config`] with the sciotte read service at `read_url` and the
+/// sign-in service at `login_url`, both on loopback: the two-service shape a
+/// deployment runs (carnet#1504).
+#[must_use]
+pub(crate) fn test_server_config_with_sciotte_planes(
+    read_url: &str,
+    login_url: &str,
+) -> ServerConfig {
+    let mut config = test_server_config();
+    config.external_services.sciotte = SciotteServiceConfig {
+        read_urls: vec![read_url.to_owned()],
+        audience: None,
+        login_url: Some(login_url.to_owned()),
     };
     config
 }
@@ -1164,6 +1510,51 @@ pub(crate) async fn create_test_server_resources_with_config_and_records(
     .await
 }
 
+/// The channel adapters whose sends, status placeholder and bot lookup stay
+/// in the process. Declared here, once per test binary, because every binary
+/// that builds a context needs it; `helpers` re-exports it.
+#[cfg(feature = "client-messaging")]
+#[path = "helpers/offline_channel.rs"]
+pub(crate) mod offline_channel;
+
+/// The adapter factory every test context is built on (carnet#1600).
+///
+/// The production factory posts each reply, notice and status placeholder to
+/// the channel's real host with whatever fixture token the test stored, so
+/// `ServerContextOptions` takes its factory by name and a test names this
+/// one. A test that reads its sends back builds its context, or mounts the
+/// messaging router, on an `OfflineSendAdapters` of its own.
+#[cfg(feature = "client-messaging")]
+pub(crate) fn offline_adapters() -> Arc<dyn ChannelAdapterFactory> {
+    Arc::new(offline_channel::OfflineSendAdapters::default())
+}
+
+/// A test context whose live provider reads are kept in `records` and whose
+/// files are kept over `blobs`: the originals bundle reads both.
+///
+/// # Errors
+///
+/// Returns an error if the context cannot be assembled.
+pub(crate) async fn create_test_server_resources_with_records_and_blobs(
+    records: Arc<dyn ActivityRecordStore>,
+    blobs: Arc<dyn BlobStore>,
+) -> Result<Arc<ServerContext>> {
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+    Box::pin(create_test_server_resources_over(
+        database,
+        None,
+        Vec::new(),
+        None,
+        None,
+        ContextParts {
+            live_records: Some(records),
+            blobs: Some(Ok(blobs)),
+            ..ContextParts::default()
+        },
+    ))
+    .await
+}
+
 /// The pieces a test context takes in place of the ones its database and
 /// the environment would select; `None` keeps the default.
 #[derive(Default)]
@@ -1179,6 +1570,56 @@ struct ContextParts {
     /// The record store live provider reads are kept in, in place of a
     /// memory store of the context's own.
     live_records: Option<Arc<dyn ActivityRecordStore>>,
+    /// The offline adapter factory a test keeps a handle on, in place of one
+    /// nobody reads back. Never the production factory.
+    #[cfg(feature = "client-messaging")]
+    channel_adapters: Option<Arc<dyn ChannelAdapterFactory>>,
+}
+
+/// [`create_test_server_resources`] on an offline adapter factory the test
+/// keeps, for a test that reads back what the context's own senders sent:
+/// the notification sink, the approval notice, the consent ask.
+#[cfg(feature = "client-messaging")]
+pub(crate) async fn create_test_server_resources_on_adapters(
+    adapters: Arc<dyn ChannelAdapterFactory>,
+) -> Result<Arc<ServerContext>> {
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+    Box::pin(create_test_server_resources_over(
+        database,
+        None,
+        Vec::new(),
+        None,
+        None,
+        ContextParts {
+            channel_adapters: Some(adapters),
+            ..ContextParts::default()
+        },
+    ))
+    .await
+}
+
+/// [`create_test_server_resources_with_config`] on an offline adapter
+/// factory the test keeps: for a test whose configuration carries what a
+/// path needs (a bot token, a signing secret) and whose factory names the
+/// stand-in that path is read back from.
+#[cfg(feature = "client-messaging")]
+pub(crate) async fn create_test_server_resources_with_config_on_adapters(
+    config: ServerConfig,
+    adapters: Arc<dyn ChannelAdapterFactory>,
+) -> Result<Arc<ServerContext>> {
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+    Box::pin(create_test_server_resources_over(
+        database,
+        None,
+        Vec::new(),
+        Some(config),
+        None,
+        ContextParts {
+            channel_adapters: Some(adapters),
+            ..ContextParts::default()
+        },
+    ))
+    .await
 }
 
 async fn create_test_server_resources_over(
@@ -1195,6 +1636,8 @@ async fn create_test_server_resources_over(
         archive_imports,
         blobs,
         live_records,
+        #[cfg(feature = "client-messaging")]
+        channel_adapters,
     } = parts;
     // As deployed, uploaded files share the imports' blob store; without
     // imports the context keeps them in a memory store of its own, since no
@@ -1213,7 +1656,12 @@ async fn create_test_server_resources_over(
     let auth_manager = AuthManager::new(24);
 
     let admin_jwt_secret = "test_admin_secret";
-    let config = Arc::new(config_override.unwrap_or_else(test_server_config));
+    // Whatever config the test built, a provider endpoint it named no
+    // stand-in for is refused, never the provider's real host; so is a
+    // Strava or Garmin URL that names one, and no email service is built.
+    let mut config = config_override.unwrap_or_else(test_server_config);
+    refuse_what_leaves_the_machine(&mut config);
+    let config = Arc::new(config);
 
     // Create test cache with background cleanup disabled for tests
     let cache_config = CacheConfig {
@@ -1246,6 +1694,8 @@ async fn create_test_server_resources_over(
                 archive_imports,
                 live_records,
                 blobs,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: channel_adapters.unwrap_or_else(offline_adapters),
             },
         )
         .await
@@ -1922,6 +2372,7 @@ impl LlmProvider for TestLlmProvider {
 
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
         Ok(ChatResponse {
+            replay_blocks: None,
             content: self.response.clone(),
             model: self.model_name.clone(),
             usage: None,

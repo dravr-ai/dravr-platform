@@ -63,8 +63,7 @@ use pierre_tools_core::ToolResult;
 fn extract_format(args: &Value) -> OutputFormat {
     args.get("format")
         .and_then(Value::as_str)
-        .map(OutputFormat::from_str_param)
-        .unwrap_or_default()
+        .map_or_default(OutputFormat::from_str_param)
 }
 
 /// Verify that a target user belongs to a given tenant.
@@ -325,8 +324,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemAgentTool {
                 category: params
                     .category
                     .as_deref()
-                    .map(AgentCategory::parse)
-                    .unwrap_or_default(),
+                    .map_or_default(AgentCategory::parse),
                 tags: params.tags,
                 sample_prompts: params.sample_prompts,
                 visibility,

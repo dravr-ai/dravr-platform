@@ -7,12 +7,39 @@
 import fs from 'fs';
 import path from 'path';
 import type { Page, Route } from '@playwright/test';
+import type { UserRole } from '@pierre/shared-types';
 
 /** The token screen's rail label. The admin rail is English in every session. */
 export const TOKENS_TAB_LABEL = 'API Tokens';
 
+/** What an admin's sign-in does at the mode picker (carnet#1631); `ask` leaves it to the spec. */
+type ViewModeAtSignIn = 'admin' | 'athlete' | 'ask';
+
+/** The option each page's admin sign-in picks; a page absent here signs in an athlete. */
+const VIEW_MODE_AT_SIGN_IN = new WeakMap<Page, 'admin' | 'athlete'>();
+
+/**
+ * Have every later admin sign-in on this page pick `mode` at the picker the
+ * app shows an admin after each sign-in, or leave the picker up (`ask`).
+ * `setupDashboardMocks` calls it for its role; a spec that mocks an admin's
+ * sign-in by hand calls it itself.
+ */
+export function pickViewModeAtSignIn(page: Page, mode: ViewModeAtSignIn): void {
+  if (mode === 'ask') {
+    VIEW_MODE_AT_SIGN_IN.delete(page);
+  } else {
+    VIEW_MODE_AT_SIGN_IN.set(page, mode);
+  }
+}
+
 interface UserOptions {
-  role?: 'user' | 'admin' | 'super_admin';
+  role?: UserRole;
+  /**
+   * The mode an admin's sign-in picks (carnet#1631): the console by default,
+   * so an admin spec opens where it always did; `ask` leaves the picker up.
+   * Ignored for a non-admin, who is never asked.
+   */
+  viewMode?: ViewModeAtSignIn;
   email?: string;
   displayName?: string;
   status?: 'active' | 'pending' | 'suspended';
@@ -55,6 +82,46 @@ export const ONBOARDED_STATUS = {
     { step_id: 'coach_proposal', status: 'complete' },
   ],
 };
+
+/**
+ * Every anchor each sport family can hold, with its unit, as the server lists
+ * it beside the anchors (carnet#1561): what an edit may set.
+ */
+export const PHYSIOLOGY_OFFERED = [
+  {
+    sport: 'ride',
+    anchors: [
+      { anchor: 'ftp', unit: 'watts' },
+      { anchor: 'critical_power', unit: 'watts' },
+      { anchor: 'map', unit: 'watts' },
+      { anchor: 'max_heart_rate', unit: 'beats_per_minute' },
+      { anchor: 'threshold_heart_rate', unit: 'beats_per_minute' },
+    ],
+  },
+  {
+    sport: 'run',
+    anchors: [
+      { anchor: 'ftp', unit: 'watts' },
+      { anchor: 'critical_power', unit: 'watts' },
+      { anchor: 'map', unit: 'watts' },
+      { anchor: 'critical_speed', unit: 'metres_per_second' },
+      { anchor: 'vvo2max', unit: 'metres_per_second' },
+      { anchor: 'threshold_speed', unit: 'metres_per_second' },
+      { anchor: 'max_heart_rate', unit: 'beats_per_minute' },
+      { anchor: 'threshold_heart_rate', unit: 'beats_per_minute' },
+    ],
+  },
+  {
+    sport: 'swim',
+    anchors: [
+      { anchor: 'critical_speed', unit: 'metres_per_second' },
+      { anchor: 'vvo2max', unit: 'metres_per_second' },
+      { anchor: 'threshold_speed', unit: 'metres_per_second' },
+      { anchor: 'max_heart_rate', unit: 'beats_per_minute' },
+      { anchor: 'threshold_heart_rate', unit: 'beats_per_minute' },
+    ],
+  },
+];
 
 /**
  * `GET /api/me/physiology` for an athlete who stated an FTP, measured a bike
@@ -108,6 +175,7 @@ export function physiologyFixture(language = 'en') {
         ],
       },
     ],
+    offered: PHYSIOLOGY_OFFERED,
   };
 }
 
@@ -156,6 +224,29 @@ export async function applyTestStubs(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ rows: [], known: [] }),
+    });
+  });
+  // Every page load of an active account asks the server to join the group
+  // invite it holds (carnet#1648). Nothing is held unless a spec says so: the
+  // invite specs register their own answer after this one, which wins.
+  await page.route('**/api/chat/groups/join', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ outcome: 'none' }),
+    });
+  });
+  // What the server holds for the account (carnet#1650): nothing, unless a
+  // spec says so. Only the read; a spec's own route answers the hold (PUT).
+  await page.route('**/api/user/group-invite', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ held: null }),
     });
   });
   // The athlete Home page, where a regular user lands after sign-in — so
@@ -427,7 +518,10 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     managesRoster = false,
     skipProvidersRoute = false,
     language = 'en',
+    viewMode = 'admin',
   } = userOptions;
+
+  pickViewModeAtSignIn(page, role === 'admin' ? viewMode : 'ask');
 
   // Theme pin + feature-flag stubs shared with spec-local helpers.
   await applyTestStubs(page);
@@ -458,9 +552,9 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
           email,
           display_name: displayName,
           role,
-          is_admin: role === 'admin' || role === 'super_admin',
+          is_admin: role === 'admin',
           user_status: status,
-          tier: role === 'super_admin' ? 'enterprise' : 'professional',
+          tier: 'professional',
           tenant_id: 'user-123',
           manages_roster: managesRoster,
         },
@@ -941,6 +1035,16 @@ export async function signInThroughHostedPage(page: Page, options: { mockHostedP
     page.locator(SIGN_IN_BUTTON).click(),
   ]);
   await page.waitForURL((url) => url.pathname !== '/auth/callback', { timeout: APP_SHELL_TIMEOUT_MS });
+  // An admin is asked, at every sign-in, which app to open (carnet#1631). A
+  // refused sign-in comes back to the login screen instead, and is left there.
+  const mode = VIEW_MODE_AT_SIGN_IN.get(page);
+  if (mode) {
+    const picker = page.getByTestId('view-mode-picker');
+    await picker.or(page.locator(SIGN_IN_BUTTON)).first().waitFor({ timeout: APP_SHELL_TIMEOUT_MS });
+    if (await picker.isVisible()) {
+      await page.getByTestId(`view-mode-${mode}`).click();
+    }
+  }
 }
 
 /**
@@ -1041,14 +1145,6 @@ export async function navigateToTab(page: Page, tabName: string) {
  */
 export async function setupAndLoginAsAdmin(page: Page) {
   await setupDashboardMocks(page, { role: 'admin' });
-  await loginToDashboard(page);
-}
-
-/**
- * Shorthand for setting up mocks and logging in as a super admin.
- */
-export async function setupAndLoginAsSuperAdmin(page: Page) {
-  await setupDashboardMocks(page, { role: 'super_admin' });
   await loginToDashboard(page);
 }
 

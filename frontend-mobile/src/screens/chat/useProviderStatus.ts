@@ -39,12 +39,15 @@ export interface ProviderStatusActions {
    * (`garmin`, `strava`, `whoop`…), never a card's `sciotte_*` key: the
    * card it reads (own app, name) is the one that slug names. `tosConsent`
    * carries the provider notice the athlete just accepted (WHOOP's owner
-   * authorization).
+   * authorization); `signInBlocked` that this start falls back from a
+   * sign-in that could not complete, so the server never turns it back into
+   * that sign-in (carnet#1667).
    */
   handleConnectProvider: (
     provider: string,
     onSuccess?: () => Promise<void>,
-    tosConsent?: boolean
+    tosConsent?: boolean,
+    signInBlocked?: boolean
   ) => Promise<void>;
   getCachedConnectedProvider: () => ExtendedProviderStatus | undefined;
   /**
@@ -117,7 +120,8 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
   const handleConnectProvider = useCallback(async (
     provider: string,
     onSuccess?: () => Promise<void>,
-    tosConsent = false
+    tosConsent = false,
+    signInBlocked = false
   ) => {
     // No app of the server's can authorize the provider for this athlete:
     // their own app's credentials come first.
@@ -130,7 +134,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     setError(null);
     try {
       const returnUrl = getOAuthCallbackUrl();
-      const oauthResponse = await oauthApi.initMobileOAuth(provider, returnUrl, { tosConsent });
+      const oauthResponse = await oauthApi.initMobileOAuth(provider, returnUrl, { tosConsent, signInBlocked });
 
       // The connecting state ends once the OAuth URL is ready and the browser is about to open
       setConnectingProvider(null);

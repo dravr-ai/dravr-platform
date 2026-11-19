@@ -25,6 +25,13 @@ export { Row } from './Row';
 export type { RowProps } from './Row';
 export { StatusDot } from './StatusDot';
 export type { StatusDotTone } from './StatusDot';
+// The pill that names a state, and the tone table every tinted pill reads; the web's `.badge` family.
+export { Badge, BADGE_TONE, badgeInkColor } from './Badge';
+export type { BadgeProps, BadgeVariant } from './Badge';
+export { ALERT_TONE, alertInkColor } from './alertTone';
+export type { AlertTone } from './alertTone';
+export { switchColors } from './switchTone';
+export type { SwitchColors } from './switchTone';
 export { TextTabs } from './TextTabs';
 export type { TextTabItem, TextTabsProps } from './TextTabs';
 // The scroll container that insets itself for the native header and tab bar.

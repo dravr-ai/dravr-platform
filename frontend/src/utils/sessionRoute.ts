@@ -111,3 +111,14 @@ export function endSessionRoute(): void {
   // reload of the login screen must still read it as the link it is.
   window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${target}`);
 }
+
+/**
+ * Leave the current route for none, without a history entry: the shell about
+ * to be drawn resolves its own default. An admin switching between the console
+ * and the athlete app (carnet#1631) lands on that mode's default, and Back
+ * never returns to a tab of the mode they left.
+ */
+export function clearSessionRoute(): void {
+  if (typeof window === 'undefined') return;
+  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+}

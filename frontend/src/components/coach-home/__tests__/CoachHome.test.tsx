@@ -647,6 +647,81 @@ describe('failure and emptiness', () => {
       await waitFor(() => expect(navigate).toHaveBeenCalledWith('chat/room-lea'));
     });
 
+    // carnet#1650: the row says how far the link got, counts only.
+    it('draws the four steps of the funnel with their marks, counts and date, and no athlete identity', async () => {
+      getRoster.mockResolvedValue(emptyRoster);
+      listInvites.mockResolvedValue({
+        invites: [
+          {
+            ...INVITE,
+            funnel: {
+              open_count: 3,
+              last_opened_at: '2026-11-14T10:00:00Z',
+              held_count: 1,
+              last_held_at: '2026-11-15T10:00:00Z',
+              full_count: 0,
+            },
+          },
+        ],
+      });
+      renderHome();
+
+      const row = await screen.findByTestId('coach-pending-invite-g-lea');
+      const funnel = within(row).getByTestId('coach-pending-invite-funnel');
+      expect(funnel).toHaveTextContent('Invite progress');
+      const states = ['sent', 'opened', 'account', 'joined'].map((key) =>
+        within(funnel).getByTestId(`coach-pending-invite-step-${key}`).getAttribute('data-state'),
+      );
+      expect(states).toEqual(['done', 'done', 'done', 'current']);
+      expect(within(funnel).getByTestId('coach-pending-invite-step-opened')).toHaveTextContent('Opened · 3 times');
+      expect(within(funnel).getByTestId('coach-pending-invite-step-account')).toHaveTextContent('Account created');
+      expect(within(funnel).getByTestId('coach-pending-invite-step-joined')).toHaveTextContent('Not in the group yet');
+      // The two existing actions stay.
+      expect(within(row).getByTestId('coach-pending-invite-copy')).toBeInTheDocument();
+      expect(within(row).getByTestId('coach-pending-invite-write')).toBeInTheDocument();
+    });
+
+    it('reads a link nobody opened as "not opened yet", the next step still ahead', async () => {
+      getRoster.mockResolvedValue(emptyRoster);
+      listInvites.mockResolvedValue({
+        invites: [
+          {
+            ...INVITE,
+            funnel: { open_count: 0, last_opened_at: null, held_count: 0, last_held_at: null, full_count: 0 },
+          },
+        ],
+      });
+      renderHome();
+
+      const funnel = await screen.findByTestId('coach-pending-invite-funnel');
+      expect(within(funnel).getByTestId('coach-pending-invite-step-opened')).toHaveAttribute('data-state', 'current');
+      expect(within(funnel).getByTestId('coach-pending-invite-step-opened')).toHaveTextContent('Not opened yet');
+      expect(within(funnel).getByTestId('coach-pending-invite-step-account')).toHaveAttribute('data-state', 'todo');
+    });
+
+    it('warns when every account holding the invite was refused for a full group', async () => {
+      getRoster.mockResolvedValue(emptyRoster);
+      listInvites.mockResolvedValue({
+        invites: [
+          {
+            ...INVITE,
+            funnel: {
+              open_count: 2,
+              last_opened_at: '2026-11-14T10:00:00Z',
+              held_count: 1,
+              last_held_at: '2026-11-15T10:00:00Z',
+              full_count: 1,
+            },
+          },
+        ],
+      });
+      renderHome();
+
+      const joined = await screen.findByTestId('coach-pending-invite-step-joined');
+      expect(joined).toHaveAttribute('data-tone', 'warn');
+      expect(joined).toHaveTextContent('Group full · a seat needs to open');
+    });
+
     it('keeps the empty state when the invite of the group no longer works', async () => {
       getRoster.mockResolvedValue(emptyRoster);
       listInvites.mockResolvedValue({ invites: [{ ...INVITE, expires_at: '2020-01-01T00:00:00Z' }] });

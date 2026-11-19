@@ -18,6 +18,8 @@ pub(crate) mod coach_roster_fixtures;
 pub(crate) mod command_e2e;
 /// The dravr-contremaitre tree the build compiled against, found without cargo.
 pub(crate) mod contremaitre_checkout;
+/// Every date in a response body with its path, and the seeding the response date goldens share.
+pub(crate) mod date_golden;
 /// Providers that hang, a `WhatsApp` athlete and the outbound ledger, for the
 /// suites that interrupt a live turn (drain, watchdog).
 #[cfg(feature = "client-messaging")]
@@ -33,6 +35,8 @@ pub(crate) mod google_token;
 pub(crate) mod history_walk_ledger;
 /// Identity Toolkit and the metadata token endpoint, for the account-deletion suites.
 pub(crate) mod identity_toolkit_stub;
+/// An admin's live support session on the athlete an ordinary session names.
+pub(crate) mod impersonation;
 /// Answers the turn's language-classification call so a scripted mock keeps
 /// its script for the turn.
 pub(crate) mod language_classification;
@@ -46,10 +50,13 @@ pub(crate) mod messaging_webhooks;
 pub(crate) mod notify_capture;
 /// A real adapter with only its outbound sends captured, for tests that
 /// drive the webhook route and must not depend on reaching a channel's API.
+/// It lives in `common`, which builds every test context on it.
 #[cfg(feature = "client-messaging")]
-pub(crate) mod offline_channel;
+pub(crate) use crate::common::offline_channel;
 /// A model that records every request it is sent, for tests that assert on
 /// what a turn put on the wire.
 pub(crate) mod recording_llm;
 pub(crate) mod sciotte_mock;
+/// A live Strava API grant (token row and connection) for a seeded athlete.
+pub(crate) mod strava_grant;
 pub(crate) mod synthetic_data;

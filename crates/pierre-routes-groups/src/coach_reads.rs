@@ -9,7 +9,8 @@
 //! A group's human coach reads a coached athlete's data through their agent
 //! under the athlete's coach sharing, and each read is recorded once
 //! (`coach_data_reads`). This route lists the caller's own record in one
-//! group: who read, which kind of data, through which tool, and when, kept
+//! group: who read, which kind of data, through which tool, when, and whether
+//! it went to an AI tool the coach connects from outside Dravr, kept
 //! [`COACH_READ_RETENTION_MONTHS`] months. There is no path to anyone else's
 //! record: the athlete is the caller, and each tenant read is one the caller
 //! belongs to ([`own_coach_reads`], the listing `/group reads` uses too).
@@ -49,6 +50,10 @@ pub struct CoachReadBody {
     pub data_class: &'static str,
     /// When the coach read it (RFC 3339).
     pub read_at: String,
+    /// Whether the read was served to an AI tool the coach connects to Dravr
+    /// from outside it, whose company received the data (EFVP decision
+    /// 9.4b).
+    pub served_to_assistant: bool,
 }
 
 /// The caller's record of their coach's reads in one group.
@@ -126,6 +131,7 @@ impl CoachReadRoutes {
                 tool: row.tool,
                 data_class: row.class.as_str(),
                 read_at: row.read_at.to_rfc3339(),
+                served_to_assistant: row.transport.served_to_outside_client(),
             });
         }
         let body = CoachReadsBody {

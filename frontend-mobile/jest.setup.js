@@ -183,6 +183,14 @@ jest.mock('expo-file-system', () => {
     text() {
       return Promise.resolve(mockFileContents[this.uri] ?? '');
     }
+    textSync() {
+      return mockFileContents[this.uri] ?? '';
+    }
+    move(destination) {
+      mockFileContents[destination.uri] = mockFileContents[this.uri];
+      delete mockFileContents[this.uri];
+      this.uri = destination.uri;
+    }
     arrayBuffer() {
       const bytes = new TextEncoder().encode(mockFileContents[this.uri] ?? '');
       return Promise.resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
@@ -310,6 +318,13 @@ jest.mock('react-native-webview', () => {
   const View = require('react-native').View;
   return { WebView: ({ testID }) => React.createElement(View, { testID }) };
 });
+
+// Mock @react-native-cookies/cookies: its native cookie store is absent under
+// jest. A test that reads a WebView's cookies gives `get` its own answer.
+jest.mock('@react-native-cookies/cookies', () => ({
+  __esModule: true,
+  default: { get: jest.fn().mockResolvedValue({}), clearAll: jest.fn().mockResolvedValue(true) },
+}));
 
 // Mock react-native-reanimated
 jest.mock('react-native-reanimated', () => {

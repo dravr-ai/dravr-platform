@@ -118,10 +118,11 @@ async fn mint_connect_url(
 ///
 /// `body` is the localized prompt; the URL rides a `url` [`CardAction`], which
 /// renders as a native button wherever the surface lays actions out as
-/// controls. Where it does not — `WhatsApp` today —
-/// [`super::card_or_rich_text`] reads the surface's `action_buttons`
-/// capability and shapes the reply at build time as rich text with the link
-/// as an autolinked `label: url` line.
+/// controls. Where the surface has no `action_buttons` capability,
+/// [`super::card_or_rich_text`] shapes the reply at build time as rich text
+/// with the link as an autolinked `label: url` line.
+///
+/// LIMITATION(registre#1671): `build_connect_card_direct` on `WhatsApp` reaches canot as a `Card`, whose renderer prints a `url` action as text under a body that promises a button.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn build_connect_card_direct(
     resources: &ServerContext,

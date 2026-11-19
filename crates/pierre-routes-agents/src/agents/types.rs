@@ -476,10 +476,7 @@ impl From<AdminCreateAgentBody> for DbCreateSystemAgentRequest {
             title: body.title,
             description: body.description,
             system_prompt: body.system_prompt,
-            category: body
-                .category
-                .map(|c| AgentCategory::parse(&c))
-                .unwrap_or_default(),
+            category: body.category.map_or_default(|c| AgentCategory::parse(&c)),
             tags: body.tags,
             sample_prompts: body.sample_prompts,
             visibility: body

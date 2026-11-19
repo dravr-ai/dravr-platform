@@ -33,9 +33,9 @@
 
 use crate::common;
 use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::strava_grant::hold_strava_grant;
 use crate::history_walk_api_test::{
-    hold_strava_grant, mock_strava, open_window, rows_under, strava_athlete, with_window,
-    MockStrava,
+    mock_strava, open_window, rows_under, strava_athlete, with_window, MockStrava,
 };
 use crate::history_walk_test::{age_job_rows, paused_retries_due};
 
@@ -62,7 +62,7 @@ use pierre_database::repositories::{
     JobProgress, PurgeReason, StreamOrigin, WellnessWriteMode,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_services::live_activities::{LiveActivityStore, LiveIngest};
+use pierre_services::live_activities::{LiveActivityStore, LiveIngest, WriteOrigin};
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
@@ -541,9 +541,10 @@ async fn a_session_walk_goes_on_through_the_grant_below_its_oldest_row() {
 async fn a_restart_mid_api_phase_resumes_the_grant_not_the_session() {
     let now = Utc::now().timestamp();
     let session_oldest = now - 2 * YEAR;
-    // Eight requests a window, two of them background: the profile and the
-    // first API window, then nothing until the next window.
-    let fx = fixture(vec![now - 3 * DAY, session_oldest], 8, true).await;
+    // Sixteen requests a window, four of them background, two of which the
+    // detail walk holds (carnet#1585): the history walk's two are the profile
+    // and the first API window, then nothing until the next window.
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 16, true).await;
     fx.strava.serve(vec![
         session_oldest - YEAR / 2,
         session_oldest - 3 * YEAR / 2,
@@ -1967,6 +1968,7 @@ impl LiveActivityStore for HeldWrite {
         provider: &str,
         activities: &[Activity],
         synced_at: DateTime<Utc>,
+        origin: WriteOrigin,
     ) -> AppResult<LiveIngest> {
         let held = {
             let mut armed = self.armed.lock().unwrap();
@@ -1982,7 +1984,7 @@ impl LiveActivityStore for HeldWrite {
         }
         let ingested = self
             .inner
-            .ingest(user_id, tenant_id, provider, activities, synced_at)
+            .ingest(user_id, tenant_id, provider, activities, synced_at, origin)
             .await;
         if let Some(hold) = held {
             hold.landed.notify_one();
@@ -2000,7 +2002,7 @@ impl LiveActivityStore for HeldWrite {
         provider: &str,
         activity: &Activity,
         received_at: DateTime<Utc>,
-    ) -> AppResult<bool> {
+    ) -> AppResult<LiveIngest> {
         self.inner
             .ingest_received(user_id, tenant_id, provider, activity, received_at)
             .await
@@ -2245,7 +2247,14 @@ impl Fixture {
         self.resources
             .common
             .live_activities
-            .ingest(self.user_id, self.tenant, key, &[ride], Utc::now())
+            .ingest(
+                self.user_id,
+                self.tenant,
+                key,
+                &[ride],
+                Utc::now(),
+                WriteOrigin::Import,
+            )
             .await
             .unwrap();
         let repos = &self.resources.common.repos;
@@ -2268,6 +2277,8 @@ impl Fixture {
                     temperature: None,
                     gps_coordinates: None,
                     distance: None,
+                    grade_smooth: None,
+                    moving: None,
                 },
                 synced_at: Utc::now(),
             })

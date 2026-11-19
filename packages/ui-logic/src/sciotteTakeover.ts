@@ -96,11 +96,9 @@ export function parseTakeoverBridgeMessage(data: string): SciotteTakeoverBridgeM
     return null;
   }
   if (!isRecord(parsed)) return null;
-  if (parsed.type === 'connected') {
-    return typeof parsed.follow_on === 'string' && parsed.follow_on
-      ? { type: 'connected', follow_on: parsed.follow_on }
-      : { type: 'connected' };
-  }
+  // A connected sign-in is the end of the connect: no authorization follows
+  // it, whatever else the message carries.
+  if (parsed.type === 'connected') return { type: 'connected' };
   if (parsed.type !== 'closed') return null;
   const outcome = parsed.outcome;
   if (isRecord(outcome) && outcome.type === 'outcome' && typeof outcome.status_code === 'number') {

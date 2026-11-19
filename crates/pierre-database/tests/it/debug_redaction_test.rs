@@ -11,6 +11,7 @@ use std::fmt::Debug;
 
 use chrono::Utc;
 use pierre_core::models::TenantId;
+use pierre_core::permissions::UserRole;
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::messaging::{
     CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, EnqueueOutboundParams,
@@ -151,6 +152,7 @@ fn a_link_state_never_prints_its_code_sender_or_display_name() {
         method: "deep_link",
         channel_user_id: Some("sentinel-channel-user-7f3a"),
         sender_name: Some("sentinel-name-7f3a"),
+        app_return_uri: None,
         expires_at: "2026-10-23T00:00:00Z",
     };
     let printed = printed_without(
@@ -190,7 +192,7 @@ fn a_seeded_demo_user_never_prints_its_password_hash() {
         password_hash: "$2b$12$sentinel-hash-7f3a".to_owned(),
         tier: "starter".to_owned(),
         status: "active".to_owned(),
-        is_admin: false,
+        role: UserRole::User,
         locale: "en".to_owned(),
         created_at: Utc::now(),
     };

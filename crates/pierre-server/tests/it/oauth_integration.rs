@@ -178,7 +178,7 @@ async fn test_oauth_authorization_url_generation() {
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -191,6 +191,8 @@ async fn test_oauth_authorization_url_generation() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -220,7 +222,6 @@ async fn test_oauth_authorization_url_generation() {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -487,7 +488,7 @@ async fn test_oauth_state_validation() {
             database,
             auth_manager,
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -500,6 +501,8 @@ async fn test_oauth_state_validation() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -670,7 +673,6 @@ async fn test_connection_status_no_providers() {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -694,7 +696,7 @@ async fn test_connection_status_no_providers() {
             database,
             auth_manager,
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -707,6 +709,8 @@ async fn test_connection_status_no_providers() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -879,7 +883,7 @@ async fn test_invalid_provider_error() {
             database,
             auth_manager,
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -892,6 +896,8 @@ async fn test_invalid_provider_error() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -1057,7 +1063,7 @@ async fn test_disconnect_provider() {
             database,
             auth_manager,
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1070,6 +1076,8 @@ async fn test_disconnect_provider() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -1092,7 +1100,6 @@ async fn test_disconnect_provider() {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -1183,7 +1190,6 @@ async fn test_oauth_urls_contain_required_parameters() {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -1370,7 +1376,7 @@ async fn test_oauth_urls_contain_required_parameters() {
             database,
             auth_manager,
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1383,6 +1389,8 @@ async fn test_oauth_urls_contain_required_parameters() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await

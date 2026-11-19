@@ -210,3 +210,27 @@ describe('A2AClientList count', () => {
     expect(await screen.findByText('2 total apps')).toBeInTheDocument();
   });
 });
+
+describe('A2AClientList badges', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // A pillar tint marks a category and nothing else: verified is a state, so
+  // success; a capability is a plain descriptor, so every one is neutral.
+  it('draws the verified mark as a success and every capability as neutral', async () => {
+    const capabilities = ['fitness-data-analysis', 'activity-intelligence', 'goal-management', 'webhooks'];
+    getA2AClients.mockResolvedValue([{ ...client, is_verified: true, capabilities }]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <A2AClientList />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('Verified')).toHaveClass('badge-success');
+    for (const capability of capabilities) {
+      expect(screen.getByText(capability)).toHaveClass('badge-neutral');
+    }
+  });
+});

@@ -26,6 +26,7 @@
 //! external caller writes no one's calendar.
 
 use crate::common;
+use crate::common::{offline_provider_config, offline_provider_registry};
 use crate::helpers;
 use secrecy::SecretString;
 
@@ -66,11 +67,9 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_providers::ai_scope::{self, serve_over};
-use pierre_providers::intervals_icu_provider::default_config;
-use pierre_providers::ProviderRegistry;
 use pierre_services::athlete_state::AthleteState;
 use pierre_services::provider_notice;
-use pierre_test_support::delegation::create_group_agent;
+use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::guardian::GuardianConfigDocument;
 use pierre_tool_runtime::implementations::endurance_workouts::{
@@ -415,8 +414,8 @@ impl World {
         let api = Api::default();
         let base = spawn_api(api.clone()).await;
         let resources = create_test_server_resources().await.unwrap();
-        let mut registry = ProviderRegistry::new();
-        let mut config = default_config();
+        let mut registry = offline_provider_registry();
+        let mut config = offline_provider_config(INTERVALS_ICU);
         config.api_base_url = base;
         registry.set_default_config(INTERVALS_ICU, config);
         let mut context = (*resources).clone();
@@ -858,6 +857,7 @@ async fn coached_group(
         )
         .await
         .unwrap();
+    grant_coach_access(repos, coach.id).await.unwrap();
     assert!(repos
         .groups
         .set_group_coach_user(&group.id.to_string(), Some(coach.id), owner.tenant)
@@ -1291,6 +1291,65 @@ async fn every_refusal_is_named_and_reaches_no_athletes_calendar() {
             .unwrap();
         assert!(saved.is_none(), "{saved:?}");
     }
+}
+
+/// A coach still attached whose coach access was withdrawn writes no
+/// athlete's calendar (carnet#1511): no name is matched, so one that matches
+/// an athlete and one that matches no one are refused alike, nothing is read
+/// from the platform, and the push goes through once access is back.
+#[tokio::test]
+async fn a_coach_whose_access_is_off_writes_no_athletes_calendar() {
+    let w = World::new().await;
+    let (alex, _) = w
+        .athlete("Alex Athlete", "i201", Some(json!("WRITE")), true)
+        .await;
+    w.plan(alex, TransportPolicy::AnyTransport).await;
+    w.repos()
+        .users
+        .set_manages_roster(w.coach.id, false)
+        .await
+        .unwrap();
+
+    let prescription =
+        json!({ "athlete": "Alex", "date": "2030-01-07", "session": tempo_session() });
+    for (refusal, refused) in [
+        w.in_dm(&PushTrainingPlanTool, json!({ "athlete": "Alex" }))
+            .await,
+        w.in_dm(&PushTrainingPlanTool, json!({ "athlete": "Zed" }))
+            .await,
+        w.in_dm(&PrescribeWorkoutTool, prescription).await,
+    ] {
+        assert!(refused, "{refusal}");
+        assert!(
+            error_text(&refusal).starts_with("Your coach access is off"),
+            "bug: no name is looked up for a caller without coach access: {refusal}"
+        );
+        assert!(
+            !refusal.to_string().contains("Alex Athlete"),
+            "bug: the name was matched for a caller without coach access: {refusal}"
+        );
+    }
+    assert_eq!(w.api.roster_reads(), 0, "nothing provider-side is read");
+    assert!(
+        w.api.event_calls().is_empty(),
+        "no refusal reached a calendar: {:?}",
+        w.api.event_calls()
+    );
+    assert!(
+        w.live(alex).await.is_empty(),
+        "bug: a refused push left a live row on the athlete's calendar"
+    );
+
+    w.repos()
+        .users
+        .set_manages_roster(w.coach.id, true)
+        .await
+        .unwrap();
+    let (report, refused) = w
+        .in_dm(&PushTrainingPlanTool, json!({ "athlete": "Alex" }))
+        .await;
+    assert!(!refused, "access is back: {report}");
+    assert_eq!(w.live(alex).await.len(), 3, "{report}");
 }
 
 #[tokio::test]

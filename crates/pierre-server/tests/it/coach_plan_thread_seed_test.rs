@@ -18,12 +18,14 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
+use chrono::{Datelike, NaiveDate, Utc, Weekday};
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::groups::GroupRole;
 use pierre_core::models::ConversationSummary;
 use pierre_core::transport::TransportPolicy;
+use pierre_database::repositories::SubjectThreads;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
@@ -111,6 +113,7 @@ impl Accounts {
                 50,
                 0,
                 TransportPolicy::AnyTransport,
+                SubjectThreads::All,
             )
             .await
             .unwrap()
@@ -191,6 +194,16 @@ async fn the_seeder_leaves_a_draft_the_coach_publishes_from_the_athletes_thread(
     let repos = accounts.repos();
 
     run(args(), repos).await.unwrap();
+
+    // The coach is a plain user the seeder granted coach access: the gates
+    // below pass on that grant, not on an admin role.
+    let coach = repos.users.get_global(accounts.coach).await.unwrap();
+    let coach = coach.expect("the seeded coach");
+    assert!(coach.manages_roster, "the seeder grants coach access");
+    assert!(
+        !coach.role.is_admin(),
+        "premise: the coach holds coach access by the grant alone"
+    );
 
     // The group: owned by the athlete, its one member, sharing with the coach,
     // who coaches it and holds no membership row.
@@ -319,6 +332,44 @@ async fn the_seeder_leaves_a_draft_the_coach_publishes_from_the_athletes_thread(
         ))
         .await;
     assert_eq!(after["draft_state"], Value::Null, "{after}");
+}
+
+/// The live season's week is the athlete's current Monday-to-Sunday week.
+#[tokio::test]
+async fn the_seeded_week_starts_on_this_weeks_monday() {
+    let accounts = Accounts::new().await;
+    let repos = accounts.repos();
+    run(args(), repos).await.unwrap();
+
+    let athlete = accounts.athlete.to_string();
+    let plan = repos
+        .training_plans
+        .get_active_plan(&accounts.athlete_tenant, &athlete)
+        .await
+        .unwrap()
+        .expect("the athlete's live season");
+    let weeks = repos
+        .training_plans
+        .list_plan_weeks(&accounts.athlete_tenant, &athlete, &plan.id, false)
+        .await
+        .unwrap();
+    assert!(!weeks.is_empty(), "bug: the live season holds no week");
+    let today = Utc::now().date_naive();
+    for week in &weeks {
+        let start = NaiveDate::parse_from_str(&week.week_start, "%Y-%m-%d")
+            .unwrap_or_else(|e| panic!("bug: week_start {:?} is no date: {e}", week.week_start));
+        assert_eq!(
+            start.weekday(),
+            Weekday::Mon,
+            "bug: the seeded week starts on a {:?}: {start}",
+            start.weekday()
+        );
+        let behind = (today - start).num_days();
+        assert!(
+            (-1..=7).contains(&behind),
+            "bug: the seeded week starting {start} is not this week (today {today})"
+        );
+    }
 }
 
 /// With no model resolved the seeder refuses before writing anything, and

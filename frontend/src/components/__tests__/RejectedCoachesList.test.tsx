@@ -135,6 +135,8 @@ describe('RejectedCoachesList', () => {
       expect(screen.getByText('Training')).toBeInTheDocument();
       expect(screen.getByText('Nutrition')).toBeInTheDocument();
     });
+    expect(screen.getByText('Training')).toHaveClass('badge-activity');
+    expect(screen.getByText('Nutrition')).toHaveClass('badge-nutrition');
   });
 
   it('shows author emails', async () => {

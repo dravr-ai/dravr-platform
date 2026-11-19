@@ -15,7 +15,7 @@
 //! message after Tier-1 compaction, like the activity refresh, so it is never
 //! summarized, never persisted and never replayed into a later turn.
 
-use pierre_core::civil_time::{format_clock_stamp, resolve_zone};
+use pierre_core::civil_time::{format_clock_stamp, monday_of, resolve_zone};
 use pierre_llm::ChatMessage;
 
 /// Opening sentence of the turn-clock message.
@@ -54,6 +54,29 @@ pub fn inject_turn_clock(llm_messages: &mut Vec<ChatMessage>, clock: &str) {
         insert_pos,
         ChatMessage::user(format!("{TURN_CLOCK_LEAD} {clock}")),
     );
+}
+
+/// Mark the end of the replayed conversation as a prompt-cache breakpoint.
+///
+/// Must run AFTER Tier-1 compaction and BEFORE the clock, the activity refresh
+/// and every other per-turn message is inserted: at that point the list is the
+/// system prompt, the replayed history and the athlete's latest message, so the
+/// message before the latest one is the last thing the next turn replays
+/// unchanged. Without the mark, the only cache entry inside the conversation
+/// ends after this turn's clock and refresh, which the next turn never sends,
+/// so every turn re-wrote its whole history to the cache: 40-66k tokens a turn
+/// for a coach measured on 2026-11-14, charged to the athlete's quota
+/// (carnet#1632). A conversation with no history yet has nothing to mark, and
+/// the caller skips the first turn outright: there the message before the
+/// latest one can be the startup grounding Stage 10 inserted, which no later
+/// turn replays.
+pub fn mark_history_cache_breakpoint(llm_messages: &mut [ChatMessage]) {
+    let Some(end) = llm_messages.len().checked_sub(2).filter(|&end| end >= 1) else {
+        return;
+    };
+    if let Some(message) = llm_messages.get_mut(end) {
+        message.cache_breakpoint = true;
+    }
 }
 
 /// The turn clock with the provider freshness hint after it, when there is one.
@@ -102,7 +125,7 @@ const _: () = assert!(
 /// and a wrong weekday is the failure an athlete actually notices.
 #[must_use]
 pub fn format_current_date(user_timezone: Option<&str>, locale: &str) -> String {
-    use chrono::{Datelike, Duration, TimeZone, Utc};
+    use chrono::{Datelike, Duration, NaiveDate, TimeZone, Utc};
     let now_utc = Utc::now();
     let tz = resolve_zone(user_timezone);
     let local = now_utc.with_timezone(&tz);
@@ -124,22 +147,19 @@ pub fn format_current_date(user_timezone: Option<&str>, locale: &str) -> String 
     );
     let now_epoch = quantized_epoch;
 
-    // Local-midnight epoch `days_back` days before today, DST-safe (a spring
-    // gap/fold at midnight is vanishingly rare; take the earliest valid
-    // instant). Falls back to `now` if construction ever fails so a boundary
-    // is never silently wrong by years.
-    let midnight_epoch = |days_back: i64| -> i64 {
-        (local - Duration::days(days_back))
-            .date_naive()
-            .and_hms_opt(0, 0, 0)
+    // Local-midnight epoch of a local date, DST-safe (a spring gap/fold at
+    // midnight is vanishingly rare; take the earliest valid instant). Falls
+    // back to `now` if construction ever fails so a boundary is never silently
+    // wrong by years.
+    let midnight_epoch = |date: NaiveDate| -> i64 {
+        date.and_hms_opt(0, 0, 0)
             .and_then(|naive| tz.from_local_datetime(&naive).earliest())
             .map_or(now_epoch, |dt| dt.timestamp())
     };
-    let today0 = midnight_epoch(0);
-    let yesterday0 = midnight_epoch(1);
+    let today0 = midnight_epoch(local.date_naive());
+    let yesterday0 = midnight_epoch((local - Duration::days(1)).date_naive());
     // Monday-anchored week (the convention pierre_system.md already states).
-    let days_since_monday = i64::from(local.weekday().num_days_from_monday());
-    let week0 = midnight_epoch(days_since_monday);
+    let week0 = midnight_epoch(monday_of(local.date_naive()));
     // First of the current month, 00:00 local — the "ce mois" / "this month"
     // window, which is otherwise a from-scratch date→epoch conversion.
     let month0 = local
@@ -170,4 +190,49 @@ pub fn format_current_date(user_timezone: Option<&str>, locale: &str) -> String 
          `after` = the matching start above and `before` = now (count only the rows whose start \
          falls inside the window)."
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn marked(messages: &[ChatMessage]) -> Vec<usize> {
+        messages
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.cache_breakpoint)
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// The mark lands on the last replayed message, and the clock inserted
+    /// after it stays outside the cached history: the next turn replays the
+    /// history unchanged and reads it back (carnet#1632).
+    #[test]
+    fn the_last_replayed_message_is_marked_before_the_clock_lands_after_it() {
+        let mut messages = vec![
+            ChatMessage::system("persona"),
+            ChatMessage::user("how was my week?"),
+            ChatMessage::assistant("Solid: four rides."),
+            ChatMessage::user("and today?"),
+        ];
+        mark_history_cache_breakpoint(&mut messages);
+        inject_turn_clock(&mut messages, "Tuesday 14:54");
+        assert_eq!(marked(&messages), [2]);
+        assert!(messages[3].content.starts_with(TURN_CLOCK_LEAD));
+        assert_eq!(messages[4].content, "and today?");
+    }
+
+    /// A first turn has no history: the system prompt keeps its own
+    /// breakpoints and nothing else is marked.
+    #[test]
+    fn a_turn_without_history_marks_nothing() {
+        let mut first = vec![ChatMessage::system("persona"), ChatMessage::user("hi")];
+        mark_history_cache_breakpoint(&mut first);
+        assert_eq!(marked(&first), Vec::<usize>::new());
+
+        let mut lone = vec![ChatMessage::user("hi")];
+        mark_history_cache_breakpoint(&mut lone);
+        assert_eq!(marked(&lone), Vec::<usize>::new());
+    }
 }

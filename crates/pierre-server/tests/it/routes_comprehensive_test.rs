@@ -79,7 +79,7 @@ async fn create_test_auth_routes() -> Result<AuthService> {
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -92,6 +92,8 @@ async fn create_test_auth_routes() -> Result<AuthService> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -121,7 +123,6 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -308,7 +309,7 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -321,6 +322,8 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -603,7 +606,7 @@ async fn test_user_login_success() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -616,6 +619,8 @@ async fn test_user_login_success() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -899,7 +904,7 @@ async fn test_token_refresh_success() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -912,6 +917,8 @@ async fn test_token_refresh_success() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -980,7 +987,13 @@ async fn test_token_refresh_success() -> Result<()> {
     );
     // The renewed session still names the client the family was signed in to.
     let renewed_claims = common::create_test_auth_manager()
-        .validate_session_token(renewed_jwt, &common::get_shared_test_jwks())?;
+        .validate_session_token(
+            renewed_jwt,
+            &common::get_shared_test_jwks(),
+            database.repositories().admin_audit.as_ref(),
+            "sign in to the OAuth consent screen",
+        )
+        .await?;
     assert_eq!(renewed_claims.client_id.as_deref(), Some(MOBILE_CLIENT_ID));
     assert_eq!(refreshed.login.user.email, "refresh@example.com");
     assert_eq!(refreshed.login.user.user_id, user_id);
@@ -1161,7 +1174,7 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1174,6 +1187,8 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -1300,7 +1315,6 @@ async fn test_oauth_connection_status_no_connections() -> Result<()> {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -1346,7 +1360,6 @@ async fn test_oauth_disconnect_provider_success() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -1408,7 +1421,6 @@ async fn test_oauth_disconnect_invalid_provider() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -1681,7 +1693,7 @@ async fn test_complete_auth_flow() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1694,6 +1706,8 @@ async fn test_complete_auth_flow() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -1764,7 +1778,6 @@ async fn test_complete_auth_flow() -> Result<()> {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: true,
         role: UserRole::Admin,
         approved_by: None,
         approved_at: None,
@@ -2003,7 +2016,7 @@ async fn test_concurrent_logins() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -2016,6 +2029,8 @@ async fn test_concurrent_logins() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await

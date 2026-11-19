@@ -165,6 +165,34 @@ resource "google_secret_manager_secret_version" "admin_password_placeholder" {
   }
 }
 
+# The password the bootstrap seeder gives the deployed demo and test
+# accounts (alice@demo.pierre.dev, bob@demo.pierre.dev, phil_test@dravr.ai,
+# jf_test@dravr.ai). Generated here so nobody types it and no file in this
+# public repository holds it (carnet#1597: the previous values were here);
+# the seed-bootstrap job reads it as BOOTSTRAP_DEMO_PASSWORD, and a session
+# that signs in as one of those accounts reads it from Secret Manager.
+resource "random_password" "bootstrap_demo_password" {
+  length           = 32
+  special          = true
+  override_special = "!@#%^*()_+-="
+}
+
+resource "google_secret_manager_secret" "bootstrap_demo_password" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-bootstrap-demo-password"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "bootstrap_demo_password" {
+  secret      = google_secret_manager_secret.bootstrap_demo_password.id
+  secret_data = random_password.bootstrap_demo_password.result
+}
+
 # -----------------------------------------------------------------------------
 # Provider & API Key Secrets (to be filled manually)
 # -----------------------------------------------------------------------------

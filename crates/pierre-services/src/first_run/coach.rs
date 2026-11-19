@@ -11,7 +11,7 @@
 //! the board's order (P1·D):
 //!
 //! 1. **The coach seat** ([`COACH_SEAT_STEP`]) — done once the user holds
-//!    coach access (`manages_roster`). A super-admin grants it (ADR-018); the
+//!    coach access (`manages_roster`). An admin grants it (ADR-018); the
 //!    request and its state are the coach-access request's to say.
 //! 2. **The athlete invited** ([`INVITE_ATHLETE_STEP`]) — done once someone
 //!    other than the coach joined one of the coach's groups: a coachless group

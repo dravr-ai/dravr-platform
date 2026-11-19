@@ -36,7 +36,7 @@ pub mod transport;
 /// Core data models (Activity, User, SportType, OAuth, etc.)
 pub mod models;
 
-/// Role-based permission system with bitflags
+/// User roles, the impersonation session record and the OAuth scope vocabulary
 pub mod permissions;
 
 /// Fitness-specific configuration (sport types, zones, thresholds)

@@ -1,5 +1,5 @@
 // ABOUTME: GET /admin/audit-events and /api/admin/audit-events — the admin audit trail, newest first
-// ABOUTME: Tenant-scoped for a tenant admin, platform-wide for a super-admin; keyset-paged by (timestamp, id)
+// ABOUTME: Platform-wide for an admin or a super-admin token, tenant-scoped for a scoped token; keyset-paged by (timestamp, id)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -24,7 +24,7 @@ use serde_json::{json, to_value};
 use uuid::Uuid;
 
 use pierre_core::admin::models::ValidatedAdminToken;
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{AuditEventFilter, AuditOutcome, AUDIT_PAGE_MAX};
 
 use super::api_keys::json_response;
@@ -47,7 +47,8 @@ pub struct AuditTrailQuery {
     pub before_id: Option<String>,
     /// Only actions starting with this text (`user.`, `DELETE`).
     pub action: Option<String>,
-    /// Only `success`, `refused` or `failed`.
+    /// Only `success`, `refused`, `failed` or `started` (an admin-only tool
+    /// call whose outcome could not be written after it ran).
     pub outcome: Option<String>,
     /// Only this operator's actions.
     pub actor_user_id: Option<Uuid>,
@@ -58,16 +59,17 @@ fn parse_outcome(raw: &str) -> AppResult<AuditOutcome> {
         "success" => Ok(AuditOutcome::Success),
         "refused" => Ok(AuditOutcome::Refused),
         "failed" => Ok(AuditOutcome::Failed),
+        "started" => Ok(AuditOutcome::Started),
         other => Err(AppError::invalid_input(format!(
-            "outcome must be success, refused or failed, not {other:?}"
+            "outcome must be success, refused, failed or started, not {other:?}"
         ))),
     }
 }
 
 /// `GET /admin/audit-events` — the trail, newest first.
 ///
-/// A super-admin reads every tenant's rows; any other admin reads only the
-/// rows of the tenant its credential acts in.
+/// An admin's console session, like a super-admin token, reads every tenant's
+/// rows; a scoped token reads only the rows of the tenant it acts in.
 ///
 /// # Errors
 /// Returns an invalid-input error for an unknown outcome, a permission error
@@ -81,16 +83,12 @@ pub async fn handle_list_audit_events(
     if let Some(denied) = deny_without_manage_users(&admin_token) {
         return Ok(denied.into_response());
     }
-    let tenant_id = if admin_token.is_super_admin {
-        None
-    } else {
-        Some(admin_token.tenant_id.clone().ok_or_else(|| {
-            AppError::new(
-                ErrorCode::PermissionDenied,
-                "A tenant admin's credential names no tenant to read the audit trail of",
-            )
-        })?)
-    };
+    // What the credential reaches: every tenant, its own, or none (the
+    // scope rule's one reading, carnet#1589).
+    let tenant_id = admin_token
+        .reach()?
+        .tenant_filter()
+        .map(|tenant| tenant.to_string());
     let filter = AuditEventFilter {
         tenant_id,
         before: query.before,
@@ -129,12 +127,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_three_outcomes_parse() {
-        assert_eq!(
-            parse_outcome("refused").ok(),
-            Some(AuditOutcome::Refused),
-            "bug: a stored outcome must parse"
-        );
+    fn only_the_stored_outcomes_parse() {
+        for outcome in [
+            AuditOutcome::Success,
+            AuditOutcome::Refused,
+            AuditOutcome::Failed,
+            AuditOutcome::Started,
+        ] {
+            assert_eq!(
+                parse_outcome(outcome.as_str()).ok(),
+                Some(outcome),
+                "bug: a stored outcome must parse"
+            );
+        }
         assert!(
             parse_outcome("ok").is_err(),
             "bug: an unknown outcome must be refused, not read as no filter"

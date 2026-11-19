@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! What [`GetSegmentHistoryTool`](super::GetSegmentHistoryTool) answers
-//! with, and how the efforts either place holds become it.
+//! with, and how the stored efforts become it.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -33,16 +33,6 @@ const MAX_LISTED_EFFORTS: usize = 50;
 /// newest: half, so the latest rides are always listed.
 const MAX_RANKED_SHARE: usize = MAX_LISTED_EFFORTS / 2;
 
-/// Which of the two places answered.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AnsweredBy {
-    /// The provider's live listing of the segment's efforts: complete.
-    LiveSegmentHistory,
-    /// The segment efforts stored with the athlete's activities.
-    StoredDetails,
-}
-
 /// One effort on a matched segment.
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct SegmentHistoryEffort {
@@ -52,10 +42,8 @@ pub struct SegmentHistoryEffort {
     pub source: String,
     /// The provider's id of the activity the effort was made in.
     pub activity_id: String,
-    /// That activity's title, as one line; absent from a live listing, which
-    /// names only the activity's id.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub activity_name: Option<String>,
+    /// That activity's title, as one line.
+    pub activity_name: String,
     /// When the effort started (RFC 3339, UTC).
     pub start_date: String,
     /// Seconds from the segment's start to its end.
@@ -132,9 +120,6 @@ pub struct SegmentHistoryResult {
     pub segments: Vec<MatchedSegment>,
     /// The efforts summed per segment and service.
     pub summary: Vec<SegmentSummary>,
-    /// Where the efforts were read: the provider's live listing, or the
-    /// stored details of the athlete's activities.
-    pub answered_by: AnsweredBy,
     /// Whether the efforts are all there are in the window: `window.total` is
     /// the activities in it, `window.returned` the activities whose segments
     /// were read; with `incomplete_reason` and the walk still `pending` when
@@ -147,14 +132,14 @@ pub(super) fn effort_row(
     provider: &str,
     source: &str,
     activity_id: &str,
-    activity_name: Option<&str>,
+    activity_name: &str,
     effort: &SegmentEffort,
 ) -> SegmentHistoryEffort {
     SegmentHistoryEffort {
         provider: provider.to_owned(),
         source: source.to_owned(),
         activity_id: activity_id.to_owned(),
-        activity_name: activity_name.map(|name| display_line(name, SEGMENT_NAME_MAX_CHARS)),
+        activity_name: display_line(activity_name, SEGMENT_NAME_MAX_CHARS),
         start_date: effort.start_date.to_rfc3339(),
         elapsed_time: effort.elapsed_time,
         moving_time: effort.moving_time,
@@ -173,7 +158,6 @@ pub(super) fn effort_row(
 /// before the list is trimmed to [`MAX_LISTED_EFFORTS`].
 pub(super) fn answer(
     mut efforts: Vec<SegmentHistoryEffort>,
-    answered_by: AnsweredBy,
     coverage: Coverage,
     zone: Tz,
 ) -> SegmentHistoryResult {
@@ -212,7 +196,6 @@ pub(super) fn answer(
         efforts_total,
         segments,
         summary,
-        answered_by,
         coverage,
     }
 }
@@ -261,13 +244,11 @@ fn listed_efforts(
 fn summarize(provider: &str, group: &[&SegmentHistoryEffort], zone: Tz) -> SegmentSummary {
     let mut by_year: BTreeMap<String, usize> = BTreeMap::new();
     for effort in group {
-        let year = DateTime::parse_from_rfc3339(&effort.start_date)
-            .map(|at| {
-                local_date(at.with_timezone(&Utc), zone)
-                    .format("%Y")
-                    .to_string()
-            })
-            .unwrap_or_default();
+        let year = DateTime::parse_from_rfc3339(&effort.start_date).map_or_default(|at| {
+            local_date(at.with_timezone(&Utc), zone)
+                .format("%Y")
+                .to_string()
+        });
         *by_year.entry(year).or_default() += 1;
     }
     let best = group
@@ -277,15 +258,11 @@ fn summarize(provider: &str, group: &[&SegmentHistoryEffort], zone: Tz) -> Segme
     SegmentSummary {
         provider: provider.to_owned(),
         segment_id: best.and_then(|effort| effort.segment_id.clone()),
-        segment_name: best
-            .map(|effort| effort.segment_name.clone())
-            .unwrap_or_default(),
+        segment_name: best.map_or_default(|effort| effort.segment_name.clone()),
         count: group.len(),
         by_year,
         best_elapsed_time: best.map_or(0, |effort| effort.elapsed_time),
-        best_start_date: best
-            .map(|effort| effort.start_date.clone())
-            .unwrap_or_default(),
+        best_start_date: best.map_or_default(|effort| effort.start_date.clone()),
     }
 }
 
@@ -306,8 +283,8 @@ mod tests {
             provider: STRAVA.to_owned(),
             source: STRAVA.to_owned(),
             activity_id: days.to_string(),
-            activity_name: None,
-            start_date: at.map(|at| at.to_rfc3339()).unwrap_or_default(),
+            activity_name: format!("Ride {days}"),
+            start_date: at.map_or_default(|at| at.to_rfc3339()),
             elapsed_time: elapsed,
             moving_time: None,
             distance: 1_820.5,
@@ -323,7 +300,7 @@ mod tests {
     #[test]
     fn a_long_history_lists_its_best_ranked_and_newest_efforts_and_counts_all() {
         let complete = segments_read_coverage(
-            None,
+            0,
             0,
             (NaiveDate::MIN, NaiveDate::MIN),
             Completeness::Complete,
@@ -333,7 +310,7 @@ mod tests {
         let mut efforts: Vec<_> = (0..120).map(|day| ridden(day, 400, None)).collect();
         efforts[0].elapsed_time = 300;
         efforts[60].pr_rank = Some(1);
-        let answered = answer(efforts, AnsweredBy::StoredDetails, complete, Tz::UTC);
+        let answered = answer(efforts, complete, Tz::UTC);
 
         assert_eq!(
             answered.efforts.len(),
@@ -386,9 +363,8 @@ mod tests {
         efforts[0].elapsed_time = 300;
         let crowded = answer(
             efforts,
-            AnsweredBy::StoredDetails,
             segments_read_coverage(
-                None,
+                0,
                 0,
                 (NaiveDate::MIN, NaiveDate::MIN),
                 Completeness::Complete,
@@ -414,9 +390,8 @@ mod tests {
 
         let short = answer(
             (0..3).map(|day| ridden(day, 400, None)).collect(),
-            AnsweredBy::StoredDetails,
             segments_read_coverage(
-                None,
+                0,
                 0,
                 (NaiveDate::MIN, NaiveDate::MIN),
                 Completeness::Complete,

@@ -18,6 +18,7 @@
 //! web Settings form uses, then redirects to the shared success page.
 
 use crate::common;
+use crate::common::{offline_provider_config, offline_provider_registry};
 use crate::helpers;
 use secrecy::ExposeSecret;
 
@@ -38,8 +39,6 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::{
     mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs,
 };
-use pierre_providers::intervals_icu_provider::default_config;
-use pierre_providers::ProviderRegistry;
 use pierre_routes_auth::AuthRoutes;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -138,9 +137,9 @@ async fn setup_over(base_url: &str, config: ServerConfig) -> Fixture {
         .await
         .expect("store the athlete's locale");
 
-    let mut config = default_config();
+    let mut config = offline_provider_config(INTERVALS_ICU);
     base_url.clone_into(&mut config.api_base_url);
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.set_default_config(INTERVALS_ICU, config);
     let mut context = resources.auth_routes_context();
     context.provider_registry = Arc::new(registry);

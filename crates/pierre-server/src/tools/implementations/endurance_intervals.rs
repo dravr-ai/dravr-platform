@@ -49,7 +49,8 @@ pub struct ActivityStreamsResult {
     pub activity_id: String,
     /// How many samples each series carries.
     pub sample_count: usize,
-    /// Heart rate, power, cadence, speed and altitude as recorded, and the GPS
+    /// Heart rate, power, cadence, speed and altitude as recorded, the provider's
+    /// own `grade_smooth` and `moving` where it computed them, and the GPS
     /// track inside the Dravr app only; a missed sample is a gap (`null`),
     /// never a value.
     pub streams: TimeSeriesData,
@@ -166,7 +167,7 @@ impl McpTool<dyn ToolRuntime> for ExportIntervalsTool {
                 .await?
                 // A profile written from first-party-only data is withheld from an
                 // external caller (carnet#769).
-                .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
+                .filter(ai_scope::admit_profile);
             let ftp_watts = physiology.as_ref().and_then(|p| p.ftp_watts);
             let intervals = build_intervals(&activity, ftp_watts);
             let payload = serde_json::to_value(&intervals)
@@ -222,8 +223,8 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
             // activity_streams; an activity whose details have not arrived has
             // none yet) and sciotte (except TrainingPeaks). WHOOP serves no
             // per-sample data upstream, so this branch always fires there.
-            // LIMITATION(registre#1264): Terra samples are parsed then dropped.
-            // LIMITATION(registre#1265): COROS has no sample source wired.
+            // LIMITATION(registre#859): Terra samples are parsed then dropped.
+            // LIMITATION(registre#509): COROS has no sample source wired.
             let stream = activity.time_series_data().ok_or_else(|| {
                 AppError::not_found("activity has no GPS stream — terrain unavailable")
             })?;
@@ -316,11 +317,13 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
         answers_with::<ActivityStreamsResult>(tool_definition(
             "extract_activity_streams",
             "Return one activity's raw per-second streams — heart_rate (bpm), power \
-             (watts), cadence (rpm/spm), speed (m/s) and altitude (m). gps_coordinates \
-             (lat/lon pairs) is returned only inside the Dravr app, never over MCP or A2A. \
+             (watts), cadence (rpm/spm), speed (m/s) and altitude (m), plus, when the Strava \
+             source serves them, grade_smooth (road grade %, + uphill) and moving (true \
+             while in motion). \
+             gps_coordinates (lat/lon pairs) is returned only inside the Dravr app, never over MCP or A2A. \
              A stream the provider didn't record is omitted; a sample the sensor missed is \
-             null, never a reading of 0. Use it for a custom analysis that export_intervals \
-             / export_routes don't cover.",
+             null, never a reading of 0. Use it for a custom analysis beyond export_intervals \
+             / export_routes.",
             schema,
             annotations(
                 "Extract activity streams",
@@ -356,8 +359,8 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
             // activity_streams; an activity whose details have not arrived has
             // none yet) and sciotte (except TrainingPeaks). WHOOP serves no
             // per-sample data upstream, so this branch always fires there.
-            // LIMITATION(registre#1264): Terra samples are parsed then dropped.
-            // LIMITATION(registre#1265): COROS has no sample source wired.
+            // LIMITATION(registre#859): Terra samples are parsed then dropped.
+            // LIMITATION(registre#509): COROS has no sample source wired.
             let stream = activity
                 .time_series_data()
                 .ok_or_else(|| AppError::not_found("activity has no time-series data"))?;

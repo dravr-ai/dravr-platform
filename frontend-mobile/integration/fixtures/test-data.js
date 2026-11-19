@@ -11,11 +11,6 @@ const testUsers = {
     password: 'MobileIntegrationPass123!',
     role: 'admin',
   },
-  superAdmin: {
-    email: 'mobile-integration-super@test.local',
-    password: 'SuperMobilePass456!',
-    role: 'super_admin',
-  },
   regularUser: {
     email: 'mobile-integration-user@test.local',
     password: 'RegularMobilePass789!',

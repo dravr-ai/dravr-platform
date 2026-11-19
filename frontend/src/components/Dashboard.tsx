@@ -30,14 +30,14 @@ import {
   type MobileNavTab,
 } from "./layout/MobileNav";
 import {
+  ACCOUNT_ROLE_LABEL_KEY,
   ADMIN_HIDDEN_PANES,
-  COMMAND_DRAFTS,
   PRODUCT_WORDMARK,
   SITE_URL,
   coachTrainsToo,
   landsOnPendingCoachHome,
 } from "@pierre/shared-constants";
-import type { PendingComposerAction } from "./chat/types";
+import type { JoinedGroupRoom } from "../hooks/useHeldGroupInvite";
 import type { PersonalToday } from "./home/personalToday";
 import type { FirstStepRequest } from "./home/FirstStepSheet";
 // Explicit /index path avoids macOS case-insensitive collision between
@@ -112,24 +112,13 @@ const GATED_TABS: ReadonlySet<string> = new Set(
 );
 
 /** Whether `tab` is nothing the switch draws, outside the caller's role, or gated off. */
-function isUnservedTab(
-  tab: string,
-  isAdminUser: boolean,
-  isSuperAdmin: boolean,
-): boolean {
+function isUnservedTab(tab: string, isAdminUser: boolean): boolean {
   return (
     !DRAWN_TABS.has(tab) ||
     (!isAdminUser && ADMIN_ONLY_TABS.has(tab)) ||
-    (!isSuperAdmin && SUPER_ADMIN_ONLY_TABS.has(tab)) ||
     GATED_TABS.has(tab)
   );
 }
-
-/** The console is English whatever the viewer's locale (see `untranslatedScan.ts`). */
-const OPERATOR_ROLE_LABEL: Record<"admin" | "super_admin", string> = {
-  super_admin: "Super Admin",
-  admin: "Admin",
-};
 
 // Lazy load heavy components to reduce initial bundle size
 const AnalyticsTab = lazy(() => import("./AnalyticsTab"));
@@ -197,7 +186,7 @@ const CoachHome = lazy(() => import("./coach-home/CoachHome"));
 // A coach's Home while their coach access is pending: « Préparer ton coaching » (carnet#1529).
 const PendingCoachHome = lazy(() => import("./coach-home/PendingCoachHome"));
 import { BILLING_ENABLED } from "../constants/features";
-import { ADMIN_ONLY_TABS, SUPER_ADMIN_ONLY_TABS } from "../constants/adminTabs";
+import { ADMIN_ONLY_TABS } from "../constants/adminTabs";
 import { PAGE_GUTTER_CLASS, layoutForRoute } from "../constants/surfaceLayout";
 import { groupBySection } from "../utils/sidebarSections";
 import { useTranslation } from "@pierre/i18n";
@@ -214,10 +203,12 @@ interface TabDefinition {
 
 import { DravrLogo } from "./DravrLogo";
 import { ConnectProviderBanner } from "./ConnectProviderBanner";
-import { IconRail } from "./layout/IconRail";
+import { IconRail, type ModeSwitch } from "./layout/IconRail";
+import { ArrowLeftRight } from "lucide-react";
 import SettingsShell from "./settings/SettingsShell";
 import { SETTINGS_TABS, type SettingsTab } from "./settings/settingsTabs";
 import {
+  clearSessionRoute,
   markCurrentSessionRoute,
   writeSessionRoute,
 } from "../utils/sessionRoute";
@@ -238,6 +229,7 @@ import {
   feedbackReplyRoute,
   parseFeedbackAbout,
 } from "./feedback/feedbackRoute";
+import { actsAsAdmin, hasAdminRole } from "@pierre/shared-types";
 import type { FeedbackAbout } from "@pierre/shared-types";
 
 /** A hash segment decoded, or `null` when it is empty or a malformed escape. */
@@ -264,23 +256,29 @@ function parseSettingsTab(
 }
 
 interface DashboardProps {
-  pendingInviteCode?: string | null;
-  onInviteCodeConsumed?: () => void;
+  /**
+   * The group room a held invite's join just opened (carnet#1648): the Groups
+   * tab shows it, on the athlete's conversation when the server filed one.
+   */
+  joinedRoom?: JoinedGroupRoom | null;
+  /** Called once the room above is on screen. */
+  onJoinedRoomOpened?: () => void;
 }
 
 export default function Dashboard({
-  pendingInviteCode,
-  onInviteCodeConsumed,
+  joinedRoom = null,
+  onJoinedRoomOpened,
 }: DashboardProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, viewMode, chooseViewMode } = useAuth();
   // A coach-access grant shows on the next navigation, without signing out
   // and in again (carnet#1521).
   useCoachAccessGrantRefresh();
   const { t } = useTranslation();
-  // Default tab depends on user role: admin sees 'users', an athlete lands on
-  // 'home' — today's plan and the latest activities, where the logo also leads.
-  const isAdminUser = user?.role === "admin" || user?.role === "super_admin";
-  const isSuperAdmin = user?.role === "super_admin";
+  // Default tab depends on the shell drawn: the admin console opens on 'users',
+  // the athlete app on 'home' — today's plan and the latest activities, where
+  // the logo also leads. An admin who chose the athlete mode gets the athlete
+  // app (carnet#1631).
+  const isAdminUser = actsAsAdmin(user, viewMode);
   // A coach (coach access granted) reviews the replies sent to their athletes.
   const managesRoster = user?.manages_roster === true;
   // A coach still waiting for coach access lands on a coach-shaped Home, never
@@ -324,7 +322,7 @@ export default function Dashboard({
   // `applyRoute`, so gating only there would leave the very path a user takes
   // wide open.
   const initialFallback = isAdminUser ? "users" : "home";
-  const initialTab = isUnservedTab(initialTabSeg, isAdminUser, isSuperAdmin)
+  const initialTab = isUnservedTab(initialTabSeg, isAdminUser)
     ? initialFallback
     : initialTabSeg || initialFallback;
   const [activeTab, setActiveTab] = useState<string>(initialTab);
@@ -345,10 +343,25 @@ export default function Dashboard({
   // handle, which only renders when `!sidebarCollapsed`).
   const isTablet = useIsTablet();
   const sidebarCollapsed = userSidebarCollapsed || isTablet;
-  // An operator's role is worth a line under the name; an athlete's is not —
-  // "user" under one's own name reads as a label with nothing to say.
-  const operatorRoleBadge =
-    user && user.role !== "user" ? OPERATOR_ROLE_LABEL[user.role] : null;
+  // An admin's role is worth a line under the name; an athlete's is not —
+  // "user" under one's own name reads as a label with nothing to say. The
+  // label is the catalogue's, the one the Account pane prints; every locale
+  // writes it the same, so the console stays English whatever the viewer's
+  // locale (see `untranslatedScan.ts`).
+  const adminRoleBadge = isAdminUser ? t(ACCOUNT_ROLE_LABEL_KEY.admin) : null;
+  // An admin moves between the console and the athlete app from the account
+  // menu, the phone drawer or the console sidebar (carnet#1631). The route is
+  // cleared first: the shell App redraws for the new mode then opens on that
+  // mode's default, and Back never returns to the other mode's tab.
+  const modeSwitch: ModeSwitch | undefined = hasAdminRole(user)
+    ? {
+        label: isAdminUser ? t("shell.switchToAthlete") : t("shell.switchToAdmin"),
+        onSelect: () => {
+          clearSessionRoute();
+          chooseViewMode(isAdminUser ? "athlete" : "admin");
+        },
+      }
+    : undefined;
   // User-tunable sidebar width when expanded. The default 260px truncates
   // long chat-session titles and the user button's display name (web QA
   // 2026-05-09); a drag handle lets the user widen the panel to fit
@@ -508,20 +521,6 @@ export default function Dashboard({
       : null,
   );
 
-  // An invite link lands on chat and joins through the command, exactly as a
-  // Telegram or WhatsApp member would: one turn, `/group join <code>`, in a
-  // thread the athlete can then read.
-  const [pendingComposerAction, setPendingComposerAction] =
-    useState<PendingComposerAction | null>(null);
-  useEffect(() => {
-    if (!pendingInviteCode) return;
-    setActiveTab("chat");
-    setPendingComposerAction({
-      kind: "send",
-      text: COMMAND_DRAFTS.groupJoin(pendingInviteCode),
-    });
-  }, [pendingInviteCode]);
-
   // ── URL hash routing ──────────────────────────────────────────────────────
   // Compose the route from the active tab + its open sub-view, so deep links
   // and the Back button operate on sub-views, not just top-level tabs.
@@ -598,7 +597,7 @@ export default function Dashboard({
       // 403s), so nothing leaked — but the pane still rendered its filter chrome
       // and then retried the 403 on a loop. Resolve an out-of-role tab back to
       // the role's own default instead of mounting a surface it cannot use.
-      const tab = isUnservedTab(requested, isAdminUser, isSuperAdmin)
+      const tab = isUnservedTab(requested, isAdminUser)
         ? fallback
         : requested;
       // A rewritten hash typed while the fallback tab is already active changes
@@ -652,7 +651,7 @@ export default function Dashboard({
       setSettingsTab(pane);
       setFeedbackAbout(tab === FEEDBACK_TAB ? parseFeedbackAbout(sub) : null);
     },
-    [isAdminUser, isSuperAdmin],
+    [isAdminUser],
   );
 
   // React to back/forward and external hash edits.
@@ -663,6 +662,36 @@ export default function Dashboard({
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, [applyRoute]);
+
+  // A held invite's join opens the room it joined, as a notification's link
+  // to the thread would: the join notice waits there, unread. A room the
+  // server could not file opens on the Groups list, where it is filed on
+  // first open.
+  useEffect(() => {
+    if (joinedRoom === null) return;
+    applyRoute(
+      joinedRoom.conversationId === null
+        ? "chat"
+        : `chat/${encodeURIComponent(joinedRoom.conversationId)}`,
+    );
+    onJoinedRoomOpened?.();
+  }, [joinedRoom, applyRoute, onJoinedRoomOpened]);
+
+  // The role can change under a mounted dashboard: the account cached by this
+  // browser renders first and the session's own replaces it, so an admin
+  // demoted since the last visit starts as one and stops being one a moment
+  // later. The first-load guard and `applyRoute` each ran once for the role
+  // they saw; without this the admin pane stayed mounted for a plain user
+  // until the next navigation. Re-resolving the current hash sends an
+  // out-of-role tab to the role's default and replaces the entry, so Back
+  // does not walk into it again. The render in between draws nothing (see
+  // the guard before the shell's `return`).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isAdminUser && ADMIN_ONLY_TABS.has(activeTab)) {
+      applyRoute(window.location.hash.replace(/^#/, ""));
+    }
+  }, [isAdminUser, activeTab, applyRoute]);
 
   // Close user menu when clicking outside
   useEffect(() => {
@@ -1010,14 +1039,6 @@ export default function Dashboard({
             },
           ]
         : []),
-    ],
-    [pendingUsersCount, storeStatsPendingCount],
-  );
-
-  // Super admin tabs extend admin tabs with the settings only they may change
-  const superAdminTabs: TabDefinition[] = useMemo(
-    () => [
-      ...adminTabs,
       {
         id: "harness-config",
         name: "Harness Config",
@@ -1061,7 +1082,7 @@ export default function Dashboard({
         ),
       },
     ],
-    [adminTabs],
+    [pendingUsersCount, storeStatsPendingCount],
   );
 
   // Regular user tabs — the destinations of the rail. Settings is reached
@@ -1197,11 +1218,8 @@ export default function Dashboard({
   // For admin users, use sidebar tabs
   // Grouped so each section is one run: the rail draws a header per run.
   const tabs = useMemo(
-    () =>
-      groupBySection(
-        isSuperAdmin ? superAdminTabs : isAdminUser ? adminTabs : regularTabs,
-      ),
-    [isSuperAdmin, isAdminUser, superAdminTabs, adminTabs, regularTabs],
+    () => groupBySection(isAdminUser ? adminTabs : regularTabs),
+    [isAdminUser, adminTabs, regularTabs],
   );
   // Whether this surface takes the shell's gutter or paints to the pane edges.
   const pageLayout = layoutForRoute(activeTab);
@@ -1394,6 +1412,11 @@ export default function Dashboard({
     </button>
   );
 
+  // The effect above sends an account that lost the role away, but it runs
+  // after the render that lost it. That render draws nothing: no admin pane
+  // is ever on screen for a plain user, so none of them asks who is looking.
+  if (!isAdminUser && ADMIN_ONLY_TABS.has(activeTab)) return null;
+
   return (
     <div className="min-h-dvh bg-surface flex">
       {!isAdminUser && (
@@ -1419,6 +1442,7 @@ export default function Dashboard({
           }
           userLabel={user?.display_name || user?.email || ""}
           feedbackUnread={feedbackUnread}
+          modeSwitch={modeSwitch}
         />
       )}
       {/* Vertical Sidebar - Dark.
@@ -1588,9 +1612,9 @@ export default function Dashboard({
                     <p className="text-xs font-medium text-on-surface truncate leading-tight">
                       {user?.display_name || user?.email}
                     </p>
-                    {operatorRoleBadge && (
+                    {adminRoleBadge && (
                       <span className="text-xs text-on-surface-variant">
-                        {operatorRoleBadge}
+                        {adminRoleBadge}
                       </span>
                     )}
                   </div>
@@ -1631,6 +1655,19 @@ export default function Dashboard({
                   />
                 </svg>
               </button>
+
+              {modeSwitch && (
+                <button
+                  type="button"
+                  onClick={modeSwitch.onSelect}
+                  className="text-outline hover:text-primary transition-colors flex-shrink-0 touch-target flex items-center justify-center"
+                  title={modeSwitch.label}
+                  aria-label={modeSwitch.label}
+                  data-testid="switch-view-mode"
+                >
+                  <ArrowLeftRight className="w-4 h-4" aria-hidden="true" />
+                </button>
+              )}
 
               {/* Sign out button */}
               <button
@@ -2050,11 +2087,6 @@ export default function Dashboard({
                 onNavigate={applyRoute}
                 openInfoFor={chatInfoRequest}
                 onOpenInfoConsumed={() => setChatInfoRequest(null)}
-                pendingComposerAction={pendingComposerAction}
-                onPendingComposerActionConsumed={() => {
-                  setPendingComposerAction(null);
-                  onInviteCodeConsumed?.();
-                }}
               />
             </Suspense>
           )}
@@ -2190,11 +2222,12 @@ export default function Dashboard({
               (user?.display_name || user?.email)?.charAt(0).toUpperCase() ??
               "?"
             }
-            userRole={operatorRoleBadge ?? undefined}
+            userRole={adminRoleBadge ?? undefined}
             onOpenSettings={() => setActiveTab("settings")}
             onSendFeedback={() => applyRoute(FEEDBACK_TAB)}
             onSignOut={logout}
             feedbackUnread={feedbackUnread}
+            modeSwitch={modeSwitch}
           />
           {!composing && (
             <BottomTabBar

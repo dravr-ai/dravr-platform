@@ -39,8 +39,8 @@ use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
-    Activity, ActivityBuilder, Athlete, ConnectionStatus, ConnectionType, SportType, Stats,
-    TenantId, UserOAuthToken,
+    Activity, ActivityBuilder, Athlete, ConnectionStatus, ConnectionType, SportType, TenantId,
+    UserOAuthToken,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_database::repositories::{CachedRowsQuery, CaptureFreshness};
@@ -1638,10 +1638,6 @@ impl FitnessProvider for SlowFailingSession {
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
         Err(AppError::not_found(id.to_owned()))
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Err(AppError::internal("not read by this test"))
     }
 }
 

@@ -43,6 +43,7 @@ use dravr_canot::rich_text::escape_markdown;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::group_chat_poster::GroupChatPoster;
 use pierre_services::messaging_broadcast::proactive_rich_text;
 use tracing::{info, warn};
@@ -66,11 +67,15 @@ impl fmt::Debug for ServerGroupChatPoster {
 }
 
 impl ServerGroupChatPoster {
-    /// Build the production poster over the stored channel configs.
+    /// Build the production poster over the stored channel configs, whose
+    /// adapters `adapters` builds.
     #[must_use]
-    pub fn from_repos(repos: Arc<RepositoryRegistry>) -> Arc<dyn GroupChatPoster> {
+    pub fn from_repos(
+        repos: Arc<RepositoryRegistry>,
+        adapters: Arc<dyn ChannelAdapterFactory>,
+    ) -> Arc<dyn GroupChatPoster> {
         Arc::new(Self {
-            resolver: config_adapter_resolver(repos),
+            resolver: config_adapter_resolver(repos, adapters),
         })
     }
 

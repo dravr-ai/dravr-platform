@@ -207,7 +207,7 @@ pub struct UserInfo {
     pub display_name: Option<String>,
     /// Whether the user has admin privileges
     pub is_admin: bool,
-    /// User role for permission system (`super_admin`, `admin`, `user`)
+    /// User role for permission system (`admin`, `user`)
     pub role: String,
     /// User account status (`pending`, `active`, `suspended`)
     pub user_status: String,
@@ -233,6 +233,14 @@ pub struct UserInfo {
     /// names the address.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email_tombstone: Option<EmailTombstoneInfo>,
+    /// What the account waits on, the value its registration answered with:
+    /// `active`, `confirm_email` for a Pending account a proven address
+    /// activates, `review` for one an operator decides. Lets the waiting
+    /// screen say so on any tab or device, not only in the tab that signed
+    /// up. Absent for a suspended account and on surfaces that did not
+    /// resolve it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activation: Option<RegistrationActivation>,
     /// Account creation timestamp (ISO 8601)
     pub created_at: String,
     /// BCP-47 locale preference (fr/en/es/de/pt). Consumed by the web and

@@ -24,7 +24,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
 
-use super::common::get_tenant_id;
+use super::common::{get_tenant_id, refuse_unshared_subject_by_id};
 
 /// Body of `POST …/read`. Optional: an empty body marks the whole thread read.
 #[derive(Debug, Default, Deserialize)]
@@ -49,7 +49,8 @@ pub(super) async fn mark_read(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
-    let request = body.map(|Json(request)| request).unwrap_or_default();
+    refuse_unshared_subject_by_id(&resources, &auth, &conversation_id, tenant_id).await?;
+    let request = body.map_or_default(|Json(request)| request);
     let up_to = request
         .up_to_message_id
         .as_deref()
@@ -119,6 +120,7 @@ pub(super) async fn mark_unread(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
+    refuse_unshared_subject_by_id(&resources, &auth, &conversation_id, tenant_id).await?;
 
     let cleared = resources
         .common

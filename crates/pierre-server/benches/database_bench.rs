@@ -47,7 +47,6 @@ fn generate_test_user() -> User {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: Some(admin_id),
         approved_at: Some(chrono::Utc::now()),
@@ -181,7 +180,7 @@ fn bench_pagination(c: &mut Criterion) {
                 };
                 b.iter(|| {
                     rt.block_on(async {
-                        db.get_by_status_cursor(black_box("active"), black_box(&params))
+                        db.get_by_status_cursor(black_box("active"), None, black_box(&params))
                             .await
                     })
                 });
@@ -200,7 +199,10 @@ fn bench_pagination(c: &mut Criterion) {
                     limit: 50,
                     direction: PaginationDirection::Forward,
                 };
-                let page = db.get_by_status_cursor("active", &params).await.unwrap();
+                let page = db
+                    .get_by_status_cursor("active", None, &params)
+                    .await
+                    .unwrap();
                 cursor = page.next_cursor;
             }
             cursor
@@ -213,7 +215,7 @@ fn bench_pagination(c: &mut Criterion) {
         };
         b.iter(|| {
             rt.block_on(async {
-                db.get_by_status_cursor(black_box("active"), black_box(&params))
+                db.get_by_status_cursor(black_box("active"), None, black_box(&params))
                     .await
             })
         });

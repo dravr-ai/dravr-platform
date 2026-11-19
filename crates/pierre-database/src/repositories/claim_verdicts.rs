@@ -488,7 +488,7 @@ pub(crate) const LIST_VERDICTS_FOR_CONVERSATION_SQL: &str = concat!(
 );
 
 /// Every verdict extracted from one message, oldest first, in tenant `$2`
-/// or, bound `NULL`, in every tenant: the super-admin path.
+/// or, bound `NULL`, in every tenant: the platform-wide path.
 pub(crate) const LIST_VERDICTS_FOR_MESSAGE_SQL: &str = concat!(
     "
             SELECT ",
@@ -503,7 +503,7 @@ pub(crate) const LIST_VERDICTS_FOR_MESSAGE_SQL: &str = concat!(
 /// The verdicts matching every bound axis, newest first.
 ///
 /// Each optional axis binds `NULL` to mean "any", the tenant included (the
-/// super-admin path reads every tenant), so one statement serves
+/// platform-wide path reads every tenant), so one statement serves
 /// every combination the admin list can ask for and the plan can use the
 /// `(tenant_id, …)` indexes on whichever axis is set. The disposition axis is
 /// three-way — any, none, or one value — so it binds a sentinel

@@ -11,7 +11,6 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_config::environment::ServerConfig;
 use pierre_mcp_server::mcp::{
     multitenant::ProviderToolRouter,
     resources::{ServerContext, ServerContextOptions},
@@ -30,7 +29,7 @@ async fn test_unknown_method_handler() -> Result<()> {
     init_server_config();
     let database = create_test_database().await?;
     let auth_manager = create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(server_config_from_env()?);
     let cache = create_test_cache().await?;
 
     let resources = Arc::new(
@@ -38,7 +37,7 @@ async fn test_unknown_method_handler() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -51,6 +50,8 @@ async fn test_unknown_method_handler() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: offline_adapters(),
             },
         )
         .await
@@ -90,7 +91,7 @@ async fn test_connect_strava_handler_errors() -> Result<()> {
     init_server_config();
     let database = create_test_database().await?;
     let auth_manager = create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(server_config_from_env()?);
     let cache = create_test_cache().await?;
 
     let resources = Arc::new(
@@ -98,7 +99,7 @@ async fn test_connect_strava_handler_errors() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -111,6 +112,8 @@ async fn test_connect_strava_handler_errors() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: offline_adapters(),
             },
         )
         .await
@@ -134,7 +137,7 @@ async fn test_disconnect_provider_handler() -> Result<()> {
     init_server_config();
     let database = create_test_database().await?;
     let auth_manager = create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(server_config_from_env()?);
     let cache = create_test_cache().await?;
 
     let resources = Arc::new(
@@ -142,7 +145,7 @@ async fn test_disconnect_provider_handler() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -155,6 +158,8 @@ async fn test_disconnect_provider_handler() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: offline_adapters(),
             },
         )
         .await
@@ -179,7 +184,7 @@ async fn test_authentication_error_handling() -> Result<()> {
     init_server_config();
     let database = create_test_database().await?;
     let auth_manager = create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(server_config_from_env()?);
     let cache = create_test_cache().await?;
 
     let resources = Arc::new(
@@ -187,7 +192,7 @@ async fn test_authentication_error_handling() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -200,6 +205,8 @@ async fn test_authentication_error_handling() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: offline_adapters(),
             },
         )
         .await
@@ -232,7 +239,7 @@ async fn test_rate_limiting_enforcement() -> Result<()> {
     init_server_config();
     let database = create_test_database().await?;
     let auth_manager = create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(server_config_from_env()?);
     let cache = create_test_cache().await?;
 
     let resources = Arc::new(
@@ -240,7 +247,7 @@ async fn test_rate_limiting_enforcement() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -253,6 +260,8 @@ async fn test_rate_limiting_enforcement() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: offline_adapters(),
             },
         )
         .await
@@ -284,7 +293,7 @@ async fn test_provider_initialization_errors() -> Result<()> {
     init_server_config();
     let database = create_test_database().await?;
     let auth_manager = create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(server_config_from_env()?);
     let cache = create_test_cache().await?;
 
     let resources = Arc::new(
@@ -292,7 +301,7 @@ async fn test_provider_initialization_errors() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -305,6 +314,8 @@ async fn test_provider_initialization_errors() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: offline_adapters(),
             },
         )
         .await
@@ -329,7 +340,7 @@ async fn test_jsonrpc_error_responses() -> Result<()> {
     init_server_config();
     let database = create_test_database().await?;
     let auth_manager = create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(server_config_from_env()?);
     let cache = create_test_cache().await?;
 
     let resources = Arc::new(
@@ -337,7 +348,7 @@ async fn test_jsonrpc_error_responses() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -350,6 +361,8 @@ async fn test_jsonrpc_error_responses() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: offline_adapters(),
             },
         )
         .await
@@ -372,7 +385,7 @@ async fn test_session_state_edge_cases() -> Result<()> {
     init_server_config();
     let database = create_test_database().await?;
     let auth_manager = create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(server_config_from_env()?);
     let cache = create_test_cache().await?;
 
     let resources = Arc::new(
@@ -380,7 +393,7 @@ async fn test_session_state_edge_cases() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -393,6 +406,8 @@ async fn test_session_state_edge_cases() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: offline_adapters(),
             },
         )
         .await
@@ -415,7 +430,7 @@ async fn test_database_error_handling() -> Result<()> {
     init_server_config();
     let database = create_test_database().await?;
     let auth_manager = create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(server_config_from_env()?);
     let cache = create_test_cache().await?;
 
     let resources = Arc::new(
@@ -423,7 +438,7 @@ async fn test_database_error_handling() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -436,6 +451,8 @@ async fn test_database_error_handling() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: offline_adapters(),
             },
         )
         .await
@@ -458,7 +475,7 @@ async fn test_tool_call_parameter_validation() -> Result<()> {
     init_server_config();
     let database = create_test_database().await?;
     let auth_manager = create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(server_config_from_env()?);
     let cache = create_test_cache().await?;
 
     let resources = Arc::new(
@@ -466,7 +483,7 @@ async fn test_tool_call_parameter_validation() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -479,6 +496,8 @@ async fn test_tool_call_parameter_validation() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: offline_adapters(),
             },
         )
         .await

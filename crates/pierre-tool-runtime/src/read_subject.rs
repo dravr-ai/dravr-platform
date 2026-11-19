@@ -28,13 +28,13 @@
 //! 4. Otherwise the caller reads their own data.
 //!
 //! Either way the subject passes [`coached_athlete_access`] on every call —
-//! the coach attachment, a live membership, the athlete's
-//! `coach_sharing_consent` and one home tenant — so a consent revoked
-//! mid-thread refuses the next read. A wellness read also needs the athlete's
-//! `coach_wellness_read`, read by the same gates (`wellness`), on every
-//! transport alike: a coach's own AI client reads under the same grant as
-//! Dravr's app (carnet#1424). Each refusal is in-band, worded for the model
-//! to relay.
+//! the coach rule (coach access and the attachment), a live membership, the
+//! athlete's `coach_sharing_consent` and one home tenant — so a consent
+//! revoked mid-thread, or coach access withdrawn, refuses the next read. A
+//! wellness read also needs the athlete's `coach_wellness_read`, read by the
+//! same gates (`wellness`), on every transport alike: a coach's own AI client
+//! reads under the same grant as Dravr's app (carnet#1424). Each refusal is
+//! in-band, worded for the model to relay.
 //!
 //! The plan tools' scope ([`crate::implementations::plan_scope`]) resolves
 //! its own `athlete` the same way and shares the name match and the gate
@@ -51,10 +51,13 @@ use chrono::Utc;
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::{ConversationRecord, TenantId};
+use pierre_core::transport::Transport;
 use pierre_database::repositories::{CoachReadClass, NewCoachDataRead};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_schema::PropertySchema;
+use pierre_providers::ai_scope;
 use pierre_services::athlete_display_name::fetch_user_display_name;
+use pierre_services::coach_roster::{roster_access, RosterAccess, NO_COACH_ACCESS};
 use pierre_services::coached_athlete::{
     coached_athlete_access, CoachedAthleteAccess, CoachedAthleteRefusal,
 };
@@ -92,6 +95,14 @@ pub(crate) const ATHLETE_ARGUMENT: &str = "athlete";
 
 /// `error_code` of every refusal a read-subject resolution answers with.
 pub(crate) const READ_SUBJECT_ERROR_CODE: &str = "read_subject_refused";
+
+/// What every coach tool tells a caller who is still attached to a group as
+/// its coach while their coach access is off: no athlete is matched, named
+/// or read for them (carnet#1511). One sentence, so no two tools word that
+/// standing differently.
+pub(crate) const COACH_ACCESS_OFF: &str =
+    "Your coach access is off, so you cannot read or act for the athletes of the groups you are \
+     attached to as their coach. The Dravr team turns coach access on.";
 
 /// What a tool reads, declared when it registers, beside its category.
 ///
@@ -350,8 +361,8 @@ impl CoachedReadRefusal {
 /// id — the dispatch chokepoint for the thread's athlete and `athlete=`, and
 /// the `groups` tools for the member they name (carnet#1425).
 ///
-/// The coaching gates ([`coached_athlete_access`]: the coach attachment, a
-/// live membership, the athlete's `coach_sharing_consent`, one home tenant)
+/// The coaching gates ([`coached_athlete_access`]: the coach rule, a live
+/// membership, the athlete's `coach_sharing_consent`, one home tenant)
 /// answer for every class; a [`DataClass::Wellness`] read also needs the
 /// athlete's `coach_wellness_read`. Nothing is cached, so a consent revoked
 /// mid-thread refuses the next read.
@@ -393,7 +404,9 @@ pub(crate) async fn coached_read(
 ///
 /// `tool` is the tool read through, or for a read made outside a tool call
 /// its [`CoachReadSurface`](pierre_database::repositories::CoachReadSurface)
-/// label.
+/// label. The transport the call declared is recorded beside it, so the
+/// athlete's record says when a read was served to the coach's outside
+/// assistant (EFVP 9.4b).
 ///
 /// Every coach read of a coached athlete records here once the gates have let
 /// it through and before its data is read: the dispatch chokepoint for a
@@ -430,6 +443,7 @@ pub async fn record_coach_read(
             tool,
             class,
             read_at: Utc::now(),
+            transport: ai_scope::declared_transport(),
         })
         .await
 }
@@ -465,6 +479,7 @@ pub async fn record_daily_coach_read(
             tool,
             class,
             read_at: Utc::now(),
+            transport: ai_scope::declared_transport(),
         })
         .await
 }
@@ -518,11 +533,14 @@ async fn named_subject(
 ) -> AppResult<Result<Option<ReadSubject>, UniversalResponse>> {
     const YOURSELF: &str = "omit `athlete` to read your own data.";
     let repos = request.resources.repos();
-    let no_match = || MemberMiss::NoMatch.message(name, YOURSELF);
+    // Named only over MCP or A2A: the caller is an outside assistant, never
+    // told of a member who does not share with the coach.
+    let audience = MatchAudience::OutsideAssistant;
+    let no_match = || MemberMiss::NoSharingMatch.message(name, YOURSELF);
     let Some(requester_tenant) = request.requester_tenant else {
         return Ok(Err(refusal("no_match", no_match())));
     };
-    let found = match match_coached_member(repos, request.requester, name, None).await? {
+    let found = match match_coached_member(repos, request.requester, name, None, audience).await? {
         Ok(found) => found,
         Err(miss) => return Ok(Err(refusal(miss.reason(), miss.message(name, YOURSELF)))),
     };
@@ -544,6 +562,11 @@ async fn named_subject(
             access,
             SubjectSource::ExternalArgument,
         )))),
+        // Sharing turned off since the match: said as no match, so the
+        // member is not named to the assistant.
+        Err(CoachedReadRefusal::Coaching(CoachedAthleteRefusal::CoachSharingRevoked {
+            ..
+        })) => Ok(Err(refusal("no_match", no_match()))),
         Err(refused) => Ok(Err(refused.response(request.tool_name, |_| no_match()))),
     }
 }
@@ -654,15 +677,21 @@ pub(crate) fn outside_class_refusal(tool_name: &str) -> UniversalResponse {
 }
 
 /// What a coach's thread says when the gates fail before the athlete is
-/// shown to be theirs: those two refusals name nobody.
+/// shown to be theirs: those refusals name nobody.
 pub(crate) fn thread_unreached(refused: &CoachedAthleteRefusal, object: GateObject) -> String {
     let what = object.their();
     match refused {
+        CoachedAthleteRefusal::NoCoachAccess => COACH_ACCESS_OFF.to_owned(),
         CoachedAthleteRefusal::NotGroupCoach => format!(
             "This thread works on an athlete of a group you no longer coach, so {what} is out of \
              reach here."
         ),
-        _ => format!(
+        // The membership gate. The refusals past it name the athlete and are
+        // worded by `gate_message`, which never asks here for them.
+        CoachedAthleteRefusal::NotAMember
+        | CoachedAthleteRefusal::CoachSharingRevoked { .. }
+        | CoachedAthleteRefusal::NoTenant { .. }
+        | CoachedAthleteRefusal::SeveralTenants { .. } => format!(
             "This thread's athlete is no longer a member of the group you coach them in, so \
              {what} is out of reach here."
         ),
@@ -691,13 +720,16 @@ impl GateObject {
 
 /// The words of a coaching gate refusal about `object`. `unreached` words the
 /// two that fail before the athlete is shown to be the requester's — those
-/// name nobody.
+/// name nobody. A requester whose coach access is off is told that, in the
+/// one sentence every coach tool uses ([`COACH_ACCESS_OFF`]), whatever the
+/// caller would have said of a name that matched no one.
 pub(crate) fn gate_message(
     refused: &CoachedAthleteRefusal,
     object: GateObject,
     unreached: impl FnOnce() -> String,
 ) -> String {
     match (refused, object) {
+        (CoachedAthleteRefusal::NoCoachAccess, _) => COACH_ACCESS_OFF.to_owned(),
         (CoachedAthleteRefusal::NotGroupCoach | CoachedAthleteRefusal::NotAMember, _) => {
             unreached()
         }
@@ -722,6 +754,40 @@ pub(crate) fn gate_message(
     }
 }
 
+/// Who a name query of the requester's members answers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchAudience {
+    /// The coach, on Dravr's own surfaces: every live member of the groups
+    /// they coach is matched, and a refusal may name one.
+    Coach,
+    /// An outside assistant the coach connected (MCP, A2A, an API key): only
+    /// a member who shares their training with the coach is matched. A member
+    /// who does not is never named to it, nor counted by name, nor told apart
+    /// from no one (EFVP 2026-11-17, decision 9.4c).
+    OutsideAssistant,
+}
+
+impl MatchAudience {
+    /// The audience of a call served over `transport`: the coach on one of
+    /// Dravr's own surfaces, an outside assistant otherwise. A call that
+    /// declared no transport is read as outside, as the AI gates read it
+    /// (`ai_scope::result_exposure`).
+    #[must_use]
+    pub fn served_over(transport: Option<Transport>) -> Self {
+        if transport.is_none_or(|served| !served.is_first_party()) {
+            Self::OutsideAssistant
+        } else {
+            Self::Coach
+        }
+    }
+
+    /// The audience of the call running now, by the transport it declared.
+    #[must_use]
+    pub fn current() -> Self {
+        Self::served_over(ai_scope::declared_transport())
+    }
+}
+
 /// The one coached member a name query matched, with the group row that
 /// authorizes acting for them.
 #[derive(Debug)]
@@ -741,10 +807,18 @@ pub struct CoachedMatch {
 /// Why a name query matched no one coached member.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemberMiss {
+    /// The requester is attached to a group as its coach and their coach
+    /// access is off: no member was matched, and none is named.
+    NoCoachAccess,
     /// The query matched only the requester.
     Requester,
     /// No live member of a group the requester coaches matched.
     NoMatch,
+    /// Asked by an outside assistant ([`MatchAudience::OutsideAssistant`]):
+    /// no member who shares their training with the requester matched. Said
+    /// alike whether a member who does not share matched or no one did, so
+    /// the answer never tells the assistant that such a member exists.
+    NoSharingMatch,
     /// Several distinct members matched: their display names, sorted.
     Ambiguous(Vec<String>),
 }
@@ -754,11 +828,18 @@ impl MemberMiss {
     /// member; `yourself` says what to do when it named the requester.
     pub(crate) fn message(&self, query: &str, yourself: &str) -> String {
         match self {
+            Self::NoCoachAccess => COACH_ACCESS_OFF.to_owned(),
             Self::Requester => format!("'{query}' is you — {yourself}"),
             Self::NoMatch => format!(
                 "No athlete matching '{query}' in a group you coach — the athlete must be a \
                  member of a group you are attached to as its coach (a coach invite), not merely \
                  a group you belong to."
+            ),
+            Self::NoSharingMatch => format!(
+                "No athlete matching '{query}' shares their training with you in a group you \
+                 coach — an athlete is found here only while they share their training with you, \
+                 and only in a group you are attached to as its coach (a coach invite), not \
+                 merely a group you belong to."
             ),
             Self::Ambiguous(names) => format!(
                 "'{query}' is ambiguous — several athletes you coach match: {}. Use a more \
@@ -771,8 +852,9 @@ impl MemberMiss {
     /// The reason a refusal of this miss carries.
     pub(crate) const fn reason(&self) -> &'static str {
         match self {
+            Self::NoCoachAccess => NO_COACH_ACCESS,
             Self::Requester => "self",
-            Self::NoMatch => "no_match",
+            Self::NoMatch | Self::NoSharingMatch => "no_match",
             Self::Ambiguous(_) => "ambiguous",
         }
     }
@@ -781,32 +863,52 @@ impl MemberMiss {
 /// The one live member of a group `requester` is the human coach of whose
 /// display name contains `query`, case aside.
 ///
-/// Walked from the groups the requester is attached to as their coach, never
-/// from the groups they merely belong to; `within` narrows the walk to one of
-/// them — the room a reply would be read in. The same athlete in two coached
+/// Walked from the groups the coach rule grants the requester
+/// ([`roster_access`]: coach access, and the active groups they are attached
+/// to as their coach), never from the groups they merely belong to; `within`
+/// narrows the walk to one of them — the room a reply would be read in. A
+/// requester whose coach access is off is matched no one, so no member's
+/// name is resolved or listed for them. The same athlete in two coached
 /// groups is one person; the requester is never their own athlete.
+///
+/// For an outside assistant (`audience`), a member who does not share their
+/// training with the requester is passed over before their name is read: it
+/// is never listed among several matches, and a query only they match is
+/// answered [`MemberMiss::NoSharingMatch`], as one nobody matches is.
 ///
 /// The outer `Err` is a repository failure; the inner `Err` says why no one
 /// member matched.
 ///
 /// # Errors
 ///
-/// Returns the repository error from the group or member lookups.
+/// Returns the repository error from the user, group or member lookups.
 pub async fn match_coached_member(
     repos: &RepositoryRegistry,
     requester: Uuid,
     query: &str,
     within: Option<Uuid>,
+    audience: MatchAudience,
 ) -> AppResult<Result<CoachedMatch, MemberMiss>> {
     let query_lower = query.to_lowercase();
     let mut matches: Vec<CoachedMatch> = Vec::new();
     let mut requester_matched = false;
-    for group in repos.groups.list_groups_coached_by(requester).await? {
-        if !group.is_active || within.is_some_and(|pin| pin != group.id) {
+    let groups = match roster_access(repos, requester).await? {
+        RosterAccess::Granted(groups) => groups,
+        RosterAccess::NoCoachAccess(_) => return Ok(Err(MemberMiss::NoCoachAccess)),
+        RosterAccess::NotACoach => Vec::new(),
+    };
+    for group in groups {
+        if within.is_some_and(|pin| pin != group.id) {
             continue;
         }
         for member in repos.groups.list_members(&group.id.to_string()).await? {
             if member.left_at.is_some() {
+                continue;
+            }
+            if audience == MatchAudience::OutsideAssistant
+                && member.user_id != requester
+                && !member.coach_sharing_consent
+            {
                 continue;
             }
             let display_name = fetch_user_display_name(repos, member.user_id).await;
@@ -827,10 +929,10 @@ pub async fn match_coached_member(
     }
 
     let Some(first) = matches.first() else {
-        return Ok(Err(if requester_matched {
-            MemberMiss::Requester
-        } else {
-            MemberMiss::NoMatch
+        return Ok(Err(match (requester_matched, audience) {
+            (true, _) => MemberMiss::Requester,
+            (false, MatchAudience::Coach) => MemberMiss::NoMatch,
+            (false, MatchAudience::OutsideAssistant) => MemberMiss::NoSharingMatch,
         }));
     };
     // Ambiguous only when DISTINCT athletes match — the same athlete in two
@@ -854,6 +956,8 @@ pub(crate) enum OtherName {
     Requester,
     /// No one the requester coaches, and not them.
     Nobody,
+    /// No one is looked up: the requester's coach access is off.
+    NoCoachAccess,
 }
 
 /// Whether `query` names the athlete whose roster name is `display_name`: in
@@ -863,23 +967,25 @@ pub(crate) fn names_subject(display_name: &str, query: &str) -> bool {
 }
 
 /// Whom `query` names when it does not name a thread's athlete: another
-/// athlete `requester` coaches, the requester, or no one.
+/// athlete `requester` coaches, the requester, or no one — and no lookup at
+/// all for a requester whose coach access is off.
 ///
 /// # Errors
 ///
-/// Returns the repository error from the group or member lookups.
+/// Returns the repository error from the user, group or member lookups.
 pub(crate) async fn other_name(
     repos: &RepositoryRegistry,
     requester: Uuid,
     query: &str,
 ) -> AppResult<OtherName> {
     Ok(
-        match match_coached_member(repos, requester, query, None).await? {
+        match match_coached_member(repos, requester, query, None, MatchAudience::current()).await? {
             Ok(other) => OtherName::Athlete(other.display_name),
+            Err(MemberMiss::NoCoachAccess) => OtherName::NoCoachAccess,
             Err(MemberMiss::Requester) => OtherName::Requester,
             // A coach attached to a group holds no membership in it, so their
             // own name is asked of their own row.
-            Err(MemberMiss::NoMatch | MemberMiss::Ambiguous(_)) => {
+            Err(MemberMiss::NoMatch | MemberMiss::NoSharingMatch | MemberMiss::Ambiguous(_)) => {
                 if names_subject(&fetch_user_display_name(repos, requester).await, query) {
                     OtherName::Requester
                 } else {
@@ -959,6 +1065,38 @@ mod tests {
     }
 
     #[test]
+    fn a_coach_whose_access_is_off_is_told_so_wherever_the_gate_is_worded() {
+        let refused = CoachedAthleteRefusal::NoCoachAccess;
+        for object in [GateObject::Plan, GateObject::Training] {
+            assert_eq!(
+                gate_message(&refused, object, || unreachable!("worded by the gate")),
+                COACH_ACCESS_OFF,
+                "bug: a name that matched no one is not what refused this caller"
+            );
+            assert_eq!(
+                thread_unreached(&refused, object),
+                COACH_ACCESS_OFF,
+                "bug: a thread's refusal words coach access being off as a lost group or member"
+            );
+        }
+        let miss = MemberMiss::NoCoachAccess;
+        assert_eq!(
+            miss.reason(),
+            "no_coach_access",
+            "bug: the miss carries another reason than the gates' refusal does"
+        );
+        let message = miss.message("Mira", "omit `athlete` to read your own data.");
+        assert_eq!(
+            message, COACH_ACCESS_OFF,
+            "bug: the miss is worded as a name that matched no one"
+        );
+        assert!(
+            !message.contains("Mira"),
+            "bug: the name asked for is not echoed as if it had been looked up: {message}"
+        );
+    }
+
+    #[test]
     fn a_shared_first_name_names_the_threads_athlete() {
         assert!(
             names_subject("Mira Subject", "mira"),
@@ -972,7 +1110,7 @@ mod tests {
 
     #[test]
     fn an_athletes_reconnect_names_them_and_offers_the_coach_none() {
-        let refused = athlete_reconnect_refusal("export_latest_snapshot", "Mira", "Garmin");
+        let refused = athlete_reconnect_refusal("export_intervals", "Mira", "Garmin");
         assert_eq!(
             refused.result.as_ref().unwrap()["reason"],
             "athlete_reconnect_needed",
@@ -980,7 +1118,7 @@ mod tests {
         );
         let message = refused.error.unwrap();
         assert!(
-            message.starts_with("'export_latest_snapshot' could not read Mira's training")
+            message.starts_with("'export_intervals' could not read Mira's training")
                 && message.contains("their Garmin connection needs to be reconnected")
                 && message.contains("only Mira can do"),
             "bug: the refusal names whose connection died and who reconnects it: {message}"
@@ -1004,6 +1142,34 @@ mod tests {
             description.len() <= 110,
             "every training tool's listing carries it: {} bytes",
             description.len()
+        );
+    }
+
+    #[test]
+    fn only_dravrs_own_surfaces_match_as_the_coach() {
+        for transport in [
+            Transport::WebApp,
+            Transport::MobileApp,
+            Transport::Messaging,
+            Transport::PlatformJob,
+        ] {
+            assert_eq!(
+                MatchAudience::served_over(Some(transport)),
+                MatchAudience::Coach,
+                "{transport:?}"
+            );
+        }
+        for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
+            assert_eq!(
+                MatchAudience::served_over(Some(transport)),
+                MatchAudience::OutsideAssistant,
+                "{transport:?}"
+            );
+        }
+        assert_eq!(
+            MatchAudience::served_over(None),
+            MatchAudience::OutsideAssistant,
+            "bug: a call that declared no transport is read as outside"
         );
     }
 }

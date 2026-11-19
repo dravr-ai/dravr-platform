@@ -101,6 +101,17 @@
                 "$ref": "#/$defs/ActivityPerformanceMetrics",
                 "description": "The figures the analysis is about, computed here."
               },
+              "provider_context": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ProviderActivityContext"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The provider's own figures for this activity, read live: its heart\nrate and pace zones with the time spent in each, and its best efforts,\nlabelled with the provider they come from. Context beside the\nanalysis, never part of it: Dravr's zones come from the athlete's own\nthresholds, and these are quoted as the provider's (\"Strava puts this\nrun's 142 bpm in its zone 2\"). Absent when the provider holds none,\nserves none, or did not answer in time."
+              },
               "timestamp": {
                 "description": "RFC 3339 timestamp of the analysis, not of the activity.",
                 "type": "string"
@@ -213,6 +224,185 @@
               "selected_activity_name",
               "selected_activity_date",
               "available_activities"
+            ],
+            "type": "object"
+          },
+          "ProviderActivityContext": {
+            "description": "The provider's own figures about one analysed activity, read live and\ncarried beside Dravr's analysis (carnet#1622).\n\nThe zones are the provider's, a second opinion beside the one zone model\nDravr computes (dravr-cageux): they are never an input to it. A figure the\nprovider did not report is absent, never zero.",
+            "properties": {
+              "best_efforts": {
+                "description": "The fastest stretches the provider found in the activity.",
+                "items": {
+                  "$ref": "#/$defs/ProviderBestEffort"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "heart_rate_zones": {
+                "description": "The provider's heart rate zones with the time the activity spent in\neach.",
+                "items": {
+                  "$ref": "#/$defs/ProviderHeartRateZone"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "not_read": {
+                "description": "What the provider could not be read for just now (`zones`,\n`best efforts`): a retry may answer. Absent when every read answered.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "note": {
+                "description": "How to quote the block ([`PROVIDER_FIGURES_NOTE`]).",
+                "type": "string"
+              },
+              "pace_zones": {
+                "description": "The provider's pace zones with the time the activity spent in each.",
+                "items": {
+                  "$ref": "#/$defs/ProviderPaceZone"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "source": {
+                "description": "The provider, as the athlete knows it (`Strava`).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "note"
+            ],
+            "type": "object"
+          },
+          "ProviderBestEffort": {
+            "description": "The fastest stretch the provider found in one activity over a standard\ndistance.",
+            "properties": {
+              "distance_m": {
+                "description": "The distance, meters, when the label names one.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elapsed_seconds": {
+                "description": "How long the effort took, seconds.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "end_index": {
+                "description": "Index into the activity's streams where the effort ends.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "label": {
+                "description": "The distance's label (`400m`, `1K`, `Half-Marathon`).",
+                "type": "string"
+              },
+              "start_index": {
+                "description": "Index into the activity's streams where the effort starts.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "label",
+              "elapsed_seconds",
+              "start_index",
+              "end_index"
+            ],
+            "type": "object"
+          },
+          "ProviderHeartRateZone": {
+            "description": "Time spent in one heart rate zone of an activity, as the provider bands it.",
+            "properties": {
+              "label": {
+                "description": "The provider's name for the zone.",
+                "type": "string"
+              },
+              "max_bpm": {
+                "description": "The zone's upper bound, beats per minute; absent for the open-ended\ntop zone.",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "min_bpm": {
+                "description": "The zone's lower bound, beats per minute.",
+                "format": "int32",
+                "type": "integer"
+              },
+              "seconds": {
+                "description": "Seconds of the activity spent in the zone.",
+                "format": "double",
+                "type": "number"
+              },
+              "zone": {
+                "description": "The zone's position, 1 for the lowest.",
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "zone",
+              "label",
+              "min_bpm",
+              "seconds"
+            ],
+            "type": "object"
+          },
+          "ProviderPaceZone": {
+            "description": "Time spent in one pace zone of an activity, as the provider bands it.",
+            "properties": {
+              "label": {
+                "description": "The provider's name for the zone.",
+                "type": "string"
+              },
+              "max_mps": {
+                "description": "The zone's upper bound, meters per second; absent for the open-ended\ntop zone.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "min_mps": {
+                "description": "The zone's lower bound, meters per second.",
+                "format": "double",
+                "type": "number"
+              },
+              "seconds": {
+                "description": "Seconds of the activity spent in the zone.",
+                "format": "double",
+                "type": "number"
+              },
+              "zone": {
+                "description": "The zone's position, 1 for the slowest.",
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "zone",
+              "label",
+              "min_mps",
+              "seconds"
             ],
             "type": "object"
           }
@@ -4343,6 +4533,12 @@
                   }
                 ],
                 "description": "The window's totals, when the reader summed them."
+              },
+              "unstored": {
+                "description": "Entries this payload returns that the store does not hold, so\n`total` and `totals`, counted from the store, leave them out.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
@@ -4362,6 +4558,11 @@
               {
                 "const": "read_capped",
                 "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "unstored_rows",
+                "description": "Some activities the payload shows are not in the store, so the\nstore's count of the window (`window.total`, `window.totals`) leaves\nthem out; `window.unstored` says how many.",
                 "type": "string"
               },
               {
@@ -4420,7 +4621,7 @@
               },
               {
                 "const": "segment_detail_unavailable",
-                "description": "No backend the athlete holds reads segment efforts: they come from\nStrava's API, which this athlete has not connected.",
+                "description": "No backend the athlete holds reads segment efforts: they are read\nfrom Strava, through a Strava connection or a signed-in Strava\nsession, and this athlete has neither.",
                 "type": "string"
               }
             ]
@@ -4520,7 +4721,7 @@
             ]
           },
           "WindowScope": {
-            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. Every count, total and history answers the\nwindow its caller asked for ([`Self::Asked`]), an all-time one included;\na segments read counts that window in segment reads\n([`Self::SegmentsRead`]). No provider's sample is read as a lifetime\nfigure (carnet#919): the totals are summed from the stored history, and\nits completeness says how far back that history reaches.",
             "oneOf": [
               {
                 "description": "The window the caller asked for, `[asked_from, asked_to]`.",
@@ -4532,52 +4733,6 @@
                 },
                 "required": [
                   "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "The athlete's whole history, as the provider's aggregate reports it.",
-                "properties": {
-                  "kind": {
-                    "const": "lifetime",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
-                "properties": {
-                  "kind": {
-                    "const": "recent_activities",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the activities of the last `days` days, ending now.",
-                "properties": {
-                  "days": {
-                    "description": "Length of the window, in days.",
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "kind": {
-                    "const": "last_days",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "days"
                 ],
                 "type": "object"
               },
@@ -5462,9 +5617,13 @@
     },
     {
       "name": "discover_routes",
-      "description": "Find real named running, cycling, hiking or ski routes from OpenStreetMap around a `place` (preferred) or `latitude`/`longitude`. Call it whenever asked to propose or find a route, trail or outdoor session in an area. Never invent street or trail names or terrain not verified here. Returns up to 20 routes, nearest first: quote `distance_from_center_meters`, never a distance estimated from coordinates. `distance_source` qualifies `distance_meters`: `mapped_geometry` is a lower bound; `osm_tag` is the whole route's declared length, of which only part may lie inside the radius. When the session has a distance, pass `target_distance_meters` and tell the athlete plainly when a route's `target_fit` is `out_and_back` or `repeats`. Elevation and surface are NOT returned: never describe a route as flat, hilly or suited to intervals on the strength of this tool. An empty list means OSM has no named route in that radius: widen `radius_meters` or say so plainly, never substitute a name you did not read here. A mapped route carries a `route_ref`: to show it, name it in a `dravr-viz` route block with `source_tool` \"discover_routes\" — never write coordinates. For an itinerary over several stretches, pass their refs in running order to `compose_route`, each meeting the next (as `connects_to` lists), and quote the distance it returns.",
+      "description": "Find routes around a `place` (preferred) or `latitude`/`longitude`: first the athlete's own loops (`source` `your_rides`, past rides that started and ended at a place they ride from), then named OpenStreetMap routes, nearest first. Call it whenever asked to propose or find a route, loop, trail or outdoor session. Pass the session's `effort`, and `target_distance_meters` when it has a distance; say plainly when `target_fit` is `out_and_back` or `repeats`. Never invent street or trail names or terrain not read here; quote `distance_from_center_meters`, never a distance from coordinates. `distance_source`: `mapped_geometry` is a lower bound, `osm_tag` the whole route's declared length. OpenStreetMap routes carry no elevation or surface: never call one flat or hilly. `osm_unavailable` means OpenStreetMap did not answer; an empty list means nothing in that radius: widen `radius_meters` or say so. To show a route, name its `route_ref` in a `dravr-viz` route block with `source_tool` \"discover_routes\" — never coordinates or an activity id. For an itinerary over several stretches, pass their refs in running order to `compose_route`, each meeting the next (as `connects_to` lists). For a planned session, also call `get_weather_forecast` for the place and hour, and give its conditions and sunset.",
       "inputSchema": {
         "properties": {
+          "effort": {
+            "description": "The session's effort: 'easy', 'moderate' or 'hard'. Orders the athlete's own loops by where their distance and climb fall among their rides there.",
+            "type": "string"
+          },
           "latitude": {
             "description": "Search center latitude, decimal degrees.",
             "type": "number"
@@ -5474,7 +5633,7 @@
             "type": "number"
           },
           "place": {
-            "description": "Place to search around; latitude/longitude are ignored when it is set. Give its own name, optionally followed by region and country to choose among same-named places: 'Prévost, Quebec, Canada'. Write the region out: an abbreviation such as 'QC' chooses nothing.",
+            "description": "Place to search around; latitude/longitude are ignored when it is set. Give its own name, optionally followed by region and country to choose among same-named places: 'Prévost, Quebec, Canada'. Write the region out: an abbreviation such as 'QC' chooses nothing. Omit it and the coordinates for the athlete's most frequent training place (Dravr's own app and chats only).",
             "type": "string"
           },
           "radius_meters": {
@@ -5495,14 +5654,28 @@
       "outputSchema": {
         "$defs": {
           "DiscoveredRouteEntry": {
-            "description": "One route as `discover_routes` reports it.\n\nGrounded in OpenStreetMap, which is why so much is optional: a way tagged\nby a volunteer may carry a name and nothing else.",
+            "description": "One route as `discover_routes` reports it: one of the athlete's own loops,\nor a route from OpenStreetMap.\n\nAn OpenStreetMap route is why so much is optional: a way tagged by a\nvolunteer may carry a name and nothing else.",
             "properties": {
+              "activity_id": {
+                "description": "An own loop's ride: the activity it was recorded as. Only an own loop\ncarries it; a map draws the loop by its `route_ref`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "connects_to": {
                 "description": "The `route_ref`s of the other routes in this answer whose mapped line\nphysically meets this one's: an end of either within 30 m of the\nother. A `compose_route` itinerary joins only stretches that meet, so\nchain stretches along these links, in running order. Absent when the\nroute meets none of the others.",
                 "items": {
                   "type": "string"
                 },
                 "type": "array"
+              },
+              "date": {
+                "description": "The day an own loop was ridden, `YYYY-MM-DD` on the athlete's clock.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "difficulty": {
                 "description": "Difficulty as the source grades it; absent when ungraded.",
@@ -5525,14 +5698,22 @@
                 ]
               },
               "distance_source": {
-                "description": "What `distance_meters` measures. `mapped_geometry`: the longest run\nof fetched ways carrying this name that join end to end — a stretch\nthat exists on the ground and a lower bound on the trail, which can\ncontinue past it. `osm_tag`: the length the mapper declared for the\nwhole route, however little of it lies inside the search radius.",
+                "description": "What `distance_meters` measures. `mapped_geometry`: the longest run\nof fetched ways carrying this name that join end to end — a stretch\nthat exists on the ground and a lower bound on the trail, which can\ncontinue past it. `osm_tag`: the length the mapper declared for the\nwhole route, however little of it lies inside the search radius.\n`recorded`: the distance the athlete's own ride of the loop recorded.",
                 "type": [
                   "string",
                   "null"
                 ]
               },
+              "elevation_gain_meters": {
+                "description": "An own loop's recorded climb, in metres, rounded; absent when none\nwas recorded, and for every OpenStreetMap route.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
               "latitude": {
-                "description": "Latitude of the route start or centre.",
+                "description": "Latitude of the route start or centre; an own loop's is where its\nprivacy-trimmed line starts, never the spot the ride left from.",
                 "format": "double",
                 "type": "number"
               },
@@ -5542,7 +5723,7 @@
                 "type": "number"
               },
               "name": {
-                "description": "The route's name in OSM.",
+                "description": "The route's name in OSM; for an own loop, the ride's name.",
                 "type": "string"
               },
               "passes_for_target": {
@@ -5553,6 +5734,24 @@
                   "integer",
                   "null"
                 ]
+              },
+              "place_name": {
+                "description": "The name of the athlete's place an own loop starts from, when it has\none that may be shown here.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "relative_effort": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Effort"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How hard an own loop is among the athlete's rides of the sport at\nthat place: `easy` (the shortest, flattest third), `moderate` or\n`hard`. Absent where they have too few rides to say."
               },
               "route_ref": {
                 "description": "The handle this route's mapped line is kept under for 24 hours: `rt_`\nand 16 hex digits. Present when the line is mapped and stored, which\nis what lets the route be drawn: name it as `route_ref` in a\n`dravr-viz` route block whose `source_tool` is `discover_routes`, or\npass it to `compose_route` to join this stretch with others into one\nitinerary. Absent for a route with no mapped line (`osm_tag` or no\nlength), which no map can draw.",
@@ -5566,11 +5765,11 @@
                 "type": "string"
               },
               "source": {
-                "description": "Which dataset it came from, lowercased.",
+                "description": "Which dataset it came from, lowercased: `your_rides` for one of the\nathlete's own loops.",
                 "type": "string"
               },
               "target_fit": {
-                "description": "How the route covers the target distance: `single_pass` (as long as\nthe target, or short of it by no more than a tenth), `out_and_back`\n(out and back reaches it to within that tenth), `repeats` (shorter\nstill). Present only when a target was given and the route's length\nis known.",
+                "description": "How the route covers the target distance: `single_pass` (as long as\nthe target, or short of it by no more than a tenth), `out_and_back`\n(out and back reaches it to within that tenth), `repeats` (shorter\nstill). Present only when a target was given and an\nOpenStreetMap route's length is known.",
                 "type": [
                   "string",
                   "null"
@@ -5590,11 +5789,31 @@
             ],
             "type": "object"
           },
+          "Effort": {
+            "description": "How hard a workout is, relative to the athlete's own workouts of that\nsport at that place.",
+            "oneOf": [
+              {
+                "const": "easy",
+                "description": "Among the shortest and flattest third there.",
+                "type": "string"
+              },
+              {
+                "const": "moderate",
+                "description": "In the middle third.",
+                "type": "string"
+              },
+              {
+                "const": "hard",
+                "description": "Among the longest and hilliest third.",
+                "type": "string"
+              }
+            ]
+          },
           "RouteSearchCenter": {
             "description": "Where a route search was centred.",
             "properties": {
               "display_name": {
-                "description": "The resolved place name. Absent when the caller gave coordinates, so\nthere was no name to resolve.",
+                "description": "The resolved place name, or the name of the athlete's training place\nsearched when no location was given. Absent when the caller gave\ncoordinates, or that place has no name to show.",
                 "type": [
                   "string",
                   "null"
@@ -5631,6 +5850,17 @@
             "minimum": 0,
             "type": "integer"
           },
+          "next_step": {
+            "description": "What to read before planning a session on one of the routes.",
+            "type": "string"
+          },
+          "osm_unavailable": {
+            "description": "Why no OpenStreetMap route is listed: no public Overpass server\nanswered within the search's few seconds, and the athlete's own loops\nanswer alone. Absent when OpenStreetMap answered.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "radius_meters": {
             "description": "How far out the search reached, in metres.",
             "format": "uint32",
@@ -5638,7 +5868,7 @@
             "type": "integer"
           },
           "routes": {
-            "description": "The routes: nearest first within each class, or, when a target\ndistance was given, the ones whose usable distance lands closest to\nit first.",
+            "description": "The routes. The athlete's own loops (`source` `your_rides`) come\nfirst, best for the asked `effort`; then OpenStreetMap's, nearest\nfirst within each class, or, when a target distance was given, the\nones whose usable distance lands closest to it first.",
             "items": {
               "$ref": "#/$defs/DiscoveredRouteEntry"
             },
@@ -5662,7 +5892,8 @@
           "center",
           "radius_meters",
           "count",
-          "routes"
+          "routes",
+          "next_step"
         ],
         "title": "DiscoverRoutesResult",
         "type": "object"
@@ -8312,9 +8543,6 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
-      },
-      "execution": {
-        "taskSupport": "optional"
       }
     },
     {
@@ -8562,7 +8790,7 @@
     },
     {
       "name": "extract_activity_streams",
-      "description": "Return one activity's raw per-second streams — heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s) and altitude (m). gps_coordinates (lat/lon pairs) is returned only inside the Dravr app, never over MCP or A2A. A stream the provider didn't record is omitted; a sample the sensor missed is null, never a reading of 0. Use it for a custom analysis that export_intervals / export_routes don't cover.",
+      "description": "Return one activity's raw per-second streams — heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s) and altitude (m), plus, when the Strava source serves them, grade_smooth (road grade %, + uphill) and moving (true while in motion). gps_coordinates (lat/lon pairs) is returned only inside the Dravr app, never over MCP or A2A. A stream the provider didn't record is omitted; a sample the sensor missed is null, never a reading of 0. Use it for a custom analysis beyond export_intervals / export_routes.",
       "inputSchema": {
         "properties": {
           "activity_id": {
@@ -8652,6 +8880,20 @@
                   "null"
                 ]
               },
+              "grade_smooth": {
+                "description": "Smoothed road grade (percent, `+` uphill) per sample, as the provider\ncomputed it (e.g. Strava's `grade_smooth` stream); `None` entries are\nsamples the channel missed. Provider-side smoothing of altitude over\ndistance, so it is not re-derivable from this struct's raw altitude.",
+                "items": {
+                  "format": "float",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
               "heart_rate": {
                 "description": "Heart rate measurements (BPM); `None` entries are gaps",
                 "items": {
@@ -8659,6 +8901,19 @@
                   "minimum": 0,
                   "type": [
                     "integer",
+                    "null"
+                  ]
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "moving": {
+                "description": "Whether the athlete was moving at each sample, as the provider decided\nit (e.g. Strava's `moving` stream); `None` entries are samples the\nchannel missed, distinct from `Some(false)` (recorded as stopped).",
+                "items": {
+                  "type": [
+                    "boolean",
                     "null"
                   ]
                 },
@@ -8742,7 +8997,7 @@
               },
               "streams": {
                 "$ref": "#/$defs/TimeSeriesData",
-                "description": "Heart rate, power, cadence, speed and altitude as recorded, and the GPS\ntrack inside the Dravr app only; a missed sample is a gap (`null`),\nnever a value."
+                "description": "Heart rate, power, cadence, speed and altitude as recorded, the provider's\nown `grade_smooth` and `moving` where it computed them, and the GPS\ntrack inside the Dravr app only; a missed sample is a gap (`null`),\nnever a value."
               }
             },
             "required": [
@@ -10005,6 +10260,12 @@
                   }
                 ],
                 "description": "The window's totals, when the reader summed them."
+              },
+              "unstored": {
+                "description": "Entries this payload returns that the store does not hold, so\n`total` and `totals`, counted from the store, leave them out.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
@@ -10218,6 +10479,11 @@
                 "type": "string"
               },
               {
+                "const": "unstored_rows",
+                "description": "Some activities the payload shows are not in the store, so the\nstore's count of the window (`window.total`, `window.totals`) leaves\nthem out; `window.unstored` says how many.",
+                "type": "string"
+              },
+              {
                 "const": "provider_unavailable",
                 "description": "The provider could not be read; what it last synced answered.",
                 "type": "string"
@@ -10273,7 +10539,7 @@
               },
               {
                 "const": "segment_detail_unavailable",
-                "description": "No backend the athlete holds reads segment efforts: they come from\nStrava's API, which this athlete has not connected.",
+                "description": "No backend the athlete holds reads segment efforts: they are read\nfrom Strava, through a Strava connection or a signed-in Strava\nsession, and this athlete has neither.",
                 "type": "string"
               }
             ]
@@ -10443,7 +10709,7 @@
             "type": "object"
           },
           "WindowScope": {
-            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. Every count, total and history answers the\nwindow its caller asked for ([`Self::Asked`]), an all-time one included;\na segments read counts that window in segment reads\n([`Self::SegmentsRead`]). No provider's sample is read as a lifetime\nfigure (carnet#919): the totals are summed from the stored history, and\nits completeness says how far back that history reaches.",
             "oneOf": [
               {
                 "description": "The window the caller asked for, `[asked_from, asked_to]`.",
@@ -10455,52 +10721,6 @@
                 },
                 "required": [
                   "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "The athlete's whole history, as the provider's aggregate reports it.",
-                "properties": {
-                  "kind": {
-                    "const": "lifetime",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
-                "properties": {
-                  "kind": {
-                    "const": "recent_activities",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the activities of the last `days` days, ending now.",
-                "properties": {
-                  "days": {
-                    "description": "Length of the window, in days.",
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "kind": {
-                    "const": "last_days",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "days"
                 ],
                 "type": "object"
               },
@@ -10730,6 +10950,17 @@
                 "$ref": "#/$defs/ActivityPerformanceMetrics",
                 "description": "The figures the analysis is about, computed here."
               },
+              "provider_context": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ProviderActivityContext"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The provider's own figures for this activity, read live: its heart\nrate and pace zones with the time spent in each, and its best efforts,\nlabelled with the provider they come from. Context beside the\nanalysis, never part of it: Dravr's zones come from the athlete's own\nthresholds, and these are quoted as the provider's (\"Strava puts this\nrun's 142 bpm in its zone 2\"). Absent when the provider holds none,\nserves none, or did not answer in time."
+              },
               "timestamp": {
                 "description": "RFC 3339 timestamp of the analysis, not of the activity.",
                 "type": "string"
@@ -10842,6 +11073,185 @@
               "selected_activity_name",
               "selected_activity_date",
               "available_activities"
+            ],
+            "type": "object"
+          },
+          "ProviderActivityContext": {
+            "description": "The provider's own figures about one analysed activity, read live and\ncarried beside Dravr's analysis (carnet#1622).\n\nThe zones are the provider's, a second opinion beside the one zone model\nDravr computes (dravr-cageux): they are never an input to it. A figure the\nprovider did not report is absent, never zero.",
+            "properties": {
+              "best_efforts": {
+                "description": "The fastest stretches the provider found in the activity.",
+                "items": {
+                  "$ref": "#/$defs/ProviderBestEffort"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "heart_rate_zones": {
+                "description": "The provider's heart rate zones with the time the activity spent in\neach.",
+                "items": {
+                  "$ref": "#/$defs/ProviderHeartRateZone"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "not_read": {
+                "description": "What the provider could not be read for just now (`zones`,\n`best efforts`): a retry may answer. Absent when every read answered.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "note": {
+                "description": "How to quote the block ([`PROVIDER_FIGURES_NOTE`]).",
+                "type": "string"
+              },
+              "pace_zones": {
+                "description": "The provider's pace zones with the time the activity spent in each.",
+                "items": {
+                  "$ref": "#/$defs/ProviderPaceZone"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "source": {
+                "description": "The provider, as the athlete knows it (`Strava`).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "note"
+            ],
+            "type": "object"
+          },
+          "ProviderBestEffort": {
+            "description": "The fastest stretch the provider found in one activity over a standard\ndistance.",
+            "properties": {
+              "distance_m": {
+                "description": "The distance, meters, when the label names one.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elapsed_seconds": {
+                "description": "How long the effort took, seconds.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "end_index": {
+                "description": "Index into the activity's streams where the effort ends.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "label": {
+                "description": "The distance's label (`400m`, `1K`, `Half-Marathon`).",
+                "type": "string"
+              },
+              "start_index": {
+                "description": "Index into the activity's streams where the effort starts.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "label",
+              "elapsed_seconds",
+              "start_index",
+              "end_index"
+            ],
+            "type": "object"
+          },
+          "ProviderHeartRateZone": {
+            "description": "Time spent in one heart rate zone of an activity, as the provider bands it.",
+            "properties": {
+              "label": {
+                "description": "The provider's name for the zone.",
+                "type": "string"
+              },
+              "max_bpm": {
+                "description": "The zone's upper bound, beats per minute; absent for the open-ended\ntop zone.",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "min_bpm": {
+                "description": "The zone's lower bound, beats per minute.",
+                "format": "int32",
+                "type": "integer"
+              },
+              "seconds": {
+                "description": "Seconds of the activity spent in the zone.",
+                "format": "double",
+                "type": "number"
+              },
+              "zone": {
+                "description": "The zone's position, 1 for the lowest.",
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "zone",
+              "label",
+              "min_bpm",
+              "seconds"
+            ],
+            "type": "object"
+          },
+          "ProviderPaceZone": {
+            "description": "Time spent in one pace zone of an activity, as the provider bands it.",
+            "properties": {
+              "label": {
+                "description": "The provider's name for the zone.",
+                "type": "string"
+              },
+              "max_mps": {
+                "description": "The zone's upper bound, meters per second; absent for the open-ended\ntop zone.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "min_mps": {
+                "description": "The zone's lower bound, meters per second.",
+                "format": "double",
+                "type": "number"
+              },
+              "seconds": {
+                "description": "Seconds of the activity spent in the zone.",
+                "format": "double",
+                "type": "number"
+              },
+              "zone": {
+                "description": "The zone's position, 1 for the slowest.",
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "zone",
+              "label",
+              "min_mps",
+              "seconds"
             ],
             "type": "object"
           }
@@ -10985,9 +11395,47 @@
       },
       "outputSchema": {
         "$defs": {
-          "Athlete": {
-            "description": "Represents an athlete/user profile from any provider\n\nContains the essential profile information that's commonly available\nacross fitness platforms.\n\n# Examples\n\n```rust\nuse pierre_core::models::Athlete;\n\nlet athlete = Athlete {\n    id: \"12345\".into(),\n    username: \"runner123\".into(),\n    firstname: Some(\"John\".into()),\n    lastname: Some(\"Doe\".into()),\n    profile_picture: Some(\"https://dgalywyr863hv.cloudfront.net/pictures/athletes/12345678/avatar/medium.jpg\".into()),\n    provider: \"strava\".into(),\n    sex: None,\n    created_at: None,\n};\n```",
+          "ActiveStreak": {
+            "description": "A provider's own report of the athlete's current streak of consecutive\nactive days. Carried as the provider states it: Dravr does not recompute\nit from the athlete's activities.",
             "properties": {
+              "length": {
+                "description": "Days in the streak",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "status": {
+                "description": "Where the provider says the streak stands (Strava: `Ongoing`)",
+                "type": "string"
+              },
+              "valid_activity_count": {
+                "description": "Activities that counted toward streaks",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "length",
+              "status",
+              "valid_activity_count"
+            ],
+            "type": "object"
+          },
+          "Athlete": {
+            "description": "Represents an athlete/user profile from any provider\n\nContains the essential profile information that's commonly available\nacross fitness platforms.\n\n# Examples\n\n```rust\nuse pierre_core::models::Athlete;\n\nlet athlete = Athlete {\n    id: \"12345\".into(),\n    username: \"runner123\".into(),\n    firstname: Some(\"John\".into()),\n    lastname: Some(\"Doe\".into()),\n    profile_picture: Some(\"https://dgalywyr863hv.cloudfront.net/pictures/athletes/12345678/avatar/medium.jpg\".into()),\n    provider: \"strava\".into(),\n    sex: None,\n    created_at: None,\n    active_streak: None,\n};\n```",
+            "properties": {
+              "active_streak": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ActiveStreak"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The athlete's current activity streak, as Strava itself reports it\non the profile (the scraped Strava session only, the athlete's own\naccount). It is Strava's own figure, never a\nDravr computation: nothing derives or recomputes it from activities,\nand `None` means the provider did not report one, not that the\nathlete has no streak."
+              },
               "created_at": {
                 "description": "When the athlete's account was created at the provider, when the\nprovider reports it (Strava's athlete `created_at`): no activity is\nrecorded before it, so a history walk stops there.",
                 "format": "date-time",
@@ -11048,12 +11496,94 @@
             ],
             "type": "object"
           },
+          "DravrPersonalBest": {
+            "description": "One of Dravr's computed bests.",
+            "properties": {
+              "achieved_at": {
+                "description": "When that run started, RFC 3339.",
+                "type": "string"
+              },
+              "activity_id": {
+                "description": "The provider's id for the run that set the best.",
+                "type": "string"
+              },
+              "distance": {
+                "description": "The distance's catalogue code: `5k`, `10k`, `half_marathon` or `marathon`.",
+                "type": "string"
+              },
+              "elapsed_seconds": {
+                "description": "Elapsed time of the fastest window covering the distance, seconds.",
+                "format": "double",
+                "type": "number"
+              },
+              "provider": {
+                "description": "The provider the run came from, as the athlete knows it.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "distance",
+              "elapsed_seconds",
+              "provider",
+              "activity_id",
+              "achieved_at"
+            ],
+            "type": "object"
+          },
+          "DravrPersonalBests": {
+            "description": "Dravr's own computed personal bests, labelled with their source.",
+            "properties": {
+              "bests": {
+                "description": "The fastest effort at each standard distance.",
+                "items": {
+                  "$ref": "#/$defs/DravrPersonalBest"
+                },
+                "type": "array"
+              },
+              "note": {
+                "description": "How to quote the block.",
+                "type": "string"
+              },
+              "source": {
+                "description": "Whose bests these are: always Dravr's computation.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "note",
+              "bests"
+            ],
+            "type": "object"
+          },
           "GetAthleteResult": {
             "description": "What `get_athlete` answers with.\n\nThe provider's athlete under an `athlete` key rather than at the top\nlevel. The key is the contract: `GetAthleteResponseSchema` in the\nTypeScript SDK reads `athlete`, and `provider_backend_resolver_test`\nasserts it. Unwrapping it to save one level would break both.",
             "properties": {
               "athlete": {
                 "$ref": "#/$defs/Athlete",
                 "description": "The athlete profile as the provider reports it."
+              },
+              "dravr_personal_bests": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/DravrPersonalBests"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The bests Dravr computed from the athlete's own runs, labelled as\nDravr's. Beside the provider's records, never reconciled with them: the\ntwo are measured differently and may disagree."
+              },
+              "provider_context": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ProviderAthleteContext"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The provider's own figures about the athlete, read live on this call\nand labelled with the provider they come from: body weight, all-time\nrecords, the bikes it keeps and, while the athlete declared no shoes in\nDravr, its shoes, with their mileage. Context, never Dravr's: the\nweight is not the athlete's weight anchor, the records sit beside\n`dravr_personal_bests` without being reconciled with them, and the gear\nis not in the gear ledger. Quote them as the provider's (\"Strava has\nyour 5K at 20:12\"). Absent when the provider holds none, serves none,\nor did not answer in time."
               }
             },
             "required": [
@@ -11075,6 +11605,177 @@
                 "type": "string"
               }
             ]
+          },
+          "ProviderAthleteContext": {
+            "description": "The provider's own figures about the athlete, read live and carried beside\nthe profile (carnet#1622).\n\nNothing here is stored. The weight never enters the effective physiology;\nthe bikes are always the provider's (Dravr keeps none) and its shoes are\nshown only while the athlete declared no shoes in Dravr, none ever written\ninto the gear ledger; the records stay the provider's beside Dravr's own\ncomputed bests, which the same answer carries labelled as Dravr's.",
+            "properties": {
+              "gear": {
+                "description": "The provider's bikes, always, and its shoes while the athlete declared\nno shoes in Dravr, with their mileage.",
+                "items": {
+                  "$ref": "#/$defs/ProviderGear"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "not_read": {
+                "description": "What the provider could not be read for just now: a retry may answer.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "note": {
+                "description": "How to quote the block ([`PROVIDER_FIGURES_NOTE`]).",
+                "type": "string"
+              },
+              "personal_records": {
+                "description": "The provider's all-time records.",
+                "items": {
+                  "$ref": "#/$defs/ProviderPersonalRecord"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "source": {
+                "description": "The provider, as the athlete knows it (`Strava`).",
+                "type": "string"
+              },
+              "weight_kg": {
+                "description": "The body weight the provider holds, kilograms.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "source",
+              "note"
+            ],
+            "type": "object"
+          },
+          "ProviderGear": {
+            "description": "One pair of shoes or one bike the athlete keeps with the provider.",
+            "properties": {
+              "brand": {
+                "description": "The maker, when the athlete named one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "description": "The gear's id in the spelling an activity's gear id carries, so a row\nand its gear compare equal.",
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/ProviderGearKind",
+                "description": "Shoe or bike."
+              },
+              "model": {
+                "description": "The model, when the athlete named one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "The name the athlete gave it at the provider.",
+                "type": "string"
+              },
+              "primary": {
+                "description": "Whether it is the athlete's default gear of its kind at the provider.",
+                "type": "boolean"
+              },
+              "retired": {
+                "description": "Whether the athlete retired it at the provider.",
+                "type": "boolean"
+              },
+              "total_distance_m": {
+                "description": "Distance the provider counts for it, meters. Absent when the provider\nreported none this build can read.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "name",
+              "primary",
+              "retired"
+            ],
+            "type": "object"
+          },
+          "ProviderGearKind": {
+            "description": "What a piece of provider gear is. Not the gear ledger's\n[`GearKind`](super::GearKind): a provider keeps bikes, the ledger does not.",
+            "oneOf": [
+              {
+                "const": "shoe",
+                "description": "A pair of shoes.",
+                "type": "string"
+              },
+              {
+                "const": "bike",
+                "description": "A bike.",
+                "type": "string"
+              }
+            ]
+          },
+          "ProviderPersonalRecord": {
+            "description": "One all-time record, as the provider's profile lists it.",
+            "properties": {
+              "activity_id": {
+                "description": "The provider's id of the activity that set the record.",
+                "type": "string"
+              },
+              "distance_m": {
+                "description": "The distance of a timed record, meters, when the label names one.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elapsed_seconds": {
+                "description": "The time of a timed record, seconds.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "label": {
+                "description": "The record's label as the provider writes it (`5K`, `Longest Ride`).",
+                "type": "string"
+              },
+              "sport": {
+                "description": "The sport whose block of the profile lists the record.",
+                "type": "string"
+              },
+              "value_m": {
+                "description": "The value of a record that is not a time (a longest distance, a\nbiggest climb), meters.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "sport",
+              "label",
+              "activity_id"
+            ],
+            "type": "object"
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -11912,11 +12613,6 @@
                   "null"
                 ]
               },
-              "recorded_at": {
-                "description": "Timestamp when these metrics were recorded.",
-                "format": "date-time",
-                "type": "string"
-              },
               "source_name": {
                 "description": "Provider-specific source name.",
                 "type": "string"
@@ -11983,7 +12679,6 @@
               "blood_glucose",
               "vo2_max",
               "source_name",
-              "recorded_at",
               "sources",
               "filled"
             ],
@@ -12029,11 +12724,6 @@
                   "null"
                 ]
               },
-              "recorded_at": {
-                "description": "Timestamp when these totals were recorded.",
-                "format": "date-time",
-                "type": "string"
-              },
               "source_name": {
                 "description": "Provider-specific source name.",
                 "type": "string"
@@ -12077,7 +12767,6 @@
               "total_kcal",
               "intensity_minutes",
               "source_name",
-              "recorded_at",
               "sources",
               "filled"
             ],
@@ -13728,11 +14417,6 @@
                   "null"
                 ]
               },
-              "recorded_at": {
-                "description": "Timestamp when these metrics were recorded.",
-                "format": "date-time",
-                "type": "string"
-              },
               "recovery_score": {
                 "description": "Composite recovery score (provider-specific, 0-100).",
                 "format": "uint32",
@@ -13818,7 +14502,6 @@
               "daily_strain",
               "athlete_note",
               "source_name",
-              "recorded_at",
               "sources",
               "filled"
             ],
@@ -14026,21 +14709,6 @@
       },
       "outputSchema": {
         "$defs": {
-          "AnsweredBy": {
-            "description": "Which of the two places answered.",
-            "oneOf": [
-              {
-                "const": "live_segment_history",
-                "description": "The provider's live listing of the segment's efforts: complete.",
-                "type": "string"
-              },
-              {
-                "const": "stored_details",
-                "description": "The segment efforts stored with the athlete's activities.",
-                "type": "string"
-              }
-            ]
-          },
           "Coverage": {
             "description": "[`Coverage`] as it travels: completeness flattened to the `complete` and\n`incomplete_reason` keys the turn's readers key on, and the note a model\nreads beside the structure.",
             "properties": {
@@ -14168,6 +14836,12 @@
                   }
                 ],
                 "description": "The window's totals, when the reader summed them."
+              },
+              "unstored": {
+                "description": "Entries this payload returns that the store does not hold, so\n`total` and `totals`, counted from the store, leave them out.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
@@ -14187,6 +14861,11 @@
               {
                 "const": "read_capped",
                 "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "unstored_rows",
+                "description": "Some activities the payload shows are not in the store, so the\nstore's count of the window (`window.total`, `window.totals`) leaves\nthem out; `window.unstored` says how many.",
                 "type": "string"
               },
               {
@@ -14245,7 +14924,7 @@
               },
               {
                 "const": "segment_detail_unavailable",
-                "description": "No backend the athlete holds reads segment efforts: they come from\nStrava's API, which this athlete has not connected.",
+                "description": "No backend the athlete holds reads segment efforts: they are read\nfrom Strava, through a Strava connection or a signed-in Strava\nsession, and this athlete has neither.",
                 "type": "string"
               }
             ]
@@ -14377,11 +15056,8 @@
                 "type": "string"
               },
               "activity_name": {
-                "description": "That activity's title, as one line; absent from a live listing, which\nnames only the activity's id.",
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "description": "That activity's title, as one line.",
+                "type": "string"
               },
               "average_heart_rate": {
                 "description": "Average heart rate over the effort (bpm).",
@@ -14467,6 +15143,7 @@
               "provider",
               "source",
               "activity_id",
+              "activity_name",
               "start_date",
               "elapsed_time",
               "distance",
@@ -14529,7 +15206,7 @@
             "type": "object"
           },
           "WindowScope": {
-            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. Every count, total and history answers the\nwindow its caller asked for ([`Self::Asked`]), an all-time one included;\na segments read counts that window in segment reads\n([`Self::SegmentsRead`]). No provider's sample is read as a lifetime\nfigure (carnet#919): the totals are summed from the stored history, and\nits completeness says how far back that history reaches.",
             "oneOf": [
               {
                 "description": "The window the caller asked for, `[asked_from, asked_to]`.",
@@ -14541,52 +15218,6 @@
                 },
                 "required": [
                   "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "The athlete's whole history, as the provider's aggregate reports it.",
-                "properties": {
-                  "kind": {
-                    "const": "lifetime",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
-                "properties": {
-                  "kind": {
-                    "const": "recent_activities",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the activities of the last `days` days, ending now.",
-                "properties": {
-                  "days": {
-                    "description": "Length of the window, in days.",
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "kind": {
-                    "const": "last_days",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "days"
                 ],
                 "type": "object"
               },
@@ -14644,10 +15275,6 @@
         "anyOf": [
           {
             "properties": {
-              "answered_by": {
-                "$ref": "#/$defs/AnsweredBy",
-                "description": "Where the efforts were read: the provider's live listing, or the\nstored details of the athlete's activities."
-              },
               "coverage": {
                 "$ref": "#/$defs/Coverage",
                 "description": "Whether the efforts are all there are in the window: `window.total` is\nthe activities in it, `window.returned` the activities whose segments\nwere read; with `incomplete_reason` and the walk still `pending` when\nsome were not, and the `note` saying what may be claimed."
@@ -14687,7 +15314,6 @@
               "efforts",
               "segments",
               "summary",
-              "answered_by",
               "coverage"
             ],
             "type": "object"
@@ -15219,7 +15845,7 @@
     },
     {
       "name": "get_stats",
-      "description": "Aggregated activity totals from a connected provider. Read `coverage` before quoting any total_*: `coverage.window.scope.kind` is `lifetime` (ALL-TIME), `recent_activities` (only the `coverage.window.total` most recent activities, oldest on `coverage.window.oldest`; e.g. Wahoo, WHOOP) or `last_days` (only the last `coverage.window.scope.days` days). Report a `recent_activities` or `last_days` total as that sample or window ('your last N workouts since <date>', 'the last N days'), never as lifetime, all-time, career or total-ever. `year_to_date` (Strava) holds CURRENT-CALENDAR-YEAR totals: use it for 'this year' and never report the other totals as annual. IMPORTANT: Strava's ride and run totals count ONLY the base sport type, EXCLUDING VirtualRide, GravelRide, MountainBikeRide, EBikeRide, TrailRun and VirtualRun. For a cross-discipline total ('total km cycling this year') do NOT report them: call get_activities for the period and sum distance across all related sport types.",
+      "description": "All-time totals over every source, merged; year_to_date is this calendar year. Read stats.coverage before quoting. For a period or breakdown, call query_activities.",
       "inputSchema": {
         "properties": {
           "athlete": {
@@ -15231,7 +15857,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Provider or `upload`; default is their best source.",
+            "description": "One source only.",
             "type": "string"
           }
         },
@@ -15366,6 +15992,12 @@
                   }
                 ],
                 "description": "The window's totals, when the reader summed them."
+              },
+              "unstored": {
+                "description": "Entries this payload returns that the store does not hold, so\n`total` and `totals`, counted from the store, leave them out.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
@@ -15377,13 +16009,21 @@
           "GetStatsResult": {
             "description": "What `get_stats` answers with.\n\nSame shape of contract as [`GetAthleteResult`]: the totals live under a\n`stats` key that the SDK schema reads by name.",
             "properties": {
+              "coverage_by_source": {
+                "description": "Each source's part of the coverage.",
+                "items": {
+                  "$ref": "#/$defs/SourceReach"
+                },
+                "type": "array"
+              },
               "stats": {
                 "$ref": "#/$defs/Stats",
-                "description": "Lifetime and recent totals as the provider reports them."
+                "description": "All-time and this-year totals over every source, merged, and how far\nthe history behind them reaches."
               }
             },
             "required": [
-              "stats"
+              "stats",
+              "coverage_by_source"
             ],
             "type": "object"
           },
@@ -15398,6 +16038,11 @@
               {
                 "const": "read_capped",
                 "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "unstored_rows",
+                "description": "Some activities the payload shows are not in the store, so the\nstore's count of the window (`window.total`, `window.totals`) leaves\nthem out; `window.unstored` says how many.",
                 "type": "string"
               },
               {
@@ -15456,7 +16101,7 @@
               },
               {
                 "const": "segment_detail_unavailable",
-                "description": "No backend the athlete holds reads segment efforts: they come from\nStrava's API, which this athlete has not connected.",
+                "description": "No backend the athlete holds reads segment efforts: they are read\nfrom Strava, through a Strava connection or a signed-in Strava\nsession, and this athlete has neither.",
                 "type": "string"
               }
             ]
@@ -15556,7 +16201,7 @@
             ]
           },
           "PeriodTotals": {
-            "description": "Aggregated activity totals scoped to a single time period.\n\nUsed for the `year_to_date` breakdown on [`Stats`]; mirrors the shape of the\nlifetime totals so a period can be reported with the same fields.",
+            "description": "Aggregated activity totals scoped to a single time period.\n\nUsed for the `year_to_date` breakdown on [`Stats`]; mirrors the shape of the\nall-time totals so a period can be reported with the same fields.",
             "properties": {
               "total_activities": {
                 "description": "Number of recorded activities in the period",
@@ -15589,12 +16234,37 @@
             ],
             "type": "object"
           },
+          "SourceReach": {
+            "description": "One source's part of a window counted across the athlete's sources.\n\nThe copies it holds in the window, before the copies of one workout are\nmerged, and how far its own history stands behind the window.\n\nA list of these sits beside the one [`Coverage`] of a merged count\n(`coverage_by_source`), each carrying a [`Coverage`] of its own rather\nthan a coverage field of its own: completeness, reason, the vouched day,\nthe walk owed and the note are that one type's. Its `window.oldest` and\n`window.newest` are this source's own rows in the window.",
+            "properties": {
+              "copies": {
+                "description": "Rows of this source in the window, before the merge.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "coverage": {
+                "$ref": "#/$defs/Coverage",
+                "description": "How far this source's history stands behind the window."
+              },
+              "source": {
+                "description": "The source as the athlete knows it (a provider's user-facing name),\nnever an internal storage key.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "copies",
+              "coverage"
+            ],
+            "type": "object"
+          },
           "Stats": {
-            "description": "Aggregated fitness statistics for an athlete\n\nThe top-level `total_*` fields cover exactly what `coverage` says: the\nathlete's whole history only when its window's scope is\n[`WindowScope::Lifetime`]. A provider with no aggregate endpoint sums a\nrecent page of workouts or a window of days, and says so there, so a\nsample is never read as a lifetime figure (carnet#919). When the provider\nalso exposes calendar-year figures, `year_to_date` carries the\ncurrent-year totals so a consumer can distinguish \"annual\" from \"lifetime\"\nwithout inferring it from the numbers.\n\n# Examples\n\n```rust\nuse pierre_core::models::coverage::Coverage;\nuse pierre_core::models::Stats;\n\nlet stats = Stats {\n    total_activities: 150,\n    total_distance: 1500000.0, // 1500 km in meters\n    total_duration: 540000, // 150 hours in seconds\n    total_elevation_gain: 25000.0, // 25km of elevation\n    coverage: Coverage::lifetime(150),\n    year_to_date: None,\n};\n```",
+            "description": "Aggregated fitness statistics for an athlete\n\nThe top-level `total_*` fields are summed over every source the athlete\nholds, merged, so a workout two sources recorded counts once. They cover\nexactly what `coverage` says: its window and whether the stored history\nbehind it is complete, never one provider's sample read as a lifetime\nfigure (carnet#919). `year_to_date` carries the current calendar year's\ntotals so a consumer can distinguish \"annual\" from \"all-time\" without\ninferring it from the numbers.\n\n# Examples\n\n```rust\nuse pierre_core::models::coverage::{Coverage, CoverageWindow};\nuse pierre_core::models::Stats;\n\nlet stats = Stats {\n    total_activities: 150,\n    total_distance: 1500000.0, // 1500 km in meters\n    total_duration: 540000, // 150 hours in seconds\n    total_elevation_gain: 25000.0, // 25km of elevation\n    coverage: Coverage::complete(CoverageWindow {\n        total: Some(150),\n        returned: 150,\n        ..CoverageWindow::default()\n    }),\n    year_to_date: None,\n};\n```",
             "properties": {
               "coverage": {
                 "$ref": "#/$defs/Coverage",
-                "description": "Which activities the `total_*` fields were summed over: the scope of\nits window (`lifetime`, `recent_activities` or `last_days`), how many\nand from which day"
+                "description": "Which activities the `total_*` fields were summed over: the window\nasked, how many, from which day to which, and whether the stored\nhistory behind it is complete"
               },
               "total_activities": {
                 "description": "Number of recorded activities `coverage` spans",
@@ -15627,7 +16297,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Current calendar-year totals, when the provider supplies them.\n`None` means the provider does not expose a year-to-date breakdown\n(consumers must not treat the `total_*` fields as annual)."
+                "description": "Current calendar-year totals. `None` means no year-to-date breakdown\nwas computed (consumers must not treat the `total_*` fields as\nannual)."
               }
             },
             "required": [
@@ -15640,7 +16310,7 @@
             "type": "object"
           },
           "WindowScope": {
-            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. Every count, total and history answers the\nwindow its caller asked for ([`Self::Asked`]), an all-time one included;\na segments read counts that window in segment reads\n([`Self::SegmentsRead`]). No provider's sample is read as a lifetime\nfigure (carnet#919): the totals are summed from the stored history, and\nits completeness says how far back that history reaches.",
             "oneOf": [
               {
                 "description": "The window the caller asked for, `[asked_from, asked_to]`.",
@@ -15652,52 +16322,6 @@
                 },
                 "required": [
                   "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "The athlete's whole history, as the provider's aggregate reports it.",
-                "properties": {
-                  "kind": {
-                    "const": "lifetime",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
-                "properties": {
-                  "kind": {
-                    "const": "recent_activities",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the activities of the last `days` days, ending now.",
-                "properties": {
-                  "days": {
-                    "description": "Length of the window, in days.",
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "kind": {
-                    "const": "last_days",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "days"
                 ],
                 "type": "object"
               },
@@ -15863,9 +16487,6 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
-      },
-      "execution": {
-        "taskSupport": "optional"
       }
     },
     {
@@ -16164,6 +16785,12 @@
                   }
                 ],
                 "description": "The window's totals, when the reader summed them."
+              },
+              "unstored": {
+                "description": "Entries this payload returns that the store does not hold, so\n`total` and `totals`, counted from the store, leave them out.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
@@ -16314,6 +16941,11 @@
                 "type": "string"
               },
               {
+                "const": "unstored_rows",
+                "description": "Some activities the payload shows are not in the store, so the\nstore's count of the window (`window.total`, `window.totals`) leaves\nthem out; `window.unstored` says how many.",
+                "type": "string"
+              },
+              {
                 "const": "provider_unavailable",
                 "description": "The provider could not be read; what it last synced answered.",
                 "type": "string"
@@ -16369,7 +17001,7 @@
               },
               {
                 "const": "segment_detail_unavailable",
-                "description": "No backend the athlete holds reads segment efforts: they come from\nStrava's API, which this athlete has not connected.",
+                "description": "No backend the athlete holds reads segment efforts: they are read\nfrom Strava, through a Strava connection or a signed-in Strava\nsession, and this athlete has neither.",
                 "type": "string"
               }
             ]
@@ -16559,7 +17191,7 @@
             "type": "object"
           },
           "WindowScope": {
-            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. Every count, total and history answers the\nwindow its caller asked for ([`Self::Asked`]), an all-time one included;\na segments read counts that window in segment reads\n([`Self::SegmentsRead`]). No provider's sample is read as a lifetime\nfigure (carnet#919): the totals are summed from the stored history, and\nits completeness says how far back that history reaches.",
             "oneOf": [
               {
                 "description": "The window the caller asked for, `[asked_from, asked_to]`.",
@@ -16571,52 +17203,6 @@
                 },
                 "required": [
                   "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "The athlete's whole history, as the provider's aggregate reports it.",
-                "properties": {
-                  "kind": {
-                    "const": "lifetime",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
-                "properties": {
-                  "kind": {
-                    "const": "recent_activities",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the activities of the last `days` days, ending now.",
-                "properties": {
-                  "days": {
-                    "description": "Length of the window, in days.",
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "kind": {
-                    "const": "last_days",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "days"
                 ],
                 "type": "object"
               },
@@ -18061,6 +18647,21 @@
               }
             ]
           },
+          "MeasurementKind": {
+            "description": "Whether a physiological value was measured or estimated.\n\nThis is what decides how the value may be framed. A measured critical\npower is \"your CP is 312 W\"; an estimated one is \"Vekta estimates your CP\nat 312 W\", never stated bare. Where the value came from is a separate axis\n([`MetricProvenance::origin`]): a provider can hand over either kind.",
+            "oneOf": [
+              {
+                "const": "measured",
+                "description": "Produced by a named test: a lab protocol, a 3-minute all-out test, a\nset of time trials fitted to the model, a track test.",
+                "type": "string"
+              },
+              {
+                "const": "estimated",
+                "description": "Produced by a model from training data (a provider's or an app's), or\nstated by the athlete without naming the test behind it.",
+                "type": "string"
+              }
+            ]
+          },
           "Modifier": {
             "description": "A modifier laid over a flavour (python `VOCAB[\"modifier\"]`).",
             "oneOf": [
@@ -19071,6 +19672,17 @@
                   "null"
                 ]
               },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/MeasurementKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Measured by a named test, or estimated: an estimate reads as one\nwhatever its confidence. Absent when the anchor records no kind (a\nthreshold the athlete stated on the profile row) or was stored before\nthe field existed; neither reads as measured."
+              },
               "low": {
                 "description": "Lower bound of the range the value stands for.",
                 "format": "float",
@@ -19877,7 +20489,7 @@
     },
     {
       "name": "get_weather_forecast",
-      "description": "Forecast weather (temperature, humidity, wind, conditions) for the hour of a timestamp up to about 16 days ahead, e.g. a planned session. Give the location as latitude and longitude, or as a place name (optionally narrowed by country_code). For a place, the output names the town used and says when an ambiguous name took the top-ranked match.",
+      "description": "Forecast weather (temperature, humidity, wind, conditions) for the hour of a timestamp up to about 16 days ahead. Call it for every outdoor session you plan, a route included, at the session's hour. Give the location as latitude and longitude, or as a place name (optionally narrowed by country_code). For a place, the output names the town used and says when an ambiguous name took the top-ranked match. Omit the location for the athlete's most frequent training place (Dravr's own app and chats only). The output carries that day's sunrise and sunset, on the athlete's clock.",
       "inputSchema": {
         "properties": {
           "country_code": {
@@ -19916,6 +20528,53 @@
       },
       "outputSchema": {
         "$defs": {
+          "DefaultPlace": {
+            "description": "The athlete's most frequent training place, used when no location was\ngiven.",
+            "properties": {
+              "id": {
+                "description": "The place's id.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The place's name, when it has one Dravr may serve here.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "ForecastDaylight": {
+            "description": "Sunrise and sunset of the forecast place's solar day.",
+            "properties": {
+              "polar": {
+                "description": "`day` when the Sun never sets that day, `night` when it never rises.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sunrise": {
+                "description": "RFC 3339 sunrise on the athlete's clock. Absent on a polar day or\nnight.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sunset": {
+                "description": "RFC 3339 sunset on the athlete's clock. Absent on a polar day or\nnight.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "ForecastPlace": {
             "description": "The place a name resolved to, serialized exactly as dravr-meteo's tool\nreports it: the name as typed, then its `Place`, then the match count.\n\nA schema-bearing view: dravr-meteo does not derive `schemars::JsonSchema`,\nand the tool declares its output schema.",
             "properties": {
@@ -20011,8 +20670,23 @@
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `get_weather_forecast` answers with.\n\nThe query as resolved and the provider's sample — the shape dravr-meteo's\ntool of the same name answers with, so the one tool reads the same from\neither server.",
+        "description": "What `get_weather_forecast` answers with.\n\nThe query as resolved and the provider's sample — dravr-meteo's shape for\nthe tool of the same name — plus `daylight` and `default_place`, which the\nplatform adds (carnet#1486).",
         "properties": {
+          "daylight": {
+            "$ref": "#/$defs/ForecastDaylight",
+            "description": "Sunrise and sunset of the place's day, on the athlete's clock."
+          },
+          "default_place": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/DefaultPlace"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The athlete's training place the forecast was read at, when the\ncaller gave no location. Absent otherwise."
+          },
           "latitude": {
             "description": "Latitude the forecast was read at.",
             "format": "double",
@@ -20059,7 +20733,8 @@
           "latitude",
           "longitude",
           "timestamp",
-          "sample"
+          "sample",
+          "daylight"
         ],
         "title": "WeatherForecastResult",
         "type": "object"
@@ -25024,6 +25699,128 @@
       }
     },
     {
+      "name": "name_place",
+      "description": "Name where the athlete trains, as they asked: by a row's place.id or an activity id (a first visit too). clear=true restores the automatic name. home=here marks that place or start as home (never shown back); elsewhere: home is not where they train; forget.",
+      "inputSchema": {
+        "properties": {
+          "activity_id": {
+            "description": "Or an activity id.",
+            "type": "string"
+          },
+          "clear": {
+            "description": "true removes their name.",
+            "type": "boolean"
+          },
+          "home": {
+            "description": "here: home is that place or where that activity started (never shown back); elsewhere: home is not where they train; forget: back to the automatic guess.",
+            "type": "string"
+          },
+          "name": {
+            "description": "1-60 characters.",
+            "type": "string"
+          },
+          "place_id": {
+            "description": "A row's place.id.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "HomeState": {
+            "description": "Where home is, as a word: never a point.",
+            "oneOf": [
+              {
+                "const": "declared",
+                "description": "The athlete said where home is.",
+                "type": "string"
+              },
+              {
+                "const": "elsewhere",
+                "description": "The athlete said home is not where they train.",
+                "type": "string"
+              },
+              {
+                "const": "inferred",
+                "description": "Home is the automatic guess.",
+                "type": "string"
+              }
+            ]
+          },
+          "HomeView": {
+            "description": "Home as `name_place` answers it: a state word, never a point.",
+            "properties": {
+              "state": {
+                "$ref": "#/$defs/HomeState",
+                "description": "`declared`, `elsewhere` or `inferred` (the automatic guess)."
+              }
+            },
+            "required": [
+              "state"
+            ],
+            "type": "object"
+          },
+          "NamedPlaceView": {
+            "description": "A place as `name_place` answers it: its id and its name.",
+            "properties": {
+              "id": {
+                "description": "The place id, as rows' `place.id` serves it.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The place's name as this reader may see it: the athlete's own name\neverywhere, an automatic one only on Dravr's own surfaces; `null`\notherwise.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "What `name_place` answers with: the place a name call named, or the\nhome state a home call left.",
+        "properties": {
+          "home": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HomeView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What home is now; only on a home call."
+          },
+          "place": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/NamedPlaceView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The place named, as a row's `place` serves it; absent on a home call."
+          }
+        },
+        "title": "NamePlaceResult",
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Name place",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "optimize_sleep_schedule",
       "description": "Get sleep schedule recommendations from training load and recovery needs; the load comes from synced activities against the thresholds saved with set_physiology.",
       "inputSchema": {
@@ -26150,6 +26947,21 @@
               }
             ]
           },
+          "MeasurementKind": {
+            "description": "Whether a physiological value was measured or estimated.\n\nThis is what decides how the value may be framed. A measured critical\npower is \"your CP is 312 W\"; an estimated one is \"Vekta estimates your CP\nat 312 W\", never stated bare. Where the value came from is a separate axis\n([`MetricProvenance::origin`]): a provider can hand over either kind.",
+            "oneOf": [
+              {
+                "const": "measured",
+                "description": "Produced by a named test: a lab protocol, a 3-minute all-out test, a\nset of time trials fitted to the model, a track test.",
+                "type": "string"
+              },
+              {
+                "const": "estimated",
+                "description": "Produced by a model from training data (a provider's or an app's), or\nstated by the athlete without naming the test behind it.",
+                "type": "string"
+              }
+            ]
+          },
           "SportAnchorName": {
             "description": "Which anchor of a sport family a stored row holds: a field of cageux's\n[`SportAnchors`], less the resting heart rate, which is the athlete's\nrather than a sport's and stays on the profile row.",
             "oneOf": [
@@ -26434,6 +27246,17 @@
                   "number",
                   "null"
                 ]
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/MeasurementKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Measured by a named test, or estimated: an estimate reads as one\nwhatever its confidence. Absent when the anchor records no kind (a\nthreshold the athlete stated on the profile row) or was stored before\nthe field existed; neither reads as measured."
               },
               "low": {
                 "description": "Lower bound of the range the value stands for.",
@@ -27314,6 +28137,21 @@
               }
             ]
           },
+          "MeasurementKind": {
+            "description": "Whether a physiological value was measured or estimated.\n\nThis is what decides how the value may be framed. A measured critical\npower is \"your CP is 312 W\"; an estimated one is \"Vekta estimates your CP\nat 312 W\", never stated bare. Where the value came from is a separate axis\n([`MetricProvenance::origin`]): a provider can hand over either kind.",
+            "oneOf": [
+              {
+                "const": "measured",
+                "description": "Produced by a named test: a lab protocol, a 3-minute all-out test, a\nset of time trials fitted to the model, a track test.",
+                "type": "string"
+              },
+              {
+                "const": "estimated",
+                "description": "Produced by a model from training data (a provider's or an app's), or\nstated by the athlete without naming the test behind it.",
+                "type": "string"
+              }
+            ]
+          },
           "PlanEnvelopeReport": {
             "description": "What the envelope check found on the days a save or publish wrote.\n\nIt sits beside `safety`: each templated session measured against its\nfamily's evidence envelope. In Dravr's chat the platform shows every\nfinding and relabel under your reply in its own sentences, so do not\nrestate them there; explain or disagree with one only when asked. Where a\nclient shows the athlete only your words, relay them yourself, as plain\nwords about the work. A day with `not_generated` has no steps until you\nwrite them or shorten the day.\n\nEvery finding warns; a relabel also names the purpose the session now\ntrains, which is what compliance and readiness read for that day. Absent\nwhen no day found anything.",
             "properties": {
@@ -27753,6 +28591,17 @@
                   "number",
                   "null"
                 ]
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/MeasurementKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Measured by a named test, or estimated: an estimate reads as one\nwhatever its confidence. Absent when the anchor records no kind (a\nthreshold the athlete stated on the profile row) or was stored before\nthe field existed; neither reads as measured."
               },
               "low": {
                 "description": "Lower bound of the range the value stands for.",
@@ -28312,6 +29161,1342 @@
       },
       "execution": {
         "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "query_activities",
+      "description": "Count and sum workouts over any period, every source merged; for every count, total or breakdown. Read coverage before quoting; unknown is never a no. If a figure is disputed, call again and say which filter changed.",
+      "inputSchema": {
+        "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
+          "format": {
+            "description": "'json' (default) or 'toon' (compact).",
+            "type": "string"
+          },
+          "from": {
+            "description": "YYYY-MM-DD; omit for all history.",
+            "type": "string"
+          },
+          "gear": {
+            "description": "Gear id/name.",
+            "type": "string"
+          },
+          "group_by": {
+            "description": "Up to 2 of year, month, week, sport_type, sport_family, place, gear.",
+            "items": {
+              "description": "One value.",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "has_segment": {
+            "description": "Segment id/name.",
+            "type": "string"
+          },
+          "max_distance_km": {
+            "description": "Most km.",
+            "type": "number"
+          },
+          "metrics": {
+            "description": "count, distance_km, moving_time_s, elapsed_time_s, elevation_m, avg_hr.",
+            "items": {
+              "description": "One value.",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "min_distance_km": {
+            "description": "Least km.",
+            "type": "number"
+          },
+          "name_contains": {
+            "description": "Name text.",
+            "type": "string"
+          },
+          "place_id": {
+            "description": "Place ids.",
+            "items": {
+              "description": "One value.",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "provider": {
+            "description": "One source only.",
+            "type": "string"
+          },
+          "sport_family": {
+            "description": "running, cycling, swimming, other.",
+            "items": {
+              "description": "One value.",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sport_type": {
+            "description": "Sports, e.g. TrailRunning.",
+            "items": {
+              "description": "One value.",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "to": {
+            "description": "YYYY-MM-DD; default today.",
+            "type": "string"
+          },
+          "trainer": {
+            "description": "Indoor trainer.",
+            "type": "boolean"
+          },
+          "workout_type": {
+            "description": "race, long_run, workout, commute, recovery, with_pet, for_a_cause, competition, with_kid.",
+            "items": {
+              "description": "One value.",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "AppliedQuery": {
+            "description": "The filters, breakdown and metrics a count ran, after aliases and\ndefaults: what a corrected call is compared against. Athlete text is\nechoed as one display line.",
+            "properties": {
+              "from": {
+                "description": "First day, `YYYY-MM-DD`; absent for the whole stored history.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "gear": {
+                "description": "Gear id or text its name holds.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "group_by": {
+                "description": "What the count is broken down by.",
+                "items": {
+                  "$ref": "#/$defs/GroupKey"
+                },
+                "type": "array"
+              },
+              "has_segment": {
+                "description": "The segment: its id, or the folded text its name holds.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "max_distance_km": {
+                "description": "Most distance, km.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "metrics": {
+                "description": "What it sums.",
+                "items": {
+                  "$ref": "#/$defs/QueryMetric"
+                },
+                "type": "array"
+              },
+              "min_distance_km": {
+                "description": "Least distance, km.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "name_contains": {
+                "description": "Text the activity name holds.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "place_id": {
+                "description": "Place ids.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "provider": {
+                "description": "The one source counted; `null` for every source.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sport_family": {
+                "description": "Sport families.",
+                "items": {
+                  "$ref": "#/$defs/SportFamily"
+                },
+                "type": "array"
+              },
+              "sport_type": {
+                "description": "Sports, resolved from their aliases.",
+                "items": {
+                  "$ref": "#/$defs/SportType"
+                },
+                "type": "array"
+              },
+              "to": {
+                "description": "Last day, `YYYY-MM-DD`, included.",
+                "format": "date",
+                "type": "string"
+              },
+              "trainer": {
+                "description": "The trainer flag asked.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "workout_type": {
+                "description": "Workout tags.",
+                "items": {
+                  "enum": [
+                    "race",
+                    "long_run",
+                    "workout",
+                    "commute",
+                    "recovery",
+                    "with_pet",
+                    "for_a_cause",
+                    "competition",
+                    "with_kid"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "to",
+              "provider",
+              "group_by",
+              "metrics"
+            ],
+            "type": "object"
+          },
+          "Coverage": {
+            "description": "[`Coverage`] as it travels: completeness flattened to the `complete` and\n`incomplete_reason` keys the turn's readers key on, and the note a model\nreads beside the structure.",
+            "properties": {
+              "complete": {
+                "description": "Whether every activity of the asked window was read.",
+                "type": "boolean"
+              },
+              "incomplete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/IncompleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Why the window is incomplete; absent when it is complete."
+              },
+              "note": {
+                "description": "What may and may not be claimed from the window; absent when nothing\nqualifies it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pending": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Pending"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The history walk still owed for the window, when one is."
+              },
+              "trustworthy_from": {
+                "description": "The first day the stored history stands behind, `YYYY-MM-DD`, when it\nstarts later than the window asked.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "window": {
+                "$ref": "#/$defs/CoverageWindow",
+                "description": "What the window spans."
+              }
+            },
+            "required": [
+              "complete",
+              "window"
+            ],
+            "type": "object"
+          },
+          "CoverageWindow": {
+            "description": "What a served window spans.",
+            "properties": {
+              "asked_from": {
+                "description": "First day asked for, `YYYY-MM-DD`; absent when the ask had no start.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "asked_to": {
+                "description": "Last day asked for, `YYYY-MM-DD`; absent when the ask ran to now.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "newest": {
+                "description": "The newest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "oldest": {
+                "description": "The oldest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "returned": {
+                "default": 0,
+                "description": "Entries this payload returns: activities, or days of a daily series.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scope": {
+                "$ref": "#/$defs/WindowScope",
+                "default": {
+                  "kind": "asked"
+                },
+                "description": "Which activities the window spans."
+              },
+              "total": {
+                "description": "Activities the window holds, before any display limit; absent when\nthe reader does not count them.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "total_is_lower_bound": {
+                "description": "Whether `total` is only a lower bound: the read filled its row cap, so\nthe window may hold more.",
+                "type": "boolean"
+              },
+              "totals": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WindowTotals"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The window's totals, when the reader summed them."
+              },
+              "unstored": {
+                "description": "Entries this payload returns that the store does not hold, so\n`total` and `totals`, counted from the store, leave them out.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "scope",
+              "returned"
+            ],
+            "type": "object"
+          },
+          "GroupKey": {
+            "description": "What a count is broken down by.",
+            "oneOf": [
+              {
+                "const": "year",
+                "description": "The athlete's civil year.",
+                "type": "string"
+              },
+              {
+                "const": "month",
+                "description": "The athlete's civil month, `YYYY-MM`.",
+                "type": "string"
+              },
+              {
+                "const": "week",
+                "description": "The Monday-to-Sunday week, by its Monday, `YYYY-MM-DD`.",
+                "type": "string"
+              },
+              {
+                "const": "sport_type",
+                "description": "The sport, as the store spells it.",
+                "type": "string"
+              },
+              {
+                "const": "sport_family",
+                "description": "The sport family: running, cycling, swimming or other.",
+                "type": "string"
+              },
+              {
+                "const": "place",
+                "description": "The place the workout starts at, by its id.",
+                "type": "string"
+              },
+              {
+                "const": "gear",
+                "description": "The gear the provider recorded, by its id (else its name).",
+                "type": "string"
+              }
+            ]
+          },
+          "IncompleteReason": {
+            "description": "Why a served window is not the whole truth for the window asked.",
+            "oneOf": [
+              {
+                "const": "live_read_running",
+                "description": "The live read outlived the turn's budget; the cached window answered\nand the read runs on.",
+                "type": "string"
+              },
+              {
+                "const": "read_capped",
+                "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "unstored_rows",
+                "description": "Some activities the payload shows are not in the store, so the\nstore's count of the window (`window.total`, `window.totals`) leaves\nthem out; `window.unstored` says how many.",
+                "type": "string"
+              },
+              {
+                "const": "provider_unavailable",
+                "description": "The provider could not be read; what it last synced answered.",
+                "type": "string"
+              },
+              {
+                "const": "history_walk_running",
+                "description": "The athlete's history walk has not reached the start of the window\nyet; the store answered with what it holds so far.",
+                "type": "string"
+              },
+              {
+                "const": "shallow_history",
+                "description": "The stored history begins too late to stand behind the whole window:\nonly `[trustworthy_from, asked_to]` is answered.",
+                "type": "string"
+              },
+              {
+                "const": "no_stored_activities",
+                "description": "Nothing stored covers the window, so nothing was computed.",
+                "type": "string"
+              },
+              {
+                "const": "segment_detail_walking",
+                "description": "The window's activities are stored, but the segment efforts of some\nwere never read; the detail walk reading them runs on\n([`Pending::DetailWalkRunning`]).",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the walk tried them\nand the backend answered nothing for them. Any other activity of the\nwindow whose efforts were not read is held only in the athlete's own\nexport, which no walk reads.",
+                "properties": {
+                  "segment_detail_partial": {
+                    "properties": {
+                      "unreadable": {
+                        "description": "Activities of the window a walk tried whose segment efforts the\nbackend could not read.",
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "unreadable"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "segment_detail_partial"
+                ],
+                "type": "object"
+              },
+              {
+                "const": "segment_detail_unread",
+                "description": "The segment efforts of some of the window's activities were not read,\nand this answer started no read of them: they are held only in the\nathlete's own export, which no walk reads, or the walk could not be\nrecorded, or this transport asks none. Nothing tried them, so none is\nsaid to be unreadable.",
+                "type": "string"
+              },
+              {
+                "const": "segment_detail_unavailable",
+                "description": "No backend the athlete holds reads segment efforts: they are read\nfrom Strava, through a Strava connection or a signed-in Strava\nsession, and this athlete has neither.",
+                "type": "string"
+              }
+            ]
+          },
+          "KeyValue": {
+            "anyOf": [
+              {
+                "description": "A civil year.",
+                "format": "int32",
+                "type": "integer"
+              },
+              {
+                "description": "Any other key: a month, a week's Monday, a sport, a place id, a gear\nid, or `unknown`.",
+                "type": "string"
+              }
+            ],
+            "description": "One group's value for one key: a civil year, or a text key."
+          },
+          "MetricValues": {
+            "description": "The sums asked for; a metric not asked for is absent.\n\nHeld exact, so a caller summing or converting them loses nothing, and\nserialized with one decimal on distance, climbing and heart rate, as a\nwindow's totals are.",
+            "properties": {
+              "avg_hr": {
+                "description": "Average heart rate, weighted by moving time, else elapsed time.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "avg_hr_sessions": {
+                "description": "Workouts that recorded an average heart rate.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "count": {
+                "description": "Workouts.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "distance_km": {
+                "description": "Kilometres, over the workouts that record a distance.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elapsed_time_s": {
+                "description": "Elapsed seconds.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "elevation_m": {
+                "description": "Metres climbed, over the workouts that record it.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "moving_time_s": {
+                "description": "Moving seconds, over the workouts that report moving time.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "moving_time_sessions": {
+                "description": "Workouts that reported moving time.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "Pending": {
+            "description": "What is still owed for a window: the history walk that would fill it with\nactivities, or the detail walk that reads the segment efforts of the\nactivities it holds.",
+            "oneOf": [
+              {
+                "description": "No walk of the athlete's history has run yet; one has been asked for.",
+                "properties": {
+                  "kind": {
+                    "const": "history_not_walked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A walk of the athlete's history is running.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk reaches its floor at the pace its steps\nmeasured; absent until a step measured one or the floor is known.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "history_walk_running",
+                    "type": "string"
+                  },
+                  "months_done": {
+                    "description": "Months of history walked so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "months_total": {
+                    "description": "Months the walk has to cover; absent while its floor is not known.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "months_done"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A detail walk is reading the segment efforts of the window's\nactivities, newest first.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk has read them all at its pace; absent\nuntil it has a total and a pace.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "detail_walk_running",
+                    "type": "string"
+                  },
+                  "units_done": {
+                    "description": "Activities the walk has read so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "units_total": {
+                    "description": "Activities the walk has to read; absent while not counted.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "units_done"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "QueryAnswer": {
+            "description": "A count's answer.",
+            "properties": {
+              "applied": {
+                "$ref": "#/$defs/AppliedQuery",
+                "description": "The filters, breakdown and metrics the count ran."
+              },
+              "coverage": {
+                "$ref": "#/$defs/Coverage",
+                "description": "Whether the count is the whole truth for the window, over every\nsource."
+              },
+              "coverage_by_source": {
+                "description": "Each source's part of it.",
+                "items": {
+                  "$ref": "#/$defs/SourceReach"
+                },
+                "type": "array"
+              },
+              "garmin_contribution": {
+                "description": "What Garmin-sourced data contributed to the counted workouts.",
+                "enum": [
+                  "sole",
+                  "part",
+                  null
+                ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "groups": {
+                "description": "The groups, at most [`MAX_GROUPS`], the largest by count.",
+                "items": {
+                  "$ref": "#/$defs/QueryGroup"
+                },
+                "type": "array"
+              },
+              "groups_total": {
+                "description": "Every group there was.",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "groups_truncated": {
+                "description": "Whether groups were cut.",
+                "type": "boolean"
+              },
+              "totals": {
+                "$ref": "#/$defs/MetricValues",
+                "description": "The sums over every counted workout."
+              },
+              "unknown": {
+                "$ref": "#/$defs/UnknownCounts",
+                "description": "Workouts a filter could not judge, per field: never a miss."
+              }
+            },
+            "required": [
+              "applied",
+              "totals",
+              "groups",
+              "groups_total",
+              "groups_truncated",
+              "unknown",
+              "coverage",
+              "coverage_by_source",
+              "garmin_contribution"
+            ],
+            "type": "object"
+          },
+          "QueryGroup": {
+            "description": "One group of a broken-down count.",
+            "properties": {
+              "avg_hr": {
+                "description": "Average heart rate, weighted by moving time, else elapsed time.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "avg_hr_sessions": {
+                "description": "Workouts that recorded an average heart rate.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "count": {
+                "description": "Workouts.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "distance_km": {
+                "description": "Kilometres, over the workouts that record a distance.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elapsed_time_s": {
+                "description": "Elapsed seconds.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "elevation_m": {
+                "description": "Metres climbed, over the workouts that record it.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "key": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/KeyValue"
+                },
+                "description": "The group's value for each key it is broken down by.",
+                "type": "object"
+              },
+              "label": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "A readable name for a place or gear key, when there is one this\nreader may see.",
+                "type": "object"
+              },
+              "moving_time_s": {
+                "description": "Moving seconds, over the workouts that report moving time.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "moving_time_sessions": {
+                "description": "Workouts that reported moving time.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "key"
+            ],
+            "type": "object"
+          },
+          "QueryMetric": {
+            "description": "What a count sums.",
+            "oneOf": [
+              {
+                "const": "count",
+                "description": "Workouts.",
+                "type": "string"
+              },
+              {
+                "const": "distance_km",
+                "description": "Kilometres, over the workouts that record a distance.",
+                "type": "string"
+              },
+              {
+                "const": "moving_time_s",
+                "description": "Moving seconds, over the workouts that report moving time.",
+                "type": "string"
+              },
+              {
+                "const": "elapsed_time_s",
+                "description": "Elapsed seconds.",
+                "type": "string"
+              },
+              {
+                "const": "elevation_m",
+                "description": "Metres climbed, over the workouts that record it.",
+                "type": "string"
+              },
+              {
+                "const": "avg_hr",
+                "description": "Average heart rate, weighted by moving time (else elapsed time).",
+                "type": "string"
+              }
+            ]
+          },
+          "SourceReach": {
+            "description": "One source's part of a window counted across the athlete's sources.\n\nThe copies it holds in the window, before the copies of one workout are\nmerged, and how far its own history stands behind the window.\n\nA list of these sits beside the one [`Coverage`] of a merged count\n(`coverage_by_source`), each carrying a [`Coverage`] of its own rather\nthan a coverage field of its own: completeness, reason, the vouched day,\nthe walk owed and the note are that one type's. Its `window.oldest` and\n`window.newest` are this source's own rows in the window.",
+            "properties": {
+              "copies": {
+                "description": "Rows of this source in the window, before the merge.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "coverage": {
+                "$ref": "#/$defs/Coverage",
+                "description": "How far this source's history stands behind the window."
+              },
+              "source": {
+                "description": "The source as the athlete knows it (a provider's user-facing name),\nnever an internal storage key.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "copies",
+              "coverage"
+            ],
+            "type": "object"
+          },
+          "SportFamily": {
+            "description": "The family a session belongs to, for questions that care whether an\nathlete trains one discipline or several — not for anything that needs\nthe discipline itself.\n\nVirtual and terrain variants fold into their family: a trainer ride is\ncycling, a trail run is running. Everything without a family of its own\n— walking, hiking, gym work, snow sports — is `Other`, so a runner who\nalso hikes is still single-sport.",
+            "oneOf": [
+              {
+                "const": "running",
+                "description": "Running, on any surface, real or virtual.",
+                "type": "string"
+              },
+              {
+                "const": "cycling",
+                "description": "Cycling, on any bike, real or virtual.",
+                "type": "string"
+              },
+              {
+                "const": "swimming",
+                "description": "Swimming.",
+                "type": "string"
+              },
+              {
+                "const": "other",
+                "description": "Anything without a family of its own.",
+                "type": "string"
+              }
+            ]
+          },
+          "SportType": {
+            "description": "Enumeration of supported sport/activity types\n\nThis enum covers the most common fitness activities across all providers.\nThe `Other` variant handles provider-specific activity types that don't\nmap to the standard categories.",
+            "oneOf": [
+              {
+                "const": "run",
+                "description": "Running activity",
+                "type": "string"
+              },
+              {
+                "const": "ride",
+                "description": "Cycling/biking activity",
+                "type": "string"
+              },
+              {
+                "const": "swim",
+                "description": "Swimming activity",
+                "type": "string"
+              },
+              {
+                "const": "walk",
+                "description": "Walking activity",
+                "type": "string"
+              },
+              {
+                "const": "hike",
+                "description": "Hiking activity",
+                "type": "string"
+              },
+              {
+                "const": "virtual_ride",
+                "description": "Indoor/trainer cycling activity",
+                "type": "string"
+              },
+              {
+                "const": "virtual_run",
+                "description": "Treadmill running activity",
+                "type": "string"
+              },
+              {
+                "const": "workout",
+                "description": "Generic workout/exercise activity",
+                "type": "string"
+              },
+              {
+                "const": "yoga",
+                "description": "Yoga practice",
+                "type": "string"
+              },
+              {
+                "const": "ebike_ride",
+                "description": "Electric bike ride",
+                "type": "string"
+              },
+              {
+                "const": "mountain_bike",
+                "description": "Mountain biking activity",
+                "type": "string"
+              },
+              {
+                "const": "gravel_ride",
+                "description": "Gravel cycling activity",
+                "type": "string"
+              },
+              {
+                "const": "cross_country_skiing",
+                "description": "Cross-country skiing",
+                "type": "string"
+              },
+              {
+                "const": "alpine_skiing",
+                "description": "Alpine/downhill skiing",
+                "type": "string"
+              },
+              {
+                "const": "snowboarding",
+                "description": "Snowboarding activity",
+                "type": "string"
+              },
+              {
+                "const": "snowshoe",
+                "description": "Snowshoeing activity",
+                "type": "string"
+              },
+              {
+                "const": "ice_skating",
+                "description": "Ice skating activity",
+                "type": "string"
+              },
+              {
+                "const": "backcountry_skiing",
+                "description": "Backcountry skiing",
+                "type": "string"
+              },
+              {
+                "const": "kayaking",
+                "description": "Kayaking activity",
+                "type": "string"
+              },
+              {
+                "const": "canoeing",
+                "description": "Canoeing activity",
+                "type": "string"
+              },
+              {
+                "const": "rowing",
+                "description": "Rowing activity",
+                "type": "string"
+              },
+              {
+                "const": "paddleboarding",
+                "description": "Stand-up paddleboarding",
+                "type": "string"
+              },
+              {
+                "const": "surfing",
+                "description": "Surfing activity",
+                "type": "string"
+              },
+              {
+                "const": "kitesurfing",
+                "description": "Kitesurfing activity",
+                "type": "string"
+              },
+              {
+                "const": "strength_training",
+                "description": "Weight/strength training",
+                "type": "string"
+              },
+              {
+                "const": "crossfit",
+                "description": "`CrossFit` workout",
+                "type": "string"
+              },
+              {
+                "const": "pilates",
+                "description": "Pilates session",
+                "type": "string"
+              },
+              {
+                "const": "rock_climbing",
+                "description": "Rock climbing activity",
+                "type": "string"
+              },
+              {
+                "const": "trail_running",
+                "description": "Trail running",
+                "type": "string"
+              },
+              {
+                "const": "soccer",
+                "description": "Soccer/football",
+                "type": "string"
+              },
+              {
+                "const": "basketball",
+                "description": "Basketball",
+                "type": "string"
+              },
+              {
+                "const": "tennis",
+                "description": "Tennis",
+                "type": "string"
+              },
+              {
+                "const": "golf",
+                "description": "Golf",
+                "type": "string"
+              },
+              {
+                "const": "skateboarding",
+                "description": "Skateboarding",
+                "type": "string"
+              },
+              {
+                "const": "inline_skating",
+                "description": "Inline skating",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Other activity type not covered by standard categories",
+                "properties": {
+                  "other": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "other"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "UnknownCounts": {
+            "description": "Workouts a filter could not judge for lack of the field it needs, per\nfield: never counted as a miss.",
+            "properties": {
+              "gear": {
+                "description": "Workouts that name no gear.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "has_segment": {
+                "description": "Workouts whose segments were never read, or that no detail walk reads.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "place": {
+                "description": "Workouts that belong to no place.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "trainer": {
+                "description": "Workouts with no trainer flag.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "workout_type": {
+                "description": "Workouts with no workout code.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "has_segment",
+              "place",
+              "gear",
+              "trainer",
+              "workout_type"
+            ],
+            "type": "object"
+          },
+          "WindowScope": {
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. Every count, total and history answers the\nwindow its caller asked for ([`Self::Asked`]), an all-time one included;\na segments read counts that window in segment reads\n([`Self::SegmentsRead`]). No provider's sample is read as a lifetime\nfigure (carnet#919): the totals are summed from the stored history, and\nits completeness says how far back that history reaches.",
+            "oneOf": [
+              {
+                "description": "The window the caller asked for, `[asked_from, asked_to]`.",
+                "properties": {
+                  "kind": {
+                    "const": "asked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "The window the caller asked for, `[asked_from, asked_to]`, counted in\nsegment reads: `total` is every activity in it, `returned` those whose\nsegment efforts were read (`get_segment_history`).",
+                "properties": {
+                  "kind": {
+                    "const": "segments_read",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "WindowTotals": {
+            "description": "Count, distance, duration and climb summed over a whole window, taken\nbefore a display limit truncates it.\n\nA year-against-year question is answered from these, not from the shown\nslice: with a display limit of 20, a 63-ride 2011 read as its last three\nDecember rides (carnet#874). Serialized with distance and elevation to one\ndecimal and the duration exact, which the agent quotes and derives pace\nfrom (carnet#1015).",
+            "properties": {
+              "count": {
+                "description": "Activities in the window.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "distance_km": {
+                "description": "Summed distance in kilometres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              },
+              "duration_seconds": {
+                "description": "Summed duration in seconds, exact.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "elevation_gain_m": {
+                "description": "Summed elevation gain in metres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "count",
+              "distance_km",
+              "duration_seconds",
+              "elevation_gain_m"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/QueryAnswer",
+                "description": "`format=json`, the default: the tool's own shape, unchanged."
+              },
+              {
+                "description": "`format=toon`: the payload rendered as one compact TOON string.",
+                "properties": {
+                  "format": {
+                    "description": "Always `toon`.",
+                    "type": "string"
+                  },
+                  "toon": {
+                    "description": "The rendered payload.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "toon",
+                  "format"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
+                "properties": {
+                  "format": {
+                    "description": "Always `json`.",
+                    "type": "string"
+                  },
+                  "format_error": {
+                    "description": "Why TOON rendering failed.",
+                    "type": "string"
+                  },
+                  "format_fallback": {
+                    "description": "Always true; present so the fallback is detectable on its own.",
+                    "type": "boolean"
+                  },
+                  "result": {
+                    "$ref": "#/$defs/QueryAnswer",
+                    "description": "The payload, unformatted."
+                  }
+                },
+                "required": [
+                  "result",
+                  "format",
+                  "format_fallback",
+                  "format_error"
+                ],
+                "type": "object"
+              }
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "connect_url": {
+                "type": "string"
+              },
+              "connected": {
+                "const": false
+              },
+              "message": {
+                "type": "string"
+              },
+              "providers": {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "readable_here": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "status",
+                    "readable_here"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "connected",
+              "message",
+              "providers"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
+        "title": "Formatted",
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Query activities",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -30630,6 +32815,21 @@
               }
             ]
           },
+          "MeasurementKind": {
+            "description": "Whether a physiological value was measured or estimated.\n\nThis is what decides how the value may be framed. A measured critical\npower is \"your CP is 312 W\"; an estimated one is \"Vekta estimates your CP\nat 312 W\", never stated bare. Where the value came from is a separate axis\n([`MetricProvenance::origin`]): a provider can hand over either kind.",
+            "oneOf": [
+              {
+                "const": "measured",
+                "description": "Produced by a named test: a lab protocol, a 3-minute all-out test, a\nset of time trials fitted to the model, a track test.",
+                "type": "string"
+              },
+              {
+                "const": "estimated",
+                "description": "Produced by a model from training data (a provider's or an app's), or\nstated by the athlete without naming the test behind it.",
+                "type": "string"
+              }
+            ]
+          },
           "PlanEnvelopeReport": {
             "description": "What the envelope check found on the days a save or publish wrote.\n\nIt sits beside `safety`: each templated session measured against its\nfamily's evidence envelope. In Dravr's chat the platform shows every\nfinding and relabel under your reply in its own sentences, so do not\nrestate them there; explain or disagree with one only when asked. Where a\nclient shows the athlete only your words, relay them yourself, as plain\nwords about the work. A day with `not_generated` has no steps until you\nwrite them or shorten the day.\n\nEvery finding warns; a relabel also names the purpose the session now\ntrains, which is what compliance and readiness read for that day. Absent\nwhen no day found anything.",
             "properties": {
@@ -31072,6 +33272,17 @@
                   "number",
                   "null"
                 ]
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/MeasurementKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Measured by a named test, or estimated: an estimate reads as one\nwhatever its confidence. Absent when the anchor records no kind (a\nthreshold the athlete stated on the profile row) or was stored before\nthe field existed; neither reads as measured."
               },
               "low": {
                 "description": "Lower bound of the range the value stands for.",

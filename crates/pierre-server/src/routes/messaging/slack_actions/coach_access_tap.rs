@@ -1,4 +1,4 @@
-// ABOUTME: Grant or decline a coach-access request from its Slack notice, for a linked active super-admin
+// ABOUTME: Grant or decline a coach-access request from its Slack notice, for a linked active admin
 // ABOUTME: Settles the card on a decision; a refused tap keeps the buttons and says why under them
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,19 +13,19 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::ops_card::{
-    authorize_super_admin, keep_card_with_reason, room_text, settled_card, SuperAdminDecision,
+    authorize_admin, keep_card_with_reason, room_text, settled_card, AdminDecision,
 };
 use super::{update_card, CoachAccessDecision, SlackAction};
 use crate::mcp::resources::ServerContext;
 use crate::routes::coach_access::coach_access_notices;
 
 /// Grant or decline the coach-access request a tap names, for the
-/// super-admin behind the Slack identity that tapped.
+/// admin behind the Slack identity that tapped.
 ///
-/// The room is not enough here: a grant gives `manages_roster`, which only a
-/// super-admin decides (the console's coach-access routes are super-admin
-/// only), so the clicker must also resolve to an active super-admin
-/// ([`authorize_super_admin`]). The decision goes through
+/// The room is not enough here: a grant gives `manages_roster`, which only an
+/// admin decides (the console's coach-access routes are admin
+/// only), so the clicker must also resolve to an active admin
+/// ([`authorize_admin`]). The decision goes through
 /// [`coach_access::grant`] / [`coach_access::decline`] with that admin as
 /// `decided_by`, as the console's does, so `coach_access.granted` /
 /// `.declined` fire the same way and the coach is told the same way
@@ -45,23 +45,14 @@ pub(super) async fn answer_coach_access_tap(
 ) -> AppResult<(StatusCode, Json<Value>)> {
     let decider = format!("@{}", action.slack_username);
 
-    let operator = match authorize_super_admin(
-        resources,
-        &action.slack_user_id,
-        SuperAdminDecision::CoachAccess,
-    )
-    .await
-    {
-        Ok(operator) => operator,
-        Err(refused) => {
-            keep_card_with_reason(
-                resources,
-                action,
-                &format!("{decider}: {}", room_text(&refused)),
-            );
-            return Err(refused);
-        }
-    };
+    let operator =
+        match authorize_admin(resources, &action.slack_user_id, AdminDecision::CoachAccess).await {
+            Ok(operator) => operator,
+            Err(refused) => {
+                keep_card_with_reason(resources, action, &refused.room_line(&decider));
+                return Err(refused.error);
+            }
+        };
 
     match decide_coach_access(resources, decision, request_id, operator, &decider).await {
         Ok(outcome) => {

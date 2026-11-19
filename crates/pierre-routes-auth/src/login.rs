@@ -20,7 +20,7 @@ use pierre_routes_admin::auth::service::AdminAuthService;
 use crate::email_verification::issue_verification_email;
 use crate::password_attempts::meter_password_attempt;
 use crate::registration_sign_in::{registration_sign_in_code, PublicRegisterResponse};
-use crate::signup_code::{join_coach_group, meter_signup_code};
+use crate::signup_code::{hold_link_invite, join_coach_group, meter_signup_code};
 use crate::signup_guards::{
     client_address, meter_sign_up, pass_human_check, PublicRegisterRequest,
 };
@@ -91,6 +91,7 @@ pub(crate) async fn handle_register(
     // Validate admin token
     let admin_auth_service = AdminAuthService::new(
         resources.repos.admin.clone(),
+        resources.repos.users.clone(),
         resources.jwks_manager.clone(),
     );
 
@@ -246,7 +247,9 @@ pub(crate) async fn handle_public_register(
     )
     .await?;
     let request = body.account;
-    if body.signup_code.is_some() {
+    // A group invite is a bearer code too, so carrying one is metered as
+    // entering one is; one attempt however many codes the form carried.
+    if body.signup_code.is_some() || body.group_invite_code.is_some() {
         meter_signup_code(&resources.rate_limiter, client).await?;
     }
 
@@ -282,6 +285,12 @@ pub(crate) async fn handle_public_register(
                 (redeemed.as_ref(), uuid::Uuid::parse_str(&response.user_id))
             {
                 join_coach_group(&resources, redeemed, user_id).await;
+            }
+            if let (Some(code), Ok(user_id)) = (
+                body.group_invite_code.as_ref(),
+                uuid::Uuid::parse_str(&response.user_id),
+            ) {
+                hold_link_invite(&resources, user_id, code).await;
             }
             // A code that waits on the address activates it with the
             // confirmation link: there is no review to announce.
@@ -471,8 +480,10 @@ pub(crate) async fn handle_session(
         .authenticate_request_with_headers(&headers)
         .await?;
     // A session is restored from a session, never minted from an API key or
-    // an impersonation token.
-    auth_result.auth_method.refuse_session_upgrade()?;
+    // an impersonation token; an impersonation's attempt is audited.
+    auth_result
+        .refuse_session_exchange(resources.repos.admin_audit.as_ref(), "restore a session")
+        .await?;
 
     let user_id = auth_result.user_id;
     Span::current().record("user_id", user_id.to_string());
@@ -534,13 +545,14 @@ pub(crate) async fn handle_session(
     Span::current().record("success", true);
     info!("Session restored for user: {}", user_id);
 
+    let activation = resources.account_service().activation_of(&user).await;
     let session_response = SessionResponse {
         user: UserInfo {
             id: user.id.to_string(),
             user_id: user.id.to_string(),
             email: user.email.clone(),
             display_name: user.display_name,
-            is_admin: user.is_admin,
+            is_admin: user.role.is_admin(),
             role: user.role.as_str().to_owned(),
             user_status: user.user_status.to_string(),
             tenant_id: tenant_id_for_response,
@@ -557,6 +569,7 @@ pub(crate) async fn handle_session(
             // restores no session for a Pending account: it reads it off the
             // sign-in that landed it on the pending screen.
             email_tombstone: None,
+            activation,
             created_at: user.created_at.to_rfc3339(),
             locale: user.locale,
             coaching_persona: user.coaching_persona.as_str().to_owned(),
@@ -610,6 +623,10 @@ pub(crate) async fn handle_update_profile(
         .await?;
 
     // Build response
+    let activation = resources
+        .account_service()
+        .activation_of(&updated_user)
+        .await;
     let response = UpdateProfileResponse {
         message: "Profile updated successfully".to_owned(),
         user: UserInfo {
@@ -617,7 +634,7 @@ pub(crate) async fn handle_update_profile(
             user_id: updated_user.id.to_string(),
             email: updated_user.email,
             display_name: updated_user.display_name,
-            is_admin: updated_user.is_admin,
+            is_admin: updated_user.role.is_admin(),
             role: updated_user.role.to_string(),
             user_status: updated_user.user_status.to_string(),
             tenant_id: None,
@@ -627,6 +644,7 @@ pub(crate) async fn handle_update_profile(
             email_verified: None,
             // Neither is a pending screen's reason to resolve it.
             email_tombstone: None,
+            activation,
             created_at: updated_user.created_at.to_rfc3339(),
             locale: updated_user.locale,
             coaching_persona: updated_user.coaching_persona.as_str().to_owned(),
@@ -658,6 +676,9 @@ pub(crate) async fn handle_change_password(
     let auth = resources
         .auth_middleware
         .authenticate_request_with_headers(&headers)
+        .await?;
+    // A password outlives the support session that would set it.
+    auth.refuse_impersonation(resources.repos.admin_audit.as_ref(), "change the password")
         .await?;
     let user_id = auth.user_id;
 
@@ -957,6 +978,15 @@ pub(crate) async fn handle_analytics_consent(
         .auth_middleware
         .authenticate_request_with_headers(&headers)
         .await?;
+    // A consent is the athlete's to give; an admin's support session may
+    // turn it off, never on (carnet#1634).
+    if request.enabled {
+        auth.refuse_impersonation(
+            resources.repos.admin_audit.as_ref(),
+            "give consent to analytics",
+        )
+        .await?;
+    }
     let user_id = auth.user_id;
 
     resources

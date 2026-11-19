@@ -30,6 +30,7 @@ use common::{
     test_server_config_with_app,
 };
 use helpers::axum_test::AxumTestRequest;
+use helpers::impersonation::{assert_refusal_audited, support_grant};
 use pierre_chat_pipeline::stages::auth_recovery::{
     apply_auth_recovery, AuthRecovery, AuthRecoveryDeps,
 };
@@ -42,6 +43,7 @@ use pierre_core::models::{ConnectionType, ConversationTurnId, TenantId, User};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::{verify_link_token, CONNECT_PROVIDER};
 use pierre_routes_auth::AuthRoutes;
+use pierre_tool_runtime::context::SUPPORT_SESSION;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 use serde_json::Value;
@@ -314,5 +316,38 @@ async fn a_dead_authorization_reconnects_on_intervals_icu() {
             .contains(&format!("client_id={SERVER_CLIENT_ID}")),
         "under the server's app: {}",
         prompt.url
+    );
+}
+
+/// A turn an admin typed while acting as the athlete is handed no reconnect
+/// link: it signs in as the athlete after the support session ends
+/// (carnet#1634). The refusal is audited; the athlete's own turn gets its
+/// link.
+#[tokio::test]
+async fn a_support_sessions_turn_is_handed_no_reconnect_link() {
+    let resources = server_with_app().await;
+    let (user, tenant_id, _) = athlete(&resources).await;
+    link(&resources, user.id, tenant_id, &ConnectionType::Manual).await;
+    let support = support_grant(&resources, user.id).await;
+
+    let mut result = dead_intervals_turn();
+    let recovery = SUPPORT_SESSION
+        .scope(
+            Some(support),
+            recover(&resources, user.id, tenant_id, &mut result),
+        )
+        .await;
+    assert!(
+        recovery.prompt.is_none(),
+        "a support session's turn mints no link: {:?}",
+        recovery.prompt
+    );
+    assert_refusal_audited(&resources, user.id, "mint a provider connection link").await;
+
+    let mut result = dead_intervals_turn();
+    let recovery = recover(&resources, user.id, tenant_id, &mut result).await;
+    assert!(
+        recovery.prompt.is_some(),
+        "the athlete's own turn gets the reconnect control"
     );
 }

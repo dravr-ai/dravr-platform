@@ -105,7 +105,6 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Pending, // Start as pending
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,

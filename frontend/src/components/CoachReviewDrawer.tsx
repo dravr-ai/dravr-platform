@@ -8,28 +8,14 @@ import { useId, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { StorePackageReview } from '../services/api/admin';
-import { Button, Card, Section } from './ui';
+import { BADGE_TONE, Button, Card, Section, Alert } from './ui';
 import { clsx } from 'clsx';
+import { coachCategoryTone } from './coachCategory';
 import CoachRejectionModal from './CoachRejectionModal';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 import { useDialog } from '../hooks/useDialog';
-
-// Category colors matching SystemCoachesTab
-const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-activity/10 text-on-activity-container border-activity/20',
-  Nutrition: 'bg-nutrition/10 text-on-nutrition-container border-nutrition/20',
-  Recovery: 'bg-recovery/10 text-on-recovery-container border-recovery/20',
-  Recipes: 'bg-warning/10 text-on-warning-container border-warning/20',
-  Mobility: 'bg-mobility/10 text-on-mobility-container border-mobility/20',
-  Custom: 'bg-primary/10 text-primary border-primary/20',
-};
-
-function getCategoryColorClass(category: string): string {
-  const normalized = category.charAt(0).toUpperCase() + category.slice(1).toLowerCase();
-  return CATEGORY_COLORS[normalized] || CATEGORY_COLORS.Custom;
-}
 
 interface PendingCoach {
   id: string;
@@ -147,8 +133,8 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
             <div className="flex-1 min-w-0">
               <h3 className="text-lg font-semibold text-on-surface truncate">{coach.title}</h3>
               <span className={clsx(
-                'inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full border',
-                getCategoryColorClass(coach.category)
+                'inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full',
+                BADGE_TONE[coachCategoryTone(coach.category)].tone
               )}>
                 {coach.category}
               </span>
@@ -233,17 +219,17 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
                 {coach.package.artefacts.map((artefact) => (
                   <li key={`${artefact.kind}:${artefact.slug}`} className="text-sm" data-testid="package-artefact">
                     <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 text-xs rounded-full bg-surface-container-high text-on-surface">
+                      <span className={`${BADGE_TONE.neutral.tone} px-2 py-0.5 text-xs rounded-full`}>
                         {artefact.kind}
                       </span>
                       <span className="font-mono text-on-surface">{artefact.slug}</span>
                       {artefact.cites_no_evidence && (
-                        <span className="px-2 py-0.5 text-xs rounded-full bg-tertiary-container text-on-tertiary-container">
+                        <span className={`px-2 py-0.5 text-xs rounded-full ${BADGE_TONE.warning.tone}`}>
                           no evidence cited
                         </span>
                       )}
                       {artefact.parse_error && (
-                        <span className="px-2 py-0.5 text-xs rounded-full bg-error-container text-on-error-container">
+                        <span className={`px-2 py-0.5 text-xs rounded-full ${BADGE_TONE.error.tone}`}>
                           does not parse
                         </span>
                       )}
@@ -272,7 +258,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
               <h4 className="text-sm font-medium text-on-surface mb-3">Tags</h4>
               <div className="flex flex-wrap gap-2">
                 {coach.tags.map((tag) => (
-                  <span key={tag} className="px-3 py-1 text-sm bg-surface-container-high text-on-surface rounded-full">
+                  <span key={tag} className={`${BADGE_TONE.neutral.tone} px-3 py-1 text-sm rounded-full`}>
                     {tag}
                   </span>
                 ))}
@@ -309,7 +295,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
               </div>
               <div className="flex justify-between">
                 <span className="text-outline">Status</span>
-                <span className="px-2 py-0.5 text-xs bg-primary/20 text-primary rounded-full">
+                <span className={`px-2 py-0.5 text-xs rounded-full ${BADGE_TONE.primary.tone}`}>
                   Pending Review
                 </span>
               </div>
@@ -321,8 +307,8 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
         <div className="sticky bottom-0 bg-surface/95 backdrop-blur-lg border-t ghost-border px-6 py-4 flex gap-3">
           <Button
             onClick={() => setShowRejectionModal(true)}
-            variant="secondary"
-            className="flex-1 border-error/30 text-error hover:bg-error/10"
+            variant="danger-outline"
+            className="flex-1"
           >
             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -332,7 +318,8 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
           <Button
             onClick={handleApprove}
             disabled={approveMutation.isPending}
-            className="flex-1 bg-activity hover:bg-activity/80 text-on-primary"
+            variant="success"
+            className="flex-1"
           >
             {approveMutation.isPending ? (
               <span className="flex items-center">
@@ -353,11 +340,9 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
         {/* Error Message */}
         {approveMutation.isError && (
           <div className="px-6 pb-4">
-            <div className="p-3 bg-error/15 border border-error/30 rounded-md">
-              <p className="text-sm text-error">
-                Failed to approve agent. Please try again.
-              </p>
-            </div>
+            <Alert tone="error" className="border rounded-md">
+              <p>Failed to approve agent. Please try again.</p>
+            </Alert>
           </div>
         )}
       </div>

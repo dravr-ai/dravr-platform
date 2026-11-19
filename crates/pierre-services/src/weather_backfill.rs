@@ -26,13 +26,16 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::fmt;
 use std::sync::Arc;
 
-use dravr_meteo::{Geocoder, PlacePreference, PlaceQuery, WeatherProvider, WeatherQuery};
+use dravr_meteo::{
+    Geocoder, PlacePreference, PlaceQuery, WeatherCacheStore, WeatherProvider, WeatherQuery,
+};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use pierre_core::models::Activity;
-use pierre_fitness_compute::geocoding::place_geocoder;
-use tracing::{debug, info, warn};
+use pierre_fitness_compute::weather_clients::WeatherClients;
+use tracing::{debug, error, info, warn};
 
 /// Default ceiling on concurrent weather lookups during a backfill pass.
 ///
@@ -44,20 +47,59 @@ const DEFAULT_BACKFILL_CONCURRENCY: usize = 20;
 /// Environment variable controlling the concurrency cap.
 const BACKFILL_CONCURRENCY_ENV: &str = "WEATHER_BACKFILL_CONCURRENCY";
 
-/// Environment toggle (`true` / `false`) gating the entire backfill pass.
-const BACKFILL_ENABLED_ENV: &str = "WEATHER_BACKFILL_ENABLED";
+/// The temperature backfill of one server context: the historical weather
+/// provider and the place geocoder, both on the origins the deployment's
+/// weather configuration names.
+#[derive(Clone)]
+pub struct WeatherBackfill {
+    provider: Arc<dyn WeatherProvider>,
+    clients: Arc<WeatherClients>,
+}
 
-/// Return whether the response-side weather backfill should run at all.
-///
-/// Defaults to `true`. Set `WEATHER_BACKFILL_ENABLED=false` to disable
-/// (useful in tests or for cost containment if the upstream weather API
-/// is rate-limited).
-#[must_use]
-pub fn is_enabled() -> bool {
-    env::var(BACKFILL_ENABLED_ENV)
-        .ok()
-        .and_then(|v| v.parse::<bool>().ok())
-        .unwrap_or(true)
+impl fmt::Debug for WeatherBackfill {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WeatherBackfill")
+            .field("clients", &self.clients)
+            .finish_non_exhaustive()
+    }
+}
+
+impl WeatherBackfill {
+    /// A backfill that asks `provider` for temperatures and resolves
+    /// city-only activities through `clients`' geocoder.
+    #[must_use]
+    pub const fn new(provider: Arc<dyn WeatherProvider>, clients: Arc<WeatherClients>) -> Self {
+        Self { provider, clients }
+    }
+
+    /// The backfill a deployment runs, its samples kept in `cache`.
+    ///
+    /// `None` when the deployment's weather configuration turns it off
+    /// (`FITNESS_WEATHER_ENABLED=false`), and when the weather environment
+    /// selects no working vendor: temperatures are an enrichment of the
+    /// activity list, so a misconfiguration skips them and says so at ERROR
+    /// rather than failing the list the athlete asked for.
+    #[must_use]
+    pub fn for_deployment<S>(clients: &Arc<WeatherClients>, cache: S) -> Option<Self>
+    where
+        S: WeatherCacheStore + 'static,
+    {
+        if !clients.backfill_enabled() {
+            return None;
+        }
+        match clients.history(cache) {
+            Ok(provider) => Some(Self::new(provider, Arc::clone(clients))),
+            Err(e) => {
+                error!(error = %e, "weather backfill skipped: the weather provider is misconfigured");
+                None
+            }
+        }
+    }
+
+    /// The temperatures of the `activities` that carry none, by activity id.
+    pub async fn fill(&self, activities: &[Activity]) -> HashMap<String, f32> {
+        fill_activity_temperatures(activities, Arc::clone(&self.provider), &self.clients).await
+    }
 }
 
 /// Compute backfilled temperatures for activities missing ambient temp.
@@ -75,9 +117,10 @@ pub fn is_enabled() -> bool {
 /// that already carry a temperature, lack any location signal, or whose
 /// geocoding/weather lookup fails are silently omitted — partial fill
 /// is the design intent.
-pub async fn fill_activity_temperatures(
+async fn fill_activity_temperatures(
     activities: &[Activity],
     provider: Arc<dyn WeatherProvider>,
+    clients: &WeatherClients,
 ) -> HashMap<String, f32> {
     let concurrency = env::var(BACKFILL_CONCURRENCY_ENV)
         .ok()
@@ -91,7 +134,7 @@ pub async fn fill_activity_temperatures(
         .filter(|a| a.temperature().is_none())
         .count();
 
-    let (candidates, from_gps, from_city) = collect_candidates(activities).await;
+    let (candidates, from_gps, from_city) = collect_candidates(activities, clients).await;
 
     if candidates.is_empty() {
         info!(
@@ -181,7 +224,10 @@ async fn lookup_one(
 /// city-only candidates. Geocode any city-only group via Open-Meteo,
 /// then merge back into the candidate list. Returns
 /// `(candidates, from_gps_count, from_city_count)` for telemetry.
-async fn collect_candidates(activities: &[Activity]) -> (Vec<(&Activity, f64, f64)>, usize, usize) {
+async fn collect_candidates<'a>(
+    activities: &'a [Activity],
+    clients: &WeatherClients,
+) -> (Vec<(&'a Activity, f64, f64)>, usize, usize) {
     let mut candidates: Vec<(&Activity, f64, f64)> = Vec::new();
     let mut needs_geocode: Vec<&Activity> = Vec::new();
     let mut from_gps = 0usize;
@@ -197,7 +243,7 @@ async fn collect_candidates(activities: &[Activity]) -> (Vec<(&Activity, f64, f6
 
     let mut from_city = 0usize;
     if !needs_geocode.is_empty() {
-        let geocoded = geocode_unique_cities(&needs_geocode).await;
+        let geocoded = geocode_unique_cities(&needs_geocode, clients).await;
         for a in needs_geocode {
             let key = location_cache_key(a);
             if let Some(&(lat, lng)) = geocoded.get(&key) {
@@ -227,13 +273,16 @@ fn location_cache_key(a: &Activity) -> String {
 }
 
 /// Resolve every unique location-signal referenced by `activities` to a
-/// `(lat, lng)` pair through the platform's one place geocoder — the one
+/// `(lat, lng)` pair through the context's one place geocoder — the one
 /// `discover_routes` and `get_weather_forecast` resolve through
 /// (carnet#920). The gazetteer searches the city name alone, and the
 /// activity's region and country choose among same-named places. Best-effort:
 /// locations that fail to resolve simply don't appear in the returned map.
-async fn geocode_unique_cities(activities: &[&Activity]) -> HashMap<String, (f64, f64)> {
-    let geocoder = match place_geocoder() {
+async fn geocode_unique_cities(
+    activities: &[&Activity],
+    clients: &WeatherClients,
+) -> HashMap<String, (f64, f64)> {
+    let geocoder = match clients.geocoder() {
         Ok(geocoder) => geocoder,
         Err(e) => {
             warn!(error = %e, "geocode: no place geocoder; city-only activities keep no weather");

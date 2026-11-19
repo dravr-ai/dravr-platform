@@ -19,6 +19,7 @@ vi.mock('../../../services/api', () => ({
   coachesApi: { getProposal: api.getProposal, list: vi.fn() },
   chatApi: { openPersonalTopic: vi.fn(), getPersonalConversation: vi.fn() },
   userApi: { setOnboardingStep: api.setOnboardingStep },
+  groupsApi: {},
 }));
 
 // Discover in the picker's sheet is pinned by the step's own suite.

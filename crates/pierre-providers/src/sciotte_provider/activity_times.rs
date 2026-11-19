@@ -43,16 +43,28 @@ pub(super) fn device_name(sciotte: &SciotteActivity) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// The gear the page named, as a [`GearRef`] with no id: the page shows a
-/// name (`Salomon Spikecross (224.2 km)`), never Strava's gear id.
+/// The gear the page named, as a [`GearRef`]: the name, and Strava's gear id
+/// (`b12345` for a bike, `g12345` for other gear) when the training list read
+/// it. Only the first list page carries the id, so an activity past it, or
+/// one read by its detail page alone, has a name and no id.
+///
+/// The id is the provider's own, kept as the grant keeps it; the gear ledger
+/// never reads it (gear is declared in Dravr). An id with no name is no gear:
+/// cageux's `GearRef` requires the name.
 pub(super) fn gear(sciotte: &SciotteActivity) -> Option<GearRef> {
     let name = sciotte
         .gear_name
         .as_deref()
         .map(str::trim)
         .filter(|n| !n.is_empty())?;
+    let id = sciotte
+        .gear_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned);
     Some(GearRef {
-        id: None,
+        id,
         name: name.to_owned(),
     })
 }
@@ -133,5 +145,34 @@ mod tests {
             assert_eq!(activity.duration_seconds(), 4_080, "{elapsed:?}");
             assert_eq!(activity.moving_time_seconds(), None, "{elapsed:?}");
         }
+    }
+
+    #[test]
+    fn a_named_gear_carries_the_id_the_list_read() {
+        let mut row = scraped(4_080, None);
+        row.gear_name = Some(" Gravel (2 140 km) ".to_owned());
+        row.gear_id = Some("b9000001".to_owned());
+        let gear = convert_activity(&row, SciotteTarget::Strava)
+            .gear()
+            .cloned()
+            .unwrap_or_else(|| panic!("bug: the gear was dropped"));
+        assert_eq!(gear.name, "Gravel (2 140 km)", "bug: the gear name changed");
+        assert_eq!(gear.id.as_deref(), Some("b9000001"), "bug: gear id dropped");
+
+        row.gear_id = None;
+        let gear = convert_activity(&row, SciotteTarget::Strava)
+            .gear()
+            .cloned()
+            .unwrap_or_else(|| panic!("bug: the gear was dropped"));
+        assert_eq!(gear.id, None, "an activity past the first page has no id");
+
+        row.gear_name = None;
+        row.gear_id = Some("b9000001".to_owned());
+        assert!(
+            convert_activity(&row, SciotteTarget::Strava)
+                .gear()
+                .is_none(),
+            "bug: an id with no name was made into gear"
+        );
     }
 }

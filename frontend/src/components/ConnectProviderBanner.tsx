@@ -9,7 +9,7 @@ import { CONNECTIONS_ROUTE } from '../constants/surfaceLayout';
 import { useProviderConnection } from '../hooks/useHome';
 import { useOnboardingStatus } from '../hooks/useOnboardingStatus';
 import { athleteStepsWaived } from '../onboarding/steps';
-import { Button } from './ui';
+import { Button, ALERT_TONE } from './ui';
 
 /**
  * Which provider state a mount reports.
@@ -74,11 +74,11 @@ function ReconnectStrip({ names, onNavigate }: { names: string[]; onNavigate: (r
     <div
       role="alert"
       data-testid="provider-reconnect-banner"
-      className="pad-safe-top flex-shrink-0 border-b border-warning/40 bg-warning/15 px-4 py-2.5 md:px-6"
+      className={`${ALERT_TONE.warning.tone} pad-safe-top flex-shrink-0 border-b px-4 py-2.5 md:px-6`}
     >
       <div className="flex items-center gap-3">
-        <AlertTriangle className="h-5 w-5 flex-shrink-0 text-on-warning-container" aria-hidden="true" />
-        <div className="min-w-0 flex-1 text-sm text-on-warning-container">
+        <AlertTriangle className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
+        <div className="min-w-0 flex-1 text-sm">
           <p className="font-semibold">{t('providers.reconnectNeeded')}</p>
           <p>{t('home.activities.reconnect', { providers: formatList(names, language) })}</p>
         </div>

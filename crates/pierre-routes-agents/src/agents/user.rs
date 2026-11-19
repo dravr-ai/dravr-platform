@@ -118,13 +118,12 @@ pub(super) async fn handle_list<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
             .oauth_tokens
             .get_tokens(auth.user_id, None)
             .await
-            .map(|tokens| {
+            .map_or_default(|tokens| {
                 tokens
                     .iter()
                     .map(|t| t.provider.to_lowercase())
                     .collect::<HashSet<_>>()
             })
-            .unwrap_or_default()
     } else {
         HashSet::new()
     };
@@ -346,13 +345,12 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
         .oauth_tokens
         .get_tokens(user_id, None)
         .await
-        .map(|tokens| {
+        .map_or_default(|tokens| {
             tokens
                 .iter()
                 .map(|t| t.provider.to_lowercase())
                 .collect::<HashSet<_>>()
-        })
-        .unwrap_or_default();
+        });
 
     // Recent sport profile (`None` ⇒ cold start: no provider or no activities).
     let sport_profile = load_sport_profile(ctx, user_id, tenant_id, &rec_config).await;
@@ -400,10 +398,7 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     // With no activity profile yet, the sport the athlete declared is what
     // makes a sport-specific agent eligible to lead (carnet#1151).
     let declared_sports = if sport_profile.is_none() {
-        dossier
-            .as_ref()
-            .map(team_rules::declared_sports)
-            .unwrap_or_default()
+        dossier.as_ref().map_or_default(team_rules::declared_sports)
     } else {
         Vec::new()
     };

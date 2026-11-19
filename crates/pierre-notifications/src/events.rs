@@ -63,6 +63,14 @@ pub enum NotificationEvent {
     /// The athlete's shared Strava seat will be released unless they come
     /// back: the seat-reclaim sweeper's warning before it disconnects them.
     SeatReleaseWarning,
+    /// A company the athlete sent a data access request to must answer
+    /// within three days (carnet#1646). Sent once per due date by the
+    /// daily sweep.
+    DataAccessRequestDueSoon,
+    /// The due date of the athlete's data access request passed with no
+    /// answer recorded; the body names the recourse. Sent once per due date
+    /// by the daily sweep.
+    DataAccessRequestOverdue,
     /// A group's coach asked to read a member's `TrainingPeaks` workouts
     /// through the coach's own `TrainingPeaks` account: sent to the member,
     /// whose confirmation is the consent to that read.
@@ -83,6 +91,9 @@ pub enum NotificationEvent {
     /// A group's human coach put the athlete's plan on the athlete's provider
     /// calendar through their link. Sent to the athlete.
     CoachPlanPushed,
+    /// A group's human coach set one of the athlete's per-sport thresholds
+    /// from Group info (carnet#1561). Sent to the athlete.
+    CoachPhysiologySet,
     /// The weekly digest of the pushes a persona floor withheld.
     PersonaDigest,
     /// The daily digest of the pushes a persona floor withheld.
@@ -93,11 +104,11 @@ pub enum NotificationEvent {
     /// The digest of the pushes a persona floor withheld about one athlete,
     /// sent to the coach they concern — one per athlete.
     PersonaAthleteDigest,
-    /// A super-admin granted the coach-access request the recipient made: they
+    /// An admin granted the coach-access request the recipient made: they
     /// hold coach access now and coach every coachless group they own
     /// (carnet#1521). Sent to the requester.
     CoachAccessGranted,
-    /// A super-admin declined the coach-access request the recipient made,
+    /// An admin declined the coach-access request the recipient made,
     /// with the reason they gave when they gave one (`reason`). Sent to the
     /// requester, who may ask again.
     CoachAccessDeclined,
@@ -124,6 +135,8 @@ impl NotificationEvent {
             Self::AgentAssigned => "agent_assigned",
             Self::SyncFailure => "sync_failure",
             Self::SeatReleaseWarning => "seat_release_warning",
+            Self::DataAccessRequestDueSoon => "data_access_request_due_soon",
+            Self::DataAccessRequestOverdue => "data_access_request_overdue",
             Self::DelegationProposed => "delegation_proposed",
             Self::DelegationConfirmed => "delegation_confirmed",
             Self::DelegationDeclined => "delegation_declined",
@@ -131,6 +144,7 @@ impl NotificationEvent {
             Self::DelegationOffCoachRoster => "delegation_off_coach_roster",
             Self::CoachPlanPublished => "coach_plan_published",
             Self::CoachPlanPushed => "coach_plan_pushed",
+            Self::CoachPhysiologySet => "coach_physiology_set",
             Self::PersonaDigest => "persona_digest",
             Self::PersonaDailyDigest => "persona_daily_digest",
             Self::PersonaSessionDigest => "persona_session_digest",
@@ -156,6 +170,8 @@ impl NotificationEvent {
             Self::AgentAssigned,
             Self::SyncFailure,
             Self::SeatReleaseWarning,
+            Self::DataAccessRequestDueSoon,
+            Self::DataAccessRequestOverdue,
             Self::DelegationProposed,
             Self::DelegationConfirmed,
             Self::DelegationDeclined,
@@ -163,6 +179,7 @@ impl NotificationEvent {
             Self::DelegationOffCoachRoster,
             Self::CoachPlanPublished,
             Self::CoachPlanPushed,
+            Self::CoachPhysiologySet,
             Self::PersonaDigest,
             Self::PersonaDailyDigest,
             Self::PersonaSessionDigest,
@@ -189,6 +206,12 @@ impl NotificationEvent {
             Self::AgentAssigned => "notifications.event.agent_assigned.title",
             Self::SyncFailure => "notifications.event.sync_failure.title",
             Self::SeatReleaseWarning => "notifications.event.seat_release_warning.title",
+            Self::DataAccessRequestDueSoon => {
+                "notifications.event.data_access_request_due_soon.title"
+            }
+            Self::DataAccessRequestOverdue => {
+                "notifications.event.data_access_request_overdue.title"
+            }
             Self::DelegationProposed => "notifications.event.delegation_proposed.title",
             Self::DelegationConfirmed => "notifications.event.delegation_confirmed.title",
             Self::DelegationDeclined => "notifications.event.delegation_declined.title",
@@ -198,6 +221,7 @@ impl NotificationEvent {
             }
             Self::CoachPlanPublished => "notifications.event.coach_plan_published.title",
             Self::CoachPlanPushed => "notifications.event.coach_plan_pushed.title",
+            Self::CoachPhysiologySet => "notifications.event.coach_physiology_set.title",
             Self::PersonaDigest => "notifications.digest.title",
             Self::PersonaDailyDigest => "notifications.digest.daily.title",
             Self::PersonaSessionDigest => "notifications.digest.session.title",
@@ -224,6 +248,12 @@ impl NotificationEvent {
             Self::AgentAssigned => "notifications.event.agent_assigned.body",
             Self::SyncFailure => "notifications.event.sync_failure.body",
             Self::SeatReleaseWarning => "notifications.event.seat_release_warning.body",
+            Self::DataAccessRequestDueSoon => {
+                "notifications.event.data_access_request_due_soon.body"
+            }
+            Self::DataAccessRequestOverdue => {
+                "notifications.event.data_access_request_overdue.body"
+            }
             Self::DelegationProposed => "notifications.event.delegation_proposed.body",
             Self::DelegationConfirmed => "notifications.event.delegation_confirmed.body",
             Self::DelegationDeclined => "notifications.event.delegation_declined.body",
@@ -233,6 +263,7 @@ impl NotificationEvent {
             }
             Self::CoachPlanPublished => "notifications.event.coach_plan_published.body",
             Self::CoachPlanPushed => "notifications.event.coach_plan_pushed.body",
+            Self::CoachPhysiologySet => "notifications.event.coach_physiology_set.body",
             Self::PersonaDigest => "notifications.digest.body",
             Self::PersonaDailyDigest => "notifications.digest.daily.body",
             Self::PersonaSessionDigest => "notifications.digest.session.body",
@@ -257,10 +288,14 @@ impl NotificationEvent {
             | Self::DelegationOffCoachRoster => &["platform_name"],
             Self::GroupWeeklyDigest => &["group_name"],
             Self::PersonaAthleteDigest => &["athlete_name"],
+            Self::DataAccessRequestDueSoon | Self::DataAccessRequestOverdue => {
+                &[DATA_ACCESS_COMPANY_PARAM]
+            }
             // The title and the body share one positional list: the pushed
             // title names only the provider, as `{1}`, so the coach still
             // holds `{0}` there.
             Self::CoachPlanPublished | Self::CoachPlanPushed => self.body_params(),
+            Self::CoachPhysiologySet => &["coach_name"],
             _ => &[],
         }
     }
@@ -277,6 +312,13 @@ impl NotificationEvent {
             Self::AgentMessage | Self::AgentUpdated | Self::AgentAssigned => &["agent_name"],
             Self::SyncFailure => &["provider_name"],
             Self::SeatReleaseWarning => &["idle_days", "provider_name", "days_left"],
+            // The due date is stored as an ISO date and written in the
+            // reader's language when the body is rendered.
+            Self::DataAccessRequestDueSoon | Self::DataAccessRequestOverdue => &[
+                DATA_ACCESS_COMPANY_PARAM,
+                DATA_ACCESS_REFERENCE_PARAM,
+                DATA_ACCESS_DUE_ON_PARAM,
+            ],
             Self::DelegationProposed | Self::DelegationOffCoachRoster => {
                 &["coach_name", "group_name", "platform_name"]
             }
@@ -285,6 +327,9 @@ impl NotificationEvent {
             }
             Self::CoachPlanPublished => &["coach_name", "race_name"],
             Self::CoachPlanPushed => &["coach_name", "provider_name"],
+            // The renderer names the anchor in the reader's language from its
+            // stored code; the slot order is the template's.
+            Self::CoachPhysiologySet => &["coach_name", "anchor"],
             Self::PersonaDigest | Self::PersonaDailyDigest | Self::PersonaSessionDigest => {
                 &["item_count"]
             }
@@ -331,9 +376,17 @@ pub const ACTION_RECONNECT: &str = "reconnect";
 /// Action id: open the coach's Home, which a coach-access grant just opened.
 pub const ACTION_OPEN_COACH_HOME: &str = "open_coach_home";
 
-/// The parameter a declined coach-access notice carries the super-admin's
+/// The parameter a declined coach-access notice carries the admin's
 /// reason under, when one was given.
 pub const COACH_ACCESS_DECLINE_REASON_PARAM: &str = "reason";
+
+/// The parameter a data access reminder names the company under.
+pub const DATA_ACCESS_COMPANY_PARAM: &str = "company";
+/// The parameter a data access reminder carries the request's reference under.
+pub const DATA_ACCESS_REFERENCE_PARAM: &str = "reference";
+/// The parameter a data access reminder carries the due date under, as an
+/// ISO `YYYY-MM-DD` date the renderer writes in the reader's language.
+pub const DATA_ACCESS_DUE_ON_PARAM: &str = "due_on";
 
 /// The catalogue key naming an action button, or `None` for an id the
 /// catalogue has no word for — that button keeps the label it was stored

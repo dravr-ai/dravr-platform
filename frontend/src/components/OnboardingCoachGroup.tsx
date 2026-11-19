@@ -23,7 +23,7 @@ import { coachesApi, userApi } from '../services/api';
 import { useCoachGroupSetup } from '../hooks/useGroups';
 import { useAuth } from '../hooks/useAuth';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { Button, Input } from './ui';
+import { Button, Input, ALERT_TONE } from './ui';
 import OnboardingShell from './OnboardingShell';
 import CoachAccessRequest from './CoachAccessRequest';
 import { CheckDisc } from './OnboardingCoachSeat';
@@ -127,11 +127,11 @@ export default function OnboardingCoachGroup({
       <div className="mx-auto max-w-md">
         {seatSettledByInvite ? (
           <p
-            className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-sm text-on-surface"
+            className={`${ALERT_TONE.success.tone} mt-3 flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm`}
             data-testid="onboarding-group-seat-active"
           >
-            <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-success" strokeWidth={2} />
-            <span>{t('humanCoach.seatInvite.seatActive')}</span>
+            <Check aria-hidden="true" className="h-4 w-4 shrink-0" strokeWidth={2} />
+            <span className="text-on-surface">{t('humanCoach.seatInvite.seatActive')}</span>
           </p>
         ) : null}
         <p className="mt-3 text-sm text-on-surface-variant text-center">{t('humanCoach.groupStepIntro')}</p>

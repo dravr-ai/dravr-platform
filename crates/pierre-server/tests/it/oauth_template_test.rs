@@ -15,12 +15,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::common::offline_provider_registry;
 use crate::helpers::axum_test::AxumTestRequest;
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::html::escape_html_attribute;
 use pierre_core::models::SUPPORTED_LOCALES;
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_identity::{ConsentText, LoginPageLabels};
 use regex::Regex;
@@ -330,7 +330,7 @@ fn test_consent_page_names_the_data_that_stays_inside_dravr() {
         })
     };
 
-    let registered = ProviderRegistry::new().first_party_only_sources();
+    let registered = offline_provider_registry().first_party_only_sources();
     assert!(
         !registered.is_empty(),
         "the shipped providers include first-party-only ones"

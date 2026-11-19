@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_core::models::coverage::{Coverage, CoverageWindow, WindowScope};
+use pierre_core::models::coverage::{Coverage, CoverageWindow};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{
     Activity, ActivityBuilder, Athlete, EncryptedToken, HeartRateZone, PeriodTotals, PowerZone,
@@ -50,6 +50,7 @@ fn create_sample_activity() -> Activity {
 /// Test data for creating sample athlete
 fn create_sample_athlete() -> Athlete {
     Athlete {
+        active_streak: None,
         created_at: None,
         id: "67890".into(),
         username: "runner123".into(),
@@ -134,6 +135,16 @@ fn test_athlete_serialization() {
     assert_eq!(deserialized.firstname, athlete.firstname);
 }
 
+/// The coverage the `get_stats` view answers with: every stored workout,
+/// counted over the window it was asked, complete.
+fn all_time_coverage(total: u64) -> Coverage {
+    Coverage::complete(CoverageWindow {
+        total: Some(total),
+        returned: total,
+        ..CoverageWindow::default()
+    })
+}
+
 #[test]
 fn test_stats_creation() {
     let stats = Stats {
@@ -141,7 +152,7 @@ fn test_stats_creation() {
         total_distance: 1_500_000.0, // 1500 km
         total_duration: 540_000,     // 150 hours
         total_elevation_gain: 25000.0,
-        coverage: Coverage::lifetime(150),
+        coverage: all_time_coverage(150),
         year_to_date: Some(PeriodTotals {
             total_activities: 40,
             total_distance: 400_000.0, // 400 km this year
@@ -171,7 +182,7 @@ fn test_stats_serialization() {
         total_distance: 1_000_000.0,
         total_duration: 360_000,
         total_elevation_gain: 15000.0,
-        coverage: Coverage::lifetime(100),
+        coverage: all_time_coverage(100),
         year_to_date: Some(PeriodTotals {
             total_activities: 30,
             total_distance: 300_000.0,
@@ -186,8 +197,8 @@ fn test_stats_serialization() {
         "ytd breakdown must be present in serialized stats: {json}"
     );
     assert!(
-        json.contains(r#""scope":{"kind":"lifetime"}"#),
-        "the coverage scope the get_stats description tells the model to read: {json}"
+        json.contains(r#""scope":{"kind":"asked"}"#),
+        "bug: the totals answer the window asked, never a provider's own scope: {json}"
     );
     let deserialized: Stats = serde_json::from_str(&json).expect("Failed to deserialize stats");
 
@@ -196,6 +207,63 @@ fn test_stats_serialization() {
     let ytd = deserialized.year_to_date.expect("ytd round-trips");
     assert_eq!(ytd.total_activities, 30);
     assert!((ytd.total_distance - 300_000.0).abs() < f64::EPSILON);
+}
+
+/// Strava's own streak rides on the athlete when the scraped session reported
+/// one, is left out of the wire when it did not, and a cached athlete document
+/// without the field still reads.
+#[test]
+fn test_athlete_carries_the_providers_streak_only_when_it_reported_one() {
+    use pierre_core::models::ActiveStreak;
+
+    let mut athlete = Athlete {
+        active_streak: Some(ActiveStreak {
+            length: 21,
+            status: "Ongoing".to_owned(),
+            valid_activity_count: 640,
+        }),
+        ..create_sample_athlete()
+    };
+    let json = serde_json::to_value(&athlete).expect("serialize");
+    assert_eq!(
+        json["active_streak"],
+        serde_json::json!({ "length": 21, "status": "Ongoing", "valid_activity_count": 640 }),
+        "bug: the provider's streak is not on the wire as it reported it"
+    );
+    let round: Athlete = serde_json::from_value(json).expect("round trip");
+    assert_eq!(
+        round.active_streak, athlete.active_streak,
+        "bug: the streak changed on a serialize round trip"
+    );
+
+    athlete.active_streak = None;
+    let json = serde_json::to_value(&athlete).expect("serialize");
+    assert!(
+        json.get("active_streak").is_none(),
+        "bug: an unreported streak is written as if the athlete had none: {json}"
+    );
+    let old: Athlete = serde_json::from_value(json).expect("a document without the field reads");
+    assert_eq!(
+        old.active_streak, None,
+        "bug: an athlete document stored without a streak gained one"
+    );
+}
+
+#[test]
+fn test_stats_carry_no_streak() {
+    let stats = Stats {
+        total_activities: 0,
+        total_distance: 0.0,
+        total_duration: 0,
+        total_elevation_gain: 0.0,
+        coverage: all_time_coverage(0),
+        year_to_date: None,
+    };
+    let json = serde_json::to_value(&stats).expect("serialize");
+    assert!(
+        json.get("active_streak").is_none(),
+        "bug: the stats carry a streak, which belongs to the athlete: {json}"
+    );
 }
 
 #[test]
@@ -287,7 +355,6 @@ fn test_user_creation_with_required_fields() {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(now),
@@ -310,55 +377,7 @@ fn test_user_creation_with_required_fields() {
     assert_eq!(user.tier, UserTier::Professional);
     assert!(user.is_active);
     assert_eq!(user.user_status, UserStatus::Active);
-    assert!(!user.is_admin);
-}
-
-#[test]
-fn test_user_serialization_roundtrip() {
-    let now = Utc::now();
-    let original_user = User {
-        id: Uuid::new_v4(),
-        email: "test@example.com".to_owned(),
-        display_name: Some("Test User".to_owned()),
-        password_hash: "hashed_password".to_owned(),
-        tier: UserTier::Enterprise,
-        strava_token: Some(EncryptedToken {
-            access_token: SecretString::from("encrypted_access_token"),
-            refresh_token: SecretString::from("encrypted_refresh_token"),
-            expires_at: now + chrono::Duration::hours(1),
-            scope: "read".to_owned(),
-        }),
-        is_active: true,
-        user_status: UserStatus::Active,
-        is_admin: true,
-        role: UserRole::Admin,
-        approved_by: Some(Uuid::new_v4()),
-        approved_at: Some(now),
-        created_at: now,
-        last_active: now,
-        firebase_uid: None,
-        auth_provider: String::new(),
-        analytics_consent: false,
-        analytics_consent_at: None,
-        locale: "fr".to_owned(),
-        coaching_persona: CoachingPersona::Casual,
-        manages_roster: false,
-        timezone: None,
-        theme: None,
-    };
-
-    let json = serde_json::to_string(&original_user).unwrap();
-    let deserialized_user: User = serde_json::from_str(&json).unwrap();
-
-    assert_eq!(original_user.id, deserialized_user.id);
-    assert_eq!(original_user.email, deserialized_user.email);
-    assert_eq!(original_user.display_name, deserialized_user.display_name);
-    assert_eq!(original_user.tier, deserialized_user.tier);
-    assert_eq!(original_user.user_status, deserialized_user.user_status);
-    assert_eq!(original_user.is_admin, deserialized_user.is_admin);
-    // Note: EncryptedToken doesn't implement PartialEq, so we test individual fields
-    assert!(original_user.strava_token.is_some());
-    assert!(deserialized_user.strava_token.is_some());
+    assert_eq!(user.role, UserRole::User);
 }
 
 #[test]
@@ -485,7 +504,6 @@ fn test_user_with_encrypted_tokens() {
         }),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: Some(Uuid::new_v4()),
         approved_at: Some(now),
@@ -792,38 +810,39 @@ fn test_activity_without_detailed_fields() {
     assert!(deserialized.segment_efforts().is_none());
 }
 
-/// A sampled rollup serializes the scope, the count and the oldest day the
-/// `get_stats` description tells the model to report, and reads back
-/// (carnet#919).
+/// An all-time window serializes its scope, its count and the days it spans,
+/// which the `get_stats` description tells the model to read, and reads back
+/// (carnet#919). The provider-only scopes (`lifetime`, `recent_activities`,
+/// `last_days`) are gone with the provider aggregates that produced them.
 #[test]
-fn test_stats_coverage_of_a_recent_page_round_trips() {
+fn test_stats_coverage_of_an_all_time_window_round_trips() {
     let coverage = Coverage::complete(CoverageWindow {
-        scope: WindowScope::RecentActivities,
-        oldest: "2026-09-01".parse().ok(),
+        oldest: "2015-03-01".parse().ok(),
+        newest: "2026-11-16".parse().ok(),
         total: Some(30),
         returned: 30,
         ..CoverageWindow::default()
     });
     let json = serde_json::to_value(&coverage).unwrap();
     assert_eq!(
-        json,
+        json["window"],
         serde_json::json!({
-            "complete": true,
-            "window": {
-                "scope": { "kind": "recent_activities" },
-                "oldest": "2026-09-01",
-                "total": 30,
-                "returned": 30
-            }
-        })
+            "scope": { "kind": "asked" },
+            "oldest": "2015-03-01",
+            "newest": "2026-11-16",
+            "total": 30,
+            "returned": 30
+        }),
+        "bug: an all-time window does not state its scope, span and count"
+    );
+    assert_eq!(
+        json["complete"],
+        serde_json::json!(true),
+        "bug: a complete window does not say so"
     );
     assert_eq!(
         serde_json::from_value::<Coverage>(json).unwrap(),
         coverage,
-        "bug: a recent-page coverage does not round-trip through its wire shape"
-    );
-    assert_eq!(
-        serde_json::to_value(WindowScope::LastDays { days: 90 }).unwrap(),
-        serde_json::json!({ "kind": "last_days", "days": 90 })
+        "bug: an all-time coverage does not round-trip through its wire shape"
     );
 }

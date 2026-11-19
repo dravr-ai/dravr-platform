@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for a coach's per-athlete plan thread (carnet#1069/#1070) and View <name>'s plan (carnet#1244), and the private
-// ABOUTME: lane in a one-athlete room (carnet#1249): Adjust plan from this → Only <agent> → the draft card → Publish. Every route is mocked
+// ABOUTME: E2E for a coach's per-athlete plan thread (carnet#1069/#1070), View <name>'s plan (carnet#1244), <name>'s thresholds (carnet#1561)
+// ABOUTME: and the private lane in a one-athlete room (carnet#1249): Adjust plan from this → Only <agent> → Publish. Every route is mocked
 
 import { test, expect, type Page } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard, openGroups } from './test-helpers';
+import { setupDashboardMocks, loginToDashboard, openGroups, PHYSIOLOGY_OFFERED } from './test-helpers';
 
 const GROUP_ID = 'group-1';
 const GROUP_CONVERSATION_ID = 'conv-group-1';
@@ -465,6 +465,86 @@ test.describe("A coach's plan thread for one athlete", () => {
     await expect(page.getByText("We couldn't open this plan thread. Please try again.")).toHaveCount(0);
     await expect(page.getByTestId('group-info-panel')).toBeVisible();
     expect(page.url()).not.toContain(PLAN_CONVERSATION_ID);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// carnet#1561: from Group info the coach reads an athlete's thresholds, worded
+// for a coach, and sets one for the group they coach the athlete in.
+// ---------------------------------------------------------------------------
+
+/** Alice's FTP as her coach reads it: her own value. */
+const aliceFtp = {
+  anchor: 'ftp',
+  unit: 'watts',
+  value: 285,
+  low: null,
+  high: null,
+  origin: 'athlete',
+  as_of: '2026-10-20',
+  method: null,
+  confidence: 'medium',
+  value_text: '285 W',
+  range_text: null,
+  source_text: "the athlete's own value",
+};
+
+test.describe("A coach sets an athlete's thresholds from Group info", () => {
+  test('Group info → Thresholds → the coach changes the FTP, sent for the group, and reads it back as set by a coach', async ({
+    page,
+  }) => {
+    await setupDashboardMocks(page, { role: 'user' });
+    await setupPlanThreadMocks(page);
+    const read: Array<{ path: string; groupId: string | null }> = [];
+    const saved: Array<{ path: string; groupId: string | null; body: unknown }> = [];
+    await page.route(`**/api/chat/athletes/${ATHLETE_ID}/physiology**`, (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (request.method() === 'PUT') {
+        saved.push({ path: url.pathname, groupId: url.searchParams.get('group_id'), body: request.postDataJSON() });
+        const set = { ...aliceFtp, value: 292, value_text: '292 W', origin: 'coach', source_text: 'set by a coach' };
+        return route.fulfill(json({ sports: [{ sport: 'ride', anchors: [set] }], offered: PHYSIOLOGY_OFFERED }));
+      }
+      read.push({ path: url.pathname, groupId: url.searchParams.get('group_id') });
+      return route.fulfill(json({ sports: [{ sport: 'ride', anchors: [aliceFtp] }], offered: PHYSIOLOGY_OFFERED }));
+    });
+    await loginToDashboard(page);
+    await openGroups(page);
+
+    const groupRow = page.locator('[data-testid="conversation-row"]', { hasText: 'Marathon Training 2026' });
+    await groupRow.getByRole('button').first().click();
+    await page.getByTestId('conversation-header-title').click();
+    await expect(page.getByTestId('group-info-panel')).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole('button', { name: 'Thresholds · Alice Runner' }).click();
+    await expect(page.getByText("Alice Runner's thresholds")).toBeVisible();
+    await expect(page.getByTestId('physiology-ride-ftp-source')).toHaveText("the athlete's own value");
+    expect(read).toEqual([{ path: `/api/chat/athletes/${ATHLETE_ID}/physiology`, groupId: GROUP_ID }]);
+
+    await page.getByTestId('physiology-ride-ftp-edit').click();
+    const editor = page.getByTestId('physiology-editor');
+    await editor.getByTestId('physiology-editor-value').fill('292');
+    await editor.getByTestId('physiology-editor-kind').selectOption('measured');
+    await editor.getByTestId('physiology-editor-save').click();
+
+    await expect(page.getByTestId('athlete-physiology-saved')).toHaveText('Saved. Alice Runner is told.');
+    await expect(page.getByTestId('physiology-ride-ftp-source')).toHaveText('set by a coach');
+    expect(saved).toEqual([
+      {
+        path: `/api/chat/athletes/${ATHLETE_ID}/physiology/ride/ftp`,
+        groupId: GROUP_ID,
+        body: {
+          value: 292,
+          low: null,
+          high: null,
+          pace_per: null,
+          kind: 'measured',
+          confidence: 'medium',
+          method: null,
+          measured_on: null,
+        },
+      },
+    ]);
   });
 });
 

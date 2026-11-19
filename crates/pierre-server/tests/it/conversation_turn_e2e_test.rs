@@ -93,6 +93,7 @@ mod conversation_turn_e2e_tests {
         async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: self.reply.clone(),
                 model: self.model.clone(),
                 // 17 of the 42 prompt tokens served from cache. Non-zero on
@@ -152,7 +153,6 @@ mod conversation_turn_e2e_tests {
             password_hash,
             Some("E2E Admin".to_owned()),
         );
-        user.is_admin = true;
         user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);

@@ -36,10 +36,11 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 use crate::services::conversation_turn_lock::{acquire_turn_lock, evict_idle_turn_lock};
 use crate::services::failed_turn_notice::{close_failed_turn, close_unanswered_turn, TurnThread};
-use pierre_auth::auth::AuthMethod;
+use pierre_auth::auth::{AuthMethod, AuthResult, ImpersonationGrant};
 use pierre_chat_pipeline::suggestions::is_postback;
 use pierre_chat_pipeline::turn_stop::TurnStop;
 use pierre_chat_pipeline::{self as pipeline, ServedTurn};
+use pierre_commands::dispatch::command_outliving_support_session;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
@@ -47,10 +48,11 @@ use pierre_core::transport::{Transport, CLIENT_PLATFORM_HEADER};
 use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers::{self as notification_triggers, UNSEEN_REPLY_GRACE};
+use pierre_tool_runtime::context::SUPPORT_SESSION;
 #[cfg(feature = "client-notifications")]
 use tokio::time;
 
-use super::common::get_tenant_id;
+use super::common::{conversation_not_found, get_tenant_id, refuse_unshared_subject};
 use super::dto::{MessageResponse, SendMessageRequest};
 use super::room_quote::verify_room_quote;
 use super::turn_response::{
@@ -122,6 +124,37 @@ const fn channel_type_for(surface: pipeline::SurfaceId) -> &'static str {
     }
 }
 
+/// Refuse a slash command whose effect outlives the session when an admin's
+/// support session types it (carnet#1634).
+///
+/// `/group invite`, `/join <code>` and `/group consent … yes` make the same
+/// grants the invite and consent routes make, and those routes refuse an
+/// impersonation token; the chat must not be the way around them. Asked before
+/// anything is written, so a refused command leaves no transcript row either.
+/// Every other command, and every ordinary session, passes.
+async fn refuse_outliving_command(
+    resources: &ServerContext,
+    auth: &AuthResult,
+    content: &str,
+) -> Result<(), AppError> {
+    let (Some(commands), Some(handlers)) = (
+        resources.common.command_registry.as_ref(),
+        resources.common.command_handler_registry.as_ref(),
+    ) else {
+        return Ok(());
+    };
+    match command_outliving_support_session(content, commands, handlers) {
+        Some(command) => {
+            auth.refuse_impersonation(
+                resources.common.repos.admin_audit.as_ref(),
+                &format!("run the {command} command"),
+            )
+            .await
+        }
+        None => Ok(()),
+    }
+}
+
 /// Send a message and get a response with MCP tool execution.
 ///
 /// The `#[instrument]` span is the root span for every web/mobile chat
@@ -148,6 +181,7 @@ pub(super) async fn send_message(
     Json(request): Json<SendMessageRequest>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
+    refuse_outliving_command(&resources, &auth, &request.content).await?;
     let tenant_id = get_tenant_id(&auth, &resources).await?;
     let user_id_str = auth.user_id.to_string();
 
@@ -197,7 +231,8 @@ pub(super) async fn send_message(
         .chat
         .get_conversation(&conversation_id, &user_id_str, tenant_id)
         .await?
-        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+        .ok_or_else(conversation_not_found)?;
+    refuse_unshared_subject(&resources, &auth, &conversation).await?;
 
     // A quoted room message is verified before anything is written: a quote
     // the coach may not carry refuses the whole send (carnet#1249).
@@ -252,6 +287,7 @@ pub(super) async fn send_message(
         channel_type: channel_type_for(surface).to_owned(),
         transport: turn_transport(&auth.auth_method, surface),
         quote,
+        support_session: auth.auth_method.impersonation().cloned(),
     };
 
     if wants_sse {
@@ -274,7 +310,12 @@ pub(super) async fn send_message(
     // writes into too: one turn on it at a time (carnet#840).
     let lock = acquire_turn_lock(&egress.conversation.id);
     let held = lock.lock().await;
-    let served = pipeline::execute(&ctx, egress.turn_request(&request, hooks), &profile).await;
+    let served = SUPPORT_SESSION
+        .scope(
+            egress.support_session.clone(),
+            pipeline::execute(&ctx, egress.turn_request(&request, hooks), &profile),
+        )
+        .await;
     // Closed under the thread's lock, so a messaging turn on the same thread
     // cannot slip its question in between and take the notice instead.
     if served.is_err() {
@@ -304,6 +345,10 @@ struct TurnEgress {
     transport: Transport,
     /// The room words the message quotes, verified before the turn began.
     quote: Option<RoomQuote>,
+    /// The admin's support session the message was typed in, scoped around
+    /// the turn as [`SUPPORT_SESSION`]: what the turn would leave behind for
+    /// the athlete, such as a connection link, it refuses (carnet#1634).
+    support_session: Option<ImpersonationGrant>,
 }
 
 impl TurnEgress {
@@ -580,8 +625,12 @@ fn send_message_sse(inputs: SseInputs) -> Response {
         // chat state machine is far too large for the task's stack.
         let run = Box::pin(async {
             let held = lock.lock().await;
-            let served =
-                pipeline::execute(&ctx, egress.turn_request(&request, hooks), &profile).await;
+            let served = SUPPORT_SESSION
+                .scope(
+                    egress.support_session.clone(),
+                    pipeline::execute(&ctx, egress.turn_request(&request, hooks), &profile),
+                )
+                .await;
             // Closed under the thread's lock, and before the `failed` frame
             // goes out, so a client that re-reads the thread on it already
             // finds the notice and a messaging turn cannot take it instead.

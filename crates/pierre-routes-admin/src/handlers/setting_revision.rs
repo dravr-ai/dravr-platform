@@ -8,7 +8,7 @@
 //!
 //! A save names the `updated_at` its editor read as `expected_updated_at`, or `null`
 //! when it read no row. A body without it, or with a stale one, gets a 409 and writes
-//! nothing, so two super admins cannot lose each other's edits.
+//! nothing, so two admins cannot lose each other's edits.
 //!
 //! A refusal is JSON with a stable `code` and the sentence that says what to do:
 //! `AppError` sanitizes a conflict down to one generic sentence and axum answers a

@@ -56,6 +56,7 @@ fn record() -> AthleteRecord {
         has_provider: true,
         today: today(),
         locale: "en".to_owned(),
+        named_subsets: Vec::new(),
         activities: vec![RecordedActivity {
             date: today(),
             sport: SportType::Ride,

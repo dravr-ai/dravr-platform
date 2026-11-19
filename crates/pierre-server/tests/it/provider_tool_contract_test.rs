@@ -136,6 +136,7 @@ impl LlmProvider for ContractProvider {
         };
 
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: "contract-model".to_owned(),
             usage: None,

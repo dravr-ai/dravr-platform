@@ -125,6 +125,7 @@ mod capability_recovery {
                 FABRICATED_CLAIM
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: content.to_owned(),
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),
@@ -172,6 +173,7 @@ mod capability_recovery {
                 FABRICATED_CLAIM
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: content.to_owned(),
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),
@@ -223,7 +225,6 @@ mod capability_recovery {
             password_hash,
             Some("Cap Admin".to_owned()),
         );
-        user.is_admin = true;
         user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
@@ -579,6 +580,7 @@ mod capability_recovery {
                 UNGROUNDED_REPLY
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: content.to_owned(),
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),
@@ -718,6 +720,7 @@ mod capability_recovery {
                 )
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content,
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),
@@ -841,6 +844,7 @@ mod capability_recovery {
                 )
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content,
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),
@@ -1017,6 +1021,7 @@ mod capability_recovery {
                 FABRICATED_CLAIM
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: content.to_owned(),
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),
@@ -1111,7 +1116,7 @@ mod capability_recovery {
     /// number about the peer is re-verified against what was fetched.
     mod subject_routing {
         use super::*;
-        use dravr_canot::channels::telegram::transport::TelegramTransport;
+        use crate::helpers::offline_channel::name_fixture_bot;
         use pierre_chat_pipeline::stages::capability_subject::{
             SUBJECT_DECLINED_MARKER, SUBJECT_FETCHED_MARKER,
         };
@@ -1216,6 +1221,7 @@ mod capability_recovery {
                     .join("\n---\n");
                 self.seen_requests.lock().unwrap().push(joined.clone());
                 Ok(ChatResponse {
+                    replay_blocks: None,
                     content: (self.script)(&joined),
                     model: "mock-model".to_owned(),
                     usage: Some(TokenUsage::new(30, 40, 70)),
@@ -1358,11 +1364,7 @@ mod capability_recovery {
             let scraper_url = spawn_mock_scraper().await;
             // Seed canot's process-wide bot-username cache so mention
             // detection never issues a live getMe call.
-            let _seed = TelegramTransport::with_bot_identity(
-                "unused-secret".to_owned(),
-                BOT_ID,
-                "dravr_subject_bot",
-            );
+            name_fixture_bot(BOT_ID, "dravr_subject_bot");
 
             let resources = create_test_server_resources_with_llm_and_config(
                 mock,

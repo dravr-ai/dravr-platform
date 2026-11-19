@@ -9,6 +9,7 @@ import type {
   GroupHealthFlag,
   GroupStatsResponse,
   GroupWeeklyReportResponse,
+  JoinHeldInviteResponse,
 } from '@pierre/shared-types';
 import { setupDashboardMocks, loginToDashboard, openGroups } from './test-helpers';
 import { expectNoCollidingText, useFrench } from './text-collision';
@@ -154,17 +155,17 @@ const mockInvites = {
 const mockCoachReads = {
   retention_months: 12,
   reads: [
-    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'wellness', read_at: '2026-11-12T14:05:00Z' },
-    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z' },
-    { coach_name: 'Casey Coach', tool: 'get_activities', data_class: 'training', read_at: '2026-11-12T14:04:00Z' },
-    { coach_name: 'Casey Coach', tool: 'plan_view', data_class: 'training', read_at: '2026-11-11T18:20:00Z' },
-    { coach_name: 'Casey Coach', tool: 'plan_command', data_class: 'training', read_at: '2026-11-11T07:45:00Z' },
-    { coach_name: null, tool: 'roster', data_class: 'training', read_at: '2026-11-10T08:30:00Z' },
-    { coach_name: 'Casey Coach', tool: 'group_room', data_class: 'training', read_at: '2026-11-10T08:00:00Z' },
-    { coach_name: 'Casey Coach', tool: 'group_stats', data_class: 'training', read_at: '2026-11-09T19:10:00Z' },
-    { coach_name: 'Casey Coach', tool: 'group_report', data_class: 'training', read_at: '2026-11-09T19:05:00Z' },
-    { coach_name: 'Casey Coach', tool: 'group_health', data_class: 'training', read_at: '2026-11-09T19:00:00Z' },
-    { coach_name: 'Casey Coach', tool: 'weekly_digest', data_class: 'training', read_at: '2026-11-09T13:00:00Z' },
+    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'wellness', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'get_activities', data_class: 'training', read_at: '2026-11-12T14:04:00Z', served_to_assistant: true },
+    { coach_name: 'Casey Coach', tool: 'plan_view', data_class: 'training', read_at: '2026-11-11T18:20:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'plan_command', data_class: 'training', read_at: '2026-11-11T07:45:00Z', served_to_assistant: false },
+    { coach_name: null, tool: 'roster', data_class: 'training', read_at: '2026-11-10T08:30:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'group_room', data_class: 'training', read_at: '2026-11-10T08:00:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'group_stats', data_class: 'training', read_at: '2026-11-09T19:10:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'group_report', data_class: 'training', read_at: '2026-11-09T19:05:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'group_health', data_class: 'training', read_at: '2026-11-09T19:00:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'weekly_digest', data_class: 'training', read_at: '2026-11-09T13:00:00Z', served_to_assistant: false },
   ],
 };
 
@@ -206,6 +207,8 @@ interface GroupMockOptions {
   userGroupRole?: 'owner' | 'admin' | 'member';
   /** The tenant tier flag gating the weekly report + health flags panel. */
   weeklyDigest?: boolean;
+  /** The signed-in account holds coach access (carnet#1650's claim needs it). */
+  managesRoster?: boolean;
 }
 
 /** Every turn the chat surface sent, in order. */
@@ -508,7 +511,7 @@ async function openGroupInfo(
   options: GroupMockOptions = {},
   extraRoutes?: (page: Page) => Promise<void>,
 ) {
-  await setupDashboardMocks(page, { role: 'user' });
+  await setupDashboardMocks(page, { role: 'user', managesRoster: options.managesRoster ?? false });
   const sent = await setupGroupMocks(page, options);
   if (extraRoutes) await extraRoutes(page);
   await loginToDashboard(page);
@@ -594,6 +597,48 @@ test.describe('Group info — roster', () => {
     await expect(page.getByTestId('group-info-agent')).toContainText('Marathon Coach');
     await expect(page.getByTestId('group-info-no-coach')).toHaveText('No human coach in this group yet.');
     await expect(page.getByTestId('group-info-coach-row')).toHaveCount(0);
+  });
+
+  // carnet#1650: an owner who holds coach access takes the coachless group's seat in one tap.
+  test('an owner with coach access claims the coachless group and becomes its coach', async ({ page }) => {
+    let coached = false;
+    const claims: string[] = [];
+    await openGroupInfo(page, { userGroupRole: 'owner', managesRoster: true }, async (p) => {
+      await p.route('**/api/groups/group-1', async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...mockGroupDetail,
+            owner_id: 'user-123',
+            coach_user_id: coached ? 'user-123' : null,
+            coach_display_name: coached ? 'Test Admin' : null,
+          }),
+        });
+      });
+      await p.route('**/api/groups/group-1/coach', async (route) => {
+        if (route.request().method() !== 'PUT') return route.fallback();
+        claims.push('PUT');
+        coached = true;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            group: { ...mockGroupDetail, owner_id: 'user-123', coach_user_id: 'user-123', coach_display_name: 'Test Admin' },
+          }),
+        });
+      });
+    });
+
+    const block = page.getByTestId('group-info-claim-coach');
+    await expect(block).toContainText('This group has no coach yet');
+    await expect(page.getByTestId('coach-seat-block')).toHaveCount(0);
+    await block.getByTestId('group-info-claim-coach-action').click();
+
+    await expect(page.getByText("You're now this group's coach.")).toBeVisible();
+    await expect(page.getByTestId('group-info-claim-coach')).toHaveCount(0);
+    expect(claims).toEqual(['PUT']);
   });
 
   test('an owner can promote and remove a member', async ({ page }) => {
@@ -708,7 +753,7 @@ test.describe('Group info — settings and consent', () => {
           await route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify({ consent: true }),
+            body: JSON.stringify({ consent: true, assistant_notice_due: false }),
           });
         }
       });
@@ -741,6 +786,9 @@ test.describe('Group info — settings and consent', () => {
     await expect(rows).toHaveCount(mockCoachReads.reads.length);
     // A tool is named as it is.
     await expect(rows.nth(2).getByTestId('coach-read-tool')).toHaveText('get_activities');
+    // Only the read the server marked as served to the coach's outside AI tool says so.
+    await expect(log.getByTestId('coach-read-served-to-assistant')).toHaveCount(1);
+    await expect(rows.nth(2).getByTestId('coach-read-served-to-assistant')).toBeVisible();
     // A read the server records under a label of its own never shows the label.
     for (const [index, label] of [
       [0, 'coach_thread'],
@@ -1198,20 +1246,145 @@ test.describe('Group info — coaching-platform links', () => {
 // The invite deep link
 // ============================================================================
 
+/**
+ * The server's side of a held invite (carnet#1648): a hold records the code,
+ * and the join answers for it once, filing the member's room, then drops it.
+ * `holdStatuses` answers each hold in turn; a hold past the list is accepted.
+ */
+async function installInviteServer(page: Page, holdStatuses: number[] = []) {
+  const state = {
+    holds: [] as string[],
+    joins: [] as JoinHeldInviteResponse['outcome'][],
+    held: null as string | null,
+  };
+  // The card a link opens on reads the code once, before anything is held (carnet#1649).
+  await page.route('**/api/invites/*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'live',
+        kind: 'member',
+        inviter_name: 'Jeremy B.',
+        inviter_initials: 'JB',
+        has_coach: true,
+        coach_name: 'Jeremy B.',
+        group_name: mockGroupDetail.name,
+        expires_at: null,
+      }),
+    }),
+  );
+  await page.route('**/api/user/group-invite', async (route) => {
+    if (route.request().method() === 'GET') {
+      // What the server holds, as the journey line and Home's strip read it.
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          held:
+            state.held === null
+              ? null
+              : {
+                  kind: 'member',
+                  group_name: mockGroupDetail.name,
+                  inviter_name: 'Jeremy B.',
+                  inviter_initials: 'JB',
+                  has_coach: true,
+                  coach_name: 'Jeremy B.',
+                  held_at: '2026-03-20T15:00:00Z',
+                  state: 'pending',
+                },
+        }),
+      });
+      return;
+    }
+    const { code } = route.request().postDataJSON() as { code: string };
+    state.holds.push(code);
+    const status = holdStatuses[state.holds.length - 1] ?? 200;
+    if (status !== 200) {
+      await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ error: 'unavailable' }) });
+      return;
+    }
+    state.held = code;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ held: true, kind: 'member' }),
+    });
+  });
+  await page.route('**/api/chat/groups/join', async (route) => {
+    const body: JoinHeldInviteResponse =
+      state.held === null
+        ? { outcome: 'none' }
+        : {
+            outcome: 'joined',
+            kind: 'member',
+            group_id: GROUP_ID,
+            group_name: mockGroupDetail.name,
+            conversation_id: CONVERSATION_ID,
+          };
+    state.joins.push(body.outcome);
+    state.held = null;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+  return state;
+}
+
+const carriedInvite = (page: Page) =>
+  page.evaluate(() => window.sessionStorage.getItem('dravr.pending_invite_code'));
+
 test.describe('Group invite link', () => {
-  test('/groups/join/CODE lands on chat and sends /group join CODE', async ({ page }) => {
+  test('/groups/join/CODE hands the code to the server and opens the room it joined', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user' });
     const sent = await setupGroupMocks(page);
+    const server = await installInviteServer(page);
+    await loginToDashboard(page);
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    // The session's own load asked once what the server holds; the link adds nothing before its click.
+    const joinsBeforeLink = [...server.joins];
+    await page.goto('/groups/join/MRT2026X');
+
+    // The card comes first, signed in or not: nothing is held or joined before the click.
+    await expect(page.getByTestId('invite-card-title')).toHaveText('Jeremy B. invites you');
+    expect(server.holds).toEqual([]);
+    expect(server.joins).toEqual(joinsBeforeLink);
+    await page.getByTestId('invite-card-join').click();
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    // The server joined: the room's conversation opens, where its notice waits.
+    await expect(page).toHaveURL(new RegExp(`#chat/${CONVERSATION_ID}$`), { timeout: 10000 });
+    await expect(page.getByTestId('conversation-header-title')).toHaveText(/Marathon Training 2026/);
+    expect(server.holds).toEqual(['MRT2026X']);
+    expect(server.joins.filter((outcome) => outcome === 'joined')).toHaveLength(1);
+    expect(await carriedInvite(page)).toBeNull();
+    // No `/group join` turn: the chat surface sent nothing.
+    expect(sent).toEqual([]);
+  });
+
+  test('a hold the reload cut short goes out again, and the join follows it', async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user' });
+    await setupGroupMocks(page);
+    const server = await installInviteServer(page, [503]);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
 
     await page.goto('/groups/join/MRT2026X');
+    await page.getByTestId('invite-card-join').click();
+    await expect.poll(() => server.holds.length, { timeout: 10000 }).toBe(1);
+    // The server did not take it: the card says so and stays, the tab keeps the code, and nothing joined.
+    await expect(page.getByTestId('invite-card-join-failed')).toBeVisible();
+    await expect.poll(() => carriedInvite(page)).toBe('MRT2026X');
+    expect(server.joins).not.toContain('joined');
+
+    // The reload a service worker update forces after sign-in.
+    await page.reload();
     await page.waitForSelector('aside', { timeout: 10000 });
 
-    // The Groups tab is gone: the link resolves to chat and joins by command.
-    await expect(page).toHaveURL(/#chat/);
-    await expect.poll(() => sent.length, { timeout: 10000 }).toBe(1);
-    expect(sent[0].content).toBe('/group join MRT2026X');
+    await expect(page).toHaveURL(new RegExp(`#chat/${CONVERSATION_ID}$`), { timeout: 10000 });
+    expect(server.holds).toEqual(['MRT2026X', 'MRT2026X']);
+    expect(server.joins.filter((outcome) => outcome === 'joined')).toHaveLength(1);
+    expect(await carriedInvite(page)).toBeNull();
   });
 });
 

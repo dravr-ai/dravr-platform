@@ -21,7 +21,9 @@ vi.mock('../../services/api', () => ({
     deleteAccount: (request: unknown) => deleteAccount(request),
   },
 }));
-vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ logout }) }));
+// The signed-in account's role: the server refuses an admin's own delete.
+let role: 'user' | 'admin' = 'user';
+vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ logout, user: { id: 'u1', role } }) }));
 vi.mock('../../firebase/firebase', () => ({
   signOutFromFirebase: () => signOutFromFirebase(),
 }));
@@ -38,7 +40,17 @@ function renderSection() {
 describe('AccountDeletionSection', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    role = 'user';
     await i18n.changeLanguage('en');
+  });
+
+  it('tells an admin another admin removes the account, and offers no delete (carnet#1631)', () => {
+    role = 'admin';
+    renderSection();
+
+    expect(screen.getByTestId('account-deletion-section')).toBeInTheDocument();
+    expect(screen.queryByTestId('account-deletion-open')).toBeNull();
+    expect(getAccountDeletionPreview).not.toHaveBeenCalled();
   });
 
   it('deletes only once the email matches and the password is given, then signs out', async () => {

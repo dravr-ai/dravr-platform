@@ -31,6 +31,7 @@ mod peer_fetch_tests {
     use pierre_core::permissions::scopes::OAuthScope;
     use pierre_core::transport::Transport;
     use pierre_mcp_server::mcp::resources::ServerContext;
+    use pierre_test_support::delegation::grant_coach_access;
     use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
     use pierre_tool_runtime::implementations::groups::GetGroupMemberActivitiesTool;
     use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
@@ -828,6 +829,9 @@ mod peer_fetch_tests {
             },
         )
         .await;
+        grant_coach_access(&resources.common.repos, human_coach)
+            .await
+            .unwrap();
         assert!(resources
             .common
             .repos
@@ -900,6 +904,9 @@ mod peer_fetch_tests {
 
         let gid = create_group(&resources, host_tenant, agent_persona, owner, true).await;
         add_member(&resources, gid, owner, host_tenant, GroupRole::Owner, false).await;
+        grant_coach_access(&resources.common.repos, human_coach)
+            .await
+            .unwrap();
         assert!(resources
             .common
             .repos
@@ -977,6 +984,9 @@ mod peer_fetch_tests {
         for (athlete, tenant) in [(ana, ana_tenant), (bea, bea_tenant)] {
             let gid = create_group(&resources, coach_tenant, agent_persona, coach, true).await;
             add_member(&resources, gid, athlete, tenant, GroupRole::Member, true).await;
+            grant_coach_access(&resources.common.repos, coach)
+                .await
+                .unwrap();
             assert!(
                 resources
                     .common
@@ -1173,6 +1183,9 @@ mod peer_fetch_tests {
                 true,
             )
             .await;
+            grant_coach_access(&resources.common.repos, coach)
+                .await
+                .unwrap();
             assert!(
                 resources
                     .common
@@ -1216,5 +1229,411 @@ mod peer_fetch_tests {
                 "{label}'s ride comes back on the direct-message turn: {direct}"
             );
         }
+    }
+
+    /// How a call was answered: the refusal's `reason`, or the member read.
+    fn answered(payload: &Value) -> String {
+        payload.get("reason").and_then(Value::as_str).map_or_else(
+            || {
+                let member = payload.get("member").and_then(Value::as_str);
+                format!("read {}", member.unwrap_or("nobody"))
+            },
+            str::to_owned,
+        )
+    }
+
+    /// Attach `coach` to `group_id`, holding coach access as attaching takes.
+    async fn attach_coach(resources: &ServerContext, group_id: Uuid, coach: Uuid, host: TenantId) {
+        let repos = &resources.common.repos;
+        grant_coach_access(repos, coach).await.unwrap();
+        assert!(
+            repos
+                .groups
+                .set_group_coach_user(&group_id.to_string(), Some(coach), host)
+                .await
+                .unwrap(),
+            "test setup bug: the coach was not attached to the group just created"
+        );
+    }
+
+    /// Withdraw `coach`'s coach access; they stay attached to their groups.
+    async fn withdraw_coach_access(resources: &ServerContext, coach: Uuid) {
+        resources
+            .common
+            .repos
+            .users
+            .set_manages_roster(coach, false)
+            .await
+            .unwrap();
+    }
+
+    /// carnet#1511: a coach still attached to a group, never one of its
+    /// members, whose coach access was withdrawn. The group's members are
+    /// neither matched nor named for them: a name one member carries, a name
+    /// two carry and a name nobody carries all answer `no_coach_access` in
+    /// the same words, in their own conversation and in the group's room, so
+    /// the answer never tells a member from a miss. Coach access back, the
+    /// member is read again.
+    #[tokio::test]
+    async fn a_coach_whose_access_is_off_matches_and_names_no_member() {
+        let resources = create_test_server_resources().await.unwrap();
+        let owner = seed_user(&resources, "ownerhost").await;
+        let host_tenant = create_tenant_owned_by(&resources, owner).await;
+        let agent_persona = seed_agent(&resources, owner, host_tenant).await;
+        let coach = seed_user(&resources, "coachlapsed").await;
+        let coach_tenant = create_tenant_owned_by(&resources, coach).await;
+
+        let gid = create_group(&resources, host_tenant, agent_persona, owner, true).await;
+        for label in ["raphoff", "remyoff"] {
+            let athlete = seed_user(&resources, label).await;
+            let tenant = create_tenant_owned_by(&resources, athlete).await;
+            seed_ride(&resources, athlete, tenant).await;
+            add_member(&resources, gid, athlete, tenant, GroupRole::Member, true).await;
+        }
+        attach_coach(&resources, gid, coach, host_tenant).await;
+        withdraw_coach_access(&resources, coach).await;
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let caller = (coach, coach_tenant);
+        let own = conversation(&resources, coach, coach_tenant, None).await;
+        let room = conversation(&resources, coach, coach_tenant, Some(gid)).await;
+
+        // One member, two members, nobody.
+        let queries = ["raphoff", "off", "zed"];
+        let mut answers = Vec::new();
+        let mut refusals = Vec::new();
+        for (place, conversation_id) in [("own", &own), ("room", &room)] {
+            for query in queries {
+                let payload = read_in(
+                    &runtime,
+                    caller,
+                    conversation_id,
+                    json!({ "member": query }),
+                )
+                .await;
+                answers.push((place, query, answered(&payload)));
+                refusals.push(payload);
+            }
+        }
+        let refused = |place, query| (place, query, "no_coach_access".to_owned());
+        assert_eq!(
+            answers,
+            [
+                refused("own", "raphoff"),
+                refused("own", "off"),
+                refused("own", "zed"),
+                refused("room", "raphoff"),
+                refused("room", "off"),
+                refused("room", "zed"),
+            ],
+            "bug: the answer tells a member of the group from a miss"
+        );
+        for payload in &refusals {
+            assert_eq!(
+                payload, &refusals[0],
+                "every name is refused in the same words"
+            );
+            let said = payload.to_string();
+            assert!(said.contains("Your coach access is off"), "{payload}");
+            for leak in ["raphoff", "remyoff", "Tempo Squad", "activities"] {
+                assert!(!said.contains(leak), "{leak} leaked: {payload}");
+            }
+        }
+
+        grant_coach_access(&resources.common.repos, coach)
+            .await
+            .unwrap();
+        let read = read_in(&runtime, caller, &own, json!({ "member": "raphoff" })).await;
+        assert_eq!(answered(&read), "read raphoff Athlete", "{read}");
+        assert_eq!(
+            first_activity_id(&read),
+            Some("peer-ride-1"),
+            "coach access back, the member is read: {read}"
+        );
+        let ambiguous = read_in(&runtime, caller, &own, json!({ "member": "off" })).await;
+        assert_eq!(answered(&ambiguous), "ambiguous", "{ambiguous}");
+    }
+
+    /// carnet#1511: coach access off withholds the coach's side only. A
+    /// caller attached to group A with coach access off who is a plain
+    /// member of group B still reads a B peer who shares with the group,
+    /// exactly as any member does — A's members are not scanned, so a name
+    /// an A member also carries is no longer ambiguous. A name only an A
+    /// member carries, and a name nobody carries, both answer
+    /// `no_coach_access`; in B's room, which reads B alone, they stay a miss,
+    /// as they do when `group_id` narrows the scan to a group other than A.
+    #[tokio::test]
+    async fn a_coach_whose_access_is_off_still_reads_a_peer_of_a_group_they_belong_to() {
+        let resources = create_test_server_resources().await.unwrap();
+        let owner = seed_user(&resources, "ownerhost").await;
+        let host_tenant = create_tenant_owned_by(&resources, owner).await;
+        let agent_persona = seed_agent(&resources, owner, host_tenant).await;
+        let caller_id = seed_user(&resources, "lapsedmix").await;
+        let caller_tenant = create_tenant_owned_by(&resources, caller_id).await;
+
+        // Group A: the caller is its attached coach, never a member.
+        let group_a = create_group(&resources, host_tenant, agent_persona, owner, true).await;
+        for label in ["anaonly", "samalpha"] {
+            let athlete = seed_user(&resources, label).await;
+            let tenant = create_tenant_owned_by(&resources, athlete).await;
+            seed_ride(&resources, athlete, tenant).await;
+            add_member(
+                &resources,
+                group_a,
+                athlete,
+                tenant,
+                GroupRole::Member,
+                true,
+            )
+            .await;
+        }
+        attach_coach(&resources, group_a, caller_id, host_tenant).await;
+
+        // Group B: the caller is a plain member, and peer sharing is on.
+        let group_b = create_group(&resources, host_tenant, agent_persona, owner, true).await;
+        let peer = seed_user(&resources, "sambravo").await;
+        let peer_tenant = create_tenant_owned_by(&resources, peer).await;
+        seed_ride(&resources, peer, peer_tenant).await;
+        add_member(
+            &resources,
+            group_b,
+            peer,
+            peer_tenant,
+            GroupRole::Member,
+            true,
+        )
+        .await;
+        add_member(
+            &resources,
+            group_b,
+            caller_id,
+            caller_tenant,
+            GroupRole::Member,
+            false,
+        )
+        .await;
+        withdraw_coach_access(&resources, caller_id).await;
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let caller = (caller_id, caller_tenant);
+        let own = conversation(&resources, caller_id, caller_tenant, None).await;
+        let room_a = conversation(&resources, caller_id, caller_tenant, Some(group_a)).await;
+        let room_b = conversation(&resources, caller_id, caller_tenant, Some(group_b)).await;
+
+        let mut answers = Vec::new();
+        let mut payloads = Vec::new();
+        for (place, conversation_id, query) in [
+            // The B peer, by a name only they carry and by one an A member
+            // carries too.
+            ("own", &own, "sambravo"),
+            ("own", &own, "sam"),
+            // Only an A member; nobody.
+            ("own", &own, "anaonly"),
+            ("own", &own, "zed"),
+            ("room B", &room_b, "sam"),
+            ("room B", &room_b, "anaonly"),
+            ("room A", &room_a, "samalpha"),
+            ("room A", &room_a, "sambravo"),
+        ] {
+            let payload = read_in(
+                &runtime,
+                caller,
+                conversation_id,
+                json!({ "member": query }),
+            )
+            .await;
+            answers.push((place, query, answered(&payload)));
+            payloads.push(payload);
+        }
+        let expected = |place, query, answer: &str| (place, query, answer.to_owned());
+        assert_eq!(
+            answers,
+            [
+                expected("own", "sambravo", "read sambravo Athlete"),
+                expected("own", "sam", "read sambravo Athlete"),
+                expected("own", "anaonly", "no_coach_access"),
+                expected("own", "zed", "no_coach_access"),
+                expected("room B", "sam", "read sambravo Athlete"),
+                expected("room B", "anaonly", "no_match"),
+                expected("room A", "samalpha", "no_coach_access"),
+                expected("room A", "sambravo", "no_coach_access"),
+            ],
+            "the peer is read as any member reads them, and no answer tells group A's \
+             member from a miss"
+        );
+        assert_eq!(
+            first_activity_id(&payloads[0]),
+            Some("peer-ride-1"),
+            "the peer's ride comes back: {}",
+            payloads[0]
+        );
+        assert_eq!(
+            payloads[2], payloads[3],
+            "a name only group A's member carries is refused as a name nobody carries is"
+        );
+        for payload in &payloads {
+            let said = payload.to_string();
+            for leak in ["samalpha", "anaonly Athlete"] {
+                assert!(!said.contains(leak), "{leak} leaked: {payload}");
+            }
+        }
+
+        // `group_id` in the caller's own conversation narrows the scan to
+        // one group, so a miss there is about that group alone: coach access
+        // being off is the answer for the group they are attached to, and
+        // for no other — group B, where they are a plain member, and a group
+        // that is none of theirs, miss as they do for any member.
+        let stranger_group = Uuid::new_v4();
+        let pinned = |group: Uuid, query: &'static str| {
+            let (runtime, own) = (&runtime, &own);
+            async move {
+                let args = json!({ "member": query, "group_id": group.to_string() });
+                read_in(runtime, caller, own, args).await
+            }
+        };
+        let off = [
+            pinned(group_b, "sambravo").await,
+            pinned(group_b, "zed").await,
+            pinned(group_b, "samalpha").await,
+            pinned(stranger_group, "zed").await,
+            pinned(group_a, "samalpha").await,
+            pinned(group_a, "zed").await,
+        ];
+        assert_eq!(
+            off.iter().map(answered).collect::<Vec<_>>(),
+            [
+                "read sambravo Athlete",
+                "no_match",
+                "no_match",
+                "no_match",
+                "no_coach_access",
+                "no_coach_access",
+            ],
+            "bug: a miss in a group the caller is not attached to is answered as coach \
+             access being off"
+        );
+        assert_eq!(
+            off[4], off[5],
+            "pinned to group A, a name its member carries is refused as a name nobody carries is"
+        );
+        for payload in &off {
+            assert!(
+                !payload.to_string().contains("samalpha Athlete"),
+                "group A's member is named: {payload}"
+            );
+        }
+
+        // Coach access back: the misses read as they did, and group A is
+        // read as its coach.
+        grant_coach_access(&resources.common.repos, caller_id)
+            .await
+            .unwrap();
+        let on = [
+            pinned(group_b, "zed").await,
+            pinned(stranger_group, "zed").await,
+            pinned(group_a, "samalpha").await,
+            pinned(group_a, "zed").await,
+        ];
+        assert_eq!(
+            on.iter().map(answered).collect::<Vec<_>>(),
+            ["no_match", "no_match", "read samalpha Athlete", "no_match"],
+            "coach access back"
+        );
+    }
+
+    /// carnet#1511: a caller attached to a group as its coach with coach
+    /// access off who also belongs to that group reads it as a member reads
+    /// it, by the peer rules: a peer who shares with the group is read, one
+    /// who does not is refused as for any member, whatever they share with
+    /// the coach. A name nobody carries still answers `no_coach_access`.
+    /// Coach access back, they read the group as its coach again.
+    #[tokio::test]
+    async fn a_coach_whose_access_is_off_reads_their_own_group_as_a_member() {
+        let resources = create_test_server_resources().await.unwrap();
+        let owner = seed_user(&resources, "ownerhost").await;
+        let host_tenant = create_tenant_owned_by(&resources, owner).await;
+        let agent_persona = seed_agent(&resources, owner, host_tenant).await;
+        let caller_id = seed_user(&resources, "lapsedboth").await;
+        let caller_tenant = create_tenant_owned_by(&resources, caller_id).await;
+
+        // The group's peer switch is on; both athletes share with the coach,
+        // and only the first with the group.
+        let gid = create_group(&resources, host_tenant, agent_persona, owner, true).await;
+        for (label, peers) in [("piasharer", true), ("noeclosed", false)] {
+            let athlete = seed_user(&resources, label).await;
+            let tenant = create_tenant_owned_by(&resources, athlete).await;
+            seed_ride(&resources, athlete, tenant).await;
+            add_member_sharing(
+                &resources,
+                MemberSharing {
+                    group_id: gid,
+                    user_id: athlete,
+                    tenant_id: tenant,
+                    peers,
+                    coach: true,
+                },
+            )
+            .await;
+        }
+        add_member(
+            &resources,
+            gid,
+            caller_id,
+            caller_tenant,
+            GroupRole::Member,
+            false,
+        )
+        .await;
+        attach_coach(&resources, gid, caller_id, host_tenant).await;
+        withdraw_coach_access(&resources, caller_id).await;
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let caller = (caller_id, caller_tenant);
+        let own = conversation(&resources, caller_id, caller_tenant, None).await;
+        let room = conversation(&resources, caller_id, caller_tenant, Some(gid)).await;
+
+        let mut answers = Vec::new();
+        for (place, conversation_id, query) in [
+            ("own", &own, "piasharer"),
+            ("own", &own, "noeclosed"),
+            ("own", &own, "lapsedboth"),
+            ("own", &own, "zed"),
+            ("room", &room, "piasharer"),
+            ("room", &room, "noeclosed"),
+            ("room", &room, "zed"),
+        ] {
+            let payload = read_in(
+                &runtime,
+                caller,
+                conversation_id,
+                json!({ "member": query }),
+            )
+            .await;
+            answers.push((place, query, answered(&payload)));
+        }
+        let expected = |place, query, answer: &str| (place, query, answer.to_owned());
+        assert_eq!(
+            answers,
+            [
+                expected("own", "piasharer", "read piasharer Athlete"),
+                expected("own", "noeclosed", "no_consent"),
+                expected("own", "lapsedboth", "self"),
+                expected("own", "zed", "no_coach_access"),
+                expected("room", "piasharer", "read piasharer Athlete"),
+                expected("room", "noeclosed", "no_consent"),
+                expected("room", "zed", "no_coach_access"),
+            ],
+            "with coach access off the caller reads their own group by the peer rules"
+        );
+
+        grant_coach_access(&resources.common.repos, caller_id)
+            .await
+            .unwrap();
+        let read = read_in(&runtime, caller, &own, json!({ "member": "noeclosed" })).await;
+        assert_eq!(
+            answered(&read),
+            "read noeclosed Athlete",
+            "coach access back, the coach consent decides again: {read}"
+        );
     }
 }

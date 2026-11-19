@@ -1,5 +1,5 @@
 // ABOUTME: Authorization tests for /api/admin/config — the global operator model, pinned
-// ABOUTME: A plain Admin reads and writes every scope and the audit row names the client; non-admins are refused
+// ABOUTME: An admin reads and writes every scope and the audit row names the client; non-admins are refused
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,9 +9,8 @@
 
 //! # `/api/admin/config/*` is the operator's surface
 //!
-//! The admin console is a global operator model and the operator account
-//! is a plain `Admin` (a `SuperAdmin` requirement was ruled out on
-//! 2026-06-03). So `require_admin` — the global role — is the whole gate:
+//! The admin console is a global model and there is one admin role
+//! (carnet#1567). So `require_admin` — the global role — is the whole gate:
 //! an `Admin` reads and writes the system-wide document, any tenant's
 //! overrides and any user's, and the integration suite drives exactly that
 //! with `pierre-cli user create` accounts. What the handlers owe on top is
@@ -53,6 +52,7 @@ fn router(resources: &Arc<ServerContext>) -> axum::Router {
         .expect("test resources initialise the admin config service");
     let admin_auth = AdminAuthService::new(
         Arc::clone(&resources.common.repos.admin),
+        Arc::clone(&resources.common.repos.users),
         Arc::clone(&resources.auth.jwks_manager),
     );
     let state = Arc::new(AdminConfigState::new(
@@ -65,7 +65,7 @@ fn router(resources: &Arc<ServerContext>) -> axum::Router {
 
 /// Create a user with the given role owning a dedicated tenant, and return
 /// `(user_id, tenant_id, "Bearer <jwt>")` — the JWT carries that tenant as
-/// `active_tenant_id`, which is what binds a plain Admin's token to it.
+/// `active_tenant_id`, the tenant the session acts in.
 async fn create_user_with_role(
     resources: &Arc<ServerContext>,
     email: &str,
@@ -78,7 +78,6 @@ async fn create_user_with_role(
         password_hash,
         Some("Config Admin".to_owned()),
     );
-    user.is_admin = role.is_admin_or_higher();
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
@@ -188,7 +187,7 @@ async fn an_admin_writes_a_system_wide_override_and_the_audit_row_names_the_clie
         .json(&update_body(5))
         .send(router(&resources).layer(MockConnectInfo(SocketAddr::from(([10, 0, 0, 2], 44_300)))))
         .await;
-    assert_eq!(response.status(), 200, "a plain Admin is the operator");
+    assert_eq!(response.status(), 200, "an admin writes the configuration");
     let body: Value = response.json();
     assert_eq!(body["success"], true, "write must apply: {body}");
     assert_eq!(

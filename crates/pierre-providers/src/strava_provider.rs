@@ -10,7 +10,7 @@
 use super::circuit_breaker::CircuitBreaker;
 use super::core::{
     keep_timed, no_recorded_samples, ActivityQueryParams, FitnessProvider, OAuth2Credentials,
-    ProviderConfig, SegmentEffortHit, SegmentEffortWindow, TokenRefreshCallback,
+    ProviderConfig, TokenRefreshCallback,
 };
 use super::errors::provider::ProviderError;
 use crate::activity_paging::pages_for;
@@ -18,19 +18,17 @@ use crate::constants::oauth::STRAVA_DEFAULT_SCOPES;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::http_client::{shared_client, SharedHttpClient};
-use crate::models::coverage::Coverage;
 use crate::models::refresh_due;
 use crate::models::{
     activity::{utc_offset_seconds_if_civil, Lap, Split},
-    resolve_sport_type, Activity, ActivityBuilder, Athlete, GearRef, SportType, Stats,
-    TimeSeriesData,
+    resolve_sport_type, Activity, ActivityBuilder, Athlete, GearRef, SportType, TimeSeriesData,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 use crate::request_budget;
 use crate::strava_self_report::rpe_from_strava;
 use crate::strava_types::{
     DetailedActivityResponse, StravaActivityResponse, StravaAthleteResponse, StravaErrorResponse,
-    StravaLap, StravaSplit, StravaStatsResponse, StravaStreamSet,
+    StravaLap, StravaSplit, StravaStreamSet,
 };
 use crate::utils;
 use async_trait::async_trait;
@@ -429,8 +427,7 @@ impl StravaProvider {
         let recorded: Vec<bool> = set
             .time
             .as_ref()
-            .map(|stream| stream.data.iter().map(Option::is_some).collect())
-            .unwrap_or_default();
+            .map_or_default(|stream| stream.data.iter().map(Option::is_some).collect());
 
         let gps: Option<Vec<Option<(f64, f64)>>> = set.latlng.map(|s| {
             keep_timed(s.data, &recorded)
@@ -445,6 +442,8 @@ impl StravaProvider {
         let altitude = set.altitude.map(|s| keep_timed(s.data, &recorded));
         let temperature = set.temp.map(|s| keep_timed(s.data, &recorded));
         let distance = set.distance.map(|s| keep_timed(s.data, &recorded));
+        let grade_smooth = set.grade_smooth.map(|s| keep_timed(s.data, &recorded));
+        let moving = set.moving.map(|s| keep_timed(s.data, &recorded));
 
         let sample_count = [
             heart_rate.as_ref().map(Vec::len),
@@ -455,6 +454,8 @@ impl StravaProvider {
             temperature.as_ref().map(Vec::len),
             gps.as_ref().map(Vec::len),
             distance.as_ref().map(Vec::len),
+            grade_smooth.as_ref().map(Vec::len),
+            moving.as_ref().map(Vec::len),
         ]
         .into_iter()
         .flatten()
@@ -486,6 +487,8 @@ impl StravaProvider {
             temperature,
             gps_coordinates: gps,
             distance,
+            grade_smooth,
+            moving,
         })
     }
 
@@ -597,7 +600,7 @@ impl StravaProvider {
     /// Every other failure is the read's error.
     async fn fetch_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
         let endpoint = format!(
-            "activities/{id}/streams?keys=time,distance,heartrate,watts,cadence,velocity_smooth,altitude,temp,latlng&key_by_type=true"
+            "activities/{id}/streams?keys=time,distance,heartrate,watts,cadence,velocity_smooth,altitude,temp,latlng,grade_smooth,moving&key_by_type=true"
         );
         match self
             .api_request_reading::<StravaStreamSet, _>(&endpoint, Self::streams_absent)
@@ -715,6 +718,9 @@ impl FitnessProvider for StravaProvider {
         let strava_athlete: StravaAthleteResponse = self.api_request("athlete").await?;
 
         Ok(Athlete {
+            // Strava's API serves no streak; only the scraped session's
+            // profile read carries one.
+            active_streak: None,
             created_at: strava_athlete.created_at,
             id: strava_athlete.id.to_string(),
             username: strava_athlete.username.unwrap_or_default(),
@@ -892,34 +898,6 @@ impl FitnessProvider for StravaProvider {
 
     async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
         self.fetch_streams(id).await
-    }
-
-    async fn segment_effort_history(
-        &self,
-        segment_id: &str,
-        window: SegmentEffortWindow,
-    ) -> AppResult<Vec<SegmentEffortHit>> {
-        self.list_segment_efforts(segment_id, window).await
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        let athlete = self.get_athlete().await?;
-        let endpoint = format!("athletes/{}/stats", athlete.id);
-        let stats: StravaStatsResponse = self.api_request(&endpoint).await?;
-
-        let all_time =
-            StravaStatsResponse::sum_pair(stats.all_ride.as_ref(), stats.all_run.as_ref());
-        let year_to_date =
-            StravaStatsResponse::sum_pair(stats.ytd_ride.as_ref(), stats.ytd_run.as_ref());
-
-        Ok(Stats {
-            total_activities: all_time.total_activities,
-            total_distance: all_time.total_distance,
-            total_duration: all_time.total_duration,
-            total_elevation_gain: all_time.total_elevation_gain,
-            coverage: Coverage::lifetime(all_time.total_activities),
-            year_to_date: Some(year_to_date),
-        })
     }
 }
 

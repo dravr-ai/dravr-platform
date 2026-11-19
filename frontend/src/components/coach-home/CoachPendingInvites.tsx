@@ -5,11 +5,20 @@
 // ABOUTME: Copy the link again or write in the group; with no such group the empty state stands, never an "invited" row for a dead link
 
 import { useState } from 'react';
+import { Check } from 'lucide-react';
+import { clsx } from 'clsx';
 import { useQueries } from '@tanstack/react-query';
 import type { CoachRosterGroup, GroupInvite } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { formatDate, formatMessageTime, GROUP_ROOM_KEYS } from '@pierre/chat-utils';
-import { COACH_PENDING_INVITE_KEYS, groupsAwaitingAthlete, usableMemberInvite } from '@pierre/ui-logic';
+import {
+  COACH_PENDING_INVITE_KEYS,
+  INVITE_FUNNEL_KEYS,
+  groupsAwaitingAthlete,
+  inviteFunnelSteps,
+  usableMemberInvite,
+  type InviteFunnelStep,
+} from '@pierre/ui-logic';
 import { groupsApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { useOpenGroupRoom } from '../../hooks/useCoachPlan';
@@ -86,6 +95,76 @@ export function CoachPendingInvites({
   );
 }
 
+/** One mark per step state: a check once behind the invite, a filled dot on the step it waits on, a ring ahead. */
+function FunnelMark({ step }: { step: InviteFunnelStep }) {
+  if (step.state === 'done') {
+    return (
+      <span
+        aria-hidden="true"
+        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary text-on-primary"
+      >
+        <Check className="h-3 w-3" strokeWidth={3} />
+      </span>
+    );
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className={clsx(
+        'h-4 w-4 shrink-0 rounded-full',
+        step.state === 'current'
+          ? step.tone === 'warn'
+            ? 'bg-warning ring-2 ring-warning/25'
+            : 'bg-primary ring-2 ring-primary/25'
+          : 'border-[1.5px] border-outline',
+      )}
+    />
+  );
+}
+
+/**
+ * How far the link got — sent, opened, account created, joined — as the
+ * server counts it. Counts only: an account that has not joined is not named
+ * here, because nothing it shared has been agreed to yet.
+ */
+function InviteFunnel({ invite }: { invite: GroupInvite }) {
+  const { t, language } = useTranslation();
+  const steps = inviteFunnelSteps(invite.funnel);
+  return (
+    <div className="mt-3" data-testid="coach-pending-invite-funnel">
+      <p className="text-xs font-medium text-on-surface-variant">{t(INVITE_FUNNEL_KEYS.label)}</p>
+      <ol className="mt-1.5 space-y-1.5">
+        {steps.map((step) => (
+          <li
+            key={step.key}
+            className="flex items-center gap-2 text-sm"
+            data-testid={`coach-pending-invite-step-${step.key}`}
+            data-state={step.state}
+            data-tone={step.tone}
+            aria-current={step.state === 'current' ? 'step' : undefined}
+          >
+            <FunnelMark step={step} />
+            <span
+              className={clsx(
+                step.tone === 'warn'
+                  ? 'text-on-warning-container'
+                  : step.state === 'todo'
+                    ? 'text-on-surface-variant'
+                    : 'text-on-surface',
+              )}
+            >
+              {t(step.labelKey, {
+                ...(step.values.count !== undefined ? { count: step.values.count } : {}),
+                ...(step.values.date !== undefined ? { date: formatDate(step.values.date, language) } : {}),
+              })}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function PendingInviteRow({ entry, onNavigate }: { entry: PendingInvite; onNavigate: (route: string) => void }) {
   const { t, language } = useTranslation();
   const { openRoom, pendingRoomAthleteId } = useOpenGroupRoom();
@@ -132,6 +211,7 @@ function PendingInviteRow({ entry, onNavigate }: { entry: PendingInvite; onNavig
             ? t(COACH_PENDING_INVITE_KEYS.why, { date: formatDate(invite.expires_at, language) })
             : t(COACH_PENDING_INVITE_KEYS.whyNoExpiry)}
         </p>
+        <InviteFunnel invite={invite} />
         <div className="mt-3 flex flex-wrap gap-2">
           <Button size="sm" variant="primary" onClick={() => void copy()} data-testid="coach-pending-invite-copy">
             {copied ? t(COACH_PENDING_INVITE_KEYS.copied) : t(COACH_PENDING_INVITE_KEYS.copyAgain)}

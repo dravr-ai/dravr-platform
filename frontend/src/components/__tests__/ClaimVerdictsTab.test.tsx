@@ -26,22 +26,6 @@ vi.mock('../../services/api/admin', async () => {
   };
 });
 
-const role = vi.hoisted(() => ({ current: 'admin' }));
-
-vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({
-    user: {
-      id: 'user-1',
-      email: 'admin@example.com',
-      tenant_id: 'tenant-a',
-      is_admin: true,
-      role: role.current,
-      tier: 'professional',
-      created_at: '2026-01-01T00:00:00Z',
-    },
-  }),
-}));
-
 const { adminApi } = await import('../../services/api/admin');
 
 function sampleVerdict(overrides: Partial<ClaimVerdict> = {}): ClaimVerdict {
@@ -129,7 +113,6 @@ describe('ClaimVerdictsTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    role.current = 'admin';
     vi.mocked(adminApi.getClaimVerdictHealth).mockResolvedValue(sampleHealth());
     vi.mocked(adminApi.getVerdictCalibrationStats).mockResolvedValue({
       window_start: '2026-10-01T00:00:00Z',
@@ -143,7 +126,6 @@ describe('ClaimVerdictsTab', () => {
   });
 
   it('asks every read of the tab for the one scope and states it', async () => {
-    role.current = 'super_admin';
     vi.mocked(adminApi.listClaimVerdicts).mockResolvedValueOnce({
       scope: { kind: 'all_tenants' },
       verdicts: [],
@@ -160,7 +142,6 @@ describe('ClaimVerdictsTab', () => {
   });
 
   it('opens a row of another tenant with that tenant, not the session one', async () => {
-    role.current = 'super_admin';
     vi.mocked(adminApi.listClaimVerdicts).mockResolvedValueOnce({
       scope: { kind: 'all_tenants' },
       verdicts: [sampleVerdict({ tenant_id: 'tenant-b' })],
@@ -182,7 +163,7 @@ describe('ClaimVerdictsTab', () => {
     renderTab();
 
     expect(await screen.findByTestId('verdict-calibration-panel')).toBeInTheDocument();
-    expect(adminApi.getVerdictCalibrationStats).toHaveBeenCalledWith(undefined, 30);
+    expect(adminApi.getVerdictCalibrationStats).toHaveBeenCalledWith('all', 30);
   });
 
   it('renders the empty state when no verdicts are returned', async () => {
@@ -239,6 +220,26 @@ describe('ClaimVerdictsTab', () => {
     });
     expect(screen.getByText('Unsupported claim')).toBeInTheDocument();
     expect(screen.getByText(/Showing 2 verdicts/)).toBeInTheDocument();
+  });
+
+  // The status badge reads the one status -> tone mapping the chat chip and
+  // the drawer read: an unverifiable claim has no hue, so it is neutral.
+  it('draws each status badge in the tone the chip and the drawer give it', async () => {
+    vi.mocked(adminApi.listClaimVerdicts).mockResolvedValueOnce({
+      verdicts: [
+        sampleVerdict({ id: 'v1', status: 'contradicted', claim_text: 'Contradicted claim' }),
+        sampleVerdict({ id: 'v2', status: 'unverifiable', claim_text: 'Unverifiable claim' }),
+      ],
+      total: 2,
+    });
+    renderTab();
+    await waitFor(() => {
+      expect(screen.getByText('Unverifiable claim')).toBeInTheDocument();
+    });
+    const badge = (text: string) =>
+      screen.getAllByText(text).find((element) => element.classList.contains('badge'));
+    expect(badge('unverifiable')).toHaveClass('badge-neutral');
+    expect(badge('contradicted')).toHaveClass('badge-error');
   });
 
   // The admin table and the chat chip open the SAME drawer now — one component,
@@ -345,7 +346,7 @@ describe('ClaimVerdictsTab', () => {
     vi.mocked(adminApi.listClaimVerdicts).mockResolvedValue({ verdicts: [], total: 0 });
     renderTab();
     await waitFor(() => {
-      expect(adminApi.getClaimVerdictHealth).toHaveBeenCalledWith(undefined, 30);
+      expect(adminApi.getClaimVerdictHealth).toHaveBeenCalledWith('all', 30);
       expect(screen.getByTestId('verdict-health-rate')).toHaveTextContent('75%');
     });
     const byLayer = within(screen.getByTestId('verdict-health-by-layer'));
@@ -358,7 +359,7 @@ describe('ClaimVerdictsTab', () => {
     // The window select re-reads with the chosen span.
     fireEvent.change(screen.getByLabelText('Window'), { target: { value: '90' } });
     await waitFor(() => {
-      expect(adminApi.getClaimVerdictHealth).toHaveBeenLastCalledWith(undefined, 90);
+      expect(adminApi.getClaimVerdictHealth).toHaveBeenLastCalledWith('all', 90);
     });
   });
 
@@ -383,7 +384,7 @@ describe('ClaimVerdictsTab', () => {
     fireEvent.change(screen.getByLabelText('Message id'), { target: { value: ' msg-42 ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Look up' }));
     await waitFor(() => {
-      expect(adminApi.listVerdictsForMessage).toHaveBeenCalledWith('msg-42', undefined);
+      expect(adminApi.listVerdictsForMessage).toHaveBeenCalledWith('msg-42', 'all');
       expect(screen.getByText('Your max heart rate is 250 bpm.')).toBeInTheDocument();
     });
     expect(screen.getByTestId('verdict-drawer')).toBeInTheDocument();
@@ -402,38 +403,7 @@ describe('ClaimVerdictsTab', () => {
     expect(screen.queryByTestId('verdict-drawer')).not.toBeInTheDocument();
   });
 
-  it('gives a plain admin the disposition to read and no action the server would refuse', async () => {
-    vi.mocked(adminApi.listClaimVerdicts).mockResolvedValue({
-      verdicts: [
-        sampleVerdict({
-          status: 'unsupported',
-          disposition: 'false_positive',
-          disposition_reason: 'missing_keyword',
-          disposition_note: 'corpus has it under a different word',
-          disposed_by: 'super@example.com',
-          disposed_at: '2026-09-21T12:00:00Z',
-        }),
-      ],
-      total: 1,
-    });
-    renderTab();
-    fireEvent.click(await screen.findByText(/Take 5 g of creatine/i));
-
-    const summary = await screen.findByTestId('verdict-disposition-summary');
-    expect(summary).toHaveTextContent('False positive');
-    expect(summary).toHaveTextContent('Missing keyword');
-    expect(summary).toHaveTextContent('corpus has it under a different word');
-    expect(summary).toHaveTextContent(/Disposed by super@example.com/);
-    expect(await screen.findByText('evidence/sports_science/supplement/')).toBeInTheDocument();
-    expect(screen.queryByTestId('verdict-disposition')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Save disposition' })).not.toBeInTheDocument();
-    expect(screen.getByText(/evaluated by the claim verifier/i)).not.toHaveTextContent(
-      /record whether the flag was right/,
-    );
-  });
-
   it('saves a disposition through the API with the body the route expects', async () => {
-    role.current = 'super_admin';
     vi.mocked(adminApi.listClaimVerdicts).mockResolvedValue({
       verdicts: [sampleVerdict({ id: 'v1', status: 'unsupported' })],
       total: 1,

@@ -334,6 +334,12 @@ impl A2ARoutes {
         Json(request): Json<StoreCredentialsRequest>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
+        // An OAuth app outlives the support session that would store it.
+        auth.refuse_impersonation(
+            MiddlewareCtx::repos(&*state.ctx).admin_audit.as_ref(),
+            "store an A2A integration's OAuth app",
+        )
+        .await?;
         let user_id = auth.user_id;
 
         if request.credentials.is_empty() {
@@ -409,6 +415,12 @@ impl A2ARoutes {
         Json(request): Json<CreateA2AClientRequest>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
+        // A client's secret outlives the support session that would mint it.
+        auth.refuse_impersonation(
+            MiddlewareCtx::repos(&*state.ctx).admin_audit.as_ref(),
+            "register an A2A client",
+        )
+        .await?;
 
         info!(
             user_id = %auth.user_id,

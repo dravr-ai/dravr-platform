@@ -35,7 +35,7 @@ pub mod api_key_cleanup;
 pub mod archetype_aggregation;
 /// Adopting the activity cache into the activity store, once per environment (carnet#1482)
 pub mod cache_adoption;
-/// Coach-access requests: a coach asks, a super-admin grants or declines (carnet#738)
+/// Coach-access requests: a coach asks, an admin grants or declines (carnet#738)
 pub mod coach_access;
 /// An Intervals.icu key whose roster coaches active athletes files its owner's coach-access request, never a grant
 pub mod coach_access_evidence;
@@ -51,7 +51,7 @@ pub mod coach_replies;
 pub mod coach_roster;
 /// The new-user cohort report the admin console and the daily digest read
 pub mod new_user_cohort;
-/// Email to the operators: the super-admin recipients and the pending sign-up alert (carnet#1056)
+/// Email to the admins: who receives it, and the pending sign-up alert (carnet#1056)
 pub mod operator_mail;
 
 /// Authentication service: registration, login, password management, token refresh
@@ -80,6 +80,9 @@ pub mod coach_plan_draft;
 
 /// The notices an athlete gets when their human coach publishes or pushes their plan (carnet#1069).
 pub mod coach_plan_notice;
+
+/// The notice an athlete gets when their human coach sets one of their thresholds (carnet#1561).
+pub mod coach_physiology_notice;
 
 /// The room post a coach's publish leaves in the athlete's group, naming the changed days (carnet#1249).
 pub mod coach_plan_room_post;
@@ -168,6 +171,13 @@ pub mod agents;
 /// and hands the verdict to a reporter for delivery.
 pub mod commitment_sweep;
 
+/// The daily sweep sending each data access request's reminders once per
+/// stage (carnet#1646).
+pub mod data_access_request_sweep;
+/// The athlete's statutory data access requests: the letter, the legal
+/// deadline and the state (carnet#1646).
+pub mod data_access_requests;
+
 /// Conversation compaction: keeps long conversations under the context window
 pub mod conversation_compaction;
 /// Forging a fresh chat conversation — the ceremony the messaging self-heal
@@ -188,8 +198,23 @@ pub mod live_activities;
 /// The activity store over dravr-barrage, its record store opener and its projection into the cache (carnet#1482)
 pub mod barrage_live_store;
 
+/// The athlete's originals bundle: built on request, tracked, downloaded, swept.
+pub mod originals_bundle;
+
+/// Sealing an originals bundle with the athlete's passphrase as an age v1 file (scrypt recipient).
+pub mod originals_seal;
+
 /// The activity store's projection into the activity cache: the cache's one writer (carnet#1482)
 pub mod activity_cache_sink;
+
+/// The one stored route track read, and a cached row's provider-free local track (carnet#1484)
+pub mod activity_track;
+
+/// Athlete places: the places worker's recompute, and naming a place (carnet#1484)
+pub mod athlete_places;
+
+/// The athlete's own loops near a point, ranked for an asked effort (carnet#1665)
+pub mod athlete_loops;
 
 /// A deleted activity's gear released, and the workout merge the gear ledger reads (carnet#711)
 pub mod gear_release;
@@ -208,6 +233,9 @@ pub mod health_sync;
 pub mod wellness_store;
 /// What the wellness store may keep of a WHOOP record: measurements, never WHOOP's own scores
 pub mod whoop_terms;
+
+/// The one row-level merge of stored activity copies into workouts, and the gates a read applies first
+pub mod workouts;
 
 /// Health sync's daily-summary reads, made on the dedicated sciotte scraper service
 #[cfg(feature = "health-sync")]
@@ -263,6 +291,14 @@ pub mod recent_load;
 
 pub mod about_you;
 pub mod email_verification;
+/// A group owner with coach access claims the coach seat of their coachless
+/// group (carnet#1650)
+pub mod group_coach_claim;
+/// The public invite card, the invite funnel and the held invite's card
+/// (carnet#1649, carnet#1650)
+pub mod group_invite_card;
+/// A group invite held for an account until it can join (carnet#1648)
+pub mod group_invite_hold;
 pub mod link_token;
 /// Signup codes: mint, list, revoke, resolve and claim (carnet#1128)
 pub mod signup_codes;

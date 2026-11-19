@@ -34,7 +34,8 @@ use uuid::Uuid;
 /// Multi-tenant management repository
 #[async_trait]
 pub trait TenantRepository: Send + Sync {
-    /// Create a new tenant
+    /// Create a tenant with its owner as first member, in one transaction:
+    /// when either row cannot be written, neither is.
     async fn create(&self, tenant: &Tenant) -> AppResult<()>;
     /// Get tenant by ID
     async fn get_by_id(&self, tenant_id: TenantId) -> AppResult<Tenant>;
@@ -59,13 +60,15 @@ pub trait TenantRepository: Send + Sync {
             .first()
             .map(|tenant| tenant.id))
     }
-    /// Every tenant the user holds a membership row in, whatever the tenant's
-    /// state or ownership, ordered by id.
+    /// Every tenant the user's rows reach, ordered by id: each one they hold a
+    /// membership row in, whatever the tenant's state or ownership, and the
+    /// tenant their user row names, membership row or not.
     ///
     /// [`Self::list_for_user`] names only active tenants that have an owner,
     /// which is what a session may act in. This is how far a user's rows
     /// reach, which is what an operator acting on the whole user must be
-    /// allowed to touch.
+    /// allowed to touch, and what the athlete's own export reads: the one
+    /// definition of "the athlete's tenants" ([`member_tenant_ids_sql`]).
     async fn list_membership_tenant_ids(&self, user_id: Uuid) -> AppResult<Vec<TenantId>>;
 
     /// The agent this user has selected within this tenant, if any.
@@ -169,9 +172,28 @@ pub(crate) const LIST_TENANTS_FOR_USER_SQL: &str = r"
             ORDER BY tu.joined_at ASC
             ";
 
-/// Every tenant a user holds a membership row in, active or not, owned or not.
+/// The tenants a user's rows reach, as text: every tenant they hold a
+/// membership row in, active or not, owned or not, and the tenant their user
+/// row names. `$user` is the SQL that names the user, so a statement can bind
+/// it in its own form: the one definition of "the athlete's tenants", which
+/// [`TenantRepository::list_membership_tenant_ids`] runs and the export's
+/// page statements (`user_export`) embed.
+macro_rules! member_tenant_ids_sql {
+    ($($user:tt)+) => {
+        concat!(
+            "SELECT CAST(tu.tenant_id AS TEXT) AS tenant_id FROM tenant_users tu WHERE tu.user_id = ",
+            $($user)+,
+            " UNION SELECT CAST(u.tenant_id AS TEXT) AS tenant_id FROM users u WHERE u.id = ",
+            $($user)+,
+            " AND u.tenant_id IS NOT NULL"
+        )
+    };
+}
+pub(crate) use member_tenant_ids_sql;
+
+/// Every tenant a user's rows reach ([`member_tenant_ids_sql`]), in id order.
 pub(crate) const LIST_MEMBERSHIP_TENANT_IDS_SQL: &str =
-    "SELECT tenant_id FROM tenant_users WHERE user_id = $1 ORDER BY tenant_id";
+    concat!(member_tenant_ids_sql!("$1"), " ORDER BY tenant_id");
 
 /// Every active tenant, oldest first.
 pub(crate) const GET_ALL_TENANTS_SQL: &str = concat!(
@@ -370,6 +392,12 @@ macro_rules! impl_tenant_repository {
             }
 
             async fn create(&self, tenant: &Tenant) -> AppResult<()> {
+                // One transaction: a tenant row whose owner could not be
+                // recorded is found by no read, which all join the owner,
+                // and keeps its slug from every later creation.
+                let mut tx = self.pool().begin().await.map_err(|e| {
+                    AppError::database(format!("Failed to begin a tenant creation: {e}"))
+                })?;
                 sqlx::query(CREATE_TENANT_SQL)
                     .bind(tenant.id)
                     .bind(&tenant.name)
@@ -378,7 +406,7 @@ macro_rules! impl_tenant_repository {
                     .bind(&tenant.plan)
                     .bind(tenant.created_at)
                     .bind(tenant.updated_at)
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
                     .map_err(|e| AppError::database(format!("Failed to create tenant: {e}")))?;
 
@@ -387,11 +415,14 @@ macro_rules! impl_tenant_repository {
                     .bind(tenant.id)
                     .bind($ids::bind(tenant.owner_user_id))
                     .bind(Utc::now())
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to add owner to tenant: {e}"))
                     })?;
+                tx.commit().await.map_err(|e| {
+                    AppError::database(format!("Failed to commit a tenant creation: {e}"))
+                })?;
 
                 info!(
                     "Created tenant: {} ({}) and added owner to tenant_users",
@@ -449,8 +480,11 @@ macro_rules! impl_tenant_repository {
 
                 rows.iter()
                     .map(|row| {
-                        row.try_get::<TenantId, _>("tenant_id").map_err(|e| {
-                            AppError::database(format!("Failed to get tenant_users.tenant_id: {e}"))
+                        let text: String = row.try_get("tenant_id").map_err(|e| {
+                            AppError::database(format!("Failed to get a member tenant id: {e}"))
+                        })?;
+                        TenantId::parse_str(&text).map_err(|e| {
+                            AppError::database(format!("A member tenant id is not a uuid: {e}"))
                         })
                     })
                     .collect()

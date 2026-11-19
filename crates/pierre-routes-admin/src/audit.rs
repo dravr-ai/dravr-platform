@@ -40,13 +40,14 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use pierre_core::admin::models::{ValidatedAdminToken, DEVICE_CLI_SERVICE_PREFIX};
+use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::auth_header::extract_bearer_token_owned;
 use pierre_database::repositories::{
     AdminAuditRepository, AuditOutcome, AuditSource, NewAuditEvent,
 };
 use pierre_middleware::{cookie_admin_token, extract_auth_from_headers, require_admin};
 use pierre_runtime_context::MiddlewareCtx;
+use pierre_services::admin_ops::token_audit_source;
 use serde_json::{json, Map, Value};
 use tracing::{debug, error};
 
@@ -170,17 +171,6 @@ impl<C: MiddlewareCtx> AuditRecorder<C> {
     }
 }
 
-/// Where a validated admin credential came from.
-fn source_of(token: &ValidatedAdminToken) -> AuditSource {
-    if token.token_id.starts_with("cookie:") {
-        AuditSource::Console
-    } else if token.service_name.starts_with(DEVICE_CLI_SERVICE_PREFIX) {
-        AuditSource::Cli
-    } else {
-        AuditSource::Service
-    }
-}
-
 /// The caller's address as the edge reported it: the first hop of
 /// `X-Forwarded-For`.
 fn client_ip(headers: &HeaderMap) -> Option<String> {
@@ -229,7 +219,7 @@ fn build_event(
 ) -> NewAuditEvent {
     let detail = detail.unwrap_or_default();
     let outcome = AuditOutcome::from_status(status);
-    let source = source_of(token);
+    let source = token_audit_source(token);
     let mut metadata = Map::new();
     metadata.insert("method".to_owned(), json!(method.as_str()));
     metadata.insert("route".to_owned(), json!(route));
@@ -281,8 +271,9 @@ fn build_event(
 /// it reaches past the tenant its caller acts in.
 ///
 /// The row names what was read in another tenant, so it belongs to no tenant's
-/// trail: a plain admin of the caller's own tenant must not read it. Only a super
-/// admin's view of the trail returns it.
+/// trail: a token scoped to the caller's own tenant must not read it. Only a
+/// view of the whole trail, an admin's session or a super-admin token,
+/// returns it.
 ///
 /// A failed write is logged and never fails the read, like every other row.
 pub(crate) async fn record_admin_read(
@@ -366,25 +357,6 @@ mod tests {
             operator_user_id: Some(Uuid::nil()),
             user_info: None,
         }
-    }
-
-    #[test]
-    fn the_credential_names_the_surface() {
-        assert_eq!(
-            source_of(&token(&format!("cookie:{}", Uuid::nil()), "a@b.c")),
-            AuditSource::Console,
-            "bug: a cookie session is the console"
-        );
-        assert_eq!(
-            source_of(&token("t1", &format!("{DEVICE_CLI_SERVICE_PREFIX}a@b.c"))),
-            AuditSource::Cli,
-            "bug: a device-login token is pierre-cli"
-        );
-        assert_eq!(
-            source_of(&token("t2", "canary")),
-            AuditSource::Service,
-            "bug: any other token is a service"
-        );
     }
 
     #[test]

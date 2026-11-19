@@ -65,6 +65,23 @@ export const QUERY_KEYS = {
   account: {
     /** What deleting the account would remove, read before the athlete confirms. */
     deletionPreview: () => ['account-deletion-preview'] as const,
+    /**
+     * The athlete's latest originals bundle. Every answer about a bundle (the
+     * request's and each poll's) is written here, so a pane opened again shows it.
+     */
+    originalsLatest: () => ['originals-latest'] as const,
+  },
+
+  // ==================== DATA ACCESS REQUESTS ====================
+  dataAccessRequests: {
+    /** Every key below; invalidated after any write, since a step moves a request's state and letter. */
+    all: ['data-access-requests'] as const,
+    /** The athlete's requests, newest first. */
+    list: () => ['data-access-requests', 'list'] as const,
+    /** Every language of one request's letter, dropped when a step changes the request. */
+    letters: (id: string) => ['data-access-requests', 'letter', id] as const,
+    /** One request's letter, in one language. */
+    letter: (id: string, locale: string) => ['data-access-requests', 'letter', id, locale] as const,
   },
 
   // ==================== OAUTH ====================
@@ -184,6 +201,13 @@ export const QUERY_KEYS = {
     /** A coached athlete's live plan, read-only, as their coach reads it from Group info. */
     athletePlan: (athleteUserId: string | null, groupId: string | null) =>
       ['chat', 'athlete-plan', athleteUserId, groupId] as const,
+    /**
+     * A coached athlete's thresholds as their coach reads them from Group
+     * info (carnet#1561), worded in the coach's language and units, both in
+     * the key as the athlete's own read keys them.
+     */
+    athletePhysiology: (athleteUserId: string | null, groupId: string | null, locale: string, units: string) =>
+      ['chat', 'athlete-physiology', athleteUserId, groupId, locale, units] as const,
     /**
      * Who a coach's next send in a one-athlete room reaches — everyone, or the
      * agent alone — as this device remembers it for the viewer in that room
@@ -306,6 +330,17 @@ export const QUERY_KEYS = {
   },
 
   // ==================== GROUPS ====================
+  /**
+   * The group invite card and the held invite (carnet#1649, #1650). Kept
+   * apart from `groups`: every group invalidation refetches that prefix, and
+   * a refetched preview counts as another "opened" for the coach.
+   */
+  groupInvite: {
+    /** The public card a link opens on: read once per page load. */
+    preview: (code: string) => ['group-invite', 'preview', code] as const,
+    /** The invite the server holds for the signed-in account. */
+    held: () => ['group-invite', 'held'] as const,
+  },
   groups: {
     all: ['groups'] as const,
     detail: (groupId: string) => ['groups', groupId] as const,

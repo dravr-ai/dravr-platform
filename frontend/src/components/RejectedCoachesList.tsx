@@ -7,24 +7,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import { clsx } from 'clsx';
+import { BADGE_TONE, ALERT_TONE } from './ui';
+import { coachCategoryTone } from './coachCategory';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
-
-// Category colors matching SystemCoachesTab
-const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-activity/10 text-on-activity-container border-activity/20',
-  Nutrition: 'bg-nutrition/10 text-on-nutrition-container border-nutrition/20',
-  Recovery: 'bg-recovery/10 text-on-recovery-container border-recovery/20',
-  Recipes: 'bg-warning/10 text-on-warning-container border-warning/20',
-  Mobility: 'bg-mobility/10 text-on-mobility-container border-mobility/20',
-  Custom: 'bg-primary/10 text-primary border-primary/20',
-};
-
-function getCategoryColorClass(category: string): string {
-  const normalized = category.charAt(0).toUpperCase() + category.slice(1).toLowerCase();
-  return CATEGORY_COLORS[normalized] || CATEGORY_COLORS.Custom;
-}
 
 // Map rejection reason codes to human-readable labels
 const REJECTION_REASON_LABELS: Record<string, string> = {
@@ -109,8 +96,8 @@ export default function RejectedCoachesList() {
                     <h2 className="font-semibold text-on-surface truncate">{coach.title}</h2>
                     <div className="flex items-center gap-2 mt-1">
                       <span className={clsx(
-                        'px-2 py-0.5 text-xs font-medium rounded-full border',
-                        getCategoryColorClass(coach.category)
+                        'px-2 py-0.5 text-xs font-medium rounded-full',
+                        BADGE_TONE[coachCategoryTone(coach.category)].tone
                       )}>
                         {coach.category}
                       </span>
@@ -122,14 +109,14 @@ export default function RejectedCoachesList() {
                 </div>
 
                 {/* Rejection Info */}
-                <div className="mt-3 p-3 bg-error/10 border border-error/20 rounded-lg">
+                <div className={`${ALERT_TONE.error.tone} mt-3 p-3 border rounded-lg`}>
                   <div className="flex items-start gap-2">
-                    <svg className="w-4 h-4 text-error flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium text-error">
+                        <span className="text-sm font-medium">
                           {getReasonLabel(coach.rejection_reason)}
                         </span>
                         <span className="text-xs text-outline flex-shrink-0">

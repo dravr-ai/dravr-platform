@@ -14,7 +14,6 @@
 use crate::common;
 
 use anyhow::Result;
-use pierre_config::environment::ServerConfig;
 use pierre_core::models::User;
 use pierre_mcp_server::{
     mcp::{
@@ -56,7 +55,7 @@ async fn test_mcp_initialize_request() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -64,7 +63,7 @@ async fn test_mcp_initialize_request() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -77,6 +76,8 @@ async fn test_mcp_initialize_request() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -100,7 +101,7 @@ async fn test_mcp_ping_request() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -108,7 +109,7 @@ async fn test_mcp_ping_request() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -121,6 +122,8 @@ async fn test_mcp_ping_request() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -141,7 +144,7 @@ async fn test_mcp_tools_list_request() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -149,7 +152,7 @@ async fn test_mcp_tools_list_request() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -162,6 +165,8 @@ async fn test_mcp_tools_list_request() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -186,7 +191,7 @@ async fn test_mcp_tools_call_without_auth() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -194,7 +199,7 @@ async fn test_mcp_tools_call_without_auth() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -207,6 +212,8 @@ async fn test_mcp_tools_call_without_auth() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -235,7 +242,7 @@ async fn test_mcp_tools_call_with_expired_token() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -243,7 +250,7 @@ async fn test_mcp_tools_call_with_expired_token() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -256,6 +263,8 @@ async fn test_mcp_tools_call_with_expired_token() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -290,7 +299,7 @@ async fn test_mcp_tools_call_malformed_token() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -298,7 +307,7 @@ async fn test_mcp_tools_call_malformed_token() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -311,6 +320,8 @@ async fn test_mcp_tools_call_malformed_token() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -345,7 +356,7 @@ async fn test_mcp_unknown_method() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -353,7 +364,7 @@ async fn test_mcp_unknown_method() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -366,6 +377,8 @@ async fn test_mcp_unknown_method() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -386,7 +399,7 @@ async fn test_mcp_oauth_tool_calls() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -394,7 +407,7 @@ async fn test_mcp_oauth_tool_calls() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -407,6 +420,8 @@ async fn test_mcp_oauth_tool_calls() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -476,7 +491,7 @@ async fn test_mcp_intelligence_tool_calls() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -484,7 +499,7 @@ async fn test_mcp_intelligence_tool_calls() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -497,6 +512,8 @@ async fn test_mcp_intelligence_tool_calls() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -554,7 +571,7 @@ async fn test_mcp_provider_required_tools() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -562,7 +579,7 @@ async fn test_mcp_provider_required_tools() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -575,6 +592,8 @@ async fn test_mcp_provider_required_tools() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -643,7 +662,7 @@ async fn test_mcp_unknown_tool() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -651,7 +670,7 @@ async fn test_mcp_unknown_tool() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -664,6 +683,8 @@ async fn test_mcp_unknown_tool() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -706,7 +727,7 @@ async fn test_mcp_api_key_authentication() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -714,7 +735,7 @@ async fn test_mcp_api_key_authentication() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -727,6 +748,8 @@ async fn test_mcp_api_key_authentication() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -769,7 +792,7 @@ async fn test_mcp_request_id_variations() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -777,7 +800,7 @@ async fn test_mcp_request_id_variations() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -790,6 +813,8 @@ async fn test_mcp_request_id_variations() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -819,7 +844,7 @@ async fn test_mcp_error_scenarios() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -827,7 +852,7 @@ async fn test_mcp_error_scenarios() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -840,6 +865,8 @@ async fn test_mcp_error_scenarios() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -880,7 +907,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
     common::init_server_config();
     let database = common::create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
-    let config = Arc::new(ServerConfig::from_env()?);
+    let config = Arc::new(common::server_config_from_env()?);
 
     let cache = common::create_test_cache().await.unwrap();
     let resources = Arc::new(
@@ -888,7 +915,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
             (*database).clone(),
             (*auth_manager).clone(),
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -901,6 +928,8 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await

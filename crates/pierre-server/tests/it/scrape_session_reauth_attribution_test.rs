@@ -368,6 +368,7 @@ async fn a_flagged_session_is_not_read_again_until_the_athlete_reconnects() {
 #[cfg(feature = "health-sync")]
 mod health_sync {
     use super::{fixture, Fixture, SESSION_ID};
+    use crate::common::REFUSED_WELLNESS;
 
     use std::sync::Mutex;
 
@@ -423,7 +424,9 @@ mod health_sync {
             .sync_storage
             .as_ref()
             .expect("health sync is wired");
-        let orchestrator = storage.build_orchestrator_with_reader(reader).unwrap();
+        let orchestrator = storage
+            .build_orchestrator_with_reader(reader, REFUSED_WELLNESS)
+            .unwrap();
         // Failed or refused, the outcome is the flag and the reads below.
         drop(
             orchestrator

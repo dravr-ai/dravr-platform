@@ -26,10 +26,13 @@ use axum::response::Response;
 use axum::Router;
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use jsonschema::Validator;
+use jsonwebtoken::dangerous::insecure_decode;
+use jsonwebtoken::{encode, Algorithm, Header};
 use pierre_a2a::agent_card::ICON_PATH;
 use pierre_a2a::protocol::TaskStatus;
-use pierre_auth::auth::DelegatedGrant;
+use pierre_auth::auth::{Claims, DelegatedGrant};
 use pierre_auth::config::{resolve_mcp_resource_aliases, OAuth2ServerConfig};
+use pierre_auth::oauth2_server::first_party::{MOBILE_CLIENT_ID, WEB_CLIENT_ID};
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::MessagingStringsRegistry;
@@ -658,11 +661,24 @@ async fn an_a2a_bound_token_is_refused_at_mcp() {
     assert_eq!(response.status(), 401);
 }
 
-/// carnet#768 is decided by the grant, not the audience: Dravr's own session
-/// carries the full self grant, and naming the A2A resource does not turn it
-/// into an agent's credential.
+/// `token` naming `client_id` in place of the client it was issued to,
+/// signed again with the server's active key.
+fn naming(resources: &Arc<ServerContext>, token: &str, client_id: Option<&str>) -> String {
+    let mut claims = insecure_decode::<Claims>(token).unwrap().claims;
+    claims.client_id = client_id.map(str::to_owned);
+    let key = resources.auth.jwks_manager.get_active_key().unwrap();
+    let mut header = Header::new(Algorithm::RS256);
+    header.kid = Some(key.kid.clone());
+    encode(&header, &claims, &key.encoding_key().unwrap()).unwrap()
+}
+
+/// carnet#768 is decided by whose token it is, not by the audience: Dravr's
+/// own session names one of Dravr's apps or no client and carries the full
+/// self grant, and naming the A2A resource does not turn it into an agent's
+/// credential. The same grant on a token an application holds is that
+/// application's delegation, and the door serves it (carnet#1511).
 #[tokio::test]
-async fn a_first_party_session_grant_stays_refused_with_the_a2a_audience() {
+async fn a_first_party_session_stays_refused_with_the_a2a_audience() {
     let resources = resources().await;
     let (user, session) = common::create_test_tenant(&resources, "door-session@example.com")
         .await
@@ -674,8 +690,32 @@ async fn a_first_party_session_grant_stays_refused_with_the_a2a_audience() {
         .iter()
         .map(ToString::to_string)
         .collect();
-    let bound_session = delegated_token(&resources, &user, Some(A2A_RESOURCE), &self_grant).await;
-    assert_eq!(list_tasks_status(&resources, &bound_session).await, 401);
+    let held_by_an_application =
+        delegated_token(&resources, &user, Some(A2A_RESOURCE), &self_grant).await;
+    for client_id in [None, Some(WEB_CLIENT_ID), Some(MOBILE_CLIENT_ID)] {
+        let bound_session = naming(&resources, &held_by_an_application, client_id);
+        assert_eq!(
+            list_tasks_status(&resources, &bound_session).await,
+            401,
+            "{client_id:?}"
+        );
+    }
+    assert_eq!(
+        list_tasks_status(&resources, &held_by_an_application).await,
+        200,
+        "an application's token is its delegation, whatever it holds"
+    );
+    // The control for the re-signing helper: naming another application the
+    // token is still served, so the refusals above are for the client named.
+    assert_eq!(
+        list_tasks_status(
+            &resources,
+            &naming(&resources, &held_by_an_application, Some("another-client"))
+        )
+        .await,
+        200,
+        "a re-signed token naming another application is that application's"
+    );
 }
 
 #[tokio::test]

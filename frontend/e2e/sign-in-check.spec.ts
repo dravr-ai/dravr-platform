@@ -6,27 +6,14 @@
 
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
 import { loginToDashboard, setupDashboardMocks } from './test-helpers';
-
-/** A takeover token shaped as the server mints one: its `tgt` names the provider. */
-function takeoverToken(): string {
-  const b64url = (json: string) => Buffer.from(json, 'utf8').toString('base64url');
-  return `${b64url('{"alg":"HS256","typ":"JWT"}')}.${b64url('{"tgt":"sciotte_garmin","scope":"provider:sciotte:takeover"}')}.signature`;
-}
+import { mockSetupStatus, mockSignedOut, takeoverToken } from './auth-mocks';
 
 const TOKEN = takeoverToken();
 const FRAME = { width: 320, height: 568 };
 
 async function setupBasicMocks(page: Page) {
-  await page.route('**/admin/setup/status', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ needs_setup: false, admin_user_exists: true, message: 'Admin user configured' }),
-    }),
-  );
-  await page.route('**/api/auth/session', (route) =>
-    route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
-  );
+  await mockSetupStatus(page);
+  await mockSignedOut(page);
 }
 
 /** A real JPEG frame, drawn by the browser itself so the canvas decodes a true image. */

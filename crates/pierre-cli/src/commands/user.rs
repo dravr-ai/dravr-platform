@@ -8,7 +8,6 @@ use std::str::FromStr;
 
 use bcrypt::{hash, DEFAULT_COST};
 use chrono::Utc;
-use pierre_cli::admin_role::forced_admin_role;
 use pierre_core::constants::tiers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::feature_flags::FeatureKey;
@@ -19,26 +18,37 @@ use pierre_core::permissions::UserRole;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::mask_email;
-use pierre_services::admin_ops;
+use pierre_services::admin_ops::{
+    self, AccountCaller, AdminStandingLost, WithdrawnAdminCredentials,
+};
 
 type Result<T> = AppResult<T>;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::helpers::display::display_admin_user_success;
+use crate::helpers::display::{display_admin_user_success, display_plain_user_success};
 
 /// Non-identity attributes of the account `create` establishes.
 pub(crate) struct AdminUserOptions {
-    /// Update the account instead of refusing when the email already exists
+    /// Update the account instead of refusing when the email already exists.
+    ///
+    /// The host-level break-glass path (carnet#1589): the account is written
+    /// active with the password and role asked for, whatever its standing,
+    /// with no approval first. The approve-first rule binds the admin
+    /// surfaces (`user promote`, the console, the admin API); this command
+    /// writes the database from the host shell, whose holder holds every
+    /// power, and is how an admin is restored when no admin can sign in.
     pub force: bool,
-    /// Grant the `super_admin` role rather than plain `admin`
-    pub super_admin: bool,
     /// BCP-47 short locale for the account. `None` keeps the platform default
     /// on a new account and leaves an existing account's own locale untouched.
     pub locale: Option<String>,
+    /// The role the account is created with: an admin unless a plain user is
+    /// asked for.
+    pub role: UserRole,
 }
 
-/// Create or update admin user for frontend login
+/// Create or update an account for frontend login: an admin, or with
+/// `--role user` a plain active user.
 pub(crate) async fn create(
     repos: &RepositoryRegistry,
     email: String,
@@ -48,19 +58,22 @@ pub(crate) async fn create(
 ) -> Result<()> {
     let AdminUserOptions {
         force,
-        super_admin,
         locale,
+        role,
     } = options;
     // Derive display name from email prefix if not provided
     let display_name =
         name.unwrap_or_else(|| email.split('@').next().unwrap_or("Admin").to_owned());
 
-    let role_str = if super_admin { "super admin" } else { "admin" };
-    info!("User Creating {} user: {}", role_str, mask_email(&email));
+    info!(
+        "User Creating {} user: {}",
+        role.as_str(),
+        mask_email(&email)
+    );
 
     // Check if user already exists and handle accordingly
     if let Ok(Some(existing_user)) = repos.users.get_by_email(&email).await {
-        update_existing_admin_user(
+        update_existing_user(
             repos,
             existing_user,
             &email,
@@ -68,19 +81,22 @@ pub(crate) async fn create(
             &display_name,
             UpdateOptions {
                 force,
-                super_admin,
                 locale,
+                role,
             },
         )
         .await?;
     } else {
-        create_new_admin_user(repos, &email, &password, &display_name, super_admin, locale).await?;
+        create_new_user(repos, &email, &password, &display_name, locale, role).await?;
     }
 
-    display_admin_user_success(&email, &display_name, super_admin);
-    initialize_admin_jwt_secret(repos).await?;
-
-    println!("\nSuccess Admin user is ready to use!");
+    if role.is_admin() {
+        display_admin_user_success(&email, &display_name);
+        initialize_admin_jwt_secret(repos).await?;
+        println!("\nSuccess Admin user is ready to use!");
+    } else {
+        display_plain_user_success(&email, &display_name);
+    }
 
     Ok(())
 }
@@ -89,11 +105,20 @@ pub(crate) async fn create(
 /// function stays under the argument threshold.
 struct UpdateOptions {
     force: bool,
-    super_admin: bool,
     locale: Option<String>,
+    role: UserRole,
 }
 
-async fn update_existing_admin_user(
+/// The tier an account `create` establishes holds: every tier's access for
+/// an admin, the tier a sign-up starts on for a plain user.
+const fn created_tier(role: UserRole) -> UserTier {
+    match role {
+        UserRole::Admin => UserTier::Enterprise,
+        UserRole::User => UserTier::Starter,
+    }
+}
+
+async fn update_existing_user(
     repos: &RepositoryRegistry,
     existing_user: User,
     email: &str,
@@ -103,8 +128,8 @@ async fn update_existing_admin_user(
 ) -> Result<()> {
     let UpdateOptions {
         force,
-        super_admin,
         locale,
+        role,
     } = options;
     if !force {
         display_existing_user_error(&existing_user);
@@ -112,20 +137,26 @@ async fn update_existing_admin_user(
             "User already exists (use --force to update)",
         ));
     }
+    // `--role user` creates and re-asserts plain accounts. Taking the role
+    // from an admin is `user demote`'s, which says what the demotion
+    // withdrew and puts it on the trail; a second way to demote would not.
+    if existing_user.role.is_admin() && !role.is_admin() {
+        return Err(AppError::invalid_input(format!(
+            "{email} is an admin, and `user create --role user` does not demote. Nothing was \
+             changed; run `pierre-cli user demote --email {email}` first."
+        )));
+    }
 
-    // `--super-admin` promotes; its absence must never demote. See
-    // `forced_admin_role` for the incident this closes.
-    let role = forced_admin_role(super_admin, existing_user.role);
-
-    // Names the role actually being written, not the flag that was passed: on a
-    // preserved super-admin those two disagree, and the log is the only place an
-    // operator would notice.
-    let role_str = if role == UserRole::SuperAdmin {
-        "super admin"
+    // `user create --force` re-asserts the account as an admin, whatever role
+    // it held: there is one admin role, so there is nothing to preserve or
+    // lose. With `--role user` it re-asserts a plain account, and leaves the
+    // tier that account holds alone.
+    info!("Updating existing {} user...", role.as_str());
+    let tier = if role.is_admin() {
+        created_tier(role)
     } else {
-        "admin"
+        existing_user.tier
     };
-    info!("Updating existing {} user...", role_str);
 
     // NOTE: tenant_id is managed via tenant_users junction table, not on User struct
     let updated_user = User {
@@ -134,11 +165,10 @@ async fn update_existing_admin_user(
         display_name: Some(name.to_owned()),
         password_hash: hash(password, DEFAULT_COST)
             .map_err(|e| AppError::internal(format!("bcrypt error: {e}")))?,
-        tier: UserTier::Enterprise,
+        tier,
         strava_token: existing_user.strava_token,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: true,
         role,
         approved_by: existing_user.approved_by,
         approved_at: existing_user.approved_at,
@@ -212,13 +242,18 @@ async fn create_default_mcp_token_for_user(repos: &RepositoryRegistry, user_id: 
     }
 }
 
-/// Create a personal tenant for a user and link them to it
+/// Create a personal tenant for a user and link them to it: on the
+/// enterprise plan for an admin, on the starter plan for a plain user.
 async fn create_and_link_personal_tenant(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     name: &str,
-    slug_prefix: &str,
+    role: UserRole,
 ) -> Result<()> {
+    let (slug_prefix, plan) = match role {
+        UserRole::Admin => ("admin", tiers::ENTERPRISE),
+        UserRole::User => ("user", tiers::STARTER),
+    };
     let tenant_id = TenantId::generate();
     let tenant_slug = format!("{slug_prefix}-{}", user_id.as_simple());
     let tenant = Tenant {
@@ -226,7 +261,7 @@ async fn create_and_link_personal_tenant(
         name: format!("{name}'s Workspace"),
         slug: tenant_slug,
         domain: None,
-        plan: tiers::ENTERPRISE.to_owned(),
+        plan: plan.to_owned(),
         owner_user_id: user_id,
         created_at: Utc::now(),
         updated_at: Utc::now(),
@@ -240,14 +275,14 @@ async fn create_and_link_personal_tenant(
     Ok(())
 }
 
-/// Build admin user model with the given parameters
-fn build_admin_user(
+/// Build the model of a new active account with `role`
+fn build_user(
     user_id: Uuid,
     email: &str,
     password_hash: String,
     name: &str,
-    role: UserRole,
     locale: Option<String>,
+    role: UserRole,
 ) -> User {
     // NOTE: tenant_id is managed via tenant_users junction table, not on User struct
     User {
@@ -255,11 +290,10 @@ fn build_admin_user(
         email: email.to_owned(),
         display_name: Some(name.to_owned()),
         password_hash,
-        tier: UserTier::Enterprise,
+        tier: created_tier(role),
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: true,
         role,
         approved_by: None,
         approved_at: Some(Utc::now()),
@@ -277,32 +311,25 @@ fn build_admin_user(
     }
 }
 
-async fn create_new_admin_user(
+async fn create_new_user(
     repos: &RepositoryRegistry,
     email: &str,
     password: &str,
     name: &str,
-    super_admin: bool,
     locale: Option<String>,
+    role: UserRole,
 ) -> Result<()> {
-    let role_str = if super_admin { "super admin" } else { "admin" };
-    info!("Creating new {} user...", role_str);
-
-    let role = if super_admin {
-        UserRole::SuperAdmin
-    } else {
-        UserRole::Admin
-    };
+    info!("Creating new {} user...", role.as_str());
 
     let user_id = Uuid::new_v4();
     let password_hash = hash(password, DEFAULT_COST)
         .map_err(|e| AppError::internal(format!("bcrypt error: {e}")))?;
-    let new_user = build_admin_user(user_id, email, password_hash, name, role, locale);
+    let new_user = build_user(user_id, email, password_hash, name, locale, role);
 
     repos.users.create(&new_user).await?;
-    info!("Created {} user: {}", role_str, mask_email(email));
+    info!("Created {} user: {}", role.as_str(), mask_email(email));
 
-    create_and_link_personal_tenant(repos, user_id, name, "admin").await?;
+    create_and_link_personal_tenant(repos, user_id, name, role).await?;
 
     create_default_mcp_token_for_user(repos, new_user.id).await;
 
@@ -321,9 +348,9 @@ async fn initialize_admin_jwt_secret(repos: &RepositoryRegistry) -> Result<()> {
 
 /// Promote an existing user to admin
 ///
-/// Operates directly on the database — no HTTP layer involved. The `set_admin_status`
-/// repo method handles the privilege transition. To promote to super-admin, use
-/// `pierre-cli user create --email X --password Y --force --super-admin` instead.
+/// Operates directly on the database — no HTTP layer involved. The write is
+/// the one the admin API's promotion makes (`admin_ops::grant_admin_role`),
+/// so an account that is not active is refused here too: approve it first.
 pub(crate) async fn promote(repos: &RepositoryRegistry, email: String) -> Result<()> {
     let user = repos
         .users
@@ -331,13 +358,13 @@ pub(crate) async fn promote(repos: &RepositoryRegistry, email: String) -> Result
         .await?
         .ok_or_else(|| AppError::not_found(format!("User with email {email}")))?;
 
-    if user.is_admin {
+    if user.role.is_admin() {
         warn!("User {} is already an admin", mask_email(&email));
         println!("User {email} is already an admin (no change)");
         return Ok(());
     }
 
-    let updated = repos.users.set_admin_status(user.id, true).await?;
+    let updated = admin_ops::grant_admin_role(repos, &user).await?;
     println!(
         "User {} promoted to admin (id={}, role={})",
         updated.email,
@@ -349,8 +376,8 @@ pub(crate) async fn promote(repos: &RepositoryRegistry, email: String) -> Result
 
 /// Demote an admin user back to a regular user
 ///
-/// Super-admins cannot be demoted via this command to prevent accidental privilege loss;
-/// super-admin demotion requires direct DB intervention.
+/// The last active admin cannot be demoted: `set_admin_status` refuses it, so the
+/// platform always keeps one admin.
 pub(crate) async fn demote(repos: &RepositoryRegistry, email: String) -> Result<()> {
     let user = repos
         .users
@@ -358,13 +385,23 @@ pub(crate) async fn demote(repos: &RepositoryRegistry, email: String) -> Result<
         .await?
         .ok_or_else(|| AppError::not_found(format!("User with email {email}")))?;
 
-    if !user.is_admin {
+    if !user.role.is_admin() {
         warn!("User {} is not an admin", mask_email(&email));
         println!("User {email} is not an admin (no change)");
         return Ok(());
     }
 
-    let updated = repos.users.set_admin_status(user.id, false).await?;
+    let write = repos.users.set_admin_status(user.id, false).await?;
+    let (updated, withdrawn) = (write.user, write.withdrawn);
+    let host = AccountCaller::host_cli(None);
+    record_withdrawn(
+        repos,
+        &host,
+        &withdrawn,
+        AdminStandingLost::Demoted,
+        user.id,
+    )
+    .await;
     println!(
         "User {} demoted from admin (id={}, role={})",
         updated.email,
@@ -372,6 +409,29 @@ pub(crate) async fn demote(repos: &RepositoryRegistry, email: String) -> Result<
         updated.role.as_str()
     );
     Ok(())
+}
+
+/// Say what a demotion or suspension took away, and put it on the trail: the
+/// device logins the account approved and the impersonations it had open
+/// stop with its admin standing. This command wrote the database itself, so
+/// the row `host` writes names no signed-in admin.
+async fn record_withdrawn(
+    repos: &RepositoryRegistry,
+    host: &AccountCaller,
+    withdrawn: &WithdrawnAdminCredentials,
+    cause: AdminStandingLost,
+    account: Uuid,
+) {
+    if withdrawn.is_empty() {
+        return;
+    }
+    host.record_withdrawn(repos, withdrawn, cause, Some(account))
+        .await;
+    println!(
+        "Revoked {} device login(s) and ended {} impersonation(s) the account held as an admin",
+        withdrawn.device_tokens.len(),
+        withdrawn.impersonations
+    );
 }
 
 /// Set a user's billing/quota tier (Starter / Professional / Enterprise).
@@ -455,21 +515,30 @@ async fn lookup(repos: &RepositoryRegistry, email: &str) -> Result<User> {
         .ok_or_else(|| AppError::not_found(format!("User with email {email}")))
 }
 
+/// The host shell as the account writes know it: every power, no admin's
+/// session, and its changes written against the admin [`admin_actor`] finds.
+async fn host_caller(repos: &RepositoryRegistry) -> AccountCaller {
+    AccountCaller::host_cli(admin_actor(repos).await)
+}
+
 /// Approve a pending user (status → active) and provision their default
-/// MCP token. Mirrors the super-admin web approve (global scope, no tenant
-/// attach — tenant assignment is the tenant-scoped web flow's concern).
+/// MCP token: the one approval every surface takes (`admin_ops::approve_user`),
+/// with no approver's tenant, so an account that belongs to none is given
+/// one of its own.
 pub(crate) async fn approve(
     repos: &RepositoryRegistry,
     email: String,
     reason: Option<String>,
 ) -> Result<()> {
     let user = lookup(repos, &email).await?;
-    let actor = admin_actor(repos).await;
-    let updated =
-        admin_ops::transition_user_status(repos, user.id, UserStatus::Active, actor).await?;
-    admin_ops::create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), user.id).await;
+    let host = host_caller(repos).await;
+    let acting = host.acting_on(user)?;
+    let updated = admin_ops::approve_user(repos, &acting, None)
+        .await?
+        .into_approved()?
+        .user;
     info!(
-        target_user_id = %user.id,
+        target_user_id = %acting.id(),
         reason = reason.as_deref().unwrap_or("No reason provided"),
         "User approved via pierre-cli"
     );
@@ -487,11 +556,23 @@ pub(crate) async fn suspend(
     reason: Option<String>,
 ) -> Result<()> {
     let user = lookup(repos, &email).await?;
-    let actor = admin_actor(repos).await;
-    let updated =
-        admin_ops::transition_user_status(repos, user.id, UserStatus::Suspended, actor).await?;
+    // The host shell is no admin's session: the admin it names is an audit
+    // identity, so there is no self for the transition to refuse.
+    let host = host_caller(repos).await;
+    let acting = host.acting_on(user)?;
+    let transition =
+        admin_ops::transition_user_status(repos, &acting, UserStatus::Suspended).await?;
+    record_withdrawn(
+        repos,
+        &host,
+        &transition.withdrawn,
+        AdminStandingLost::Deactivated,
+        acting.id(),
+    )
+    .await;
+    let updated = transition.user;
     info!(
-        target_user_id = %user.id,
+        target_user_id = %acting.id(),
         reason = reason.as_deref().unwrap_or("No reason provided"),
         "User suspended via pierre-cli"
     );
@@ -506,7 +587,8 @@ pub(crate) async fn suspend(
 /// out-of-band delivery. Only the token's hash is stored server-side.
 pub(crate) async fn reset_password(repos: &RepositoryRegistry, email: String) -> Result<()> {
     let user = lookup(repos, &email).await?;
-    let token = admin_ops::issue_password_reset_token(repos, user.id, "pierre-cli").await?;
+    let host = AccountCaller::host_cli(None);
+    let token = admin_ops::issue_password_reset_token(repos, &host.acting_on(user)?).await?;
     let minutes = admin_ops::PASSWORD_RESET_TTL_SECONDS / 60;
     println!("Password reset token for {email} (deliver out-of-band, shown once):");
     println!("  {token}");

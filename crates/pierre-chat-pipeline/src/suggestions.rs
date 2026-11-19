@@ -61,6 +61,7 @@ use uuid::Uuid;
 
 use crate::agent_welcome::{localized_agent, starter_samples};
 use crate::envelope::TurnAction;
+use crate::stages::quick_replies::MAX_QUICK_REPLY_BYTES;
 use crate::surface_profile::SurfaceId;
 use crate::team_offer::{self, TeamOfferChoice, TEAM_OFFER_PREFIX};
 
@@ -82,6 +83,14 @@ pub(crate) const SURFACE_GETTING_STARTED: &str = "getting_started";
 const EXAMPLE_PREFIX: &str = "ex:";
 const NEXT_STEP_PREFIX: &str = "nx:";
 
+/// What a model-written quick reply's postback starts with: `qr:<slot>:<text>`
+/// (carnet#1486).
+pub(crate) const QR_PREFIX: &str = "qr:";
+
+/// The analytics identity of every quick reply: its words never reach an
+/// event.
+const QUICK_REPLY_USE_CASE: &str = "quick_reply";
+
 /// Where a suggestion's words came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SuggestionSource {
@@ -91,6 +100,8 @@ pub(crate) enum SuggestionSource {
     State,
     /// A catalogue entry a reply offered as what to do next.
     NextStep,
+    /// A reply the model proposed the athlete might send next.
+    Model,
 }
 
 impl SuggestionSource {
@@ -101,6 +112,7 @@ impl SuggestionSource {
             Self::Static => "static",
             Self::State => "state",
             Self::NextStep => "next_step",
+            Self::Model => "model",
         }
     }
 }
@@ -137,6 +149,14 @@ pub(crate) enum Postback {
         /// The flow's catalogue id.
         id: String,
     },
+    /// Words the model proposed the athlete might send next, offered in slot
+    /// `position`; a tap sends them as the athlete's message.
+    QuickReply {
+        /// 0-based slot the reply was shown in.
+        position: usize,
+        /// The words, as the athlete would send them.
+        text: String,
+    },
     /// A link of the add-to-team offer a pillars walk's wrap-up made.
     TeamOffer {
         /// Which link was tapped.
@@ -154,6 +174,7 @@ impl Postback {
             Self::Example { position, index } => format!("{EXAMPLE_PREFIX}{position}:{index}"),
             Self::UseCase { position, id } => use_case_postback(*position, id),
             Self::NextStep { position, id } => format!("{NEXT_STEP_PREFIX}{position}:{id}"),
+            Self::QuickReply { position, text } => format!("{QR_PREFIX}{position}:{text}"),
             Self::GettingStarted { position, id } => getting_started_postback(*position, id),
             Self::TeamOffer { choice, pillar } => team_offer::encode(*choice, *pillar),
         }
@@ -173,6 +194,16 @@ impl Postback {
         if let Some(rest) = text.strip_prefix(NEXT_STEP_PREFIX) {
             let (position, id) = catalogue_slot(rest)?;
             return Some(Self::NextStep { position, id });
+        }
+        if let Some(rest) = text.strip_prefix(QR_PREFIX) {
+            let (position, words) = rest.split_once(':')?;
+            if words.is_empty() || words.len() > MAX_QUICK_REPLY_BYTES {
+                return None;
+            }
+            return Some(Self::QuickReply {
+                position: parse_slot(position)?,
+                text: words.to_owned(),
+            });
         }
         if let Some(rest) = text.strip_prefix(GETTING_STARTED_POSTBACK_PREFIX) {
             let (position, id) = catalogue_slot(rest)?;
@@ -194,6 +225,7 @@ impl Postback {
         match self {
             Self::Example { index, .. } => format!("{EXAMPLE_PREFIX}{index}"),
             Self::TeamOffer { pillar, .. } => team_offer::exposure_id(*pillar),
+            Self::QuickReply { .. } => QUICK_REPLY_USE_CASE.to_owned(),
             Self::UseCase { id, .. }
             | Self::NextStep { id, .. }
             | Self::GettingStarted { id, .. } => id.clone(),
@@ -207,6 +239,7 @@ impl Postback {
             Self::Example { position, .. }
             | Self::UseCase { position, .. }
             | Self::NextStep { position, .. }
+            | Self::QuickReply { position, .. }
             | Self::GettingStarted { position, .. } => *position,
             Self::TeamOffer { choice, .. } => choice.position(),
         }
@@ -221,6 +254,7 @@ impl Postback {
             Self::UseCase { .. } | Self::GettingStarted { .. } => SuggestionSource::State,
             // An offer rides a walk's wrap-up, beside its next steps.
             Self::NextStep { .. } | Self::TeamOffer { .. } => SuggestionSource::NextStep,
+            Self::QuickReply { .. } => SuggestionSource::Model,
         }
     }
 
@@ -234,7 +268,9 @@ impl Postback {
     pub(crate) const fn surface(&self) -> &'static str {
         match self {
             Self::Example { .. } | Self::UseCase { .. } => SURFACE_AGENT_WELCOME,
-            Self::NextStep { .. } | Self::TeamOffer { .. } => SURFACE_NEXT_STEP,
+            Self::NextStep { .. } | Self::QuickReply { .. } | Self::TeamOffer { .. } => {
+                SURFACE_NEXT_STEP
+            }
             Self::GettingStarted { .. } => SURFACE_GETTING_STARTED,
         }
     }
@@ -246,16 +282,18 @@ impl Postback {
             Self::Example { .. } | Self::UseCase { .. } | Self::GettingStarted { .. } => {
                 InputSource::UseCase
             }
-            Self::NextStep { .. } | Self::TeamOffer { .. } => InputSource::NextStep,
+            Self::NextStep { .. } | Self::QuickReply { .. } | Self::TeamOffer { .. } => {
+                InputSource::NextStep
+            }
         }
     }
 
-    /// The catalogue entry the suggestion stands for; `None` for an example
-    /// or an offer's link.
+    /// The catalogue entry the suggestion stands for; `None` for an example,
+    /// a quick reply or an offer's link.
     #[must_use]
     pub(crate) fn catalogue_id(&self) -> Option<&str> {
         match self {
-            Self::Example { .. } | Self::TeamOffer { .. } => None,
+            Self::Example { .. } | Self::QuickReply { .. } | Self::TeamOffer { .. } => None,
             Self::UseCase { id, .. }
             | Self::NextStep { id, .. }
             | Self::GettingStarted { id, .. } => Some(id),
@@ -359,6 +397,7 @@ pub(crate) async fn resolve(
             });
         }
         Postback::Example { index, .. } => example_words(repos, tap, *index).await?,
+        Postback::QuickReply { text, .. } => Some(text.clone()),
         Postback::UseCase { id, .. }
         | Postback::NextStep { id, .. }
         | Postback::GettingStarted { id, .. } => {
@@ -697,6 +736,8 @@ pub async fn offer_empty_thread_starters(
 
 #[cfg(test)]
 mod tests {
+    use pierre_contremaitre::use_case_catalogue::MAX_POSTBACK_BYTES;
+
     use super::*;
     use crate::envelope::ActionKind;
 
@@ -733,7 +774,7 @@ mod tests {
         assert_eq!(postback.encode(), "ta:no:fuelling");
         assert_eq!(Postback::parse("ta:no:fuelling"), Some(postback.clone()));
         assert_eq!(postback.use_case(), "team_offer_fuelling");
-        assert_eq!(postback.position(), 1);
+        assert_eq!(postback.position(), 1, "bug: the slot is reported");
         assert_eq!(postback.source(), SuggestionSource::NextStep);
         assert_eq!(postback.surface(), SURFACE_NEXT_STEP);
         assert_eq!(postback.catalogue_id(), None);
@@ -762,7 +803,7 @@ mod tests {
         assert_eq!(postback.encode(), "uc:1:last_workout");
         assert_eq!(Postback::parse("uc:1:last_workout"), Some(postback.clone()));
         assert_eq!(postback.use_case(), "last_workout");
-        assert_eq!(postback.position(), 1);
+        assert_eq!(postback.position(), 1, "bug: the slot is reported");
         assert_eq!(postback.source(), SuggestionSource::State);
     }
 
@@ -971,5 +1012,68 @@ mod tests {
         assert!(is_postback("ex:0:0"));
         assert!(is_postback("uc:0:connect"));
         assert!(is_postback("nx:0:fortnight"));
+    }
+
+    #[test]
+    fn a_quick_reply_round_trips_and_stays_out_of_the_catalogue() {
+        let postback = Postback::QuickReply {
+            position: 1,
+            text: "Rest day".to_owned(),
+        };
+        let encoded = postback.encode();
+        assert_eq!(
+            encoded, "qr:1:Rest day",
+            "bug: a quick reply encodes its slot and words"
+        );
+        assert_eq!(
+            Postback::parse(&encoded),
+            Some(postback.clone()),
+            "bug: qr: must round-trip"
+        );
+        assert_eq!(
+            postback.use_case(),
+            "quick_reply",
+            "bug: the words never reach analytics"
+        );
+        assert_eq!(
+            postback.source(),
+            SuggestionSource::Model,
+            "bug: a quick reply is the model's"
+        );
+        assert_eq!(
+            postback.catalogue_id(),
+            None,
+            "bug: a quick reply is no catalogue entry"
+        );
+        assert!(
+            is_postback(&encoded),
+            "bug: a channel without buttons must fold a quick reply to its label alone"
+        );
+        assert_eq!(postback.position(), 1, "bug: the slot is reported");
+    }
+
+    #[test]
+    fn every_quick_reply_postback_fits_telegrams_callback_data() {
+        let longest = "é".repeat(MAX_QUICK_REPLY_BYTES / 2);
+        let encoded = Postback::QuickReply {
+            position: 2,
+            text: longest,
+        }
+        .encode();
+        assert!(
+            encoded.len() <= MAX_POSTBACK_BYTES,
+            "bug: {} bytes do not fit Telegram's callback_data",
+            encoded.len()
+        );
+        assert_eq!(
+            Postback::parse(&format!("qr:0:{}", "a".repeat(MAX_QUICK_REPLY_BYTES + 1))),
+            None,
+            "bug: an over-long quick reply must not parse"
+        );
+        assert_eq!(
+            Postback::parse("qr:0:"),
+            None,
+            "bug: an empty quick reply must not parse"
+        );
     }
 }

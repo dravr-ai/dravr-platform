@@ -34,6 +34,10 @@ const ADMIN_TABS = [
 // below cannot see them and they are walked on their own.
 const OFF_RAIL_TABS = ['settings', 'notifications'] as const;
 
+// The screens that open with a theory panel (carnet#1441): every rail screen,
+// and the admin's own settings. The inbox carries none.
+const THEORY_TABS: readonly string[] = [...ADMIN_TABS, 'settings'];
+
 const THEMES = ['light', 'dark'] as const;
 type Theme = (typeof THEMES)[number];
 
@@ -436,13 +440,17 @@ async function scanTab(page: Page, theme: Theme, tab: string, found: string[]) {
   // that merely contains its name (`#platform-settings`).
   const hash = new URL(page.url()).hash;
   expect(hash === `#${tab}` || hash.startsWith(`#${tab}/`), `#${tab} was redirected to ${hash}`).toBe(true);
-  // Every operator screen opens with its theory panel (carnet#1441), whose body
-  // is mounted only while open: open it, so the scan measures that body in this
-  // theme and not only the one-line summary.
+  // A theory panel's body is mounted only while open: open it, so the scan
+  // measures that body in this theme and not only the one-line summary. Which
+  // screens carry one is decided by the tab, never by what the page happened
+  // to draw: a screen that lost its panel fails here instead of being scanned
+  // without it.
   const theory = page.getByTestId('screen-theory');
-  if (await theory.count()) {
+  if (THEORY_TABS.includes(tab)) {
     await theory.locator('summary').click();
     await expect(theory.getByText('How the numbers are computed')).toBeVisible();
+  } else {
+    await expect(theory, `#${tab} carries no theory panel`).toHaveCount(0);
   }
   const violations = await page.evaluate(scanForMix, theme);
   await page.screenshot({ path: `test-results/admin-theme-mix/${theme}/${tab}.png`, fullPage: true });
@@ -461,7 +469,7 @@ for (const theme of THEMES) {
     // The content pane scrolls inside the shell, so a full-page capture stops at
     // the fold: tall enough to look at what the scan measured.
     await page.setViewportSize({ width: 1440, height: 2200 });
-    await setupDashboardMocks(page, { role: 'super_admin' });
+    await setupDashboardMocks(page, { role: 'admin' });
     await mockRows(page);
     await loginToDashboard(page);
 
@@ -513,7 +521,7 @@ for (const theme of THEMES) {
     await page.addInitScript((t) => {
       window.localStorage.setItem('dravr.theme', t);
     }, theme);
-    await setupDashboardMocks(page, { role: 'super_admin' });
+    await setupDashboardMocks(page, { role: 'admin' });
     await loginToDashboard(page);
     await expect(page.locator('main')).toBeVisible();
     const painted = await page.evaluate(() => {
@@ -550,7 +558,7 @@ test('a checked control draws its mark in the ink of its fill', async ({ page })
   await page.addInitScript(() => {
     window.localStorage.setItem('dravr.theme', 'dark');
   });
-  await setupDashboardMocks(page, { role: 'super_admin' });
+  await setupDashboardMocks(page, { role: 'admin' });
   await loginToDashboard(page);
   await expect(page.locator('main')).toBeVisible();
   const mark = (type: string, dark: boolean) =>
@@ -587,7 +595,7 @@ test('the table rows this gate depends on actually rendered', async ({ page }) =
   await page.addInitScript(() => {
     window.localStorage.setItem('dravr.theme', 'dark');
   });
-  await setupDashboardMocks(page, { role: 'super_admin' });
+  await setupDashboardMocks(page, { role: 'admin' });
   await mockRows(page);
   await loginToDashboard(page);
   // ADMIN_TABS is a hand list: a tab added to the rail must be added to the walk.

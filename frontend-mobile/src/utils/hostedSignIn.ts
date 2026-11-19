@@ -17,6 +17,7 @@ import type { LoginResponse } from '../types';
 import { authApi } from '../services/api';
 import { i18n } from '@pierre/i18n';
 import { deviceEvidence, forgetAppAttestKey } from './deviceEvidence';
+import { callbackQuery } from './callbackQuery';
 
 /**
  * The path the hosted sign-in returns to.
@@ -56,13 +57,6 @@ export class SignInRefusedError extends Error {
     this.code = code;
     this.description = description;
   }
-}
-
-/** The query string of a callback URL, without its fragment. */
-function callbackQuery(url: string): string {
-  const withoutFragment = url.split('#')[0];
-  const queryStart = withoutFragment.indexOf('?');
-  return queryStart === -1 ? '' : withoutFragment.slice(queryStart + 1);
 }
 
 /**

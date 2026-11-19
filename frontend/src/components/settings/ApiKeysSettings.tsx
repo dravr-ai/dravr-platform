@@ -10,7 +10,7 @@ import type { ApiKeyCreateResponse, ApiKeyInfo } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { formatDateTime } from '@pierre/chat-utils';
 import { describeApiError } from '@pierre/ui-logic';
-import { API_KEY_REQUESTS_KEYS, API_KEY_USAGE_WINDOW_DAYS, countKey } from '@pierre/shared-constants';
+import { API_KEY_REQUESTS_KEYS, API_KEY_USAGE_WINDOW_DAYS, CREDENTIAL_CONSENT_KEYS, countKey } from '@pierre/shared-constants';
 import { apiKeysApi } from '../../services/api';
 import { Button, ConfirmDialog, Input, Section } from '../ui';
 
@@ -233,6 +233,10 @@ export default function ApiKeysSettings() {
             </Button>
             {/* Under the whole row, so the two fields keep one baseline. */}
             <p className="text-xs text-outline sm:col-span-3">{t('apiKeys.expiresHint')}</p>
+            {/* Always in view beside the action: creating the key after it is the express consent. */}
+            <p className="text-xs text-on-surface-variant sm:col-span-3" data-testid="api-key-consent">
+              {t(CREDENTIAL_CONSENT_KEYS.apiKey)}
+            </p>
           </form>
         )}
         {create.isError && (

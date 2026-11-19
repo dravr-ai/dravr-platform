@@ -13,9 +13,35 @@ import { File } from 'expo-file-system';
 import { i18n } from '@pierre/i18n';
 import { EXPORT_PARTIAL_KEYS } from '@pierre/ui-logic';
 
+const mockRequestOriginals = jest.fn();
+const mockGetOriginals = jest.fn();
+const mockGetLatestOriginals = jest.fn(async () => null);
 jest.mock('../../../services/api', () => ({
   authStorage: { getToken: jest.fn(async () => 'athlete-token') },
+  originalsApi: {
+    requestOriginals: (passphrase?: string) => mockRequestOriginals(passphrase),
+    getOriginals: (id: string) => mockGetOriginals(id),
+    getLatestOriginals: () => mockGetLatestOriginals(),
+  },
 }));
+
+/** A bundle as the server describes it. */
+function bundle(status: 'building' | 'ready' | 'failed', extra: Record<string, unknown> = {}) {
+  return {
+    bundleId: 'b-1',
+    status,
+    sealed: false,
+    createdAt: '2026-11-14T10:00:00Z',
+    expiresAt: '2026-11-21T10:00:00Z',
+    files: status === 'ready' ? 3 : null,
+    missing: status === 'ready' ? 0 : null,
+    damaged: status === 'ready' ? 0 : null,
+    byteSize: null,
+    sha256: null,
+    download: status === 'ready' ? '/api/user/export/originals/b-1/download' : null,
+    ...extra,
+  };
+}
 jest.mock('../../../services/apiUrl', () => ({
   getApiUrl: () => 'https://api.example.test',
 }));
@@ -41,7 +67,13 @@ function renderSection() {
 describe('DataExportSection', () => {
   beforeEach(() => {
     shareAsync.mockClear();
-    download.mockClear();
+    // Reset, not clear: a failed test must leave no queued download behind.
+    download.mockReset();
+    download.mockImplementation(async (_url: string, destination: { uri: string }) => {
+      (jest.requireMock('expo-file-system') as { __mockFileContents: Record<string, string> }).__mockFileContents[destination.uri] =
+        '{"format":"dravr-user-export","tables":{},"complete":true,"limit_reached":null,"failed_tables":[],"skipped_tables":[]}';
+      return destination;
+    });
     globalMutationError.mockClear();
   });
 
@@ -211,5 +243,116 @@ describe('DataExportSection', () => {
 
     const failure = await screen.findByTestId('data-export-failure');
     expect(failure.props.children).toContain('could not be exported');
+  });
+
+  describe('the originals bundle', () => {
+    const files = () =>
+      (jest.requireMock('expo-file-system') as { __mockFileContents: Record<string, string> })
+        .__mockFileContents;
+
+    beforeEach(() => {
+      mockRequestOriginals.mockReset();
+      mockGetOriginals.mockReset();
+      mockGetLatestOriginals.mockReset();
+      mockGetLatestOriginals.mockResolvedValue(null);
+    });
+
+    it('finds the bundle again when the screen is reopened, ready to download', async () => {
+      mockGetLatestOriginals.mockResolvedValue(bundle('ready') as never);
+      renderSection();
+      expect(await screen.findByTestId('originals-download')).toBeTruthy();
+      expect(mockRequestOriginals).not.toHaveBeenCalled();
+    });
+
+    it('still shows the bundle it asked for when the screen is opened again', async () => {
+      // The app keeps a query fresh for minutes: the `null` read before the
+      // request must not stand for the bundle once the screen mounts again.
+      mockRequestOriginals.mockResolvedValue(bundle('ready'));
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false, staleTime: 5 * 60_000 }, mutations: { retry: false } },
+      });
+      const section = () => (
+        <QueryClientProvider client={client}>
+          <DataExportSection />
+        </QueryClientProvider>
+      );
+      const first = render(section());
+      fireEvent.press(await screen.findByTestId('originals-request'));
+      expect(await screen.findByTestId('originals-download')).toBeTruthy();
+      first.unmount();
+
+      render(section());
+      expect(await screen.findByTestId('originals-download')).toBeTruthy();
+      expect(mockGetLatestOriginals).toHaveBeenCalledTimes(1);
+    });
+
+    it('follows a bundle until ready, then downloads it from its signed URL and shares it', async () => {
+      mockRequestOriginals.mockResolvedValue(bundle('building'));
+      mockGetOriginals.mockResolvedValueOnce(bundle('building')).mockResolvedValue(bundle('ready'));
+      download
+        .mockImplementationOnce(async (_url: string, destination: { uri: string }) => {
+          files()[destination.uri] = '{"url":"https://storage.example/signed","expires_at":"2026-11-14T10:15:00Z"}';
+          return destination;
+        })
+        .mockImplementationOnce(async (_url: string, destination: { uri: string }) => {
+          files()[destination.uri] = 'PK zip bytes';
+          return destination;
+        });
+      renderSection();
+
+      fireEvent.press(screen.getByTestId('originals-request'));
+      expect(await screen.findByText(i18n.t('dataExport.originalsBuilding'))).toBeTruthy();
+      expect(mockRequestOriginals).toHaveBeenCalledWith(undefined);
+      fireEvent.press(await screen.findByTestId('originals-download', {}, { timeout: 8000 }));
+
+      await waitFor(() => expect(shareAsync).toHaveBeenCalledTimes(1));
+      const [first, , withToken] = download.mock.calls[0] as [string, unknown, { headers: Record<string, string> }];
+      expect(first).toBe('https://api.example.test/api/user/export/originals/b-1/download');
+      expect(withToken.headers.Authorization).toBe('Bearer athlete-token');
+      const [second, , signed] = download.mock.calls[1] as [string, unknown, { headers?: Record<string, string> }];
+      expect(second).toBe('https://storage.example/signed');
+      expect(signed.headers).toBeUndefined();
+      const [uri, shared] = shareAsync.mock.calls[0] as [string, { mimeType: string }];
+      expect(uri).toMatch(/dravr-originals-2026-11-14\.zip$/);
+      expect(shared.mimeType).toBe('application/zip');
+      await waitFor(() =>
+        expect(Object.keys(files()).filter((u) => u.includes('dravr-originals'))).toEqual([]),
+      );
+    }, 15000);
+
+    it('shares a file the server streamed itself, sealed when the athlete gave a passphrase', async () => {
+      mockRequestOriginals.mockResolvedValue(bundle('ready', { sealed: true }));
+      download.mockImplementationOnce(async (_url: string, destination: { uri: string }) => {
+        files()[destination.uri] = 'age-encryption.org/v1 sealed bytes';
+        return destination;
+      });
+      renderSection();
+
+      fireEvent.changeText(screen.getByTestId('originals-passphrase'), 'short');
+      expect(screen.getByText(i18n.t('dataExport.originalsSealTooShort'))).toBeTruthy();
+      fireEvent.changeText(screen.getByTestId('originals-passphrase'), 'correct horse battery staple');
+      fireEvent.press(screen.getByTestId('originals-request'));
+      await waitFor(() =>
+        expect(mockRequestOriginals).toHaveBeenCalledWith('correct horse battery staple'),
+      );
+      fireEvent.press(await screen.findByTestId('originals-download'));
+      await waitFor(() => expect(shareAsync).toHaveBeenCalledTimes(1));
+      expect(download).toHaveBeenCalledTimes(1);
+      const [uri, shared] = shareAsync.mock.calls[0] as [string, { mimeType: string }];
+      expect(uri).toMatch(/\.zip\.age$/);
+      expect(shared.mimeType).toBe('application/octet-stream');
+    });
+
+    it.each([
+      [429, 'too_many_bundles', 'dataExport.originalsRateLimited'],
+      [503, 'export_busy', 'dataExport.originalsBusy'],
+      [409, 'bundle_building', 'dataExport.originalsOtherBuilding'],
+    ])('says what a %s refusal means and toasts nothing', async (status, code, key) => {
+      mockRequestOriginals.mockRejectedValue({ response: { status, data: { error: code } } });
+      renderSection();
+      fireEvent.press(screen.getByTestId('originals-request'));
+      expect((await screen.findByTestId('originals-failure')).props.children).toBe(i18n.t(key));
+      expect(globalMutationError).not.toHaveBeenCalled();
+    });
   });
 });

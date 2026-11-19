@@ -2,11 +2,11 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: WCAG 2.1 AA coverage for Settings › Physiology with colour contrast enabled, in both themes
-// ABOUTME: Scans a low-confidence estimate, a measured value with its range and a pace range, and the empty state
+// ABOUTME: Scans a low-confidence estimate, a measured value with its range and a pace range, the edit form, and the empty state
 
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { setupDashboardMocks, loginToDashboard } from '../test-helpers';
+import { setupDashboardMocks, loginToDashboard, PHYSIOLOGY_OFFERED } from '../test-helpers';
 
 /** Colour contrast stays ON; the scan covers the pane itself, not the shell around it. */
 async function scan(page: Page, testId: string) {
@@ -39,10 +39,25 @@ test.describe('Physiology accessibility', () => {
       expect(await scan(page, 'physiology-settings')).toBe('');
     });
 
+    test(`the form that sets an anchor has no WCAG 2.1 AA violations (${theme})`, async ({ page }) => {
+      await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
+      await loginToDashboard(page);
+      await page.goto('/#settings/physiology');
+      await page.getByTestId('physiology-run-critical_speed-edit').click();
+      await expect(page.getByTestId('physiology-editor-value')).toHaveValue('4:10');
+      await setTheme(page, theme);
+
+      expect(await scan(page, 'physiology-editor')).toBe('');
+    });
+
     test(`the empty Physiology pane has no WCAG 2.1 AA violations (${theme})`, async ({ page }) => {
       await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
       await page.route('**/api/me/physiology**', (route) =>
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sports: [] }) }),
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ sports: [], offered: PHYSIOLOGY_OFFERED }),
+        }),
       );
       await loginToDashboard(page);
       await page.goto('/#settings/physiology');

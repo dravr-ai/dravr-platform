@@ -24,7 +24,7 @@ import {
   groupAgentChoices,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
-import { Button, Input, Row } from '../../components/ui';
+import { ALERT_TONE, alertInkColor, Button, Input, Row } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { useAuth } from '../../contexts/AuthContext';
 import { useThemeColors } from '../../constants/theme';
@@ -147,10 +147,10 @@ export function OnboardingCoachGroupScreen() {
           <OnboardingProgressBar steps={progress} settledByInvite={settledByInvite} />
           {settledByInvite ? (
             <View
-              className="mt-4 flex-row items-center gap-2 rounded-lg bg-success/10 px-3 py-2"
+              className={`mt-4 flex-row items-center gap-2 rounded-lg ${ALERT_TONE.success.fill} px-3 py-2`}
               testID="onboarding-group-seat-active"
             >
-              <Feather name="check" size={16} color={colors.ink.success} />
+              <Feather name="check" size={16} color={alertInkColor('success', colors)} />
               <Text className="flex-1 text-sm text-on-surface">{t('humanCoach.seatInvite.seatActive')}</Text>
             </View>
           ) : null}

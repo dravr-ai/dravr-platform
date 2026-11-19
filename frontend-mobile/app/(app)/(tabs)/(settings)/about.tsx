@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: About pane route for Expo Router file-based routing, role-gated
-// ABOUTME: Renders the screen for athletes; admins (platform operators) redirect to Settings
+// ABOUTME: About pane route for Expo Router file-based routing
+// ABOUTME: Renders the screen for every signed-in account, admins included: the phone has no admin console
 
-import { hiddenFromOperators } from '../../../../src/navigation/hiddenFromOperators';
 import { AboutScreen } from '../../../../src/screens/settings/AboutScreen';
 
-export default hiddenFromOperators(AboutScreen);
+export default AboutScreen;

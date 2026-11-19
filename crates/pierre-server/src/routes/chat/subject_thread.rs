@@ -22,24 +22,25 @@ use pierre_core::errors::AppError;
 use pierre_core::models::ConversationSubject;
 use pierre_database::repositories::NewSubjectConversation;
 use pierre_middleware::AuthenticatedUser;
-use pierre_services::coached_athlete::{coached_athlete_access, CoachedAthleteRefusal};
+use pierre_services::coached_athlete::coached_athlete_access;
 use pierre_services::conversation_forge::resolve_conversation_model;
 use tracing::info;
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 
-use super::common::get_tenant_id;
+use super::common::{coaching_refusal, get_tenant_id};
 use super::dto::{ConversationResponse, OpenSubjectThreadRequest};
 
 /// Open the caller's thread about `athlete_user_id`, as the human coach of
 /// the group the body names.
 ///
 /// The gates are the ones every act in the thread runs again
-/// ([`coached_athlete_access`]): the caller is the active group's coach, the
-/// athlete a live member who still shares their data with them and has one
-/// home tenant. A refusal carries `details.reason`: 403 `not_group_coach`,
-/// 404 `not_a_member`, 403 `coach_sharing_revoked`, 409 `several_tenants` or
+/// ([`coached_athlete_access`]): the caller holds coach access and is the
+/// active group's coach, the athlete a live member who still shares their
+/// data with them and has one home tenant. A refusal carries
+/// `details.reason`: 403 `no_coach_access`, 403 `not_group_coach`, 404
+/// `not_a_member`, 403 `coach_sharing_revoked`, 409 `several_tenants` or
 /// `no_tenant`.
 ///
 /// The thread is bound to the group's agent, so the plan is built with the
@@ -61,7 +62,7 @@ pub(super) async fn open_subject_thread(
 
     let access = coached_athlete_access(repos, auth.user_id, athlete, request.group_id)
         .await?
-        .map_err(CoachedAthleteRefusal::into_error)?;
+        .map_err(|refused| coaching_refusal(&auth, refused))?;
 
     let model = resolve_conversation_model(None, &resources.common.config.llm_chain)?;
     let coach = auth.user_id.to_string();

@@ -15,8 +15,7 @@ use std::cmp::{Ordering, Reverse};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
-use pierre_core::civil_time::resolve_zone;
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
@@ -47,10 +46,12 @@ mod fallback;
 /// reads through [`budgeted_read`]; gated with it.
 #[cfg(feature = "tools-data")]
 mod historical;
+/// How far one source's stored history reaches, and the one ladder that
+/// answers what is owed when it falls short; ungated, as the aggregator is.
+mod history_depth;
 /// A push-only provider's reads: its cached pushes, never a live read
 pub mod pushed;
-/// The session a cache write lands, and the `per_session` persona digest it sends
-#[cfg(feature = "client-notifications")]
+/// Hands the workout a live write landed to the server's landing sink
 mod session_landing;
 /// Whether a live list read counts as a sync, and what a failed one records
 pub mod sync_verdict;
@@ -63,11 +64,10 @@ pub(crate) use fallback::flag_refusal;
 pub(crate) use fallback::grant_window;
 pub use fallback::{serve_without_primary, FallbackServe};
 #[cfg(feature = "tools-data")]
-pub(crate) use historical::{history_depth_covered, history_walk_owed};
-#[cfg(feature = "tools-data")]
 pub use historical::{
     refresh_stale_head, serve_covered_history, serve_historical_window, HistoricalServe,
 };
+pub(crate) use history_depth::{history_ladder, SourceHistory};
 pub(crate) use pushed::connection_grant_beside_session;
 use pushed::{pushed_head, pushed_window, reads_pushed_store, serving_slug};
 use sync_verdict::{
@@ -79,7 +79,6 @@ use write_through::{write_through_activity_cache, write_through_served_window, W
 /// backfill path. Defined beside the training-history read, which reads the
 /// same windows; `pub` so the cap boundary is exercisable by the coverage-note
 /// tests (re-exported through `implementations::data`, its original home).
-pub use pierre_core::models::coverage::WindowTotals;
 pub use pierre_services::training_history_read::HISTORICAL_WINDOW_READ_LIMIT;
 
 /// Cache fallback window when the request carries no `after` lower bound.
@@ -1001,49 +1000,5 @@ pub fn sort_activities(activities: &mut [Activity], sort_by: &str) {
         // "date_desc" and any unrecognized value: newest first (the historical
         // default that cached responses also produce).
         _ => activities.sort_by_key(|a| Reverse(a.start_date())),
-    }
-}
-
-/// Oldest/newest activity date (`"YYYY-MM-DD"`) across `activities`, or `None`
-/// when the slice is empty.
-///
-/// Captured over the FULL post-filter set BEFORE the display-limit truncation so
-/// the response can frame the served window's true span — otherwise the LLM
-/// anchors on the oldest activity in the truncated slice (e.g. "depuis le 21
-/// août") instead of the window's real start.
-///
-/// Rendered in the athlete's timezone, because this span reaches them as prose:
-/// the coverage note interpolates it into "spanning …". A bare date has no
-/// offset to disambiguate it, so rendering the UTC day moves an evening session
-/// to the next one — the same defect that had a 22:59 hike reported as "ce
-/// matin" (2026-08-28). An absent or unparseable zone falls back to UTC.
-#[must_use]
-pub fn activity_date_span(
-    activities: &[Activity],
-    user_timezone: Option<&str>,
-) -> Option<(NaiveDate, NaiveDate)> {
-    let zone = resolve_zone(user_timezone);
-    let oldest = activities.iter().map(Activity::start_date).min()?;
-    let newest = activities.iter().map(Activity::start_date).max()?;
-    Some((
-        oldest.with_timezone(&zone).date_naive(),
-        newest.with_timezone(&zone).date_naive(),
-    ))
-}
-
-/// Sum a window's count, distance, duration and elevation gain.
-#[must_use]
-pub fn activity_window_totals(activities: &[Activity]) -> WindowTotals {
-    let distance_m: f64 = activities
-        .iter()
-        .filter_map(Activity::distance_meters)
-        .sum();
-    let seconds: u64 = activities.iter().map(Activity::duration_seconds).sum();
-    let elevation_m: f64 = activities.iter().filter_map(Activity::elevation_gain).sum();
-    WindowTotals {
-        count: u64::try_from(activities.len()).unwrap_or(u64::MAX),
-        distance_km: distance_m / 1000.0,
-        duration_seconds: seconds,
-        elevation_gain_m: elevation_m,
     }
 }

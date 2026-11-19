@@ -157,6 +157,7 @@ describe('CoachConsentsSection', () => {
 
     const notice = await screen.findByTestId('coach-consent-wellness-notice');
     expect(notice).toHaveAccessibleName('Wellness sharing now covers all your apps');
+    expect(notice).toHaveClass('alert-info');
     expect(notice).toHaveTextContent(
       'Sharing your wellness with Casey Coach now covers your sleep, HRV, resting heart rate, weight, readiness and daily notes from all your connected apps, not only Intervals.icu.',
     );

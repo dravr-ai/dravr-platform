@@ -124,6 +124,7 @@ pub use crate::services::coaching_workers::start_coaching_workers;
 pub use crate::services::key_rotation::start_key_rotation;
 #[cfg(feature = "health-sync")]
 pub use crate::services::personal_best_seed::start_personal_best_seed;
+pub use crate::services::places_worker::start_places_worker;
 pub use crate::services::precedence_recompute::start_precedence_recompute;
 pub use crate::services::retention_sweep_worker::start_retention_sweep_worker;
 pub use crate::services::seat_reclaim_worker::start_seat_reclaim_worker;

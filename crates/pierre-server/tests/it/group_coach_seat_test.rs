@@ -98,6 +98,7 @@ mod group_coach_seat_tests {
         async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
             self.record(request);
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: "Noted.".to_owned(),
                 model: self.model.clone(),
                 usage: Some(TokenUsage::new(42, 11, 53)),

@@ -18,6 +18,7 @@
 //! off `dispatch` rather than off one caller, every category that raises a
 //! notification reaches messaging at once.
 
+use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -28,26 +29,44 @@ use pierre_database::RepositoryRegistry;
 use pierre_notifications::{DispatchRequest, NotificationChannelSink};
 use tracing::debug;
 
+use crate::channel_adapters::ChannelAdapterFactory;
 use crate::messaging_broadcast::send_to_linked_channels;
 
 /// Delivers accepted notifications on every messaging channel the target user
 /// has linked, in that link's locale.
-#[derive(Debug)]
 pub struct MessagingChannelSink {
     /// Repository registry — supplies the channel-link and channel-config rows.
     repos: Arc<RepositoryRegistry>,
     /// Localized string registry the notification body is rendered through.
     strings: Arc<MessagingStringsRegistry>,
+    /// Builds the adapter each linked chat is reached through: the factory
+    /// of the server context this sink is installed in.
+    adapters: Arc<dyn ChannelAdapterFactory>,
+}
+
+impl fmt::Debug for MessagingChannelSink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MessagingChannelSink")
+            .field("repos", &self.repos)
+            .field("strings", &self.strings)
+            .finish_non_exhaustive()
+    }
 }
 
 impl MessagingChannelSink {
-    /// Build the sink from the assembled repositories and string registry.
+    /// Build the sink from the assembled repositories, string registry and
+    /// the server context's adapter factory.
     #[must_use]
-    pub const fn new(
+    pub fn new(
         repos: Arc<RepositoryRegistry>,
         strings: Arc<MessagingStringsRegistry>,
+        adapters: Arc<dyn ChannelAdapterFactory>,
     ) -> Self {
-        Self { repos, strings }
+        Self {
+            repos,
+            strings,
+            adapters,
+        }
     }
 }
 
@@ -61,12 +80,16 @@ impl NotificationChannelSink for MessagingChannelSink {
         let title = request.title.clone();
         let body = request.body.clone();
 
-        let delivered =
-            send_to_linked_channels(self.repos.messaging.as_ref(), request.user_id, |locale| {
+        let delivered = send_to_linked_channels(
+            self.repos.messaging.as_ref(),
+            self.adapters.as_ref(),
+            request.user_id,
+            |locale| {
                 self.strings
                     .render(KEY_NOTIFICATION_CHANNEL_BODY, locale, &[&title, &body])
-            })
-            .await;
+            },
+        )
+        .await;
 
         debug!(
             user_id = %request.user_id,

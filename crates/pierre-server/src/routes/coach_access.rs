@@ -1,5 +1,5 @@
 // ABOUTME: HTTP boundary for a coach's own coach-access request — read where it stands, ask in one tap, or withdraw
-// ABOUTME: Opening one emails every super-admin and pings the notify channel; it grants nothing (ADR-018)
+// ABOUTME: Opening one emails every admin and pings the notify channel; it grants nothing (ADR-018)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -22,7 +22,7 @@
 //! The same mount serves `GET /api/me/coach-setup`, the coach-shaped Home's
 //! checklist the request sits in ([`crate::routes::coach_setup`]).
 //!
-//! The decision is a super-admin's, made in the admin console
+//! The decision is an admin's, made in the admin console
 //! (`pierre_routes_admin` coach-access handlers). Logic lives in
 //! [`pierre_services::coach_access`], the operator email included; this
 //! module is the HTTP boundary, handing that email the server's email
@@ -96,7 +96,15 @@ pub async fn handle_post(
     body: Option<Json<CoachAccessRequestBody>>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let body = body.map(|Json(b)| b).unwrap_or_default();
+    // An admin acting as the athlete would ask for access they then grant
+    // themselves; only a withdrawal is served to a support session
+    // (carnet#1634).
+    auth.refuse_impersonation(
+        resources.common.repos.admin_audit.as_ref(),
+        "ask for coach access",
+    )
+    .await?;
+    let body = body.map_or_default(|Json(b)| b);
 
     let group = match body.group_id.as_deref().map(str::trim) {
         None | Some("") => None,
@@ -115,7 +123,7 @@ pub async fn handle_post(
     let outcome = coach_access::request_access(repos, auth.user_id, group, origin).await?;
     let status = match &outcome {
         RequestOutcome::Opened(request) => {
-            coach_access::email_super_admins(
+            coach_access::email_admins(
                 repos,
                 resources.common.email_service.as_deref(),
                 resources.common.config.frontend_url.as_deref(),
@@ -144,7 +152,7 @@ pub async fn handle_post(
 /// # Errors
 ///
 /// Returns `AppError` when authentication fails, the caller has no request
-/// waiting (not found), a super-admin decided it first (conflict), or
+/// waiting (not found), an admin decided it first (conflict), or
 /// persistence fails.
 pub async fn handle_delete(
     State(resources): State<Arc<ServerContext>>,

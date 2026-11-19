@@ -32,6 +32,7 @@ use pierre_config::environment::{
 use pierre_core::models::{InvitationKind, UserStatus};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::AuthRoutes;
+use pierre_services::admin_ops::AccountCaller;
 use pierre_services::invitation::{
     self, InviteOutcome, IssuedInvitation, INVITATIONS_PER_ADDRESS_PER_HOUR, INVITATION_TTL_DAYS,
 };
@@ -85,7 +86,7 @@ async fn setup() -> Arc<ServerContext> {
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -98,6 +99,8 @@ async fn setup() -> Arc<ServerContext> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -465,7 +468,7 @@ async fn withdrawing_the_allow_revokes_the_invitation() {
     let resources = setup().await;
     let repos = &resources.common.repos;
     let email = "withdrawn@example.com";
-    pre_approval::allow(repos, email, None, Some("cohort"))
+    pre_approval::allow(repos, &AccountCaller::host_cli(None), email, Some("cohort"))
         .await
         .unwrap();
     let issued = invite(&resources, email, None).await;
@@ -505,7 +508,9 @@ async fn a_redeemed_invitation_leaves_the_outstanding_list() {
     let resources = setup().await;
     let repos = &resources.common.repos;
     let email = "listed-then-redeemed@example.com";
-    pre_approval::allow(repos, email, None, None).await.unwrap();
+    pre_approval::allow(repos, &AccountCaller::host_cli(None), email, None)
+        .await
+        .unwrap();
     let issued = invite(&resources, email, None).await;
 
     let (status, body) = accept(&resources, &issued.token, PASSWORD, None).await;

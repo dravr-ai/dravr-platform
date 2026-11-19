@@ -10,6 +10,7 @@ import type { TFunction } from '@pierre/i18n';
 import { fuelParts, stepDuration } from '@pierre/chat-utils';
 import { countKey, PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
 import { civilDayMonth, formatCivilDate, ROW_DATE, sportLabel } from '@pierre/ui-logic';
+import { BADGE_TONE, Badge } from '../ui';
 import { EvidenceChip } from './EvidenceChip';
 import type {
   PlanDay,
@@ -71,7 +72,7 @@ function PhaseSegment({ phase }: { phase: PlanPhase }) {
       <span className="font-medium">{t(`plan.card.phase.${phase.kind}`, { defaultValue: phase.kind })}</span>
       <span className="text-on-surface-variant">{t('plan.card.weeksShort', { count: phase.weeks })}</span>
       {phase.current && (
-        <span className="rounded-full bg-primary-container px-1.5 font-medium text-on-primary-container">
+        <span className={`rounded-full px-1.5 font-medium ${BADGE_TONE.accent.tone}`}>
           {t('plan.card.now')}
         </span>
       )}
@@ -164,9 +165,9 @@ export function DayRow({ day }: { day: PlanDay }) {
               </span>
             )}
             {day.outside_evidence && (
-              <span className="ml-2 badge-warning">
+              <Badge variant="warning" className="ml-2">
                 {day.outside_evidence}
-              </span>
+              </Badge>
             )}
             {day.evidence && <EvidenceChip evidence={day.evidence} />}
             {day.counts_as && (

@@ -65,16 +65,20 @@ on:
         default: false
 
 concurrency:
-  # On main the sha is part of the group, so every commit gets its own group
-  # and nothing can cancel another commit's verdict. Branches share a group per
-  # ref and keep cancelling, where fast feedback beats a stale result. The ref
-  # test lives in `group` rather than in `cancel-in-progress` because only the
-  # former is known to work here — see ci-backend.yml for the run that proved it.
-  # The event name is in the group because the nightly cron on main carries the
-  # tip's sha: without it the cron joins the tip's push-run group and cancels
-  # that verdict mid-flight (ci-backend.yml records the same collision).
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
-  cancel-in-progress: true
+  # One run going and one waiting, per lane and per ref (JF, 2026-11-19). A
+  # running run always finishes, so main still turns green and deploys however
+  # often it is pushed; a newer push takes the single waiting slot, replacing
+  # the run that waited there, which GitHub cancels. The run that does go tests
+  # a tree holding every skipped commit. Main used to keep one group per sha and
+  # never cancel: 24 commits on 2026-11-19 queued ~600 jobs for a handful of
+  # slots. Both costs are accepted: an intermediate main commit gets no verdict
+  # of its own (the eviction carnet#169 once counted as a loss), and a branch
+  # re-pushed mid-run finishes the superseded run (what carnet#1114 avoided),
+  # bounded to one. The event name keeps a schedule or dispatch run out of the
+  # push group. `cancel-in-progress` stays a literal: an expression there did
+  # not hold on main (run 33026440559, see ci-backend.yml's history).
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
 
 # Security: Explicit permissions following principle of least privilege
 permissions:
@@ -258,7 +262,7 @@ jobs:
 
       - name: Install Rust
         if: steps.prebuilt.outputs.hit != 'true'
-        uses: dtolnay/rust-toolchain@1.99.1
+        uses: dtolnay/rust-toolchain@1.100.0
 
       # Restore only. The build below is the one mobile-e2e-android.yml's server
       # job runs (`cargo build --release` of the whole workspace,
@@ -280,9 +284,9 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.100.0-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.99.1-
+            ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.100.0-
 
       - name: Build Pierre server and CLI (thin release)
         if: steps.prebuilt.outputs.hit != 'true'
@@ -316,15 +320,18 @@ jobs:
       # than the gate it stands for. On 2026-11-14 carnet#1566 measured
       # thin 148 MB (run 43609078979) with main on 147 and fat on its 119,
       # and ChefFamille raised both ceilings by about 2MB: shipped 121, so
-      # 147 x 121/119 = 149.5, rounded up to 150. Move both ceilings together.
+      # 147 x 121/119 = 149.5, rounded up to 150. On 2026-11-18 carnet#1561
+      # measured thin 151 MB (run 44314583449) with main on 150 (run
+      # 44307715156) and no new dependency, and ChefFamille raised both
+      # ceilings by 2MB: shipped 123, thin 152. Move both ceilings together.
       - name: Check the server binary size (thin release)
         run: |
           BINARY_SIZE_MB=$(( $(stat -c %s target/release/pierre-mcp-server) / 1024 / 1024 ))
-          MAX_SIZE_MB=150
+          MAX_SIZE_MB=152
           WARN_SIZE_MB=$(( MAX_SIZE_MB * 95 / 100 ))
           echo "Thin release binary: ${BINARY_SIZE_MB}MB (ceiling ${MAX_SIZE_MB}MB)"
           if [ "$BINARY_SIZE_MB" -gt "$MAX_SIZE_MB" ]; then
-            echo "::error::Thin release binary (${BINARY_SIZE_MB}MB) exceeds ${MAX_SIZE_MB}MB, the shipped 121MB ceiling scaled to this build; the fat-LTO gate on main would fail this change. Check what it pulled in (cargo tree, feature flags)."
+            echo "::error::Thin release binary (${BINARY_SIZE_MB}MB) exceeds ${MAX_SIZE_MB}MB, the shipped 123MB ceiling scaled to this build; the fat-LTO gate on main would fail this change. Check what it pulled in (cargo tree, feature flags)."
             exit 1
           fi
           if [ "$BINARY_SIZE_MB" -ge "$WARN_SIZE_MB" ]; then
@@ -437,7 +444,7 @@ jobs:
         # provider connection (synthetic-activities) or the onboarding
         # hard-gate hides the app UI the persona spec drives.
         run: |
-          ./target/release/pierre-cli user create --email admin@example.com --password AdminPassword123 --super-admin --force
+          ./target/release/pierre-cli user create --email admin@example.com --password AdminPassword123 --force
           ./target/release/pierre-cli seed agents --agents-dir ../dravr-contremaitre/prompts/agents
           ./target/release/pierre-cli seed demo-data --days 30
           ./target/release/pierre-cli seed synthetic-activities --email webtest@pierre.dev --provider strava --count 30 --days 30
@@ -865,7 +872,7 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.99.1
+        uses: dtolnay/rust-toolchain@1.100.0
 
       - name: Download the server and CLI
         uses: actions/download-artifact@v4

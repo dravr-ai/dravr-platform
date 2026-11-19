@@ -173,18 +173,16 @@ fn days_written(tool_name: &str, payload: &Value) -> Vec<String> {
         SAVE_TOOL => payload
             .get("weeks")
             .and_then(Value::as_array)
-            .map(|weeks| {
+            .map_or_default(|weeks| {
                 weeks
                     .iter()
                     .filter_map(|week| week.get("week_start").and_then(Value::as_str))
                     .collect()
-            })
-            .unwrap_or_default(),
+            }),
         PUBLISH_TOOL => payload
             .get("weeks_published")
             .and_then(Value::as_array)
-            .map(|weeks| weeks.iter().filter_map(Value::as_str).collect())
-            .unwrap_or_default(),
+            .map_or_default(|weeks| weeks.iter().filter_map(Value::as_str).collect()),
         _ => Vec::new(),
     };
     starts

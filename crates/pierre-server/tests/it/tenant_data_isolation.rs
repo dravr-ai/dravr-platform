@@ -138,7 +138,6 @@ async fn create_test_tenant_user(database: &Database, email: &str, tier: UserTie
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(Utc::now()),
@@ -468,7 +467,7 @@ async fn test_mcp_server_tenant_isolation() -> Result<()> {
             database.clone(),
             auth_manager.clone(),
             TEST_JWT_SECRET,
-            create_test_server_config(),
+            common::offline_config(create_test_server_config()),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -481,6 +480,8 @@ async fn test_mcp_server_tenant_isolation() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await

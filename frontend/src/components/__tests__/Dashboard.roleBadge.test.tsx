@@ -10,7 +10,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { i18n } from '@pierre/i18n';
 import Dashboard from '../Dashboard';
 
-const auth = vi.hoisted(() => ({ role: 'super_admin' }));
+const auth = vi.hoisted(() => ({ role: 'admin' }));
 
 vi.mock('../dashboard/index', () => ({
   ConversationList: () => null,
@@ -74,7 +74,7 @@ describe('Dashboard sidebar role badge', () => {
         renderDashboard();
       });
 
-      const label = i18n.t('shell.roleSuperAdmin');
+      const label = i18n.t('shell.roleAdmin');
       const badges = await screen.findAllByText(label);
       expect(badges.length).toBeGreaterThan(0);
       for (const badge of badges) {
@@ -82,6 +82,26 @@ describe('Dashboard sidebar role badge', () => {
       }
     } finally {
       await i18n.changeLanguage('en');
+    }
+  });
+
+  // Every locale writes `shell.roleAdmin` as "Admin", so the test above passes
+  // for a hardcoded "Admin" too. This one rewrites the catalogue entry: only a
+  // badge read from the catalogue follows it.
+  it('reads the label from the catalogue, not from a constant of its own', async () => {
+    const original = i18n.t('shell.roleAdmin');
+    const rewritten = 'Catalogue admin label';
+    i18n.addResource('en', 'translation', 'shell.roleAdmin', rewritten);
+    try {
+      expect(i18n.t('shell.roleAdmin')).toBe(rewritten);
+      await act(async () => {
+        renderDashboard();
+      });
+
+      const badges = await screen.findAllByText(rewritten);
+      expect(badges.length).toBeGreaterThan(0);
+    } finally {
+      i18n.addResource('en', 'translation', 'shell.roleAdmin', original);
     }
   });
 });

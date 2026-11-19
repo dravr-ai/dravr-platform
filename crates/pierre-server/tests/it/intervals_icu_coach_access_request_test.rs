@@ -6,7 +6,7 @@
 
 //! Any Intervals.icu account can give another one edit access, so a key's
 //! roster is evidence its owner coaches, never proof: it files the owner's
-//! coach-access request for a super-admin to grant, and grants nothing
+//! coach-access request for an admin to grant, and grants nothing
 //! itself (ADR-018). These cases drive the two reads that file it — a live
 //! roster read through the coach-platform path, and the probe the link route
 //! spawns off the request — against a loopback Intervals.icu stand-in (a test
@@ -24,6 +24,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::common::{offline_provider_config, offline_provider_registry};
 use crate::helpers;
 use secrecy::SecretString;
 
@@ -49,7 +50,6 @@ use pierre_core::models::{
 };
 use pierre_email::templates::CoachAccessOrigin;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_groups::GroupRoutes;
@@ -180,9 +180,9 @@ impl World {
     async fn new() -> Self {
         let api = Api::default();
         let base = spawn_api(api.clone()).await;
-        let mut config = default_config();
+        let mut config = offline_provider_config(INTERVALS_ICU);
         config.api_base_url = base;
-        let mut registry = ProviderRegistry::new();
+        let mut registry = offline_provider_registry();
         registry.set_default_config(INTERVALS_ICU, config);
         Self {
             res: create_test_server_resources().await.unwrap(),
@@ -408,7 +408,7 @@ async fn a_bound_key_coaching_an_active_athlete_files_one_pending_request_and_gr
     assert_eq!(pinged[0].field("request_id"), filed[0].id.to_string());
     // The notice says it was filed from the roster, never asked, on how many
     // coached athletes, and whose it is: a live read emails nobody, so the
-    // notice is all a super-admin sees of it.
+    // notice is all an admin sees of it.
     assert_eq!(pinged[0].field("origin"), "intervals_icu_roster");
     assert_eq!(pinged[0].field("coached_active_athletes"), "1");
     assert!(

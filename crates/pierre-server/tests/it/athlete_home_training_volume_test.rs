@@ -25,11 +25,12 @@ use std::sync::Arc;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
+use pierre_core::civil_time::monday_of;
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
+use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
-use pierre_mcp_server::services::training_volume::{monday_of, VOLUME_WEEKS};
+use pierre_mcp_server::services::training_volume::VOLUME_WEEKS;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -530,5 +531,112 @@ async fn the_weeks_say_what_garmin_data_contributed() {
     assert_eq!(
         volume(&resources, &other).await["garmin_contribution"],
         Value::Null
+    );
+}
+
+/// A history older than the window vouches for every week of it, even when
+/// the athlete trained in none of them: twelve weeks without training, never
+/// "nothing stored".
+#[tokio::test]
+async fn a_history_older_than_an_idle_window_vouches_for_every_week() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "volume-idle").await;
+    cache(
+        &resources,
+        &athlete,
+        oauth_providers::STRAVA,
+        &[activity(
+            "old",
+            SportType::Run,
+            days_ago(100),
+            3_000,
+            oauth_providers::STRAVA,
+        )
+        .distance_meters(9_000.0)
+        .build()],
+    )
+    .await;
+
+    let body = volume(&resources, &athlete).await;
+    let starts = week_starts(&body);
+    let today = Utc::now().date_naive();
+    assert_eq!(
+        starts.len(),
+        usize::try_from(VOLUME_WEEKS).unwrap(),
+        "bug: an idle window over an older history is not twelve vouched weeks: {body}"
+    );
+    assert_eq!(
+        starts.last().unwrap(),
+        &ymd(monday_of(today)),
+        "bug: the weeks do not end this week: {body}"
+    );
+    assert!(
+        body["weeks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|week| week["sports"] == json!([])),
+        "bug: an idle window filled a week: {body}"
+    );
+}
+
+/// Home vouches for its weeks by the store alone: a second connection whose
+/// history walk has not run yet does not cut the weeks a deep Strava history
+/// already stands behind.
+#[tokio::test]
+async fn a_new_connection_with_its_walk_owed_does_not_cut_the_weeks() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "volume-new-garmin").await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            athlete.user_id,
+            athlete.tenant,
+            oauth_providers::GARMIN,
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+    cache(
+        &resources,
+        &athlete,
+        oauth_providers::STRAVA,
+        &[
+            activity(
+                "old",
+                SportType::Run,
+                days_ago(100),
+                3_000,
+                oauth_providers::STRAVA,
+            )
+            .distance_meters(9_000.0)
+            .build(),
+            activity(
+                "recent",
+                SportType::Run,
+                hours_ago(2),
+                1_800,
+                oauth_providers::STRAVA,
+            )
+            .distance_meters(5_000.0)
+            .build(),
+        ],
+    )
+    .await;
+
+    let body = volume(&resources, &athlete).await;
+    let today = Utc::now().date_naive();
+    assert_eq!(
+        week_starts(&body).first().unwrap(),
+        &ymd(monday_of(today) - Duration::weeks(VOLUME_WEEKS - 1)),
+        "bug: a connection with its walk owed cut Home's vouched weeks: {body}"
+    );
+    assert_eq!(
+        sport_in(&body, hours_ago(2), "run")["activities"],
+        1,
+        "bug: this week's run is not counted: {body}"
     );
 }

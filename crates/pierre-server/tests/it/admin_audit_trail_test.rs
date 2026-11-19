@@ -42,14 +42,13 @@ struct Admin {
     user_id: Uuid,
 }
 
-/// An active admin with `role`, owning a tenant, signed in.
+/// An active account with `role`, owning a tenant, signed in.
 async fn admin(resources: &Arc<ServerContext>, email: &str, role: UserRole) -> Result<Admin> {
     let mut user = User::new(
         email.to_owned(),
         bcrypt::hash("password123", 4)?,
         Some("Audit Admin".to_owned()),
     );
-    user.is_admin = true;
     user.role = role;
     user.user_status = UserStatus::Active;
     let user_id = user.id;
@@ -92,7 +91,7 @@ async fn athlete(resources: &Arc<ServerContext>, email: &str) -> Result<Uuid> {
     Ok(user_id)
 }
 
-/// A super-admin `pierre-cli` device-login token acting as `operator`.
+/// An admin `pierre-cli` device-login token acting as `operator`.
 async fn cli_token(resources: &Arc<ServerContext>, operator: &Admin) -> Result<String> {
     let generated = resources
         .common
@@ -113,6 +112,47 @@ async fn cli_token(resources: &Arc<ServerContext>, operator: &Admin) -> Result<S
         )
         .await?;
     Ok(format!("Bearer {}", generated.jwt_token.expose_secret()))
+}
+
+/// A service token carrying `ManageUsers` but not the super-admin flag,
+/// bound to `tenant` when one is given: the scope a machine credential keeps.
+async fn scoped_token(
+    resources: &Arc<ServerContext>,
+    service: &str,
+    tenant: Option<TenantId>,
+) -> Result<String> {
+    let generated = resources
+        .common
+        .repos
+        .admin
+        .create_token(
+            &CreateAdminTokenRequest {
+                service_name: service.to_owned(),
+                service_description: None,
+                permissions: Some(vec![AdminPermission::ManageUsers]),
+                expires_in_days: Some(1),
+                is_super_admin: false,
+                tenant_id: tenant.map(|t| t.to_string()),
+                operator_user_id: None,
+            },
+            resources.auth.admin_jwt_secret.as_ref(),
+            &resources.auth.jwks_manager,
+        )
+        .await?;
+    Ok(format!("Bearer {}", generated.jwt_token.expose_secret()))
+}
+
+/// The tenant `user_id` owns.
+async fn tenant_of(resources: &Arc<ServerContext>, user_id: Uuid) -> Result<TenantId> {
+    Ok(resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await?
+        .first()
+        .expect("the fixture owns a tenant")
+        .id)
 }
 
 /// Every row of the trail, newest first.
@@ -213,6 +253,68 @@ async fn a_console_write_is_recorded_with_its_actor_route_and_target() -> Result
     Ok(())
 }
 
+/// A token minted or rotated from the console names no admin and keeps
+/// working after the one who made it is demoted (carnet#1574). The trail is
+/// what ties it to its maker: the row's actor is the admin behind the
+/// request and its target the token's id, never the token.
+#[tokio::test]
+#[serial]
+async fn a_minted_and_a_rotated_token_are_on_the_trail_with_their_maker() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let maker = admin(&resources, "token-maker@example.com", UserRole::Admin).await?;
+
+    let minted = AxumTestRequest::post("/api/admin/tokens")
+        .header("Authorization", &maker.auth)
+        .json(&json!({ "service_name": "nightly-export", "is_super_admin": true }))
+        .send(app.clone())
+        .await;
+    assert_eq!(minted.status(), 201);
+    let minted: Value = minted.json();
+    let token_id = minted["data"]["token_id"].as_str().expect("token id");
+    let secret = minted["data"]["jwt_token"].as_str().expect("the token");
+
+    let rotated = AxumTestRequest::post(&format!("/api/admin/tokens/{token_id}/rotate"))
+        .header("Authorization", &maker.auth)
+        .json(&json!({}))
+        .send(app.clone())
+        .await;
+    assert_eq!(rotated.status(), 200);
+    let rotated: Value = rotated.json();
+    let new_token_id = rotated["data"]["token_id"].as_str().expect("new token id");
+
+    let rows = trail(&resources).await?;
+    let row = |action: &str| {
+        rows.iter()
+            .find(|row| row.action == action)
+            .unwrap_or_else(|| panic!("{action} is on the trail: {rows:?}"))
+    };
+    let created = row("admin_token.create");
+    assert_eq!(
+        created.actor_user_id.as_deref(),
+        Some(maker.user_id.to_string().as_str())
+    );
+    assert_eq!(created.metadata["target"]["token_id"], token_id);
+    assert_eq!(created.metadata["target"]["service_name"], "nightly-export");
+    assert_eq!(created.metadata["target"]["is_super_admin"], true);
+
+    let replaced = row("admin_token.rotate");
+    assert_eq!(
+        replaced.actor_user_id.as_deref(),
+        Some(maker.user_id.to_string().as_str())
+    );
+    assert_eq!(replaced.metadata["target"]["old_token_id"], token_id);
+    assert_eq!(replaced.metadata["target"]["token_id"], new_token_id);
+
+    for kept in &rows {
+        assert!(
+            !kept.metadata.to_string().contains(secret),
+            "the trail never holds a token: {kept:?}"
+        );
+    }
+    Ok(())
+}
+
 #[tokio::test]
 #[serial]
 async fn a_sign_up_settings_change_records_what_it_was_and_what_it_became() -> Result<()> {
@@ -249,12 +351,13 @@ async fn a_sign_up_settings_change_records_what_it_was_and_what_it_became() -> R
 async fn a_refused_write_is_recorded_and_a_stranger_writes_nothing() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let app = ProviderToolRouter::build_http_app(&resources);
-    let operator = admin(&resources, "audit-plain@example.com", UserRole::Admin).await?;
     let coach = athlete(&resources, "audit-coach@example.com").await?;
 
-    // Super-admin only: a plain admin is refused.
-    let refused = AxumTestRequest::post(&format!("/api/admin/users/{coach}/manages-roster"))
-        .header("Authorization", &operator.auth)
+    // A roster grant needs the super-admin flag: a token that holds
+    // `ManageUsers` without it is a real credential, refused by the handler.
+    let scoped = scoped_token(&resources, "audit-scoped", None).await?;
+    let refused = AxumTestRequest::post(&format!("/admin/users/{coach}/manages-roster"))
+        .header("Authorization", &scoped)
         .json(&json!({ "manages_roster": true }))
         .send(app.clone())
         .await;
@@ -294,7 +397,7 @@ async fn a_refused_write_is_recorded_and_a_stranger_writes_nothing() -> Result<(
 async fn a_deleted_account_leaves_no_trace_in_the_trail() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let app = ProviderToolRouter::build_http_app(&resources);
-    let operator = admin(&resources, "audit-super@example.com", UserRole::SuperAdmin).await?;
+    let operator = admin(&resources, "audit-super@example.com", UserRole::Admin).await?;
     let email = "leaving-athlete@example.com";
     let leaving = athlete(&resources, email).await?;
 
@@ -362,17 +465,26 @@ async fn a_deleted_account_leaves_no_trace_in_the_trail() -> Result<()> {
     Ok(())
 }
 
+/// An admin reads every tenant's rows. A token bound to one tenant reads that
+/// tenant's rows alone, and an account that is not an admin reads none.
 #[tokio::test]
 #[serial]
-async fn a_tenant_admin_reads_only_its_own_tenant_and_a_super_admin_reads_all() -> Result<()> {
+async fn a_scoped_token_reads_only_its_own_tenant_and_an_admin_reads_all() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let app = ProviderToolRouter::build_http_app(&resources);
     let writer = admin(&resources, "audit-tenant-a@example.com", UserRole::Admin).await?;
-    let other = admin(&resources, "audit-tenant-b@example.com", UserRole::Admin).await?;
-    let platform = admin(
+    let other = admin(&resources, "audit-tenant-b@example.com", UserRole::User).await?;
+    let platform = admin(&resources, "audit-platform@example.com", UserRole::Admin).await?;
+    let own_tenant = scoped_token(
         &resources,
-        "audit-platform@example.com",
-        UserRole::SuperAdmin,
+        "audit-tenant-a-token",
+        Some(tenant_of(&resources, writer.user_id).await?),
+    )
+    .await?;
+    let other_tenant = scoped_token(
+        &resources,
+        "audit-tenant-b-token",
+        Some(tenant_of(&resources, other.user_id).await?),
     )
     .await?;
 
@@ -383,10 +495,10 @@ async fn a_tenant_admin_reads_only_its_own_tenant_and_a_super_admin_reads_all() 
         .await;
     assert_eq!(allowed.status(), 200);
 
-    let read = |auth: String| {
+    let read = |path: &'static str, auth: String| {
         let app = app.clone();
         async move {
-            let response = AxumTestRequest::get("/api/admin/audit-events")
+            let response = AxumTestRequest::get(path)
                 .header("Authorization", &auth)
                 .send(app)
                 .await;
@@ -396,19 +508,29 @@ async fn a_tenant_admin_reads_only_its_own_tenant_and_a_super_admin_reads_all() 
         }
     };
     assert_eq!(
-        read(writer.auth.clone()).await,
+        read("/admin/audit-events", own_tenant).await,
         1,
-        "the writer's tenant sees its row"
+        "a token bound to the writer's tenant sees its row"
     );
     assert_eq!(
-        read(other.auth.clone()).await,
+        read("/admin/audit-events", other_tenant).await,
         0,
-        "another tenant's admin must not read this tenant's trail"
+        "a token bound to another tenant must not read this tenant's trail"
     );
     assert_eq!(
-        read(platform.auth.clone()).await,
+        read("/api/admin/audit-events", platform.auth.clone()).await,
         1,
-        "a super-admin reads every tenant's rows"
+        "an admin reads every tenant's rows"
+    );
+
+    let refused = AxumTestRequest::get("/api/admin/audit-events")
+        .header("Authorization", &other.auth)
+        .send(app.clone())
+        .await;
+    assert_eq!(
+        refused.status(),
+        403,
+        "the owner of another tenant, who is not an admin, reads no trail"
     );
     Ok(())
 }
@@ -418,7 +540,7 @@ async fn a_tenant_admin_reads_only_its_own_tenant_and_a_super_admin_reads_all() 
 async fn the_console_reads_the_trail_newest_first() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let app = ProviderToolRouter::build_http_app(&resources);
-    let operator = admin(&resources, "audit-reader@example.com", UserRole::SuperAdmin).await?;
+    let operator = admin(&resources, "audit-reader@example.com", UserRole::Admin).await?;
     for email in ["first@example.com", "second@example.com"] {
         let response = AxumTestRequest::post("/api/admin/pre-approved-emails")
             .header("Authorization", &operator.auth)
@@ -466,7 +588,7 @@ async fn the_console_reads_the_trail_newest_first() -> Result<()> {
 async fn a_cli_config_write_is_recorded_as_its_operator() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let app = ProviderToolRouter::build_http_app(&resources);
-    let operator = admin(&resources, "audit-config@example.com", UserRole::SuperAdmin).await?;
+    let operator = admin(&resources, "audit-config@example.com", UserRole::Admin).await?;
     let athlete_id = athlete(&resources, "config-target@example.com").await?;
 
     let response = AxumTestRequest::put(&format!("/api/admin/config?user_id={athlete_id}"))
@@ -501,8 +623,9 @@ async fn config_audit_row_count(resources: &Arc<ServerContext>) -> Result<i64> {
     })
 }
 
-/// A service token: global, with every permission the Guardian routes ask, and no
-/// operator behind it.
+/// A service token: super-admin, so it reaches every tenant as the global
+/// Guardian policy asks, with every permission the Guardian routes ask, and no
+/// admin behind it.
 async fn service_token(resources: &Arc<ServerContext>) -> Result<String> {
     let generated = resources
         .common
@@ -517,7 +640,7 @@ async fn service_token(resources: &Arc<ServerContext>) -> Result<String> {
                     AdminPermission::ManageConfiguration,
                 ]),
                 expires_in_days: Some(1),
-                is_super_admin: false,
+                is_super_admin: true,
                 tenant_id: None,
                 operator_user_id: None,
             },
@@ -534,12 +657,7 @@ async fn service_token(resources: &Arc<ServerContext>) -> Result<String> {
 async fn a_guardian_save_and_its_refusal_are_each_one_row_of_the_one_trail() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let app = ProviderToolRouter::build_http_app(&resources);
-    let operator = admin(
-        &resources,
-        "audit-guardian@example.com",
-        UserRole::SuperAdmin,
-    )
-    .await?;
+    let operator = admin(&resources, "audit-guardian@example.com", UserRole::Admin).await?;
     let device_login = cli_token(&resources, &operator).await?;
 
     let saved = AxumTestRequest::put("/admin/settings/guardian")

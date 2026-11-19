@@ -77,6 +77,9 @@ export type {
   UpdateThemeRequest,
   SciotteLoginResponse,
   SciotteCancelResponse,
+  BrowserSignin,
+  BrowserSigninCatalog,
+  BrowserSigninCookie,
   SciotteTakeoverInput,
   SciotteTakeoverKey,
   SciotteTakeoverOutcome,
@@ -94,7 +97,8 @@ export type {
   ClearImportTombstoneResponse,
   RedeemSignupCodeResponse,
 } from './auth.js';
-export { IMPORT_TOMBSTONED_ERROR } from './auth.js';
+export { IMPORT_TOMBSTONED_ERROR, actsAsAdmin, hasAdminRole } from './auth.js';
+export type { ViewMode } from './auth.js';
 
 // API types (chat, prompts, common patterns)
 export type {
@@ -301,6 +305,36 @@ export {
   parseStartedImportUpload,
 } from './imports.js';
 
+// The athlete's originals bundle: the files the data export leaves out, built on request
+export type {
+  OriginalsBundle,
+  OriginalsBundleStatus,
+  OriginalsSignedDownload,
+} from './originals-bundle.js';
+export { parseOriginalsBundle, parseOriginalsSignedDownload } from './originals-bundle.js';
+
+// The athlete's statutory access requests to a company (Quebec P-39.1, GDPR), their letter and deadline
+export type {
+  CreateDataAccessRequest,
+  DataAccessDerivedState,
+  DataAccessLaw,
+  DataAccessLetter,
+  DataAccessLetterLocale,
+  DataAccessRequest,
+  DataAccessScope,
+  DataAccessStatus,
+  EditDataAccessRequest,
+} from './data-access-request.js';
+export {
+  DATA_ACCESS_LAWS,
+  DATA_ACCESS_LETTER_LOCALES,
+  DATA_ACCESS_SCOPES,
+  DATA_ACCESS_STATUSES,
+  parseDataAccessLetter,
+  parseDataAccessRequest,
+  parseDataAccessRequestList,
+} from './data-access-request.js';
+
 // The athlete's gear ledger: the shoes they declare, their distance, the pair one activity was run in
 export type {
   ActivityGearResponse,
@@ -383,8 +417,13 @@ export { parseUnitPreferences } from './units.js';
 // The athlete's physiology: each anchor per sport family with its range, source, date and confidence (carnet#1516)
 export type {
   AnchorConfidence,
+  AnchorKind,
   AnchorUnit,
+  OfferedAnchor,
+  OfferedFamily,
+  PaceDistance,
   PhysiologyAnchor,
+  PhysiologyAnchorEdit,
   PhysiologyResponse,
   SportAnchorName,
   SportFamily,
@@ -444,6 +483,7 @@ export type {
   UpdateMemberRoleRequest,
   UpdatePeerConsentRequest,
   CoachSharing,
+  CoachSharingState,
   CoachRead,
   CoachReadDataClass,
   CoachReads,
@@ -468,6 +508,16 @@ export type {
   GroupHealthFlagsResponse,
   GroupAnalyticsScope,
   GroupPermissionsResponse,
+  HoldGroupInviteResponse,
+  JoinHeldInviteResponse,
+  JoinHeldInviteRefusal,
+  GroupInviteFunnel,
+  GroupInvitePreview,
+  GroupInvitePreviewStatus,
+  HeldGroupInvite,
+  HeldGroupInviteState,
+  HeldGroupInviteResponse,
+  ClaimGroupCoachResponse,
   DelegationStatus,
   DelegationViewer,
   DelegatedConnection,
@@ -532,7 +582,7 @@ export type {
   PortalResponse,
 } from './billing';
 
-// Coach-access requests: a coach asks, a super-admin grants or declines (carnet#738)
+// Coach-access requests: a coach asks, an admin grants or declines (carnet#738)
 export type {
   CoachAccessStatus,
   CoachAccessRequest,

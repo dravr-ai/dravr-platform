@@ -177,22 +177,6 @@ async function createAndLoginAsAdmin() {
 }
 
 /**
- * Create a test super admin user and log in.
- *
- * @returns {Promise<{success: boolean, accessToken?: string, refreshToken?: string, user?: object, error?: string}>}
- */
-async function createAndLoginAsSuperAdmin() {
-  const user = testUsers.superAdmin;
-
-  const createResult = await createTestAdminUser(user);
-  if (!createResult.success) {
-    return { success: false, error: createResult.error };
-  }
-
-  return loginWithCredentials(user.email, user.password);
-}
-
-/**
  * Create a custom test user and log in.
  *
  * @param {{email: string, password: string, role?: string}} user - User to create
@@ -316,7 +300,6 @@ async function isTokenValid(accessToken) {
 module.exports = {
   loginWithCredentials,
   createAndLoginAsAdmin,
-  createAndLoginAsSuperAdmin,
   createAndLoginTestUser,
   refreshAccessToken,
   authenticatedRequest,

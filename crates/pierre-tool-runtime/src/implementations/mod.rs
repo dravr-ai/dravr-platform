@@ -106,6 +106,10 @@ pub mod field_dictionary;
 #[cfg(feature = "tools-connection")]
 pub mod connection;
 
+/// `query_activities` — counts, sums and breakdowns of the athlete's workouts
+/// over any period, through the one aggregator (`tools-data` feature).
+#[cfg(feature = "tools-data")]
+mod activity_query;
 /// Athlete profile and aggregate statistics tools: `get_athlete`, `get_stats`
 /// (`tools-data` feature).
 #[cfg(feature = "tools-data")]
@@ -128,6 +132,10 @@ pub mod data_helpers;
 /// A provider read bounded by the refresh budget, with its last-known fallback
 #[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
 mod last_known;
+/// The provider's own zones, best efforts, records, weight and gear, read live
+/// beside a tool's answer and labelled as the provider's (carnet#1622)
+#[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
+pub(crate) mod provider_context_reads;
 
 /// Stored health-data tools: `get_sleep_sessions`, `get_recovery_metrics`,
 /// `get_health_snapshots`, `list_data_sources` (`tools-data` feature).
@@ -140,7 +148,7 @@ pub mod stored_data;
 pub mod continuous_series;
 
 /// `get_segment_history` — every effort the athlete made on one segment,
-/// from the live listing or the stored details (`tools-data` feature).
+/// from the stored details (`tools-data` feature).
 #[cfg(feature = "tools-data")]
 pub mod segments;
 
@@ -276,6 +284,9 @@ pub mod memory;
 /// The provider authorization URL tools mint, and the link a write refused
 /// for an owed grant carries.
 pub mod oauth_authorize;
+/// `name_place` — the athlete names, renames or clears a place they train from (`tools-memory`).
+#[cfg(feature = "tools-memory")]
+pub mod places;
 /// Whose plan the training-plan tools act on: the caller's own, or a coached athlete's.
 /// recommend_plan_flavour — the profile through the selection rule, and the season it implies.
 pub mod plan_flavour;

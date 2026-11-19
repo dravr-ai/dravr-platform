@@ -89,6 +89,7 @@ impl LlmProvider for FailsOnClaim {
             return Err(AppError::internal("judge provider timed out"));
         }
         Ok(ChatResponse {
+            replay_blocks: None,
             content:
                 r#"{"verdict":"supported","confidence":0.9,"rationale":"Replicated in trials."}"#
                     .to_owned(),

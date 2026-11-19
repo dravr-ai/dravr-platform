@@ -27,6 +27,8 @@ use pierre_services::chat_verdicts::list_for_conversation;
 use pierre_tool_runtime::derived_content;
 
 use crate::mcp::resources::ServerContext;
+#[cfg(feature = "client-chat")]
+use crate::routes::chat::common::refuse_unshared_subject_by_id;
 
 /// Axum handler for `GET /api/chat/conversations/:id/verdicts`.
 ///
@@ -50,6 +52,10 @@ pub async fn get_verdicts_handler(
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
+    // An outside client is not served a coach's thread about a member who
+    // does not share (EFVP 9.4c). A build without chat has no such thread.
+    #[cfg(feature = "client-chat")]
+    refuse_unshared_subject_by_id(&resources, &auth, &conversation_id, tenant_id).await?;
     // A thread opened from a first-party-only activity is about it
     // throughout; within any other, a verdict on a reply derived from such
     // data is withheld from an external caller (carnet#769).

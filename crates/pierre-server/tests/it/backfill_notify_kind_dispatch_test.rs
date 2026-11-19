@@ -32,6 +32,7 @@ use pierre_tool_runtime::runtime::{
 };
 use uuid::Uuid;
 
+use crate::common::offline_adapters;
 use crate::messaging_fixtures;
 use messaging_fixtures::{
     cached_activity, create_test_db, seed_activity_cache, seed_conversation, seed_session,
@@ -635,6 +636,7 @@ mod in_app {
             Arc::new(OnceLock::from(slot)),
             Arc::from(LINK_SECRET),
             BASE_URL.to_owned(),
+            offline_adapters(),
             Some(Arc::clone(&service)),
         );
         InAppThread {
@@ -804,6 +806,7 @@ mod in_app {
             Arc::new(OnceLock::from(slot)),
             Arc::from(LINK_SECRET),
             BASE_URL.to_owned(),
+            offline_adapters(),
             Some(Arc::clone(&service)),
         );
         InAppThread {

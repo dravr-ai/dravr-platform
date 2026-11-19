@@ -5,13 +5,18 @@
 // Copyright (c) 2026 dravr.ai
 
 import React, { useEffect } from 'react';
-import { View, Text, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as Device from 'expo-device';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../ui';
 import { messagingApi } from '../../services/api';
 import { openExternal } from '../../utils/openExternal';
+import {
+  channelLinkReturnUri,
+  describeChannelLinkError,
+  runOAuthChannelLink,
+} from '../../utils/oauthChannelLink';
 import { BOREAL_LIGHT, CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
@@ -23,8 +28,9 @@ const QR_GROUND = BOREAL_LIGHT.surfaceContainerLowest;
  * one "Open app" button — the deep link carries the pairing code, so the chat
  * app opens with it already in hand. A tablet additionally gets the backend
  * `qr_svg` (rendered in a WebView) to hand the link off to a phone; OAuth
- * channels show a single connect button. Polls the user's linked channels and
- * reports the instant the link lands.
+ * channels show a single connect button that authorizes in an auth session,
+ * after which this app finishes the link with its own login (carnet#1580).
+ * Polls the user's linked channels and reports the instant the link lands.
  */
 export function ChatAppConnect({
   channel,
@@ -39,6 +45,7 @@ export function ChatAppConnect({
   onUseAnother?: () => void;
 }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
 
   const {
     data: link,
@@ -48,7 +55,7 @@ export function ChatAppConnect({
     isFetching,
   } = useQuery({
     queryKey: ['messaging-link-init', channel],
-    queryFn: () => messagingApi.initLink(channel),
+    queryFn: () => messagingApi.initLink(channel, channelLinkReturnUri()),
     staleTime: Infinity,
     retry: 1,
   });
@@ -107,6 +114,21 @@ export function ChatAppConnect({
 
   const isDeepLink = link.method === 'deep_link';
 
+  // Slack and Discord: authorize in an auth session, then finish the link with
+  // this app's login. The poll above sees it land; asking now saves its interval.
+  const authorize = async (started: typeof link) => {
+    try {
+      if (await runOAuthChannelLink(started, channelLinkReturnUri())) {
+        await queryClient.invalidateQueries({ queryKey: ['messaging-links'] });
+      }
+    } catch (err) {
+      Alert.alert(
+        t('app.couldNotStartConnection', { channel: displayName }),
+        describeChannelLinkError(err, t),
+      );
+    }
+  };
+
   // The QR exists to hand the link off to a DIFFERENT device — it is how someone
   // onboarding on a laptop reaches the chat app that only lives on their phone.
   // On a phone it is the opposite of useful: the athlete cannot scan the screen
@@ -153,7 +175,7 @@ export function ChatAppConnect({
             ? t('app.openChannel', { channel: displayName })
             : t('app.connectWithChannel', { channel: displayName })
         }
-        onPress={() => void openExternal(link.linking_url, t)}
+        onPress={() => void (isDeepLink ? openExternal(link.linking_url, t) : authorize(link))}
         fullWidth
       />
 

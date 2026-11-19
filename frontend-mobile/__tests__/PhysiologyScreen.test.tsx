@@ -1,20 +1,25 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests Settings › Physiology on the phone — each anchor per sport with its value, range, source, date and confidence
+// ABOUTME: Tests Settings › Physiology on the phone — each anchor per sport with its value, range, source, date and confidence, and its edit
 // ABOUTME: The athlete API is mocked at the services barrel; assertions read the rendered rows, the requests sent and the empty state
 
 import React from 'react';
 import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { PhysiologyAnchor, PhysiologyResponse } from '@pierre/shared-types';
+import type { OfferedFamily, PhysiologyAnchor, PhysiologyResponse } from '@pierre/shared-types';
+import { PHYSIOLOGY_KEY } from '@pierre/shared-constants';
 import type { DistanceUnit } from '@pierre/chat-utils';
 import { UnitsContext } from '@pierre/ui-logic';
 
 const mockGetPhysiology = jest.fn();
+const mockUpdatePhysiologyAnchor = jest.fn();
 jest.mock('../src/services/api', () => ({
-  athleteApi: { getPhysiology: (locale?: string) => mockGetPhysiology(locale) },
+  athleteApi: {
+    getPhysiology: (locale?: string) => mockGetPhysiology(locale),
+    updatePhysiologyAnchor: (...args: unknown[]) => mockUpdatePhysiologyAnchor(...args),
+  },
 }));
 
 // An icon is a view naming its glyph, so a row's text is only its words.
@@ -75,12 +80,26 @@ function criticalSpeed(units: DistanceUnit): PhysiologyAnchor {
   };
 }
 
+/** What each family can hold, as the server lists it. */
+const OFFERED: OfferedFamily[] = [
+  {
+    sport: 'ride',
+    anchors: [
+      { anchor: 'ftp', unit: 'watts' },
+      { anchor: 'map', unit: 'watts' },
+    ],
+  },
+  { sport: 'run', anchors: [{ anchor: 'critical_speed', unit: 'metres_per_second' }] },
+  { sport: 'swim', anchors: [{ anchor: 'critical_speed', unit: 'metres_per_second' }] },
+];
+
 function body(units: DistanceUnit): PhysiologyResponse {
   return {
     sports: [
       { sport: 'ride', anchors: [FTP, MAP] },
       { sport: 'run', anchors: [criticalSpeed(units)] },
     ],
+    offered: OFFERED,
   };
 }
 
@@ -155,12 +174,13 @@ describe('PhysiologyScreen', () => {
   });
 
   it('says what the athlete can do when no anchor is stored', async () => {
-    mockGetPhysiology.mockResolvedValue({ sports: [] });
+    mockGetPhysiology.mockResolvedValue({ sports: [], offered: OFFERED });
     const screen = render(tree(newClient(), 'metric'));
 
     const empty = await screen.findByTestId('physiology-empty');
-    expect(within(empty).getByText(i18n.t('physiology.empty'))).toBeTruthy();
-    expect(i18n.t('physiology.empty')).toMatch(/chat/i);
+    expect(within(empty).getByText(i18n.t(PHYSIOLOGY_KEY.empty))).toBeTruthy();
+    expect(i18n.t(PHYSIOLOGY_KEY.empty)).toMatch(/chat/i);
+    expect(screen.getByTestId('physiology-add')).toBeTruthy();
     expect(screen.queryByTestId('physiology-ride')).toBeNull();
   });
 
@@ -172,5 +192,78 @@ describe('PhysiologyScreen', () => {
     mockGetPhysiology.mockResolvedValue(body('metric'));
     fireEvent.press(screen.getByTestId('physiology-retry'));
     await waitFor(() => expect(screen.getByTestId('physiology-ride')).toBeTruthy());
+  });
+
+  it('changes an anchor from its row: the form opens on it, how it was found is asked, and the pane takes the answer', async () => {
+    const saved: PhysiologyResponse = {
+      ...body('metric'),
+      sports: [{ sport: 'ride', anchors: [{ ...FTP, value: 290, value_text: '290 W', confidence: 'medium' }, MAP] }],
+    };
+    mockUpdatePhysiologyAnchor.mockResolvedValue(saved);
+    const screen = render(tree(newClient(), 'metric'));
+
+    fireEvent.press(await screen.findByTestId('physiology-ride-ftp'));
+    const value = await screen.findByTestId('physiology-editor-value');
+    expect(value.props.value).toBe('285');
+    // Save waits for how the value was found.
+    expect(screen.getByTestId('physiology-editor-save').props.accessibilityState).toMatchObject({ disabled: true });
+
+    fireEvent.changeText(value, '290');
+    fireEvent.press(screen.getByTestId('physiology-editor-kind-measured'));
+    fireEvent.press(screen.getByTestId('physiology-editor-confidence-medium'));
+    fireEvent.press(screen.getByTestId('physiology-editor-save'));
+
+    await waitFor(() => expect(mockUpdatePhysiologyAnchor).toHaveBeenCalledTimes(1));
+    expect(mockUpdatePhysiologyAnchor).toHaveBeenCalledWith(
+      'ride',
+      'ftp',
+      {
+        value: 290,
+        low: null,
+        high: null,
+        pace_per: null,
+        kind: 'measured',
+        confidence: 'medium',
+        method: null,
+        measured_on: null,
+      },
+      'en',
+    );
+    await waitFor(() => expect(screen.getByTestId('physiology-ride-ftp-value').props.children).toBe('290 W'));
+    expect(screen.queryByTestId('physiology-editor')).toBeNull();
+  });
+
+  it('adds a pool pace typed per 100 m', async () => {
+    mockUpdatePhysiologyAnchor.mockResolvedValue(body('metric'));
+    const screen = render(tree(newClient(), 'imperial'));
+
+    fireEvent.press(await screen.findByTestId('physiology-add'));
+    fireEvent.press(await screen.findByTestId('physiology-editor-sport-swim'));
+    fireEvent.changeText(screen.getByTestId('physiology-editor-value'), '1:20');
+    fireEvent.press(screen.getByTestId('physiology-editor-kind-estimated'));
+    fireEvent.press(screen.getByTestId('physiology-editor-save'));
+
+    await waitFor(() => expect(mockUpdatePhysiologyAnchor).toHaveBeenCalledTimes(1));
+    const [sport, anchor, edit] = mockUpdatePhysiologyAnchor.mock.calls[0];
+    expect([sport, anchor]).toEqual(['swim', 'critical_speed']);
+    expect(edit).toMatchObject({ value: 80, pace_per: '100m', kind: 'estimated', confidence: 'low' });
+  });
+
+  it('says why a value is refused, and keeps the form open', async () => {
+    mockUpdatePhysiologyAnchor.mockRejectedValue(
+      Object.assign(new Error('Request failed with status code 400'), {
+        response: { status: 400, data: { message: 'the ride map (290) must be above its critical_power (300)' } },
+      }),
+    );
+    const screen = render(tree(newClient(), 'metric'));
+
+    fireEvent.press(await screen.findByTestId('physiology-ride-map'));
+    fireEvent.changeText(await screen.findByTestId('physiology-editor-value'), '290');
+    fireEvent.press(screen.getByTestId('physiology-editor-kind-measured'));
+    fireEvent.press(screen.getByTestId('physiology-editor-save'));
+
+    const error = await screen.findByTestId('physiology-editor-error');
+    expect(error.props.children).toMatch(/must be above its critical_power/);
+    expect(screen.getByTestId('physiology-editor')).toBeTruthy();
   });
 });

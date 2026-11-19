@@ -382,6 +382,7 @@ mod tests {
                 return Err(AppError::internal("provider down"));
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: content.to_owned(),
                 model: "mock-model".to_owned(),
                 usage: None,
@@ -604,6 +605,7 @@ mod tests {
                 return Err(RunnerError::external_service(self.name, "scripted refusal"));
             }
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: "es".to_owned(),
                 model: request
                     .model

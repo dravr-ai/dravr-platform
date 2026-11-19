@@ -183,6 +183,20 @@ describe('InviteManager signup codes', () => {
     const badges = screen.getAllByTestId('invite-signup-code-badge')
     expect(badges).toHaveLength(1)
     expect(badges[0]).toHaveTextContent('Signup code')
+    expect(badges[0]).toHaveClass('badge-primary')
     expect(badges[0].closest('div')).toHaveTextContent('SIGNUP02')
+  })
+
+  it('marks a coach invite with the coach badge in the primary tone', () => {
+    invites = [
+      invite({ id: 'invite-1', code: 'PLAIN001' }),
+      invite({ id: 'invite-2', code: 'COACH002', kind: 'coach' }),
+    ]
+    renderManager()
+
+    const coachRow = screen.getByText('COACH002').closest('div') as HTMLElement
+    expect(within(coachRow).getByText('Coach')).toHaveClass('badge-primary')
+    const plainRow = screen.getByText('PLAIN001').closest('div') as HTMLElement
+    expect(within(plainRow).queryByText('Coach')).toBeNull()
   })
 })

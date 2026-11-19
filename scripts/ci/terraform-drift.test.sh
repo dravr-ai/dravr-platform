@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Pins terraform-drift.yml — a leg for every Terraform root a workflow can apply, each planning as its root's plan identity
-# ABOUTME: Then runs the lifted plan, classify and Slack steps against stubbed terraform/gcloud/curl, offline
+# ABOUTME: Then runs the lifted quiesce, plan, classify and Slack steps against stubbed terraform/gcloud/curl, offline
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -22,6 +22,20 @@
 #      leg, only "exit 0 and No changes" passes, and the published summary
 #      carries action lines but never raw attribute values (public repo). The
 #      Slack step is run the same way.
+#   4. Settling (carnet#1383). A deploy's canary pins the API's traffic while
+#      it ramps, and a plan landing then reads it as drift. A settle job waits
+#      for dev Cloud Run to quiesce before the drift job plans, and the dev leg
+#      re-plans once after a shorter wait when the API's Cloud Run service is
+#      the only resource the first plan changes; only that re-plan is
+#      classified, and drift beside it reds at once, without the wait. A wait that times out
+#      only warns (the script's ::error lines downgraded to ::warning), so the
+#      plan still decides the verdict, and a pin still there after the settle
+#      still reds. The quiesce script is stubbed.
+#   5. Locking. Only the dev leg's plan holds terraform.yml's terraform-state
+#      group: the settle job's long wait holds no group (a run waiting in that
+#      group is replaced by the next arrival, carnet#1116), the artifacts leg
+#      plans with -lock=false and queues behind nothing, and a failed settle
+#      never skips the plan.
 #
 # The coverage and identity checks run twice more against mutated copies of the
 # workflow — a leg removed, a leg minting the artifacts runner — and must fail
@@ -34,17 +48,35 @@ cd "$(dirname "$0")/../.."
 WORK=$(mktemp -d); trap 'rm -rf "${WORK}"' EXIT
 
 # ---------------------------------------------------------------------------
-# Stand-ins. terraform prints the canned plan named by STUB_TF_OUT, exits
-# STUB_TF_CODE and records its arguments; gcloud prints STUB_TOKEN as the Slack
-# bot token; curl records the payload it was asked to post and answers ok.
+# Stand-ins. terraform's n-th call prints the n-th canned plan named in
+# STUB_TF_OUT and exits the n-th code in STUB_TF_CODE (both space-separated; the
+# last one repeats), counts its calls in STUB_TF_CALLS and records its
+# arguments; the quiesce script records each call in STUB_WAIT_LOG and exits
+# STUB_WAIT_CODE, printing '::error::' to stderr on failure as its die() does;
+# gcloud prints STUB_TOKEN as the Slack bot token; curl records
+# the payload it was asked to post and answers ok.
 # ---------------------------------------------------------------------------
-mkdir -p "${WORK}/bin"
+mkdir -p "${WORK}/bin" "${WORK}/ws/scripts/ci"
 cat > "${WORK}/bin/terraform" <<'SH'
 #!/usr/bin/env bash
+n=$(( $(cat "${STUB_TF_CALLS}" 2>/dev/null || echo 0) + 1 ))
+echo "${n}" > "${STUB_TF_CALLS}"
+read -ra outs <<< "${STUB_TF_OUT}"
+read -ra codes <<< "${STUB_TF_CODE}"
+i=$(( n < ${#outs[@]} ? n - 1 : ${#outs[@]} - 1 ))
 printf '%s\n' "$@" > "${STUB_TF_ARGS}"
-cat "${STUB_TF_OUT}"
-exit "${STUB_TF_CODE}"
+cat "${outs[${i}]}"
+exit "${codes[${i}]}"
 SH
+cat > "${WORK}/ws/scripts/ci/wait-cloud-run-service-ready.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${STUB_WAIT_LOG}"
+echo "Waiting until no dev Cloud Run service is mid-rollout"
+code="${STUB_WAIT_CODE:-0}"
+[ "${code}" = 0 ] || echo "::error::stub quiesce timed out" >&2
+exit "${code}"
+SH
+chmod +x "${WORK}/ws/scripts/ci/wait-cloud-run-service-ready.sh"
 cat > "${WORK}/bin/gcloud" <<'SH'
 #!/usr/bin/env bash
 printf '%s' "${STUB_TOKEN}"
@@ -64,6 +96,12 @@ import copy, glob, os, re, subprocess, sys, yaml
 
 DRIFT_WF = "terraform-drift.yml"
 PLAN_STEP = "Terraform Plan (drift check)"
+INIT_STEP = "Terraform Init"
+QUIESCE_STEP = "Wait until no dev Cloud Run service is mid-rollout"
+QUIESCE_TIMEOUT = "--timeout-seconds 1800"
+REPLAN_TIMEOUT = "--timeout-seconds 900"
+STATE_GROUP = "terraform-state"
+CLOUD_RUN = "module.backend.google_cloud_run_v2_service.service"
 CLASSIFY_STEP = "Classify drift result"
 SLACK_STEP = "Post to Slack"
 TF_CMD = re.compile(r"(?m)^\s*terraform\s+(?:-chdir=(\S+)\s+)?(plan|apply)\b")
@@ -202,9 +240,153 @@ Terraform will perform the following actions:
 
 Plan: 0 to add, 1 to change, 0 to destroy.
 """
-ERRORED = "\nError: Failed to get existing workspaces: storage: object doesn't exist\n"
+CLOUD_RUN_DRIFTED = f"""
+Terraform will perform the following actions:
 
-def behaviour(work, legs, job):
+  # {CLOUD_RUN} will be updated in-place
+  ~ resource "google_cloud_run_v2_service" "service" {{
+      ~ traffic {{
+          ~ percent  = 99 -> 100
+          - revision = "{SECRET}" -> null
+        }}
+    }}
+
+Plan: 0 to add, 1 to change, 0 to destroy.
+"""
+# The Cloud Run move beside a change no settle undoes: the action lines of both, one Plan: line.
+CLOUD_RUN_AND_DRIFTED = (CLOUD_RUN_DRIFTED.rsplit("Plan:", 1)[0]
+                         + DRIFTED.split("actions:\n", 1)[1].replace("1 to change", "2 to change"))
+ERRORED = "\nError: Failed to get existing workspaces: storage: object doesn't exist\n"
+# The dev vars a quiesce wait reads, standing in for ${{ vars.* }}.
+DEV_VARS = {"REGION": "us-test1", "PREFIX": "dravr-test"}
+
+def stub_env(work, plans, wait_code):
+    """Fresh stand-in state; plans is [(exit code, plan text)], one per terraform call."""
+    names = ("output", "summary", "tf-args", "tf-calls", "wait-log")
+    out, summary, args, calls, wait_log = (os.path.join(work, f) for f in names)
+    for f in (out, summary, wait_log):
+        open(f, "w").close()
+    if os.path.exists(calls):
+        os.remove(calls)
+    files = []
+    for n, (_, text) in enumerate(plans):
+        f = os.path.join(work, f"plan{n}.txt")
+        open(f, "w").write(text)
+        files.append(f)
+    return {"STUB_TF_OUT": " ".join(files), "STUB_TF_CODE": " ".join(str(c) for c, _ in plans),
+            "STUB_TF_ARGS": args, "STUB_TF_CALLS": calls, "STUB_WAIT_LOG": wait_log,
+            "STUB_WAIT_CODE": str(wait_code), "GITHUB_OUTPUT": out, "GITHUB_STEP_SUMMARY": summary,
+            "GITHUB_WORKSPACE": os.path.join(work, "ws")}
+
+def stub_calls(stub):
+    tf = int(open(stub["STUB_TF_CALLS"]).read().strip()) if os.path.exists(stub["STUB_TF_CALLS"]) else 0
+    waits = [l for l in open(stub["STUB_WAIT_LOG"]).read().splitlines() if l]
+    return tf, waits
+
+def run_leg(work, leg, plan, classify, plans, wait_code=0):
+    """Run the plan then the classify step as the runner would; raises on an unresolvable env."""
+    cwd = os.path.join(work, "root"); os.makedirs(cwd, exist_ok=True)
+    stub = stub_env(work, plans, wait_code)
+    rc, log = run_step(plan, dict(resolve_env(plan, leg, {}, DEV_VARS), **stub), cwd, work)
+    outputs = dict(l.split("=", 1) for l in open(stub["GITHUB_OUTPUT"]).read().splitlines() if "=" in l)
+    crc, clog = run_step(classify, resolve_env(classify, leg, outputs, {}), cwd, work)
+    tf, waits = stub_calls(stub)
+    return {"rc": rc, "log": log, "crc": crc, "clog": clog, "summary": open(stub["GITHUB_STEP_SUMMARY"]).read(),
+            "argv": open(stub["STUB_TF_ARGS"]).read().split("\n"), "tf": tf, "waits": waits}
+
+def strip_expr(value):
+    return re.sub(r"^\$\{\{\s*|\s*\}\}$", "", str(value).strip())
+
+def leg_group(group, leg):
+    """The concurrency group a leg resolves to, for the one expression shape this lane uses:
+    `matrix.label == '<label>' && '<group>' || <fallback>`; a plain string is every leg's group."""
+    expr = strip_expr(group)
+    if "${{" not in str(group):
+        return str(group)
+    m = re.fullmatch(r"matrix\.label == '([^']+)' && '([^']+)' \|\| (.+)", expr)
+    if not m:
+        return None
+    if leg.get("label") == m.group(1):
+        return m.group(2)
+    # The fallback must be unique per run, so a leg outside the state group never
+    # queues behind (or replaces) another run's.
+    return f"<per-run {m.group(3)}>" if "github.run_id" in m.group(3) else m.group(3)
+
+def warn_only(log, where):
+    """A wait that only warns must leave no ::error annotation on a run that may go green."""
+    if "::error" in log:
+        bad(f"{where}: the quiesce script's ::error reached the log of a warn-only wait:\n{log}")
+        return False
+    return True
+
+def quiesce_pins(work, legs, wf, drift_id, job):
+    """A settle job outside terraform-state waits for Cloud Run before the plan; the wait only warns."""
+    jobs = wf.get("jobs") or {}
+    if "concurrency" in wf:
+        bad(f"the workflow-level concurrency {wf['concurrency']!r} holds the group for every job, settle's wait included")
+    else:
+        ok("no workflow-level concurrency: only a job that plans holds a group")
+    settles = [(jid, j) for jid, j in jobs.items() if any(s.get("name") == QUIESCE_STEP for s in j.get("steps") or [])]
+    if len(settles) != 1 or settles[0][0] == drift_id:
+        bad(f"expected one job other than {drift_id} with a '{QUIESCE_STEP}' step, found {[j for j, _ in settles]}")
+        return
+    settle_id, settle = settles[0]
+    if "concurrency" in settle or "strategy" in settle:
+        bad(f"{settle_id} must be one job outside any concurrency group, so its wait holds no lock")
+    else:
+        ok(f"{settle_id} is one job in no concurrency group")
+    needs = job.get("needs")
+    needs = [needs] if isinstance(needs, str) else (needs or [])
+    cond = strip_expr(job.get("if", ""))
+    if settle_id in needs and cond in ("!cancelled()", "always()"):
+        ok(f"{drift_id} runs after {settle_id} whatever its result (if: {cond})")
+    else:
+        bad(f"{drift_id} must need {settle_id} and run on `if: ${{{{ !cancelled() }}}}`, has needs={needs} if={job.get('if')!r}")
+    group = (job.get("concurrency") or {}).get("group")
+    cancel = (job.get("concurrency") or {}).get("cancel-in-progress")
+    groups = {l.get("label"): leg_group(group, l) for l in legs}
+    others = [g for lbl, g in groups.items() if lbl != "dev"]
+    if groups.get("dev") == STATE_GROUP and cancel is False and all(
+            g and g != STATE_GROUP and g.startswith("<per-run ") for g in others):
+        ok(f"only the dev leg queues in {STATE_GROUP}, never cancelling; the others get a per-run group: {groups}")
+    else:
+        bad(f"the dev leg alone must hold {STATE_GROUP} (cancel-in-progress: false), the others a per-run group; "
+            f"got {groups}, cancel-in-progress={cancel!r}")
+    drift_timeout, settle_timeout = job.get("timeout-minutes"), settle.get("timeout-minutes")
+    if isinstance(drift_timeout, int) and 20 <= drift_timeout <= 30:
+        ok(f"{drift_id}'s {drift_timeout}-minute timeout covers one 15-minute re-plan wait and two plans")
+    else:
+        bad(f"{drift_id} timeout-minutes {drift_timeout!r}: want 20-30, one 15-minute wait and two plans")
+    if isinstance(settle_timeout, int) and 31 <= settle_timeout <= 40:
+        ok(f"{settle_id}'s {settle_timeout}-minute timeout covers one 30-minute wait")
+    else:
+        bad(f"{settle_id} timeout-minutes {settle_timeout!r}: want 31-40, one 30-minute wait")
+    dev = next((l for l in legs if l.get("label") == "dev"), None)
+    if dev is None:
+        bad("no dev leg to settle for")
+        return
+    step = next(s for s in settle["steps"] if s.get("name") == QUIESCE_STEP)
+    for wait_code, name in ((0, "a settled dev"), (1, "a quiesce timeout")):
+        stub = stub_env(work, [(0, CLEAN)], wait_code)
+        try:
+            rc, log = run_step(step, dict(resolve_env(step, dev, {}, DEV_VARS), **stub), work, work)
+        except (KeyError, ValueError) as e:
+            bad(f"quiesce: {e}")
+            return
+        _, waits = stub_calls(stub)
+        want = f"quiesce --region {DEV_VARS['REGION']} --prefix {DEV_VARS['PREFIX']} {QUIESCE_TIMEOUT}"
+        if waits != [want]:
+            bad(f"quiesce on {name}: called the wait as {waits}, want [{want!r}] (no --db-headroom: a plan rolls nothing)")
+        elif rc != 0:
+            bad(f"quiesce on {name}: the step exited {rc}; a wait that fails must leave the verdict to the plan:\n{log}")
+        elif "Waiting until" not in log:
+            bad(f"quiesce on {name}: the script's progress (stdout) never reached the log:\n{log}")
+        elif wait_code and "::warning::stub quiesce timed out" not in log:
+            bad(f"quiesce on {name}: the script's own message was lost; it must come back as a warning:\n{log}")
+        elif warn_only(log, f"quiesce on {name}"):
+            ok(f"quiesce on {name}: waits {QUIESCE_TIMEOUT}, then {'warns (no ::error) and ' if wait_code else ''}lets the plan run")
+
+def behaviour(work, legs, wf, drift_id, job):
     steps = {s.get("name"): s for s in job.get("steps") or []}
     plan, classify = steps.get(PLAN_STEP), steps.get(CLASSIFY_STEP)
     if not plan or not classify:
@@ -215,54 +397,81 @@ def behaviour(work, legs, job):
         ok("setup-terraform runs without its wrapper, so exit code 2 reaches the plan step")
     else:
         bad("setup-terraform must set terraform_wrapper: false — the wrapper turns exit 2 into 0")
+    quiesce_pins(work, legs, wf, drift_id, job)
     scenarios = [
-        # name, plan exit, plan text, classify passes, marker the classify output must carry
-        ("an empty plan", 0, CLEAN, True, "No drift"),
-        ("drift (exit 2)", 2, DRIFTED, False, "Terraform drift detected"),
-        ("exit 0 over a non-empty plan (wrapper quirk)", 0, DRIFTED, False, "Terraform drift detected"),
-        ("a failed plan (exit 1)", 1, ERRORED, False, "Terraform plan failed"),
+        # name, [(plan exit, plan text) per terraform call], quiesce exit, legs,
+        # classify passes, marker the classify output must carry, terraform calls, waits in the plan step
+        ("an empty plan", [(0, CLEAN)], 0, None, True, "No drift", 1, 0),
+        ("drift (exit 2)", [(2, DRIFTED)], 0, None, False, "Terraform drift detected", 1, 0),
+        ("exit 0 over a non-empty plan (wrapper quirk)", [(0, DRIFTED)], 0, None, False, "Terraform drift detected", 1, 0),
+        ("a failed plan (exit 1)", [(1, ERRORED)], 0, None, False, "Terraform plan failed", 1, 0),
+        ("Cloud Run drift, then a clean re-plan", [(2, CLOUD_RUN_DRIFTED), (0, CLEAN)], 0, {"dev"}, True, "No drift", 2, 1),
+        ("Cloud Run drift in both plans", [(2, CLOUD_RUN_DRIFTED), (2, CLOUD_RUN_DRIFTED)], 0, {"dev"}, False, CLOUD_RUN, 2, 1),
+        ("Cloud Run drift, a quiesce timeout, then a clean re-plan", [(2, CLOUD_RUN_DRIFTED), (0, CLEAN)], 1, {"dev"}, True, "No drift", 2, 1),
+        # Drift a settle cannot undo beside the Cloud Run move: red at once, no wait held in terraform-state.
+        ("Cloud Run drift beside other drift, never re-planned", [(2, CLOUD_RUN_AND_DRIFTED), (0, CLEAN)], 0, {"dev"}, False, "Terraform drift detected", 1, 0),
+        ("Cloud Run drift, a re-plan that fails (exit 1)", [(2, CLOUD_RUN_DRIFTED), (1, ERRORED)], 0, {"dev"}, False, "Terraform plan failed", 2, 1),
+        # Only the dev root holds the API's Cloud Run service; the other legs never wait or re-plan.
+        ("Cloud Run drift, never re-planned off the dev leg", [(2, CLOUD_RUN_DRIFTED), (0, CLEAN)], 0, "not dev", False, CLOUD_RUN, 1, 0),
     ]
     for leg in legs:
         root = leg["root"]
-        for name, code, text, passes, marker in scenarios:
-            cwd = os.path.join(work, "root"); os.makedirs(cwd, exist_ok=True)
-            out, summary, args = (os.path.join(work, f) for f in ("output", "summary", "tf-args"))
-            for f in (out, summary):
-                open(f, "w").close()
-            open(os.path.join(work, "plan.txt"), "w").write(text)
-            stub = {"STUB_TF_OUT": os.path.join(work, "plan.txt"), "STUB_TF_CODE": str(code),
-                    "STUB_TF_ARGS": args, "GITHUB_OUTPUT": out, "GITHUB_STEP_SUMMARY": summary}
+        for name, plans, wait_code, only, passes, marker, want_tf, want_waits in scenarios:
+            if only == "not dev":
+                if leg.get("label") == "dev":
+                    continue
+            elif only is not None and leg.get("label") not in only:
+                continue
+            label = f"{root}: {name}"
             try:
-                rc, log = run_step(plan, dict(resolve_env(plan, leg, {}, {}), **stub), cwd, work)
-                outputs = dict(l.split("=", 1) for l in open(out).read().splitlines() if "=" in l)
-                crc, clog = run_step(classify, resolve_env(classify, leg, outputs, {}), cwd, work)
+                r = run_leg(work, leg, plan, classify, plans, wait_code)
             except (KeyError, ValueError) as e:
                 bad(f"{root}: {e}")
                 return
-            label = f"{root}: {name}"
-            if rc != 0:
-                bad(f"{label} — the plan step itself failed (exit {rc}); it must leave the verdict to classify:\n{log}")
+            if r["rc"] != 0:
+                bad(f"{label} — the plan step itself failed (exit {r['rc']}); it must leave the verdict to classify:\n{r['log']}")
                 continue
-            if (crc == 0) != passes or marker not in clog:
-                bad(f"{label} — classify exited {crc}, expected {'0' if passes else 'non-zero'} with '{marker}':\n{clog}")
+            if (r["crc"] == 0) != passes or marker not in r["clog"]:
+                bad(f"{label} — classify exited {r['crc']}, expected {'0' if passes else 'non-zero'} with '{marker}':\n{r['clog']}")
                 continue
-            published = open(summary).read()
-            if SECRET in published or SECRET in log:
+            if (r["tf"], len(r["waits"])) != (want_tf, want_waits):
+                bad(f"{label} — terraform ran {r['tf']} time(s) and the plan step waited {len(r['waits'])} time(s); "
+                    f"want {want_tf} and {want_waits}")
+                continue
+            if want_waits and r["waits"] != [f"quiesce --region {DEV_VARS['REGION']} --prefix {DEV_VARS['PREFIX']} {REPLAN_TIMEOUT}"]:
+                bad(f"{label} — the re-plan waited as {r['waits']}; want a {REPLAN_TIMEOUT} quiesce without --db-headroom")
+                continue
+            published = r["summary"]
+            if SECRET in published or SECRET in r["log"]:
                 bad(f"{label} — raw plan text reached the log or job summary (public repo)")
                 continue
-            if code == 2 and not ("# google_artifact_registry_repository.images will be updated in-place" in published
-                                  and "Plan: 0 to add, 1 to change, 0 to destroy." in published):
+            replanned = want_tf == 2
+            if replanned and not ("Re-planned:" in published and CLOUD_RUN in published
+                                  and f"# {CLOUD_RUN} will be updated in-place" in published):
+                bad(f"{label} — the summary does not say the plan was re-planned and why:\n{published}")
+                continue
+            if not replanned and "Re-planned:" in published:
+                bad(f"{label} — the summary claims a re-plan that never ran:\n{published}")
+                continue
+            if wait_code and replanned and "::warning::stub quiesce timed out" not in r["log"]:
+                bad(f"{label} — the failed re-plan wait lost the script's message; it must come back as a warning:\n{r['log']}")
+                continue
+            if not warn_only(r["log"], label):
+                continue
+            last_code, last_text = plans[min(want_tf, len(plans)) - 1]
+            if last_code == 2 and last_text is DRIFTED and not (
+                    "# google_artifact_registry_repository.images will be updated in-place" in published
+                    and "Plan: 0 to add, 1 to change, 0 to destroy." in published):
                 bad(f"{label} — the summary lost the action line or the Plan: line:\n{published}")
                 continue
-            if code == 1 and "Failed to get existing workspaces" not in published:
+            if last_code == 1 and "Failed to get existing workspaces" not in published:
                 bad(f"{label} — the summary lost the error tail:\n{published}")
                 continue
-            argv = open(args).read().split("\n")
             want_lock = f"-lock={leg['_want_lock']}"
-            if "plan" not in argv or "-detailed-exitcode" not in argv or want_lock not in argv:
-                bad(f"{label} — terraform was called as {argv}; want plan -detailed-exitcode {want_lock}")
+            if "plan" not in r["argv"] or "-detailed-exitcode" not in r["argv"] or want_lock not in r["argv"]:
+                bad(f"{label} — terraform was called as {r['argv']}; want plan -detailed-exitcode {want_lock}")
                 continue
-            ok(f"{label} -> {'green' if passes else 'red'}, summary condensed, {want_lock}")
+            ok(f"{label} -> {'green' if passes else 'red'}, {want_tf} plan(s), summary condensed, {want_lock}")
 
 def slack(work, wf, drift_id):
     jobs = wf.get("jobs") or {}
@@ -348,7 +557,7 @@ def main(work):
         return
     drift_id, job, wf = found
     print("terraform-drift: plan + classify, per leg")
-    behaviour(work, legs, job)
+    behaviour(work, legs, wf, drift_id, job)
     print("terraform-drift: Slack post")
     slack(work, wf, drift_id)
 

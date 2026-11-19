@@ -20,7 +20,7 @@ cd "$(dirname "$0")/../.."
 SCRIPT="${PWD}/scripts/ci/wait-cloud-run-service-ready.sh"
 WORK=$(mktemp -d); trap 'rm -rf "${WORK}"' EXIT
 
-EXPECTED_CASES=57
+EXPECTED_CASES=65
 CASES_RUN=0
 CASES_PASSED=0
 CASES_FAILED=0
@@ -36,8 +36,12 @@ PROJECT="dravr-dev"
 # <name>.missing file makes it fail as gcloud does for an unknown service, and
 # <name>.empty makes it print nothing. `config get-value project` prints the
 # content of ${STUB_DIR}/project (dravr-dev without one) and `auth
-# print-access-token` a fixed token. Every call is logged. Builtins only, so
-# it also runs under the trimmed PATH of the missing-tool cases.
+# print-access-token` a fixed token. `run services list` (the labelled-service
+# discovery) prints ${STUB_DIR}/services.list, which new_case seeds with the one
+# labelled service that exists before any read or sign-in service is applied,
+# and fails as gcloud does when services.list.fail exists; like gcloud, it
+# says "Listed 0 items." on stderr for an empty answer. Every call is logged.
+# Builtins only, so it also runs under the trimmed PATH of the missing-tool cases.
 # ---------------------------------------------------------------------------
 BIN="${WORK}/bin"; mkdir -p "${BIN}"
 cat > "${BIN}/gcloud" <<SH
@@ -50,6 +54,14 @@ if [ "$1 $2 $3" = "config get-value project" ]; then
   exit 0
 fi
 if [ "$1 $2" = "auth print-access-token" ]; then echo "stub-token"; exit 0; fi
+if [ "$1 $2 $3" = "run services list" ]; then
+  if [ -e "${STUB_DIR}/services.list.fail" ]; then
+    echo "ERROR: (gcloud.run.services.list) PERMISSION_DENIED: run.services.list" >&2; exit 1
+  fi
+  [ -s "${STUB_DIR}/services.list" ] || { echo "Listed 0 items." >&2; exit 0; }
+  printf '%s\n' "$(<"${STUB_DIR}/services.list")"
+  exit 0
+fi
 if [ "$1 $2 $3" = "run revisions describe" ]; then
   # Created now unless <rev>.created names a time; Ready=True unless <rev>.ready
   # says otherwise; <rev>.fail makes it fail as gcloud does.
@@ -169,6 +181,7 @@ expect_monitoring_calls() {
 new_case() {
   STUB_DIR="${WORK}/state-${CASES_RUN}"
   mkdir -p "${STUB_DIR}"; : > "${STUB_DIR}/calls.log"
+  printf '%s\n' "${PREFIX}-sciotte" > "${STUB_DIR}/services.list"
   export STUB_DIR
 }
 
@@ -221,11 +234,15 @@ case_quiesce_reads_every_dev_service_in_the_given_region() {
   quiesce --timeout-seconds 5
   expect_code 0 || return 1
   for s in "${ALL[@]}"; do expect_calls "${PREFIX}-${s}" -eq 1 || return 1; done
-  local lines other
+  # Four describes and the one discovery list, which finds only the sciotte
+  # service the fixed list already names, so it adds no describe.
+  local lines other lists
   lines=$(wc -l <"${STUB_DIR}/calls.log" | tr -d ' ')
-  [ "${lines}" = "4" ] || { REASON="${lines} gcloud calls, expected 4"; return 1; }
-  other=$(grep -vc -- "--region=${REGION} --format=json" "${STUB_DIR}/calls.log" || true)
-  [ "${other}" = "0" ] || { REASON="${other} calls without --region=${REGION}"; return 1; }
+  [ "${lines}" = "5" ] || { REASON="${lines} gcloud calls, expected 5"; return 1; }
+  lists=$(grep -c -- "^run services list --region=${REGION} --filter=metadata.labels.component=sciotte " "${STUB_DIR}/calls.log" || true)
+  [ "${lists}" = "1" ] || { REASON="${lists} discovery lists in ${REGION} filtered on component=sciotte, expected 1"; return 1; }
+  other=$(grep -v -- "^run services list " "${STUB_DIR}/calls.log" | grep -vc -- "--region=${REGION} --format=json" || true)
+  [ "${other}" = "0" ] || { REASON="${other} describes without --region=${REGION}"; return 1; }
   # Quiet on the first poll: no jitter, no re-check.
   expect_no_out "re-checking"
 }
@@ -457,8 +474,82 @@ case_service_times_out_on_split_traffic_naming_the_remedy() {
 case_service_rejects_an_unknown_suffix() {
   settled api
   service --service billing
-  expect_code 1 && expect_out "--service 'billing' is not a dev Cloud Run service (api frontend photograveur sciotte)" \
+  expect_code 1 && expect_out "--service 'billing' is not a dev Cloud Run service (api frontend photograveur sciotte, or one labelled component=sciotte under ${PREFIX}-)" \
     && expect_calls "${PREFIX}-billing" -eq 0
+}
+
+# ---------------------------------------------------------------------------
+# Discovered services: the sciotte read and sign-in services terraform adds,
+# all labelled component=sciotte (carnet#1504)
+# ---------------------------------------------------------------------------
+case_quiesce_waits_on_a_discovered_service() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  printf '%s\n' "${PREFIX}-sciotte" "${PREFIX}-sciotte-read-1" > "${STUB_DIR}/services.list"
+  rolling sciotte-read-1 .1; settled sciotte-read-1 .2
+  quiesce --timeout-seconds 20
+  expect_code 0 && expect_out "${PREFIX}-sciotte-read-1: rolling sciotte-read-1-00004 created" \
+    && expect_out "Quiescent: no dev Cloud Run" && expect_calls "${PREFIX}-sciotte-read-1" -eq 3
+}
+
+# Another environment's sciotte in the same region carries the same label.
+case_quiesce_ignores_a_labelled_service_outside_the_prefix() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  printf '%s\n' "${PREFIX}-sciotte" "dravr-staging-sciotte-read-1" "${PREFIX}" > "${STUB_DIR}/services.list"
+  quiesce --timeout-seconds 5
+  expect_code 0 && expect_out "Quiescent" && expect_calls "dravr-staging-sciotte-read-1" -eq 0 \
+    && expect_no_out "dravr-staging"
+}
+
+case_quiesce_fails_when_discovery_fails() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  touch "${STUB_DIR}/services.list.fail"
+  quiesce --timeout-seconds 30
+  expect_code 1 && expect_out "::error::gcloud run services list --region=${REGION} --filter=metadata.labels.component=sciotte failed" \
+    && expect_out "PERMISSION_DENIED" && expect_calls "${PREFIX}-api" -eq 0
+}
+
+# An empty answer (stderr "Listed 0 items.") waits on the fixed list alone.
+case_quiesce_passes_on_an_empty_discovery() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  : > "${STUB_DIR}/services.list"
+  quiesce --timeout-seconds 5
+  expect_code 0 && expect_out "Quiescent" && expect_no_out "Listed 0 items" \
+    && expect_calls "${PREFIX}-sciotte" -eq 1
+}
+
+case_quiesce_describes_a_service_once_however_often_it_is_listed() {
+  for s in "${ALL[@]}" sciotte-read-1 sciotte-login; do settled "${s}"; done
+  printf '%s\n' "${PREFIX}-sciotte-read-1" "${PREFIX}-sciotte" "${PREFIX}-sciotte-login" \
+    "${PREFIX}-sciotte-read-1" "${PREFIX}-api" > "${STUB_DIR}/services.list"
+  quiesce --timeout-seconds 5
+  expect_code 0 || return 1
+  for s in "${ALL[@]}" sciotte-read-1 sciotte-login; do expect_calls "${PREFIX}-${s}" -eq 1 || return 1; done
+}
+
+case_service_accepts_a_discovered_suffix() {
+  printf '%s\n' "${PREFIX}-sciotte" "${PREFIX}-sciotte-login" > "${STUB_DIR}/services.list"
+  rolling sciotte-login .1; settled sciotte-login .2
+  service --service sciotte-login --timeout-seconds 20
+  expect_code 0 && expect_out "Settled: ${PREFIX}-sciotte-login serves its latest revision" \
+    && expect_calls "${PREFIX}-sciotte-login" -eq 2 && expect_calls "${PREFIX}-sciotte" -eq 0
+}
+
+# List mode prints every labelled service under the prefix, the fixed list's
+# sciotte included, once each, and describes nothing: the deploy lane moves
+# exactly what it prints.
+case_list_prints_every_labelled_service_once() {
+  printf '%s\n' "${PREFIX}-sciotte" "${PREFIX}-sciotte-read-1" "dravr-staging-sciotte-read-1" \
+    "${PREFIX}-sciotte-login" "${PREFIX}-sciotte-read-1" > "${STUB_DIR}/services.list"
+  run_script list --region "${REGION}" --prefix "${PREFIX}"
+  expect_code 0 && expect_out "sciotte" && expect_out "sciotte-read-1" && expect_out "sciotte-login" \
+    && expect_no_out "staging" && expect_calls "${PREFIX}-sciotte" -eq 0 || return 1
+  [ "$(grep -c '^sciotte-read-1$' <<<"${OUT}")" -eq 1 ] || { echo "sciotte-read-1 printed more than once"; return 1; }
+}
+
+case_list_fails_when_discovery_fails() {
+  touch "${STUB_DIR}/services.list.fail"
+  run_script list --region "${REGION}" --prefix "${PREFIX}"
+  expect_code 1 && expect_out "PERMISSION_DENIED"
 }
 
 case_service_requires_a_service() {
@@ -478,7 +569,7 @@ case_rejects_a_missing_prefix() {
 
 case_rejects_an_unknown_mode() {
   run_script "${PREFIX}-api" --region "${REGION}" --prefix "${PREFIX}"
-  expect_code 1 && expect_out "unknown mode '${PREFIX}-api' (must be quiesce, service or headroom)"
+  expect_code 1 && expect_out "unknown mode '${PREFIX}-api' (must be quiesce, service, headroom or list)"
 }
 
 case_rejects_a_bad_timeout() {
@@ -691,6 +782,8 @@ case_db_rejects_headroom_beyond_the_slot_limit() {
 }
 
 CASES=(
+  case_list_prints_every_labelled_service_once
+  case_list_fails_when_discovery_fails
   case_quiesce_all_settled
   case_quiesce_reads_every_dev_service_in_the_given_region
   case_quiesce_waits_for_a_rollout_then_passes
@@ -718,6 +811,12 @@ CASES=(
   case_service_times_out
   case_service_times_out_on_split_traffic_naming_the_remedy
   case_service_rejects_an_unknown_suffix
+  case_quiesce_waits_on_a_discovered_service
+  case_quiesce_ignores_a_labelled_service_outside_the_prefix
+  case_quiesce_fails_when_discovery_fails
+  case_quiesce_passes_on_an_empty_discovery
+  case_quiesce_describes_a_service_once_however_often_it_is_listed
+  case_service_accepts_a_discovered_suffix
   case_service_requires_a_service
   case_rejects_an_empty_region
   case_rejects_a_missing_prefix

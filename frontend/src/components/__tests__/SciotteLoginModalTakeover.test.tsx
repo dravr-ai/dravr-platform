@@ -37,7 +37,7 @@ const PROMPT = () => i18n.t('shell.sciotteTakeoverPrompt', { provider: 'Garmin' 
 
 interface Handlers {
   onClose: () => void;
-  onConnected: (followOn?: string) => void;
+  onConnected: () => void;
   onFallBackToOAuth?: () => void;
 }
 
@@ -93,12 +93,13 @@ describe('SciotteLoginModal — the takeover of a provider robot check', () => {
     expect(sciotteCancel).not.toHaveBeenCalled();
   });
 
-  it('hands on the grant a connected takeover goes on to (carnet#1494)', async () => {
+  it('ends the connect on a connected takeover, handing on no grant to authorize', async () => {
     const { socket, handlers } = await intoTakeover();
+    // A connected answer that still names Garmin's grant.
     const body = { status: 'connected', provider: 'sciotte_garmin', oauth_follow_on: { provider: 'garmin' } };
     act(() => socket.event({ type: 'outcome', status_code: 200, body }));
     expect((await screen.findAllByText(i18n.t('shell.sciotteConnected'))).length).toBeGreaterThan(0);
-    expect(handlers.onConnected).toHaveBeenCalledWith('garmin');
+    expect(vi.mocked(handlers.onConnected).mock.calls).toEqual([[]]);
   });
 
   it('shows wrong credentials as the login does, for another try', async () => {
@@ -140,13 +141,14 @@ describe('SciotteLoginModal — the takeover of a provider robot check', () => {
     expect(retried).not.toBe(attemptId);
   });
 
-  it('hands a refusal the card falls back on to its OAuth, as the login does', async () => {
+  it('offers the OAuth on a refusal the card falls back on, as the login does', async () => {
     const onFallBackToOAuth = vi.fn();
-    const { socket } = await intoTakeover({ onFallBackToOAuth });
+    const { socket, user } = await intoTakeover({ onFallBackToOAuth });
     act(() =>
       socket.event({ type: 'outcome', status_code: 503, body: { code: 'x', details: { reason: 'sign_in_unavailable' } } }),
     );
-    await waitFor(() => expect(onFallBackToOAuth).toHaveBeenCalledTimes(1));
+    await user.click(await screen.findByTestId('sciotte-oauth-fallback'));
+    expect(onFallBackToOAuth).toHaveBeenCalledTimes(1);
   });
 
   it('closing mid-takeover cancels the attempt and closes the socket, with no fallback to offer', async () => {

@@ -31,6 +31,9 @@
 // Domain modules
 pub mod a2a;
 mod athlete;
+/// A cached activity row's key, and its place as it is served: id, name, and
+/// whether the athlete gave the name.
+pub mod athlete_place;
 /// The difficulty-calibration interview's topic table and next-topic policy.
 pub mod calibration;
 /// How often the coach checks in with an athlete on its own (carnet#831).
@@ -61,7 +64,12 @@ pub mod onboarding;
 pub mod pillar;
 /// What a server-initiated agent post is for: its claim row's purpose.
 pub mod platform_post;
+/// What a provider says about the athlete beyond their activities: zones,
+/// gear, all-time records, best efforts, weight (provider context).
+pub mod provider_context;
 mod provider_thresholds;
+/// Where an activity's route geometry came from (summary polyline or streams).
+pub mod route_geometry;
 /// The season walk's topic table and next-topic policy.
 pub mod season;
 mod sleep;
@@ -95,8 +103,8 @@ pub mod refresh;
 // Activity and sport types come from dravr-cageux (canonical source)
 pub use dravr_cageux::models::activity;
 pub use dravr_cageux::models::activity::{
-    Activity, ActivityBuilder, ActivityComment, Feel, GearRef, HeartRateZone, Lap, PowerZone,
-    SegmentEffort, Split, TimeSeriesData,
+    Activity, ActivityBuilder, ActivityComment, ActivityTag, Feel, GearRef, HeartRateZone, Lap,
+    PowerZone, SegmentEffort, Split, TagSource, TaggedBy, TimeSeriesData,
 };
 pub use dravr_cageux::models::sport;
 pub use dravr_cageux::models::sport::SportType;
@@ -152,11 +160,15 @@ pub use dravr_equilibre::{
 pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 
 // Athlete domain
-pub use athlete::{Athlete, PeriodTotals, Stats};
+pub use athlete::{ActiveStreak, Athlete, PeriodTotals, Stats};
 pub use delegated_connection::{
     DelegatedConnection, DelegationEndReason, DelegationStatus, RosterAccess, RosterAthlete,
 };
 pub use units::UnitSystem;
+
+// Places of activities (carnet#1484)
+pub use athlete_place::{CachedRowKey, HomeDeclaration, PlaceRef, StoredHome};
+pub use route_geometry::RouteGeometrySource;
 
 pub use check_in::CheckInCadence;
 
@@ -164,9 +176,12 @@ pub use check_in::CheckInCadence;
 pub use measurement::{
     AnchorOrigin, AnchorProvenance, AnchorStamp, MeasurementKind, MetricProvenance,
     ProvenancedValue, ThresholdProvenance, ThresholdStatedOn, ATHLETE_REPORTED_ORIGIN,
+    COACH_STATED_ORIGIN,
 };
 pub use provider_thresholds::{ProviderThreshold, ProviderThresholds};
-pub use sport_anchors::{AnchorUnit, ProfileTwin, SportAnchor, SportAnchorName, TargetAnchor};
+pub use sport_anchors::{
+    AnchorUnit, HeldAnchors, ProfileTwin, SportAnchor, SportAnchorName, TargetAnchor,
+};
 
 // User domain
 pub use invitation::{InvitationKind, PreApprovedEmail, UserInvitation};
@@ -253,7 +268,7 @@ pub use oauth2_server::{
 mod session_refresh_token;
 pub use session_refresh_token::SessionRefreshToken;
 
-// Coach-access requests — a coach asks, a super-admin decides (carnet#738)
+// Coach-access requests — a coach asks, an admin decides (carnet#738)
 mod coach_access;
 pub use coach_access::{
     normalize_decline_reason, CoachAccessRequest, CoachAccessStatus, DECLINE_REASON_MAX_CHARS,
@@ -269,7 +284,9 @@ pub use coach_review::{
 
 // Signup codes — a shareable code that approves whoever enters it (carnet#1128)
 mod signup_code;
-pub use signup_code::{SignupCode, SignupCodeRedemption, SignupCodeSource};
+pub use signup_code::{
+    GroupInviteFunnelRow, GroupInviteHold, SignupCode, SignupCodeRedemption, SignupCodeSource,
+};
 
 // iOS App Attest keys — the installs of Dravr's iOS app that Apple attested
 mod app_attest_key;

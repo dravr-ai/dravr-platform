@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 79
+// Tool count: 81
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -337,9 +337,12 @@ export interface DisconnectProviderParams {
 
 
 /**
- * Find real named running, cycling, hiking or ski routes from OpenStreetMap around a `place` (preferred) or `latitude`/`longitude`. Call it whenever asked to propose or find a route, trail or outdoor session in an area. Never invent street or trail names or terrain not verified here. Returns up to 20 routes, nearest first: quote `distance_from_center_meters`, never a distance estimated from coordinates. `distance_source` qualifies `distance_meters`: `mapped_geometry` is a lower bound; `osm_tag` is the whole route's declared length, of which only part may lie inside the radius. When the session has a distance, pass `target_distance_meters` and tell the athlete plainly when a route's `target_fit` is `out_and_back` or `repeats`. Elevation and surface are NOT returned: never describe a route as flat, hilly or suited to intervals on the strength of this tool. An empty list means OSM has no named route in that radius: widen `radius_meters` or say so plainly, never substitute a name you did not read here. A mapped route carries a `route_ref`: to show it, name it in a `dravr-viz` route block with `source_tool` "discover_routes" — never write coordinates. For an itinerary over several stretches, pass their refs in running order to `compose_route`, each meeting the next (as `connects_to` lists), and quote the distance it returns.
+ * Find routes around a `place` (preferred) or `latitude`/`longitude`: first the athlete's own loops (`source` `your_rides`, past rides that started and ended at a place they ride from), then named OpenStreetMap routes, nearest first. Call it whenever asked to propose or find a route, loop, trail or outdoor session. Pass the session's `effort`, and `target_distance_meters` when it has a distance; say plainly when `target_fit` is `out_and_back` or `repeats`. Never invent street or trail names or terrain not read here; quote `distance_from_center_meters`, never a distance from coordinates. `distance_source`: `mapped_geometry` is a lower bound, `osm_tag` the whole route's declared length. OpenStreetMap routes carry no elevation or surface: never call one flat or hilly. `osm_unavailable` means OpenStreetMap did not answer; an empty list means nothing in that radius: widen `radius_meters` or say so. To show a route, name its `route_ref` in a `dravr-viz` route block with `source_tool` "discover_routes" — never coordinates or an activity id. For an itinerary over several stretches, pass their refs in running order to `compose_route`, each meeting the next (as `connects_to` lists). For a planned session, also call `get_weather_forecast` for the place and hour, and give its conditions and sunset.
  */
 export interface DiscoverRoutesParams {
+
+  /** The session's effort: 'easy', 'moderate' or 'hard'. Orders the athlete's own loops by where their distance and climb fall among their rides there. */
+  effort?: string;
 
   /** Search center latitude, decimal degrees. */
   latitude?: number;
@@ -347,7 +350,7 @@ export interface DiscoverRoutesParams {
   /** Search center longitude, decimal degrees. */
   longitude?: number;
 
-  /** Place to search around; latitude/longitude are ignored when it is set. Give its own name, optionally followed by region and country to choose among same-named places: 'Prévost, Quebec, Canada'. Write the region out: an abbreviation such as 'QC' chooses nothing. */
+  /** Place to search around; latitude/longitude are ignored when it is set. Give its own name, optionally followed by region and country to choose among same-named places: 'Prévost, Quebec, Canada'. Write the region out: an abbreviation such as 'QC' chooses nothing. Omit it and the coordinates for the athlete's most frequent training place (Dravr's own app and chats only). */
   place?: string;
 
   /** Search radius in meters, clamped to 500-50000; default 10000. */
@@ -461,7 +464,7 @@ export interface ExportRoutesParams {
 
 
 /**
- * Return one activity's raw per-second streams — heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s) and altitude (m). gps_coordinates (lat/lon pairs) is returned only inside the Dravr app, never over MCP or A2A. A stream the provider didn't record is omitted; a sample the sensor missed is null, never a reading of 0. Use it for a custom analysis that export_intervals / export_routes don't cover.
+ * Return one activity's raw per-second streams — heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s) and altitude (m), plus, when the Strava source serves them, grade_smooth (road grade %, + uphill) and moving (true while in motion). gps_coordinates (lat/lon pairs) is returned only inside the Dravr app, never over MCP or A2A. A stream the provider didn't record is omitted; a sample the sensor missed is null, never a reading of 0. Use it for a custom analysis beyond export_intervals / export_routes.
  */
 export interface ExtractActivityStreamsParams {
 
@@ -728,14 +731,14 @@ export interface GetSleepSessionsParams {
 
 
 /**
- * Aggregated activity totals from a connected provider. Read `coverage` before quoting any total_*: `coverage.window.scope.kind` is `lifetime` (ALL-TIME), `recent_activities` (only the `coverage.window.total` most recent activities, oldest on `coverage.window.oldest`; e.g. Wahoo, WHOOP) or `last_days` (only the last `coverage.window.scope.days` days). Report a `recent_activities` or `last_days` total as that sample or window ('your last N workouts since <date>', 'the last N days'), never as lifetime, all-time, career or total-ever. `year_to_date` (Strava) holds CURRENT-CALENDAR-YEAR totals: use it for 'this year' and never report the other totals as annual. IMPORTANT: Strava's ride and run totals count ONLY the base sport type, EXCLUDING VirtualRide, GravelRide, MountainBikeRide, EBikeRide, TrailRun and VirtualRun. For a cross-discipline total ('total km cycling this year') do NOT report them: call get_activities for the period and sum distance across all related sport types.
+ * All-time totals over every source, merged; year_to_date is this calendar year. Read stats.coverage before quoting. For a period or breakdown, call query_activities.
  */
 export interface GetStatsParams {
 
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
-  /** Provider or `upload`; default is their best source. */
+  /** One source only. */
   provider?: string;
 }
 
@@ -780,7 +783,7 @@ export interface GetTrainingPlanParams {
 
 
 /**
- * Forecast weather (temperature, humidity, wind, conditions) for the hour of a timestamp up to about 16 days ahead, e.g. a planned session. Give the location as latitude and longitude, or as a place name (optionally narrowed by country_code). For a place, the output names the town used and says when an ambiguous name took the top-ranked match.
+ * Forecast weather (temperature, humidity, wind, conditions) for the hour of a timestamp up to about 16 days ahead. Call it for every outdoor session you plan, a route included, at the session's hour. Give the location as latitude and longitude, or as a place name (optionally narrowed by country_code). For a place, the output names the town used and says when an ambiguous name took the top-ranked match. Omit the location for the athlete's most frequent training place (Dravr's own app and chats only). The output carries that day's sunrise and sunset, on the athlete's clock.
  */
 export interface GetWeatherForecastParams {
 
@@ -909,6 +912,28 @@ export interface ListYogaPosesParams {
 
   /** Recovery context: post_cardio, rest_day, morning, evening */
   recovery_context?: string;
+}
+
+
+/**
+ * Name where the athlete trains, as they asked: by a row's place.id or an activity id (a first visit too). clear=true restores the automatic name. home=here marks that place or start as home (never shown back); elsewhere: home is not where they train; forget.
+ */
+export interface NamePlaceParams {
+
+  /** Or an activity id. */
+  activity_id?: string;
+
+  /** true removes their name. */
+  clear?: boolean;
+
+  /** here: home is that place or where that activity started (never shown back); elsewhere: home is not where they train; forget: back to the automatic guess. */
+  home?: string;
+
+  /** 1-60 characters. */
+  name?: string;
+
+  /** A row's place.id. */
+  place_id?: string;
 }
 
 
@@ -1051,6 +1076,61 @@ export interface PushTrainingPlanParams {
 
   /** Calendar to write to (e.g. intervals_icu), this call only. Omitted: the one the athlete chose, else the one with Dravr's entries, else their only one; else asks. */
   provider?: string;
+}
+
+
+/**
+ * Count and sum workouts over any period, every source merged; for every count, total or breakdown. Read coverage before quoting; unknown is never a no. If a figure is disputed, call again and say which filter changed.
+ */
+export interface QueryActivitiesParams {
+
+  /** 'json' (default) or 'toon' (compact). */
+  format?: string;
+
+  /** YYYY-MM-DD; omit for all history. */
+  from?: string;
+
+  /** Gear id/name. */
+  gear?: string;
+
+  /** Up to 2 of year, month, week, sport_type, sport_family, place, gear. */
+  group_by?: string[];
+
+  /** Segment id/name. */
+  has_segment?: string;
+
+  /** Most km. */
+  max_distance_km?: number;
+
+  /** count, distance_km, moving_time_s, elapsed_time_s, elevation_m, avg_hr. */
+  metrics?: string[];
+
+  /** Least km. */
+  min_distance_km?: number;
+
+  /** Name text. */
+  name_contains?: string;
+
+  /** Place ids. */
+  place_id?: string[];
+
+  /** One source only. */
+  provider?: string;
+
+  /** running, cycling, swimming, other. */
+  sport_family?: string[];
+
+  /** Sports, e.g. TrailRunning. */
+  sport_type?: string[];
+
+  /** YYYY-MM-DD; default today. */
+  to?: string;
+
+  /** Indoor trainer. */
+  trainer?: boolean;
+
+  /** race, long_run, workout, commute, recovery, with_pet, for_a_cause, competition, with_kid. */
+  workout_type?: string[];
 }
 
 
@@ -1897,10 +1977,12 @@ export const TOOL_NAMES = [
   "list_stretching_exercises",
   "list_workout_templates",
   "list_yoga_poses",
+  "name_place",
   "optimize_sleep_schedule",
   "predict_performance",
   "prescribe_workout",
   "push_training_plan",
+  "query_activities",
   "recall_user_memory",
   "recommend_plan_flavour",
   "refresh_provider_data",
@@ -1987,10 +2069,12 @@ export interface ToolParamsMap {
   "list_stretching_exercises": ListStretchingExercisesParams;
   "list_workout_templates": ListWorkoutTemplatesParams;
   "list_yoga_poses": ListYogaPosesParams;
+  "name_place": NamePlaceParams;
   "optimize_sleep_schedule": OptimizeSleepScheduleParams;
   "predict_performance": PredictPerformanceParams;
   "prescribe_workout": PrescribeWorkoutParams;
   "push_training_plan": PushTrainingPlanParams;
+  "query_activities": QueryActivitiesParams;
   "recall_user_memory": RecallUserMemoryParams;
   "recommend_plan_flavour": RecommendPlanFlavourParams;
   "refresh_provider_data": RefreshProviderDataParams;

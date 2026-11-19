@@ -44,8 +44,7 @@ use crate::core::{
 };
 use crate::errors::{AppError, AppResult};
 use crate::fit_decode::decode_bounded;
-use crate::models::coverage::WindowScope;
-use crate::models::{Activity, Athlete, Stats, TenantId, TimeSeriesData};
+use crate::models::{Activity, Athlete, TenantId, TimeSeriesData};
 use crate::originals::OriginalsStore;
 use crate::pagination::{CursorPage, PaginationParams};
 
@@ -134,7 +133,7 @@ pub async fn store_upload_series(
 /// uploaded files ([`UPLOAD`]) or an imported archive (`strava_archive`) — in
 /// one tenant, read as a provider.
 ///
-/// Lists, single reads and stats answer from the cached rows filed under the
+/// Lists and single reads answer from the cached rows filed under the
 /// key; samples from the one per-activity sample store. An uploaded activity
 /// whose samples the store does not hold at its current version is decoded
 /// again from its kept file. An archive's samples were projected into the
@@ -328,11 +327,6 @@ impl FitnessProvider for UserProvidedProvider {
             .file_of(id)
             .await?
             .and_then(|(file, index)| file.session_series(index, Position::Read)))
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        let activities = self.cached().all().await?;
-        Ok(Stats::summed_over(&activities, WindowScope::Lifetime))
     }
 }
 

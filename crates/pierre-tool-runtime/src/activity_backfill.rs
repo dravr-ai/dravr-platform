@@ -82,6 +82,8 @@ mod owed_write;
 mod pause;
 /// What a job does when it finds its provider session dead
 mod reauth;
+/// A tag walk: Strava's own list paged for the tags and gear id of the stored history
+pub mod tag_walk;
 
 use in_flight::{
     claim, claim_in_flight, in_flight_key, mark_in_flight, release_in_flight, Claim, InFlight,
@@ -334,7 +336,12 @@ async fn enqueue(
         // A detail walk's step writes nothing without a row to guard its
         // writes by: a run spawned without one would read nothing, and the
         // ask would report a walk that is not there.
-        Recorded::Unrecorded if job.kind == BackfillJobKind::DetailWalk => {
+        Recorded::Unrecorded
+            if matches!(
+                job.kind,
+                BackfillJobKind::DetailWalk | BackfillJobKind::TagWalk
+            ) =>
+        {
             release_in_flight(&claim);
             return Enqueued::Unrecorded;
         }
@@ -430,8 +437,10 @@ fn spawn_backfill_run(
     recorded: Option<(JobLease, i64)>,
     handoff: Option<live_read::LiveReadHandoff>,
 ) {
-    let awaited = job.kind != BackfillJobKind::DetailWalk
-        && (job.pierre_conversation_id.is_some() || handoff.is_some());
+    let awaited = !matches!(
+        job.kind,
+        BackfillJobKind::DetailWalk | BackfillJobKind::TagWalk
+    ) && (job.pierre_conversation_id.is_some() || handoff.is_some());
     let (user_id, provider, kind) = (job.user_id, job.provider_name.clone(), job.kind);
     let run = async move {
         let after = match job.kind {
@@ -446,6 +455,10 @@ fn spawn_backfill_run(
             }
             BackfillJobKind::DetailWalk => {
                 detail_walk::run_detail_walk(&job, recorded).await;
+                history_walk::AfterStep::Settled
+            }
+            BackfillJobKind::TagWalk => {
+                tag_walk::run_tag_walk(&job, recorded).await;
                 history_walk::AfterStep::Settled
             }
         };

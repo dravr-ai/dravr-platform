@@ -25,6 +25,7 @@
 //! - an athlete id the platform could not have issued is refused on propose.
 
 use crate::common;
+use crate::common::offline_provider_registry;
 use crate::helpers;
 use secrecy::ExposeSecret;
 
@@ -44,7 +45,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     Activity, ActivityBuilder, AgentCategory, Athlete, ConnectionType, CreateAgentRequest,
-    RosterAthlete, SportType, Stats, TenantId, UserOAuthToken,
+    RosterAthlete, SportType, TenantId, UserOAuthToken,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -53,7 +54,6 @@ use pierre_providers::core::{
     ProviderFactory,
 };
 use pierre_providers::delegation::{CoachRoster, DelegatedReads};
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
 };
@@ -227,10 +227,6 @@ impl FitnessProvider for CoachHub {
         Err(AppError::not_found(id.to_owned()))
     }
 
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Err(AppError::internal("not read by this test"))
-    }
-
     async fn read_coach_roster(&self) -> AppResult<CoachRoster> {
         self.record()?;
         Ok(CoachRoster {
@@ -322,7 +318,7 @@ struct World {
 /// built-in providers.
 async fn server(seen: &Seen) -> Arc<ServerContext> {
     let base = create_test_server_resources().await.unwrap();
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.set_default_config(COACHHUB, Descriptor.to_config());
     registry.register_descriptor(COACHHUB, Box::new(Descriptor));
     registry.register_factory(COACHHUB, Box::new(Factory { seen: seen.clone() }));

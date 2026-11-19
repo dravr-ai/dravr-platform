@@ -4,6 +4,7 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert, Linking } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import { i18n } from '@pierre/i18n';
 
 const mockPush = jest.fn();
@@ -16,14 +17,32 @@ const mockListLinks = jest.fn();
 const mockGetAvailableChannels = jest.fn();
 const mockDeleteLink = jest.fn();
 const mockInitLink = jest.fn();
+const mockCompleteLink = jest.fn();
 jest.mock('../src/services/api', () => ({
   messagingApi: {
     listLinks: () => mockListLinks(),
     getAvailableChannels: () => mockGetAvailableChannels(),
     deleteLink: (channel: string) => mockDeleteLink(channel),
-    initLink: (channel: string) => mockInitLink(channel),
+    initLink: (channel: string, appReturnUri?: string) => mockInitLink(channel, appReturnUri),
+  },
+  channelLinkApi: {
+    completeLink: (channel: string, state: string, code: string) =>
+      mockCompleteLink(channel, state, code),
   },
 }));
+jest.mock('expo-linking', () => ({
+  createURL: jest.fn((path: string) => `dravr://${path}`),
+}));
+
+const RETURN_URI = 'dravr://messaging/link-callback';
+const TELEGRAM_LINK = {
+  channel: 'telegram',
+  method: 'deep_link',
+  code: 'pair-42',
+  linking_url: 'https://t.me/DravrBot?start=pair-42',
+  expires_at: '2026-09-02T12:00:00Z',
+  qr_svg: null,
+};
 
 import { MessagingChannelsScreen } from '../src/screens/settings/MessagingChannelsScreen';
 import { apiRefusal } from '../integration/app/helpers/apiRefusal';
@@ -45,10 +64,11 @@ describe('MessagingChannelsScreen', () => {
       channel: 'slack',
       method: 'oauth',
       code: null,
-      linking_url: 'https://slack.com/oauth/v2/authorize?state=pair-42',
+      linking_url: 'https://slack.com/openid/connect/authorize?state=pair-42',
       expires_at: '2026-09-02T12:00:00Z',
       qr_svg: null,
     });
+    mockCompleteLink.mockResolvedValue({ status: 'linked', channel: 'slack', channel_user_id: 'U1' });
   });
 
   it('lists a linked channel with its handle', async () => {
@@ -150,18 +170,45 @@ describe('MessagingChannelsScreen', () => {
   it('opens the provider deep link when an available channel is tapped', async () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
     mockListLinks.mockResolvedValue([]);
+    mockInitLink.mockResolvedValue(TELEGRAM_LINK);
+    const { getByTestId } = render(<MessagingChannelsScreen />);
+
+    await waitFor(() => expect(getByTestId('messaging-link-add-telegram')).toBeTruthy());
+    fireEvent.press(getByTestId('messaging-link-add-telegram'));
+
+    await waitFor(() => expect(mockInitLink).toHaveBeenCalledWith('telegram', RETURN_URI));
+    await waitFor(() => expect(openURL).toHaveBeenCalledWith(TELEGRAM_LINK.linking_url));
+    // Nowhere near the onboarding stack: the settings screen stays put and the
+    // focus effect picks the link up when the athlete comes back.
+    expect(mockPush).not.toHaveBeenCalled();
+    openURL.mockRestore();
+  });
+
+  // carnet#1580: Slack and Discord authorize in an auth session, and the app
+  // finishes the link with its own login; the external browser never holds it.
+  it('authorizes an OAuth channel in an auth session and finishes the link itself', async () => {
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValueOnce({
+      type: 'success',
+      url: `${RETURN_URI}?channel=slack&state=pair-42&code=provider-code`,
+    });
+    mockListLinks.mockResolvedValue([]);
     const { getByTestId } = render(<MessagingChannelsScreen />);
 
     await waitFor(() => expect(getByTestId('messaging-link-add-slack')).toBeTruthy());
     fireEvent.press(getByTestId('messaging-link-add-slack'));
 
-    await waitFor(() => expect(mockInitLink).toHaveBeenCalledWith('slack'));
     await waitFor(() =>
-      expect(openURL).toHaveBeenCalledWith('https://slack.com/oauth/v2/authorize?state=pair-42'),
+      expect(mockCompleteLink).toHaveBeenCalledWith('slack', 'pair-42', 'provider-code'),
     );
-    // Nowhere near the onboarding stack: the settings screen stays put and the
-    // focus effect picks the link up when the athlete comes back.
-    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockInitLink).toHaveBeenCalledWith('slack', RETURN_URI);
+    expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(
+      'https://slack.com/openid/connect/authorize?state=pair-42',
+      RETURN_URI,
+    );
+    expect(openURL).not.toHaveBeenCalled();
+    // The list reloads once the link is finished.
+    await waitFor(() => expect(mockListLinks.mock.calls.length).toBeGreaterThan(1));
     openURL.mockRestore();
   });
 
@@ -192,11 +239,12 @@ describe('MessagingChannelsScreen', () => {
     const openURL = jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('no handler'));
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     mockListLinks.mockResolvedValue([]);
-    const url = 'https://slack.com/oauth/v2/authorize?state=pair-42';
+    mockInitLink.mockResolvedValue(TELEGRAM_LINK);
+    const url = TELEGRAM_LINK.linking_url;
 
     const { getByTestId } = render(<MessagingChannelsScreen />);
-    await waitFor(() => expect(getByTestId('messaging-link-add-slack')).toBeTruthy());
-    fireEvent.press(getByTestId('messaging-link-add-slack'));
+    await waitFor(() => expect(getByTestId('messaging-link-add-telegram')).toBeTruthy());
+    fireEvent.press(getByTestId('messaging-link-add-telegram'));
 
     await waitFor(() =>
       expect(alertSpy).toHaveBeenCalledWith(

@@ -26,7 +26,7 @@
 # -----------------------------------------------------------------------------
 
 variable "instance_floor_alert_hours" {
-  description = "Fire the idle-floor alert when the backend api instance count stays above zero continuously for this many hours (i.e. it stopped scaling to zero). Real dev traffic is bursty and returns to zero between bursts, so this targets a stuck/pinned instance, not active use. Lower = more sensitive (and more likely to fire during a genuinely busy stretch)."
+  description = "Fire the idle-floor alert when one revision of the backend api keeps its instance count above zero continuously for this many hours (i.e. it stopped scaling to zero). Real dev traffic is bursty and returns to zero between bursts, so this targets a stuck/pinned instance, not active use. Lower = more sensitive (and more likely to fire during a genuinely busy stretch)."
   type        = number
   default     = 4
 }
@@ -44,9 +44,10 @@ resource "google_monitoring_alert_policy" "instance_never_idle" {
 
   documentation {
     content   = <<-EOT
-      The backend `${var.service_name}-api` Cloud Run service kept at least one
-      instance running continuously for ${var.instance_floor_alert_hours}+ hours
-      without ever scaling to zero.
+      One revision of the backend `${var.service_name}-api` Cloud Run service
+      kept at least one instance running continuously for
+      ${var.instance_floor_alert_hours}+ hours without ever scaling to zero. The
+      count is per revision, so back-to-back deploys alone cannot fire it.
 
       Because this service runs with CPU always-allocated (cpu_idle = false), a
       pinned instance bills a full 2 vCPU + 2Gi the entire time (~$137/mo per
@@ -91,9 +92,20 @@ resource "google_monitoring_alert_policy" "instance_never_idle" {
 
     condition_threshold {
       # Per 30-minute bucket, take the MINIMUM instance count (ALIGN_MIN). If that
-      # minimum is > 0, the service never scaled to zero in that bucket. The
+      # minimum is > 0, the revision never scaled to zero in that bucket. The
       # condition must hold continuously for instance_floor_alert_hours, so a
       # single idle gap (scaled to zero) breaks the streak and suppresses the alert.
+      #
+      # The sum is taken per revision, never across them. Summed over the whole
+      # service, a day of pushes to main (a new revision every 25-45 min, each
+      # old one draining for 15-50 min) overlaps into one unbroken floor: on
+      # 2026-11-18 eight deploys in five hours fired this alert with nothing
+      # pinned, while the same service scaled to zero ten times overnight. A
+      # revision that churn replaces never lives long enough to fire. A held
+      # connection stays on its one revision and still fires. A pin that keeps
+      # reconnecting (the June /ws tab, every ~10 min) hops to each new revision
+      # on a busy deploy day, so it fires later, once a quiet stretch without
+      # deploys leaves one revision serving for the whole window.
       filter = <<-EOT
         resource.type = "cloud_run_revision"
         AND resource.labels.service_name = "${var.service_name}-api"
@@ -108,6 +120,7 @@ resource "google_monitoring_alert_policy" "instance_never_idle" {
         alignment_period     = "1800s"
         per_series_aligner   = "ALIGN_MIN"
         cross_series_reducer = "REDUCE_SUM"
+        group_by_fields      = ["resource.label.revision_name"]
       }
 
       trigger {

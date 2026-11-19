@@ -42,15 +42,12 @@ use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_plan_draft::{
     coach_plan_view, discard_coach_draft, CoachDraftTarget, DraftView, PlanWithWeeks,
 };
-use pierre_services::coached_athlete::{
-    coached_athlete_access, CoachedAthleteAccess, CoachedAthleteRefusal,
-};
+use pierre_services::coached_athlete::{coached_athlete_access, CoachedAthleteAccess};
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
 use pierre_services::plan_fueling::FuelingDisclosure;
-use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
-use pierre_tool_runtime::implementations::plan_scope;
+use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::implementations::training_plan_drafts::{
     publish_draft_live, DraftPublish, DraftPublishOutcome, PublishedDraftReport,
 };
@@ -63,7 +60,10 @@ use crate::mcp::resources::ServerContext;
 use crate::routes::athlete_home::TrainingPlanQuery;
 use crate::tools::runtime_adapter::into_runtime;
 
-use super::common::{get_tenant_id, refusal};
+use super::common::{
+    coaching_refusal, conversation_not_found, get_tenant_id, refusal, refuse_external_coach_write,
+    refuse_unshared_subject,
+};
 use super::dto::{
     PlanPublishConflictResponse, PublishConflictDetails, PublishSubjectPlanRequest,
     PublishedSubjectPlanResponse, SubjectPlanResponse,
@@ -106,7 +106,8 @@ async fn coached_subject(
         .get_conversation(conversation_id, &caller, tenant_id)
         .await?
         .filter(|conv| conv.user_id == caller)
-        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+        .ok_or_else(conversation_not_found)?;
+    refuse_unshared_subject(resources, auth, &conversation).await?;
     let Some(subject) = conversation.subject() else {
         return Err(refusal(
             ErrorCode::ResourceNotFound,
@@ -121,7 +122,7 @@ async fn coached_subject(
         subject.group_id,
     )
     .await?
-    .map_err(CoachedAthleteRefusal::into_error)
+    .map_err(|refused| coaching_refusal(auth, refused))
 }
 
 /// Record on the athlete's own record that the coach's thread read their plan
@@ -190,19 +191,6 @@ pub(super) async fn get_subject_plan(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// A coach publishes or discards a coached athlete's plan only from Dravr's
-/// own apps and channels. An API-key or MCP client acting for the coach is
-/// outside the agreement the athlete made with their coach inside Dravr, and
-/// the plan tools refuse it the same write, in the same words (carnet#1533).
-fn refuse_external_plan_write(auth: &AuthResult) -> Result<(), AppError> {
-    match tool_auth_method(auth) {
-        AuthMethod::ApiKey | AuthMethod::McpClient | AuthMethod::OAuth2 => {
-            Err(plan_scope::external_write_error("plan"))
-        }
-        AuthMethod::JwtBearer | AuthMethod::ChannelLink => Ok(()),
-    }
-}
-
 /// `POST /api/chat/conversations/{id}/subject-plan/publish`: the coach's
 /// draft made the athlete's live plan, and put on the athlete's chosen
 /// calendar (carnet#1492).
@@ -219,7 +207,7 @@ pub(super) async fn publish_subject_plan(
     Path(conversation_id): Path<String>,
     Json(request): Json<PublishSubjectPlanRequest>,
 ) -> Result<Response, AppError> {
-    refuse_external_plan_write(&auth)?;
+    refuse_external_coach_write(&auth, "plan")?;
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
     record_thread_read(&resources, &access, auth.user_id).await?;
     let target = CoachDraftTarget::new(access.tenant, access.athlete_user_id, auth.user_id);
@@ -296,7 +284,7 @@ pub(super) async fn discard_subject_plan_draft(
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
-    refuse_external_plan_write(&auth)?;
+    refuse_external_coach_write(&auth, "plan")?;
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
     let target = CoachDraftTarget::new(access.tenant, access.athlete_user_id, auth.user_id);
     match discard_coach_draft(&resources.common.repos, &target).await? {

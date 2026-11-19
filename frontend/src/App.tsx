@@ -26,20 +26,27 @@ import { IMPORT_PATH } from './components/import/openImportWindow';
 import ErrorBoundary from './components/ErrorBoundary';
 import UnitsProvider from './components/UnitsProvider';
 import { AuthProvider } from './contexts/AuthContext';
-import { ToastProvider } from './components/ui';
+import { ALERT_TONE, ToastProvider } from './components/ui';
 import { ThemeProvider } from './hooks/useTheme';
 import { useAuth } from './hooks/useAuth';
 import { useOnboardingState } from './hooks/useOnboardingState';
+import { useHeldGroupInvite } from './hooks/useHeldGroupInvite';
 import { useIdleWatch } from './hooks/useIdleWatch';
 import { useApiRefusalSurface } from './hooks/useApiRefusalSurface';
 import { useLanguageSwitcher, useTranslation } from '@pierre/i18n';
+import { hasAdminRole } from '@pierre/shared-types';
 import { importTombstoneFromReturn } from '@pierre/ui-logic';
 import { returnToConnectStart, settleOAuthReturn, type OAuthCallbackParams } from './utils/oauthReturn';
 import { queryClient } from './services/queryClient';
+import { dismissInviteCard, readCarriedGroupInvite, useInviteCardOpen } from './utils/groupInvite';
 import './App.css';
 
 /** The login takeover page (ADR-034), split out of the entry bundle. */
 const SignInCheck = lazy(() => import('./components/SignInCheck'));
+// Only an admin ever meets the mode picker, so it stays out of the entry bundle.
+const ViewModePicker = lazy(() => import('./components/ViewModePicker'));
+// Only a load that opened on an invite link shows the invite card (carnet#1649).
+const InviteCard = lazy(() => import('./components/InviteCard'));
 
 /**
  * Check if the current URL has OAuth callback parameters
@@ -82,40 +89,6 @@ function isTakeoverPath(): boolean {
 }
 
 /**
- * Check if the current URL is an invite link: /groups/join/:code
- */
-function getGroupInviteCode(): string | null {
-  const match = window.location.pathname.match(/^\/groups\/join\/([^/]+)$/);
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-/** Where this tab holds a group invite opened before signing in. */
-const PENDING_INVITE_KEY = 'dravr.pending_invite_code';
-
-/**
- * The group invite this tab opened before the sign-in redirect reloaded it, or
- * null. Storage can be refused (a private window): the invite then lasts only
- * as long as the page, as it always did.
- */
-function readPendingInvite(): string | null {
-  try {
-    return window.sessionStorage.getItem(PENDING_INVITE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-/** Hold `code` for this tab across the sign-in redirect, or forget it once sent. */
-function writePendingInvite(code: string | null) {
-  try {
-    if (code === null) window.sessionStorage.removeItem(PENDING_INVITE_KEY);
-    else window.sessionStorage.setItem(PENDING_INVITE_KEY, code);
-  } catch {
-    // Storage refused: the invite lasts as long as the page.
-  }
-}
-
-/**
  * Whether the current URL is the create-account link: /register, or /signup.
  * dravr.ai's "Create your account" button points here, so it opens the form it
  * names rather than the sign-in form.
@@ -138,7 +111,7 @@ type AuthView = 'login' | 'register' | 'forgot-password' | 'reset-password';
 
 function AppContent() {
   const { t } = useTranslation();
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading, viewMode, impersonation } = useAuth();
   const [authView, setAuthView] = useState<AuthView>(() => (isRegisterPath() ? 'register' : 'login'));
   const [registrationMessage, setRegistrationMessage] = useState<string | null>(null);
   // Read once, before the effect below cleans the create-account link.
@@ -151,9 +124,6 @@ function AppContent() {
   const [oauthCallback, setOauthCallback] = useState<OAuthCallbackParams | null>(() =>
     settleOAuthReturn(getOAuthCallbackParams()),
   );
-  // A group invite opened signed out survives the sign-in redirect, which
-  // reloads the page: held for this tab until the join is sent (carnet#1530).
-  const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(readPendingInvite);
   // The confirmation token, read once from the link's fragment. `undefined`
   // when this page load is not a confirmation link.
   const [verifyEmailToken, setVerifyEmailToken] = useState<string | null | undefined>(() =>
@@ -202,7 +172,22 @@ function AppContent() {
   // mounted across the OAuth-callback screen and the needs→false transition
   // that keeps the connect step up for a second service is observed. A group
   // invite link is a coach inviting an athlete: the role is recorded from it.
-  const onboarding = useOnboardingState({ invitedAsAthlete: pendingInviteCode !== null });
+  // The invite itself is settled here rather than in the dashboard, which
+  // mounts only after onboarding: the server holds it from the first session,
+  // and the join runs as soon as the account is active (carnet#1648).
+  const heldInvite = useHeldGroupInvite();
+  // A page load that opened on a /groups/join/<code> link starts on the
+  // invite card, signed in or not; the code it names is read once (carnet#1649).
+  const inviteCardOpen = useInviteCardOpen();
+  const [inviteCardCode] = useState<string | null>(readCarriedGroupInvite);
+  // A session the card cannot serve skips it: an operator impersonating (that
+  // session is the target's), a suspended account, or no code left to read.
+  const cardUnservable =
+    impersonation.isImpersonating || user?.user_status === 'suspended' || inviteCardCode === null;
+  useEffect(() => {
+    if (inviteCardOpen && !isLoading && cardUnservable) dismissInviteCard();
+  }, [inviteCardOpen, isLoading, cardUnservable]);
+  const onboarding = useOnboardingState({ invitedAsAthlete: heldInvite.invitedAsAthlete });
 
   // Boot/teardown PostHog analytics in lockstep with the user's
   // analytics_consent flag. Default is opt-out so this is a no-op
@@ -255,17 +240,6 @@ function AppContent() {
     // it), never the dashboard.
     if (isTakeoverPath()) {
       window.history.replaceState({}, document.title, TAKEOVER_PATH);
-    }
-  }, []);
-
-  // Check for group invite link on mount: /groups/join/:code
-  useEffect(() => {
-    const code = getGroupInviteCode();
-    if (code) {
-      setPendingInviteCode(code);
-      writePendingInvite(code);
-      // Clean the URL so the invite path doesn't persist on refresh
-      window.history.replaceState({}, document.title, '/');
     }
   }, []);
 
@@ -350,6 +324,36 @@ function AppContent() {
     );
   }
 
+  // The invite card: before any form, before any hold or join. Its buttons are
+  // the person's answer — a form opens, or the join runs — and only then does
+  // the page carry on as every other load does.
+  if (inviteCardOpen && !cardUnservable && inviteCardCode !== null) {
+    return (
+      <Suspense
+        fallback={
+          <div className="min-h-dvh flex items-center justify-center bg-surface" role="status" aria-live="polite">
+            <div aria-hidden="true" className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
+          </div>
+        }
+      >
+        <InviteCard
+          code={inviteCardCode}
+          signedIn={isAuthenticated}
+          onCreateAccount={() => {
+            setAuthView('register');
+            dismissInviteCard();
+          }}
+          onSignIn={() => {
+            setAuthView('login');
+            dismissInviteCard();
+          }}
+          onJoin={heldInvite.joinFromCard}
+          onDone={dismissInviteCard}
+        />
+      </Suspense>
+    );
+  }
+
   // Not authenticated - show login, register, or forgot/reset password
   if (!isAuthenticated) {
     if (authView === 'register') {
@@ -401,7 +405,7 @@ function AppContent() {
           <div
             className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full px-4 pad-safe-top"
           >
-            <div className="bg-activity/20 border border-activity text-on-surface px-4 py-3 rounded-lg backdrop-blur-sm">
+            <div className={`${ALERT_TONE.success.tone} border px-4 py-3 rounded-lg backdrop-blur-sm`}>
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium">{registrationMessage}</p>
                 <button
@@ -451,6 +455,21 @@ function AppContent() {
     );
   }
 
+  // An admin chooses, at every sign-in, between the admin console and the
+  // athlete app on their own account (carnet#1631). Asked before onboarding,
+  // which the athlete mode goes through like any athlete. Never while
+  // impersonating: that session is the target's.
+  if (hasAdminRole(user) && viewMode === null && !impersonation.isImpersonating) {
+    return (
+      <div className="min-h-dvh bg-surface">
+        <OfflineBanner />
+        <Suspense fallback={null}>
+          <ViewModePicker />
+        </Suspense>
+      </div>
+    );
+  }
+
   // The import window (carnet#1218): opened from the provider list in a
   // window of its own, or in place in the installed app. It comes before
   // onboarding, so an athlete can import while still at the connect step.
@@ -485,11 +504,11 @@ function AppContent() {
         fallback={
           <UnitsProvider>
             <Dashboard
-              pendingInviteCode={pendingInviteCode}
-              onInviteCodeConsumed={() => {
-                setPendingInviteCode(null);
-                writePendingInvite(null);
-              }}
+              // A mode switch redraws the shell from its default route rather
+              // than carrying one mode's tab into the other.
+              key={viewMode ?? 'athlete-account'}
+              joinedRoom={heldInvite.joinedRoom}
+              onJoinedRoomOpened={heldInvite.onJoinedRoomOpened}
             />
           </UnitsProvider>
         }

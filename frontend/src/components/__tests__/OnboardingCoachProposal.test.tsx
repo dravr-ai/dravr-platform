@@ -9,6 +9,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import OnboardingCoachProposal from '../OnboardingCoachProposal';
+import { useMyCoach } from '../../hooks/useMyCoach';
 
 const getProposal = vi.fn();
 const recordUsage = vi.fn();
@@ -23,6 +24,8 @@ vi.mock('../../services/api', () => ({
     openPersonalTopic: (...a: unknown[]) => openPersonalTopic(...a),
   },
 }));
+
+vi.mock('../../hooks/useMyCoach', () => ({ useMyCoach: vi.fn(() => null) }));
 
 /**
  * Discover in the sheet, reduced to what the step relies on: the mode it is
@@ -110,6 +113,21 @@ describe('OnboardingCoachProposal — Your team', () => {
       divider: null,
     });
     window.location.hash = '';
+    vi.mocked(useMyCoach).mockReturnValue(null);
+  });
+
+  it('shows an invited athlete their coach as already chosen (carnet#1649)', async () => {
+    vi.mocked(useMyCoach).mockReturnValue({ name: 'Jeremy B.' });
+    renderStep();
+    expect(await screen.findByTestId('onboarding-team-coach-chosen')).toHaveTextContent(
+      'Jeremy B. · your coach, already chosen', // humanCoach.inviteJourney.teamChosen
+    );
+  });
+
+  it('shows no coach line to an athlete nobody invited', async () => {
+    renderStep();
+    await startButton(3);
+    expect(screen.queryByTestId('onboarding-team-coach-chosen')).not.toBeInTheDocument();
   });
 
   it('reads the data back, leads with the proposal\'s lead and ticks the members the rules preselected', async () => {

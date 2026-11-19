@@ -41,6 +41,7 @@ use dravr_tronc::mcp::tasks::{
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_auth::config::{www_authenticate_challenge, DIALED_HOST_HEADERS};
+use pierre_auth::oauth2_server::first_party::names_third_party;
 use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::auth_header::is_api_key_format;
 use pierre_core::models::TenantId;
@@ -54,6 +55,7 @@ use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::protocol::provider_offer::accept_no_provider_answer;
+use pierre_tool_runtime::protocol::{record_refused_admin_call, RefusedAdminCall};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::scopes::missing_scope;
@@ -95,10 +97,18 @@ pub const SUPPORTED_VERSIONS: &[&str] = &["2026-07-28", "2025-11-25", "2025-06-1
 
 /// The tool runtime's name for how `auth` authenticated, for a tool context
 /// built from it.
-pub(crate) const fn tool_auth_method(auth: &AuthResult) -> AuthMethod {
+///
+/// A JWT naming a third-party client is that application's OAuth access
+/// token, whatever its grant. Any other JWT is a bearer JWT: it names one of
+/// Dravr's own apps or no client. Only the client is read, never the grant,
+/// so this does not say that such a token is a session.
+pub(crate) fn tool_auth_method(auth: &AuthResult) -> AuthMethod {
     use pierre_auth::auth::AuthMethod as AuthResultMethod;
 
     match &auth.auth_method {
+        AuthResultMethod::JwtToken { .. } if names_third_party(auth.client_id.as_deref()) => {
+            AuthMethod::OAuth2
+        }
         AuthResultMethod::JwtToken { .. } => AuthMethod::JwtBearer,
         AuthResultMethod::ApiKey { .. } => AuthMethod::ApiKey,
         AuthResultMethod::ChannelLink { .. } => AuthMethod::ChannelLink,
@@ -157,19 +167,20 @@ fn build_context(
 /// `definition()` — the same declaration the dispatcher's handle path reads back
 /// off the registry — so the advertisement and the behaviour cannot drift.
 fn schema_to_tool(schema: ToolSchema) -> Tool {
-    Tool {
-        name: schema.name,
-        description: schema.description,
-        // Canonical so the catalog is byte-identical across replicas: the
-        // schema's `properties` is a HashMap and serde_json runs with
-        // preserve_order, so an unsorted render reshuffles on every request.
-        input_schema: to_canonical_value(&schema.input_schema),
-        annotations: schema.annotations,
-        // Canonical for the same reason as the input schema: two replicas must
-        // answer `tools/list` with the same bytes.
-        output_schema: schema.output_schema.as_ref().map(to_canonical_value),
-        execution: schema.execution,
-    }
+    // Canonical so the catalog is byte-identical across replicas: the schema's
+    // `properties` is a HashMap and serde_json runs with preserve_order, so an
+    // unsorted render reshuffles on every request.
+    let mut tool = Tool::new(
+        schema.name,
+        schema.description,
+        to_canonical_value(&schema.input_schema),
+    );
+    tool.annotations = schema.annotations;
+    // Canonical for the same reason as the input schema: two replicas must
+    // answer `tools/list` with the same bytes.
+    tool.output_schema = schema.output_schema.as_ref().map(to_canonical_value);
+    tool.execution = schema.execution;
+    tool
 }
 
 /// Resolves the instructions advertised in `initialize` from the prompt
@@ -234,29 +245,49 @@ impl PierreAuthHook {
         request: &JsonRpcRequest,
         granted: &[OAuthScope],
     ) -> Option<OAuthScope> {
-        if request.method != "tools/call" {
-            return None;
-        }
-        let name = request.params.as_ref()?.get("name")?.as_str()?;
+        let name = called_tool(request)?;
         let capabilities = self.resources.mcp.tool_registry.get(name)?.capabilities();
         missing_scope(granted, capabilities)
     }
+
+    /// Put the call `request` names on the admin audit trail as `refused`
+    /// when it is an admin-only `tools/call` this hook turns away: the
+    /// refusal never reaches the dispatcher, which records every other one
+    /// (EFVP 9.4d). Any other request writes nothing.
+    async fn record_refusal(&self, request: &JsonRpcRequest, user_id: Uuid, tenant: Option<&str>) {
+        let Some(tool_name) = called_tool(request) else {
+            return;
+        };
+        record_refused_admin_call(
+            &*self.resources,
+            &RefusedAdminCall {
+                tool_name,
+                user_id,
+                tenant_id: tenant,
+                transport: Transport::McpHttp,
+                protocol: "mcp",
+            },
+        )
+        .await;
+    }
+}
+
+/// The tool a `tools/call` names; `None` for any other request.
+fn called_tool(request: &JsonRpcRequest) -> Option<&str> {
+    if request.method != "tools/call" {
+        return None;
+    }
+    request
+        .params
+        .as_ref()
+        .and_then(|params| params.get("name"))
+        .and_then(Value::as_str)
 }
 
 /// What an MCP request did, for its usage row: the tool a `tools/call`
 /// names, otherwise the JSON-RPC method.
 fn mcp_operation(request: &JsonRpcRequest) -> &str {
-    if request.method == "tools/call" {
-        if let Some(tool) = request
-            .params
-            .as_ref()
-            .and_then(|params| params.get("name"))
-            .and_then(Value::as_str)
-        {
-            return tool;
-        }
-    }
-    &request.method
+    called_tool(request).unwrap_or(&request.method)
 }
 
 /// The authority the client dialed, from the headers the transport forwards:
@@ -306,11 +337,20 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
             .resources
             .auth
             .auth_middleware
-            .authenticate_scoped_request(Some(&auth_header), &resources)
+            .authenticate_scoped_request_naming_caller(Some(&auth_header), &resources)
             .await
         {
             Ok(result) => result,
-            Err(e) => return Err(auth_refusal(&e, resource_url)),
+            Err(refusal) => {
+                // A caller the credential named — an API key over its budget,
+                // an owner the account-status gate turns away, a grant whose
+                // consent was withdrawn — leaves its admin-only attempt on
+                // the trail (EFVP 2026-11-17, decision 9.4d).
+                if let Some(caller) = refusal.caller {
+                    self.record_refusal(request, caller, None).await;
+                }
+                return Err(auth_refusal(&refusal.error, resource_url));
+            }
         };
         // The usage row an API key's request writes names the tool it
         // called, not `POST /mcp`, which serves every tool.
@@ -325,7 +365,7 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         {
             Ok(Some(tenant_ctx)) => {
                 // System-admin tools (e.g. system-agent management) gate on the
-                // global `User.is_admin` flag, not the per-tenant role: a tenant
+                // global admin role (`User.role`), not the per-tenant role: a tenant
                 // owner is admin *of their tenant*, which must not grant
                 // system-wide admin powers. Mirrors the executor's
                 // `build_tool_context`. A global-lookup failure defaults to
@@ -339,7 +379,7 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
                     .await
                     .ok()
                     .flatten()
-                    .is_some_and(|user| user.is_admin);
+                    .is_some_and(|user| user.role.is_admin());
 
                 let ctx = build_context(
                     auth_result.user_id,
@@ -361,6 +401,9 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
                         missing_scope = %missing,
                         "MCP request rejected: the caller's grant does not cover this tool"
                     );
+                    let tenant = tenant_ctx.tenant_id.to_string();
+                    self.record_refusal(request, auth_result.user_id, Some(&tenant))
+                        .await;
                     return Err(AuthError::InsufficientScope {
                         www_authenticate: insufficient_scope_challenge(resource_url, missing),
                         reason: format!(
@@ -371,11 +414,17 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
 
                 Ok(ctx)
             }
-            Ok(None) => Err(AuthError::Forbidden {
-                reason: "User must be assigned to a tenant to execute tools".to_owned(),
-            }),
+            Ok(None) => {
+                self.record_refusal(request, auth_result.user_id, None)
+                    .await;
+                Err(AuthError::Forbidden {
+                    reason: "User must be assigned to a tenant to execute tools".to_owned(),
+                })
+            }
             Err(e) => {
                 log_tenant_failure(auth_result.user_id, &e);
+                self.record_refusal(request, auth_result.user_id, None)
+                    .await;
                 Err(AuthError::Forbidden {
                     reason: "Failed to extract tenant context".to_owned(),
                 })
@@ -999,7 +1048,7 @@ fn extract_prompt_arguments(params: Option<&Value>) -> HashMap<String, String> {
     params
         .and_then(|p| p.get("arguments"))
         .and_then(Value::as_object)
-        .map(|map| {
+        .map_or_default(|map| {
             map.iter()
                 .map(|(key, value)| {
                     let text = value
@@ -1009,7 +1058,6 @@ fn extract_prompt_arguments(params: Option<&Value>) -> HashMap<String, String> {
                 })
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// Build the platform's rich [`ServerCapabilities`] for `initialize`/`discover`.
@@ -1099,4 +1147,50 @@ pub fn build_mcp_server(resources: Arc<ServerContext>) -> Arc<McpServer<dyn Tool
     .with_observer(Arc::new(RequestSpanObserver));
 
     Arc::new(server)
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_auth::auth::{AuthMethod as Credential, AuthResult};
+    use pierre_auth::oauth2_server::first_party::{MOBILE_CLIENT_ID, WEB_CLIENT_ID};
+    use pierre_core::permissions::scopes::OAuthScope;
+    use uuid::Uuid;
+
+    use super::{tool_auth_method, AuthMethod};
+
+    /// A JWT's authentication naming `client_id`, with `scopes`.
+    fn jwt(client_id: Option<&str>, scopes: Vec<OAuthScope>) -> AuthResult {
+        AuthResult {
+            user_id: Uuid::new_v4(),
+            auth_method: Credential::JwtToken {
+                tier: "starter".to_owned(),
+                impersonation: None,
+            },
+            active_tenant_id: None,
+            scopes,
+            client_id: client_id.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn a_jwt_an_application_holds_is_oauth2_whatever_its_grant() {
+        for scopes in [OAuthScope::default_grant(), OAuthScope::self_grant()] {
+            assert_eq!(
+                tool_auth_method(&jwt(Some("mcp_client_test"), scopes.clone())),
+                AuthMethod::OAuth2,
+                "{scopes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_session_is_a_jwt_bearer_whichever_app_it_names() {
+        for client_id in [Some(WEB_CLIENT_ID), Some(MOBILE_CLIENT_ID), None] {
+            assert_eq!(
+                tool_auth_method(&jwt(client_id, OAuthScope::self_grant())),
+                AuthMethod::JwtBearer,
+                "{client_id:?}"
+            );
+        }
+    }
 }

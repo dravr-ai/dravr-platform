@@ -84,6 +84,7 @@ vi.mock('../../../services/api', () => ({
     leaveGroup: vi.fn(),
     deleteGroup: vi.fn(),
     removeCoach: vi.fn(),
+    claimCoach: vi.fn(),
     listInvites: vi.fn(),
     createInvite: vi.fn(),
     deactivateInvite: vi.fn(),
@@ -115,6 +116,8 @@ vi.mock('../../../services/api', () => ({
   chatApi: {
     openAthleteThread: vi.fn(),
     getAthletePlan: vi.fn(),
+    getAthletePhysiology: vi.fn(),
+    updateAthletePhysiologyAnchor: vi.fn(),
   },
 }));
 
@@ -280,9 +283,12 @@ describe('GroupInfoPanel', () => {
       scope: { visible_members: 2, roster_members: 2 },
     });
     vi.mocked(groupsApi.updatePeerConsent).mockResolvedValue(undefined);
-    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: true });
+    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: true, assistant_notice_due: false });
     vi.mocked(groupsApi.getCoachReads).mockResolvedValue({ reads: [], retention_months: 12 });
-    vi.mocked(groupsApi.updateCoachSharing).mockImplementation(async (_groupId, request) => request);
+    vi.mocked(groupsApi.updateCoachSharing).mockImplementation(async (_groupId, request) => ({
+      ...request,
+      assistant_notice_due: false,
+    }));
     vi.mocked(groupsApi.updateGroup).mockResolvedValue(sampleGroup());
     vi.mocked(groupsApi.deleteGroup).mockResolvedValue(undefined);
     vi.mocked(groupsApi.listInvites).mockResolvedValue({ invites: [] });
@@ -396,7 +402,7 @@ describe('GroupInfoPanel', () => {
       sampleGroup({ owner_id: OTHER_ID, coach_user_id: COACH_ID, coach_display_name: 'Casey Coach', respond_mode: 'mentions' }),
     );
     vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
-    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: false });
+    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: false, assistant_notice_due: false });
     renderPanel();
 
     expect(await screen.findByTestId('who-sees-coach')).toHaveTextContent(
@@ -621,6 +627,64 @@ describe('GroupInfoPanel', () => {
       expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
     });
 
+    it('offers the owner who holds coach access the one way to coach their coachless group (carnet#1650)', async () => {
+      authUser.manages_roster = true;
+      offerSeat();
+      vi.mocked(groupsApi.claimCoach).mockResolvedValue({
+        group: sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach' }),
+      });
+      renderPanel();
+
+      const block = await screen.findByTestId('group-info-claim-coach');
+      expect(block).toHaveTextContent('This group has no coach yet');
+      expect(block).toHaveTextContent("You'll see the training of the athletes who share it with you.");
+      expect(screen.queryByTestId('coach-seat-block')).toBeNull();
+
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(
+        sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach' }),
+      );
+      await userEvent.click(within(block).getByTestId('group-info-claim-coach-action'));
+
+      await waitFor(() => expect(groupsApi.claimCoach).toHaveBeenCalledExactlyOnceWith(GROUP_ID));
+      // The group is re-read, and the offer gives way to the coach row.
+      await waitFor(() => expect(screen.queryByTestId('group-info-claim-coach')).toBeNull());
+      expect(await screen.findByText("You're now this group's coach.")).toBeInTheDocument();
+    });
+
+    it('says the claim failed and keeps the offer', async () => {
+      authUser.manages_roster = true;
+      offerSeat();
+      vi.mocked(groupsApi.claimCoach).mockRejectedValue({ response: { status: 500, data: {} } });
+      renderPanel();
+
+      const block = await screen.findByTestId('group-info-claim-coach');
+      await userEvent.click(within(block).getByTestId('group-info-claim-coach-action'));
+
+      expect(await within(block).findByTestId('group-info-claim-coach-failed')).toHaveTextContent(
+        "Couldn't make you the coach. Try again.",
+      );
+      expect(within(block).getByTestId('group-info-claim-coach-action')).toBeEnabled();
+    });
+
+    it('offers no claim to an owner without coach access: the seat request stays theirs', async () => {
+      offerSeat();
+      renderPanel();
+
+      await screen.findByTestId('coach-seat-block');
+      expect(screen.queryByTestId('group-info-claim-coach')).toBeNull();
+    });
+
+    it('offers no claim to a group that already has a coach', async () => {
+      authUser.manages_roster = true;
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(
+        sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+      );
+      renderPanel();
+
+      await screen.findByTestId('group-info-coach-row');
+      expect(screen.queryByTestId('group-info-claim-coach')).toBeNull();
+    });
+
     it('offers nothing to a plain member of a coachless group', async () => {
       offerSeat();
       vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID }));
@@ -714,6 +778,59 @@ describe('GroupInfoPanel', () => {
     // Beside it, the member's own record of what the coach read (carnet#1445).
     expect(await screen.findByTestId('coach-read-log')).toBeInTheDocument();
     expect(groupsApi.getCoachReads).toHaveBeenCalledWith(GROUP_ID);
+  });
+
+  // EFVP decision 9.2b: a sharing member who never answered the notice is told once,
+  // as the wellness widening is, and either answer is a coach-sharing write.
+  it("tells a sharing member who never answered of the coach's AI tools, and keeping it writes the sharing again", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: true, assistant_notice_due: true });
+    renderPanel();
+
+    const notice = await screen.findByTestId('coach-assistant-notice');
+    expect(notice).toHaveAccessibleName(i18n.t('humanCoach.assistantNotice.title'));
+    expect(notice).toHaveClass('alert-info');
+    expect(notice).toHaveTextContent(i18n.t('humanCoach.assistantNotice.body', { coach: 'Casey Coach' }));
+    // The sharing stands while the member decides.
+    expect(screen.getByTestId('coach-sharing-switch')).toBeChecked();
+
+    // The answers are the wellness notice's own, so both notices read alike.
+    const keep = within(notice).getByTestId('coach-assistant-notice-keep');
+    expect(keep).toHaveTextContent(i18n.t('delegation.wellnessWidenedKeep'));
+    fireEvent.click(keep);
+
+    await waitFor(() => expect(groupsApi.updateCoachSharing).toHaveBeenCalledWith(GROUP_ID, { consent: true }));
+    await waitFor(() => expect(screen.queryByTestId('coach-assistant-notice')).toBeNull());
+    expect(screen.getByTestId('coach-sharing-switch')).toBeChecked();
+  });
+
+  it("stops sharing from the coach's AI tools notice, ending the coach's access with it", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: true, assistant_notice_due: true });
+    renderPanel();
+
+    const notice = await screen.findByTestId('coach-assistant-notice');
+    const stop = within(notice).getByTestId('coach-assistant-notice-stop');
+    expect(stop).toHaveTextContent(i18n.t('delegation.wellnessRevokeConfirm'));
+    fireEvent.click(stop);
+
+    await waitFor(() => expect(groupsApi.updateCoachSharing).toHaveBeenCalledWith(GROUP_ID, { consent: false }));
+    await waitFor(() => expect(screen.queryByTestId('coach-assistant-notice')).toBeNull());
+    expect(screen.getByTestId('coach-sharing-switch')).not.toBeChecked();
+  });
+
+  it("tells nothing of the coach's AI tools to a member who already answered", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    renderPanel();
+
+    expect(await screen.findByTestId('coach-sharing-switch')).toBeInTheDocument();
+    expect(screen.queryByTestId('coach-assistant-notice')).toBeNull();
   });
 
   it('offers coach sharing in a group with no coach yet, since joining granted it', async () => {
@@ -1324,6 +1441,108 @@ describe('GroupInfoPanel', () => {
       expect(await screen.findByText('Other')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /View plan/ })).toBeNull();
       expect(chatApi.getAthletePlan).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("reading and setting a member's thresholds (carnet#1561)", () => {
+    const FTP = {
+      anchor: 'ftp' as const,
+      unit: 'watts' as const,
+      value: 285,
+      low: null,
+      high: null,
+      origin: 'athlete',
+      as_of: '2026-10-20',
+      method: null,
+      confidence: 'medium' as const,
+      value_text: '285 W',
+      range_text: null,
+      source_text: "the athlete's own value",
+    };
+    const OFFERED = [{ sport: 'ride' as const, anchors: [{ anchor: 'ftp' as const, unit: 'watts' as const }] }];
+
+    function coachOf() {
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(
+        sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach', owner_id: OTHER_ID }),
+      );
+      vi.mocked(groupsApi.listMembers).mockResolvedValue({
+        members: [member({ id: 'membership-2', user_id: OTHER_ID, role: 'owner', display_name: 'Alice Runner' })],
+      });
+      vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+      vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+    }
+
+    it("shows the coach the athlete's thresholds worded for a coach, and saves one as theirs to set", async () => {
+      coachOf();
+      vi.mocked(chatApi.getAthletePhysiology).mockResolvedValue({
+        sports: [{ sport: 'ride', anchors: [FTP] }],
+        offered: OFFERED,
+      });
+      vi.mocked(chatApi.updateAthletePhysiologyAnchor).mockResolvedValue({
+        sports: [
+          {
+            sport: 'ride',
+            anchors: [{ ...FTP, value: 292, value_text: '292 W', origin: 'coach', source_text: 'set by a coach' }],
+          },
+        ],
+        offered: OFFERED,
+      });
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: 'Thresholds · Alice Runner' }));
+
+      expect(await screen.findByText("Alice Runner's thresholds")).toBeInTheDocument();
+      expect(screen.getByTestId('physiology-ride-ftp-source')).toHaveTextContent("the athlete's own value");
+      expect(chatApi.getAthletePhysiology).toHaveBeenCalledWith(OTHER_ID, GROUP_ID, 'en');
+
+      await user.click(screen.getByTestId('physiology-ride-ftp-edit'));
+      const editor = await screen.findByTestId('physiology-editor');
+      const value = within(editor).getByTestId('physiology-editor-value');
+      await user.clear(value);
+      await user.type(value, '292');
+      await user.selectOptions(within(editor).getByTestId('physiology-editor-kind'), 'measured');
+      await user.click(within(editor).getByTestId('physiology-editor-save'));
+
+      await waitFor(() =>
+        expect(chatApi.updateAthletePhysiologyAnchor).toHaveBeenCalledWith(
+          OTHER_ID,
+          GROUP_ID,
+          'ride',
+          'ftp',
+          expect.objectContaining({ value: 292, kind: 'measured', confidence: 'medium', pace_per: null }),
+          'en',
+        ),
+      );
+      expect(await screen.findByTestId('athlete-physiology-saved')).toHaveTextContent('Saved. Alice Runner is told.');
+      expect(screen.getByTestId('physiology-ride-ftp-source')).toHaveTextContent('set by a coach');
+    });
+
+    it('says the athlete stopped sharing, and offers nothing to set', async () => {
+      coachOf();
+      vi.mocked(chatApi.getAthletePhysiology).mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 403'), {
+          response: { status: 403, data: { code: 'PermissionDenied', details: { reason: 'coach_sharing_revoked' } } },
+        }),
+      );
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: 'Thresholds · Alice Runner' }));
+
+      expect(await screen.findByTestId('athlete-physiology-revoked')).toHaveTextContent(
+        'Alice Runner stopped sharing their data with you, so their thresholds are hidden.',
+      );
+      expect(screen.queryByTestId('athlete-physiology-add')).toBeNull();
+    });
+
+    it('never offers a member the thresholds of another', async () => {
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ coach_user_id: COACH_ID }));
+      renderPanel();
+
+      expect(await screen.findByText('Other')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Thresholds/ })).toBeNull();
+      expect(chatApi.getAthletePhysiology).not.toHaveBeenCalled();
     });
   });
 

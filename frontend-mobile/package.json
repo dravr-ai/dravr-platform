@@ -48,6 +48,7 @@
     "@pierre/shared-types": "file:../packages/shared-types",
     "@pierre/ui-logic": "file:../packages/ui-logic",
     "@react-native-async-storage/async-storage": "^2.2.0",
+    "@react-native-cookies/cookies": "6.2.1",
     "@react-native-google-signin/google-signin": "16.1.5",
     "@shopify/flash-list": "2.0.2",
     "@tanstack/react-query": "^5.90.16",

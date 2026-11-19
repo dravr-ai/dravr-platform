@@ -120,6 +120,8 @@ fn samples() -> TimeSeriesData {
         temperature: None,
         gps_coordinates: None,
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 
@@ -330,14 +332,11 @@ pub(crate) fn refused_reason(response: &UniversalResponse) -> String {
 
 /// Every activity id a payload lists, wherever it sits.
 fn ids(payload: &Value) -> Vec<String> {
-    payload["activities"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|row| row["id"].as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
+    payload["activities"].as_array().map_or_default(|rows| {
+        rows.iter()
+            .filter_map(|row| row["id"].as_str().map(str::to_owned))
+            .collect()
+    })
 }
 
 pub(crate) fn mentions(payload: &Value, needle: &str) -> bool {
@@ -807,6 +806,97 @@ async fn an_mcp_caller_who_coaches_no_one_by_that_name_is_refused() {
     );
 }
 
+/// A coach still attached whose coach access was withdrawn reads no athlete
+/// (carnet#1511): not the thread's, and none by `athlete=`, where a name
+/// that matches and one that matches no one are refused alike because no
+/// name is looked up. The same reads answer again once access is back.
+#[tokio::test]
+async fn a_coach_whose_access_is_off_reads_no_athlete_until_it_is_back() {
+    let f = fixture().await;
+    f.repos()
+        .users
+        .set_manages_roster(f.coach.id, false)
+        .await
+        .unwrap();
+
+    let by_name = |name: &'static str| json!({ "athlete": name, "limit": 50 });
+    let mut refusals = vec![f.in_thread("get_activities", json!({ "limit": 50 })).await];
+    for name in ["Mira", "Zed"] {
+        refusals.push(
+            f.call(&f.mcp_executor(), f.coach, "get_activities", by_name(name))
+                .await,
+        );
+    }
+    for refused in &refusals {
+        assert_eq!(
+            refused_reason(refused),
+            "no_coach_access",
+            "bug: a coach whose coach access is off is refused by that reason"
+        );
+        let error = refused.error.as_deref().unwrap_or_default();
+        assert!(error.starts_with("Your coach access is off"), "{error}");
+        assert!(
+            !error.contains(ATHLETE_NAME) && !error.contains("No athlete matching"),
+            "bug: a name was looked up for a caller without coach access: {error}"
+        );
+        let payload = refused.result.as_ref().unwrap();
+        assert!(
+            !mentions(payload, "athlete-run-") && !mentions(payload, COACH_RIDE),
+            "bug: neither the athlete's data nor the coach's answers: {payload}"
+        );
+    }
+
+    f.repos()
+        .users
+        .set_manages_roster(f.coach.id, true)
+        .await
+        .unwrap();
+    let in_thread = ok(
+        f.in_thread("get_activities", json!({ "limit": 50 })).await,
+        "the thread read, access back",
+    );
+    assert!(mentions(&in_thread, "athlete-run-"), "{in_thread}");
+    let named = ok(
+        f.call(
+            &f.mcp_executor(),
+            f.coach,
+            "get_activities",
+            by_name("Mira"),
+        )
+        .await,
+        "mcp get_activities athlete=, access back",
+    );
+    assert!(mentions(&named, "athlete-run-"), "{named}");
+}
+
+/// Platform admin is coach access too (`User::holds_coach_access`): an admin
+/// without `manages_roster`, attached to the group, passes the coach rule and
+/// reads its athlete by `athlete=`.
+#[tokio::test]
+async fn an_admin_without_the_roster_flag_attached_to_the_group_reads_its_athlete() {
+    let f = fixture().await;
+    let users = &f.repos().users;
+    users.set_manages_roster(f.coach.id, false).await.unwrap();
+    users.set_admin_status(f.coach.id, true).await.unwrap();
+    let stored = users.get_global(f.coach.id).await.unwrap().unwrap();
+    assert!(
+        stored.role.is_admin() && !stored.manages_roster,
+        "premise: an admin who does not hold the roster flag"
+    );
+
+    let named = ok(
+        f.call(
+            &f.mcp_executor(),
+            f.coach,
+            "get_activities",
+            json!({ "athlete": "Mira", "limit": 50 }),
+        )
+        .await,
+        "mcp get_activities athlete=, as an admin attached to the group",
+    );
+    assert!(mentions(&named, "athlete-run-"), "{named}");
+}
+
 #[tokio::test]
 async fn an_mcp_read_of_an_athlete_with_nothing_connected_never_offers_connect_provider() {
     let f = fixture().await;
@@ -906,8 +996,8 @@ pub(crate) async fn post_mcp(
 #[tokio::test]
 async fn mcp_lists_athlete_on_the_training_reads_and_chat_never_offers_it() {
     let f = fixture().await;
-    // tools/list leaves out what the plan refuses, and `predict_performance`
-    // is an enterprise tool: the coach's plan covers every training read.
+    // tools/list leaves out what the plan refuses, and `enterprise` meets
+    // every tool's `min_plan`: the coach's plan covers every training read.
     f.res
         .common
         .repos

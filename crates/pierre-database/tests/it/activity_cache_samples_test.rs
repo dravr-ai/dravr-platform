@@ -53,6 +53,8 @@ async fn a_streams_bearing_activity_is_cached_without_its_samples() {
             Some((45.7, -73.7)),
         ]),
         distance: None,
+        grade_smooth: None,
+        moving: None,
     })
     .build();
 

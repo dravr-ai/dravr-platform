@@ -11,7 +11,6 @@
 // the visibility it had inside `strava_provider`; fields that were private to
 // that module are `pub(crate)` so the provider can still read them.
 
-use crate::models::PeriodTotals;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
@@ -161,7 +160,7 @@ pub struct StravaLap {
 }
 
 /// Strava segment effort: one entry of a detailed activity's
-/// `segment_efforts`, and one row of `GET /segment_efforts`.
+/// `segment_efforts`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct StravaSegmentEffort {
     /// Unique identifier for this segment effort
@@ -182,15 +181,6 @@ pub struct StravaSegmentEffort {
     /// The segment the effort was ridden or run on
     #[serde(default)]
     pub segment: Option<StravaSummarySegment>,
-    /// The activity the effort belongs to; `GET /segment_efforts` names it,
-    /// a detailed activity's own efforts name the activity itself
-    #[serde(default)]
-    pub activity: Option<StravaMetaActivity>,
-    /// The activity's id where Strava names it flat (`activity_id`), as its
-    /// documented `DetailedSegmentEffort` also does; read when `activity`
-    /// names none
-    #[serde(default)]
-    pub activity_id: Option<u64>,
     /// Total elapsed time for the segment (seconds)
     pub elapsed_time: Option<u32>,
     /// Time spent moving during the segment (seconds)
@@ -221,15 +211,6 @@ pub struct StravaSummarySegment {
     pub average_grade: Option<f32>,
     /// Strava's climb category, 0 (uncategorized) to 5 (hors catégorie)
     pub climb_category: Option<i32>,
-    /// The sport the segment is for (`Ride`, `Run`)
-    pub activity_type: Option<String>,
-}
-
-/// Strava's meta activity: an activity named by its id alone.
-#[derive(Debug, Clone, Deserialize)]
-pub struct StravaMetaActivity {
-    /// The activity's id
-    pub id: Option<u64>,
 }
 
 /// The gear a detailed activity names: Strava's summary gear shape.
@@ -295,56 +276,6 @@ pub struct DetailedActivityResponse {
     pub segment_efforts: Option<Vec<StravaSegmentEffort>>,
 }
 
-/// Strava API response for stats
-///
-/// The `/athletes/{id}/stats` endpoint returns parallel `all_*` (lifetime) and
-/// `ytd_*` (current calendar year) totals per sport. We deserialize both so the
-/// stats tool can report annual figures distinctly from lifetime ones.
-#[derive(Debug, Deserialize)]
-pub(crate) struct StravaStatsResponse {
-    #[serde(rename = "all_ride_totals")]
-    pub(crate) all_ride: Option<StravaTotals>,
-    #[serde(rename = "all_run_totals")]
-    pub(crate) all_run: Option<StravaTotals>,
-    #[serde(rename = "ytd_ride_totals")]
-    pub(crate) ytd_ride: Option<StravaTotals>,
-    #[serde(rename = "ytd_run_totals")]
-    pub(crate) ytd_run: Option<StravaTotals>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct StravaTotals {
-    pub(crate) count: u32,
-    pub(crate) distance: f32,
-    pub(crate) moving_time: u32,
-    pub(crate) elevation_gain: f32,
-}
-
-impl StravaStatsResponse {
-    /// Combine a ride+run total pair into the canonical [`PeriodTotals`].
-    ///
-    /// Swim totals (`*_swim_totals`) are intentionally excluded to match the
-    /// historical behaviour of the lifetime sum; including swims is tracked as
-    /// a separate change.
-    pub(crate) fn sum_pair(
-        ride: Option<&StravaTotals>,
-        run: Option<&StravaTotals>,
-    ) -> PeriodTotals {
-        PeriodTotals {
-            total_activities: u64::from(ride.map_or(0, |t| t.count) + run.map_or(0, |t| t.count)),
-            total_distance: f64::from(
-                ride.map_or(0.0, |t| t.distance) + run.map_or(0.0, |t| t.distance),
-            ),
-            total_duration: u64::from(
-                ride.map_or(0, |t| t.moving_time) + run.map_or(0, |t| t.moving_time),
-            ),
-            total_elevation_gain: f64::from(
-                ride.map_or(0.0, |t| t.elevation_gain) + run.map_or(0.0, |t| t.elevation_gain),
-            ),
-        }
-    }
-}
-
 /// One stream from `GET /activities/{id}/streams?key_by_type=true`.
 ///
 /// Numeric samples arrive as JSON numbers with occasional `null`s (a sensor
@@ -380,6 +311,10 @@ pub struct StravaStreamSet {
     pub distance: Option<StravaStream<f64>>,
     /// GPS positions as `[lat, lng]`.
     pub latlng: Option<StravaStream<[f64; 2]>>,
+    /// Smoothed road grade, percent (positive uphill).
+    pub grade_smooth: Option<StravaStream<f32>>,
+    /// Whether the athlete was moving at each sample, as Strava decided it.
+    pub moving: Option<StravaStream<bool>>,
 }
 
 #[cfg(test)]

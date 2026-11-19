@@ -33,6 +33,8 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_core::transport::Transport;
+use pierre_providers::ai_scope;
 
 use secrecy::SecretString;
 use std::collections::HashMap;
@@ -70,6 +72,7 @@ use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::CoreFitnessProvider;
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_groups::DelegatedConnectionRoutes;
+use pierre_test_support::delegation::grant_coach_access;
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::capture_sweep::{
     refresh_captures, RefreshOutcome, SweepBudget, SweepSelection,
@@ -434,6 +437,7 @@ async fn world(scraper: Scraper, url: &str) -> World {
         .await
         .unwrap()
         .id;
+    grant_coach_access(&repos, coach.id).await.unwrap();
     assert!(repos
         .groups
         .set_group_coach_user(&group.to_string(), Some(coach.id), owner.tenant)
@@ -755,9 +759,13 @@ async fn the_coach_reads_the_members_plan_once_they_share(w: &World) {
         "end_date": end.format("%Y-%m-%d").to_string(),
     });
 
-    let refused = GetPlannedWorkoutsTool
-        .execute(&w.runtime, &ctx(&w.coach), args.clone())
-        .await;
+    // In Dravr's own app the coach is told the member stopped sharing; a call
+    // that declares no transport is read as outside, and told no match.
+    let refused = ai_scope::serve_over(
+        Transport::WebApp,
+        GetPlannedWorkoutsTool.execute(&w.runtime, &ctx(&w.coach), args.clone()),
+    )
+    .await;
     let body = payload(&refused);
     assert!(refused.is_error, "{body}");
     assert!(

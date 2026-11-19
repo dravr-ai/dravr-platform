@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { AlertTriangle } from 'lucide-react';
+import { ALERT_TONE } from '../ui';
 
 interface EnvelopeNoticeProps {
   /** The notice's heading, as the server rendered it in the athlete's locale. */
@@ -23,13 +24,13 @@ export default function EnvelopeNotice({ heading, lines }: EnvelopeNoticeProps) 
     <section
       role="note"
       aria-label={heading}
-      className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-on-surface"
+      className={`${ALERT_TONE.warning.tone} mt-3 rounded-lg border px-3 py-2 text-sm`}
     >
-      <div className="flex items-center gap-2 font-medium text-on-warning-container">
+      <div className="flex items-center gap-2 font-medium">
         <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span>{heading}</span>
       </div>
-      <ul className="mt-1.5 space-y-1 pl-6">
+      <ul className="mt-1.5 space-y-1 pl-6 text-on-surface">
         {lines.map((line, index) => (
           <li key={`${index}-${line.slice(0, 24)}`}>{line}</li>
         ))}

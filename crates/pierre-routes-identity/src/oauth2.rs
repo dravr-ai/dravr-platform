@@ -17,7 +17,7 @@ use axum::{
     Json, Router,
 };
 use pierre_auth::admin::jwks::JwksManager;
-use pierre_auth::auth::AuthManager;
+use pierre_auth::auth::{AuthManager, Claims};
 use pierre_auth::config::oauth::OAuth2ServerConfig;
 use pierre_auth::oauth2_server::{
     client_auth::{is_basic_authorization, resolve_client_credentials},
@@ -34,6 +34,7 @@ use pierre_auth::rate_limiting::OAuth2Endpoint;
 use pierre_auth::security::cookies::auth_cookie_name_on;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_contremaitre::MessagingStringsRegistry;
+use pierre_core::errors::AppResult;
 use pierre_core::models::supported_ui_locale;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
@@ -55,6 +56,8 @@ mod consent;
 mod consent_copy;
 /// The consent flow's text, in the reader's language
 mod consent_text;
+/// Which consent text a grant was approved under, and whether it is current.
+mod consent_version;
 /// "Continue with Google": server-side Google sign-in on the hosted login page
 mod google_login;
 /// The JWKS endpoint serving the RS256 public keys
@@ -69,6 +72,8 @@ mod pages;
 mod revoke;
 /// The sign-in cookie: its name, value and reading.
 mod session;
+/// What a hosted page shows its reader, as the consent text version reads it.
+mod visible_text;
 /// The RFC 8414 and RFC 9728 discovery documents
 mod well_known;
 
@@ -270,7 +275,7 @@ impl OAuth2Routes {
         let (user_id, tenant_id) = if requests_fresh_login(&params) {
             (None, None)
         } else {
-            Self::extract_authenticated_user(&headers, &context)
+            Self::extract_authenticated_user(&headers, &context).await
         };
 
         // If no authenticated user, redirect to login page with OAuth parameters
@@ -299,40 +304,37 @@ impl OAuth2Routes {
         .await
     }
 
-    fn extract_authenticated_user(
+    async fn extract_authenticated_user(
         headers: &HeaderMap,
         context: &OAuth2Context,
     ) -> (Option<uuid::Uuid>, Option<String>) {
-        headers
+        let Some((cookie, token)) = headers
             .get(header::COOKIE)
-            .and_then(|cookie_value| {
-                cookie_value.to_str().ok().and_then(|cookie_str| {
-                    Self::extract_session_token(
-                        cookie_str,
-                        &Self::session_cookie_name(context),
-                        &auth_cookie_name_on(Self::cookies_secure(context)),
-                    )
-                    .and_then(|(cookie, token)| {
-                        Self::validate_session_token(cookie, &token, context)
-                    })
-                })
+            .and_then(|cookie_value| cookie_value.to_str().ok())
+            .and_then(|cookie_str| {
+                Self::extract_session_token(
+                    cookie_str,
+                    &Self::session_cookie_name(context),
+                    &auth_cookie_name_on(Self::cookies_secure(context)),
+                )
             })
+        else {
+            return (None, None);
+        };
+        Self::validate_session_token(cookie, &token, context)
+            .await
             .map_or((None, None), |(uid, tid)| (Some(uid), tid))
     }
 
-    fn validate_session_token(
+    /// The user and active tenant a sign-in cookie names. An impersonation
+    /// token in the web app's cookie is refused, and the refusal written to
+    /// the admin audit trail (carnet#1560, carnet#1634).
+    async fn validate_session_token(
         cookie: SignInCookie,
         token: &str,
         context: &OAuth2Context,
     ) -> Option<(uuid::Uuid, Option<String>)> {
-        let validated = match cookie {
-            SignInCookie::AuthorizationServer => context
-                .auth_manager
-                .validate_authorization_session_token(token, &context.jwks_manager),
-            SignInCookie::WebApp => context
-                .auth_manager
-                .validate_session_token(token, &context.jwks_manager),
-        };
+        let validated = Self::sign_in_claims(cookie, token, context).await;
         match validated {
             Ok(claims) => {
                 info!(
@@ -350,6 +352,31 @@ impl OAuth2Routes {
             Err(e) => {
                 warn!("Invalid session token in OAuth authorization: {}", e);
                 None
+            }
+        }
+    }
+
+    /// The claims a sign-in cookie carries, read by the validator its
+    /// audience takes.
+    async fn sign_in_claims(
+        cookie: SignInCookie,
+        token: &str,
+        context: &OAuth2Context,
+    ) -> AppResult<Claims> {
+        match cookie {
+            SignInCookie::AuthorizationServer => context
+                .auth_manager
+                .validate_authorization_session_token(token, &context.jwks_manager),
+            SignInCookie::WebApp => {
+                context
+                    .auth_manager
+                    .validate_session_token(
+                        token,
+                        &context.jwks_manager,
+                        context.database.repositories().admin_audit.as_ref(),
+                        "sign in to the OAuth consent screen",
+                    )
+                    .await
             }
         }
     }
@@ -385,7 +412,8 @@ impl OAuth2Routes {
         };
 
         // Skip the consent screen only when the user has already approved this client
-        // for the requested scope; otherwise show consent before any code is minted.
+        // for the requested scope, under the consent text that language reads now;
+        // otherwise show consent before any code is minted.
         let grant_tenant =
             Self::resolve_grant_tenant(context, authenticated_user_id, tenant_id.clone()).await;
         let has_grant = match &grant_tenant {
@@ -402,7 +430,17 @@ impl OAuth2Routes {
                     error!("Failed to look up the client grant, showing consent: {e}");
                     None
                 })
-                .is_some(),
+                .is_some_and(|grant| {
+                    consent_version::approved_under_current_text(
+                        &context.strings,
+                        &grant,
+                        consent_version::ConsentSubject {
+                            client_id: &request.client_id,
+                            redirect_uri: &redirect_uri,
+                            first_party_only_sources: &context.first_party_only_sources,
+                        },
+                    )
+                }),
             None => false,
         };
 
@@ -813,8 +851,7 @@ impl OAuth2Routes {
             .config
             .default_login_password
             .as_ref()
-            .map(|password| password.expose_secret().to_owned())
-            .unwrap_or_default();
+            .map_or_default(|password| password.expose_secret().to_owned());
 
         // "Continue with Google", on the issuer's host where Google returns,
         // for a pending authorization this page can name

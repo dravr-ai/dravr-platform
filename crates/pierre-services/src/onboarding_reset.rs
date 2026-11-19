@@ -37,8 +37,8 @@ use pierre_database::RepositoryRegistry;
 use pierre_providers::registry::global_registry;
 use serde::Serialize;
 use tracing::info;
-use uuid::Uuid;
 
+use crate::admin_ops::ActingOn;
 use crate::coach_platform::coach_platform;
 use crate::provider_revocation::DisconnectReason;
 use crate::user_removal::{
@@ -116,6 +116,10 @@ pub fn kept_for_groups(provider: &str) -> bool {
 
 /// Reset a user's onboarding.
 ///
+/// `acting` is the user and who resets it
+/// ([`AccountCaller::acting_on`](crate::admin_ops::AccountCaller::acting_on),
+/// which holds an admin account to a platform caller).
+///
 /// Disconnects every held provider except `TrainingPeaks` and any this build
 /// cannot revoke, then runs the data reset for `scope` in one transaction.
 /// The disconnects go first, as they do for a user delete, so a failure there
@@ -131,9 +135,10 @@ pub fn kept_for_groups(provider: &str) -> bool {
 pub async fn reset_onboarding(
     repos: &RepositoryRegistry,
     disconnector: Option<&dyn ProviderDisconnector>,
-    user_id: Uuid,
+    acting: &ActingOn<'_>,
     scope: OnboardingResetScope,
 ) -> AppResult<OnboardingResetOutcome> {
+    let user_id = acting.id();
     let (kept_for_groups, held): (Vec<HeldProvider>, Vec<HeldProvider>) =
         held_providers(repos, user_id)
             .await?

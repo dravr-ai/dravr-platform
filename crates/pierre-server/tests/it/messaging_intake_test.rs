@@ -174,6 +174,7 @@ mod intake_tests {
             self.record(request);
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: "Bien reçu.".to_owned(),
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(10, 3, 13)),

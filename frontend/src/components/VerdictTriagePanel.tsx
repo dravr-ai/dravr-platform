@@ -1,4 +1,4 @@
-// ABOUTME: The admin triage panel one verdict card carries — the knob to adjust, and support's call: a control to whoever can write it, text to the rest
+// ABOUTME: The admin triage panel one verdict card carries — the knob to adjust, and the control recording support's call
 // ABOUTME: Operator chrome (English by decision); reached only from ClaimVerdictsTab, never from the chat surface's drawer
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,7 +9,7 @@ import type { ClaimVerdict, DispositionReason, VerdictDisposition } from '@pierr
 import { DISPOSITION_REASONS, VERDICT_DISPOSITIONS } from '@pierre/shared-types';
 import { formatDateTime } from '@pierre/chat-utils';
 import type { VerdictKnob } from '../services/api/admin';
-import { Button, Select, Textarea } from './ui';
+import { BADGE_TONE, Button, Select, Textarea } from './ui';
 import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
 
 /** What an admin records about one verdict. */
@@ -68,7 +68,7 @@ function KnobPanel({ knob }: { knob: VerdictKnob | undefined }) {
       {knob ? (
         <div className="space-y-2 rounded-lg bg-surface-container-low p-3">
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">
+            <span className={`rounded-full px-2 py-0.5 ${BADGE_TONE.neutral.tone}`}>
               {KNOB_KIND_LABEL[knob.kind]}
             </span>
             <code className="font-mono text-xs text-on-surface break-all">{knob.location}</code>
@@ -82,7 +82,7 @@ function KnobPanel({ knob }: { knob: VerdictKnob | undefined }) {
                   <span className="text-outline">{p.strength}</span>
                   <span className="text-outline">score {p.score}</span>
                   {p.cited ? (
-                    <span className="rounded-full bg-success/15 px-2 py-0.5 text-on-success-container">
+                    <span className={`rounded-full px-2 py-0.5 ${BADGE_TONE.success.tone}`}>
                       cited
                     </span>
                   ) : null}
@@ -175,28 +175,9 @@ function DispositionControl({
   );
 }
 
-/** The disposition on the row, for a viewer who may read it and not change it. */
-function DispositionSummary({ verdict }: { verdict: ClaimVerdict }) {
-  if (!verdict.disposition) return null;
-  return (
-    <section data-testid="verdict-disposition-summary" className="space-y-1">
-      <h4 className="text-xs font-semibold text-outline">Disposition</h4>
-      <DisposedBy verdict={verdict} />
-      <p className="text-xs text-on-surface">{DISPOSITION_LABEL[verdict.disposition]}</p>
-      {verdict.disposition_reason ? (
-        <p className="text-xs text-on-surface">{REASON_LABEL[verdict.disposition_reason]}</p>
-      ) : null}
-      {verdict.disposition_note ? (
-        <p className="text-xs text-on-surface">{verdict.disposition_note}</p>
-      ) : null}
-    </section>
-  );
-}
-
 /**
  * Everything the admin adds under one verdict card: the knob behind the
- * verdict and what support made of it, as a control for a viewer who can write
- * it and as a summary for one who cannot.
+ * verdict, and the control recording what support made of it.
  *
  * The chat drawer renders this through its `renderTriage` slot and never
  * imports it, so the drawer an athlete opens carries none of this English.
@@ -209,17 +190,13 @@ export default function VerdictTriagePanel({
   verdict: ClaimVerdict;
   /** The knob the detail read resolved; absent while it loads. */
   knob: VerdictKnob | undefined;
-  /** The writer; absent when the viewer may not record a disposition. */
-  onSetDisposition?: SetDisposition;
+  /** Writes the disposition the admin saves. */
+  onSetDisposition: SetDisposition;
 }) {
   return (
     <>
       <KnobPanel knob={knob} />
-      {onSetDisposition ? (
-        <DispositionControl verdict={verdict} onSetDisposition={onSetDisposition} />
-      ) : (
-        <DispositionSummary verdict={verdict} />
-      )}
+      <DispositionControl verdict={verdict} onSetDisposition={onSetDisposition} />
     </>
   );
 }

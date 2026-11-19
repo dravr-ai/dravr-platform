@@ -568,12 +568,11 @@ pub(crate) fn assert_tool_called(
     let actual: Vec<String> = turn_data
         .get("tools_called")
         .and_then(serde_json::Value::as_array)
-        .map(|arr| {
+        .map_or_default(|arr| {
             arr.iter()
                 .filter_map(|v| v.as_str().map(str::to_owned))
                 .collect()
-        })
-        .unwrap_or_default();
+        });
 
     actual
         .iter()

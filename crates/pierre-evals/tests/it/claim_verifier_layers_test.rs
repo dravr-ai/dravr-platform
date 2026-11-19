@@ -139,6 +139,7 @@ impl LlmProvider for CannedJudge {
             return Err(AppError::external_service("canned-judge", "rate limited"));
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content: self.bodies[call.min(last)].clone(),
             model: "canned".to_owned(),
             usage: None,
@@ -819,6 +820,7 @@ fn record_2026_10_26() -> AthleteRecord {
         }],
         today: NaiveDate::from_ymd_opt(2026, 10, 26).expect("valid date"),
         locale: "fr".to_owned(),
+        named_subsets: Vec::new(),
         history: None,
     }
 }

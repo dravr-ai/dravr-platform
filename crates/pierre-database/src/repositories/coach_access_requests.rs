@@ -7,7 +7,7 @@
 //! Coach-access requests (carnet#738).
 //!
 //! A coach whose onboarding group came back coachless asks for coach access in
-//! one tap; a super-admin grants or declines it. The table is scoped by
+//! one tap; an admin grants or declines it. The table is scoped by
 //! `user_id`: coach access (`manages_roster`) belongs to the account, not to a
 //! tenant, and the admin queue is the global operator's. `group_tenant_id`
 //! only locates the group a grant attaches the coach to.
@@ -22,7 +22,7 @@
 //! A coach withdraws their own waiting request by deleting it
 //! ([`CoachAccessRequestRepository::withdraw`]), which frees the one-pending
 //! slot so they can ask again at once; no status is added for it. A decline
-//! may carry the super-admin's reason (`decline_reason`, carnet#1521).
+//! may carry the admin's reason (`decline_reason`, carnet#1521).
 //!
 //! Asking again replaces an earlier decline: opening a request stamps the
 //! user's declined requests `superseded_at`
@@ -78,7 +78,7 @@ pub trait CoachAccessRequestRepository: Send + Sync {
         group_id: Uuid,
         group_tenant_id: &str,
     ) -> AppResult<bool>;
-    /// Record a super-admin's decision on a pending request, with the reason
+    /// Record an admin's decision on a pending request, with the reason
     /// given for a decline (`None` for a grant, or a decline given without
     /// one). `false` when the request is not pending (already decided,
     /// withdrawn, or unknown), which is left as it is.

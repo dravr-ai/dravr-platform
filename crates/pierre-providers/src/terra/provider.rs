@@ -32,8 +32,7 @@ use crate::core::{
 use crate::errors::provider::ProviderError;
 use crate::errors::{AppError, AppResult};
 use crate::field_support::{ActivityFieldSupport, ActivityFields as F, StreamChannels as S};
-use crate::models::coverage::WindowScope;
-use crate::models::{Activity, Athlete, Stats};
+use crate::models::{Activity, Athlete};
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
 use crate::spi::{
@@ -188,6 +187,7 @@ impl FitnessProvider for TerraProvider {
             let user_info = client.get_user_info(&user_id).await?;
             if let Some(user) = user_info.user {
                 return Ok(Athlete {
+                    active_streak: None,
                     created_at: None,
                     id: user.user_id,
                     username: user.reference_id.unwrap_or_default(),
@@ -202,6 +202,7 @@ impl FitnessProvider for TerraProvider {
 
         // Return basic athlete info from user ID
         Ok(Athlete {
+            active_streak: None,
             created_at: None,
             id: user_id.clone(),
             username: user_id,
@@ -243,17 +244,6 @@ impl FitnessProvider for TerraProvider {
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
         self.cached()?.one(id, ACTIVITY).await
     }
-
-    /// Totals over the pushed activities Dravr holds. Terra pushes from the
-    /// connection onward, so these cover what was pushed, never a lifetime.
-    #[instrument(skip(self), fields(provider = "terra", api_call = "get_stats"))]
-    async fn get_stats(&self) -> AppResult<Stats> {
-        let activities = self.cached()?.all().await?;
-        Ok(Stats::summed_over(
-            &activities,
-            WindowScope::RecentActivities,
-        ))
-    }
 }
 
 impl Default for TerraProvider {
@@ -293,7 +283,7 @@ impl ProviderDescriptor for TerraDescriptor {
         // LIMITATION(registre#513): `TerraDescriptor::capabilities` advertises activities
         // only. The webhook files Terra's nights, recovery and body days into the wellness
         // store (`services::terra_ingest`), where the readers find them like any provider's
-        // rows, but the webhook route is not mounted (registre#886): no Terra wellness row
+        // rows, but the webhook route is not mounted (registre#859): no Terra wellness row
         // reaches a deployment, and advertising sleep or recovery would promise data that
         // never arrives.
         //

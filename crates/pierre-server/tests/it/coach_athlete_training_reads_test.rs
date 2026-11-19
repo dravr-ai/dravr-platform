@@ -42,7 +42,9 @@ use crate::coach_athlete_reads_test::{
 };
 
 /// The athlete's run whose samples carry a GPS track and altitude.
-const ROUTE_RUN: &str = "athlete-run-2";
+pub(crate) const ROUTE_RUN: &str = "athlete-run-2";
+/// A session only the athlete's Garmin holds: no stored copy answers it.
+const GARMIN_ONLY_SESSION: &str = "garmin-only-session";
 
 /// The athlete's FTP, which only a read of the athlete returns.
 const ATHLETE_FTP: u32 = 248;
@@ -93,6 +95,7 @@ fn physiology(who: Person, ftp: u32, vo2_max: f64, wellness: bool) -> UserPhysio
 /// A provider profile cached for `who`, under the upload key their reads use.
 fn cached_athlete(first_name: &str) -> Athlete {
     Athlete {
+        active_streak: None,
         created_at: None,
         id: "4242".to_owned(),
         username: first_name.to_lowercase(),
@@ -162,6 +165,8 @@ fn route_samples() -> TimeSeriesData {
                 .collect(),
         ),
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 
@@ -169,7 +174,7 @@ fn route_samples() -> TimeSeriesData {
 /// provider profiles in the cache, a token and a watch each, each one's
 /// physiology, a goal of the athlete's, a GPS track on one of their runs, and
 /// an athlete's connection whose session is gone.
-async fn world() -> (Fixture, String) {
+pub(crate) async fn world() -> (Fixture, String) {
     let f = fixture().await;
     let repos = f.repos();
     let cache = f.res.data().cache().clone();
@@ -213,7 +218,7 @@ async fn world() -> (Fixture, String) {
             )
             .await
             .unwrap();
-        // `predict_performance` is an enterprise tool, and a read of the
+        // `enterprise` meets every tool's `min_plan`, and a read of the
         // athlete honours both tenants' switches.
         repos
             .tenants
@@ -513,13 +518,16 @@ async fn the_athletes_session_reads_by_id_answer_in_the_thread_and_not_from_the_
 /// The reconnect the athlete's dead connection needs is theirs to make: a
 /// coach's read says so in band, and never raises the re-auth error the chat
 /// pipeline mints the turn's user — the coach — a login from.
+///
+/// `export_intervals` reads one session from the elected connection: an id
+/// the store holds no copy of goes to the athlete's dead Garmin.
+/// `export_latest_snapshot` read it too until it moved to the store
+/// (carnet#1485, OQ14), so it can no longer reach a dead connection.
 #[tokio::test]
 async fn a_coachs_read_of_an_athlete_whose_connection_died_never_offers_the_coach_a_reconnect() {
     let (f, _) = world().await;
-    let snapshot = json!({ "window": 30 });
-    let refused = f
-        .in_thread("export_latest_snapshot", snapshot.clone())
-        .await;
+    let session = json!({ "activity_id": GARMIN_ONLY_SESSION });
+    let refused = f.in_thread("export_intervals", session.clone()).await;
     assert_eq!(
         refused_reason(&refused),
         "athlete_reconnect_needed",
@@ -537,8 +545,8 @@ async fn a_coachs_read_of_an_athlete_whose_connection_died_never_offers_the_coac
         .call(
             &f.mcp_executor(),
             f.coach,
-            "export_latest_snapshot",
-            json!({ "window": 30, "athlete": "Mira" }),
+            "export_intervals",
+            json!({ "activity_id": GARMIN_ONLY_SESSION, "athlete": "Mira" }),
         )
         .await;
     assert_eq!(
@@ -550,12 +558,7 @@ async fn a_coachs_read_of_an_athlete_whose_connection_died_never_offers_the_coac
     // The athlete's own read still raises the re-auth their reconnect flow
     // answers.
     let own = f
-        .try_call(
-            &f.own_executor(),
-            f.athlete,
-            "export_latest_snapshot",
-            snapshot,
-        )
+        .try_call(&f.own_executor(), f.athlete, "export_intervals", session)
         .await;
     assert!(
         matches!(own, Err(ProtocolError::ProviderAuthRequired { .. })),
@@ -935,7 +938,7 @@ async fn a_coachs_route_read_answers_the_summary_and_stores_nothing_for_the_athl
 // ── athlete= over MCP ────────────────────────────────────────────────────
 
 /// Every read this phase scopes, with arguments that read the athlete.
-fn phase_two_reads(goal: &str) -> Vec<(&'static str, Value)> {
+pub(crate) fn phase_two_reads(goal: &str) -> Vec<(&'static str, Value)> {
     let by_id = json!({ "provider": UPLOAD, "activity_id": ATHLETE_STREAM_RUN });
     vec![
         ("get_athlete", json!({ "provider": UPLOAD })),
@@ -1004,15 +1007,44 @@ async fn athlete_over_mcp_reads_a_coached_athlete_with_every_phase_two_read_and_
             "bug: {tool}: athlete= reaches only an athlete the caller coaches"
         );
     }
-    // The snapshot reads through the athlete's dead Garmin, so the coach's
-    // read of it answers the reconnect (tested above); a stranger is refused
-    // before anything is read.
+    // A session only the athlete's dead Garmin holds is read through it, so
+    // the coach's read of it answers the reconnect (tested above); a stranger
+    // is refused before anything is read.
+    let refused = f
+        .call(
+            &f.mcp_executor(),
+            stranger,
+            "export_intervals",
+            json!({ "activity_id": GARMIN_ONLY_SESSION, "athlete": "Mira" }),
+        )
+        .await;
+    assert_eq!(
+        refused_reason(&refused),
+        "no_match",
+        "bug: export_intervals: athlete= reaches only an athlete the caller coaches"
+    );
+    // The snapshot reads the athlete's stored sessions (carnet#1485, OQ14),
+    // never the dead Garmin: the coach's read answers, the stranger's does not.
+    let snapshot = json!({ "window": 30, "athlete": "Mira" });
+    let read = f
+        .call(
+            &f.mcp_executor(),
+            f.coach,
+            "export_latest_snapshot",
+            snapshot.clone(),
+        )
+        .await;
+    let payload = ok(read, "export_latest_snapshot");
+    assert!(
+        !mentions(&payload, COACH_FIRST_NAME) && !mentions(&payload, COACH_RIDE),
+        "bug: export_latest_snapshot with athlete= never reads the coach: {payload}"
+    );
     let refused = f
         .call(
             &f.mcp_executor(),
             stranger,
             "export_latest_snapshot",
-            json!({ "window": 30, "athlete": "Mira" }),
+            snapshot,
         )
         .await;
     assert_eq!(

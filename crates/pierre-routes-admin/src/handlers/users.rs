@@ -23,19 +23,17 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::pagination::{Cursor, PaginationParams};
 use pierre_database::backends::shared::enums::user_tier_to_str;
 use pierre_middleware::redaction::mask_email;
-use pierre_services::admin_ops;
+use pierre_services::admin_ops::{self, AccountCaller, AdminStandingLost};
 use pierre_services::analytics::cache_user_email;
 use pierre_services::onboarding_reset::kept_for_groups;
-use pierre_services::pre_approval;
 use pierre_services::user_removal::held_providers;
 
 use super::api_keys::json_response;
-use super::invitations::{self, send_invite_if_eligible};
+use super::linked_channels;
 use super::types::{
-    AdminResponse, AllowEmailRequest, ApproveUserRequest, ListUsersQuery, SuspendUserRequest,
-    UserActivityQuery,
+    AdminResponse, ApproveUserRequest, ListUsersQuery, SuspendUserRequest, UserActivityQuery,
 };
-use crate::audit::AuditDetail;
+use super::user_removal::{account_in_reach, parse_user_id};
 use crate::context::AdminApiContext;
 
 /// User list response
@@ -72,7 +70,9 @@ pub(crate) struct UserSummary {
     last_active: String,
     /// Account status: `pending`, `active` or `suspended`
     user_status: &'static str,
-    /// Whether the account holds an admin role
+    /// The account's role, `admin` or `user`: what a client decides from
+    role: &'static str,
+    /// Whether the account holds the admin role; `role` said another way
     is_admin: bool,
     /// When the account was approved, if it has been
     approved_at: Option<String>,
@@ -90,7 +90,8 @@ impl From<&User> for UserSummary {
             created_at: user.created_at.to_rfc3339(),
             last_active: user.last_active.to_rfc3339(),
             user_status: user_status_str(user.user_status),
-            is_admin: user.is_admin,
+            role: user.role.as_str(),
+            is_admin: user.role.is_admin(),
             approved_at: user.approved_at.map(|t| t.to_rfc3339()),
             approved_by: user.approved_by.map(|id| id.to_string()),
         }
@@ -106,7 +107,12 @@ pub(crate) const fn user_status_str(status: UserStatus) -> &'static str {
     }
 }
 
-/// Handle user listing
+/// Handle user listing.
+///
+/// A token scoped to one tenant lists the members of that tenant only, the
+/// accounts its read by id finds ([`user_read_scope`]); an admin's console
+/// session and a super-admin token list every tenant's, and a token bound
+/// to no tenant is refused (403).
 pub(crate) async fn handle_list_users(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -145,7 +151,7 @@ pub(crate) async fn handle_list_users(
     let page = ctx
         .repos
         .users
-        .get_by_status_cursor(status, &pagination)
+        .get_by_status_cursor(status, user_read_scope(&admin_token)?, &pagination)
         .await
         // Propagated as is: an unknown status is the caller's 400, not a 500.
         .inspect_err(|e| error!(error = %e, "Failed to fetch users from database"))?;
@@ -202,11 +208,18 @@ pub(crate) async fn handle_list_users(
 /// each tenant) because the reason to ask about ONE user is usually a field the
 /// list does not show.
 ///
+/// A token bound to one tenant reads a member of that tenant, and only what
+/// of it belongs to that tenant: the providers it holds there and the
+/// messaging identities linked there, the groups it owns there. The preview
+/// of a whole-account reset, a route only a super-admin token takes, is left
+/// out of its answer.
+///
 /// # Errors
 ///
-/// Returns an invalid-input error for a malformed id, a not-found error for an
-/// unknown user, and a database error when the user or their providers cannot
-/// be read.
+/// Returns an invalid-input error for a malformed id, a permission error for
+/// a token that reaches no tenant, a not-found error for an unknown user and
+/// one outside a bound token's tenant, and a database error when the user or
+/// their providers cannot be read.
 pub async fn handle_get_user(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -226,29 +239,24 @@ pub async fn handle_get_user(
         ));
     }
 
-    let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
-        warn!(error = %e, "Invalid user ID format");
-        AppError::invalid_input(format!("Invalid user ID format: {e}"))
-    })?;
+    let user_uuid = parse_user_id(&user_id)?;
 
-    let user = context
-        .as_ref()
-        .repos
-        .users
-        .get_global(user_uuid)
+    // A scoped token reads only the users of its tenant, and one outside it
+    // answers 404 like a missing one, as the password reset does: the read
+    // names the account's providers and its linked messaging identities.
+    let scope = user_read_scope(&admin_token)?;
+    let user = admin_ops::find_user_in_admin_scope(&context.repos, scope, user_uuid)
         .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to fetch user from database");
-            AppError::internal(format!("Failed to fetch user: {e}"))
-        })?
-        .ok_or_else(|| {
-            warn!("User not found: {user_id}");
-            AppError::not_found("User not found")
-        })?;
+        .inspect_err(|_| warn!("User not found in admin scope: {user_id}"))?;
 
-    // The providers the user holds, across tenants: what a delete would
-    // disconnect, and what `pierre-cli user delete` previews without --yes.
-    let connected_providers = held_providers(&context.repos, user_uuid).await?;
+    // The providers the user holds: what a delete would disconnect, and what
+    // `pierre-cli user delete` previews without --yes. Across tenants for a
+    // caller that reaches every tenant; a bound token's own tenant's only.
+    let connected_providers: Vec<_> = held_providers(&context.repos, user_uuid)
+        .await?
+        .into_iter()
+        .filter(|held| scope.is_none_or(|own| held.tenant_id == own))
+        .collect();
     // Which of them an onboarding reset keeps, which
     // `pierre-cli user reset-onboarding` previews without --yes: this server's
     // answer, not the CLI build's.
@@ -262,58 +270,102 @@ pub async fn handle_get_user(
         .users
         .manages_roster_operator_grant(user_uuid)
         .await?;
-    // What would refuse a whole-account reset, which `pierre-cli user reset`
-    // previews without --yes instead of promising a wipe the server refuses:
-    // as it stands, and once the groups the account owns are archived
-    // (`--delete-owned-groups`), with those groups named.
-    let reset_blockers = context
-        .repos
-        .account_reset
-        .reset_blockers(user_uuid, false)
-        .await?;
-    let reset_blockers_with_owned_groups_deleted = context
-        .repos
-        .account_reset
-        .reset_blockers(user_uuid, true)
-        .await?;
     let owned_active_groups: Vec<Value> = context
         .repos
         .account_reset
         .owned_active_groups(user_uuid)
         .await?
         .into_iter()
+        .filter(|group| scope.is_none_or(|own| group.tenant_id == own))
         .map(|group| json!({ "id": group.group_id, "name": group.name }))
         .collect();
 
+    let linked_channels = match scope {
+        None => linked_channels::for_user(&context.repos, user_uuid).await?,
+        Some(own) => linked_channels::for_user_in_tenant(&context.repos, own, user_uuid).await?,
+    };
     info!(token_id = %admin_token.token_id, "Read user {user_id}");
+
+    let mut data = json!({
+        "id": user.id.to_string(),
+        "email": user.email,
+        "display_name": user.display_name,
+        "tier": user_tier_to_str(&user.tier),
+        "status": user_status_str(user.user_status),
+        "role": user.role.as_str(),
+        "is_admin": user.role.is_admin(),
+        "manages_roster": user.manages_roster,
+        "manages_roster_operator_grant": manages_roster_operator_grant,
+        "created_at": user.created_at.to_rfc3339(),
+        "last_active": user.last_active.to_rfc3339(),
+        "connected_providers": connected_providers,
+        "kept_on_onboarding_reset": kept_on_onboarding_reset,
+        "owned_active_groups": owned_active_groups,
+        "linked_channels": linked_channels,
+    });
+    // What would refuse a whole-account reset, which `pierre-cli user reset`
+    // previews without --yes instead of promising a wipe the server refuses:
+    // as it stands, and once the groups the account owns are archived
+    // (`--delete-owned-groups`). The reset is a super-admin route reaching
+    // every tenant, so a bound token, which cannot take it, is not shown
+    // what it would find in the others.
+    if scope.is_none() {
+        data["reset_blockers"] = json!(
+            context
+                .repos
+                .account_reset
+                .reset_blockers(user_uuid, false)
+                .await?
+        );
+        data["reset_blockers_with_owned_groups_deleted"] = json!(
+            context
+                .repos
+                .account_reset
+                .reset_blockers(user_uuid, true)
+                .await?
+        );
+    }
 
     Ok(json_response(
         AdminResponse {
             success: true,
             message: format!("Retrieved {}", user.email),
-            data: Some(json!({
-                "id": user.id.to_string(),
-                "email": user.email,
-                "display_name": user.display_name,
-                "tier": user_tier_to_str(&user.tier),
-                "status": user_status_str(user.user_status),
-                "is_admin": user.is_admin,
-                "manages_roster": user.manages_roster,
-                "manages_roster_operator_grant": manages_roster_operator_grant,
-                "created_at": user.created_at.to_rfc3339(),
-                "last_active": user.last_active.to_rfc3339(),
-                "connected_providers": connected_providers,
-                "kept_on_onboarding_reset": kept_on_onboarding_reset,
-                "reset_blockers": reset_blockers,
-                "reset_blockers_with_owned_groups_deleted": reset_blockers_with_owned_groups_deleted,
-                "owned_active_groups": owned_active_groups,
-            })),
+            data: Some(data),
         },
         StatusCode::OK,
     ))
 }
 
-/// Handle pending users listing
+/// Every pending member of `tenant`, newest first: the pending list of a
+/// token scoped to one tenant, read through the listing the user list pages.
+async fn pending_members(ctx: &AdminApiContext, tenant: TenantId) -> AppResult<Vec<User>> {
+    let mut members = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = PaginationParams::forward(cursor, PENDING_MEMBERS_PAGE);
+        let page = ctx
+            .repos
+            .users
+            .get_by_status_cursor("pending", Some(tenant), &page)
+            .await?;
+        members.extend(page.items);
+        match page.next_cursor {
+            Some(next) if page.has_more => cursor = Some(next),
+            _ => return Ok(members),
+        }
+    }
+}
+
+/// How many accounts [`pending_members`] reads at a time.
+const PENDING_MEMBERS_PAGE: usize = 100;
+
+/// Handle pending users listing.
+///
+/// A token scoped to one tenant lists the pending members of that tenant
+/// only ([`user_read_scope`]). A sign-up is a member of no tenant until it
+/// is approved, so such a token is listed none of the sign-ups its read by
+/// id would not find either. An admin's console session and a super-admin
+/// token list them all, and a token bound to no tenant is refused (403).
 pub(crate) async fn handle_pending_users(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -336,15 +388,14 @@ pub(crate) async fn handle_pending_users(
 
     let ctx = context.as_ref();
 
-    let users = ctx
-        .repos
-        .users
-        .get_by_status("pending", None)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to fetch pending users from database");
-            AppError::internal(format!("Failed to fetch pending users: {e}"))
-        })?;
+    let users = match user_read_scope(&admin_token)? {
+        None => ctx.repos.users.get_by_status("pending", None).await,
+        Some(tenant) => pending_members(ctx, tenant).await,
+    }
+    .map_err(|e| {
+        error!(error = %e, "Failed to fetch pending users from database");
+        AppError::internal(format!("Failed to fetch pending users: {e}"))
+    })?;
 
     let user_summaries: Vec<UserSummary> = users.iter().map(UserSummary::from).collect();
 
@@ -364,6 +415,26 @@ pub(crate) async fn handle_pending_users(
         },
         StatusCode::OK,
     ))
+}
+
+/// The tenant a caller's reads of users are confined to, `None` for a
+/// caller that reads every tenant's: what the credential reaches
+/// ([`ValidatedAdminToken::reach`], the scope rule's one reading).
+///
+/// One rule for the read of a user by id, the two lists and the per-user
+/// reads (rate limits, activity), and for which account a write finds
+/// (`account_in_reach`): an admin's console session, like a super-admin
+/// token, reads every user; a token scoped to one tenant reads the members
+/// of that tenant (`admin_ops::find_user_in_admin_scope`, the paged
+/// listing's tenant filter), and anyone else is answered as a missing
+/// account is. A token bound to no tenant without the super-admin flag
+/// reaches no tenant and is refused (carnet#1589).
+///
+/// # Errors
+/// `PermissionDenied` for a token that reaches no tenant, `InvalidInput`
+/// for one whose tenant is not a tenant id.
+pub(super) fn user_read_scope(token: &ValidatedAdminToken) -> AppResult<Option<TenantId>> {
+    Ok(token.reach()?.tenant_filter())
 }
 
 /// The tenant an admin token acts in: a console session's active tenant, or
@@ -387,7 +458,7 @@ pub(super) fn token_tenant(token: &ValidatedAdminToken) -> AppResult<Option<Tena
 /// `user_email` when the record carries `user_id` and that id resolves — an
 /// approved account is not otherwise guaranteed to be cached, and without both
 /// the Slack message loses the subject entirely.
-async fn announce_approval(
+pub(super) async fn announce_approval(
     ctx: &AdminApiContext,
     user_id: &str,
     user_uuid: Uuid,
@@ -428,7 +499,14 @@ async fn announce_approval(
     }
 }
 
-/// Handle user approval workflow
+/// Handle user approval workflow.
+///
+/// The account is read as every write reads it (`account_in_reach`): one
+/// outside a bound token's tenant answers 404; an admin (a suspended one,
+/// reinstated) is approved only by an admin's console session or a
+/// super-admin token, 403 otherwise; and a token scoped to one tenant
+/// approves only a user held entirely within it, 403 otherwise, as it
+/// deletes one.
 pub(crate) async fn handle_approve_user(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -455,23 +533,22 @@ pub(crate) async fn handle_approve_user(
     );
 
     let ctx = context.as_ref();
-    let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
-        warn!(error = %e, "Invalid user ID format");
-        AppError::invalid_input(format!("Invalid user ID format: {e}"))
-    })?;
+    let caller = AccountCaller::of_token(&admin_token);
+    // Approving a suspended admin hands back every power, so it takes the
+    // rank suspending one does, and sets the account active in every tenant
+    // it is in, so it takes the token's tenant too.
+    let (acting, _) = account_in_reach(ctx, &admin_token, &caller, &user_id).await?;
+    let user_uuid = acting.id();
 
-    // One approval path for the CLI and the console: the operator behind the
-    // token is recorded as the approver, and the user joins the tenant the
-    // approver works in. Whether an approved user needs a tenant of their own
-    // is decided by the user, not by an operator's request body — the Slack
-    // approval path provisions one only `if !has_tenants` (registre#407).
-    let updated_user = admin_ops::approve_user(
-        &ctx.repos,
-        admin_token.operator_user_id,
-        token_tenant(&admin_token)?,
-        user_uuid,
-    )
-    .await?;
+    // One approval for every surface (the CLI, the console, the Slack room):
+    // the admin behind the token is recorded as the approver, and the user
+    // joins the tenant the approver works in. Whether an approved user needs
+    // a tenant of their own is decided by the user, not by an admin's request
+    // body: one that belongs to none is given its own (registre#407).
+    let updated_user = admin_ops::approve_user(&ctx.repos, &acting, token_tenant(&admin_token)?)
+        .await?
+        .into_approved()?
+        .user;
 
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
     info!("User {} approved successfully. Reason: {}", user_id, reason);
@@ -482,7 +559,7 @@ pub(crate) async fn handle_approve_user(
         user_uuid,
         &updated_user.email,
         updated_user.display_name.as_deref(),
-        &admin_token.service_name,
+        caller.name(),
     )
     .await;
 
@@ -506,7 +583,14 @@ pub(crate) async fn handle_approve_user(
     ))
 }
 
-/// Handle user suspension workflow
+/// Handle user suspension workflow.
+///
+/// Over this API an admin is suspended only by an admin's console session or
+/// a super-admin token (403 otherwise); the last active admin by no one, and
+/// no admin by its own session or device login (400). An account outside a
+/// bound token's tenant answers 404, and a token scoped to one tenant
+/// suspends only a user held entirely within it, 403 otherwise, as it
+/// deletes one (`account_in_reach`).
 pub(crate) async fn handle_suspend_user(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -533,20 +617,29 @@ pub(crate) async fn handle_suspend_user(
     );
 
     let ctx = context.as_ref();
-    let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
-        warn!(error = %e, "Invalid user ID format");
-        AppError::invalid_input(format!("Invalid user ID format: {e}"))
-    })?;
+    let caller = AccountCaller::of_token(&admin_token);
+    // Suspending an admin withdraws its device logins and impersonations, so
+    // it takes the rank removing one does: a token without the super-admin
+    // flag suspends users, never the admins above it. And it signs the
+    // account out of every tenant it is in, so it takes the token's tenant.
+    let (acting, _) = account_in_reach(ctx, &admin_token, &caller, &user_id).await?;
+    let user_uuid = acting.id();
 
     // Shared get/guard/update-status core (no tenant step on suspension); the
-    // operator behind the token is recorded against the transition.
-    let updated_user = admin_ops::transition_user_status(
-        &ctx.repos,
-        user_uuid,
-        UserStatus::Suspended,
-        admin_token.operator_user_id,
-    )
-    .await?;
+    // operator behind the token is recorded against the transition, and is
+    // the actor an admin's own suspension is refused to: a console session
+    // or a device login acts as its admin, a service token as no one.
+    let transition =
+        admin_ops::transition_user_status(&ctx.repos, &acting, UserStatus::Suspended).await?;
+    caller
+        .record_withdrawn(
+            &ctx.repos,
+            &transition.withdrawn,
+            AdminStandingLost::Deactivated,
+            Some(user_uuid),
+        )
+        .await;
+    let updated_user = transition.user;
 
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
     info!(
@@ -559,7 +652,7 @@ pub(crate) async fn handle_suspend_user(
         target: "notify",
         event = "user.suspended",
         user_id = %user_id,
-        suspended_by = %admin_token.service_name,
+        suspended_by = %caller.name(),
         "user account suspended"
     );
 
@@ -587,6 +680,13 @@ pub(crate) async fn handle_suspend_user(
 /// delivers the token to the user, who then calls `POST /api/auth/complete-reset`
 /// with the token and their chosen new password. The token expires after 1 hour
 /// and can only be used once.
+///
+/// The account is read as every write reads it (`account_in_reach`): a
+/// token scoped to one tenant finds a member of its tenant (404 otherwise),
+/// and is handed a reset token as it suspends or deletes: only for a user
+/// held entirely within that tenant (403 otherwise, nothing issued). Whoever
+/// holds the reset token signs in as the whole account, in every tenant it
+/// is in.
 pub(crate) async fn handle_reset_user_password(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -612,28 +712,17 @@ pub(crate) async fn handle_reset_user_password(
     );
 
     let ctx = context.as_ref();
-    let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
-        warn!(error = %e, "Invalid user ID format");
-        AppError::invalid_input(format!("Invalid user ID format: {e}"))
-    })?;
-
-    // A super-admin reaches every user; any other admin reaches only the users
-    // of the tenant it acts in (a platform-wide token names none), and a user
-    // outside it answers 404 exactly like a missing one.
-    let scope = if admin_token.is_super_admin {
-        None
-    } else {
-        token_tenant(&admin_token)?
-    };
-    let user = admin_ops::find_user_in_admin_scope(&ctx.repos, scope, user_uuid)
-        .await
-        .inspect_err(|_| warn!("User not found in admin scope: {user_id}"))?;
+    // The reset token signs its holder in as the account, so a token without
+    // the super-admin flag is handed none for an admin (403), and a bound
+    // token none for a user held outside its tenant.
+    let caller = AccountCaller::of_token(&admin_token);
+    let (acting, _) = account_in_reach(ctx, &admin_token, &caller, &user_id).await?;
+    let user_uuid = acting.id();
+    let user = acting.account();
 
     // Audit identity: the operator when the token names one, else the service.
-    let reset_by = admin_token
-        .operator_user_id
-        .map_or_else(|| admin_token.service_name.clone(), |id| id.to_string());
-    let raw_token = admin_ops::issue_password_reset_token(&ctx.repos, user_uuid, &reset_by).await?;
+    let reset_by = caller.audit_name();
+    let raw_token = admin_ops::issue_password_reset_token(&ctx.repos, &acting).await?;
 
     info!(
         "Password reset token issued for user {} by token {}",
@@ -658,7 +747,10 @@ pub(crate) async fn handle_reset_user_password(
     ))
 }
 
-/// Handle getting rate limit info for a user
+/// Handle getting rate limit info for a user.
+///
+/// A token scoped to one tenant reads a member of that tenant only; anyone
+/// else answers 404, as a missing account does ([`user_read_scope`]).
 pub(crate) async fn handle_get_user_rate_limit(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -682,6 +774,8 @@ pub(crate) async fn handle_get_user_rate_limit(
     let user_uuid = Uuid::parse_str(&user_id)
         .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
+    let scope = user_read_scope(&admin_token)?;
+    admin_ops::find_user_in_admin_scope(&ctx.repos, scope, user_uuid).await?;
     let limits = admin_ops::compute_user_rate_limits(&ctx.repos, user_uuid).await?;
 
     Ok(json_response(
@@ -694,7 +788,10 @@ pub(crate) async fn handle_get_user_rate_limit(
     ))
 }
 
-/// Handle getting user activity logs
+/// Handle getting user activity logs.
+///
+/// A token scoped to one tenant reads a member of that tenant only; anyone
+/// else answers 404, as a missing account does ([`user_read_scope`]).
 pub(crate) async fn handle_get_user_activity(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -719,6 +816,8 @@ pub(crate) async fn handle_get_user_activity(
     let user_uuid = Uuid::parse_str(&user_id)
         .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
+    let scope = user_read_scope(&admin_token)?;
+    admin_ops::find_user_in_admin_scope(&ctx.repos, scope, user_uuid).await?;
     let activity = admin_ops::compute_user_activity(&ctx.repos, user_uuid, params.days).await?;
 
     Ok(json_response(
@@ -970,191 +1069,4 @@ pub(crate) fn deny_without_manage_users(token: &ValidatedAdminToken) -> Option<i
             StatusCode::FORBIDDEN,
         )
     })
-}
-
-/// `GET /admin/pre-approved-emails` — the standing allow-list.
-pub(crate) async fn handle_list_pre_approved_emails(
-    State(context): State<Arc<AdminApiContext>>,
-    Extension(admin_token): Extension<ValidatedAdminToken>,
-) -> AppResult<impl IntoResponse> {
-    if let Some(denied) = deny_without_manage_users(&admin_token) {
-        return Ok(denied.into_response());
-    }
-
-    let entries = pre_approval::list(&context.repos).await?;
-
-    info!(
-        count = entries.len(),
-        token_id = %admin_token.token_id,
-        "Pre-approved emails listed"
-    );
-
-    Ok(json_response(
-        AdminResponse {
-            success: true,
-            message: format!("{} pre-approved email(s)", entries.len()),
-            data: to_value(json!({
-                "emails": entries,
-                "total": entries.len(),
-            }))
-            .ok(),
-        },
-        StatusCode::OK,
-    )
-    .into_response())
-}
-
-/// `POST /admin/pre-approved-emails` — pre-approve one address.
-///
-/// The address needs no account: that is what a standing allow is for. When an
-/// account does exist and is pending, the allow approves it now, and the user
-/// is notified through the same announcement path as `POST /admin/approve-user`.
-pub(crate) async fn handle_allow_email(
-    State(context): State<Arc<AdminApiContext>>,
-    Extension(admin_token): Extension<ValidatedAdminToken>,
-    Json(request): Json<AllowEmailRequest>,
-) -> AppResult<impl IntoResponse> {
-    if let Some(denied) = deny_without_manage_users(&admin_token) {
-        return Ok(denied.into_response());
-    }
-
-    let ctx = context.as_ref();
-    // Refused before anything is written: a link answered to the caller is
-    // super-admin only (see the invitations module).
-    let delivery = match invitations::delivery(ctx, &request, &admin_token) {
-        Ok(delivery) => delivery,
-        Err(refused) => return Ok(*refused),
-    };
-    // The operator behind the token — the approving super-admin of a device
-    // login, the admin of a console session. A service token names no person,
-    // so `allowed_by` stays NULL rather than attributing its allow to some
-    // arbitrary admin account.
-    let allowed_by = admin_token.operator_user_id;
-    let result = pre_approval::allow(
-        &ctx.repos,
-        &request.email,
-        allowed_by,
-        request.note.as_deref(),
-    )
-    .await?;
-
-    if let Some(approved) = result.approved_user.as_ref() {
-        announce_approval(
-            ctx,
-            &approved.id.to_string(),
-            approved.id,
-            &approved.email,
-            approved.display_name.as_deref(),
-            &admin_token.service_name,
-        )
-        .await;
-    }
-
-    let invite =
-        send_invite_if_eligible(ctx, &result, request.send_invite, &delivery, &admin_token).await?;
-    let invited = invite.invited();
-    let recipient = mask_email(&result.email);
-
-    info!(
-        %recipient,
-        outcome = ?result.outcome,
-        send_invite = request.send_invite,
-        invited,
-        token_id = %admin_token.token_id,
-        "Pre-approval allow recorded"
-    );
-
-    // The address is in the body, which the audit recorder never reads.
-    let audit = AuditDetail::new(
-        "pre_approval.allow",
-        format!("Pre-approved {}", result.email),
-    )
-    .target(json!({
-        "email": result.email,
-        "outcome": format!("{:?}", result.outcome),
-        "invited": invited,
-    }));
-    Ok(audit.attach(
-        json_response(
-            AdminResponse {
-                success: true,
-                message: format!("{}{}", result.message(), invite.sentence()),
-                data: Some(allow_data(&result, &invite)),
-            },
-            StatusCode::OK,
-        )
-        .into_response(),
-    ))
-}
-
-/// The allow's answer body; `invite_url` appears only when the link was asked
-/// for and issued.
-fn allow_data(result: &pre_approval::AllowResult, invite: &invitations::InviteReport) -> Value {
-    let mut data = json!({
-        "email": result.email,
-        "outcome": result.outcome,
-        "approved_user_id": result.approved_user.as_ref().map(|u| u.id.to_string()),
-        "invited": invite.invited(),
-        "invitation_expires_at": invite.expires_at().map(|t| t.to_rfc3339()),
-    });
-    if let (Some(url), Some(fields)) = (invite.invite_url(), data.as_object_mut()) {
-        fields.insert("invite_url".to_owned(), Value::String(url.to_owned()));
-    }
-    data
-}
-
-/// `DELETE /admin/pre-approved-emails/{email}` — drop a standing allow, and
-/// revoke the invitation link sent with it.
-///
-/// An account that already registered against the address keeps whatever
-/// status it holds; removing the allow only stops a *future* registration from
-/// skipping the queue, or an outstanding invitation from creating one.
-pub(crate) async fn handle_disallow_email(
-    State(context): State<Arc<AdminApiContext>>,
-    Extension(admin_token): Extension<ValidatedAdminToken>,
-    Path(email): Path<String>,
-) -> AppResult<impl IntoResponse> {
-    if let Some(denied) = deny_without_manage_users(&admin_token) {
-        return Ok(denied.into_response());
-    }
-
-    let result = pre_approval::disallow(&context.repos, &email).await?;
-
-    info!(
-        removed = result.removed,
-        token_id = %admin_token.token_id,
-        "Pre-approval removal processed"
-    );
-
-    // Said plainly: removing a pre-approval never deletes an account, and an
-    // operator once read this action as a user delete (carnet#1391).
-    let audit = AuditDetail::new(
-        "pre_approval.remove",
-        format!(
-            "Removed the pre-approval of {} (no account deleted)",
-            result.email
-        ),
-    )
-    .target(json!({
-        "email": result.email,
-        "removed": result.removed,
-        "account_status": result.account_status,
-    }));
-    Ok(audit.attach(
-        json_response(
-            AdminResponse {
-                success: true,
-                message: result.message(),
-                data: to_value(json!({
-                    "email": result.email,
-                    "removed": result.removed,
-                    "invitation_revoked": result.invitation_revoked,
-                    "account_status": result.account_status,
-                }))
-                .ok(),
-            },
-            StatusCode::OK,
-        )
-        .into_response(),
-    ))
 }

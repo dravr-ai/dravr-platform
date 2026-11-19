@@ -21,6 +21,7 @@ import {
 import { Button, Section } from '../../components/ui';
 import { authStorage } from '../../services/api';
 import { getApiUrl } from '../../services/apiUrl';
+import { OriginalsBundlePanel } from './OriginalsBundlePanel';
 
 const EXPORT_FILE_STEM = 'dravr-export';
 
@@ -127,6 +128,7 @@ export function DataExportSection(): React.JSX.Element {
           </Text>
         )}
       </View>
+      <OriginalsBundlePanel />
     </Section>
   );
 }

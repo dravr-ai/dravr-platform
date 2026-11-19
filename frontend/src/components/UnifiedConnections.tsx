@@ -2,8 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useId, useState } from 'react';
-import { Button, Textarea } from './ui';
-import { useAuth } from '../hooks/useAuth';
+import { Button, Textarea, ALERT_TONE } from './ui';
 import { useDialog } from '../hooks/useDialog';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
@@ -61,13 +60,13 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, 
         </div>
 
         <div className="space-y-6">
-          <div className="bg-nutrition/15 border border-nutrition/30 rounded-lg p-4">
+          <div className={`${ALERT_TONE.warning.tone} border rounded-lg p-4`}>
             <div className="flex items-start gap-3">
-              <svg className="w-6 h-6 text-nutrition mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-6 h-6 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
               <div>
-                <h4 className="font-medium text-nutrition">Important Security Notice</h4>
+                <h4 className="font-medium">Important Security Notice</h4>
                 <p className="text-sm text-on-surface mt-1">
                   This is the only time the full token will be displayed. Please copy it now and store it securely.
                 </p>
@@ -118,11 +117,15 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, 
   );
 };
 
+/**
+ * The admin console's API Tokens screen. Only an admin opens it: `connections`
+ * is one of `ADMIN_ONLY_TABS`, which the Dashboard resolves away for anyone
+ * else on first paint and on every route change, so nothing here asks who is
+ * looking. An account that loses the role with this screen open is drawn
+ * nothing in the render that lost it, and is sent to its own default.
+ */
 export default function UnifiedConnections() {
-  const { user } = useAuth();
-  // Gate on `role`, as the Dashboard's rail does: `is_admin` has skewed from it before.
-  const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
-  const [activeConnectionType, setActiveConnectionType] = useState<ConnectionType>(isAdminUser ? 'api-keys' : 'oauth-apps');
+  const [activeConnectionType, setActiveConnectionType] = useState<ConnectionType>('api-keys');
   const [activeView, setActiveView] = useState<View>('overview');
   const [selectedToken, setSelectedToken] = useState<AdminToken | null>(null);
   const [showTokenSuccess, setShowTokenSuccess] = useState(false);
@@ -144,19 +147,17 @@ export default function UnifiedConnections() {
   const renderTabs = () => (
     <div className="border-b ghost-border mb-6">
       <nav className="-mb-px flex space-x-8">
-        {isAdminUser && (
-          <button
-            className={`tab-dark ${activeConnectionType === 'api-keys' ? 'tab-dark-active' : ''}`}
-            onClick={() => {
-              setActiveConnectionType('api-keys');
-              setActiveView('overview');
-              setSelectedToken(null);
-              setErrorMessage(null);
-            }}
-          >
-            <span>API Tokens</span>
-          </button>
-        )}
+        <button
+          className={`tab-dark ${activeConnectionType === 'api-keys' ? 'tab-dark-active' : ''}`}
+          onClick={() => {
+            setActiveConnectionType('api-keys');
+            setActiveView('overview');
+            setSelectedToken(null);
+            setErrorMessage(null);
+          }}
+        >
+          <span>API Tokens</span>
+        </button>
         <button
           className={`tab-dark ${activeConnectionType === 'oauth-apps' ? 'tab-dark-active' : ''}`}
           onClick={() => {
@@ -279,18 +280,17 @@ export default function UnifiedConnections() {
         />
       )}
       {errorMessage && (
-        <div className="mb-6 bg-error/15 border border-error/30 rounded-lg p-4">
+        <div className={`${ALERT_TONE.error.tone} mb-6 border rounded-lg p-4`}>
           <div className="flex items-start gap-3">
-            <svg className="w-6 h-6 text-error mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-6 h-6 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div className="flex-1">
-              <h4 className="font-medium text-error">Error</h4>
+              <h4 className="font-medium">Error</h4>
               <p className="text-sm text-on-surface mt-1">{errorMessage}</p>
             </div>
             <button
               onClick={() => setErrorMessage(null)}
-              className="text-error hover:text-error"
               aria-label="Dismiss error"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

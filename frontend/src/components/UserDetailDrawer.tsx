@@ -1,5 +1,5 @@
 // ABOUTME: Sliding drawer component that shows detailed user information
-// ABOUTME: Displays user profile, rate limits, activity, and admin actions (approve, suspend, impersonate, group coach grant)
+// ABOUTME: Displays user profile, rate limits, activity, and admin actions (approve, suspend, impersonate, group coach grant, admin role)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,8 @@ import { useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { User, UserTier } from '../types/api';
-import { Button, Card, Select } from './ui';
+import { hasAdminRole } from '@pierre/shared-types';
+import { ALERT_TONE, Button, Card, Select } from './ui';
 import { Badge } from './ui/Badge';
 import PasswordResetModal from './PasswordResetModal';
 import { useAuth } from '../hooks/useAuth';
@@ -16,7 +17,8 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { formatCost } from '../utils/formatCost';
 import { formatDateTime } from '@pierre/chat-utils';
-import { ADMIN_LOCALE } from '../utils/adminLocale';
+import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
+import { offersSuspend } from '../utils/suspendOffer';
 import { useDialog } from '../hooks/useDialog';
 
 interface UserDetailDrawerProps {
@@ -39,14 +41,12 @@ export default function UserDetailDrawer({
   const [overrideNote, setOverrideNote] = useState<string>('');
   const [tierEditing, setTierEditing] = useState(false);
   const [tierValue, setTierValue] = useState<UserTier>('starter');
-  const { user: currentUser, startImpersonation } = useAuth();
+  const [roleConfirming, setRoleConfirming] = useState(false);
+  const { user: viewer, startImpersonation } = useAuth();
   const queryClient = useQueryClient();
 
-  const isSuperAdmin = currentUser?.role === 'super_admin';
-
-  const canImpersonate = isSuperAdmin &&
-    user?.role !== 'super_admin' &&
-    user?.user_status === 'active';
+  // Never an admin: the server refuses to impersonate one.
+  const canImpersonate = !!user && !hasAdminRole(user) && user.user_status === 'active';
 
   const handleImpersonate = async () => {
     if (!user || !canImpersonate) return;
@@ -159,6 +159,16 @@ export default function UserDetailDrawer({
     },
   });
 
+  const setAdminRoleMutation = useMutation({
+    mutationFn: (makeAdmin: boolean) =>
+      user ? adminApi.setUserAdminRole(user.id, makeAdmin) : Promise.reject(new Error('no user')),
+    onSuccess: () => {
+      setRoleConfirming(false);
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminUsers.list() });
+      queryClient.invalidateQueries({ queryKey: adminProfileKey });
+    },
+  });
+
   const titleId = useId();
   // Focus trap, focus restore, Escape and the scroll lock: one layer on the
   // same stack as every other dialog.
@@ -166,6 +176,13 @@ export default function UserDetailDrawer({
   const { containerRef } = useDialog({ open: isOpen && !!user, onClose });
 
   if (!isOpen || !user) return null;
+
+  // The drawer's `user` is the row it was opened from; after a role change
+  // the server's answer is what the account holds now.
+  const roleChange = setAdminRoleMutation.data;
+  const isAdmin = roleChange?.id === user.id ? roleChange.is_admin : hasAdminRole(user);
+  // The server refuses an admin's own demotion, so the drawer never offers it.
+  const offersRoleChange = user.id !== viewer?.id;
 
   const formatLimit = (limit: number | null) => {
     if (limit === null) return 'Unlimited';
@@ -179,8 +196,8 @@ export default function UserDetailDrawer({
 
   const getUsageColor = (percentage: number) => {
     if (percentage >= 90) return 'bg-error';
-    if (percentage >= 75) return 'bg-nutrition';
-    return 'bg-activity';
+    if (percentage >= 75) return 'bg-warning';
+    return 'bg-success';
   };
 
   return (
@@ -236,7 +253,7 @@ export default function UserDetailDrawer({
                 <span className="text-xs text-on-surface capitalize bg-surface-container-high px-2 py-1 rounded border ghost-border">
                   {user.tier}
                 </span>
-                {isSuperAdmin && !tierEditing && (
+                {!tierEditing && (
                   <button
                     type="button"
                     onClick={() => {
@@ -252,7 +269,7 @@ export default function UserDetailDrawer({
                       );
                       setTierEditing(true);
                     }}
-                    className="text-xs text-activity hover:underline"
+                    className="text-xs text-primary hover:underline"
                   >
                     Edit tier
                   </button>
@@ -260,7 +277,7 @@ export default function UserDetailDrawer({
               </div>
             </div>
 
-            {isSuperAdmin && tierEditing && (
+            {tierEditing && (
               <div className="mb-4 rounded-md bg-surface-container-high p-3 space-y-2 text-xs">
                 <div className="font-semibold text-on-surface">Tier override</div>
                 <p className="text-on-surface-variant">
@@ -288,7 +305,6 @@ export default function UserDetailDrawer({
                   <Button
                     onClick={() => setTierMutation.mutate(tierValue)}
                     disabled={setTierMutation.isPending}
-                    className="bg-activity text-on-primary"
                   >
                     {setTierMutation.isPending ? 'Saving…' : 'Save tier'}
                   </Button>
@@ -361,27 +377,23 @@ export default function UserDetailDrawer({
                           : 'Can coach a group (TrainingPeaks coach account)'}
                     </p>
                   </div>
-                  {isSuperAdmin && (
-                    <Button
-                      onClick={() => setRosterMutation.mutate(!adminProfile.manages_roster)}
-                      disabled={setRosterMutation.isPending}
-                      variant="secondary"
-                    >
-                      {setRosterMutation.isPending
-                        ? 'Saving…'
-                        : adminProfile.manages_roster
-                          ? 'Revoke'
-                          : 'Grant'}
-                    </Button>
-                  )}
+                  <Button
+                    onClick={() => setRosterMutation.mutate(!adminProfile.manages_roster)}
+                    disabled={setRosterMutation.isPending}
+                    variant="secondary"
+                  >
+                    {setRosterMutation.isPending
+                      ? 'Saving…'
+                      : adminProfile.manages_roster
+                        ? 'Revoke'
+                        : 'Grant'}
+                  </Button>
                 </div>
-                {isSuperAdmin && (
-                  <p className="text-xs text-on-surface-variant">
-                    Lets the user redeem a group&apos;s coach invite. An operator grant stays
-                    through a TrainingPeaks disconnect; revoking also removes a TrainingPeaks
-                    grant until that account signs in again.
-                  </p>
-                )}
+                <p className="text-xs text-on-surface-variant">
+                  Lets the user redeem a group&apos;s coach invite. An operator grant stays
+                  through a TrainingPeaks disconnect; revoking also removes a TrainingPeaks
+                  grant until that account signs in again.
+                </p>
                 {setRosterMutation.isError && (
                   <p className="text-error text-xs">
                     Failed to update the group coach permission. Please try again.
@@ -429,9 +441,9 @@ export default function UserDetailDrawer({
                 </div>
                 <div className="pt-2 border-t ghost-border space-y-2">
                   {rateLimit.override_active ? (
-                    <div className="rounded-md bg-activity/10 border border-activity/30 p-2 text-xs">
+                    <div className={`${ALERT_TONE.info.tone} rounded-md border p-2 text-xs`}>
                       <div className="flex items-center justify-between">
-                        <span className="font-medium text-activity">Per-user override active</span>
+                        <span className="font-medium">Per-user override active</span>
                         <button
                           type="button"
                           onClick={() => {
@@ -439,7 +451,7 @@ export default function UserDetailDrawer({
                             setOverrideNote(rateLimit.override_note ?? '');
                             setOverrideEditing(true);
                           }}
-                          className="text-activity hover:underline"
+                          className="hover:underline"
                         >
                           Edit
                         </button>
@@ -456,7 +468,7 @@ export default function UserDetailDrawer({
                         setOverrideNote('');
                         setOverrideEditing(true);
                       }}
-                      className="text-xs text-activity hover:underline"
+                      className="text-xs text-primary hover:underline"
                     >
                       Override limits for this user…
                     </button>
@@ -501,7 +513,6 @@ export default function UserDetailDrawer({
                         <Button
                           onClick={() => setOverrideMutation.mutate()}
                           disabled={setOverrideMutation.isPending}
-                          className="bg-activity text-on-primary"
                         >
                           {setOverrideMutation.isPending ? 'Saving…' : 'Save override'}
                         </Button>
@@ -664,7 +675,7 @@ export default function UserDetailDrawer({
                     <span className="text-sm font-medium text-on-surface">
                       {coach.title}
                       {coach.is_default && (
-                        <span className="ml-2 text-xs text-activity">(default)</span>
+                        <span className="ml-2 text-xs text-on-surface-variant">(default)</span>
                       )}
                     </span>
                     <span className="text-xs text-outline capitalize">{coach.category}</span>
@@ -724,7 +735,8 @@ export default function UserDetailDrawer({
               {user.user_status === 'pending' && (
                 <Button
                   onClick={() => onAction(user, 'approve')}
-                  className="w-full justify-start bg-activity hover:bg-activity/80 text-on-primary"
+                  variant="success"
+                  className="w-full justify-start"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -733,11 +745,11 @@ export default function UserDetailDrawer({
                 </Button>
               )}
 
-              {user.user_status === 'active' && (
+              {offersSuspend(user, viewer) && (
                 <Button
                   onClick={() => onAction(user, 'suspend')}
-                  variant="secondary"
-                  className="w-full justify-start border-error/30 text-error hover:bg-error/10"
+                  variant="danger-outline"
+                  className="w-full justify-start"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728" />
@@ -749,7 +761,8 @@ export default function UserDetailDrawer({
               {user.user_status === 'suspended' && (
                 <Button
                   onClick={() => onAction(user, 'approve')}
-                  className="w-full justify-start bg-activity hover:bg-activity/80 text-on-primary"
+                  variant="success"
+                  className="w-full justify-start"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -758,12 +771,54 @@ export default function UserDetailDrawer({
                 </Button>
               )}
 
+              {offersRoleChange && !roleConfirming && (
+                <Button
+                  onClick={() => setRoleConfirming(true)}
+                  variant="secondary"
+                  className="w-full justify-start"
+                  data-testid="admin-role-change"
+                >
+                  {isAdmin ? 'Remove admin role' : 'Make admin'}
+                </Button>
+              )}
+
+              {offersRoleChange && roleConfirming && (
+                <div className="space-y-2" data-testid="admin-role-confirm">
+                  <p className="text-sm text-on-surface">
+                    {isAdmin
+                      ? `${user.email} loses every admin power, and its device logins and impersonations end.`
+                      : `${user.email} gets every admin power, including managing other admins.`}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => setAdminRoleMutation.mutate(!isAdmin)}
+                      disabled={setAdminRoleMutation.isPending}
+                    >
+                      {setAdminRoleMutation.isPending
+                        ? 'Saving…'
+                        : isAdmin
+                          ? 'Remove admin role'
+                          : 'Make admin'}
+                    </Button>
+                    <Button onClick={() => setRoleConfirming(false)} variant="secondary">
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {setAdminRoleMutation.isError && (
+                <p className="text-error text-xs" role="alert">
+                  {describeAdminError(setAdminRoleMutation.error, 'Could not change the admin role. Please try again.')}
+                </p>
+              )}
+
               {canImpersonate && (
                 <Button
                   onClick={handleImpersonate}
                   disabled={isImpersonating}
-                  variant="secondary"
-                  className="w-full justify-start border-nutrition/30 text-on-nutrition-container hover:bg-nutrition/10"
+                  variant="warning-outline"
+                  className="w-full justify-start"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />

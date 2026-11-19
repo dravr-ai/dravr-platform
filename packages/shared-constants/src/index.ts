@@ -183,6 +183,7 @@ export {
   PROVIDER_SCOPES,
   PROVIDER_SCOPE_LABEL_KEY,
   SCIOTTE_CODE_REJECTED,
+  SCIOTTE_NUMBER_MATCH_REPOLL_MS,
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
@@ -219,7 +220,6 @@ export {
   connectPlan,
   credentialFallbackOnRefusal,
   oauthFallbackTarget,
-  oauthFollowOn,
   refusalReloadsCards,
   refusalReturnsToCard,
   signInFallsBackToOAuth,
@@ -325,6 +325,7 @@ export {
 } from './delegation';
 export type { DelegationConsent, ConsentChangeConfirmKeys } from './delegation';
 export {
+  COACH_ASSISTANT_NOTICE_KEYS,
   COACH_READ_LOG_ALL_KEYS,
   COACH_READ_LOG_KEYS,
   coachReadClassKey,
@@ -375,19 +376,25 @@ export {
   weekMinutesSeconds,
 } from './training-volume';
 
-// Settings › Physiology: each anchor's label, each sport family's heading, each confidence (carnet#1516)
+// Settings › Physiology: each anchor's label, each sport family's heading, each confidence (carnet#1516),
+// the form that sets one, and the coach's view of one athlete's (carnet#1561)
 export {
   ANCHOR_CONFIDENCE_LABEL_KEY,
+  ANCHOR_KIND_LABEL_KEY,
+  COACH_PHYSIOLOGY_KEY,
   PHYSIOLOGY_ANCHOR_LABEL_KEY,
+  PHYSIOLOGY_EDIT_KEY,
   PHYSIOLOGY_KEY,
+  PHYSIOLOGY_METHOD_MAX_CHARS,
   SPORT_FAMILY_LABEL_KEY,
 } from './physiology';
 
 // What every unread and notification badge prints for a count
 export { badgeLabel } from './badge';
 
-// The athlete's own API keys: the window each key's usage line counts over
-export { API_KEY_USAGE_WINDOW_DAYS } from './api-keys';
+// The athlete's own API keys and MCP tokens: the window each key's usage line
+// counts over, and the consent shown where each is created
+export { API_KEY_USAGE_WINDOW_DAYS, CREDENTIAL_CONSENT_KEYS } from './api-keys';
 
 // The catalogue key naming each account role (Account pane, sidebar badge)
 export { ACCOUNT_ROLE_LABEL_KEY } from './roles';
@@ -477,3 +484,7 @@ export type {
 } from './coach-seat';
 // The pending coach's Home: who lands on it, whether they train too, and its words (carnet#1529)
 export { COACH_SETUP_KEYS, coachTrainsToo, landsOnPendingCoachHome } from './coach-setup';
+
+// The one WCAG contrast calculator (generators and both clients' tone tests).
+export { GRAPHIC_FLOOR, TEXT_FLOOR, contrast, contrastHex, hexToRgb, luminanceHex, over } from './wcag';
+export type { Rgb } from './wcag';

@@ -16,6 +16,12 @@ mod ai_scope_planned_workouts_test;
 mod api_request_401_precedes_vendor_error_test;
 mod api_request_body_decode_test;
 mod coach_roster_capability_test;
+#[cfg(all(
+    feature = "provider-intervals-icu",
+    feature = "provider-terra",
+    feature = "provider-whoop"
+))]
+mod date_provider_inbound_golden_test;
 mod debug_redaction_test;
 mod deduplication_test;
 #[cfg(feature = "provider-garmin")]
@@ -25,11 +31,15 @@ mod intervals_icu_delegated_read_test;
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_provider_test;
 mod provider_401_requires_reauth_test;
+#[cfg(all(feature = "provider-strava", feature = "provider-whoop"))]
+mod provider_base_url_override_test;
 mod request_budget_test;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_coros_provider_test;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_planned_workouts_test;
+#[cfg(feature = "provider-sciotte")]
+mod sciotte_provider_context_test;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_route_time_series_test;
 #[cfg(feature = "provider-sciotte")]
@@ -38,6 +48,8 @@ mod sciotte_session_expiry_test;
 mod sciotte_session_reimport_test;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_session_rotation_test;
+#[cfg(feature = "provider-sciotte")]
+mod sciotte_strava_parity_test;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_trainingpeaks_conversion_test;
 #[cfg(feature = "provider-strava")]

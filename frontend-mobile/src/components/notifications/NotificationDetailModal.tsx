@@ -21,6 +21,7 @@ import {
 } from '../../../../packages/shared-constants/src/notifications';
 import type { NotificationItem, NotificationAction } from '@pierre/shared-types';
 import { mobileNotificationTarget } from '@pierre/shared-constants';
+import { BADGE_TONE } from '../ui';
 import { useTranslation } from '@pierre/i18n';
 
 interface NotificationDetailModalProps {
@@ -132,18 +133,14 @@ export function NotificationDetailModal({
                   {notification.actions.map((action: NotificationAction) => (
                     <TouchableOpacity
                       key={action.id}
-                      className="px-4 py-2 rounded-lg"
-                      style={{ backgroundColor: `${colors.pierre.violet}1F` }}
+                      className={`px-4 py-2 rounded-lg ${BADGE_TONE.primary.fill}`}
                       onPress={() => {
                         onAction(notification, action.id);
                         onClose();
                       }}
                       testID={`detail-action-${action.id}`}
                     >
-                      <Text
-                        className="text-sm font-medium"
-                        style={{ color: colors.pierre.violet }}
-                      >
+                      <Text className={`text-sm font-medium ${BADGE_TONE.primary.ink}`}>
                         {action.title}
                       </Text>
                     </TouchableOpacity>

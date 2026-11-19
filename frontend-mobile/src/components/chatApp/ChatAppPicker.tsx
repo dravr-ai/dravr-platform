@@ -9,6 +9,7 @@ import { View, Text, Pressable, ActivityIndicator } from 'react-native';
 import * as Device from 'expo-device';
 import type { AvailableChannel } from '@pierre/api-client';
 import { useTranslation } from '@pierre/i18n';
+import { Badge } from '../ui';
 
 /**
  * Messaging-channel picker (mobile), the counterpart of the web's. The sheet
@@ -81,9 +82,7 @@ function ChannelCard({
       <View className="flex-row items-center gap-2">
         <Text className="text-base font-semibold text-on-surface">{channel.display_name}</Text>
         {channel.recommended ? (
-          <Text className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
-            {t('app.recommended')}
-          </Text>
+          <Badge variant="primary" label={t('app.recommended')} />
         ) : null}
       </View>
       <Text className="mt-1 text-sm text-on-surface-variant">{hint}</Text>

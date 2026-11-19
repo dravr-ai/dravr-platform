@@ -62,6 +62,7 @@ impl ChatResponseWithTools {
             function_calls: function_calls_from(response.tool_calls),
             finish_reason: response.finish_reason,
             warnings: response.warnings,
+            replay_blocks: response.replay_blocks,
         }
     }
 }

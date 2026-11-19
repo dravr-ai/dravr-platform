@@ -12,11 +12,17 @@
 //! copy of the crate. Only a suite that writes the process environment stays
 //! one, because the environment is shared by every test in a binary.
 
+mod account_caller_rank_test;
 mod activity_sports_test;
+mod activity_track_test;
 mod advice_capture_test;
 mod agent_prerequisites_test;
 mod archetype_aggregation_test;
+mod athlete_declared_home_test;
+mod athlete_loops_test;
+mod athlete_places_test;
 mod commitment_sweep_test;
+mod data_access_request_sweep_test;
 mod debug_redaction_test;
 mod fact_sentence_test;
 mod fortnight_decision_test;
@@ -33,5 +39,7 @@ mod provider_refresh_bound_test;
 mod ramp_check_test;
 mod recent_load_snapshot_test;
 mod side_call_usage_test;
+mod sign_up_decision_test;
 mod spawn_periodic_test;
 mod training_plan_render_test;
+mod workouts_test;

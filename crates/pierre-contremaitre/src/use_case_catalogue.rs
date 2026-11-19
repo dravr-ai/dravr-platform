@@ -43,7 +43,7 @@ static PINNED: LazyLock<UseCaseCatalogue> = LazyLock::new(|| {
 
 /// Telegram caps `callback_data` at 64 bytes; a starter's postback is
 /// `uc:<position>:<id>` with a one-digit position.
-const MAX_POSTBACK_BYTES: usize = 64;
+pub const MAX_POSTBACK_BYTES: usize = 64;
 
 /// The highest `first_run:` order an entry may carry: the first-run flows are
 /// numbered from 1 without a gap, and Getting started lists them on one screen.

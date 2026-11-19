@@ -9,6 +9,7 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { WarningLevel } from './useUsageStatus';
 import { useThemeColors } from '../../constants/theme';
+import { ALERT_TONE, alertInkColor, type AlertTone } from '../../components/ui';
 import { useTranslation } from '@pierre/i18n';
 
 interface UsageWarningBannerProps {
@@ -18,33 +19,31 @@ interface UsageWarningBannerProps {
   message: string;
 }
 
+/**
+ * Each level draws through the alert table (DESIGN.md "Alerts"), the web
+ * banner's three steps: warning is the warning alert, burst keeps that tone
+ * and deepens its edge so the escalation stays visible, blocked switches to
+ * the error alert. The icon takes the tone's ink — the bare warning hue on its
+ * own tint is under the 3:1 a glyph needs in light.
+ */
 const LEVEL_CONFIG: Record<Exclude<WarningLevel, 'none'>, {
-  bgClass: string;
-  borderClass: string;
-  textClass: string;
-  /** Which palette hue the icon takes: the warning ink or the error ink. */
-  iconTone: 'warning' | 'error';
+  tone: AlertTone;
+  edgeClass: string;
   iconName: 'alert-circle' | 'warning' | 'close-circle';
 }> = {
   warning: {
-    bgClass: 'bg-warning/15',
-    borderClass: 'border-warning/30',
-    textClass: 'text-on-warning-container',
-    iconTone: 'warning',
+    tone: 'warning',
+    edgeClass: ALERT_TONE.warning.edge,
     iconName: 'alert-circle',
   },
   burst: {
-    bgClass: 'bg-warning/15',
-    borderClass: 'border-warning/30',
-    textClass: 'text-on-warning-container',
-    iconTone: 'warning',
+    tone: 'warning',
+    edgeClass: 'border-warning/60',
     iconName: 'warning',
   },
   blocked: {
-    bgClass: 'bg-error-container',
-    borderClass: 'border-error/30',
-    textClass: 'text-on-error-container',
-    iconTone: 'error',
+    tone: 'error',
+    edgeClass: ALERT_TONE.error.edge,
     iconName: 'close-circle',
   },
 };
@@ -59,17 +58,18 @@ export function UsageWarningBanner({ level, message }: UsageWarningBannerProps) 
   }
 
   const config = LEVEL_CONFIG[level];
-  const iconColor = config.iconTone === 'warning' ? colors.warning : colors.error;
+  const { fill, ink } = ALERT_TONE[config.tone];
+  const iconColor = alertInkColor(config.tone, colors);
 
   return (
     <View
-      className={`flex-row items-center px-4 py-2.5 ${config.bgClass} border-b ${config.borderClass}`}
+      className={`flex-row items-center px-4 py-2.5 ${fill} border-b ${config.edgeClass}`}
       accessibilityRole="alert"
       accessibilityLiveRegion="polite"
       testID="usage-warning-banner"
     >
       <Ionicons name={config.iconName} size={16} color={iconColor} />
-      <Text className={`flex-1 ml-2 text-xs ${config.textClass}`}>{message}</Text>
+      <Text className={`flex-1 ml-2 text-xs ${ink}`}>{message}</Text>
       {level !== 'blocked' && (
         <TouchableOpacity
           onPress={() => setDismissed(true)}

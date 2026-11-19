@@ -9,7 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { FeatureFlagRow, KnownFeatureFlag } from '../services/api/admin';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { Card } from './ui';
+import { BADGE_TONE, Card } from './ui';
 import { featureFlagsQuery, type FeatureFlagScope } from './featureFlagsQuery';
 import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
 
@@ -111,12 +111,7 @@ export default function FeatureFlagsPanel({ scope }: FeatureFlagsPanelProps) {
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <code className="min-w-0 break-all font-mono text-sm text-on-surface">{flag.key}</code>
                   <span
-                    className={
-                      'text-xs px-2 py-0.5 rounded-full ' +
-                      (effective
-                        ? 'bg-success/15 text-on-success-container'
-                        : 'bg-error/15 text-error')
-                    }
+                    className={`text-xs px-2 py-0.5 rounded-full ${BADGE_TONE[effective ? 'success' : 'error'].tone}`}
                   >
                     {effective ? 'enabled' : 'disabled'}
                   </span>

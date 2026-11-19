@@ -30,6 +30,8 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::common::offline_provider_registry;
+use crate::helpers::strava_grant::hold_strava_grant;
 use crate::history_walk_test::{age_job_rows, paused_retries_due};
 
 use std::collections::HashMap;
@@ -41,22 +43,20 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
+use pierre_core::models::TenantId;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
     BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLeaseState, JobProgress,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{ProviderRateLimiter, ONE_DAY};
-use pierre_providers::sciotte_provider::startup_client;
+use pierre_providers::sciotte_provider::startup_reads;
 use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::runtime::WalkTrigger;
-use secrecy::SecretString;
 use serde_json::{json, Value};
 use sqlx::Row;
 use tokio::net::TcpListener;
@@ -258,11 +258,11 @@ pub(crate) fn with_window(resources: &Arc<ServerContext>, per_window: u32) -> Ar
     let mut context = (**resources).clone();
     let sciotte = &resources.common.config.external_services.sciotte;
     context.fitness.provider_registry = Arc::new(
-        ProviderRegistry::new()
+        offline_provider_registry()
             .with_endpoint_overrides(&resources.common.config.oauth.endpoints)
             .with_request_limiter(Arc::new(limiter))
-            .with_sciotte_client(startup_client(
-                sciotte.remote_url.as_deref(),
+            .with_sciotte_reads(startup_reads(
+                &sciotte.read_urls,
                 sciotte.audience.as_deref(),
             )),
     );
@@ -293,6 +293,26 @@ pub(crate) async fn steps_settled(
     kind: BackfillJobKind,
     deadline: Instant,
 ) {
+    steps_settled_under(
+        resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        kind,
+        deadline,
+    )
+    .await;
+}
+
+/// [`steps_settled`] for the row filed under `backend`.
+pub(crate) async fn steps_settled_under(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    backend: &str,
+    kind: BackfillJobKind,
+    deadline: Instant,
+) {
     loop {
         let lease = resources
             .common
@@ -301,7 +321,7 @@ pub(crate) async fn steps_settled(
             .backfill_job_lease_state(
                 user_id,
                 tenant,
-                oauth_providers::STRAVA,
+                backend,
                 kind,
                 Utc::now().timestamp_millis(),
             )
@@ -330,47 +350,6 @@ pub(crate) async fn strava_athlete(resources: &Arc<ServerContext>) -> (Uuid, Ten
     .unwrap();
     hold_strava_grant(resources, user_id, tenant).await;
     (user_id, tenant)
-}
-
-/// Give the athlete a live Strava grant and its connection.
-pub(crate) async fn hold_strava_grant(
-    resources: &Arc<ServerContext>,
-    user_id: Uuid,
-    tenant: TenantId,
-) {
-    let now = Utc::now();
-    let repos = &resources.common.repos;
-    repos
-        .oauth_tokens
-        .upsert_token(&UserOAuthToken {
-            id: Uuid::new_v4().to_string(),
-            user_id,
-            tenant_id: tenant.to_string(),
-            provider: oauth_providers::STRAVA.to_owned(),
-            // >= 40 chars and not "at_"-prefixed: the provider's token validation.
-            access_token: SecretString::from(format!("strava_access_token_{:0>30}", 7)),
-            refresh_token: Some(SecretString::from("strava_refresh")),
-            token_type: "Bearer".to_owned(),
-            expires_at: Some(now + ChronoDuration::hours(6)),
-            scope: Some("activity:read_all".to_owned()),
-            provider_user_id: Some("4242".to_owned()),
-            oauth_app_client_id: None,
-            created_at: now,
-            updated_at: now,
-        })
-        .await
-        .unwrap();
-    repos
-        .provider_connections
-        .register_connection(
-            user_id,
-            tenant,
-            oauth_providers::STRAVA,
-            &ConnectionType::OAuth,
-            None,
-        )
-        .await
-        .unwrap();
 }
 
 /// What the ledger holds for the athlete's walk of `backend`.
@@ -600,9 +579,10 @@ async fn a_strava_grant_is_walked_a_year_a_window_down_to_the_account_creation()
 #[tokio::test]
 async fn a_spent_budget_pauses_the_walk_and_the_next_window_resumes_it() {
     let (api_base, mock) = mock_strava().await;
-    // Eight requests a window, two of them background: the profile and the
-    // first window, then nothing until the next window.
-    let resources = server(&api_base, 8).await;
+    // Sixteen requests a window, four of them background, two of which the
+    // detail walk holds (carnet#1585): the history walk's two are the profile
+    // and the first window, then nothing until the next window.
+    let resources = server(&api_base, 16).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
     let now = Utc::now().timestamp();
     *mock.starts.lock().unwrap() = vec![now - 10 * DAY, now - 400 * DAY];

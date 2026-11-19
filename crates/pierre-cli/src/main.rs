@@ -6,17 +6,12 @@
 //!
 //! Usage:
 //! ```bash
-//! # Create admin user for frontend login
+//! # Create admin user for frontend login; --force is the host shell's break-glass, which
+//! # writes an existing account active as an admin, whatever its standing, with no approval
 //! pierre-cli user create --email admin@example.com --password yourpassword
-//!
-//! # Create super admin user
-//! pierre-cli user create --email admin@example.com --password yourpassword --super-admin
 //!
 //! # Promote an existing user to admin
 //! pierre-cli user promote --email user@example.com
-//!
-//! # Promote an existing user to super admin (use `user create --force`)
-//! pierre-cli user create --email user@example.com --password X --force --super-admin
 //!
 //! # Demote an admin user back to regular user
 //! pierre-cli user demote --email user@example.com
@@ -46,7 +41,7 @@
 //! STRAVA_WEBHOOK_VERIFY_TOKEN=... pierre-cli strava-webhook subscribe --base-url https://dev.dravr.ai
 //! pierre-cli strava-webhook list
 //!
-//! # Seed reference data (admin/demo users, agents, mobility, etc.)
+//! # Seed reference data (admin, agents, mobility, demo users, etc.)
 //! ADMIN_PASSWORD=secret pierre-cli seed bootstrap
 //! pierre-cli seed demo-data
 //! pierre-cli seed agents
@@ -76,7 +71,8 @@ use commands::tenant::TenantCommand;
 use pierre_auth::key_management::KeyManager;
 #[cfg(feature = "postgresql")]
 use pierre_core::config::database::PostgresPoolConfig;
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_core::permissions::UserRole;
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
 use secrecy::SecretString;
@@ -88,6 +84,14 @@ use std::sync::Arc;
 use tracing::info;
 
 use helpers::jwks::initialize_jwks_manager;
+
+/// The role `user create --role` names: `admin` or `user`, as `user set
+/// --role` spells them, case aside.
+fn parse_account_role(raw: &str) -> Result<UserRole> {
+    raw.to_ascii_lowercase().parse().map_err(|_| {
+        AppError::invalid_input(format!("unknown role '{raw}': expected admin or user"))
+    })
+}
 
 #[derive(Parser)]
 #[command(
@@ -363,18 +367,20 @@ enum UserCommand {
         #[arg(long)]
         name: Option<String>,
 
-        /// Force update if user already exists
+        /// Break-glass: overwrite an existing account, whatever its standing, as active (no approval)
         #[arg(long)]
         force: bool,
-
-        /// Create super admin user (can impersonate other users)
-        #[arg(long)]
-        super_admin: bool,
 
         /// BCP-47 short locale for the account ("en", "fr", "es", "de", "pt").
         /// Omitted: a new account takes the platform default, an existing one keeps its own.
         #[arg(long)]
         locale: Option<String>,
+
+        /// The account's role. `user` makes a plain active account, on the
+        /// starter tier, that holds no admin power; it does not demote an
+        /// existing admin (`user demote` does).
+        #[arg(long, value_name = "admin|user", default_value = "admin", value_parser = parse_account_role)]
+        role: UserRole,
     },
 
     /// Promote an existing user to admin
@@ -433,7 +439,7 @@ enum UserCommand {
 
     /// Set a field on a user over the admin API
     #[command(group(
-        ArgGroup::new("field").required(true).multiple(true).args(["tier", "manages_roster"])
+        ArgGroup::new("field").required(true).multiple(true).args(["tier", "manages_roster", "role"])
     ))]
     Set {
         /// Email or user id
@@ -448,6 +454,11 @@ enum UserCommand {
         /// disconnect.
         #[arg(long, value_name = "true|false")]
         manages_roster: Option<bool>,
+
+        /// Make the account an admin, or a user again. Takes a super-admin
+        /// login; demoting yourself or the last active admin is refused.
+        #[arg(long, value_name = "admin|user")]
+        role: Option<String>,
 
         /// Operator note recorded on the tier override marker
         #[arg(long)]
@@ -777,7 +788,7 @@ enum TokenCommand {
         #[arg(long)]
         permissions: Option<String>,
 
-        /// Scope the token to a specific tenant (UUID)
+        /// Scope the token to a tenant (UUID); without one or --super-admin it reaches no account
         #[arg(long)]
         tenant_id: Option<String>,
     },
@@ -1020,8 +1031,8 @@ async fn main() -> Result<()> {
                     password,
                     name,
                     force,
-                    super_admin,
                     locale,
+                    role,
                 } => {
                     commands::user::create(
                         &repos,
@@ -1030,8 +1041,8 @@ async fn main() -> Result<()> {
                         name,
                         commands::user::AdminUserOptions {
                             force,
-                            super_admin,
                             locale,
+                            role,
                         },
                     )
                     .await?;

@@ -1,5 +1,5 @@
-// ABOUTME: The one place-name geocoder the platform resolves places through: dravr-meteo's Open-Meteo gazetteer behind its bounded cache
-// ABOUTME: Shared by route discovery, the weather forecast tool and the weather backfill, so one name resolves to one place
+// ABOUTME: How a free-text place becomes a gazetteer query, for every surface that takes a place
+// ABOUTME: The geocoder itself is the server context's, built by weather_clients at the origin its deployment names
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,38 +10,12 @@
 //! resolve names through three clients — Nominatim, dravr-meteo's
 //! Open-Meteo geocoder and a hand-rolled Open-Meteo call — so one place could
 //! land on different coordinates in one turn (carnet#920). They all resolve
-//! through [`place_geocoder`] now: one gazetteer, one bounded cache, one
-//! disambiguation rule (dravr-meteo's [`PlacePreference`]).
+//! through the context's one geocoder now
+//! ([`WeatherClients::geocoder`](crate::weather_clients::WeatherClients::geocoder)):
+//! one gazetteer, one bounded cache, one disambiguation rule (dravr-meteo's
+//! [`PlacePreference`]), with the query [`free_text_query`] writes.
 
-use std::sync::LazyLock;
-
-use dravr_meteo::{
-    CacheLimits, CachedGeocoder, ClientBuildError, OpenMeteoGeocoder, PlacePreference, PlaceQuery,
-};
-use pierre_core::errors::{AppError, AppResult};
-
-/// The geocoder every caller shares: Open-Meteo's gazetteer behind the
-/// bounded cache dravr-meteo sizes for place lookups
-/// ([`CacheLimits::GEOCODE`]). Only resolutions are cached; an unknown name
-/// reaches the gazetteer again next time. Built once; a client that could not
-/// be built is reported to every caller rather than replaced by one without a
-/// deadline.
-static GEOCODER: LazyLock<Result<CachedGeocoder<OpenMeteoGeocoder>, ClientBuildError>> =
-    LazyLock::new(|| {
-        OpenMeteoGeocoder::new().map(|geocoder| CachedGeocoder::new(geocoder, CacheLimits::GEOCODE))
-    });
-
-/// The process-wide place geocoder.
-///
-/// # Errors
-///
-/// An external-service error when the geocoder's HTTP client could not be
-/// built.
-pub fn place_geocoder() -> AppResult<&'static CachedGeocoder<OpenMeteoGeocoder>> {
-    GEOCODER
-        .as_ref()
-        .map_err(|e| AppError::external_service("Open-Meteo geocoding", e.to_string()))
-}
+use dravr_meteo::{PlacePreference, PlaceQuery};
 
 /// A free-text place such as `"Prévost, Québec"` or
 /// `"Paris, Texas, United States"` as a gazetteer query.

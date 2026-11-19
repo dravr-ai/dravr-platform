@@ -155,6 +155,18 @@ describe('SciotteLoginModal — the code step', () => {
     expect(screen.queryByText('Too many attempts')).not.toBeInTheDocument();
   });
 
+  it('names the failed state once, and drops the attempt that led there from the header', async () => {
+    sciotteLogin.mockResolvedValueOnce({ status: 'error', error: 'Those credentials did not work.' });
+    renderModal();
+    const user = userEvent.setup();
+    await signIn(user);
+    expect(await screen.findByText('Those credentials did not work.')).toBeInTheDocument();
+    // The body's heading is the one place the state is named.
+    expect(screen.getByText('Login Failed')).toBeInTheDocument();
+    const header = screen.getByRole('heading', { name: /Connect to COROS/ }).parentElement;
+    expect(header).not.toHaveTextContent(/Connecting to/);
+  });
+
   it('labels a six-digit numeric one-time-code input', async () => {
     renderModal();
     await reachCodeStep();

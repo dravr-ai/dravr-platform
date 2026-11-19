@@ -44,7 +44,12 @@
 //!   the row is the athlete's ([`UserExportTable::excluded`]).
 //! - **Raw bytes**: the original uploaded and pushed activity files. Their
 //!   parsed content is exported (`cached_activities`, `activity_streams`); the
-//!   bytes would make the response unbounded in size.
+//!   bytes would make the response unbounded in size. The kept originals of
+//!   archive imports, the uploaded files and the feedback screenshots come as
+//!   the originals bundle the same document names in `originals`, built on
+//!   request. A pushed file's bytes (`pushed_activity_files.file_bytes`) are
+//!   in neither: the row is a retry buffer of at most 24 hours, deleted once
+//!   its samples land in `activity_streams`, so nothing is kept to hand out.
 //! - **Operational state with no meaning outside the service**: sync cursors,
 //!   backfill jobs and leases, queues, delivery receipts, rate-limit and tier
 //!   overrides an operator set, worker bookkeeping.
@@ -65,6 +70,8 @@
 
 use async_trait::async_trait;
 use pierre_core::errors::AppResult;
+
+use super::tenants::member_tenant_ids_sql;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -149,12 +156,7 @@ macro_rules! athlete_id {
 /// tenant their account names.
 macro_rules! member_tenants {
     ($backend:tt) => {
-        concat!(
-            "SELECT CAST(tu.tenant_id AS TEXT) FROM tenant_users tu WHERE tu.user_id = ",
-            athlete_id!($backend, uuid),
-            " UNION SELECT CAST(u.tenant_id AS TEXT) FROM users u WHERE u.id = ",
-            athlete_id!($backend, uuid)
-        )
+        member_tenant_ids_sql!(athlete_id!($backend, uuid))
     };
 }
 
@@ -398,6 +400,7 @@ user_export_tables_sql!(
     "user_federated_identities" { rows: [uuid "user_id"], tenant: none, except: [], page: 20, key: [text "provider", text "subject"] },
     "provider_terms_consents" { rows: [uuid "user_id"], tenant: none, except: [], page: 50, key: [uuid "user_id", text "provider"] },
     "signup_code_redemptions" { rows: [uuid "user_id"], tenant: none, except: [], page: 20, key: [uuid "user_id"] },
+    "group_invite_holds" { rows: [uuid "user_id"], tenant: none, except: [], page: 5, key: [uuid "user_id"] },
     "notification_preferences" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "scheduled_notifications" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "oauth_client_grants" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
@@ -412,12 +415,18 @@ user_export_tables_sql!(
     "athlete_gear" { rows: [uuid "user_id"], tenant: none, except: [], page: 100, key: [uuid "id"] },
     "personal_best_efforts" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [uuid "user_id", uuid "tenant_id", text "distance"] },
     "uploaded_activity_files" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "tenant_id", text "user_id", text "file_sha256"] },
+    "user_export_bundles" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "pushed_activity_files" { rows: [text "user_id"], tenant: "tenant_id", except: ["file_bytes"], page: 200, key: [text "tenant_id", text "user_id", text "provider", text "activity_id"] },
     "sleep_sessions" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
     "recovery_metrics" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
     "health_snapshots" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
     "daily_activity" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
     "activity_conversations" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "tenant_id", text "user_id", text "provider", text "activity_id"] },
+    // The places the athlete trains from, centroids included: the export is their own.
+    "athlete_places" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
+    "athlete_place_runs" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "tenant_id", text "user_id"] },
+    // The declared state and its date; the seed is withheld: a downloaded export is a file that gets shared.
+    "athlete_declared_home" { rows: [text "user_id"], tenant: "tenant_id", except: ["seed_lat", "seed_lon"], page: 50, key: [text "tenant_id", text "user_id"] },
     // Training.
     "training_history" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 200, key: [uuid "tenant_id", uuid "user_id", date "date"] },
     "training_plans" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 10, key: [text "id"] },
@@ -444,6 +453,7 @@ user_export_tables_sql!(
     "group_transcript_entries" { rows: [uuid "author_user_id"], tenant: "tenant_id", except: [], page: 100, key: [uuid "id"] },
     "coaching_group_members" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [uuid "id"] },
     "coach_access_requests" { rows: [uuid "user_id"], tenant: none, except: [], page: 100, key: [text "id"] },
+    "data_access_requests" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
     "delegated_connections" { rows: [uuid "member_user_id"], tenant: "member_tenant_id", except: [], page: 100, key: [uuid "id"] },
     "feedback_messages" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
     // Messaging.

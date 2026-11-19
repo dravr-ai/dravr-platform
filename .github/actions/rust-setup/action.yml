@@ -19,7 +19,9 @@ inputs:
   cache-save:
     description: >-
       When rust-cache saves. auto (the default) saves only on the scheduled run on main, so each
-      cache is written once a day; true always saves; false never does. See the cache step.
+      cache is written once a day, or on a run dispatched by hand on main, which rewrites it after
+      a toolchain or lockfile change without waiting for the night; true always saves; false never
+      does. See the cache step.
     default: 'auto'
   reclaim-android:
     description: Remove the Android SDK while freeing disk space (measured 55.5s of the step)
@@ -117,7 +119,7 @@ runs:
         cat .cargo/config.toml
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@1.99.1
+      uses: dtolnay/rust-toolchain@1.100.0
       with:
         components: ${{ inputs.components }}
 
@@ -137,4 +139,8 @@ runs:
         workspaces: ". -> target"
         cache-on-failure: true
         shared-key: ${{ inputs.shared-key }}
-        save-if: ${{ inputs.cache-save == 'auto' && github.ref == 'refs/heads/main' && github.event_name == 'schedule' || inputs.cache-save == 'true' }}
+        # A dispatched run on main writes too: on 2026-11-19 the Rust 1.100 bump
+        # changed every key at 15:56 UTC and the one scheduled run that day was
+        # cancelled, so every build compiled cold (a main Backend run took 382
+        # runner-minutes instead of ~90) until someone could write the cache.
+        save-if: ${{ inputs.cache-save == 'auto' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') || inputs.cache-save == 'true' }}

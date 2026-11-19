@@ -387,6 +387,25 @@ pub trait CommandHandler: Send + Sync {
     fn opens_guided_walk(&self, _args: &[String]) -> bool {
         false
     }
+
+    /// Whether running this command, with these arguments, leaves something
+    /// behind that outlives the session that typed it: an invite code someone
+    /// else redeems, a group joined (which grants its coach sharing), a
+    /// sharing consent turned on — or a decision only the account's owner
+    /// makes, such as deleting the account.
+    ///
+    /// An admin's support session refuses such a command with the refusal
+    /// every REST route that makes the same grant gives (carnet#1634): the
+    /// chat route asks [`dispatch::command_outliving_support_session`] before
+    /// the turn starts, and [`dispatch::try_dispatch`] asks again on the words
+    /// a tapped suggestion stands for. A withdrawal is not a grant: it
+    /// narrows who reads the athlete, so it answers `false`.
+    ///
+    /// The handler answers, like [`Self::resumes_thread`], because it is the
+    /// only thing that knows what it writes. The default is `false`.
+    fn outlives_support_session(&self, _: &[String]) -> bool {
+        false
+    }
 }
 
 /// Registry mapping command names to handler implementations.

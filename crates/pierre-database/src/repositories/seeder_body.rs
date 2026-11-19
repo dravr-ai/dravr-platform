@@ -483,18 +483,15 @@ macro_rules! impl_seeder_repository {
             }
 
             async fn seed_insert_demo_user(&self, user: &SeedDemoUser) -> AppResult<()> {
+                $crate::repositories::users::refuse_the_id_of_no_account(user.id)?;
                 // A suspended demo account is inactive; every other status is
                 // live, and an active one is approved from its creation.
                 let is_active = user.status != "suspended";
                 let approved_at = (user.status == "active").then_some(user.created_at);
 
-                // The only user any seeder marks is_admin is the bootstrap operator, and the
-                // operator must be super_admin: cookie_admin_middleware derives console
-                // permissions from the role column, and super_admin is the tier that unlocks
-                // config/user/impersonation/device-login approval. This mirrors the local
-                // setup script, which creates the operator with `user create --super-admin`.
-                let role = if user.is_admin { "super_admin" } else { "user" };
-
+                // The only account any seeder gives the admin role is the
+                // bootstrap admin. The role decides; the database derives
+                // `users.is_admin` from it.
                 sqlx::query(UPSERT_DEMO_USER_SQL)
                     .bind($ids::bind(user.id))
                     .bind(normalize_email(&user.email))
@@ -503,8 +500,7 @@ macro_rules! impl_seeder_repository {
                     .bind(&user.tier)
                     .bind(is_active)
                     .bind(&user.status)
-                    .bind(user.is_admin)
-                    .bind(role)
+                    .bind(user.role.as_str())
                     .bind(approved_at)
                     .bind(user.created_at)
                     .bind(&user.locale)

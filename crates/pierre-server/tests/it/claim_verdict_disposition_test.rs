@@ -700,7 +700,7 @@ async fn build_context(
 }
 
 /// Cookie-style super-admin token, mirroring what `cookie_admin_middleware`
-/// synthesizes for a `SuperAdmin`.
+/// synthesizes for an admin.
 fn super_admin_token() -> ValidatedAdminToken {
     ValidatedAdminToken {
         token_id: format!("cookie:{}", Uuid::new_v4()),
@@ -854,7 +854,7 @@ async fn put_disposition_writes_the_row_and_answers_with_the_knob() {
         }),
     )
     .await
-    .expect("super-admin disposes");
+    .expect("admin disposes");
     let (status, json) = body_json(resp).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["verdict"]["id"], id);
@@ -1019,7 +1019,7 @@ async fn get_detail_serves_the_row_and_knob_and_is_gated() {
         }),
     )
     .await
-    .expect("super-admin reads");
+    .expect("admin reads");
     let (status, json) = body_json(resp).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["verdict"]["id"], id);
@@ -1092,7 +1092,7 @@ async fn message_lookup_serves_the_message_rows_and_is_gated() {
         }),
     )
     .await
-    .expect("super-admin reads");
+    .expect("admin reads");
     let (status, json) = body_json(resp).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["total"], 1);
@@ -1445,7 +1445,6 @@ async fn bearer_for_role(resources: &Arc<ServerContext>, email: &str, role: User
         password_hash,
         Some("Test User".to_owned()),
     );
-    user.is_admin = role.is_admin_or_higher();
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
@@ -1512,16 +1511,16 @@ fn cookie_admin_router(resources: &Arc<ServerContext>) -> axum::Router {
 #[serial]
 async fn the_calibration_read_is_mounted_and_the_retired_routes_are_gone() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
-    let super_admin = bearer_for_role(
+    let admin = bearer_for_role(
         &resources,
         "verdict-stats-super@example.com",
-        UserRole::SuperAdmin,
+        UserRole::Admin,
     )
     .await;
     let t = tenant().to_string();
 
     let response = AxumTestRequest::get(&format!("/api/admin/evals/verdict-stats?tenant_id={t}"))
-        .header("authorization", &super_admin)
+        .header("authorization", &admin)
         .send(cookie_admin_router(&resources))
         .await;
     assert_eq!(response.status(), 200);
@@ -1536,7 +1535,7 @@ async fn the_calibration_read_is_mounted_and_the_retired_routes_are_gone() -> Re
         "/api/admin/agent-grading/summary",
     ] {
         let response = AxumTestRequest::get(path)
-            .header("authorization", &super_admin)
+            .header("authorization", &admin)
             .send(cookie_admin_router(&resources))
             .await;
         assert_eq!(response.status(), 404, "{path}");
@@ -1550,16 +1549,16 @@ async fn the_calibration_read_is_mounted_and_the_retired_routes_are_gone() -> Re
 #[serial]
 async fn the_routes_are_mounted_under_the_cookie_admin_group() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
-    let super_admin = bearer_for_role(
+    let admin = bearer_for_role(
         &resources,
         "verdict-routes-super@example.com",
-        UserRole::SuperAdmin,
+        UserRole::Admin,
     )
     .await;
-    let plain_admin = bearer_for_role(
+    let athlete = bearer_for_role(
         &resources,
-        "verdict-routes-plain@example.com",
-        UserRole::Admin,
+        "verdict-routes-athlete@example.com",
+        UserRole::User,
     )
     .await;
     let repos = resources.common.repos.clone();
@@ -1575,7 +1574,7 @@ async fn the_routes_are_mounted_under_the_cookie_admin_group() -> Result<()> {
     let t = tenant().to_string();
 
     let response = AxumTestRequest::get(&format!("/api/admin/claim-verdicts/health?tenant_id={t}"))
-        .header("authorization", &super_admin)
+        .header("authorization", &admin)
         .send(cookie_admin_router(&resources))
         .await;
     assert_eq!(response.status(), 200, "health is a static route");
@@ -1585,7 +1584,7 @@ async fn the_routes_are_mounted_under_the_cookie_admin_group() -> Result<()> {
     let response = AxumTestRequest::get(&format!(
         "/api/admin/claim-verdicts/messages/msg-route?tenant_id={t}"
     ))
-    .header("authorization", &super_admin)
+    .header("authorization", &admin)
     .send(cookie_admin_router(&resources))
     .await;
     assert_eq!(response.status(), 200);
@@ -1593,7 +1592,7 @@ async fn the_routes_are_mounted_under_the_cookie_admin_group() -> Result<()> {
     assert_eq!(body["verdicts"][0]["id"], id);
 
     let response = AxumTestRequest::get(&format!("/api/admin/claim-verdicts/{id}?tenant_id={t}"))
-        .header("authorization", &super_admin)
+        .header("authorization", &admin)
         .send(cookie_admin_router(&resources))
         .await;
     assert_eq!(response.status(), 200);
@@ -1601,7 +1600,7 @@ async fn the_routes_are_mounted_under_the_cookie_admin_group() -> Result<()> {
     assert_eq!(body["knob"]["kind"], "evidence_corpus");
 
     let response = AxumTestRequest::put(&format!("/api/admin/claim-verdicts/{id}/disposition"))
-        .header("authorization", &plain_admin)
+        .header("authorization", &athlete)
         .json(&serde_json::json!({
             "tenant_id": t,
             "disposition": "unsure",
@@ -1611,11 +1610,21 @@ async fn the_routes_are_mounted_under_the_cookie_admin_group() -> Result<()> {
     assert_eq!(
         response.status(),
         403,
-        "a plain admin's cookie token carries no ManageConfiguration"
+        "an account that is not an admin disposes of no verdict"
+    );
+    let untouched = AxumTestRequest::get(&format!("/api/admin/claim-verdicts/{id}?tenant_id={t}"))
+        .header("authorization", &admin)
+        .send(cookie_admin_router(&resources))
+        .await;
+    let untouched: Value = untouched.json();
+    assert_eq!(
+        untouched["verdict"]["disposition"],
+        Value::Null,
+        "the refused write left the verdict undisposed: {untouched}"
     );
 
     let response = AxumTestRequest::put(&format!("/api/admin/claim-verdicts/{id}/disposition"))
-        .header("authorization", &super_admin)
+        .header("authorization", &admin)
         .json(&serde_json::json!({
             "tenant_id": t,
             "disposition": "unsure",
@@ -1638,7 +1647,7 @@ async fn the_routes_are_mounted_under_the_cookie_admin_group() -> Result<()> {
     let response = AxumTestRequest::get(&format!(
         "/api/admin/claim-verdicts?tenant_id={t}&disposition=unsure&layer_fired=evidence"
     ))
-    .header("authorization", &super_admin)
+    .header("authorization", &admin)
     .send(cookie_admin_router(&resources))
     .await;
     assert_eq!(response.status(), 200);

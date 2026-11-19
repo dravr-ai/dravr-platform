@@ -14,8 +14,8 @@
 //! resolved to `https://t.me/PierreBot`.
 //!
 //! That is a real bot belonging to somebody else, and the damage is not a
-//! broken link. `detect_linking_code` binds whoever sends a valid code to the
-//! requesting athlete's account inside the TTL, so pressing Start on that bot
+//! broken link. Whoever sends a valid code inside the TTL and answers yes is
+//! bound to the requesting athlete's account, so pressing Start on that bot
 //! hands an account-binding credential to a third party.
 //!
 //! The rule these tests hold `POST /api/messaging/link/init/{channel}` to: a

@@ -111,6 +111,7 @@ fn a_figure_matching_a_recorded_activity_is_supported() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        named_subsets: Vec::new(),
         history: None,
         activities: vec![
             session(Some(21.4), 118.0),
@@ -151,6 +152,7 @@ fn a_figure_matching_nothing_is_unverifiable_not_contradicted() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        named_subsets: Vec::new(),
         history: None,
         activities: vec![session(Some(5.0), 30.0), session(Some(8.0), 0.0)],
     };
@@ -181,6 +183,7 @@ fn a_connected_athlete_with_no_cached_window_is_unverifiable() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        named_subsets: Vec::new(),
         history: None,
         activities: Vec::new(),
     };
@@ -210,6 +213,7 @@ fn an_hours_claim_is_converted_before_matching() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        named_subsets: Vec::new(),
         history: None,
         activities: vec![session(None, 120.0)],
     };
@@ -232,6 +236,7 @@ fn an_hours_claim_is_converted_before_matching() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        named_subsets: Vec::new(),
         history: None,
         activities: vec![session(None, 2.0)],
     };
@@ -342,6 +347,7 @@ fn ordinary_replies_to_a_connected_athlete_are_never_actionable() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        named_subsets: Vec::new(),
         history: None,
         // Four 10 km runs — a real week totalling 40 km, held per-activity.
         activities: vec![
@@ -393,6 +399,7 @@ fn a_comma_decimal_is_one_figure() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        named_subsets: Vec::new(),
         history: None,
         activities: vec![session(Some(21.4), 0.0)],
     };
@@ -428,6 +435,7 @@ fn a_pace_expression_injects_no_phantom_figure() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        named_subsets: Vec::new(),
         history: None,
         activities: vec![session(Some(10.0), 50.0)],
     };
@@ -482,6 +490,7 @@ fn a_sleep_claim_is_not_supported_by_a_workout_duration() {
         has_provider: true,
         today: fixture_today(),
         locale: "fr".to_owned(),
+        named_subsets: Vec::new(),
         history: None,
         activities: vec![session(None, 480.0)],
     };

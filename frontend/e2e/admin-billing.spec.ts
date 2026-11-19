@@ -5,9 +5,9 @@
 // ABOUTME: Regression-pins: Usage Card must coexist with Impersonate button; admin /api/admin/users/{id}/usage path.
 
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { applyTestStubs, signInThroughHostedPage } from './test-helpers';
+import { applyTestStubs, pickViewModeAtSignIn, signInThroughHostedPage } from './test-helpers';
 
-async function loginAsSuperAdminWithUsers(page: Page) {
+async function loginAsAdminWithUsers(page: Page) {
   await applyTestStubs(page);
 
   await page.route('**/admin/setup/status', async (route) => {
@@ -28,10 +28,10 @@ async function loginAsSuperAdminWithUsers(page: Page) {
         expires_in: 86400,
         csrf_token: 'test-csrf-token',
         user: {
-          user_id: 'super-admin-1',
-          email: 'superadmin@test.com',
-          display_name: 'Super Admin',
-          role: 'super_admin',
+          user_id: 'admin-1',
+          email: 'admin@test.com',
+          display_name: 'Admin One',
+          role: 'admin',
           is_admin: true,
           user_status: 'active',
           tier: 'enterprise',
@@ -183,6 +183,7 @@ async function loginAsSuperAdminWithUsers(page: Page) {
   });
 
   await page.goto('/');
+  pickViewModeAtSignIn(page, 'admin');
   await signInThroughHostedPage(page);
   // Login.tsx has its own "Dravr" splash text — gate on <nav> which is dashboard-exclusive.
   await page.waitForSelector('nav', { timeout: 10000 });
@@ -225,7 +226,7 @@ test.describe('Admin Billing - UserDetailDrawer Usage Card', () => {
       });
     });
 
-    await loginAsSuperAdminWithUsers(page);
+    await loginAsAdminWithUsers(page);
     await openUserDetailDrawer(page);
 
     // Usage Card is the heading "Usage (Month-to-Date)".
@@ -248,7 +249,7 @@ test.describe('Admin Billing - UserDetailDrawer Usage Card', () => {
       });
     });
 
-    await loginAsSuperAdminWithUsers(page);
+    await loginAsAdminWithUsers(page);
     await openUserDetailDrawer(page);
 
     await expect(page.getByText('No LLM activity this month')).toBeVisible();
@@ -266,7 +267,7 @@ test.describe('Admin Billing - UserDetailDrawer Usage Card', () => {
       });
     });
 
-    await loginAsSuperAdminWithUsers(page);
+    await loginAsAdminWithUsers(page);
     await openUserDetailDrawer(page);
 
     // Drawer must render the empty-state branch, NOT crash. The Impersonate button is the canary.
@@ -285,7 +286,7 @@ test.describe('Admin Billing - UserDetailDrawer monthly rate-limit override', ()
       });
     });
 
-    await loginAsSuperAdminWithUsers(page);
+    await loginAsAdminWithUsers(page);
 
     // Registered after the helper's rate-limit mock, so this one answers:
     // the tier's budget until an override is PUT, then the override's.
@@ -362,7 +363,7 @@ test.describe('Admin Billing - per-user usage route prefix', () => {
       await route.fallback();
     });
 
-    await loginAsSuperAdminWithUsers(page);
+    await loginAsAdminWithUsers(page);
     await openUserDetailDrawer(page);
 
     // Wait for the drawer to settle so the useQuery has time to fire.

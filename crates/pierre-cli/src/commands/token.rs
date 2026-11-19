@@ -5,8 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_auth::admin::jwks::JwksManager;
-use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::admin::models::{
+    rotated_token_refusal, AdminPermission, AdminToken, CreateAdminTokenRequest,
+};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::models::TenantId;
+use pierre_database::repositories::{TokenRevocation, TokenRotation};
 use pierre_database::RepositoryRegistry;
 
 type Result<T> = AppResult<T>;
@@ -36,12 +40,15 @@ pub(crate) async fn generate(
 ) -> Result<()> {
     info!("Key Generating admin token for service: {}", service);
 
+    // Refused before anything is read or minted.
+    let tenant_id = opts.tenant_id.as_deref().map(bound_tenant).transpose()?;
+
     // Check for existing active token
     check_existing_token(repos, &service).await?;
 
     // Build token request
     let mut request = build_token_request(service, description, expires_days, super_admin);
-    request.tenant_id = opts.tenant_id;
+    request.tenant_id = tenant_id;
 
     // Apply custom permissions if provided
     apply_custom_permissions(&mut request, opts.permissions, super_admin)?;
@@ -58,6 +65,23 @@ pub(crate) async fn generate(
     display_generated_token(&generated_token);
 
     Ok(())
+}
+
+/// The tenant `--tenant-id` binds a token to, as the id the server reads
+/// back off the token.
+///
+/// The scope rule parses the stored value on every tenant-scoped request
+/// and on every token write, and refuses a token whose tenant is not a
+/// tenant id: minted with one, a token could do none of what it was bound
+/// for. So a value that is not a tenant id mints nothing.
+fn bound_tenant(raw: &str) -> Result<String> {
+    TenantId::parse_str(raw.trim())
+        .map(|tenant| tenant.to_string())
+        .map_err(|_| {
+            AppError::invalid_input(format!(
+                "--tenant-id must be a tenant id (a UUID), and '{raw}' is not one"
+            ))
+        })
 }
 
 async fn check_existing_token(repos: &RepositoryRegistry, service: &str) -> Result<()> {
@@ -229,6 +253,9 @@ pub(crate) async fn list(
                 "Inactive Inactive"
             }
         );
+        if let Some(replacement) = &token.rotated_to_token_id {
+            println!("   Rotated To: {replacement}");
+        }
         println!(
             "   Super Admin: {}",
             if token.is_super_admin {
@@ -270,7 +297,18 @@ pub(crate) async fn list(
     Ok(())
 }
 
-/// Revoke an admin token
+/// Revoke an admin token.
+///
+/// A token revoked earlier is left as it is and the command succeeds. A
+/// rotated token has a live replacement, so the command fails and names it
+/// ([`rotated_token_refusal`], the admin API's 409): revoking the old id
+/// again would end nothing. A token rotated before
+/// `admin_tokens.rotated_to_token_id` existed reads as a revoked one.
+///
+/// # Errors
+/// Returns a not-found error for an unknown id (the command reads the
+/// token first), a conflict for a rotated token, and the store's error
+/// when the write fails.
 pub(crate) async fn revoke(repos: &RepositoryRegistry, token_id: String) -> Result<()> {
     info!("Revoking admin token: {}", token_id);
 
@@ -281,13 +319,21 @@ pub(crate) async fn revoke(repos: &RepositoryRegistry, token_id: String) -> Resu
         .await?
         .ok_or_else(|| AppError::not_found(format!("Admin token: {token_id}")))?;
 
-    if !token.is_active {
-        warn!("Token is already inactive");
-        return Ok(());
+    // The store decides on the row as its own guarded write left it, so a
+    // rotation that lands after the read above is still told apart.
+    match repos.admin.deactivate_token(&token_id).await? {
+        TokenRevocation::Revoked => {}
+        TokenRevocation::AlreadyRevoked => {
+            warn!("Token is already inactive");
+            return Ok(());
+        }
+        TokenRevocation::Rotated { replacement } => {
+            return Err(AppError::new(
+                ErrorCode::ResourceLocked,
+                rotated_token_refusal(&token_id, &replacement),
+            ));
+        }
     }
-
-    // Revoke token
-    repos.admin.deactivate_token(&token_id).await?;
 
     println!("Success Admin token revoked successfully!");
     println!("   Token ID: {token_id}");
@@ -297,7 +343,46 @@ pub(crate) async fn revoke(repos: &RepositoryRegistry, token_id: String) -> Resu
     Ok(())
 }
 
-/// Rotate an admin token (create new, revoke old)
+/// The lifetime `token rotate` gives a replacement when `--expires-days` is
+/// not passed: the one `token generate` defaults to.
+const DEFAULT_ROTATION_DAYS: u64 = 365;
+
+/// The `expires_in_days` of a token that never expires.
+const NEVER_EXPIRES: u64 = 0;
+
+/// What `token rotate` asks the store to rotate `existing` on.
+///
+/// What a rotation carries over is defined once, for this command and the
+/// admin API alike ([`CreateAdminTokenRequest::rotation_of`]), and the store
+/// applies it to the row it claims: the name, the description, the stored
+/// permissions, the tenant and the super-admin flag, and no replacement for
+/// a revoked token. Two things are this command's own, and each is an
+/// argument to that one definition:
+///
+/// - the lifetime: a super-admin token's replacement never expires,
+///   whatever `--expires-days` says, as `token generate --super-admin` mints
+///   one; any other token gets `--expires-days`, or
+///   [`DEFAULT_ROTATION_DAYS`];
+/// - who rotates: no one. The host shell is no admin's session, so the
+///   replacement of a device login acts as no admin.
+///
+/// `existing` is the row the lifetime was chosen on, and the store rotates
+/// only a row that still carries its flag and permissions.
+fn rotation_terms(existing: &AdminToken, expires_days: Option<u64>) -> TokenRotation<'_> {
+    let expires_in_days = if existing.is_super_admin {
+        NEVER_EXPIRES
+    } else {
+        expires_days.unwrap_or(DEFAULT_ROTATION_DAYS)
+    };
+    TokenRotation {
+        checked: existing,
+        expires_in_days,
+        rotated_by: None,
+    }
+}
+
+/// Rotate an admin token: revoke it and mint its replacement, in one
+/// transaction in the store. A failure leaves the old token as it was.
 pub(crate) async fn rotate(
     repos: &RepositoryRegistry,
     jwks_manager: &JwksManager,
@@ -313,25 +398,6 @@ pub(crate) async fn rotate(
         .await?
         .ok_or_else(|| AppError::not_found(format!("Admin token: {token_id}")))?;
 
-    if !old_token.is_active {
-        return Err(AppError::invalid_input("Cannot rotate inactive token"));
-    }
-
-    // Create new token with same service and permissions
-    let mut request = CreateAdminTokenRequest {
-        service_name: old_token.service_name.clone(),
-        service_description: old_token.service_description.clone(),
-        permissions: Some(old_token.permissions.to_vec()),
-        expires_in_days: expires_days.or(Some(365)),
-        is_super_admin: old_token.is_super_admin,
-        tenant_id: old_token.tenant_id.clone(),
-        operator_user_id: None,
-    };
-
-    if old_token.is_super_admin {
-        request.expires_in_days = None; // Super admin tokens never expire
-    }
-
     // Load JWT secret from database (must exist - created by user create)
     let Ok(jwt_secret) = repos.security.get_system_secret("admin_jwt_secret").await else {
         error!("Admin JWT secret not found in database!");
@@ -340,14 +406,15 @@ pub(crate) async fn rotate(
         ));
     };
 
-    // Generate new token using RS256 asymmetric signing
+    // The store refuses a revoked token here, and mints nothing.
     let new_token = repos
         .admin
-        .create_token(&request, &jwt_secret, jwks_manager)
+        .rotate_token(
+            &rotation_terms(&old_token, expires_days),
+            &jwt_secret,
+            jwks_manager,
+        )
         .await?;
-
-    // Revoke old token
-    repos.admin.deactivate_token(&token_id).await?;
 
     println!("Token rotation completed successfully!");
     println!("   Old Token: {token_id} (revoked)");
@@ -449,4 +516,86 @@ pub(crate) async fn stats(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use pierre_core::admin::models::AdminPermissions;
+    use uuid::Uuid;
+
+    use super::*;
+
+    /// A live service token narrowed to one permission and one tenant.
+    fn narrow_token() -> AdminToken {
+        AdminToken {
+            id: Uuid::new_v4().to_string(),
+            service_name: "trail-reader".to_owned(),
+            service_description: Some("reads the trail".to_owned()),
+            token_hash: "hash".to_owned(),
+            token_prefix: "prefix".to_owned(),
+            jwt_secret_hash: "secret-hash".to_owned(),
+            permissions: AdminPermissions::new(vec![AdminPermission::ViewAuditLogs]),
+            is_super_admin: false,
+            is_active: true,
+            tenant_id: Some("3f0c1a52-0000-4000-8000-000000000001".to_owned()),
+            operator_user_id: None,
+            rotated_to_token_id: None,
+            created_at: Utc::now(),
+            expires_at: None,
+            last_used_at: None,
+            last_used_ip: None,
+            usage_count: 7,
+        }
+    }
+
+    /// A device login: the super-admin flag, and the admin it acts as.
+    fn device_login() -> AdminToken {
+        let mut login = narrow_token();
+        login.is_super_admin = true;
+        login.permissions = AdminPermissions::super_admin();
+        login.operator_user_id = Some(Uuid::new_v4());
+        login
+    }
+
+    /// The lifetime is the command's to choose: `--expires-days` when it is
+    /// passed, the default when it is not, and neither for a super-admin
+    /// token, whose replacement never expires whatever was asked.
+    #[test]
+    fn the_cli_chooses_the_lifetime() {
+        let token = narrow_token();
+        assert_eq!(
+            rotation_terms(&token, None).expires_in_days,
+            DEFAULT_ROTATION_DAYS
+        );
+        assert_eq!(rotation_terms(&token, Some(30)).expires_in_days, 30);
+        assert_eq!(
+            rotation_terms(&token, Some(NEVER_EXPIRES)).expires_in_days,
+            NEVER_EXPIRES,
+            "a token asked never to expire is not given the default"
+        );
+
+        let login = device_login();
+        for asked in [None, Some(30)] {
+            assert_eq!(
+                rotation_terms(&login, asked).expires_in_days,
+                NEVER_EXPIRES,
+                "a super-admin token's replacement never expires: {asked:?}"
+            );
+        }
+    }
+
+    /// The host shell is no admin's session, so no admin rotates: not for a
+    /// service token, and not for a device login that acts as one.
+    #[test]
+    fn the_cli_rotates_as_no_one() {
+        assert_eq!(rotation_terms(&narrow_token(), None).rotated_by, None);
+        let login = device_login();
+        assert!(login.operator_user_id.is_some());
+        assert_eq!(
+            rotation_terms(&login, Some(30)).rotated_by,
+            None,
+            "the admin a device login acts as is not who rotates it here"
+        );
+    }
 }

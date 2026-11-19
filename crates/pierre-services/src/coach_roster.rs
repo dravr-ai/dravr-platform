@@ -12,11 +12,22 @@
 //! reimplements a rule below. The per-athlete training is read on top of it
 //! by `pierre_tool_runtime::coach_roster`.
 //!
-//! 1. **Who may read it.** A user with `manages_roster` or platform admin —
-//!    the rule that lets them be attached as a group's coach at all
-//!    (`pierre_groups::creation_policy::may_coach_group`) — who is the human
-//!    coach of at least one active group. A coach whose permission was
-//!    withdrawn after attaching reads nothing.
+//! 1. **Who may read it.** A user who holds coach access
+//!    ([`User::holds_coach_access`](pierre_core::models::User::holds_coach_access):
+//!    `manages_roster`, or platform admin) — the rule that lets them be
+//!    attached as a group's coach at all
+//!    (`pierre_groups::creation_policy::may_coach_group`) — and is attached
+//!    to at least one active group as its coach. [`roster_access`] answers
+//!    it, and it is the one coach rule (carnet#1511): the roster tool and
+//!    route above, every act for one athlete
+//!    ([`coached_athlete_access`](crate::coached_athlete::coached_athlete_access)),
+//!    the name match in front of those acts, and what `get_provider_roster`
+//!    tells a caller of their standing all ask it. A coach whose access was
+//!    withdrawn after attaching stays attached and reads nothing as a
+//!    coach ([`RosterAccess::NoCoachAccess`], which carries the groups they
+//!    are attached to so that an act for one group is refused that way for
+//!    those groups only). The reply review's filters read rules 2 and 3 for
+//!    the groups the caller is attached to, and do not ask this one.
 //! 2. **The roster is the coach attachment.** The active groups whose
 //!    `coach_user_id` is the caller and their live members, the caller
 //!    excluded — the set `list_athletes_coached_by` returns.
@@ -75,29 +86,35 @@ impl RosterAthleteStatus {
     }
 }
 
+/// The `reason` every refusal carries when the caller is attached to a group
+/// as its coach and their coach access is off: `details.reason` on a route, a
+/// tool refusal's `reason`.
+pub const NO_COACH_ACCESS: &str = "no_coach_access";
+
 /// Whether the caller may read a roster, and the groups it covers.
 #[derive(Debug)]
 pub enum RosterAccess {
-    /// The active groups the caller coaches, never empty.
+    /// The active groups the caller is attached to as their coach, never
+    /// empty; the caller holds coach access.
     Granted(Vec<CoachingGroup>),
-    /// The caller holds no coaching permission, or coaches no active group.
+    /// The caller does not hold coach access — it was withdrawn after they
+    /// were attached — and these are the active groups they are attached to
+    /// as their coach, never empty. Nothing of them is read as their coach:
+    /// a caller asked about one group tells from them whether it is one of
+    /// the caller's, and a caller who is also a member of one reads it as
+    /// any member does.
+    NoCoachAccess(Vec<CoachingGroup>),
+    /// Anyone else: attached to no active group, with or without coach
+    /// access.
     NotACoach,
 }
 
-/// Who may read a roster, and over which groups (rule 1).
+/// Who may read a roster, and over which groups (rule 1): the one coach rule.
 ///
 /// # Errors
 ///
 /// Returns the repository error from the user or group lookup.
 pub async fn roster_access(repos: &RepositoryRegistry, coach_id: Uuid) -> AppResult<RosterAccess> {
-    let may_coach = repos
-        .users
-        .get_global(coach_id)
-        .await?
-        .is_some_and(|user| user.manages_roster || user.is_admin);
-    if !may_coach {
-        return Ok(RosterAccess::NotACoach);
-    }
     let groups: Vec<CoachingGroup> = repos
         .groups
         .list_groups_coached_by(coach_id)
@@ -105,10 +122,18 @@ pub async fn roster_access(repos: &RepositoryRegistry, coach_id: Uuid) -> AppRes
         .into_iter()
         .filter(|g| g.is_active)
         .collect();
-    Ok(if groups.is_empty() {
-        RosterAccess::NotACoach
-    } else {
+    if groups.is_empty() {
+        return Ok(RosterAccess::NotACoach);
+    }
+    let holds_coach_access = repos
+        .users
+        .get_global(coach_id)
+        .await?
+        .is_some_and(|user| user.holds_coach_access());
+    Ok(if holds_coach_access {
         RosterAccess::Granted(groups)
+    } else {
+        RosterAccess::NoCoachAccess(groups)
     })
 }
 
@@ -201,6 +226,24 @@ impl GatheredRoster {
     #[must_use]
     pub fn roster_members(&self) -> usize {
         self.members.len()
+    }
+
+    /// The roster as an outside client acting for the coach is served it:
+    /// without the athletes who share with the coach in none of the groups
+    /// (EFVP 2026-11-17, decision 9.4c), and each group counting only the
+    /// athletes left. Dravr's own surfaces read the whole roster.
+    #[must_use]
+    pub fn served_to_outside_client(mut self) -> Self {
+        self.members
+            .retain(|member| member.status != RosterAthleteStatus::NoCoachConsent);
+        for group in &mut self.groups {
+            group.athlete_count = self
+                .members
+                .iter()
+                .filter(|member| member.groups.iter().any(|held| held.id == group.id))
+                .count();
+        }
+        self
     }
 }
 

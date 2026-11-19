@@ -29,9 +29,9 @@
 //!   [`webhook::TerraWebhookHandler`] is never invoked by the running server,
 //!   and nothing reaches the stores from Terra at runtime.
 //!
-//! LIMITATION(registre#886): `TerraWebhookHandler` is never mounted — no route accepts Terra webhook POSTs.
+//! LIMITATION(registre#859): `TerraWebhookHandler` is never mounted — no route accepts Terra webhook POSTs.
 //!
-//! LIMITATION(registre#1061): `TerraProvider` has no tier gate, so a Starter athlete could connect Terra-routed devices billed per account.
+//! LIMITATION(registre#859): `TerraProvider` has no tier gate, so a Starter athlete could connect Terra-routed devices billed per account.
 //!
 //! Treat the architecture diagram below as the *intended* design, not as wired
 //! production behavior.

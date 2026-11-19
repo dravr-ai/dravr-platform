@@ -51,6 +51,7 @@ use pierre_services::garmin_push::{
     ingest_batch, parse_envelope, ActivityFile, BatchOutcome, GarminOwner, GarminPushHost, Retry,
     SummaryType,
 };
+use pierre_services::live_activities::LandedSession;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::periodic::spawn_periodic;
 use pierre_services::provider_revocation::DisconnectReason;
@@ -171,8 +172,7 @@ async fn settle(
             let why = outcome
                 .retry
                 .as_ref()
-                .map(Retry::reason)
-                .unwrap_or_default()
+                .map_or_default(Retry::reason)
                 .to_owned();
             hand_back(inbox, lease, row, &why, now_ms).await
         }
@@ -563,7 +563,13 @@ impl GarminPushHost for ServerHost {
         }
     }
 
-    async fn landed(&self, owner: GarminOwner, kind: SummaryType, stored: usize) {
+    async fn landed(
+        &self,
+        owner: GarminOwner,
+        kind: SummaryType,
+        stored: usize,
+        landed: Option<LandedSession>,
+    ) {
         if kind == SummaryType::UserPermissionsChange {
             self.flag_if_activities_withdrawn(owner).await;
             return;
@@ -580,7 +586,17 @@ impl GarminPushHost for ServerHost {
             GARMIN,
             format!("Garmin {}: {stored} new records", kind.key()),
         )
-        .await;
+        .await; // The push lands a workout through the same sink every live write
+                // hands its landing to, off the worker's path.
+        if let Some(session) = landed {
+            use pierre_tool_runtime::runtime::SessionLandedSink;
+
+            let sink: Arc<dyn SessionLandedSink> = self.resources.mcp.session_landed.clone();
+            tokio::spawn(async move {
+                sink.session_landed(owner.user_id, owner.tenant_id, session)
+                    .await;
+            });
+        }
     }
 }
 

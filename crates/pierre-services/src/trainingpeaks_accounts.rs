@@ -405,8 +405,9 @@ async fn purge_misfiled_activities(
 /// on the scraper service: its names, whether it trains or coaches, and a
 /// coach account's roster.
 ///
-/// The read goes through `registry`'s sciotte client, the server's one client
-/// for the service. The session is imported first, and imported once more when the read
+/// The read goes through the one of `registry`'s read services the session
+/// names, so its import, read and export meet one instance. The session is
+/// imported first, and imported once more when the read
 /// reaches an instance the import did not: that instance holding no session
 /// says nothing about the account's, so it must not read as a session to
 /// reconnect. A session `TrainingPeaks` rotated on the read is written back
@@ -424,7 +425,9 @@ pub async fn trainingpeaks_profile(
     read_from: &StoredTokenRow,
     session: &AuthSession,
 ) -> AppResult<AthleteProfile> {
-    let remote = registry.require_sciotte_client()?;
+    let remote = registry
+        .require_sciotte_reads()?
+        .for_session(&session.session_id);
     read_imported_persisting(
         remote,
         session,

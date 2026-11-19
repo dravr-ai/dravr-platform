@@ -127,12 +127,16 @@ impl<'a> ConsentText<'a> {
     /// locale has no text for reads in English, never in the platform's
     /// default and never as its key.
     pub(super) fn html(&self, key: &str, args: &[&str]) -> String {
-        let line = self
-            .strings
+        format_template(&escape_html_attribute(&self.line(key)), args)
+    }
+
+    /// The catalogue's text for `key` as this page reads it, slots unfilled:
+    /// this locale's, else English, else nothing.
+    pub(super) fn line(&self, key: &str) -> String {
+        self.strings
             .get_exact(key, self.locale)
             .or_else(|| self.strings.get_exact(key, FALLBACK_LOCALE))
-            .unwrap_or_default();
-        format_template(&escape_html_attribute(&line), args)
+            .unwrap_or_default()
     }
 
     /// The list item naming `scope`: what it allows in this language, then

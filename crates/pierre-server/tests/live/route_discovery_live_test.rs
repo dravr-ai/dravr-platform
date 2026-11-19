@@ -18,10 +18,10 @@
 
 use std::time::{Duration, Instant};
 
-use dravr_meteo::Geocoder;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::SportType;
-use pierre_fitness_compute::geocoding::{free_text_query, place_geocoder};
+use pierre_fitness_compute::geocoding::free_text_query;
+use pierre_fitness_compute::weather_clients::WeatherClients;
 use pierre_fitness_compute::{DiscoveredRoute, RouteDiscoveryService, RouteSource, RouteType};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
@@ -161,7 +161,10 @@ async fn test_discover_routes_for_sport_dispatches_by_type() {
 #[tokio::test]
 async fn test_forward_geocode_prevost_resolves_into_quebec() {
     let query = free_text_query("Prévost, Quebec", Some("CA".to_owned())).unwrap();
-    let resolution = place_geocoder()
+    // No weather configuration is the vendors' own hosts.
+    let weather = WeatherClients::new(None);
+    let resolution = weather
+        .geocoder()
         .unwrap()
         .resolve(&query)
         .await
@@ -185,21 +188,24 @@ async fn test_forward_geocode_prevost_resolves_into_quebec() {
 }
 
 #[tokio::test]
-async fn test_forward_geocode_cache_is_process_wide() {
-    let first = place_geocoder()
+async fn test_forward_geocode_cache_is_shared_by_a_contexts_callers() {
+    let weather = WeatherClients::new(None);
+    let first = weather
+        .geocoder()
         .unwrap()
         .resolve(&free_text_query("Saint-Alexis-des-Monts", None).unwrap())
         .await
         .expect("first geocode call should succeed");
 
-    // The second call reads the one process-wide geocoder again, as every
+    // The second call reads the context's one geocoder again, as every
     // tool call does, with the name in a different case: a cache keyed per
     // caller or by the raw spelling would miss and open a second request.
     //
     // We can't directly assert "didn't hit network", so assert the result is
     // identical and the call completes in <50ms (round-trips take longer).
     let before = Instant::now();
-    let second = place_geocoder()
+    let second = weather
+        .geocoder()
         .unwrap()
         .resolve(&free_text_query("saint-alexis-des-monts", None).unwrap())
         .await

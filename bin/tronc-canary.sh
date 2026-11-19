@@ -44,7 +44,7 @@ if [[ -z "${DRAVR_CANARY_TOKEN:-}" ]]; then
     echo "error: DRAVR_CANARY_TOKEN must be set to an admin JWT with ViewConfiguration permission" >&2
     echo "       Mint it FROM the deployment you are pointing at, not locally:" >&2
     echo "         cargo run --bin pierre-cli -- auth login --server ${BASE_URL}" >&2
-    echo "       approve in the browser as a super-admin, then read access_token from ~/.pierre/credentials.json." >&2
+    echo "       approve in the browser as an admin, then read access_token from ~/.pierre/credentials.json." >&2
     echo "       'token generate' will NOT work here: it signs with the local database's RSA keypair and" >&2
     echo "       registers the token in the local admin_tokens table, so a deployment rejects it on both counts." >&2
     exit 1

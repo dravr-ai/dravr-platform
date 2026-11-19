@@ -339,6 +339,44 @@ variable "backend_sciotte_remote" {
   }
 }
 
+variable "enable_sciotte_login_service" {
+  description = "Deploy the sciotte sign-in Cloud Run service (sciotte_login.tf, carnet#1504): same image as the read service, min 0, max 1. Deploying it does NOT route sign-ins — backend_sciotte_login_split does. Requires enable_sciotte_service."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.enable_sciotte_login_service || var.enable_sciotte_service
+    error_message = "enable_sciotte_login_service requires enable_sciotte_service = true (it shares the read service's container settings and scripts bucket)."
+  }
+}
+
+variable "backend_sciotte_login_split" {
+  description = "Send sciotte sign-ins to the sign-in service (sets the API's DRAVR_SCIOTTE_LOGIN_URL and the login canary's service URL). Off = sign-ins run on the read service. Requires enable_sciotte_login_service and backend_sciotte_remote."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.backend_sciotte_login_split || (var.enable_sciotte_login_service && var.backend_sciotte_remote)
+    error_message = "backend_sciotte_login_split requires enable_sciotte_login_service = true and backend_sciotte_remote = true."
+  }
+}
+
+variable "sciotte_read_services" {
+  description = "How many sciotte read services run (module.sciotte), each one instance; the platform sends every call naming a session to the service its id picks (carnet#1504). Every one scales to zero. Change it at a quiet hour: about one session in N+1 moves to the new service, and while two API revisions disagree a session can be read on two instances at once."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.sciotte_read_services >= 1
+    error_message = "sciotte_read_services must be at least 1: the first read service always runs."
+  }
+
+  validation {
+    condition     = var.sciotte_read_services == 1 || var.backend_sciotte_login_split
+    error_message = "sciotte_read_services above 1 requires backend_sciotte_login_split = true, so sign-ins have a service of their own before reads spread over several."
+  }
+}
+
 # -----------------------------------------------------------------------------
 # Frontend Cloud Run Configuration
 # -----------------------------------------------------------------------------

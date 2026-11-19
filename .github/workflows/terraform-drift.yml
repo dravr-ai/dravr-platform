@@ -65,25 +65,88 @@ on:
         type: boolean
         default: false
 
-# The dev leg takes the same GCS state lock as terraform.yml, with Terraform's
-# default zero lock timeout, so a drift plan overlapping an apply would fail one
-# of the two. It therefore queues in terraform.yml's `terraform-state` group, and
-# never cancels: cancel-in-progress there would kill a running apply with the
-# state not yet written back. Like any arrival in that group, a drift run
-# replaces a run that is still WAITING behind a running one (carnet#1116).
-concurrency:
-  group: terraform-state
-  cancel-in-progress: false
-
 permissions:
   contents: read
   id-token: write
 
 jobs:
+  # A deploy's one-pod canary (scripts/ci/cloud-run-canary.sh, run from
+  # publish-images.yml in the deploy-dev-main group, not terraform-state) pins
+  # the API's traffic to a split for up to ~1920 s while it ramps. A plan landing
+  # in that window reads the split as drift on
+  # module.backend.google_cloud_run_v2_service.service, which the next settle
+  # undoes by itself. The 2026-11-15 run planned inside a canary's window and
+  # went red on it (carnet#1383). So before any leg plans, this job waits until
+  # no dev Cloud Run service is mid-rollout, as terraform.yml's apply-dev does
+  # in its step of the same name, minus --db-headroom: a plan rolls nothing.
+  #
+  # It is its own job, outside terraform-state, so its wait (up to 30 min)
+  # holds no lock and delays no terraform.yml run; only the drift job's plan
+  # holds the group (below). A wait that times out or fails only warns: the
+  # step stays green, the drift job runs either way, and the plan decides the
+  # verdict. A pin left by a dead canary younger than the quiesce script's
+  # CANARY_MAX_AGE_SECONDS (45 min) reads as ROLLING, so it costs this wait and
+  # the re-plan's full wait before the plan reds; an older one reads as SPLIT,
+  # which quiesce lets through at once, and the plan reds on it straight away.
+  settle:
+    name: Settle dev Cloud Run
+    runs-on: ubuntu-latest
+    timeout-minutes: 35  # one 30-min quiesce wait, plus checkout and auth
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # gcloud is the runner image's, authenticated here as the dev leg's plan
+      # identity, as in apply-dev.
+      - name: Authenticate to GCP (dev terraform runner)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_TF_SA }}
+
+      # The quiesce script reports a timeout through die(), which prints
+      # ::error:: to stderr. Here a timeout only warns, so its stderr is
+      # captured (stdout, the progress lines, streams live) and re-emitted with
+      # ::error downgraded to ::warning: an error annotation on a green run
+      # reads as red when triaging.
+      - name: Wait until no dev Cloud Run service is mid-rollout
+        env:
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: |
+          rc=0
+          { err=$("${GITHUB_WORKSPACE}/scripts/ci/wait-cloud-run-service-ready.sh" quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 1800 2>&1 1>&3 3>&-) || rc=$?; } 3>&1
+          [ -z "${err}" ] || printf '%s\n' "${err}" | sed 's/^::error/::warning/' >&2
+          if [ "${rc}" != 0 ]; then
+            echo "::warning title=Cloud Run did not quiesce::dev Cloud Run was still mid-rollout (or unreadable) after the wait; planning anyway, the plan decides the verdict."
+          fi
+
   drift:
     name: Drift (${{ matrix.label }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # init + plan, ~40 s
+    timeout-minutes: 25  # init + plan (~40 s), plus on dev one 15-min re-plan wait and a second plan
+    # After settle, whatever its result: a settle that failed (auth, a runner
+    # fault) must not skip the plan, which is the verdict.
+    needs: settle
+    if: ${{ !cancelled() }}
+
+    # Only the dev leg takes the GCS state lock (the artifacts leg plans with
+    # -lock=false against its own state), with Terraform's default zero lock
+    # timeout, so a dev plan overlapping a terraform.yml run would fail one of
+    # the two. The dev leg therefore queues in terraform.yml's terraform-state
+    # group, which terraform.yml holds for its WHOLE workflow: plan-dev on every
+    # infra/** push to main, and the dispatched plan-dev, plan-prod, apply-dev
+    # and apply-prod. It never cancels: cancel-in-progress would kill a running
+    # apply with the state not yet written back. Like any arrival in that
+    # group, the dev leg replaces a terraform.yml run still WAITING behind a
+    # running one (carnet#1116), so it holds the group only for its plan (and
+    # the re-plan's wait, at most 15 min), never for the settle job's wait. The
+    # artifacts leg gets a group of its own run, so it neither queues nor
+    # displaces anything.
+    concurrency:
+      group: ${{ matrix.label == 'dev' && 'terraform-state' || format('terraform-drift-{0}-{1}', matrix.label, github.run_id) }}
+      cancel-in-progress: false
 
     strategy:
       # Each leg is its own verdict: drift in one root must not cancel the
@@ -140,16 +203,46 @@ jobs:
       # terraform's own with the setup-terraform wrapper off (above). Never fail this
       # step; the classification below decides pass/fail from BOTH the exit code
       # and a plan-text cross-check, so no single quirk can false-green us again.
+      #
+      # Re-plan once (dev only): a deploy can start after the settle job passed,
+      # or during the plan itself. When the first plan exits 2 and the API's
+      # Cloud Run service is the only resource it would change (any other
+      # change is drift a settle cannot undo, so the plan reds at once without
+      # holding terraform-state longer), wait for dev to settle again (at most
+      # 900 s: this wait runs inside terraform-state) and plan once more; only
+      # that second plan is classified. A real pin is still there after the settle,
+      # so it still reds. As in the settle job, a wait that fails only warns,
+      # with the script's ::error lines downgraded to ::warning.
       - name: Terraform Plan (drift check)
         id: plan
         env:
           TF_LOCK: ${{ matrix.lock }}
           LEG: ${{ matrix.label }}
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
         run: |
           set +e
           terraform plan -detailed-exitcode -no-color -input=false -lock="${TF_LOCK}" -var-file="terraform.tfvars" > plan-output.txt 2>&1
           code=$?
           set -e
+          replan=""
+          if [ "$LEG" = "dev" ] && [ "$code" = "2" ] \
+            && grep -Eq '^  # module\.backend\.google_cloud_run_v2_service\.service ' plan-output.txt \
+            && ! grep -E '^  # ' plan-output.txt | grep -Evq '^  # module\.backend\.google_cloud_run_v2_service\.service '; then
+            replan="the first plan (exit 2) changed only module.backend.google_cloud_run_v2_service.service, which a deploy's canary moves while it runs; waited for dev Cloud Run to settle and planned again. First plan's action lines:"
+            first_plan=$(grep -E '^(Plan:|No changes)|^  # ' plan-output.txt || true)
+            echo "::notice title=Re-planning after a Cloud Run settle::${replan%%;*}"
+            rc=0
+            { err=$("${GITHUB_WORKSPACE}/scripts/ci/wait-cloud-run-service-ready.sh" quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900 2>&1 1>&3 3>&-) || rc=$?; } 3>&1
+            [ -z "${err}" ] || printf '%s\n' "${err}" | sed 's/^::error/::warning/' >&2
+            if [ "${rc}" != 0 ]; then
+              echo "::warning title=Cloud Run did not quiesce::dev Cloud Run was still mid-rollout (or unreadable) after the wait; re-planning anyway, the plan decides the verdict."
+            fi
+            set +e
+            terraform plan -detailed-exitcode -no-color -input=false -lock="${TF_LOCK}" -var-file="terraform.tfvars" > plan-output.txt 2>&1
+            code=$?
+            set -e
+          fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
           # Terraform prints this exact sentence iff the plan is empty.
           if grep -q "No changes. Your infrastructure matches the configuration." plan-output.txt; then
@@ -164,6 +257,16 @@ jobs:
           {
             echo "## Terraform Drift — ${LEG}"
             echo ''
+            if [ -n "$replan" ]; then
+              echo "Re-planned: ${replan}"
+              echo ''
+              echo '```'
+              echo "$first_plan"
+              echo '```'
+              echo ''
+              echo 'Second plan, the one classified:'
+              echo ''
+            fi
             echo '```'
             case "$code" in
               0|2) grep -E '^(Plan:|No changes)|^  # ' plan-output.txt || echo '(no resource change lines found)' ;;
@@ -216,8 +319,8 @@ jobs:
     name: Notify Slack
     runs-on: ubuntu-latest
     timeout-minutes: 10  # one Slack post, ~15 s
-    needs: drift
-    if: ${{ !cancelled() && (needs.drift.result == 'failure' || github.event.inputs.test_alert == 'true') }}
+    needs: [settle, drift]
+    if: ${{ !cancelled() && (needs.drift.result == 'failure' || needs.settle.result == 'failure' || github.event.inputs.test_alert == 'true') }}
 
     steps:
       - name: Authenticate to GCP (dev terraform runner)
@@ -233,7 +336,7 @@ jobs:
 
       - name: Post to Slack
         env:
-          DRIFT_RESULT: ${{ needs.drift.result }}
+          DRIFT_RESULT: ${{ needs.settle.result == 'failure' && 'failure' || needs.drift.result }}
           IS_TEST: ${{ github.event.inputs.test_alert }}
           SLACK_SECRET: dravr-mcp-server-slack-bot-token
           GCP_PROJECT: dravr-dev

@@ -23,6 +23,7 @@ use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::handlers::barrage::{handle_adopt_cache, AdoptCacheRequest};
 use pierre_routes_admin::AdminApiContext;
+use pierre_services::live_activities::WriteOrigin;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -449,6 +450,7 @@ async fn every_key_the_platform_caches_under_is_kept_by_the_store() {
                 key,
                 &[activity(&id, key, 1)],
                 Utc::now(),
+                WriteOrigin::Import,
             )
             .await
             .unwrap_or_else(|e| panic!("bug: the store refuses {key}: {e}"));

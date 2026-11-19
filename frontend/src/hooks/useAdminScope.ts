@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Which tenants the viewer asks the scoped admin screens to read, shared across those screens
-// ABOUTME: Only a super admin has a choice; the server decides what any request may actually read
+// ABOUTME: Which tenants an admin asks the scoped admin screens to read, shared across those screens
+// ABOUTME: Only admin screens mount it; the server decides what any request may actually read
 
 import { useCallback, useSyncExternalStore } from 'react';
-import { useAuth } from './useAuth';
 
 /** What a scoped endpoint reports it read: the server's decision, never the client's. */
 export type AdminScope =
@@ -41,16 +40,14 @@ function subscribe(listener: () => void): () => void {
 }
 
 /**
- * The scope the viewer asks for.
+ * The scope the admin asks for.
  *
- * `requested` is the `tenant_id` a scoped read sends. A plain admin sends none,
- * so the server keeps them on their own tenant; a stored choice from a super-admin
- * session on the same browser never reaches a plain admin's requests.
+ * `requested` is the `tenant_id` a scoped read sends: every tenant until the
+ * admin picks one. Every screen that reads it sits behind the Dashboard's
+ * route guard, which mounts no admin tab for anyone but an admin.
  */
 export function useAdminScope() {
-  const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'super_admin';
-  const stored = useSyncExternalStore(subscribe, readStored);
+  const requested = useSyncExternalStore(subscribe, readStored);
 
   const pick = useCallback((value: string) => {
     try {
@@ -62,9 +59,5 @@ export function useAdminScope() {
     listeners.forEach((listener) => listener());
   }, []);
 
-  return {
-    isSuperAdmin,
-    requested: isSuperAdmin ? stored : undefined,
-    pick,
-  } as const;
+  return { requested, pick } as const;
 }

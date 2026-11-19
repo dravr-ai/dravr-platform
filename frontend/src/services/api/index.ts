@@ -46,6 +46,9 @@ export const gearApi = pierreApi.gear;
 
 // Importing the athlete's own history from a service's export.
 export const importsApi = pierreApi.imports;
+export const originalsApi = pierreApi.dataExport;
+// The athlete's statutory access requests to a company: the letter they send and its legal deadline.
+export const dataAccessRequestsApi = pierreApi.dataAccessRequests;
 
 // Providers API delegates to shared oauth module
 export const providersApi = {
@@ -63,6 +66,8 @@ export { coachAccessAdminApi } from './coachAccessAdmin';
 export { coachSeatInvitationsApi } from './coachSeatInvitations';
 // Accepting a mailed invitation: its link opens the web app only.
 export { invitationsApi } from './invitations';
+// The invite card's public read of a group invite code (carnet#1649).
+export { invitePreviewApi } from './invitePreview';
 // Confirming an address from its mailed link, which opens the web app only.
 export { emailConfirmationApi } from './emailConfirmation';
 export { adminUsageApi } from './usage';

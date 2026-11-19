@@ -27,6 +27,7 @@ import {
   useRecentActivities,
 } from '../../hooks/useHome';
 import { activityViewRoute } from '../activity/activityRoute';
+import { ALERT_TONE } from '../ui';
 import { ActivityMap } from './ActivityMap';
 import { RouteSketch } from './RouteSketch';
 import { UploadActivityAction, UploadActivityStatus } from './UploadActivity';
@@ -218,7 +219,7 @@ export function RecentActivities({ onNavigate, compact = false, sport = null }: 
       <p
         role="alert"
         data-testid="home-sync-failed"
-        className="mb-2 rounded-lg bg-error/15 px-3 py-2 text-sm text-on-error-container"
+        className={`${ALERT_TONE.error.tone} mb-2 rounded-lg px-3 py-2 text-sm`}
       >
         {failure.provider_name} · {t('providers.syncFailed')}{' '}
         <button

@@ -36,7 +36,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use serde_json::Value;
 
-/// The eleven columns every read of `messaging_link_states` returns, in the
+/// The twelve columns every read of `messaging_link_states` returns, in the
 /// order [`link_state_from_row`] reads them, with `$text` appended to each
 /// uuid column so it arrives as text on both backends.
 macro_rules! link_state_columns {
@@ -47,7 +47,7 @@ macro_rules! link_state_columns {
             " AS tenant_id, user_id",
             $text,
             " AS user_id, channel_type, code, method, used, \
-             channel_user_id, sender_name, expires_at, created_at"
+             channel_user_id, sender_name, app_return_uri, expires_at, created_at"
         )
     };
 }
@@ -59,10 +59,10 @@ macro_rules! create_link_state_sql {
         concat!(
             "INSERT INTO messaging_link_states \
                  (id, tenant_id, user_id, channel_type, code, method, used, \
-                  channel_user_id, sender_name, expires_at, created_at) \
+                  channel_user_id, sender_name, app_return_uri, expires_at, created_at) \
              VALUES ($1, $2, $3",
             $uuid,
-            ", $4, $5, $6, FALSE, $7, $8, $9, $10)"
+            ", $4, $5, $6, FALSE, $7, $8, $9, $10, $11)"
         )
     };
 }
@@ -111,6 +111,39 @@ pub(crate) use link_state_by_code_sql;
 pub(crate) const CONSUME_LINK_STATE_SQL: &str = "UPDATE messaging_link_states SET used = TRUE \
      WHERE code = $1 AND tenant_id = $2 AND used = FALSE AND expires_at > $3";
 
+/// Hand back every pairing code a sender holds pending confirmation, unspent,
+/// so the starter's code outlives a sender who walked away from it.
+pub(crate) const RELEASE_SENDER_LINK_CONFIRMATIONS_SQL: &str = r"
+            UPDATE messaging_link_states
+            SET channel_user_id = NULL, otp_step = NULL
+            WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
+              AND otp_step = 'awaiting_link_confirm' AND used = FALSE
+            ";
+
+/// Hold a live pairing code for the sender who redeemed it, until they confirm.
+///
+/// Only a deep-link code minted on an account for this channel qualifies. A
+/// code another sender held is taken over, so a forwarded copy cannot lock the
+/// starter out of their own link.
+pub(crate) const HOLD_LINK_FOR_CONFIRMATION_SQL: &str = r"
+            UPDATE messaging_link_states
+            SET channel_user_id = $1, otp_step = 'awaiting_link_confirm', otp_attempts = 0
+            WHERE code = $2 AND tenant_id = $3 AND channel_type = $4
+              AND method = 'deep_link' AND user_id IS NOT NULL
+              AND used = FALSE AND expires_at > $5
+            ";
+
+/// Spend a pairing code only while this sender still holds it. The holder is
+/// checked in the same statement that spends it, so a sender displaced by a
+/// later redeemer cannot finish the code.
+pub(crate) const SPEND_HELD_LINK_CODE_SQL: &str = r"
+            UPDATE messaging_link_states
+            SET used = TRUE
+            WHERE code = $1 AND tenant_id = $2 AND channel_type = $3
+              AND channel_user_id = $4 AND otp_step = 'awaiting_link_confirm'
+              AND used = FALSE AND expires_at > $5
+            ";
+
 /// Complete a webhook-initiated code: bind the user and consume it in one
 /// statement, only while the code has no user yet. `$uuid` is the cast on
 /// the `user_id` bind.
@@ -151,6 +184,9 @@ pub(crate) struct LinkStateRow {
     pub channel_user_id: Option<String>,
     /// Sender's display name, set on channel-initiated codes.
     pub sender_name: Option<String>,
+    /// Where the provider's code is handed back to the app that started the
+    /// link, set on OAuth links the phone app starts (carnet#1580).
+    pub app_return_uri: Option<String>,
     /// When the code stops being consumable.
     pub expires_at: DateTime<Utc>,
     /// When the code was minted.
@@ -175,6 +211,7 @@ impl fmt::Debug for LinkStateRow {
                 "sender_name",
                 &self.sender_name.as_ref().map(|_| "[REDACTED]"),
             )
+            .field("app_return_uri", &self.app_return_uri)
             .field("expires_at", &self.expires_at)
             .field("created_at", &self.created_at)
             .finish()
@@ -194,6 +231,7 @@ impl LinkStateRow {
             "method": self.method,
             "channel_user_id": self.channel_user_id,
             "sender_name": self.sender_name,
+            "app_return_uri": self.app_return_uri,
             "expires_at": self.expires_at.to_rfc3339(),
             "created_at": self.created_at.to_rfc3339(),
         })
@@ -253,6 +291,7 @@ where
             .map_err(|e| AppError::database(format!("messaging_link_states used: {e}")))?,
         channel_user_id: opt("channel_user_id")?,
         sender_name: opt("sender_name")?,
+        app_return_uri: opt("app_return_uri")?,
         expires_at: at("expires_at")?,
         created_at: at("created_at")?,
     })
@@ -293,6 +332,7 @@ macro_rules! impl_link_state_functions {
                 .bind(params.method)
                 .bind(params.channel_user_id)
                 .bind(params.sender_name)
+                .bind(params.app_return_uri)
                 .bind(expires_at)
                 .bind(Utc::now())
                 .execute(pool)
@@ -441,6 +481,7 @@ mod tests {
             used: false,
             channel_user_id: Some("+15550007f3a".to_owned()),
             sender_name: Some("sentinel-sender-7f3a".to_owned()),
+            app_return_uri: None,
             expires_at: Utc::now(),
             created_at: Utc::now(),
         };

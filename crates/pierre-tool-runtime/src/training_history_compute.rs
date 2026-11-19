@@ -52,12 +52,14 @@ use pierre_runtime_context::DataContext;
 pub use pierre_services::training_history_read::TrainingHistoryRead;
 use pierre_services::training_history_read::{
     self as history_read, compute_states, first_vouched_day, load_stored_window,
-    resolve_compute_backends, series_coverage, user_timezone, validate_window, walk_across_pair,
-    walk_source, ComputeBackend, HistoryHandles, PairWalk,
+    resolve_compute_backends, series_coverage, user_timezone, validate_window, ComputeBackend,
+    HistoryHandles,
 };
 
 #[cfg(feature = "tools-data")]
 use crate::activity_backfill::history_walk::start_history_walk;
+use crate::activity_fetch::{history_ladder, SourceHistory};
+use crate::activity_query::Athlete;
 use crate::runtime::ToolRuntime;
 #[cfg(feature = "tools-data")]
 use crate::runtime::WalkTrigger;
@@ -453,16 +455,13 @@ impl WalkAsk {
 /// owed for the missing depth.
 ///
 /// One walk per connection: the history is every provider's, so the depth
-/// missing from it may sit behind any of them. Each walk is read for its
-/// source ([`walk_source`]), never the connection's own slug, under every
-/// key of the source's provider ([`walk_across_pair`]): a session's walk in
-/// its API phase keeps the session's key while the grant is its source. A
-/// source already walking is reported, with its progress, as
-/// [`Pending::HistoryWalkRunning`], as is one a purge left owed the reopen
-/// of its API phase; one whose walk reached the
-/// end of the history is not walked again: it holds all there is
-/// ([`start_history_walk`]). Any other, never walked or ended before its
-/// floor, is asked for a walk, and a started one is
+/// missing from it may sit behind any of them. Each is put to the one
+/// history ladder ([`history_ladder`]) with the open floor: the compute is
+/// athlete-wide, so no depth stops its ask. A source already walking is
+/// reported, with its progress, as [`Pending::HistoryWalkRunning`], as is one
+/// a purge left owed the reopen of its API phase; one whose walk reached the
+/// end of the history is not walked again: it holds all there is. Any other,
+/// never walked, is asked for a walk, and a started one is
 /// [`Pending::HistoryNotWalked`] until it records a step. A connection with
 /// no source to walk (uploads, a push) owes nothing.
 async fn request_walks<'a>(
@@ -471,42 +470,20 @@ async fn request_walks<'a>(
     user_id: Uuid,
     backends: impl Iterator<Item = &'a ComputeBackend>,
 ) -> WalkAsk {
-    let repos = resources.repos();
-    let mut running: Vec<JobProgress> = Vec::new();
+    let athlete = Athlete { user_id, tenant_id };
+    let mut running: Vec<Pending> = Vec::new();
     let mut started = false;
     // Uploads are not fetched from anywhere: no walk can deepen them.
     for backend in backends.filter(|backend| backend.capturable) {
-        let Some(source) = walk_source(repos, user_id, tenant_id, &backend.slug).await else {
-            continue;
-        };
-        match walk_across_pair(repos, user_id, tenant_id, &source.backend).await {
-            Ok(PairWalk::Owed { key } | PairWalk::Purged { key }) => {
-                match owed_walk_progress(repos, user_id, tenant_id, &key).await {
-                    Ok(progress) => running.push(progress),
-                    Err(e) => warn!(
-                        user_id = %user_id,
-                        backend = %source.backend,
-                        error = %e,
-                        "training history: the walk's progress could not be read"
-                    ),
-                }
-            }
-            Ok(PairWalk::Walked | PairWalk::WalkedThrough) => {}
-            Ok(PairWalk::Open) => {
-                started |= request_capture(resources, tenant_id, user_id, &backend.slug).await;
-            }
-            Err(e) => warn!(
-                user_id = %user_id,
-                backend = %source.backend,
-                error = %e,
-                "training history: the walk ledger could not be read"
-            ),
+        match history_ladder(resources, athlete, backend, None, true).await {
+            SourceHistory::Walking(pending) => running.push(pending),
+            SourceHistory::Asked => started = true,
+            SourceHistory::Covered | SourceHistory::Short => {}
         }
     }
     let pending = running
         .into_iter()
         .max_by_key(months_left)
-        .map(|progress| walk_running(&progress))
         .or_else(|| started.then_some(Pending::HistoryNotWalked));
     WalkAsk { pending, started }
 }
@@ -526,12 +503,10 @@ async fn owed_walk_progress(
         .unwrap_or_default())
 }
 
-/// The [`Pending`] of the history walk owed under `key`
-/// ([`history_walk_owed`](crate::activity_fetch::history_walk_owed)), from
-/// its recorded progress; a progress that cannot be read reads as nothing
-/// walked yet. It only reads: no walk is asked. Its one reader,
-/// `get_segment_history`, is a `tools-data` tool.
-#[cfg(feature = "tools-data")]
+/// The [`Pending`] of the history walk owed under `key`, from its recorded
+/// progress; a progress that cannot be read reads as nothing walked yet. It
+/// only reads: no walk is asked. The history ladder reads it
+/// ([`history_ladder`]), which the aggregator calls ungated.
 pub(crate) async fn owed_history_walk_pending(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
@@ -552,12 +527,17 @@ pub(crate) async fn owed_history_walk_pending(
     walk_running(&progress)
 }
 
-/// Months a walk has left, the longest when its floor is not known yet: the
-/// walk the window waits longest on is the one it reports.
-fn months_left(progress: &JobProgress) -> i64 {
-    progress
-        .units_total
-        .map_or(i64::MAX, |total| total.saturating_sub(progress.units_done))
+/// Months a running walk has left, the longest when its floor is not known
+/// yet: the walk the window waits longest on is the one it reports.
+pub(crate) fn months_left(pending: &Pending) -> i64 {
+    match *pending {
+        Pending::HistoryWalkRunning {
+            months_done,
+            months_total: Some(total),
+            ..
+        } => i64::from(total.saturating_sub(months_done)),
+        _ => i64::MAX,
+    }
 }
 
 /// A running walk's [`Pending`] from its recorded progress. Its
@@ -607,7 +587,7 @@ pub async fn history_walk_pending(
 /// is no walk to start and [`TrainingHistoryComputed::capture_requested`] is
 /// `false`, which is what happened: nothing was asked for.
 #[cfg(feature = "tools-data")]
-async fn request_capture(
+pub(crate) async fn request_capture(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
@@ -628,7 +608,7 @@ async fn request_capture(
 ///
 /// See the `tools-data` sibling above for why the module is not gated wholesale.
 #[cfg(not(feature = "tools-data"))]
-fn request_capture(
+pub(crate) fn request_capture(
     _resources: &Arc<dyn ToolRuntime>,
     _tenant_id: TenantId,
     _user_id: Uuid,

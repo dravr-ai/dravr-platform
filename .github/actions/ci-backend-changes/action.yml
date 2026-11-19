@@ -60,6 +60,7 @@ runs:
             - 'frontend/public/**'                        # a2a_public_door_test: the A2A card's icon file
             - 'sdk/**'                                    # pierre-server/build.rs builds it; tests/common.rs runs it
             - 'infra/environments/dev/*.tf'               # llm_test, oauth_launch_reaper_test, claim_verification_judge_error_test, key_material_alert_test
+            - 'infra/environments/dev/terraform.tfvars'   # mcp_resource.rs: nginx's challenge names MCP_RESOURCE_URL
             - 'commands/**'                               # the command catalogue the server loads
             - 'docker/images/frontend/nginx.conf'         # security_headers_edge_test
             - 'docker/images/frontend/security-headers.conf'

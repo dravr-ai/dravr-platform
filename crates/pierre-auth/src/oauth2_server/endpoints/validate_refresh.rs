@@ -7,7 +7,6 @@
 use chrono::Utc;
 use jsonwebtoken::dangerous::insecure_decode;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::permissions::scopes::OAuthScope;
 use secrecy::{ExposeSecret, SecretString};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -85,13 +84,14 @@ impl OAuth2AuthorizationServer {
 
     /// Whether the athlete withdrew the consent a delegated token rides on, as
     /// `/mcp` and A2A would refuse it. This route is not on the path of every
-    /// call, so it reads the grant itself.
+    /// call, so it reads the grant itself. A session ([`Claims::is_session`])
+    /// rides on no grant; a token an application holds does, however wide.
     async fn access_was_withdrawn(&self, user_id: Uuid, claims: &Claims) -> AppResult<bool> {
         let (Some(client_id), Some(tenant_id)) = (&claims.client_id, &claims.active_tenant_id)
         else {
             return Ok(false);
         };
-        if OAuthScope::is_self_grant(&OAuthScope::parse_granted(&claims.scope)) {
+        if claims.is_session() {
             return Ok(false);
         }
         let standing = self

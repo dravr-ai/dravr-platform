@@ -729,7 +729,7 @@ fi
 # in the push; a change to the gate or its generators also runs its self-test.
 if [[ -x "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh" ]] \
     && git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
-       | grep -qE '^crates/pierre-core/src/hosted_page\.css$|^crates/[^/]+/(templates|src)/.*\.html$|^packages/shared-constants/(src/(design-system|brands)\.ts|scripts/(generate-hosted-css|generate-client-css|wcag)\.ts)$|^frontend/public/brand/mark-ink-96\.png$|^frontend/src/(index|boreal-tokens\.generated)\.css$|^frontend-mobile/(global|boreal-tokens\.generated)\.css$|^scripts/ci/check-hosted-css(\.test)?\.sh$'; then
+       | grep -qE '^crates/pierre-core/src/hosted_page\.css$|^crates/[^/]+/(templates|src)/.*\.html$|^packages/shared-constants/(src/(design-system|brands|wcag)\.ts|scripts/(generate-hosted-css|generate-client-css)\.ts)$|^frontend/public/brand/mark-ink-96\.png$|^frontend/src/(index|boreal-tokens\.generated)\.css$|^frontend-mobile/(global|boreal-tokens\.generated)\.css$|^scripts/ci/check-hosted-css(\.test)?\.sh$'; then
     echo "Tier 1l: Generated Boreal stylesheets"
     echo "-------------------------------------"
     if ! "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh"; then
@@ -738,7 +738,7 @@ if [[ -x "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh" ]] \
         exit 1
     fi
     if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
-        | grep -qE '^packages/shared-constants/scripts/|^scripts/ci/check-hosted-css(\.test)?\.sh$'; then
+        | grep -qE '^packages/shared-constants/(scripts/|src/wcag\.ts$)|^scripts/ci/check-hosted-css(\.test)?\.sh$'; then
         if ! "$PROJECT_ROOT/scripts/ci/check-hosted-css.test.sh"; then
             echo ""
             echo "FAIL: the generated-stylesheet gate no longer catches what its self-test plants!"

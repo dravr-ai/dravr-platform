@@ -93,7 +93,7 @@ async fn build_context(guardian_registry: GuardianConfigRegistry) -> Arc<AdminAp
 }
 
 /// Cookie-style super-admin token, mirroring what `cookie_admin_middleware`
-/// synthesizes for every web admin (and what a super-admin bearer carries).
+/// synthesizes for every web admin (and what an admin bearer carries).
 fn super_admin_token() -> ValidatedAdminToken {
     ValidatedAdminToken {
         token_id: format!("cookie:{}", Uuid::new_v4()),
@@ -127,7 +127,7 @@ async fn body_json(resp: impl IntoResponse) -> (StatusCode, Value) {
     (status, serde_json::from_slice(&bytes).unwrap())
 }
 
-/// A super-admin who is a real account: a save is recorded against it.
+/// An admin who is a real account: a save is recorded against it.
 async fn super_admin_with_account(context: &AdminApiContext) -> ValidatedAdminToken {
     let (user_id, _) = common::create_test_user(&context.database).await.unwrap();
     ValidatedAdminToken {
@@ -205,7 +205,7 @@ async fn get_serves_defaults_with_wire_shape_the_clients_parse() {
 
     let resp = handle_get_guardian_config(State(context), Extension(super_admin_token()))
         .await
-        .expect("super-admin GET succeeds");
+        .expect("admin GET succeeds");
     let (status, json) = body_json(resp).await;
 
     assert_eq!(status, StatusCode::OK);
@@ -247,7 +247,7 @@ async fn put_persists_the_row_and_hot_installs_the_policy() {
         Ok(save(&document, None)),
     )
     .await
-    .expect("super-admin PUT succeeds");
+    .expect("admin PUT succeeds");
     let (status, json) = body_json(resp).await;
 
     assert_eq!(status, StatusCode::OK);
@@ -346,7 +346,7 @@ async fn plain_admin_is_denied_both_verbs() {
 // Compare-and-set
 // ============================================================================
 
-/// Two super admins read the same version. The second to save learns it is stale,
+/// Two admins read the same version. The second to save learns it is stale,
 /// rather than wiping the first one's edit.
 #[tokio::test]
 async fn a_stale_save_is_refused_and_the_winner_keeps_the_row() {
@@ -565,10 +565,10 @@ async fn a_tenant_scoped_token_holding_every_permission_is_refused_every_verb() 
     assert_eq!(stored_value(&context).await, None);
 }
 
-/// A console super-admin's synthesized token carries the active tenant. Refusing
+/// A console admin's synthesized token carries the active tenant. Refusing
 /// on `tenant_id` alone would lock the whole web console out of this tab.
 #[tokio::test]
-async fn a_console_super_admin_with_an_active_tenant_keeps_the_tab() {
+async fn a_console_admin_with_an_active_tenant_keeps_the_tab() {
     let context = build_context(GuardianConfigRegistry::bootstrap()).await;
     let console_session = ValidatedAdminToken {
         tenant_id: Some(Uuid::new_v4().to_string()),
@@ -617,7 +617,7 @@ async fn a_service_token_naming_no_account_can_save() {
 // Corrupt rows and foreign schemas
 // ============================================================================
 
-/// The recovery path: the row does not parse, and the super admin can still see that,
+/// The recovery path: the row does not parse, and the admin can still see that,
 /// see what is in force, and save over it with the row's own token.
 #[tokio::test]
 async fn a_corrupt_row_is_reported_and_can_be_saved_over() {
@@ -848,7 +848,26 @@ fn token_api(resources: &Arc<ServerContext>) -> axum::Router {
     AdminRoutes::routes(admin_context(resources))
 }
 
+/// A service token with the configuration permissions: bound to `tenant_id`,
+/// or, naming none, a super-admin one, which reaches every tenant as a global
+/// setting asks. A token bound to no tenant without the flag reaches none
+/// ([`unbound_token`]).
 async fn bearer_token(resources: &Arc<ServerContext>, tenant_id: Option<String>) -> Result<String> {
+    let is_super_admin = tenant_id.is_none();
+    mint_service_token(resources, tenant_id, is_super_admin).await
+}
+
+/// A service token bound to no tenant and without the super-admin flag, as
+/// a deployed service token is: it reaches no tenant.
+async fn unbound_token(resources: &Arc<ServerContext>) -> Result<String> {
+    mint_service_token(resources, None, false).await
+}
+
+async fn mint_service_token(
+    resources: &Arc<ServerContext>,
+    tenant_id: Option<String>,
+    is_super_admin: bool,
+) -> Result<String> {
     let request = CreateAdminTokenRequest {
         service_name: format!("guardian-test-{}", Uuid::new_v4()),
         service_description: None,
@@ -857,7 +876,7 @@ async fn bearer_token(resources: &Arc<ServerContext>, tenant_id: Option<String>)
             AdminPermission::ManageConfiguration,
         ]),
         expires_in_days: Some(1),
-        is_super_admin: false,
+        is_super_admin,
         tenant_id,
         operator_user_id: None,
     };
@@ -875,11 +894,13 @@ async fn bearer_token(resources: &Arc<ServerContext>, tenant_id: Option<String>)
 }
 
 /// A tenant-scoped token reaches none of the global settings through the mount
-/// `pierre-cli` uses, harness included, while a global token with the same
+/// `pierre-cli` uses, harness included, and neither does a token bound to no
+/// tenant without the super-admin flag, while a super-admin token with the same
 /// permissions does, so the refusal can only be the scope gate.
 #[tokio::test]
 #[serial]
-async fn the_token_mount_refuses_a_tenant_scoped_token_on_every_global_setting() -> Result<()> {
+async fn the_token_mount_refuses_a_token_short_of_every_tenant_on_every_global_setting(
+) -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (_, _, tenant_id) = common::create_test_user_with_plan(
         &resources.agent.database,
@@ -888,14 +909,17 @@ async fn the_token_mount_refuses_a_tenant_scoped_token_on_every_global_setting()
     )
     .await?;
     let scoped = bearer_token(&resources, Some(tenant_id.to_string())).await?;
+    let unbound = unbound_token(&resources).await?;
     let global = bearer_token(&resources, None).await?;
 
     for path in ["/admin/settings/guardian", "/admin/settings/harness"] {
-        let refused = AxumTestRequest::get(path)
-            .header("authorization", &scoped)
-            .send(token_api(&resources))
-            .await;
-        assert_eq!(refused.status(), 403, "{path} must refuse a scoped token");
+        for (refused, kind) in [(&scoped, "scoped"), (&unbound, "unbound")] {
+            let refused = AxumTestRequest::get(path)
+                .header("authorization", refused)
+                .send(token_api(&resources))
+                .await;
+            assert_eq!(refused.status(), 403, "{path} must refuse a {kind} token");
+        }
 
         let served = AxumTestRequest::get(path)
             .header("authorization", &global)
@@ -905,22 +929,24 @@ async fn the_token_mount_refuses_a_tenant_scoped_token_on_every_global_setting()
     }
 
     for path in ["/admin/settings/guardian", "/admin/settings/harness"] {
-        let refused = AxumTestRequest::put(path)
-            .header("authorization", &scoped)
-            .header("content-type", "application/json")
-            .json(&json!({
-                "schema_version": 2,
-                "compaction": {},
-                "guardrails": {},
-                "expected_updated_at": null,
-            }))
-            .send(token_api(&resources))
-            .await;
-        assert_ne!(
-            refused.status(),
-            200,
-            "{path} must not take a scoped token's write"
-        );
+        for (refused, kind) in [(&scoped, "scoped"), (&unbound, "unbound")] {
+            let refused = AxumTestRequest::put(path)
+                .header("authorization", refused)
+                .header("content-type", "application/json")
+                .json(&json!({
+                    "schema_version": 2,
+                    "compaction": {},
+                    "guardrails": {},
+                    "expected_updated_at": null,
+                }))
+                .send(token_api(&resources))
+                .await;
+            assert_eq!(
+                refused.status(),
+                403,
+                "{path} must not take a {kind} token's write"
+            );
+        }
     }
     assert!(resources
         .agent
@@ -943,6 +969,14 @@ async fn the_token_mount_saves_for_a_device_login_and_for_a_service_token() -> R
         "starter",
     )
     .await?;
+    // A device login acts as the admin who approved it, and is refused once
+    // that account is not one.
+    resources
+        .common
+        .repos
+        .users
+        .set_admin_status(admin_id, true)
+        .await?;
     let device_login = resources
         .common
         .repos
@@ -1156,7 +1190,7 @@ async fn the_token_mount_saves_end_to_end() -> Result<()> {
 }
 
 /// The web console's editor went with its routes: the policy has the one mount, and
-/// a super admin's session reaches nothing under the console's prefix.
+/// an admin's session reaches nothing under the console's prefix.
 #[tokio::test]
 #[serial]
 async fn the_console_serves_no_guardian_settings() -> Result<()> {
@@ -1167,8 +1201,7 @@ async fn the_console_serves_no_guardian_settings() -> Result<()> {
         "starter",
     )
     .await?;
-    user.is_admin = true;
-    user.role = UserRole::SuperAdmin;
+    user.role = UserRole::Admin;
     resources.common.repos.users.update(&user).await?;
     let session = format!(
         "Bearer {}",

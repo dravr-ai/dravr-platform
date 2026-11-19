@@ -9,7 +9,7 @@ import { StyleSheet, Text } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Check } from 'lucide-react-native';
-import { BOREAL_DARK, BOREAL_LIGHT } from '@pierre/shared-constants';
+import { BOREAL_DARK, BOREAL_LIGHT, contrastHex as contrast } from '@pierre/shared-constants';
 
 /** A rendered element, as the queries return it. */
 type ReactTestInstance = ReturnType<typeof screen.getByTestId>;
@@ -32,21 +32,6 @@ const LABEL = 'I understand the risk and accept it';
 const SCHEMES = ['light', 'dark'] as const;
 type Scheme = (typeof SCHEMES)[number];
 const TOKENS = { light: BOREAL_LIGHT, dark: BOREAL_DARK } as const;
-
-/** WCAG relative luminance of a `#rrggbb` colour. */
-function luminance(hex: string): number {
-  const value = hex.replace('#', '');
-  const channels = [0, 2, 4].map((offset) => {
-    const c = parseInt(value.slice(offset, offset + 2), 16) / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
-}
-
-function contrast(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
 
 /** Renders the resolved scheme, so a test can wait for storage to answer. */
 function SchemeProbe() {

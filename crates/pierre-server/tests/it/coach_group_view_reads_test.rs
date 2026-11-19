@@ -166,6 +166,49 @@ async fn an_athlete_the_gate_refuses_is_left_out_of_the_analytics_and_off_the_re
     );
 }
 
+/// A coach still attached whose coach access was withdrawn reads no member
+/// in the group views (carnet#1511): each member the first cut lets through
+/// is refused by the coach rule, left out and off the record, and read again
+/// once access is back.
+#[tokio::test]
+async fn a_coach_whose_access_is_off_reads_no_member_in_the_group_views() {
+    let f = fixture().await;
+    f.coach_manages_the_group().await;
+    f.repos()
+        .users
+        .set_manages_roster(f.coach.id, false)
+        .await
+        .unwrap();
+
+    for view in ["stats", "report", "health"] {
+        let body = f.analytics(view).await;
+        assert_eq!(
+            body["scope"]["visible_members"], 1,
+            "bug: the {view} view reads the athlete for a coach whose coach access is off: {body}"
+        );
+    }
+    #[cfg(feature = "tools-groups")]
+    assert!(
+        f.room_cards().await.is_empty(),
+        "bug: the coach's room turn reads a card while their coach access is off"
+    );
+    assert!(
+        f.recorded().await.is_empty(),
+        "bug: a refused read is not recorded"
+    );
+
+    f.repos()
+        .users
+        .set_manages_roster(f.coach.id, true)
+        .await
+        .unwrap();
+    let body = f.analytics("stats").await;
+    assert_eq!(
+        body["scope"]["visible_members"], 2,
+        "access is back: the athlete is read again: {body}"
+    );
+}
+
 #[cfg(feature = "tools-groups")]
 #[tokio::test]
 async fn the_room_cards_record_the_member_once_a_day() {

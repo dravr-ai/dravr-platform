@@ -45,6 +45,7 @@ use serde_json::Value;
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::agent_welcome::guided_walk_owns;
 use crate::envelope::{ActionKind, TurnAction};
 use crate::stages::command_persistence::actions_block;
 use crate::stages::onboarding::season_laid_out;
@@ -354,6 +355,37 @@ impl NextSteps {
         )
     }
 
+    /// These steps with the model's quick replies `model` first (carnet#1486):
+    /// what the athlete might say next leads, the catalogue's transitions
+    /// follow, and every slot is numbered again in the order shown.
+    #[must_use]
+    pub(crate) fn with_model_first(self, model: Vec<String>) -> Self {
+        if model.is_empty() {
+            return self;
+        }
+        let quick = model.into_iter().map(|text| Step {
+            label: text.clone(),
+            postback: Postback::QuickReply { position: 0, text },
+        });
+        let steps = quick
+            .chain(self.steps)
+            .enumerate()
+            .map(|(slot, mut step)| {
+                match &mut step.postback {
+                    Postback::QuickReply { position, .. } | Postback::NextStep { position, .. } => {
+                        *position = slot;
+                    }
+                    Postback::Example { .. }
+                    | Postback::UseCase { .. }
+                    | Postback::GettingStarted { .. }
+                    | Postback::TeamOffer { .. } => {}
+                }
+                step
+            })
+            .collect();
+        Self { steps, ..self }
+    }
+
     /// Whether there is nothing to offer.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -430,8 +462,32 @@ impl NextSteps {
 /// the athlete's first tapped workout analysis ([`TurnInput::steps_after`]),
 /// or the season the season walk offered, laid out on the turn after it.
 /// Never in a shared room, where one athlete's state would be read back to
-/// everyone; an ordinary coaching turn offers none.
+/// everyone.
+///
+/// The model's quick replies `model` (carnet#1486) lead whatever the turn
+/// offers, an ordinary coaching turn included — but never in a room, while a
+/// guided walk owns the thread (its next question is the athlete's next
+/// move), or on a reply other people read.
 pub(crate) async fn for_reply(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    profile: &SurfaceProfile,
+    conv: &ConversationRecord,
+    plan_was_saved: bool,
+    model: Vec<String>,
+) -> NextSteps {
+    let model = if !input.is_direct_message || conv.group_id.is_some() || guided_walk_owns(conv) {
+        Vec::new()
+    } else {
+        model
+    };
+    catalogue_steps(ctx, input, profile, conv, plan_was_saved)
+        .await
+        .with_model_first(model)
+}
+
+/// The catalogue's steps the reply to `input` offers ([`for_reply`]).
+async fn catalogue_steps(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
     profile: &SurfaceProfile,
@@ -937,5 +993,42 @@ mod tests {
         let one = steps(&[("season", "Season")]);
         assert!(one.stored_blocks(Some(r#"{"type":"line"}"#)).is_err());
         assert!(one.stored_blocks(Some("not json")).is_err());
+    }
+
+    #[test]
+    fn the_models_replies_lead_the_catalogue_and_three_fit() {
+        let offered = steps(&[("season", "Season"), ("fortnight", "Fortnight")])
+            .with_model_first(vec!["Easy spin".to_owned(), "Rest day".to_owned()]);
+        let values: Vec<String> = offered
+            .into_actions()
+            .into_iter()
+            .map(|action| action.value)
+            .collect();
+        assert_eq!(
+            values,
+            ["qr:0:Easy spin", "qr:1:Rest day", "nx:2:season"],
+            "bug: model replies first, then the catalogue, renumbered, at most three"
+        );
+    }
+
+    #[test]
+    fn beside_a_team_offer_one_model_reply_fits() {
+        let offered = steps(&[("check_in", "Check in")])
+            .with_model_first(vec!["Easy spin".to_owned()])
+            .with_team_offer(
+                Pillar::Fuelling,
+                "Add Fuel".to_owned(),
+                "Not now".to_owned(),
+            );
+        let values: Vec<String> = offered
+            .into_actions()
+            .into_iter()
+            .map(|action| action.value)
+            .collect();
+        assert_eq!(
+            values,
+            ["qr:0:Easy spin", "ta:add:fuelling", "ta:no:fuelling"],
+            "bug: beside a team offer one step fits, the model's first"
+        );
     }
 }

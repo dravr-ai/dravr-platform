@@ -17,11 +17,12 @@
 //! For the group's human coach that rule is the cheap first cut, from the
 //! membership rows alone. Each member it lets through is then asked the one
 //! answer every coach read of a coached athlete asks,
-//! [`read_subject::coached_read`] (training class): the coach attachment, a
-//! live membership, the member's `coach_sharing_consent` and one home tenant
-//! (carnet#1425). A member it refuses is left out of the view and nothing of
-//! theirs is read. Each read it lets through goes on the member's own record
-//! before their training is read, at most once a UTC day per view
+//! [`read_subject::coached_read`] (training class): the coach rule (coach
+//! access and the attachment), a live membership, the member's
+//! `coach_sharing_consent` and one home tenant (carnet#1425). A member it
+//! refuses is left out of the view and nothing of theirs is read. Each read
+//! it lets through goes on the member's own record before their training is
+//! read, at most once a UTC day per view
 //! ([`read_subject::record_daily_coach_read`], carnet#1445), and their
 //! training is read under their home tenant, as the coach's other reads of
 //! them are.

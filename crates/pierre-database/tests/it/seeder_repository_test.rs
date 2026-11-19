@@ -19,6 +19,7 @@ use pierre_core::models::mobility::{
     DifficultyLevel, StretchingCategory, StretchingExercise, YogaCategory, YogaPose, YogaPoseType,
 };
 use pierre_core::models::{ApiKey, ApiKeyTier, Tenant, TenantId, User};
+use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::SeedTable;
 use pierre_database::seed_models::{
@@ -189,7 +190,7 @@ fn seed_demo_user(status: &str) -> SeedDemoUser {
         password_hash: "argon2-hash-placeholder".to_owned(),
         tier: "starter".to_owned(),
         status: status.to_owned(),
-        is_admin: false,
+        role: UserRole::User,
         locale: "en".to_owned(),
         created_at: Utc::now(),
     }

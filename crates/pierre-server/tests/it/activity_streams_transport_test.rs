@@ -63,6 +63,8 @@ fn samples() -> TimeSeriesData {
             None,
         ]),
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 

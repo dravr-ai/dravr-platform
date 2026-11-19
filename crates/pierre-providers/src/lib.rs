@@ -51,6 +51,8 @@ pub mod owner_id;
 pub mod originals;
 /// Which precedence source a stored row is
 pub mod precedence;
+/// A provider's own zones, gear, records, best efforts and weight: the refusal of a provider with none
+pub mod provider_context;
 /// What each provider's terms allow for its data: AI and transport policies
 pub mod provider_terms;
 /// Global provider registry and factory

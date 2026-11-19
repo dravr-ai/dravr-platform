@@ -80,6 +80,7 @@ impl EmbacleLlmProvider for Counted {
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, RunnerError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(ChatResponse {
+            replay_blocks: None,
             content: self.answer.to_owned(),
             model: self.models[0].clone(),
             usage: None,

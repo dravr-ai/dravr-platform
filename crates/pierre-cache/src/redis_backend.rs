@@ -5,11 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::fmt;
+use std::future::Future;
 use std::sync::LazyLock;
 use std::time::Duration;
 
 use redis::aio::{ConnectionManager, ConnectionManagerConfig};
-use redis::{AsyncCommands, Script};
+use redis::{AsyncCommands, RedisError, RedisResult, Script};
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_slice, to_vec};
@@ -60,6 +61,102 @@ return 0
 ",
     )
 });
+
+/// Whether `e` means the connection under the command was dropped: a reset,
+/// a broken pipe or an EOF mid-reply.
+///
+/// That is the one failure a single retry can fix. `ConnectionManager` swaps a
+/// fresh connection in as it returns the error, so the next command runs on a
+/// new socket. A refused connection, a timeout or a server error reply is left
+/// out: against a dead server a retry would only wait through the reconnect
+/// backoff to return the same error.
+fn is_stale_connection(e: &RedisError) -> bool {
+    e.is_connection_dropped()
+}
+
+/// How one Redis command fared across its attempts.
+#[derive(Debug)]
+enum Attempts<T> {
+    /// The first attempt answered.
+    Answered(T),
+    /// The first attempt lost its connection and the retry answered.
+    Recovered {
+        /// The retry's answer.
+        value: T,
+        /// The dropped-connection error of the first attempt.
+        first: RedisError,
+    },
+    /// The first attempt failed with something a retry cannot fix.
+    Failed(RedisError),
+    /// The first attempt lost its connection and the retry failed too.
+    FailedAfterRetry {
+        /// The dropped-connection error of the first attempt.
+        first: RedisError,
+        /// The retry's error, the one callers see.
+        second: RedisError,
+    },
+}
+
+/// Runs one Redis command, and runs it once more if the first attempt lost its
+/// connection.
+///
+/// An idle connection can go stale on the network path, and the first command
+/// written on it then fails with a reset or a broken pipe. Retrying lands on
+/// the connection the manager reconnected. `f` builds the command afresh on
+/// every call.
+async fn attempt<T, F, Fut>(mut f: F) -> Attempts<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = RedisResult<T>>,
+{
+    match f().await {
+        Ok(value) => Attempts::Answered(value),
+        Err(first) if is_stale_connection(&first) => match f().await {
+            Ok(value) => Attempts::Recovered { value, first },
+            Err(second) => Attempts::FailedAfterRetry { first, second },
+        },
+        Err(e) => Attempts::Failed(e),
+    }
+}
+
+/// Runs one Redis command through [`attempt`] and logs how it fared: a
+/// recovered command at WARN, a failed one at ERROR. `op` names the command
+/// in the log, as in `Redis {op} failed`.
+///
+/// # Errors
+///
+/// Returns `AppError::internal` when the command fails with anything but a
+/// dropped connection, or fails again after the retry.
+async fn retry_once<T, F, Fut>(op: &'static str, f: F) -> AppResult<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = RedisResult<T>>,
+{
+    match attempt(f).await {
+        Attempts::Answered(value) => Ok(value),
+        Attempts::Recovered { value, first } => {
+            warn!(
+                op,
+                error = %first,
+                "Redis connection was dropped; command succeeded on the reconnected connection"
+            );
+            Ok(value)
+        }
+        Attempts::Failed(e) => {
+            error!("Redis {op} failed: {e}");
+            Err(cache_error(&e))
+        }
+        Attempts::FailedAfterRetry { first, second } => {
+            error!("Redis {op} failed after reconnect: {second} (first attempt: {first})");
+            Err(cache_error(&second))
+        }
+    }
+}
+
+/// The cache error callers see for a failed command.
+fn cache_error(e: &RedisError) -> AppError {
+    AppError::internal(format!("Cache error: {e}"))
+}
 
 /// Redis cache implementation with connection pooling
 ///
@@ -209,27 +306,23 @@ impl CacheProvider for RedisCache {
         let redis_key = Self::build_key(key);
         let ttl_secs = ttl.as_secs();
 
-        let mut conn = self.manager.clone();
-
         // Use SETEX to set value with expiration in one atomic operation
-        conn.set_ex::<_, _, ()>(&redis_key, serialized, ttl_secs)
-            .await
-            .map_err(|e| {
-                error!("Redis SET operation failed: {}", e);
-                AppError::internal(format!("Cache error: {e}"))
-            })?;
-
-        Ok(())
+        retry_once("SET operation", || {
+            let mut conn = self.manager.clone();
+            let (key, value) = (&redis_key, serialized.as_slice());
+            async move { conn.set_ex::<_, _, ()>(key, value, ttl_secs).await }
+        })
+        .await
     }
 
     async fn get<T: for<'de> Deserialize<'de>>(&self, key: &CacheKey) -> AppResult<Option<T>> {
         let redis_key = Self::build_key(key);
-        let mut conn = self.manager.clone();
-
-        let data: Option<Vec<u8>> = conn.get(&redis_key).await.map_err(|e| {
-            error!("Redis GET operation failed: {}", e);
-            AppError::internal(format!("Cache error: {e}"))
-        })?;
+        let data: Option<Vec<u8>> = retry_once("GET operation", || {
+            let mut conn = self.manager.clone();
+            let key = &redis_key;
+            async move { conn.get(key).await }
+        })
+        .await?;
 
         match data {
             Some(bytes) => {
@@ -244,45 +337,48 @@ impl CacheProvider for RedisCache {
 
     async fn invalidate(&self, key: &CacheKey) -> AppResult<()> {
         let redis_key = Self::build_key(key);
-        let mut conn = self.manager.clone();
-
-        let _: () = conn.del(&redis_key).await.map_err(|e| {
-            error!("Redis DEL operation failed: {}", e);
-            AppError::internal(format!("Cache error: {e}"))
-        })?;
-
-        Ok(())
+        retry_once("DEL operation", || {
+            let mut conn = self.manager.clone();
+            let key = &redis_key;
+            async move { conn.del::<_, ()>(key).await }
+        })
+        .await
     }
 
     async fn invalidate_pattern(&self, pattern: &str) -> AppResult<u64> {
         // Convert glob pattern to Redis pattern (glob and Redis use same wildcard syntax)
         let redis_pattern = format!("{CACHE_KEY_PREFIX}{pattern}");
 
-        let mut conn = self.manager.clone();
         let mut count = 0u64;
 
-        // Use SCAN to iterate through keys matching pattern (cursor-based, safe for large datasets)
+        // Use SCAN to iterate through keys matching pattern (cursor-based, safe for large datasets).
+        // Each SCAN and DEL step is retried on its own; a cursor stays valid across connections.
         let mut cursor = 0u64;
         loop {
-            let (new_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
-                .arg(cursor)
-                .arg("MATCH")
-                .arg(&redis_pattern)
-                .arg("COUNT")
-                .arg(100) // Scan 100 keys per iteration
-                .query_async(&mut conn)
-                .await
-                .map_err(|e| {
-                    error!("Redis SCAN failed: {}", e);
-                    AppError::internal(format!("Cache error: {e}"))
-                })?;
+            let (new_cursor, keys): (u64, Vec<String>) = retry_once("SCAN", || {
+                let mut conn = self.manager.clone();
+                let pattern = &redis_pattern;
+                async move {
+                    redis::cmd("SCAN")
+                        .arg(cursor)
+                        .arg("MATCH")
+                        .arg(pattern)
+                        .arg("COUNT")
+                        .arg(100) // Scan 100 keys per iteration
+                        .query_async(&mut conn)
+                        .await
+                }
+            })
+            .await?;
 
             // Delete matching keys in pipeline for efficiency
             if !keys.is_empty() {
-                let deleted: u64 = conn.del(&keys).await.map_err(|e| {
-                    error!("Redis DEL failed: {}", e);
-                    AppError::internal(format!("Cache error: {e}"))
-                })?;
+                let deleted: u64 = retry_once("DEL", || {
+                    let mut conn = self.manager.clone();
+                    let batch = &keys;
+                    async move { conn.del(batch).await }
+                })
+                .await?;
                 count += deleted;
             }
 
@@ -297,24 +393,22 @@ impl CacheProvider for RedisCache {
 
     async fn exists(&self, key: &CacheKey) -> AppResult<bool> {
         let redis_key = Self::build_key(key);
-        let mut conn = self.manager.clone();
-
-        let exists: bool = conn.exists(&redis_key).await.map_err(|e| {
-            error!("Redis EXISTS operation failed: {}", e);
-            AppError::internal(format!("Cache error: {e}"))
-        })?;
-
-        Ok(exists)
+        retry_once("EXISTS operation", || {
+            let mut conn = self.manager.clone();
+            let key = &redis_key;
+            async move { conn.exists(key).await }
+        })
+        .await
     }
 
     async fn ttl(&self, key: &CacheKey) -> AppResult<Option<Duration>> {
         let redis_key = Self::build_key(key);
-        let mut conn = self.manager.clone();
-
-        let ttl_secs: i64 = conn.ttl(&redis_key).await.map_err(|e| {
-            error!("Redis TTL operation failed: {}", e);
-            AppError::internal(format!("Cache error: {e}"))
-        })?;
+        let ttl_secs: i64 = retry_once("TTL operation", || {
+            let mut conn = self.manager.clone();
+            let key = &redis_key;
+            async move { conn.ttl(key).await }
+        })
+        .await?;
 
         // Redis returns -2 if key doesn't exist, -1 if key has no expiration
         match ttl_secs {
@@ -325,21 +419,31 @@ impl CacheProvider for RedisCache {
         }
     }
 
+    /// Counts one hit through `COUNT_IN_WINDOW`, retried once on a dropped
+    /// connection.
+    ///
+    /// The retry can count a hit at most once too many. A dropped connection
+    /// does not say whether the server ran the script before the socket died:
+    /// if it did, the retry counts the hit a second time. One extra hit in one
+    /// rate window is cheaper than the alternative, where the caller falls back
+    /// to a window kept by this process alone.
     async fn count_in_window(&self, key: &CacheKey, window: Duration) -> AppResult<WindowCount> {
         let redis_key = Self::build_key(key);
         // PEXPIRE with 0 deletes the key outright, so a window is at least 1 ms.
         let window_ms = u64::try_from(window.as_millis()).unwrap_or(u64::MAX).max(1);
-        let mut conn = self.manager.clone();
 
-        let (hits, remaining_ms): (u64, i64) = COUNT_IN_WINDOW
-            .key(&redis_key)
-            .arg(window_ms)
-            .invoke_async(&mut conn)
-            .await
-            .map_err(|e| {
-                error!("Redis window count failed: {}", e);
-                AppError::internal(format!("Cache error: {e}"))
-            })?;
+        let (hits, remaining_ms): (u64, i64) = retry_once("window count", || {
+            let mut conn = self.manager.clone();
+            let key = &redis_key;
+            async move {
+                COUNT_IN_WINDOW
+                    .key(key)
+                    .arg(window_ms)
+                    .invoke_async(&mut conn)
+                    .await
+            }
+        })
+        .await?;
 
         Ok(WindowCount {
             hits,
@@ -347,32 +451,31 @@ impl CacheProvider for RedisCache {
         })
     }
 
+    /// Takes one hit back through `UNCOUNT_IN_WINDOW`, retried once on a
+    /// dropped connection.
+    ///
+    /// As with `count_in_window`, the server may already have run the script
+    /// when the connection dropped, so the retry can take back a second hit;
+    /// the script never goes below zero.
     async fn uncount_in_window(&self, key: &CacheKey) -> AppResult<()> {
         let redis_key = Self::build_key(key);
-        let mut conn = self.manager.clone();
 
-        let _: i64 = UNCOUNT_IN_WINDOW
-            .key(&redis_key)
-            .invoke_async(&mut conn)
-            .await
-            .map_err(|e| {
-                error!("Redis window uncount failed: {}", e);
-                AppError::internal(format!("Cache error: {e}"))
-            })?;
+        let _: i64 = retry_once("window uncount", || {
+            let mut conn = self.manager.clone();
+            let key = &redis_key;
+            async move { UNCOUNT_IN_WINDOW.key(key).invoke_async(&mut conn).await }
+        })
+        .await?;
         Ok(())
     }
 
     async fn health_check(&self) -> AppResult<()> {
-        let mut conn = self.manager.clone();
-
         // Use PING to verify Redis connection is healthy
-        let response: String = redis::cmd("PING")
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| {
-                error!("Redis PING failed: {}", e);
-                AppError::internal(format!("Cache error: {e}"))
-            })?;
+        let response: String = retry_once("PING", || {
+            let mut conn = self.manager.clone();
+            async move { redis::cmd("PING").query_async(&mut conn).await }
+        })
+        .await?;
 
         (response == "PONG").ok_or_else(|| {
             AppError::internal(format!(
@@ -385,28 +488,33 @@ impl CacheProvider for RedisCache {
         // Clear only keys with our namespace prefix (safe for shared Redis instances)
         let pattern = format!("{CACHE_KEY_PREFIX}*");
 
-        let mut conn = self.manager.clone();
         let mut cursor = 0u64;
 
         loop {
-            let (new_cursor, keys): (u64, Vec<String>) = redis::cmd("SCAN")
-                .arg(cursor)
-                .arg("MATCH")
-                .arg(&pattern)
-                .arg("COUNT")
-                .arg(100)
-                .query_async(&mut conn)
-                .await
-                .map_err(|e| {
-                    error!("Redis SCAN failed during clear_all: {}", e);
-                    AppError::internal(format!("Cache error: {e}"))
-                })?;
+            let (new_cursor, keys): (u64, Vec<String>) =
+                retry_once("SCAN during clear_all", || {
+                    let mut conn = self.manager.clone();
+                    let pattern = &pattern;
+                    async move {
+                        redis::cmd("SCAN")
+                            .arg(cursor)
+                            .arg("MATCH")
+                            .arg(pattern)
+                            .arg("COUNT")
+                            .arg(100)
+                            .query_async(&mut conn)
+                            .await
+                    }
+                })
+                .await?;
 
             if !keys.is_empty() {
-                let _: u64 = conn.del(&keys).await.map_err(|e| {
-                    error!("Redis DEL failed during clear_all: {}", e);
-                    AppError::internal(format!("Cache error: {e}"))
-                })?;
+                let _: u64 = retry_once("DEL during clear_all", || {
+                    let mut conn = self.manager.clone();
+                    let batch = &keys;
+                    async move { conn.del(batch).await }
+                })
+                .await?;
             }
 
             cursor = new_cursor;
@@ -421,7 +529,133 @@ impl CacheProvider for RedisCache {
 
 #[cfg(test)]
 mod tests {
+    use std::future;
+    use std::io;
+
+    use redis::ErrorKind;
+
     use super::*;
+
+    fn io_error(kind: io::ErrorKind) -> RedisError {
+        RedisError::from(io::Error::from(kind))
+    }
+
+    #[test]
+    fn a_reset_a_broken_pipe_and_an_eof_are_dropped_connections() {
+        for kind in [
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::BrokenPipe,
+            io::ErrorKind::UnexpectedEof,
+        ] {
+            assert!(
+                is_stale_connection(&io_error(kind)),
+                "bug: {kind:?} is a dropped connection a retry can fix"
+            );
+        }
+    }
+
+    #[test]
+    fn a_refusal_a_timeout_and_a_server_error_are_not_dropped_connections() {
+        assert!(
+            !is_stale_connection(&io_error(io::ErrorKind::ConnectionRefused)),
+            "bug: a refused connection is a dead server, not a stale socket"
+        );
+        assert!(
+            !is_stale_connection(&io_error(io::ErrorKind::TimedOut)),
+            "bug: a timeout is not a dropped connection"
+        );
+        assert!(
+            !is_stale_connection(&RedisError::from((ErrorKind::TypeError, "x"))),
+            "bug: a server error reply is not a dropped connection"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_dropped_connection_is_retried_once_and_the_retry_wins() {
+        let mut calls = 0;
+        let result = retry_once("GET operation", || {
+            calls += 1;
+            future::ready(if calls == 1 {
+                Err(io_error(io::ErrorKind::ConnectionReset))
+            } else {
+                Ok(7_u64)
+            })
+        })
+        .await;
+
+        assert_eq!(result.ok(), Some(7), "bug: the retry's value is returned");
+        assert_eq!(calls, 2, "bug: a dropped connection is retried once");
+    }
+
+    #[tokio::test]
+    async fn a_connection_dropped_twice_fails_after_exactly_one_retry() {
+        let mut calls = 0;
+        let result: AppResult<u64> = retry_once("GET operation", || {
+            calls += 1;
+            future::ready(Err(io_error(io::ErrorKind::BrokenPipe)))
+        })
+        .await;
+
+        let message = result.err().map_or_default(|e| e.to_string());
+        assert!(
+            message.contains("Cache error"),
+            "bug: a second dropped connection fails as a cache error: {message}"
+        );
+        assert_eq!(
+            calls, 2,
+            "bug: a dropped connection is retried exactly once"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_error_that_is_not_a_dropped_connection_is_not_retried() {
+        let mut calls = 0;
+        let result: AppResult<u64> = retry_once("GET operation", || {
+            calls += 1;
+            future::ready(Err(io_error(io::ErrorKind::ConnectionRefused)))
+        })
+        .await;
+
+        assert!(
+            result.is_err(),
+            "bug: a refused connection fails the command"
+        );
+        assert_eq!(calls, 1, "bug: only a dropped connection is retried");
+    }
+
+    /// The attempts of a command that answers in turn from `answers`.
+    async fn attempts_for(answers: Vec<RedisResult<u64>>) -> Attempts<u64> {
+        let mut answers = answers.into_iter();
+        attempt(|| future::ready(answers.next().unwrap_or(Ok(0)))).await
+    }
+
+    /// carnet#1591: what `retry_once` logs follows from these outcomes — a
+    /// recovered command at WARN, a failed one at ERROR, an answer at once
+    /// not at all — so each outcome must be told apart exactly.
+    #[tokio::test]
+    async fn each_outcome_of_a_command_is_told_apart() {
+        let reset = || Err(io_error(io::ErrorKind::ConnectionReset));
+        let recovered = attempts_for(vec![reset(), Ok(1)]).await;
+        assert!(
+            matches!(recovered, Attempts::Recovered { value: 1, ref first } if first.is_connection_dropped()),
+            "bug: a command the retry rescued is Recovered, with the dropped first attempt: {recovered:?}"
+        );
+        let failed_again = attempts_for(vec![reset(), reset()]).await;
+        assert!(
+            matches!(failed_again, Attempts::FailedAfterRetry { .. }),
+            "bug: a command that fails after the retry is FailedAfterRetry: {failed_again:?}"
+        );
+        let refused = attempts_for(vec![Err(io_error(io::ErrorKind::ConnectionRefused))]).await;
+        assert!(
+            matches!(refused, Attempts::Failed(_)),
+            "bug: a refused connection fails without a retry: {refused:?}"
+        );
+        let answered = attempts_for(vec![Ok(1)]).await;
+        assert!(
+            matches!(answered, Attempts::Answered(1)),
+            "bug: a command that answers at once is Answered: {answered:?}"
+        );
+    }
 
     #[test]
     fn backoff_growth_is_the_configured_factor_not_the_library_default() {

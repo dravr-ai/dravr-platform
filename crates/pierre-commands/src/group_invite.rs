@@ -168,6 +168,12 @@ impl CommandHandler for GroupInviteHandler {
         issue_group_invite(ctx, kind, named).await
     }
 
+    /// An invite code is redeemed later, by someone else, and adds them to the
+    /// group: a member who reads its members, or a coach who reads them all.
+    fn outlives_support_session(&self, _: &[String]) -> bool {
+        true
+    }
+
     /// Acts on the conversation's group, so the caller's role *there* decides.
     /// The form that names its group is a button's postback, not a command
     /// anyone types, so `/help` keeps listing by the conversation's group.

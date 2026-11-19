@@ -28,7 +28,7 @@ use uuid::Uuid;
 use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::wire::{LoginMethod, LoginOutcome, LOGIN_CHALLENGE};
 use pierre_providers::sciotte_error::{
-    is_login_cancelled, is_login_challenge, shed_retry_after_secs, to_app_error,
+    is_login_cancelled, is_login_challenge, is_login_flow_lost, shed_retry_after_secs, to_app_error,
 };
 
 #[cfg(feature = "health-sync")]
@@ -253,13 +253,52 @@ pub async fn require_remote_flow(
             "Sciotte continuation has no live flow for this caller — refusing before any \
              call to the service"
         );
-        let mut refusal = AppError::invalid_input(NO_PENDING_LOGIN_MESSAGE);
-        refusal.details = Some(Box::new(
-            serde_json::json!({ "reason": LOGIN_FLOW_EXPIRED_REASON }),
-        ));
-        return Err(refusal);
+        return Err(login_flow_expired());
     };
     Ok((flow.flow_id, flow.provider))
+}
+
+/// The refusal of a code step whose sign-in is no longer live: the platform
+/// holds no flow for the caller, or the service no longer holds the browser
+/// the flow named. Both login UIs send the athlete back to the credential
+/// screen on [`LOGIN_FLOW_EXPIRED_REASON`].
+fn login_flow_expired() -> AppError {
+    let mut refusal = AppError::invalid_input(NO_PENDING_LOGIN_MESSAGE);
+    refusal.details = Some(Box::new(
+        serde_json::json!({ "reason": LOGIN_FLOW_EXPIRED_REASON }),
+    ));
+    refusal
+}
+
+/// The answer to a code step the service failed: a lapsed sign-in when the
+/// service no longer holds its browser, and otherwise the system-failure path.
+///
+/// The sign-in service scales to zero between sign-ins, so the instance that
+/// parked a browser can be gone by the time the athlete types the code
+/// (carnet#1504). That is a sign-in to start again, not an operator alert. A
+/// shed keeps the flow for the retry its `Retry-After` invites; every other
+/// failure ends the attempt, and both login UIs send the athlete back to the
+/// credential screen, so the flow is forgotten and the next login does not
+/// inherit an id the service reaps.
+async fn continuation_failure(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    provider: &str,
+    step: &str,
+    error: &AppError,
+) -> Result<Response, AppError> {
+    if is_login_flow_lost(error) {
+        forget_remote_flow(&resources.cache, tenant_id, user_id).await;
+        return Err(login_flow_expired());
+    }
+    match login_failure_response(user_id, tenant_id, provider, step, error) {
+        Ok(shed) => Ok(shed),
+        Err(failure) => {
+            forget_remote_flow(&resources.cache, tenant_id, user_id).await;
+            Err(failure)
+        }
+    }
 }
 
 /// Drop the user's remembered remote flow state (the attempt is over, whether
@@ -349,15 +388,14 @@ fn notify_sciotte_connected(user_id: Uuid, tenant_id: Uuid, backend: &str) {
 
 /// Store a successful sciotte session in Pierre's encrypted DB and register the connection.
 /// After storing, raises `provider.connected`, warms the account's data from
-/// the session (see [`warm_from_session`]) and answers `connected` with the
-/// grant authorization it goes on to ([`connected_response`]).
-async fn store_sciotte_session(
+/// the session (see [`warm_from_session`]) and answers `connected`
+/// ([`connected_response`]).
+pub(crate) async fn store_sciotte_session(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
     session: &AuthSession,
     provider_name: &str,
-    link: Option<&LinkContext>,
 ) -> Result<Response, AppError> {
     let stored = persist_sciotte_session(
         &resources.repos,
@@ -387,7 +425,7 @@ async fn store_sciotte_session(
         provider_name,
     );
 
-    Ok(connected_response(resources, user_id, tenant_id, provider_name, link, false).await)
+    Ok(connected_response(provider_name, false))
 }
 
 /// Start what a freshly stored session owes the account: an activity
@@ -623,18 +661,36 @@ async fn store_signed_in(
         .export_session(session_id)
         .await
         .map_err(to_app_error)?;
+    if !resources
+        .provider_registry
+        .sciotte_sign_in_copy_serves_reads(session_id)
+    {
+        drop_signed_in_copy(remote, session_id, user_id).await;
+    }
     if let Some(link) = link_context {
         emit_provider_linked_webhook(user_id, tenant_id, provider_name, link);
     }
-    store_sciotte_session(
-        resources,
-        user_id,
-        tenant_id,
-        &session,
-        provider_name,
-        link_context,
-    )
-    .await
+    store_sciotte_session(resources, user_id, tenant_id, &session, provider_name).await
+}
+
+/// Drop the session the sign-in's service still holds once the platform has
+/// its copy, when no read of the session meets that copy.
+///
+/// Reads import the stored session on the read service the session's id
+/// picks, so a copy on a sign-in service of its own, or on a read service the
+/// session does not name, would only linger there, provider cookies included,
+/// until its idle lifetime ran out (carnet#1504). When the sign-in ran on the
+/// read service the session names, the copy is the one the next reads use, so
+/// it stays. A failed drop is logged and never fails the sign-in: the copy
+/// still lapses with the idle lifetime.
+async fn drop_signed_in_copy(remote: &SciotteClient, session_id: &str, user_id: Uuid) {
+    if let Err(e) = remote.delete_session(session_id).await {
+        warn!(
+            %user_id,
+            error = %e,
+            "Could not drop the signed-in session from the sign-in service; it lapses with its idle lifetime"
+        );
+    }
 }
 
 /// Log + alert a sciotte login *system* failure and build the user-facing error.
@@ -842,7 +898,7 @@ fn shed_response(provider: &str, retry_after_secs: u64) -> Response {
 /// rather than copy, so no surface can skip it. An account that already
 /// accepted this notice version is not asked again, including on a reconnect
 /// after a disconnect.
-async fn require_provider_terms(
+pub(crate) async fn require_provider_terms(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
@@ -866,7 +922,8 @@ pub(crate) async fn handle_sciotte_login(
     headers: HeaderMap,
     Json(request): Json<SciotteLoginRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id, link_context) =
+        authenticate(&resources, &headers, Some("sign in to a provider")).await?;
     let attempt = StepAttempt::of_step(tenant_id, user_id, request.attempt_id.as_deref())?;
     refuse_cancelled_attempt(&resources.cache, attempt.as_ref()).await?;
 
@@ -921,21 +978,21 @@ pub(crate) async fn handle_sciotte_login(
     // provider), so no other athlete's session or connection can seed it.
     let prior_session = match stored_session_use(&resources, user_id, tenant_id, provider).await? {
         StoredSessionUse::Reused => {
-            let link = link_context.as_ref();
-            let reused = connected_response(&resources, user_id, tenant_id, provider, link, true);
-            return Ok(reused.await);
+            return Ok(connected_response(provider, true));
         }
         StoredSessionUse::SignIn { prior_session } => prior_session,
     };
 
-    // ADR-021: the login runs on the dedicated dravr-sciotte service (there is
-    // no in-process fallback since the Phase 4 cutover). The service owns the
-    // Chrome budget and the interactive 2FA parking; the platform stays
+    // ADR-021: the login runs on the dedicated dravr-sciotte sign-in service
+    // (there is no in-process fallback since the Phase 4 cutover), apart from
+    // the read service because the parked browser lives in one instance's
+    // memory (carnet#1504). The service owns the Chrome budget and the
+    // interactive 2FA parking; the platform stays
     // session-of-record (it exports + persists the session, keyed by flow_id).
     // A transport/service fault (not a credential rejection, which comes back
     // as `Failed`, nor a load-shed, which comes back as retryable backpressure)
     // is a *system* failure: alert operators + emit `sync.failed`.
-    let remote = resources.provider_registry.require_sciotte_client()?;
+    let remote = resources.provider_registry.require_sciotte_login_client()?;
     info!(
         user_id = %user_id,
         target = %target,
@@ -991,7 +1048,12 @@ pub(crate) async fn handle_sciotte_select_2fa(
     headers: HeaderMap,
     Json(request): Json<SciotteSelectTwoFactorRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id, link_context) = authenticate(
+        &resources,
+        &headers,
+        Some("choose a provider sign-in's second factor"),
+    )
+    .await?;
     let attempt = StepAttempt::of_step(tenant_id, user_id, request.attempt_id.as_deref())?;
     refuse_cancelled_attempt(&resources.cache, attempt.as_ref()).await?;
 
@@ -1000,7 +1062,7 @@ pub(crate) async fn handle_sciotte_select_2fa(
     // that browser to this caller (see `require_remote_flow`). The remembered
     // provider names the platform for a *system* failure alert.
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
-    let remote = resources.provider_registry.require_sciotte_client()?;
+    let remote = resources.provider_registry.require_sciotte_login_client()?;
     info!(user_id = %user_id, option = %request.option_id, "Selecting sciotte 2FA method (remote service)");
     let result = remote
         .select_2fa_keyed(
@@ -1013,25 +1075,15 @@ pub(crate) async fn handle_sciotte_select_2fa(
     let outcome = match result {
         Ok(outcome) => outcome,
         Err(e) => {
-            return match login_failure_response(
+            return continuation_failure(
+                &resources,
                 user_id,
                 tenant_id,
                 &provider,
                 "two_factor",
                 &to_app_error(e),
-            ) {
-                // A shed never reached the parked browser, so the flow is still
-                // there for the retry the `Retry-After` invites — keep it.
-                Ok(shed) => Ok(shed),
-                // Both login UIs send the user back to the credential screen
-                // from their error phase, so a system failure or a provider
-                // challenge ends the attempt: dropping the entry stops the next
-                // login from inheriting an id the service reaps.
-                Err(failure) => {
-                    forget_remote_flow(&resources.cache, tenant_id, user_id).await;
-                    Err(failure)
-                }
-            };
+            )
+            .await;
         }
     };
     remote_login_to_response(
@@ -1055,7 +1107,8 @@ pub(crate) async fn handle_sciotte_submit_otp(
     headers: HeaderMap,
     Json(request): Json<SciotteOtpRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id, link_context) =
+        authenticate(&resources, &headers, Some("submit a provider sign-in code")).await?;
     let attempt = StepAttempt::of_step(tenant_id, user_id, request.attempt_id.as_deref())?;
     refuse_cancelled_attempt(&resources.cache, attempt.as_ref()).await?;
 
@@ -1070,7 +1123,7 @@ pub(crate) async fn handle_sciotte_submit_otp(
     // `require_remote_flow`); the provider names the platform for a *system*
     // failure alert.
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
-    let remote = resources.provider_registry.require_sciotte_client()?;
+    let remote = resources.provider_registry.require_sciotte_login_client()?;
     info!(user_id = %user_id, "Submitting sciotte OTP (remote service)");
     let result = remote
         .submit_otp_keyed(
@@ -1083,25 +1136,15 @@ pub(crate) async fn handle_sciotte_submit_otp(
     let outcome = match result {
         Ok(outcome) => outcome,
         Err(e) => {
-            return match login_failure_response(
+            return continuation_failure(
+                &resources,
                 user_id,
                 tenant_id,
                 &provider,
                 "otp",
                 &to_app_error(e),
-            ) {
-                // A shed never reached the parked browser, so the flow is still
-                // there for the retry the `Retry-After` invites — keep it.
-                Ok(shed) => Ok(shed),
-                // Both login UIs send the user back to the credential screen
-                // from their error phase, so a system failure or a provider
-                // challenge ends the attempt: dropping the entry stops the next
-                // login from inheriting an id the service reaps.
-                Err(failure) => {
-                    forget_remote_flow(&resources.cache, tenant_id, user_id).await;
-                    Err(failure)
-                }
-            };
+            )
+            .await;
         }
     };
     remote_login_to_response(

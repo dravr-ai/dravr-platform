@@ -1,0 +1,48 @@
+{
+  "noticeLang": {
+    "message": "en",
+    "description": "The language tag of these messages, set on the notice page so assistive technology reads it in this language"
+  },
+  "extName": {
+    "message": "Dravr sign-in"
+  },
+  "extDescription": {
+    "message": "Sign in to Garmin, Strava, TrainingPeaks or COROS in your own browser and connect that account to Dravr."
+  },
+  "noticeTitle": {
+    "message": "Before you use Dravr sign-in"
+  },
+  "noticeIntro": {
+    "message": "This extension lets you sign in to Garmin, Strava, TrainingPeaks or COROS yourself, in this browser, and hands that sign-in to Dravr so it can import your training."
+  },
+  "noticeReadsTitle": {
+    "message": "What it reads"
+  },
+  "noticeReads": {
+    "message": "Only the cookies of the service you chose (garmin.com, strava.com, trainingpeaks.com or coros.com), and only after you click “Continue with” that service in Dravr and finish signing in on its page. It reads no other site and nothing you type."
+  },
+  "noticeSendsTitle": {
+    "message": "Where it goes"
+  },
+  "noticeSends": {
+    "message": "Straight to Dravr (app.dravr.ai), over an encrypted connection, and nowhere else. Dravr stores the session encrypted and uses it only to fetch your data from that service. The extension keeps no copy."
+  },
+  "noticeControlTitle": {
+    "message": "You stay in control"
+  },
+  "noticeControl": {
+    "message": "Disconnect the service in Dravr to delete the stored session, and remove this extension to stop it."
+  },
+  "noticeAccept": {
+    "message": "I agree"
+  },
+  "noticeDecline": {
+    "message": "Not now"
+  },
+  "noticePolicy": {
+    "message": "Dravr privacy policy"
+  },
+  "noticeDone": {
+    "message": "All set. Return to Dravr and choose “Continue with” your service."
+  }
+}

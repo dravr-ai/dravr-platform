@@ -232,7 +232,7 @@ test.describe('Coach-seat invitations in the console', () => {
         expired: false,
       },
     ];
-    await setupDashboardMocks(page, { role: 'super_admin' });
+    await setupDashboardMocks(page, { role: 'admin' });
     await page.route('**/api/admin/coach-access-requests**', (route) =>
       json(route, 200, { success: true, message: '0 coach access request(s)', data: { requests: [], total: 0 } }),
     );

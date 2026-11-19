@@ -64,6 +64,8 @@ pub mod activity_backfill_resume;
 pub mod activity_detail_store;
 /// Shared provider activity fetching (used by group snapshots + agent recs).
 pub mod activity_fetch;
+/// The one aggregator: every count, distance or time over a period, from one read of the store.
+pub mod activity_query;
 /// What a model may see of provider data under each provider's AI policy.
 pub mod ai_view;
 /// The weekly promotion of one athlete's training anchors.
@@ -150,6 +152,8 @@ pub mod scopes;
 pub mod security;
 /// Cooperative cancel flag for tool calls running behind an MCP task handle.
 pub mod task_cancellation;
+/// What each registered tool reads: its data class, streams and written text.
+pub mod tool_data;
 pub mod tool_progress;
 /// Daily CTL/ATL/TSB rollup, sourced from the durable activity cache.
 pub mod training_history_compute;

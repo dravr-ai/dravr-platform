@@ -55,7 +55,7 @@ use pierre_services::coach_plan_room_post::{
     post_plan_published, PlanChange, PlanRoomPost, RoomPostOutcome,
 };
 use pierre_services::group_chat_poster::GroupChatPoster;
-use pierre_test_support::delegation::create_group_agent;
+use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::CONVERSATION_ID;
 use pierre_tool_runtime::implementations::training_plan_drafts::PublishTrainingPlanTool;
 use pierre_tool_runtime::implementations::training_plans::SaveTrainingPlanTool;
@@ -144,6 +144,7 @@ impl LlmProvider for RecordingModel {
             .join("\n");
         self.calls.lock().unwrap().push(messages);
         Ok(ChatResponse {
+            replay_blocks: None,
             content: ANSWER.to_owned(),
             model: MODEL.to_owned(),
             usage: None,
@@ -300,6 +301,7 @@ async fn create_group(
 
 async fn attach_coach(repos: &RepositoryRegistry, group: &CoachingGroup, coach: &Person) {
     let tenant = TenantId::parse_str(&group.tenant_id).unwrap();
+    grant_coach_access(repos, coach.id).await.unwrap();
     assert!(
         repos
             .groups
@@ -1242,6 +1244,81 @@ async fn a_quote_the_coach_may_not_carry_is_refused_by_its_reason() {
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     assert_eq!(reason(&body), "coach_sharing_revoked", "{body}");
+}
+
+/// A coach still attached whose coach access was withdrawn carries no quote
+/// into the thread (carnet#1511), and a thread read withholds the quotes
+/// already there, as it does once the coach is detached.
+#[tokio::test]
+async fn a_coach_whose_access_is_off_quotes_nothing_from_the_room() {
+    let fx = Fixture::new(None).await;
+    let repos = fx.repos();
+    let athlete_words = room_entry(
+        repos,
+        &fx.group,
+        &fx.subject,
+        TranscriptSpeaker::Member,
+        ATHLETE_WORDS,
+    )
+    .await;
+    let (status, sent) = fx
+        .send(
+            &fx.thread,
+            &fx.coach,
+            json!({ "content": COACH_ASK, "quote_entry_id": athlete_words }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "premise: {sent}");
+    assert_eq!(
+        quoting_row(&fx).await["quote"]["content"],
+        ATHLETE_WORDS,
+        "premise: the quote shows while the coach holds coach access"
+    );
+    let quoting_rows = |history: &Value| {
+        history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|m| m["role"] == "user" && m["content"] == COACH_ASK)
+            .count()
+    };
+
+    repos
+        .users
+        .set_manages_roster(fx.coach.id, false)
+        .await
+        .unwrap();
+    let (status, body) = fx
+        .send(
+            &fx.thread,
+            &fx.coach,
+            json!({ "content": COACH_ASK, "quote_entry_id": athlete_words }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(reason(&body), "no_coach_access", "{body}");
+    assert!(
+        !body.to_string().contains(ATHLETE_WORDS),
+        "a refusal never carries the words it refused: {body}"
+    );
+    let history = fx.messages(&fx.thread, &fx.coach).await;
+    assert_eq!(quoting_rows(&history), 1, "a refused quote writes no row");
+    let withheld = quoting_row(&fx).await;
+    assert!(
+        withheld.get("quote").is_none(),
+        "bug: the thread read still shows the athlete's room words: {withheld}"
+    );
+
+    repos
+        .users
+        .set_manages_roster(fx.coach.id, true)
+        .await
+        .unwrap();
+    assert_eq!(
+        quoting_row(&fx).await["quote"]["content"],
+        ATHLETE_WORDS,
+        "the row kept the quote; only the read withheld it"
+    );
 }
 
 // ── The room's shape ─────────────────────────────────────────────────────

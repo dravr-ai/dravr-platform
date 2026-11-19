@@ -57,9 +57,10 @@
 //! week ("45 minutes at threshold", "40 minutes in zone 2", "6 x 800 m", "18 km
 //! of easy running", "your long run", "on the treadmill"), one that puts it at
 //! a pace or a speed ("at an easy pace", "at 28 km/h", "à 5 min/km"), one that
-//! names a day ("on Monday and Wednesday", "yesterday"), and one that only
-//! supposes the figure ("if you ran 30 km this week"). The `declines` module
-//! reads them, in the five shipped locales.
+//! names a day ("on Monday and Wednesday", "yesterday"), a segment, gear, a
+//! race, a quoted name or one of the athlete's own places or gear ("212 km at
+//! Gai-Luron"), and one that only supposes the figure ("if you ran 30 km this
+//! week"). The `declines` module reads them, in the five shipped locales.
 //!
 //! ## An unworded figure is contradicted only above the total
 //!
@@ -86,7 +87,8 @@
 //!
 //! [`ClaimStatus::Unverifiable`]: pierre_memory::ClaimStatus::Unverifiable
 
-use chrono::{Datelike, Days, Months, NaiveDate, Weekday};
+use chrono::{Datelike, Days, Months, NaiveDate};
+use pierre_core::civil_time::monday_of;
 
 use super::{describe, unverifiable, word_spans, AssertedFigure, AthleteRecord};
 use crate::verdict_engine::VerdictOutcome;
@@ -208,20 +210,16 @@ impl Window {
     /// How many Monday-to-Sunday weeks the window touches, the denominator of
     /// a per-week average as a coach counts it ("over three weeks").
     fn weeks_touched(&self) -> i64 {
-        match (monday_of(self.start), monday_of(self.end)) {
-            (Some(first), Some(last)) => last.signed_duration_since(first).num_days() / 7 + 1,
-            _ => 1,
-        }
+        monday_of(self.end)
+            .signed_duration_since(monday_of(self.start))
+            .num_days()
+            / 7
+            + 1
     }
 
     fn describe(&self) -> String {
         format!("{} {} to {}", self.reading, self.start, self.end)
     }
-}
-
-/// The Monday of the week `date` falls in.
-fn monday_of(date: NaiveDate) -> Option<NaiveDate> {
-    date.week(Weekday::Mon).checked_first_day()
 }
 
 /// Check a claim that states a total or an average over a period.
@@ -244,7 +242,7 @@ pub(super) fn check(
         .filter_map(|(a, b)| lower.get(a..b))
         .collect();
     let period = sole_period(&tokens)?;
-    if declines(&lower, &tokens, figures, &record.locale) {
+    if declines(&lower, &tokens, figures, record) {
         return None;
     }
     let shape = shape_of(&tokens);
@@ -380,11 +378,11 @@ fn windows(
     };
     Some(match period {
         Period::ThisWeek => vec![
-            window("the calendar week", monday_of(today)?, today),
+            window("the calendar week", monday_of(today), today),
             window("the last 7 days", back(6)?, today),
         ],
         Period::LastWeek => {
-            let monday = monday_of(today)?;
+            let monday = monday_of(today);
             vec![
                 window(
                     "the previous calendar week",
@@ -462,6 +460,7 @@ mod tests {
             has_provider: true,
             today,
             locale: "en".to_owned(),
+            named_subsets: Vec::new(),
             activities: sessions.clone(),
             history: Some(PeriodHistory {
                 sessions,

@@ -59,6 +59,7 @@ use crate::services::archive_import::ArchiveImports;
 use crate::services::photograveur_client::PhotograveurClient;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
+use dravr_barrage::store::ActivityRecordStore;
 #[cfg(feature = "client-messaging")]
 use dravr_canot::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
@@ -87,6 +88,7 @@ use pierre_database::repositories::ProviderPurge;
 use pierre_database::views::{AgentRepos, AuthRepos, FitnessRepos, UsageRepos};
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
+use pierre_fitness_compute::weather_clients::WeatherClients;
 use pierre_llm::health::LlmHealthState;
 use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
@@ -98,11 +100,14 @@ use pierre_middleware::McpAuthMiddleware;
 use pierre_notifications::NotificationService;
 use pierre_providers::originals::OriginalsStore;
 use pierre_providers::registry::ProviderRegistry;
+#[cfg(feature = "client-messaging")]
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
 use pierre_services::group_chat_poster::GroupChatPoster;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::live_activities::LiveActivityStore;
+use pierre_services::originals_bundle::OriginalsBundleService;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 #[cfg(feature = "transport-sse")]
 use pierre_sse::SseManager;
@@ -112,7 +117,7 @@ use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::BackfillNotifier;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 #[cfg(feature = "client-messaging")]
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 #[cfg(feature = "client-messaging")]
@@ -120,6 +125,7 @@ use std::sync::OnceLock;
 
 #[cfg(feature = "client-messaging")]
 use crate::services::platform_post::PlatformPost;
+use crate::services::session_landed::SessionLandedRouter;
 use tokio::task::AbortHandle;
 
 /// Cross-cutting handles + the master repository registry.
@@ -154,6 +160,12 @@ pub struct CommonSlice {
     /// The one write path of every live provider read: barrage keeps the
     /// record, the cache readers read its projection (carnet#1482).
     pub live_activities: Arc<dyn LiveActivityStore>,
+    /// The one activity record store: the live store and archive imports
+    /// write it, the athlete's export reads it. Shared by every route.
+    pub activity_records: Arc<dyn ActivityRecordStore>,
+    /// Builds and hands out the athletes' originals bundles, over the blob
+    /// store; `None` where none is placed. Shared by the routes and the sweep.
+    pub originals_bundles: Option<Arc<OriginalsBundleService>>,
     /// The one provider data purge: the tables, then the live store's
     /// records of the provider (carnet#1482).
     pub provider_purge: Arc<dyn ProviderPurge>,
@@ -207,6 +219,10 @@ pub struct CommonSlice {
     /// Messaging command handler registry.
     #[cfg(feature = "client-messaging")]
     pub command_handler_registry: Option<Arc<CommandHandlerRegistry>>,
+    /// Names of the commands that act on their caller alone, from the same
+    /// catalogue: what a shared room's menu marks as personal.
+    #[cfg(feature = "client-messaging")]
+    pub personal_commands: HashSet<String>,
 }
 
 impl fmt::Debug for CommonSlice {
@@ -301,6 +317,9 @@ impl fmt::Debug for AgentSlice {
 pub struct FitnessSlice {
     /// Registry of fitness data providers (Strava, Garmin, WHOOP, Terra).
     pub provider_registry: Arc<ProviderRegistry>,
+    /// The weather clients (history, forecast, place geocoder), built on the
+    /// origins the deployment configuration's `weather_api` names.
+    pub weather: Arc<WeatherClients>,
     /// Health data sync orchestrator for wearable provider synchronization.
     #[cfg(feature = "health-sync")]
     pub sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
@@ -409,6 +428,11 @@ pub struct McpSlice {
     /// task through [`pierre_tool_runtime::runtime::ToolRuntime::backfill_notifier`].
     #[cfg(feature = "client-messaging")]
     pub backfill_notifier: Option<Arc<dyn BackfillNotifier>>,
+    /// Builds the channel adapter a message is verified or sent through: the
+    /// one factory the webhook routes, the messaging workers and every
+    /// proactive sender of this context share.
+    #[cfg(feature = "client-messaging")]
+    pub channel_adapters: Arc<dyn ChannelAdapterFactory>,
     /// Posts into a group's own bound chat — the room post a coach's plan
     /// publish leaves there (carnet#1249). Exposed to the publish through
     /// [`pierre_tool_runtime::runtime::ToolRuntime::group_chat_poster`], and
@@ -425,6 +449,12 @@ pub struct McpSlice {
     /// SSE protocol-factory install.
     #[cfg(feature = "client-messaging")]
     pub platform_post: Arc<OnceLock<Arc<dyn PlatformPost>>>,
+    /// Where a live write's landing goes (carnet#1486): exposed to every
+    /// writer through
+    /// [`pierre_tool_runtime::runtime::ToolRuntime::session_landed_sink`] and
+    /// handed the Garmin push worker's landings. Sends the per-session digest
+    /// until the composition root layers the coach's landing post on.
+    pub session_landed: Arc<SessionLandedRouter>,
     /// Told once a provider connect lands an athlete's data, so the coach
     /// speaks first (carnet#831). Shared with every
     /// [`pierre_routes_auth::AuthRoutesContext`] built from this context, and

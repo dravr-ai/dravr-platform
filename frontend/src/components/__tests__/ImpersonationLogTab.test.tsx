@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for the super-admin impersonation log — the sessions it lists and one session's details
+// ABOUTME: Tests for the admin impersonation log — the sessions it lists and one session's details
 // ABOUTME: The admin API is mocked; assertions read the rendered rows and the per-session read
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';

@@ -66,6 +66,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_services::athlete_clock::athlete_zone;
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
 use pierre_services::personal_thread::athlete_last_wrote_in_app;
 use pierre_tool_runtime::runtime::{
@@ -179,9 +180,10 @@ impl ServerBackfillNotifier {
         platform_post: Arc<OnceLock<Arc<dyn PlatformPost>>>,
         admin_jwt_secret: Arc<str>,
         base_url: String,
+        adapters: Arc<dyn ChannelAdapterFactory>,
         #[cfg(feature = "client-notifications")] notifications: Option<Arc<NotificationService>>,
     ) -> Arc<dyn BackfillNotifier> {
-        let resolver = config_adapter_resolver(repos.clone());
+        let resolver = config_adapter_resolver(repos.clone(), adapters);
         Arc::new(Self {
             repos,
             strings,

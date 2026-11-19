@@ -30,8 +30,8 @@ use crate::handlers::{
     admin_rate_limit_override, admin_scope, api_keys, audit_trail, barrage, claim_verdicts,
     coach_access, coach_seat_invitations, connect_order, deletion_ledger, device_auth, device_web,
     engagement, feature_flags, guardian_config, harness_config, memory_worker, new_users,
-    provider_clone, provider_data, settings, setup, signup_codes, strava_pool, tokens,
-    user_removal, users, website,
+    pre_approved_emails, provider_clone, provider_data, settings, setup, signup_codes, strava_pool,
+    tokens, user_removal, user_role, users, website,
 };
 
 /// Admin routes implementation (Axum).
@@ -128,7 +128,7 @@ impl AdminRoutes {
     }
 
     /// Human-admin routes mounted at `/api/admin/...` behind cookie/session
-    /// auth + `is_admin` check.
+    /// auth + admin-role check.
     ///
     /// Counterpart to [`Self::routes`] — these power the admin web UI tabs
     /// (users, auto-approval, admin tokens, Claim Verdicts, Memory Worker,
@@ -189,7 +189,7 @@ impl AdminRoutes {
             .with_state(context)
     }
 
-    /// The tenants a super admin can pick on a scoped screen (cookie auth)
+    /// The tenants an admin can pick on a scoped screen (cookie auth)
     fn scope_tenant_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
@@ -340,6 +340,13 @@ impl AdminRoutes {
                 "/admin/users/{user_id}/manages-roster",
                 post(users::handle_set_user_manages_roster),
             )
+            // Make an account an admin or a user again (carnet#1575): a
+            // super-admin token that acts as an admin, inside the handler. The
+            // console promotes and demotes through its own session routes.
+            .route(
+                "/admin/users/{user_id}/role",
+                post(user_role::handle_set_user_role),
+            )
             // The coach-access queue (carnet#738). Super-admin only inside
             // each handler, whichever surface reaches it.
             .route(
@@ -367,11 +374,12 @@ impl AdminRoutes {
             )
             .route(
                 "/admin/pre-approved-emails",
-                get(users::handle_list_pre_approved_emails).post(users::handle_allow_email),
+                get(pre_approved_emails::handle_list_pre_approved_emails)
+                    .post(pre_approved_emails::handle_allow_email),
             )
             .route(
                 "/admin/pre-approved-emails/{email}",
-                delete(users::handle_disallow_email),
+                delete(pre_approved_emails::handle_disallow_email),
             )
             .route(
                 "/admin/signup-codes",
@@ -476,11 +484,12 @@ impl AdminRoutes {
             )
             .route(
                 "/api/admin/pre-approved-emails",
-                get(users::handle_list_pre_approved_emails).post(users::handle_allow_email),
+                get(pre_approved_emails::handle_list_pre_approved_emails)
+                    .post(pre_approved_emails::handle_allow_email),
             )
             .route(
                 "/api/admin/pre-approved-emails/{email}",
-                delete(users::handle_disallow_email),
+                delete(pre_approved_emails::handle_disallow_email),
             )
             .route(
                 "/api/admin/signup-codes",
@@ -615,9 +624,9 @@ impl AdminRoutes {
     }
 
     /// The console's admin-token tab behind session auth: the same handlers
-    /// as [`Self::admin_token_routes`]. A plain Admin's session carries
-    /// `ManageAdminTokens`; the handlers keep super-admin tokens to
-    /// super-admin callers.
+    /// as [`Self::admin_token_routes`]. An admin's session carries the
+    /// super-admin flag, so it manages every token; the handlers keep
+    /// super-admin tokens out of reach of a scoped token.
     fn console_token_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
@@ -727,7 +736,7 @@ impl AdminRoutes {
                 post(device_auth::handle_device_token),
             )
             // Browser approval surface (gcloud-style): GET renders the sign-in-and-approve
-            // page; approve-web verifies super-admin credentials and approves (credential-
+            // page; approve-web verifies an admin's credentials and approves (credential-
             // gated, so CSRF-exempt — see pierre_middleware::csrf::CSRF_EXEMPT_PATHS).
             .route("/admin/device", get(device_web::handle_device_page))
             .route(

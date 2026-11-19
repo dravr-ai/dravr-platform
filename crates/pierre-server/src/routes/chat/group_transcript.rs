@@ -1,5 +1,5 @@
 // ABOUTME: GET /api/chat/groups/{group_id}/transcript — the shared room view of a coaching group, paged back by cursor
-// ABOUTME: Membership-gated; a withheld entry keeps its place without its words or author, roster always visible
+// ABOUTME: Membership-gated; a withheld entry keeps its place without its words or author; roster visible, save unshared members to the coach's outside client
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,9 +14,12 @@
 //! member's content appears only under the consent rule the repository query
 //! enforces. An entry that rule withholds still comes back, as a placeholder
 //! with neither words nor author, so a reader sees that something was said
-//! rather than a silent gap. The roster, by contrast, always lists every
-//! active member, consented or not.
+//! rather than a silent gap. The roster, by contrast, lists every active
+//! member, consented or not, save to an outside client acting for the
+//! group's coach, which is never told of a member who stopped sharing with
+//! the coach.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use axum::{
@@ -28,14 +31,16 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::mcp::resources::ServerContext;
+use pierre_auth::auth::AuthResult;
 use pierre_core::errors::AppError;
-use pierre_core::models::groups::{RoomEntryBody, RoomTranscriptEntry};
+use pierre_core::models::groups::{GroupMember, RoomEntryBody, RoomTranscriptEntry};
+use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
 use uuid::Uuid;
 
-use super::common::{get_tenant_id, verify_group_membership};
+use super::common::{get_tenant_id, served_outside, verify_group_membership};
 use super::dto::preview_text;
 
 /// Default number of transcript entries returned when the caller names none.
@@ -183,7 +188,8 @@ impl TranscriptEntryResponse {
 pub(super) struct GroupTranscriptResponse {
     /// The group whose room this is
     pub group_id: String,
-    /// Every active member, consented or not — membership is never hidden
+    /// Every active member, consented or not; an outside client acting for
+    /// the coach is not listed a member who stopped sharing with the coach
     pub members: Vec<TranscriptMemberResponse>,
     /// Every entry of the page, oldest first — a withheld one as a
     /// placeholder
@@ -202,7 +208,7 @@ pub(super) async fn get_group_transcript(
 
     verify_group_membership(&resources, &group_id, auth.user_id, tenant_id).await?;
 
-    let members = resources
+    let mut members = resources
         .common
         .repos
         .groups
@@ -225,8 +231,18 @@ pub(super) async fn get_group_transcript(
     // An entry copied from a row derived from first-party-only data keeps its
     // place in the room for an external caller, as a withheld entry — the
     // same shape the consent rule gives it (carnet#769).
+    // An outside client acting for the group's coach is never told of a
+    // member who stopped sharing with the coach: they leave the roster, and
+    // what is attributed to them keeps its place without an author (EFVP
+    // 2026-11-17, decision 9.4c).
+    let unnamed = unnamed_members(&resources, &auth, &group_id, tenant_id, &members).await?;
+    members.retain(|member| !unnamed.contains(&member.user_id));
     for entry in &mut entries {
-        if !ai_scope::admit_derived(entry.transport_policy) {
+        let unnamed_author = matches!(
+            &entry.body,
+            RoomEntryBody::Shared(shared) if unnamed.contains(&shared.author_user_id)
+        );
+        if unnamed_author || !ai_scope::admit_derived(entry.transport_policy) {
             entry.body = RoomEntryBody::Withheld;
         }
     }
@@ -249,4 +265,28 @@ pub(super) async fn get_group_transcript(
     };
 
     Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// The members the transcript served to `auth` does not name: for an outside
+/// client acting for the group's coach, every member who stopped sharing
+/// with the coach; none for anyone else.
+async fn unnamed_members(
+    resources: &ServerContext,
+    auth: &AuthResult,
+    group_id: &str,
+    tenant_id: TenantId,
+    members: &[GroupMember],
+) -> Result<HashSet<Uuid>, AppError> {
+    if !served_outside(auth) {
+        return Ok(HashSet::new());
+    }
+    let group = resources
+        .common
+        .repos
+        .groups
+        .get_group(group_id, tenant_id)
+        .await?;
+    Ok(group.map_or_else(HashSet::new, |group| {
+        group.unnamed_to_outside_client_of(auth.user_id, members)
+    }))
 }

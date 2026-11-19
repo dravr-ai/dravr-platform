@@ -45,6 +45,7 @@ mod group_digest_room_tests {
     use pierre_services::group_chat_poster::GroupChatPoster;
     use pierre_services::notification_localizer::UserLocaleNotificationLocalizer;
     use pierre_services::notification_text::NotificationTextRenderer;
+    use pierre_test_support::delegation::grant_coach_access;
     use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::{Map, Value};
     use tokio_util::task::TaskTracker;
@@ -697,6 +698,9 @@ mod group_digest_room_tests {
             .await
             .to_string();
         let groups = &h.resources.common.repos.groups;
+        grant_coach_access(&h.resources.common.repos, coach)
+            .await
+            .unwrap();
         assert!(
             groups
                 .set_group_coach_user(&group, Some(coach), tenant)
@@ -760,6 +764,103 @@ mod group_digest_room_tests {
         );
     }
 
+    /// The group's human coach, still attached, whose coach access was
+    /// withdrawn: their copy of the digest covers no member but themself
+    /// (carnet#1511). Every member the copy would read is refused by the
+    /// coach rule, so nothing of theirs is read and no read is recorded. The
+    /// copy itself is still dispatched, as every manager's is, with the
+    /// coach's own week and no one else's; the admin's copy, which reads the
+    /// peer rule, is as before.
+    #[tokio::test]
+    async fn the_digest_copy_of_a_coach_whose_access_is_off_covers_no_member() {
+        let h = Harness::new().await;
+        let coach = h
+            .person("Coralie Coach", "fr", Some("America/Toronto"))
+            .await;
+        let admin = h.person("Adam Admin", "fr", None).await;
+        let member = h.person("Rita Recorded", "fr", None).await;
+        let tenant = h.tenant(coach).await;
+        let admin_home = h.tenant(admin).await;
+        let member_home = h.tenant(member).await;
+        let group = h
+            .group(
+                tenant,
+                "Club Sans Accès",
+                GroupDigestMode::Managers,
+                None,
+                &[
+                    (coach, GroupRole::Owner, true),
+                    (admin, GroupRole::Admin, true),
+                    (member, GroupRole::Member, true),
+                ],
+            )
+            .await;
+        let repos = &h.resources.common.repos;
+        assert!(
+            repos
+                .groups
+                .set_group_coach_user(&group.to_string(), Some(coach), tenant)
+                .await
+                .unwrap(),
+            "test setup bug: the group takes its human coach"
+        );
+        // Attached, and never granted coach access: what a coach whose
+        // access was withdrawn after attaching is left with.
+        let attached = repos.users.get_global(coach).await.unwrap().unwrap();
+        assert!(
+            !attached.holds_coach_access(),
+            "test setup bug: the coach holds no coach access"
+        );
+
+        let outcome = h.tick(monday_morning_montreal()).await;
+        assert_eq!(outcome.groups_reported, 1, "{outcome:?}");
+        assert_eq!(outcome.errors, 0, "the sweep fails nowhere: {outcome:?}");
+        assert_eq!(
+            outcome.dispatched, 2,
+            "one copy for the coach-owner and one for the admin: {outcome:?}"
+        );
+
+        for (read, home) in [(member, member_home), (admin, admin_home)] {
+            let rows = repos
+                .coach_data_reads
+                .list_coach_reads(home, read, group, 10)
+                .await
+                .unwrap();
+            assert!(
+                rows.is_empty(),
+                "bug: a coach whose coach access is off read a member for their copy: {rows:?}"
+            );
+        }
+
+        let coach_rows = h.digest_rows(coach, tenant).await;
+        assert_eq!(
+            coach_rows.len(),
+            1,
+            "the coach's copy is still dispatched, covering no one else: {coach_rows:?}"
+        );
+        let coach_copy = &coach_rows[0];
+        assert!(
+            coach_copy.starts_with(&french_manager_scope(1, 3)),
+            "the coach's copy opens on its scope, the coach alone of three: {coach_copy}"
+        );
+        assert!(
+            coach_copy.contains("• Coralie Coach : 0,0 km"),
+            "the coach's own week is theirs to read: {coach_copy}"
+        );
+        for absent in ["Rita", "Adam"] {
+            assert!(
+                !coach_copy.contains(absent),
+                "bug: {absent} is in the copy of a coach whose coach access is off: {coach_copy}"
+            );
+        }
+
+        let admin_copy = &h.digest_rows(admin, tenant).await[0];
+        assert!(
+            admin_copy.contains("Rita"),
+            "the admin's copy reads the peer rule, which no coach rule gates: {admin_copy}"
+        );
+    }
+
     /// The coach's copy of the digest is a coach read of every member it
     /// covers (carnet#1445): each member the coach-read gate lets through gets
     /// one `weekly_digest` row on their record before their training is read.
@@ -801,6 +902,7 @@ mod group_digest_room_tests {
             )
             .await;
         let repos = &h.resources.common.repos;
+        grant_coach_access(repos, coach).await.unwrap();
         assert!(
             repos
                 .groups

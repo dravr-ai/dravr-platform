@@ -27,6 +27,7 @@
 //! any athlete's calendar.
 
 use crate::common;
+use crate::common::{offline_provider_config, offline_provider_registry};
 use secrecy::SecretString;
 
 use std::collections::HashSet;
@@ -54,9 +55,7 @@ use pierre_core::transport::Transport;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::ai_scope::serve_over;
-use pierre_providers::intervals_icu_provider::default_config;
-use pierre_providers::ProviderRegistry;
-use pierre_test_support::delegation::create_group_agent;
+use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::implementations::planned_workouts::GetPlannedWorkoutsTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -293,6 +292,7 @@ async fn coached_group(
         )
         .await
         .unwrap();
+    grant_coach_access(repos, coach.id).await.unwrap();
     assert!(repos
         .groups
         .set_group_coach_user(&group.id.to_string(), Some(coach.id), owner.tenant)
@@ -308,8 +308,8 @@ impl World {
         let api = Api::default();
         let base = spawn_api(api.clone()).await;
         let resources = create_test_server_resources().await.unwrap();
-        let mut registry = ProviderRegistry::new();
-        let mut config = default_config();
+        let mut registry = offline_provider_registry();
+        let mut config = offline_provider_config(INTERVALS_ICU);
         config.api_base_url = base;
         registry.set_default_config(INTERVALS_ICU, config);
         let mut context = (*resources).clone();

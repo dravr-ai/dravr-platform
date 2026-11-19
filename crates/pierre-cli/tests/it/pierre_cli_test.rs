@@ -75,14 +75,39 @@ fn test_cli_user_create_help() {
         stdout.contains("--password"),
         "Should show --password option"
     );
+    // There is one admin role (carnet#1567): `user create` makes an admin and
+    // offers no tier above it. The `--super-admin` flag left on the CLI is
+    // `token generate`'s, a scope on a service token.
     assert!(
-        stdout.contains("--super-admin"),
-        "Should show --super-admin option"
+        !stdout.contains("--super-admin"),
+        "user create must not offer a super-admin role: {stdout}"
     );
     assert!(stdout.contains("--force"), "Should show --force option");
     // The dev-setup script creates jf_test / phil_test / the operator through this
     // command and passes `--locale en`; a dropped flag would silently seed them French.
     assert!(stdout.contains("--locale"), "Should show --locale option");
+}
+
+/// The retired flag is refused rather than accepted and ignored: a script
+/// still passing it must fail loudly, not create an account it believes
+/// differs from a plain admin.
+#[test]
+fn test_cli_user_create_refuses_the_retired_super_admin_flag() {
+    let (exit_code, _stdout, stderr) = run_cli(&[
+        "user",
+        "create",
+        "--email",
+        "admin@example.com",
+        "--password",
+        "irrelevant",
+        "--super-admin",
+    ]);
+
+    assert_ne!(exit_code, 0, "the retired flag must be an error");
+    assert!(
+        stderr.contains("--super-admin"),
+        "the error names the flag it refused: {stderr}"
+    );
 }
 
 #[test]
@@ -395,20 +420,24 @@ fn test_cli_user_disallow_and_list_allowed_help_offer_remote_arguments() {
     );
 }
 
-/// `user set` grants the group coach permission (carnet#643) beside the tier,
-/// and refuses to run with neither field or with a value that is not a bool.
+/// `user set` grants the group coach permission (carnet#643) and sets the
+/// admin role (carnet#1575) beside the tier, and refuses to run with no field
+/// or with a value that is not a bool.
 #[test]
 fn test_cli_user_set_takes_manages_roster_and_requires_a_field() {
     let (exit_code, stdout, _stderr) = run_cli(&["user", "set", "--help"]);
     assert_eq!(exit_code, 0, "User set help should exit with 0");
     assert!(stdout.contains("--manages-roster"), "{stdout}");
     assert!(stdout.contains("--tier"), "{stdout}");
+    assert!(stdout.contains("--role"), "{stdout}");
 
     let (exit_code, _stdout, stderr) = run_cli(&["user", "set", "someone@example.com"]);
     assert_ne!(exit_code, 0, "user set with no field must fail");
     assert!(
-        stderr.contains("--tier") && stderr.contains("--manages-roster"),
-        "the refusal names both fields, got: {stderr}"
+        stderr.contains("--tier")
+            && stderr.contains("--manages-roster")
+            && stderr.contains("--role"),
+        "the refusal names every field, got: {stderr}"
     );
 
     let (exit_code, _stdout, stderr) = run_cli(&[
@@ -432,13 +461,24 @@ fn test_cli_user_set_takes_manages_roster_and_requires_a_field() {
 #[test]
 fn test_remote_user_verbs_never_open_the_local_database() {
     const CLOSED_PORT: &str = "http://127.0.0.1:1";
-    let invocations: [&[&str]; 7] = [
+    let invocations: [&[&str]; 8] = [
         &[
             "user",
             "set",
             "someone@example.com",
             "--manages-roster",
             "true",
+            "--server",
+            CLOSED_PORT,
+            "--token",
+            "not-a-real-token",
+        ],
+        &[
+            "user",
+            "set",
+            "someone@example.com",
+            "--role",
+            "admin",
             "--server",
             CLOSED_PORT,
             "--token",

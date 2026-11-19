@@ -876,8 +876,8 @@ async fn load_adapter(
         }
     };
     adapters.build(channel_type, &config).map_or_else(
-        || {
-            warn!(row_id = %row.id, channel = %row.channel, "recorded turn's channel config builds no adapter; finishing it");
+        |e| {
+            warn!(error = %e, row_id = %row.id, channel = %row.channel, tenant_id = %channel_tenant_id, "recorded turn's channel config builds no adapter; finishing it");
             AdapterLookup::Unusable
         },
         AdapterLookup::Built,

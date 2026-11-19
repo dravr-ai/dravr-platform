@@ -8,7 +8,7 @@ import React, { useState } from 'react';
 import { Pressable, Text } from 'react-native';
 import { useTranslation } from '@pierre/i18n';
 import type { PlanDayEvidence } from '@pierre/shared-types';
-import { Sheet } from '../../components/ui';
+import { Badge, Sheet } from '../../components/ui';
 
 /**
  * The sheet a chip opens: the studies the evidence rests on, never the
@@ -46,14 +46,14 @@ export function EvidenceChip({ evidence }: { evidence: PlanDayEvidence }) {
   return (
     <>
       <Pressable
-        className="mt-1 self-start rounded-full bg-surface-container-high px-3 py-1"
+        className="mt-1 self-start"
         accessibilityRole="button"
         accessibilityLabel={evidence.label}
         hitSlop={10}
         onPress={() => setOpen(true)}
         testID="plan-day-evidence"
       >
-        <Text className="text-xs font-medium text-text-primary">{evidence.label}</Text>
+        <Badge variant="neutral" label={evidence.label} />
       </Pressable>
       <EvidenceSheet evidence={evidence} visible={open} onClose={() => setOpen(false)} />
     </>

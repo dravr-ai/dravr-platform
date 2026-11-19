@@ -16,14 +16,15 @@
 //! - **DB-only tools** (`export_dossier`, `get_training_history`,
 //!   `list_workout_templates`, `prescribe_workout`) get a real happy path
 //!   against seeded fixtures.
-//! - **Provider-gated tools** (`export_latest_snapshot`,
-//!   `compute_training_history`, `export_intervals`, `export_routes`,
-//!   `extract_activity_streams`) exercise the provider-auth-required path —
-//!   the tool plumbing runs all the way through `fetch_activities_from_provider`,
-//!   which authenticates at the same chokepoint every provider read does, and
-//!   answers the reconnect signal (`ProviderAuthRequired`) when no OAuth token
-//!   is connected. This validates the tool's auth gating, tenant gating, and
-//!   argument parsing without needing a mock provider.
+//! - **`export_latest_snapshot`** reads the store, so its window clamp is
+//!   asserted on stored rows.
+//! - **Provider-gated tools** (`compute_training_history`, `export_intervals`,
+//!   `export_routes`, `extract_activity_streams`) exercise the
+//!   provider-auth-required path — the tool plumbing runs all the way to the
+//!   provider read, which authenticates at the same chokepoint every provider
+//!   read does, and answers the reconnect signal (`ProviderAuthRequired`) when
+//!   no OAuth token is connected. This validates the tool's auth gating, tenant
+//!   gating, and argument parsing without needing a mock provider.
 //! - Every tool also gets a no-tenant rejection test and an input-validation
 //!   test (missing required arg or out-of-range value).
 
@@ -31,16 +32,20 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use chrono::{Duration, Utc};
 use dravr_cageux::zones::{AerobicThresholdPace, AerobicThresholdPower, HrZones};
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
+use pierre_core::constants::oauth::providers::STRAVA;
+use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::periodization::{ReadinessLevel, WorkoutPurpose};
 use pierre_core::models::{
     AnchorProvenance, ConnectionType, SportType, TenantId, ThresholdProvenance, ThresholdStatedOn,
     UserPhysiologicalProfile,
 };
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{Transport, TransportPolicy};
+use pierre_fitness_compute::latest_snapshot::MAX_WINDOW_DAYS;
 use pierre_tool_runtime::implementations::endurance_workouts::ListWorkoutTemplatesTool;
 use pierre_tool_runtime::protocol::{auth_required_provider, is_no_provider_refusal};
 use pierre_tool_runtime::protocols::ProtocolError;
@@ -372,7 +377,7 @@ async fn test_export_dossier_rejects_no_tenant() -> Result<()> {
 }
 
 // ============================================================================
-// export_latest_snapshot — provider-gated
+// export_latest_snapshot — a store read
 // ============================================================================
 
 #[tokio::test]
@@ -393,16 +398,52 @@ async fn test_export_latest_snapshot_no_provider() -> Result<()> {
     Ok(())
 }
 
+/// An out-of-range window is clamped, not rejected, and the clamp bounds the
+/// store read itself.
+///
+/// This test once asserted the snapshot's provider read failed with the
+/// reconnect signal; the snapshot now reads the store (carnet#1485, OQ14),
+/// so it asserts the clamp on that read instead. A run 400 days back is past
+/// the 365-day clamp, but within 365 days of the newest run, 200 days back:
+/// the snapshot's own window, anchored on its newest session, would keep it,
+/// so only a clamped read leaves it out. The reconnect signal moved to
+/// `test_export_intervals_asks_strava_s_session_to_reconnect`.
 #[tokio::test]
 async fn test_export_latest_snapshot_clamps_window() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
     let (user_id, tenant) = create_connected_test_user(&executor).await?;
-    // Out-of-range window is clamped, not rejected; the underlying provider
-    // call still fails (no token) — we just confirm the clamp didn't panic
-    // and the failure is the reconnect signal for the connected provider,
-    // which the chat pipeline turns into a reconnect link: holding no Strava
-    // credential, Strava's hosted sign-in, its mirror (carnet#1494).
-    let err = executor
+    let tenant_id = TenantId::parse_str(&tenant)?;
+    // The seeded athlete has no timezone, so their calendar is UTC's.
+    let noon = Utc::now()
+        .date_naive()
+        .and_hms_opt(12, 0, 0)
+        .ok_or_else(|| anyhow::anyhow!("noon is a valid time"))?
+        .and_utc();
+    for (id, days) in [("inside", 200), ("outside", 400)] {
+        let run = ActivityBuilder::new(
+            id.to_owned(),
+            format!("Run {id}"),
+            SportType::Run,
+            noon - Duration::days(days),
+            3_000,
+            STRAVA.to_owned(),
+        )
+        .distance_meters(8_500.0)
+        .build();
+        executor
+            .resources
+            .repos()
+            .activity_cache
+            .upsert_activities(user_id, &tenant_id, STRAVA, &[run])
+            .await?;
+    }
+    // The athlete's own app: Strava's terms keep its data off an external
+    // interface.
+    let own_app = UniversalToolExecutor::new(Arc::clone(&executor.resources))
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp);
+
+    let resp = own_app
         .execute_tool(make_request(
             "export_latest_snapshot",
             json!({ "window": 9_999 }),
@@ -410,14 +451,28 @@ async fn test_export_latest_snapshot_clamps_window() -> Result<()> {
             Some(&tenant),
         ))
         .await
-        .expect_err("provider auth still required");
-    match err {
-        ProtocolError::ProviderAuthRequired { provider } => assert_eq!(
-            provider, "sciotte",
-            "bug: the refusal names a backend other than Strava's session"
-        ),
-        other => panic!("export_latest_snapshot: expected ProviderAuthRequired, got {other:?}"),
-    }
+        .unwrap_or_else(|e| panic!("bug: an out-of-range window is rejected: {e:?}"));
+    assert!(
+        resp.success,
+        "bug: an out-of-range window does not answer: {:?}",
+        resp.error
+    );
+    let snapshot = resp.result.unwrap_or_default();
+    assert_eq!(
+        snapshot["window_days"],
+        json!(MAX_WINDOW_DAYS),
+        "bug: the window is not clamped to {MAX_WINDOW_DAYS} days: {snapshot}"
+    );
+    let ids: Vec<&str> = snapshot["activities"].as_array().map_or_default(|rows| {
+        rows.iter()
+            .filter_map(|row| row["activity_id"].as_str())
+            .collect()
+    });
+    assert_eq!(
+        ids,
+        ["inside"],
+        "bug: the store read is not clamped to {MAX_WINDOW_DAYS} days: {snapshot}"
+    );
     Ok(())
 }
 
@@ -624,6 +679,34 @@ async fn test_export_intervals_no_provider() -> Result<()> {
         .await
         .expect("the refusal is in band; the turn must not be abandoned");
     assert_provider_refusal(&resp, "export_intervals");
+    Ok(())
+}
+
+/// A session the store holds no copy of is read from the elected
+/// connection, and a Strava connection holding no credential answers the
+/// reconnect signal for Strava's session, its mirror (carnet#1494), which
+/// the chat pipeline turns into Strava's hosted sign-in.
+#[tokio::test]
+async fn test_export_intervals_asks_strava_s_session_to_reconnect() -> Result<()> {
+    let executor = create_endurance_test_executor().await?;
+    let (user_id, tenant) = create_connected_test_user(&executor).await?;
+
+    let err = executor
+        .execute_tool(make_request(
+            "export_intervals",
+            json!({ "activity_id": "12345" }),
+            user_id,
+            Some(&tenant),
+        ))
+        .await
+        .expect_err("bug: a read of a connection holding no credential answers");
+    match err {
+        ProtocolError::ProviderAuthRequired { provider } => assert_eq!(
+            provider, "sciotte",
+            "bug: the refusal names a backend other than Strava's session"
+        ),
+        other => panic!("bug: export_intervals: expected ProviderAuthRequired, got {other:?}"),
+    }
     Ok(())
 }
 

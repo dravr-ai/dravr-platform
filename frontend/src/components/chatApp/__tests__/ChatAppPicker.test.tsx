@@ -20,7 +20,7 @@ describe('ChatAppPicker', () => {
     render(<ChatAppPicker channels={CHANNELS} onSelect={vi.fn()} showQr />);
     expect(screen.getByText('Telegram')).toBeInTheDocument();
     expect(screen.getByText('Slack')).toBeInTheDocument();
-    expect(screen.getByText('Recommended')).toBeInTheDocument();
+    expect(screen.getByText('Recommended')).toHaveClass('badge', 'badge-primary');
   });
 
   it('calls onSelect with the channel id when a channel is chosen, and only once', async () => {

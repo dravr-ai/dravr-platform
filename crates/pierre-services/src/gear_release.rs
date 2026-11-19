@@ -118,14 +118,13 @@ pub fn workout_twins(rows: &[CachedActivityRow], copy: &ActivityGearKey) -> Vec<
     ledger_workouts(rows)
         .into_iter()
         .find(|workout| workout.copies.contains(copy))
-        .map(|workout| {
+        .map_or_default(|workout| {
             workout
                 .copies
                 .into_iter()
                 .filter(|key| key != copy)
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// The copy of `released`'s workout that takes its attribution over once
@@ -235,6 +234,7 @@ mod tests {
             detail_read: false,
             segment_read: false,
             stored_at: None,
+            place: None,
         }
     }
 
@@ -338,6 +338,7 @@ mod tests {
             detail_read: false,
             segment_read: false,
             stored_at: None,
+            place: None,
         };
         assert!(
             workout_distance(&row.activity).abs() < f64::EPSILON,

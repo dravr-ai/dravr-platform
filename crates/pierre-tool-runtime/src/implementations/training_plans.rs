@@ -601,9 +601,10 @@ async fn read_plan(
     // A plan derived from first-party-only data is not served over an
     // external transport, and is not reported as absent either: a
     // caller told "no plan" would lay one over it (carnet#769).
+    // Served, a stored plan is labelled as what an agent wrote with the athlete.
     if active
         .as_ref()
-        .is_some_and(|plan| !ai_scope::admit_derived(plan.transport_policy))
+        .is_some_and(|plan| !ai_scope::admit_agent_written(plan.transport_policy))
     {
         return Err(AppError::unavailable_over_transport(
             "this athlete's training plan is not available over this interface",

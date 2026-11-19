@@ -61,14 +61,13 @@ where
             // task died (a panic, or a runtime-cancelled join).
             let died = ticking.await;
             drop(guard);
-            if let Err(e) = died {
-                error!(
-                    worker = name,
-                    error = %e,
-                    is_panic = e.is_panic(),
-                    "{name} loop died — respawning after one period"
-                );
-            }
+            let Err(e) = died;
+            error!(
+                worker = name,
+                error = %e,
+                is_panic = e.is_panic(),
+                "{name} loop died — respawning after one period"
+            );
             sleep(period).await;
         }
     })

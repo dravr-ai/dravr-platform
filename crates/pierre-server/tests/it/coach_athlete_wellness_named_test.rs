@@ -551,9 +551,9 @@ async fn file_probe_days(f: &Fixture) -> Probe {
         icu_morning: morning_of(INTERVALS_ICU),
     };
     assert!(
-        probe.garmin_body.recorded_at != probe.icu_body.recorded_at
-            && probe.garmin_morning.recorded_at != probe.icu_morning.recorded_at,
-        "the two sources' rows are told apart by when they were recorded"
+        probe.garmin_body.data_source_id != probe.icu_body.data_source_id
+            && probe.garmin_morning.data_source_id != probe.icu_morning.data_source_id,
+        "the two sources' rows are told apart by the source they were stored under"
     );
     probe
 }
@@ -567,12 +567,15 @@ fn no_row_on(payload: &Value, key: &str, days_ago: i64) -> bool {
 }
 
 /// The fields of a merged row that say which stored row stands for its day.
+///
+/// A tool answers no `recorded_at` for a stored day (carnet#1629): the
+/// stored id and source tell the rows apart.
 fn standing(row: &Value) -> Value {
+    assert_eq!(row.get("recorded_at"), None, "no reading time: {row}");
     json!({
         "source_name": row["source_name"],
         "id": row["id"],
         "data_source_id": row["data_source_id"],
-        "recorded_at": row["recorded_at"],
         "sources": row["sources"],
         "filled": row["filled"],
     })
@@ -584,26 +587,17 @@ async fn a_source_that_recorded_only_unnamed_metrics_never_stands_for_a_coachs_d
     let probe = file_probe_days(&f).await;
     f.share_wellness(true).await;
 
-    let icu_stands = |id: &str, data_source_id: &str, recorded_at: Value| {
+    let icu_stands = |id: &str, data_source_id: &str| {
         json!({
             "source_name": INTERVALS_ICU,
             "id": id,
             "data_source_id": data_source_id,
-            "recorded_at": recorded_at,
             "sources": [INTERVALS_ICU],
             "filled": [],
         })
     };
-    let body_stands = icu_stands(
-        &probe.icu_body.id,
-        &probe.icu_body.data_source_id,
-        json!(probe.icu_body.recorded_at),
-    );
-    let morning_stands = icu_stands(
-        &probe.icu_morning.id,
-        &probe.icu_morning.data_source_id,
-        json!(probe.icu_morning.recorded_at),
-    );
+    let body_stands = icu_stands(&probe.icu_body.id, &probe.icu_body.data_source_id);
+    let morning_stands = icu_stands(&probe.icu_morning.id, &probe.icu_morning.data_source_id);
     for (label, executor, params) in [
         ("thread", f.thread_executor(), json!({})),
         ("mcp", f.mcp_executor(), naming_mira(json!({}))),

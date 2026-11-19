@@ -29,7 +29,7 @@ use pierre_database::RepositoryRegistry;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::live_activities::LiveActivityStore;
+use crate::live_activities::{LiveActivityStore, WriteOrigin};
 
 /// At most this many rows go to the store in one ingest.
 const INGEST_BATCH: usize = 200;
@@ -255,7 +255,14 @@ impl<'repos> CacheAdoption<'repos> {
         for (synced_at, activities) in by_stamp(stored) {
             for batch in activities.chunks(INGEST_BATCH) {
                 self.store
-                    .ingest(row.user_id, tenant_id, &row.provider, batch, synced_at)
+                    .ingest(
+                        row.user_id,
+                        tenant_id,
+                        &row.provider,
+                        batch,
+                        synced_at,
+                        WriteOrigin::Import,
+                    )
                     .await?;
             }
         }

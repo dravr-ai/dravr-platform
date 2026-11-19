@@ -106,10 +106,9 @@ use crate::intervals_icu_self_report::{
 };
 use crate::intervals_icu_settings::thresholds_from_settings;
 use crate::intervals_icu_streams::{streams_to_time_series, IntervalsIcuStream};
-use crate::models::coverage::WindowScope;
 use crate::models::{
     Activity, ActivityComment, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout,
-    ProviderThresholds, SportType, Stats, TimeSeriesData,
+    ProviderThresholds, SportType, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
@@ -942,6 +941,7 @@ impl FitnessProvider for IntervalsIcuProvider {
         })?;
         let display_name = raw.name.unwrap_or_else(|| raw.id.clone());
         Ok(Athlete {
+            active_streak: None,
             created_at: None,
             id: raw.id,
             username: raw.email.unwrap_or_default(),
@@ -1042,24 +1042,6 @@ impl FitnessProvider for IntervalsIcuProvider {
         };
         map_activity(raw, streams, comments)
             .ok_or_else(|| AppError::external_service("intervals_icu", "could not map activity"))
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        // Intervals.icu doesn't expose an aggregate-stats endpoint; derive
-        // a 90-day rollup from the activity list so the trait surface
-        // returns real data instead of synthetic zeros.
-        let (oldest, newest) = activity_window(None, None);
-        let activities = self.list_activities(oldest, newest, MAX_PAGE_LIMIT).await?;
-        // The rollup spans the lookback window, unless the listing hit its
-        // page cap first: then only that many of the most recent count.
-        let scope = if activities.len() < MAX_PAGE_LIMIT {
-            WindowScope::LastDays {
-                days: u32::try_from(DEFAULT_LOOKBACK_DAYS).unwrap_or(u32::MAX),
-            }
-        } else {
-            WindowScope::RecentActivities
-        };
-        Ok(Stats::summed_over(&activities, scope))
     }
 
     // Every category: this is the reconcile's view of the calendar, and the

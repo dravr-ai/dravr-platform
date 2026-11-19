@@ -7,7 +7,6 @@
 use pierre_core::constants::tiers;
 use pierre_core::models::a2a::TaskStatus;
 use pierre_core::models::{UserStatus, UserTier};
-use pierre_core::permissions::UserRole;
 
 /// Convert `UserTier` enum to database string representation
 ///
@@ -152,39 +151,4 @@ pub fn str_to_task_status(s: &str) -> TaskStatus {
         "auth-required" => TaskStatus::AuthRequired,
         _ => TaskStatus::Submitted,
     }
-}
-
-/// Convert `UserRole` enum to database string representation
-///
-/// # Examples
-/// ```
-/// use pierre_core::permissions::UserRole;
-/// use pierre_database::backends::shared::enums::user_role_to_str;
-///
-/// assert_eq!(user_role_to_str(&UserRole::SuperAdmin), "super_admin");
-/// assert_eq!(user_role_to_str(&UserRole::Admin), "admin");
-/// assert_eq!(user_role_to_str(&UserRole::User), "user");
-/// ```
-#[must_use]
-#[inline]
-pub const fn user_role_to_str(role: &UserRole) -> &'static str {
-    role.as_str()
-}
-
-/// Convert database string to `UserRole` enum
-///
-/// Unknown values default to `User` role for safety.
-///
-/// # Examples
-/// ```
-/// use pierre_core::permissions::UserRole;
-/// use pierre_database::backends::shared::enums::str_to_user_role;
-///
-/// assert_eq!(str_to_user_role("super_admin"), UserRole::SuperAdmin);
-/// assert_eq!(str_to_user_role("admin"), UserRole::Admin);
-/// assert_eq!(str_to_user_role("unknown"), UserRole::User); // Default
-/// ```
-#[must_use]
-pub fn str_to_user_role(s: &str) -> UserRole {
-    UserRole::from_str_lossy(s)
 }

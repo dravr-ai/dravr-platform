@@ -41,6 +41,7 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{CoachReplyCorrection, CoachReplyFlag, CoachReviewWeek, ReplyFlagReason};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_middleware::AuthenticatedUser;
+use pierre_providers::ai_scope;
 use pierre_services::coach_replies::{self, ReplyPageQuery};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -134,7 +135,7 @@ pub async fn handle_list(
     Query(query): Query<RepliesQuery>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let page = coach_replies::list_replies(
+    let mut page = coach_replies::list_replies(
         &resources.common.repos,
         &resources.mcp.evidence_registry,
         auth.user_id,
@@ -146,6 +147,13 @@ pub async fn handle_list(
         },
     )
     .await?;
+    // An outside client acting for the coach is never told of an athlete who
+    // stopped sharing (EFVP 2026-11-17, decision 9.4c): the athlete filter
+    // does not list one, and a page filtered on one reads as one filtered on
+    // a non-member, whose replies are not listed either.
+    if ai_scope::served_outside(auth.acts_for_outside_client()) {
+        page.athletes.retain(|athlete| athlete.shares_with_coach);
+    }
     Ok((StatusCode::OK, Json(page)).into_response())
 }
 

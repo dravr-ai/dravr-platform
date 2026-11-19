@@ -17,16 +17,21 @@
 //! (`GET /api/coach/roster`) reads too; this tool only pins a room and shapes
 //! the result for the agent. Four rules decide what comes back:
 //!
-//! 1. **The roster is the coach attachment.** The groups are the active ones
-//!    whose `coach_user_id` is the caller, and the athletes their live members
-//!    — the set `list_athletes_coached_by` returns. The tenant-isolation
+//! 1. **The roster is the coach attachment, read by a caller who holds
+//!    coach access.** The groups are the active ones whose `coach_user_id` is
+//!    the caller, and the athletes their live members — the set
+//!    `list_athletes_coached_by` returns. A caller still attached whose coach
+//!    access is off is told so and reviews no roster. The tenant-isolation
 //!    conformance stage redacts any athlete outside that same set, so the two
 //!    must never drift: an owner who is not the group's coach does not see it
 //!    here.
 //! 2. **A room is pinned to its group.** A reply in a group's room is read by
 //!    every member, so a call surfaced from one covers that group alone, and
 //!    a room whose group the caller does not coach — or a conversation that
-//!    does not resolve for them — is refused rather than guessed.
+//!    does not resolve for them — is refused rather than guessed. Both are
+//!    answered before coach access being off is, so only the caller's own
+//!    conversation and the room of a group they are attached to are told of
+//!    it.
 //! 3. **Consent is the athlete's coach consent.** The member's own
 //!    `coach_sharing_consent`, granted by joining (ADR-002) and revoked with
 //!    `/group consent coach no`, names who is listed as `shared`. The group's
@@ -63,6 +68,7 @@ use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
 use pierre_services::coach_roster::{
     gather_roster, order_roster, roster_access, OrderedMember, RosterAccess, RosterAthleteStatus,
+    NO_COACH_ACCESS,
 };
 use pierre_tools_core::ToolResult;
 
@@ -73,6 +79,7 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
+use crate::read_subject::COACH_ACCESS_OFF;
 use crate::runtime::ToolRuntime;
 
 /// The tool's name, as a refusal words it.
@@ -178,21 +185,30 @@ pub struct RosterOverviewResult {
 
 /// The groups the call covers, or the refusal that explains why it covers none.
 ///
+/// The room is asked before the caller's coach access. A caller attached to
+/// a group whose coach access is off is told so where the reply is theirs or
+/// that group's — their own conversation, that group's room — and anywhere
+/// else is answered as a coach who holds it is: every member of a room reads
+/// the reply.
+///
 /// The outer `Err` is a repository failure; the inner `Err` is the refusal.
 async fn covered_groups(
     context: &ToolExecutionContext,
     arg_group: Option<&str>,
 ) -> AppResult<Result<Vec<CoachingGroup>, ToolResult>> {
-    let RosterAccess::Granted(mut groups) =
-        roster_access(context.resources.repos(), context.user_id).await?
-    else {
-        return Ok(Err(refusal(
-            "not_a_coach",
-            "You are not the human coach of any Dravr group, so no group roster is reviewed \
-             here. That says nothing about the roster of your coaching platform: \
-             `get_provider_roster` reads it. A coach joins a group by redeeming its coach \
-             invite.",
-        )));
+    let access = roster_access(context.resources.repos(), context.user_id).await?;
+    let (mut groups, holds_coach_access) = match access {
+        RosterAccess::Granted(groups) => (groups, true),
+        RosterAccess::NoCoachAccess(groups) => (groups, false),
+        RosterAccess::NotACoach => {
+            return Ok(Err(refusal(
+                "not_a_coach",
+                "You are not the human coach of any Dravr group, so no group roster is \
+                 reviewed here. That says nothing about the roster of your coaching platform: \
+                 `get_provider_roster` reads it. A coach joins a group by redeeming its coach \
+                 invite.",
+            )));
+        }
     };
 
     match call_room(context).await? {
@@ -216,6 +232,9 @@ async fn covered_groups(
                 )));
             }
         }
+    }
+    if !holds_coach_access {
+        return Ok(Err(refusal(NO_COACH_ACCESS, COACH_ACCESS_OFF)));
     }
 
     if let Some(pin) = arg_group {

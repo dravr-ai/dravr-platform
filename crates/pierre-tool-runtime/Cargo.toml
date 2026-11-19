@@ -50,6 +50,9 @@ pierre-config = { version = "0.3.0", path = "../pierre-config" }
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 dravr-cageux = { workspace = true }
+# The sensitivity tier of each stream a tool declares, read by the trust label
+# on its result.
+dravr-barrage = { workspace = true }
 pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
@@ -101,7 +104,7 @@ uuid = { version = "1.29", features = ["v4", "serde"] }
 [dev-dependencies]
 # The headless re-run classifies the AppError image of embacle's RunnerError
 # kinds; the test that pins it constructs those RunnerErrors directly.
-embacle = { version = "0.45.1" }
+embacle = { version = "0.47.0" }
 # Validates a tool's declared outputSchema against the payload it actually
 # returns. Same version the chat pipeline validates structured replies with.
 jsonschema = { version = "0.46.10", default-features = false }

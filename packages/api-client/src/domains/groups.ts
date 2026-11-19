@@ -34,7 +34,12 @@ import type {
   CoachConsentsResponse,
   UpdateCoachConsentsRequest,
   CoachSharing,
+  CoachSharingState,
   CoachReads,
+  ClaimGroupCoachResponse,
+  HeldGroupInviteResponse,
+  HoldGroupInviteResponse,
+  JoinHeldInviteResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -68,6 +73,7 @@ export type {
   CoachConsentsResponse,
   UpdateCoachConsentsRequest,
   CoachSharing,
+  CoachSharingState,
   CoachReads,
 };
 
@@ -150,6 +156,44 @@ export function createGroupsApi(axios: AxiosInstance) {
       await axios.delete(ENDPOINTS.GROUPS.COACH(groupId));
     },
 
+    /**
+     * Become the coach of a group the caller owns and that has no coach yet,
+     * through the rule a coach-access grant applies: the caller must hold
+     * coach access (carnet#1650).
+     */
+    async claimCoach(groupId: string): Promise<ClaimGroupCoachResponse> {
+      const response = await axios.put<ClaimGroupCoachResponse>(ENDPOINTS.GROUPS.COACH(groupId));
+      return response.data;
+    },
+
+    /**
+     * Have the server hold the invite a `/groups/join/<code>` link carried,
+     * against the signed-in account, pending or active (carnet#1648). A 400 or
+     * 404 means the code is dead; a 403 with `details.reason`
+     * `coach_invite_not_for_account` means a coach link this account may not
+     * redeem, never worth retrying either; a 429, a 5xx or no answer is.
+     */
+    async holdInvite(code: string): Promise<HoldGroupInviteResponse> {
+      const response = await axios.put<HoldGroupInviteResponse>(ENDPOINTS.GROUPS.HELD_INVITE, { code });
+      return response.data;
+    },
+
+    /** The invite the server holds for the signed-in account, if any (carnet#1650). */
+    async heldInvite(): Promise<HeldGroupInviteResponse> {
+      const response = await axios.get<HeldGroupInviteResponse>(ENDPOINTS.GROUPS.HELD_INVITE);
+      return response.data;
+    },
+
+    /**
+     * Join the group the server holds an invite to for the caller (an active
+     * account). Every decided outcome answers 200; a failed call keeps the
+     * hold, and so does a `group_full` refusal.
+     */
+    async joinHeldInvite(): Promise<JoinHeldInviteResponse> {
+      const response = await axios.post<JoinHeldInviteResponse>(ENDPOINTS.GROUPS.JOIN_HELD_INVITE);
+      return response.data;
+    },
+
     /** List members of a group */
     async listMembers(groupId: string): Promise<GroupMembersResponse> {
       const response = await axios.get<GroupMembersResponse>(ENDPOINTS.GROUPS.MEMBERS(groupId));
@@ -176,14 +220,14 @@ export function createGroupsApi(axios: AxiosInstance) {
     },
 
     /** Whether the group's human coach sees the caller's training */
-    async getCoachSharing(groupId: string): Promise<CoachSharing> {
-      const response = await axios.get<CoachSharing>(ENDPOINTS.GROUPS.MY_COACH_SHARING(groupId));
+    async getCoachSharing(groupId: string): Promise<CoachSharingState> {
+      const response = await axios.get<CoachSharingState>(ENDPOINTS.GROUPS.MY_COACH_SHARING(groupId));
       return response.data;
     },
 
     /** The caller stops or resumes sharing their training with the group's human coach */
-    async updateCoachSharing(groupId: string, request: CoachSharing): Promise<CoachSharing> {
-      const response = await axios.put<CoachSharing>(
+    async updateCoachSharing(groupId: string, request: CoachSharing): Promise<CoachSharingState> {
+      const response = await axios.put<CoachSharingState>(
         ENDPOINTS.GROUPS.MY_COACH_SHARING(groupId),
         request,
       );

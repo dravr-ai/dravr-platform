@@ -8,8 +8,8 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::common::offline_provider_registry;
 
-use pierre_core::models::coverage::Coverage;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -21,9 +21,8 @@ use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    Activity, ActivityBuilder, AnchorProvenance, Athlete, ConnectionType, SportType, Stats,
-    TenantId, ThresholdProvenance, ThresholdStatedOn, User, UserOAuthToken,
-    UserPhysiologicalProfile,
+    Activity, ActivityBuilder, AnchorProvenance, Athlete, ConnectionType, SportType, TenantId,
+    ThresholdProvenance, ThresholdStatedOn, User, UserOAuthToken, UserPhysiologicalProfile,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -35,7 +34,6 @@ use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
 use pierre_providers::provider_terms::{NOLIO, NOLIO_TRANSPORT};
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderBundle, ProviderCapabilities,
     ProviderDescriptor,
@@ -204,6 +202,7 @@ impl FitnessProvider for OpenRunner {
 
     async fn get_athlete(&self) -> AppResult<Athlete> {
         Ok(Athlete {
+            active_streak: None,
             created_at: None,
             id: "open-athlete".to_owned(),
             username: "open_runner".to_owned(),
@@ -234,17 +233,6 @@ impl FitnessProvider for OpenRunner {
             .filter(|a| a.id() == id)
             .ok_or_else(|| AppError::not_found(id.to_owned()))
     }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Ok(Stats {
-            total_activities: 1,
-            total_distance: 21_100.0,
-            total_duration: 6_300,
-            total_elevation_gain: 0.0,
-            coverage: Coverage::lifetime(1),
-            year_to_date: None,
-        })
-    }
 }
 
 fn open_factory(config: ProviderConfig) -> Box<dyn FitnessProvider> {
@@ -261,7 +249,7 @@ fn relay_factory(config: ProviderConfig) -> Box<dyn FitnessProvider> {
 async fn server() -> Arc<ServerContext> {
     common::init_server_config();
     let base = create_test_server_resources().await.unwrap();
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.register_provider_bundle(ProviderBundle::new(Box::new(OpenDescriptor), open_factory));
     registry.register_provider_bundle(ProviderBundle::new(
         Box::new(RelayDescriptor),

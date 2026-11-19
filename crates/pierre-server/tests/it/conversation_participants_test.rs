@@ -28,7 +28,9 @@ use uuid::Uuid;
 
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
+use helpers::impersonation::{assert_refusal_audited, impersonation_of};
 use pierre_core::models::ParticipantRole;
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{
     ChatRoutes, ConversationListResponse, ConversationResponse, MessagesListResponse,
     ParticipantListResponse, ParticipantResponse, TurnResponse,
@@ -46,7 +48,9 @@ static PG_MIGRATOR: Migrator = sqlx::migrate!("../../migrations_pg");
 const PARTICIPANTS_MIGRATION: i64 = 20_260_826_000_004;
 
 struct Fixture {
+    res: Arc<ServerContext>,
     router: axum::Router,
+    owner_id: Uuid,
     /// Opens the conversation; the owner participant.
     owner_auth: String,
     /// Same tenant as the owner; gets added to the thread.
@@ -123,7 +127,9 @@ async fn setup() -> Fixture {
     let router = ChatRoutes::routes(Arc::clone(&res));
 
     Fixture {
+        res,
         router,
+        owner_id,
         owner_auth,
         member_id,
         member_auth,
@@ -266,6 +272,43 @@ async fn test_added_member_reads_lists_renames_and_posts() {
     assert_eq!(participants.len(), 2);
     assert_eq!(participants[0].role, ParticipantRole::Owner);
     assert_eq!(participants[1].user_id, fx.member_id.to_string());
+}
+
+/// Whoever is added keeps reading and posting in the thread after the
+/// support session ends: an admin acting as the owner adds no one, and the
+/// owner's own session still does (carnet#1634).
+#[tokio::test]
+async fn test_support_session_adds_no_participant() {
+    let fx = setup().await;
+    let conv = create_conversation(&fx).await;
+    let support = impersonation_of(&fx.res, &fx.owner_auth).await;
+
+    let status = add_participant(&fx, &conv.id, &support, fx.member_id).await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a support session adds no participant"
+    );
+    let ids =
+        |list: Vec<ParticipantResponse>| list.into_iter().map(|p| p.user_id).collect::<Vec<_>>();
+    assert!(
+        !ids(list_participants(&fx, &conv.id, &fx.owner_auth).await)
+            .contains(&fx.member_id.to_string()),
+        "the support session added no one"
+    );
+    assert_refusal_audited(&fx.res, fx.owner_id, "add a conversation participant").await;
+
+    let status = add_participant(&fx, &conv.id, &fx.owner_auth, fx.member_id).await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "the owner's own session adds the participant"
+    );
+    assert!(
+        ids(list_participants(&fx, &conv.id, &fx.owner_auth).await)
+            .contains(&fx.member_id.to_string()),
+        "the owner's own session added the member"
+    );
 }
 
 #[tokio::test]

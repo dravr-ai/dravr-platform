@@ -35,12 +35,15 @@ import {
 } from '../ui';
 import MemberList from './MemberList';
 import AthletePlanModal from './AthletePlanModal';
+import AthletePhysiologyModal from './AthletePhysiologyModal';
 import { AgentRow, CoachRow } from './GroupLeads';
 import CoachAccessRequest from '../CoachAccessRequest';
+import ClaimCoachBlock from './ClaimCoachBlock';
 import InviteManager from './InviteManager';
 import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
 import DelegatedConnectionsSection from './DelegatedConnectionsSection';
+import CoachAssistantNotice from './CoachAssistantNotice';
 import CoachConsentsSection from './CoachConsentsSection';
 import CoachReadLog from './CoachReadLog';
 import CoachAthleteCard from './CoachAthleteCard';
@@ -180,6 +183,7 @@ export default function GroupInfoPanel({
   const [confirmRemoveCoach, setConfirmRemoveCoach] = useState(false);
   // The member whose live plan the coach is reading, read-only (carnet#1244).
   const [viewingPlanFor, setViewingPlanFor] = useState<GroupMember | null>(null);
+  const [viewingThresholdsFor, setViewingThresholdsFor] = useState<GroupMember | null>(null);
 
   const currentUserRole: GroupRole = currentMember?.role ?? 'member';
   const isOwner = currentUserRole === 'owner';
@@ -388,6 +392,12 @@ export default function GroupInfoPanel({
           once asked, the dated timeline (carnet#1520). */}
       {viewer === 'seat' && <CoachAccessRequest groupId={groupId} variant="block" />}
 
+      {/* An owner who already holds coach access, on a group nobody coaches:
+          the one way to take the seat (carnet#1650). */}
+      {viewer === 'member' && isOwner && !group.coach_user_id && auth.user?.manages_roster === true && (
+        <ClaimCoachBlock groupId={groupId} />
+      )}
+
       {viewer === 'coach' && (
         <Section
           headingLevel={3}
@@ -411,6 +421,7 @@ export default function GroupInfoPanel({
                   opening={pendingAthleteId === member.user_id}
                   busy={pendingAthleteId !== null}
                   onViewPlan={setViewingPlanFor}
+                  onViewThresholds={setViewingThresholdsFor}
                   onOpenCoachHome={canOpenCoachHome ? (m) => onOpenCoachHome?.(m.user_id) : undefined}
                   menu={
                     athleteActions.itemsFor(member).length > 0 ? (
@@ -465,6 +476,11 @@ export default function GroupInfoPanel({
         onWorkOnPlan={onOpenConversation ? (member) => void handleWorkOnPlan(member) : undefined}
         isOpeningThread={viewingPlanFor !== null && pendingAthleteId === viewingPlanFor.user_id}
       />
+      <AthletePhysiologyModal
+        member={viewingThresholdsFor}
+        groupId={groupId}
+        onClose={() => setViewingThresholdsFor(null)}
+      />
 
       {/* Which side of the links the caller is on is the server's answer:
           a coach who is also a member is still the group's coach. */}
@@ -502,6 +518,16 @@ export default function GroupInfoPanel({
 
       {showsSharing && (
         <Section headingLevel={3} title={t('groups.info.sharingTitle')} data-testid="group-info-sharing">
+          {/* Told once to a sharing member until they answer it here: the coach's AI tools read them by name. */}
+          {showsCoachSharing && coachName && coachSharing?.assistant_notice_due && (
+            <div className="mb-3">
+              <CoachAssistantNotice
+                coach={coachName}
+                disabled={isSavingCoachSharing}
+                onAnswer={(keep) => void handleCoachSharingChange(keep)}
+              />
+            </div>
+          )}
           <RowBox>
             {showsCoachSharing && (
               <div className={clsx('px-4 py-3', ROW_DIVIDER)} data-testid="coach-sharing-row">

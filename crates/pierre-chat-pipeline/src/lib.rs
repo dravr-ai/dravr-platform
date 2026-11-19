@@ -840,8 +840,16 @@ async fn answer_stored_turn(
     }
     // The steps this reply hands over ride its stored row and its live
     // actions alike.
-    let next_steps =
-        steps_handed_over(ctx, &input, profile, &conv, plan_was_saved, leak_replaced).await;
+    let next_steps = steps_handed_over(
+        ctx,
+        &input,
+        profile,
+        &conv,
+        plan_was_saved,
+        leak_replaced,
+        post_processed.quick_replies,
+    )
+    .await;
     let content_blocks = next_steps
         .stored_blocks(post_processed.content_blocks.as_deref())
         .unwrap_or_else(|e| {
@@ -988,8 +996,9 @@ async fn answer_stored_turn(
     ))
 }
 
-/// The steps a reply hands over. A reply withheld for a leak is an apology, not
-/// the answer the steps would have followed, so it hands over none.
+/// The steps a reply hands over, the model's `quick_replies` first. A reply
+/// withheld for a leak is an apology, not the answer the steps would have
+/// followed, so it hands over none.
 async fn steps_handed_over(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
@@ -997,11 +1006,12 @@ async fn steps_handed_over(
     conv: &ConversationRecord,
     plan_was_saved: bool,
     leak_replaced: bool,
+    quick_replies: Vec<String>,
 ) -> NextSteps {
     if leak_replaced {
         return NextSteps::default();
     }
-    next_steps::for_reply(ctx, input, profile, conv, plan_was_saved).await
+    next_steps::for_reply(ctx, input, profile, conv, plan_was_saved, quick_replies).await
 }
 
 /// Ask the wired [`ScenePublisher`] to mint an image per stored chart spec.

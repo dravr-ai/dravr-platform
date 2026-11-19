@@ -272,13 +272,13 @@ async fn test_redis_cache_invalidate_pattern() -> Result<()> {
         tenant_id,
         user_id,
         "strava".to_owned(),
-        CacheResource::LastKnownStats,
+        CacheResource::LastKnownAthleteProfile,
     );
     let key3 = CacheKey::new(
         tenant_id,
         user_id,
         "strava".to_owned(),
-        CacheResource::Stats { athlete_id: 456 },
+        CacheResource::ProviderRoster,
     );
 
     // Clean up any existing keys first
@@ -386,7 +386,7 @@ async fn test_redis_cache_clear_all() -> Result<()> {
                 tenant_id,
                 user_id,
                 "strava".to_owned(),
-                CacheResource::Stats { athlete_id: i },
+                CacheResource::Custom(format!("entry_{i}")),
             )
         })
         .collect();
@@ -438,7 +438,7 @@ async fn test_redis_cache_different_resource_types() -> Result<()> {
             after: None,
             sport_type: None,
         },
-        CacheResource::Stats { athlete_id: 456 },
+        CacheResource::ProviderRoster,
     ];
 
     // Create keys and clean up first
@@ -551,7 +551,7 @@ async fn test_redis_cache_concurrent_operations() -> Result<()> {
                 tenant_id,
                 user_id,
                 "strava".to_owned(),
-                CacheResource::Stats { athlete_id: i },
+                CacheResource::Custom(format!("entry_{i}")),
             );
             #[allow(clippy::cast_possible_truncation)] // i is in range 0..10, safe to truncate
             let data = TestData {

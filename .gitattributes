@@ -9,3 +9,8 @@
 .claude/rules export-ignore
 .claude/skills export-ignore
 .agents/agents export-ignore
+
+# An age file (a sealed originals bundle fixture) is a text header over a
+# binary payload; one short enough to hold no NUL byte reads as text to git,
+# and diff-scanning gates then choke on its bytes.
+*.age binary

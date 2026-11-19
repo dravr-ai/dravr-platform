@@ -56,6 +56,7 @@ use pierre_providers::upload_provider::{
     file_sha256, parse_upload_activity_id, store_upload_series, upload_activity_id,
     upload_session_series,
 };
+use pierre_services::live_activities::WriteOrigin;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::training_history_compute::rewarm_default_window;
 use tracing::{info, warn};
@@ -179,7 +180,14 @@ pub async fn upload_activity_file(
     .await?;
     runtime
         .live_activities()
-        .ingest(user_id, tenant_id, UPLOAD, &stored, synced_at)
+        .ingest(
+            user_id,
+            tenant_id,
+            UPLOAD,
+            &stored,
+            synced_at,
+            WriteOrigin::Import,
+        )
         .await?;
     after_stored_activities_changed(runtime, tenant_id, user_id).await;
     info!(

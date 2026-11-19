@@ -127,6 +127,41 @@ ignore = [
     # Reviewed: 2026-11-09
     # Next Review: 2026-12-09
     "RUSTSEC-2026-0459",
+
+    # -------------------------------------------------------------------------
+    # RUSTSEC-2026-0543 + RUSTSEC-2026-0555: chrono and chrono-tz unmaintained
+    # -------------------------------------------------------------------------
+    # Severity: none; these are maintenance notices, not vulnerabilities.
+    # Crates: chrono 0.4.45, chrono-tz 0.10.4 (the only versions in Cargo.lock)
+    # Issue: RustSec lists both crates as unmaintained, citing the upstream
+    # issue "Soft-deprecating chrono and chrono-tz" opened by a chrono
+    # maintainer; every version is affected and no safe upgrade exists. The
+    # chrono advisory recommends jiff or time; the chrono-tz advisory names
+    # no alternative.
+    # Advisories: https://rustsec.org/advisories/RUSTSEC-2026-0543
+    #             https://rustsec.org/advisories/RUSTSEC-2026-0555
+    # Upstream issue: https://github.com/chronotope/chrono/issues/1768
+    #
+    # Risk Assessment: no known defect today
+    # - chrono is a direct dependency of 33 workspace manifests and is named
+    #   in about 1,400 source files. chrono-tz is a direct dependency of 6 of
+    #   those manifests and also arrives through dravr-cageux and
+    #   dravr-commere.
+    # - Of the 13 dravr-* crates in Cargo.lock, 12 depend on chrono as well;
+    #   dravr-contremaitre is the exception.
+    # - The exposure is forward-looking: a vulnerability found in either
+    #   crate from now on has no upstream fix.
+    #
+    # Mitigation:
+    # - cargo-deny still reports any vulnerability advisory filed against
+    #   either crate; only these two notices are ignored.
+    # - Staying on chrono or migrating the platform and the satellites is an
+    #   open decision, tracked in carnet#1620.
+    #
+    # Reviewed: 2026-11-17
+    # Next Review: 2026-12-17
+    "RUSTSEC-2026-0543",
+    "RUSTSEC-2026-0555",
 ]
 
 # Warn on yanked crates

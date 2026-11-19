@@ -514,7 +514,13 @@ async fn google_sign_in_goes_to_google_and_back_to_consent_for_a_new_account() {
         f.resources
             .auth
             .auth_manager
-            .validate_session_token(&jwt, &f.resources.auth.jwks_manager)
+            .validate_session_token(
+                &jwt,
+                &f.resources.auth.jwks_manager,
+                f.resources.common.repos.admin_audit.as_ref(),
+                "sign in to the OAuth consent screen",
+            )
+            .await
             .is_err(),
         "the Google sign-in cookie is no first-party session (carnet#787)"
     );

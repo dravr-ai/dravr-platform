@@ -49,6 +49,7 @@ use axum::{
     Router,
 };
 
+use dravr_barrage::store::ActivityRecordStore;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
@@ -67,11 +68,14 @@ use pierre_middleware::provider_link_token::NonceStore;
 use pierre_middleware::McpAuthMiddleware;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::DataContext;
+use pierre_services::originals_bundle::OriginalsBundleService;
 use pierre_services::provider_refresh::SyncNotifier;
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::SyncFailureNotices;
 
 mod account_deletion;
+#[cfg(feature = "provider-sciotte")]
+mod browser_signin;
 mod card_backend;
 /// Where a provider card's history stands.
 mod card_history;
@@ -84,7 +88,10 @@ mod connect_hosted_import;
 mod connect_hosted_intervals;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted_templates;
+/// The athlete's statutory data access requests and their letters.
+mod data_access_requests;
 mod data_export;
+mod dead_grant;
 mod email_verification;
 mod first_sync;
 /// The health backfill a provider connect starts.
@@ -95,10 +102,12 @@ mod hosted_page;
 mod import_tombstones;
 mod intervals_icu;
 mod invitation;
+mod invite_preview;
 mod login;
 mod oauth;
 /// What a provider's OAuth callback starts once its grant is stored.
 mod oauth_connect;
+mod originals_export;
 mod password_attempts;
 mod pending_session;
 mod provider_ai_consent;
@@ -230,6 +239,12 @@ pub struct AuthRoutesContext {
     pub first_sync: FirstSyncSlot,
     /// Shared cache handle — used by the Sciotte prefetch path.
     pub cache: Arc<Cache>,
+    /// The context's one activity record store, which live reads and archive
+    /// imports write: the athlete's export reads their records from it.
+    pub activity_records: Arc<dyn ActivityRecordStore>,
+    /// Builds and hands out the athlete's originals bundle; `None` where no
+    /// blob store is placed, and the bundle routes answer unavailable.
+    pub originals_bundles: Option<Arc<OriginalsBundleService>>,
     /// The hot-reloadable string catalogue — shared with every surface that
     /// renders server-side text; resolves each provider's description in the
     /// reader's locale.
@@ -279,6 +294,8 @@ impl fmt::Debug for AuthRoutesContext {
         #[cfg(feature = "health-sync")]
         debug.field("sync_failure_notices", &self.sync_failure_notices);
         debug.field("cache", &self.cache);
+        debug.field("activity_records", &"ActivityRecordStore");
+        debug.field("originals_bundles", &self.originals_bundles);
         debug.field("messaging_strings", &self.messaging_strings);
         debug.field("rate_limiter", &self.rate_limiter);
         debug.field("group_service", &self.group_service);
@@ -299,7 +316,7 @@ impl AuthRoutesContext {
 
     /// The account service for a route that may create an account: an
     /// account it leaves waiting for approval is also emailed to the
-    /// super-admins when outbound email is configured (carnet#1056).
+    /// admins when outbound email is configured (carnet#1056).
     #[must_use]
     pub fn account_service(&self) -> AuthService {
         AuthService::new(
@@ -393,8 +410,66 @@ impl AuthRoutes {
                 "/api/user/signup-code/redeem",
                 post(signup_code::handle_redeem_signup_code),
             )
+            // The group invite a link carried, held right after a sign-in for
+            // an account Pending or active (carnet#1648).
+            .route(
+                "/api/user/group-invite",
+                put(signup_code::handle_hold_group_invite)
+                    .get(signup_code::handle_get_held_group_invite),
+            )
+            // The card a group invite link shows before any form: public,
+            // metered per address, signed in or out (carnet#1649).
+            .route(
+                "/api/invites/{code}",
+                get(invite_preview::handle_invite_preview),
+            )
             // The athlete's own data as one downloadable JSON file (Law 25 s.27).
             .route("/api/user/export", get(data_export::handle_user_export))
+            // The bytes it leaves out, built on request into one bundle it names.
+            .route(
+                "/api/user/export/originals",
+                get(originals_export::handle_latest_bundle)
+                    .post(originals_export::handle_request_bundle),
+            )
+            .route(
+                "/api/user/export/originals/{id}",
+                get(originals_export::handle_bundle_status),
+            )
+            .route(
+                "/api/user/export/originals/{id}/download",
+                get(originals_export::handle_bundle_download),
+            )
+            // The athlete's requests to a company for their data (Quebec P-39.1
+            // art. 27, GDPR Art. 15): the letter Dravr writes and the athlete
+            // sends, and the legal deadline it runs to.
+            .route(
+                "/api/user/data-access-requests",
+                get(data_access_requests::handle_list).post(data_access_requests::handle_create),
+            )
+            .route(
+                "/api/user/data-access-requests/{id}",
+                get(data_access_requests::handle_get).patch(data_access_requests::handle_edit),
+            )
+            .route(
+                "/api/user/data-access-requests/{id}/letter",
+                get(data_access_requests::handle_letter),
+            )
+            .route(
+                "/api/user/data-access-requests/{id}/sent",
+                post(data_access_requests::handle_sent),
+            )
+            .route(
+                "/api/user/data-access-requests/{id}/extension",
+                post(data_access_requests::handle_extension),
+            )
+            .route(
+                "/api/user/data-access-requests/{id}/answered",
+                post(data_access_requests::handle_answered),
+            )
+            .route(
+                "/api/user/data-access-requests/{id}/close",
+                post(data_access_requests::handle_close),
+            )
             .route("/api/user/locale", put(login::handle_update_locale))
             .route("/api/user/theme", put(login::handle_update_theme))
             .route(
@@ -479,6 +554,16 @@ impl AuthRoutes {
             .route(
                 "/api/providers/sciotte/cancel",
                 post(sciotte_cancel::handle_sciotte_cancel),
+            )
+            // The sign-in run in the athlete's own browser (carnet#1617): how
+            // each provider is signed in to, and the session it hands over.
+            .route(
+                "/api/providers/browser-signin",
+                get(browser_signin::handle_browser_signin_catalog),
+            )
+            .route(
+                "/api/providers/browser-signin/{target}",
+                post(browser_signin::handle_browser_signin),
             )
             // Under /ws, so the frontend's nginx `location /ws` carries the
             // upgrade (ADR-034).

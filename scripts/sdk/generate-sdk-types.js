@@ -192,7 +192,7 @@ async function fetchToolSchemas(token) {
   if (statusCode === 401 || statusCode === 403) {
     throw new Error(
       `Discovery endpoint rejected the admin token (${statusCode}): ${body}. ` +
-        'The token must belong to a user with the global is_admin flag.'
+        'The token must belong to a user who holds the admin role.'
     );
   }
   if (statusCode !== 200) {

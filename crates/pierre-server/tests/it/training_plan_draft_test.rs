@@ -37,6 +37,7 @@ use pierre_chat_pipeline::stages::memory::{inject_training_plan, PlanPromptSourc
 use pierre_commands::plan::PlanShowHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_contremaitre::TrainingCatalogueRegistry;
+use pierre_core::ai_policy::SourceClass;
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
@@ -45,9 +46,10 @@ use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::routes::chat::ChatRoutes;
+use pierre_providers::ai_scope::{self, Provenance};
 use pierre_services::athlete_state::AthleteState;
 use pierre_services::plan_card::load_plan_card;
-use pierre_test_support::delegation::create_group_agent;
+use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::CONVERSATION_ID;
 use pierre_tool_runtime::implementations::training_plan_drafts::PublishTrainingPlanTool;
 use pierre_tool_runtime::implementations::training_plans::{
@@ -131,6 +133,7 @@ async fn coached_group(
         )
         .await
         .unwrap();
+    grant_coach_access(repos, coach.id).await.unwrap();
     // Redeeming a coach invite attaches the coach through this write.
     assert!(repos
         .groups
@@ -527,6 +530,39 @@ async fn a_coachs_draft_of_a_first_season_reaches_no_athlete_surface() {
         .as_str()
         .unwrap()
         .contains("your draft below is not published"));
+}
+
+/// owl phase 1 (carnet#1539): a draft served where there is no live plan is
+/// what an agent wrote, and the read records it, as a live plan's read does.
+#[tokio::test]
+async fn a_draft_read_with_no_live_plan_records_the_agents_writing() {
+    let fx = Fixture::new().await;
+    let bare = Provenance::new();
+    let read = ai_scope::tracking(bare.clone(), fx.coach_reads()).await;
+    assert!(
+        read["plan"].is_null() && read.get("draft").is_none_or(Value::is_null),
+        "{read}"
+    );
+    assert!(
+        !bare.source_classes().contains(&SourceClass::AgentWritten),
+        "nothing an agent wrote was served"
+    );
+
+    fx.coach_saves(json!({
+        "outline": outline(COACH_RACE),
+        "weeks": [week(monday(0), "coach week zero", COACH_WORKOUT)],
+    }))
+    .await;
+    let drafted = Provenance::new();
+    let read = ai_scope::tracking(drafted.clone(), fx.coach_reads()).await;
+    assert!(read["plan"].is_null(), "{read}");
+    assert_eq!(read["draft"]["plan"]["status"], "draft", "{read}");
+    assert!(
+        drafted
+            .source_classes()
+            .contains(&SourceClass::AgentWritten),
+        "the coach's draft is an agent's writing"
+    );
 }
 
 #[tokio::test]

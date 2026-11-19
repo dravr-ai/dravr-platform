@@ -78,9 +78,8 @@ pub fn resolve_mcp_resource_aliases(canonical: &str, base_url: Option<&str>) -> 
 #[must_use]
 pub fn protected_resource_metadata_url(resource: &str) -> String {
     let trimmed = resource.trim_end_matches('/');
-    let path = Url::parse(trimmed)
-        .map(|url| url.path().trim_end_matches('/').to_owned())
-        .unwrap_or_default();
+    let path =
+        Url::parse(trimmed).map_or_default(|url| url.path().trim_end_matches('/').to_owned());
     let origin = trimmed.strip_suffix(path.as_str()).unwrap_or(trimmed);
     format!("{origin}{PROTECTED_RESOURCE_WELL_KNOWN}{path}")
 }
@@ -141,9 +140,7 @@ fn authority_of(resource: &str) -> Option<String> {
 
 /// The path of `resource` without a trailing `/`: `""` for an origin.
 fn path_of(resource: &str) -> String {
-    Url::parse(resource)
-        .map(|url| url.path().trim_end_matches('/').to_owned())
-        .unwrap_or_default()
+    Url::parse(resource).map_or_default(|url| url.path().trim_end_matches('/').to_owned())
 }
 
 impl OAuth2ServerConfig {
@@ -308,5 +305,49 @@ impl OAuth2ServerConfig {
             return Some(self.a2a_resource_for_host(host));
         }
         self.mcp_resource_at(host, path).map(str::to_owned)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::www_authenticate_challenge;
+
+    /// The dev environment's MCP resource, read from where terraform sets it.
+    fn dev_mcp_resource_url() -> &'static str {
+        // A parity check: the value is set only in terraform, and nothing at
+        // runtime joins it to the copy nginx serves, so the file is read.
+        include_str!("../../../../infra/environments/dev/terraform.tfvars")
+            .lines()
+            .find_map(|line| {
+                line.trim()
+                    .strip_prefix("mcp_resource_url")?
+                    .trim_start()
+                    .strip_prefix('=')?
+                    .trim()
+                    .strip_prefix('"')?
+                    .strip_suffix('"')
+            })
+            .expect("infra/environments/dev/terraform.tfvars sets mcp_resource_url")
+    }
+
+    /// The frontend's nginx answers a request to the MCP endpoint that carries
+    /// no bearer itself (docker/images/frontend/nginx.conf, location
+    /// `/__mcp_unauthenticated_401`), so the API is not woken for it. Real MCP
+    /// clients start their OAuth sign-in from that answer, so its challenge
+    /// must be exactly the one this module builds: a copy without the scope
+    /// would have every new athlete asked for write scopes at consent.
+    #[test]
+    fn nginx_answers_with_this_challenge() {
+        // A parity check between two artefacts nothing at runtime joins: the
+        // backend's challenge and the literal the nginx config serves.
+        let nginx = include_str!("../../../../docker/images/frontend/nginx.conf");
+        let expected = format!(
+            "add_header WWW-Authenticate '{}' always;",
+            www_authenticate_challenge(dev_mcp_resource_url(), None)
+        );
+        assert!(
+            nginx.contains(&expected),
+            "docker/images/frontend/nginx.conf must answer a request with no credential with `{expected}`"
+        );
     }
 }

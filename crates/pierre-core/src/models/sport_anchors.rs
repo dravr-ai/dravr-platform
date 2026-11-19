@@ -23,6 +23,14 @@
 //! that states a confidence against a named method ranks an anchor higher.
 //! Freshness and default ranges stay with the kernel, which reads `as_of` and
 //! `method` off every [`AnchorValue`].
+//!
+//! Whether an anchor was measured or estimated is how it may be framed, and
+//! cageux's [`AnchorValue`] does not carry it: [`held_anchors`] returns the
+//! joined anchors with each one's [`MeasurementKind`] beside them
+//! ([`HeldAnchors`]), and [`target_anchor`] names it on the anchor a session
+//! sits on.
+
+use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
 use dravr_cageux::periodization::{
@@ -31,8 +39,11 @@ use dravr_cageux::periodization::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::measurement::{AnchorOrigin, MeasurementKind, MetricProvenance, ProvenancedValue};
+use super::measurement::{
+    AnchorOrigin, MeasurementKind, MetricProvenance, ProvenancedValue, COACH_STATED_ORIGIN,
+};
 use super::{SportType, UserPhysiologicalProfile};
+use crate::ai_policy::SourceClass;
 use crate::constants::units::METERS_PER_KM;
 
 /// The unit an anchor's value, low and high are in.
@@ -224,6 +235,12 @@ pub struct TargetAnchor {
     pub sport: Option<SportFamily>,
     /// Which anchor the targets are a percentage of.
     pub anchor: SportAnchorName,
+    /// Measured by a named test, or estimated: an estimate reads as one
+    /// whatever its confidence. Absent when the anchor records no kind (a
+    /// threshold the athlete stated on the profile row) or was stored before
+    /// the field existed; neither reads as measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<MeasurementKind>,
     /// Its value with range, origin, day, method and confidence.
     #[serde(flatten)]
     pub value: AnchorValue,
@@ -233,7 +250,7 @@ pub struct TargetAnchor {
     pub own_conversions: bool,
 }
 
-/// The anchor `steps` for `sport` are written on.
+/// The anchor `steps` for `sport` are written on, with its kind.
 ///
 /// It is the basis of the first step whose target is a percentage of an
 /// anchor, when the athlete holds that anchor in the sport's family. `None`
@@ -243,10 +260,10 @@ pub struct TargetAnchor {
 pub fn target_anchor(
     steps: &[WorkoutStep],
     sport: &SportType,
-    anchors: &AthleteAnchors,
+    anchors: &HeldAnchors,
 ) -> Option<TargetAnchor> {
     let family = SportFamily::of(sport)?;
-    let held = anchors.for_family(family);
+    let held = anchors.values().for_family(family);
     let name =
         steps
             .iter()
@@ -260,6 +277,7 @@ pub fn target_anchor(
     Some(TargetAnchor {
         sport: Some(family),
         anchor: name,
+        kind: anchors.kind(family, name),
         value: name.get(held)?.clone(),
         own_conversions: !held.ratios().defaults_only,
     })
@@ -378,6 +396,25 @@ impl ProfileTwin {
             }),
         }
     }
+
+    /// The kind the profile row records for this field: an import's, or the
+    /// one critical power and speed are always stored with. `None` for a
+    /// threshold the athlete stated, which the row keeps with no provenance.
+    fn profile_kind(self, profile: &UserPhysiologicalProfile) -> Option<MeasurementKind> {
+        let imported = &profile.threshold_provenance;
+        let recorded = match self {
+            Self::FtpWatts => imported.ftp_watts.as_ref(),
+            Self::CriticalPowerWatts => profile
+                .critical_power_watts
+                .as_ref()
+                .map(|cp| &cp.provenance),
+            Self::CriticalSpeedMps => profile.critical_speed_mps.as_ref().map(|cs| &cs.provenance),
+            Self::ThresholdPaceSecPerKm => imported.threshold_pace_sec_per_km.as_ref(),
+            Self::MaxHr => imported.max_hr.as_ref(),
+            Self::ThresholdHr => imported.threshold_hr.as_ref(),
+        };
+        recorded.map(|provenance| provenance.kind)
+    }
 }
 
 /// A profile-row threshold as an anchor: the provider's origin and day when an
@@ -442,6 +479,21 @@ pub struct SportAnchor {
     pub value: AnchorValue,
 }
 
+impl SportAnchor {
+    /// The trust label's class of this anchor (owl phase 1). Only
+    /// `set_physiology` stores one, so it is the athlete's own statement,
+    /// whatever test it names, unless their human coach set it
+    /// ([`COACH_STATED_ORIGIN`]), which claims the least.
+    #[must_use]
+    pub fn source_class(&self) -> SourceClass {
+        if self.value.origin.as_deref() == Some(COACH_STATED_ORIGIN) {
+            SourceClass::ThirdPartyApp
+        } else {
+            SourceClass::PatientEntered
+        }
+    }
+}
+
 /// One sport family's anchors in `anchors`, for writing.
 const fn family_mut(anchors: &mut AthleteAnchors, sport: SportFamily) -> &mut SportAnchors {
     match sport {
@@ -457,13 +509,56 @@ const fn family_mut(anchors: &mut AthleteAnchors, sport: SportFamily) -> &mut Sp
 /// the resting heart rate, the athlete's rather than a sport's, lands on all
 /// three. A stored per-sport anchor then replaces whatever the row put in its
 /// slot: it carries a stated range, method and confidence the row cannot.
+/// These are the values of [`held_anchors`], without their kinds.
 #[must_use]
 pub fn athlete_anchors(
     profile: &UserPhysiologicalProfile,
     stored: &[SportAnchor],
 ) -> AthleteAnchors {
+    held_anchors(profile, stored).values
+}
+
+/// An athlete's anchors with whether each was measured or estimated.
+///
+/// The values are what cageux resolves workout targets on; the kind is what
+/// the framing turns on, and cageux's [`AnchorValue`] does not carry it.
+/// Built only by [`held_anchors`], so a kind always describes the value
+/// beside it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HeldAnchors {
+    /// The values, per sport family.
+    values: AthleteAnchors,
+    /// The kind of each anchor in `values` that records one.
+    kinds: BTreeMap<(SportFamily, SportAnchorName), MeasurementKind>,
+}
+
+impl HeldAnchors {
+    /// The values, per sport family: what cageux resolves targets on.
+    #[must_use]
+    pub const fn values(&self) -> &AthleteAnchors {
+        &self.values
+    }
+
+    /// Whether `name` in `sport` was measured or estimated; `None` when the
+    /// athlete holds no such anchor, or it records no kind.
+    #[must_use]
+    pub fn kind(&self, sport: SportFamily, name: SportAnchorName) -> Option<MeasurementKind> {
+        self.kinds.get(&(sport, name)).copied()
+    }
+}
+
+/// [`athlete_anchors`], with the kind of each anchor that records one.
+///
+/// Each kind is recorded as its value fills the slot, so it is the kind of
+/// the value the slot ends up holding: a stored per-sport anchor's, which
+/// every stored anchor records, or the one the profile row records for its
+/// twin ([`ProfileTwin`]). A threshold the athlete stated on the row records
+/// none, and the resting heart rate is no sport's anchor.
+#[must_use]
+pub fn held_anchors(profile: &UserPhysiologicalProfile, stored: &[SportAnchor]) -> HeldAnchors {
     let primary = SportFamily::of(&profile.primary_sport);
     let mut anchors = AthleteAnchors::default();
+    let mut kinds = BTreeMap::new();
     for twin in ProfileTwin::ALL {
         let (Some((sport, name)), Some(value)) =
             (twin.anchor(primary), twin.profile_value(profile))
@@ -483,6 +578,10 @@ pub fn athlete_anchors(
             continue;
         }
         *name.get_mut(family_mut(&mut anchors, sport)) = Some(value);
+        // Every twin fills its own slot, so no earlier kind is left behind.
+        if let Some(kind) = twin.profile_kind(profile) {
+            kinds.insert((sport, name), kind);
+        }
     }
     if let Some(bpm) = profile.resting_hr {
         let stamp = profile.anchor_provenance.resting_hr;
@@ -504,8 +603,12 @@ pub fn athlete_anchors(
         *anchor
             .anchor
             .get_mut(family_mut(&mut anchors, anchor.sport)) = Some(anchor.value.clone());
+        kinds.insert((anchor.sport, anchor.anchor), anchor.kind);
     }
-    anchors
+    HeldAnchors {
+        values: anchors,
+        kinds,
+    }
 }
 
 #[cfg(test)]
@@ -541,6 +644,21 @@ mod tests {
                 confidence: AnchorConfidence::High,
             },
         })
+    }
+
+    #[test]
+    fn a_stored_anchor_is_the_athletes_unless_their_coach_set_it() -> TestResult {
+        let mut anchor = stored(SportFamily::Ride, SportAnchorName::CriticalPower, 312.0)?;
+        assert_eq!(anchor.source_class(), SourceClass::PatientEntered, "lab");
+        anchor.value.origin = None;
+        assert_eq!(
+            anchor.source_class(),
+            SourceClass::PatientEntered,
+            "unnamed"
+        );
+        anchor.value.origin = Some(COACH_STATED_ORIGIN.to_owned());
+        assert_eq!(anchor.source_class(), SourceClass::ThirdPartyApp, "coach");
+        Ok(())
     }
 
     #[test]
@@ -730,7 +848,7 @@ mod tests {
     fn a_session_names_the_held_anchor_its_targets_are_written_on() -> TestResult {
         let mut profile = UserPhysiologicalProfile::new(Uuid::nil(), SportType::Ride);
         profile.ftp_watts = Some(285);
-        let row_only = athlete_anchors(&profile, &[]);
+        let row_only = held_anchors(&profile, &[]);
         let steps = [step("Z2"), step("100-110% MAP"), step("50% FTP")];
         assert_eq!(
             target_anchor(&steps, &SportType::Ride, &row_only),
@@ -738,13 +856,18 @@ mod tests {
             "the first anchor named is MAP, which the athlete does not hold"
         );
 
-        let held = athlete_anchors(
+        let held = held_anchors(
             &profile,
             &[stored(SportFamily::Ride, SportAnchorName::Map, 380.0)?],
         );
         let anchor = target_anchor(&steps, &SportType::GravelRide, &held).ok_or("MAP anchor")?;
         assert_eq!(anchor.anchor, SportAnchorName::Map);
         assert!((anchor.value.value - 380.0).abs() < f32::EPSILON);
+        assert_eq!(
+            anchor.kind,
+            Some(MeasurementKind::Measured),
+            "bug: the anchor a session sits on drops the stored anchor's kind"
+        );
         assert!(
             !anchor.own_conversions,
             "MAP alone states one end of no ratio, so conversions stay the defaults"
@@ -754,7 +877,80 @@ mod tests {
         let ftp = target_anchor(&ftp_steps, &SportType::Ride, &row_only).ok_or("FTP anchor")?;
         assert_eq!(ftp.anchor, SportAnchorName::Ftp);
         assert_eq!(ftp.value.origin.as_deref(), Some("athlete"));
+        assert_eq!(
+            ftp.kind, None,
+            "bug: a threshold the athlete stated on the row records no kind, so none is invented"
+        );
         assert_eq!(target_anchor(&ftp_steps, &SportType::Yoga, &row_only), None);
+        Ok(())
+    }
+
+    #[test]
+    fn each_held_anchor_carries_the_kind_its_store_records() -> TestResult {
+        let mut profile = UserPhysiologicalProfile::new(Uuid::nil(), SportType::Ride);
+        profile.ftp_watts = Some(270);
+        profile.threshold_provenance.ftp_watts = Some(MetricProvenance {
+            kind: MeasurementKind::Estimated,
+            origin: Some("intervals.icu".to_owned()),
+            as_of: Some(day(2026, 9, 30)?),
+        });
+        profile.critical_power_watts = Some(ProvenancedValue::new(
+            280,
+            MetricProvenance {
+                kind: MeasurementKind::Measured,
+                origin: Some("3-min all-out test".to_owned()),
+                as_of: Some(day(2026, 10, 1)?),
+            },
+        ));
+        profile.max_hr = Some(188);
+        let estimated_map = SportAnchor {
+            kind: MeasurementKind::Estimated,
+            ..stored(SportFamily::Ride, SportAnchorName::Map, 380.0)?
+        };
+
+        let held = held_anchors(&profile, &[estimated_map]);
+
+        assert_eq!(
+            held.kind(SportFamily::Ride, SportAnchorName::Map),
+            Some(MeasurementKind::Estimated),
+            "bug: an estimate stored at high confidence lost its kind"
+        );
+        assert_eq!(
+            held.values().ride.map.as_ref().map(|map| map.confidence),
+            Some(AnchorConfidence::High),
+            "the confidence stays the stored one beside the kind"
+        );
+        assert_eq!(
+            held.kind(SportFamily::Ride, SportAnchorName::Ftp),
+            Some(MeasurementKind::Estimated),
+            "bug: an imported threshold keeps the kind its provenance records"
+        );
+        assert_eq!(
+            held.kind(SportFamily::Ride, SportAnchorName::CriticalPower),
+            Some(MeasurementKind::Measured),
+            "bug: a critical power stored with a named test reads as measured"
+        );
+        assert_eq!(
+            held.kind(SportFamily::Ride, SportAnchorName::MaxHeartRate),
+            None,
+            "bug: a heart rate the athlete stated on the row records no kind"
+        );
+        assert_eq!(
+            held.kind(SportFamily::Run, SportAnchorName::Map),
+            None,
+            "bug: an anchor the athlete does not hold has no kind"
+        );
+
+        // A stored anchor replaces its twin's value, and so its kind.
+        let replaced = held_anchors(
+            &profile,
+            &[stored(SportFamily::Ride, SportAnchorName::Ftp, 290.0)?],
+        );
+        assert_eq!(
+            replaced.kind(SportFamily::Ride, SportAnchorName::Ftp),
+            Some(MeasurementKind::Measured),
+            "bug: the kind is the row's while the value is the stored anchor's"
+        );
         Ok(())
     }
 

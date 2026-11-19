@@ -27,8 +27,9 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use chrono::{DateTime, Datelike, Days, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, Days, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
+use pierre_core::civil_time::monday_of;
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{Activity, ActivityBuilder, SportType, Tenant, TenantId};
 use pierre_core::transport::TransportPolicy;
@@ -278,10 +279,6 @@ async fn seed_plan_with(
         })
         .await
         .unwrap();
-}
-
-fn monday_of(date: NaiveDate) -> NaiveDate {
-    date - Days::new(u64::from(date.weekday().num_days_from_monday()))
 }
 
 #[tokio::test]

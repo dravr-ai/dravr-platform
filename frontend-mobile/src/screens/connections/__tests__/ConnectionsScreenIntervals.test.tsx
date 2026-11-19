@@ -106,7 +106,7 @@ describe('ConnectionsScreen — Intervals.icu', () => {
     fireEvent.press(screen.getByTestId('intervals-sheet'));
 
     await waitFor(() =>
-      expect(initMobileOAuth).toHaveBeenCalledWith('intervals_icu', 'dravr://oauth-callback', { tosConsent: false }),
+      expect(initMobileOAuth).toHaveBeenCalledWith('intervals_icu', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false }),
     );
   });
 
@@ -142,7 +142,7 @@ describe('ConnectionsScreen — Intervals.icu', () => {
     fireEvent.press(await screen.findByTestId('provider-action-intervals_icu'));
 
     await waitFor(() =>
-      expect(initMobileOAuth).toHaveBeenCalledWith('intervals_icu', 'dravr://oauth-callback', { tosConsent: false }),
+      expect(initMobileOAuth).toHaveBeenCalledWith('intervals_icu', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false }),
     );
     expect(screen.queryByTestId('intervals-sheet')).toBeNull();
   });

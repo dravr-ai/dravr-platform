@@ -158,7 +158,8 @@ impl OAuth2Routes {
     const OAUTH_LOGIN_TEMPLATE: &'static str = include_str!("../../templates/oauth_login.html");
 
     /// OAuth consent page template embedded at compile-time
-    const OAUTH_CONSENT_TEMPLATE: &'static str = include_str!("../../templates/oauth_consent.html");
+    pub(super) const OAUTH_CONSENT_TEMPLATE: &'static str =
+        include_str!("../../templates/oauth_consent.html");
 
     /// The "Continue with Google" block of the login page; `{{GOOGLE_START_URL}}`
     /// is filled with the escaped start URL
@@ -277,6 +278,11 @@ impl OAuth2Routes {
     /// Render the OAuth consent page for a client requesting access.
     #[must_use]
     pub fn generate_consent_html(params: ConsentHtmlParams<'_>) -> String {
+        Self::consent_html_from(Self::OAUTH_CONSENT_TEMPLATE, params)
+    }
+
+    /// Render the consent page `template` lays out for `params`.
+    pub(super) fn consent_html_from(template: &str, params: ConsentHtmlParams<'_>) -> String {
         let text = params.text;
         let displayed_scope = if params.scope.is_empty() {
             OAuth2AuthorizationServer::default_scope_display()
@@ -296,7 +302,7 @@ impl OAuth2Routes {
 
         // The catalogue's lines go in first, so a request value that spells a
         // placeholder is never expanded into one of them.
-        with_hosted_page_css(Self::OAUTH_CONSENT_TEMPLATE)
+        with_hosted_page_css(template)
             .replace("{{LANG}}", text.lang())
             .replace("{{T_TITLE}}", &text.html(KEY_CONSENT_TITLE, &[]))
             .replace(
@@ -450,7 +456,11 @@ impl OAuth2Routes {
 /// The consent screen's line naming the services whose data stays inside
 /// Dravr and so never reaches the `client`, which is already markup; empty
 /// when `sources` names none.
-fn first_party_only_line(sources: &[&str], client: &str, text: &ConsentText<'_>) -> String {
+pub(super) fn first_party_only_line(
+    sources: &[&str],
+    client: &str,
+    text: &ConsentText<'_>,
+) -> String {
     let Some((last, rest)) = sources.split_last() else {
         return String::new();
     };

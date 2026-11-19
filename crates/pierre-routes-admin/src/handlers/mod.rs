@@ -14,7 +14,7 @@
 //! logic to `pierre-services` (tenant admin, memory facts, …).
 
 pub mod admin_rate_limit_override;
-/// Which tenants a console read covers, and the tenants a super admin can pick
+/// Which tenants a console read covers, and the tenants an admin can pick
 pub mod admin_scope;
 /// Admin endpoints for listing, creating, and revoking tenant API keys.
 pub mod api_keys;
@@ -33,7 +33,7 @@ pub mod contremaitre_admin;
 pub mod deletion_ledger;
 /// RFC 8628 Device Authorization Grant endpoints backing `pierre-cli auth login`.
 pub mod device_auth;
-/// Browser approval page for the device flow (gcloud-style super-admin login).
+/// Browser approval page for the device flow (gcloud-style admin login).
 pub mod device_web;
 /// The admin Engagement screen: activity tiers, agent leaderboard and published count in one scope.
 pub mod engagement;
@@ -45,10 +45,14 @@ pub mod impersonation;
 /// The single-use invitation a pre-approval allow can mail: issue the link,
 /// hand it to the notifier, and report what became of it.
 mod invitations;
+/// The messaging identities an account is linked to, for the admin user read.
+mod linked_channels;
 pub mod llm_consumption;
 pub mod memory_worker;
 /// The new-user cohort: accounts created in a window and how far each got.
 pub mod new_users;
+/// The standing allow-list of pre-approved email addresses: list, allow and remove.
+pub(crate) mod pre_approved_emails;
 /// Super-admin clone of one account's scrape-session provider connection onto another.
 pub mod provider_clone;
 /// Super-admin termination purge: every row one provider contributed, in every tenant.
@@ -69,6 +73,8 @@ pub mod types;
 /// Admin endpoints that remove a user completely, or disconnect one provider
 /// for them, through the provider-disconnect chokepoint.
 pub mod user_removal;
+/// Make an account an admin, or a user again, over the admin API (carnet#1575).
+pub(crate) mod user_role;
 /// Admin endpoints for listing tenant users and managing their access.
 ///
 /// Includes the standing pre-approval allow-list

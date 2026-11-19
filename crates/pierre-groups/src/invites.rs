@@ -28,7 +28,7 @@ use crate::setup_timing::record_member_joined;
 pub(crate) const SIGNUP_INVITE_MAX_USES: i32 = 50;
 
 /// The longest a coach's signup code stays redeemable, in days.
-pub(crate) const SIGNUP_INVITE_MAX_DAYS: i64 = 30;
+pub const SIGNUP_INVITE_MAX_DAYS: i64 = 30;
 
 /// Characters every invite and signup code is drawn from: no 0/O or 1/I, so
 /// a code read aloud or copied by hand survives. 32 symbols, 5 bits each.
@@ -75,7 +75,11 @@ impl GroupService {
     }
 
     /// Shared invite-validity gate: active, not expired, under its use limit.
-    pub(crate) fn check_invite_usable(invite: &GroupInvite) -> AppResult<()> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error naming the first check the invite fails.
+    pub fn check_invite_usable(invite: &GroupInvite) -> AppResult<()> {
         if !invite.is_active {
             return Err(AppError::invalid_input("This invite has been deactivated"));
         }
@@ -289,6 +293,37 @@ impl GroupService {
         self.admit_member(&invite, user_id, tenant_id, false).await
     }
 
+    /// Join the account that held a member invite to the invite's group
+    /// (carnet#1648).
+    ///
+    /// The invite was live when the server took the hold, so its expiry no
+    /// longer applies: an account that opened the link in time and was
+    /// activated later still joins, as one that entered a coach's signup code
+    /// does. Everything else applies: an invite its coach deactivated or whose
+    /// group was archived, its use limit, a full group, an existing
+    /// membership. The use is counted here rather than at the hold, so an
+    /// account that never activates spends none.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error when the invite is gone, deactivated or not a
+    /// member invite, and every error the membership checks return.
+    pub async fn join_group_from_held_invite(
+        &self,
+        invite_id: &str,
+        user_id: Uuid,
+    ) -> AppResult<GroupMember> {
+        let invite = self
+            .repo()
+            .get_invite_by_id(invite_id)
+            .await?
+            .filter(|invite| invite.kind == GroupInviteKind::Member && invite.is_active)
+            .ok_or_else(|| AppError::not_found("This group invite is no longer valid"))?;
+        let tenant_id = TenantId::parse_str(&invite.tenant_id)
+            .map_err(|e| AppError::internal(format!("Invite tenant id is not a uuid: {e}")))?;
+        self.admit_member(&invite, user_id, tenant_id, true).await
+    }
+
     /// Add `user_id` to the invite's group as an athlete. `count_use` claims
     /// one use of the invite first, in the same statement that checks its
     /// limit, so two joins on the last use cannot both pass.
@@ -380,5 +415,54 @@ mod tests {
             assert!(code.bytes().all(|b| CODE_CHARSET.contains(&b)), "{code}");
             assert!(!code.contains(['0', 'O', '1', 'I']), "{code}");
         }
+    }
+
+    fn live_invite(kind: GroupInviteKind) -> GroupInvite {
+        GroupInvite {
+            id: Uuid::new_v4(),
+            group_id: Uuid::new_v4(),
+            tenant_id: Uuid::new_v4().to_string(),
+            code: "ABCD2345".to_owned(),
+            kind,
+            created_by: Uuid::new_v4(),
+            expires_at: None,
+            max_uses: None,
+            use_count: 0,
+            is_active: true,
+            approves_signup: false,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn only_an_active_unexpired_invite_under_its_limit_is_usable() {
+        for kind in [GroupInviteKind::Member, GroupInviteKind::Coach] {
+            assert!(
+                GroupService::check_invite_usable(&live_invite(kind)).is_ok(),
+                "bug: a live {kind:?} invite was refused"
+            );
+        }
+
+        let mut withdrawn = live_invite(GroupInviteKind::Member);
+        withdrawn.is_active = false;
+        assert!(
+            GroupService::check_invite_usable(&withdrawn).is_err(),
+            "bug: a deactivated invite passed"
+        );
+
+        let mut expired = live_invite(GroupInviteKind::Member);
+        expired.expires_at = Some(Utc::now() - Duration::minutes(1));
+        assert!(
+            GroupService::check_invite_usable(&expired).is_err(),
+            "bug: an expired invite passed"
+        );
+
+        let mut used_up = live_invite(GroupInviteKind::Member);
+        used_up.max_uses = Some(2);
+        used_up.use_count = 2;
+        assert!(
+            GroupService::check_invite_usable(&used_up).is_err(),
+            "bug: an invite at its use limit passed"
+        );
     }
 }

@@ -15,7 +15,7 @@
 
 use pierre_core::models::{UserStatus, UserTier};
 use pierre_database::backends::shared::enums::{
-    str_to_user_role, str_to_user_status, str_to_user_tier, user_status_to_str, user_tier_to_str,
+    str_to_user_status, str_to_user_tier, user_status_to_str, user_tier_to_str,
 };
 use pierre_database::backends::shared::validation::validate_email;
 
@@ -43,14 +43,6 @@ fn enum_string_mapping_round_trips_user_status() {
         let parsed = str_to_user_status(user_status_to_str(&status));
         assert_eq!(parsed, status);
     }
-}
-
-#[test]
-fn enum_string_mapping_falls_back_to_default_for_unknown_role() {
-    // Should not panic on unknown DB strings — safe default behavior.
-    let role = str_to_user_role("never_seen_this_role_before");
-    // Whatever the default is, we just want graceful degradation.
-    let _ = role; // discard, but ensure no panic
 }
 
 #[test]

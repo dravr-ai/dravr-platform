@@ -287,8 +287,8 @@ export default function SignupCodes() {
                     onClick={() => revokeMutation.mutate(code)}
                     disabled={revokeMutation.isPending}
                     size="sm"
-                    variant="outline"
-                    className="border-error/50 text-error hover:bg-error/10 ml-4"
+                    variant="danger-outline"
+                    className="ml-4"
                     aria-label={`Revoke code ending ${code.code_hint}`}
                   >
                     Revoke

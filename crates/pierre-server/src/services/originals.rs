@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use dravr_barrage::blob::fs::FsBlobStore;
-use dravr_barrage::blob::gcs::{AccessTokenSource, GcsBlobStore};
+use dravr_barrage::blob::gcs::{AccessTokenSource, GcsBlobStore, SigningAccount};
 use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::BlobStore;
 use dravr_barrage::BarrageError;
@@ -55,8 +55,12 @@ pub async fn blob_store_from_env(url: &DatabaseUrl) -> Result<Arc<dyn BlobStore>
     {
         let tokens: Arc<dyn AccessTokenSource> =
             Arc::new(PlatformTokens(Arc::new(MetadataTokenProvider::default())));
+        // Bundle downloads are signed as the instance's own service account,
+        // through IAM's signBlob (roles/iam.serviceAccountTokenCreator on
+        // itself, infra/environments/dev/archive_imports.tf).
         let store = GcsBlobStore::try_new(bucket.trim(), tokens)
-            .map_err(|e| format!("GCS blob store: {e}"))?;
+            .map_err(|e| format!("GCS blob store: {e}"))?
+            .with_url_signing(SigningAccount::Metadata);
         return Ok(Arc::new(store));
     }
     if url.is_memory() {

@@ -21,17 +21,19 @@ use pierre_core::models::TenantId;
 use pierre_core::transport::Transport;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_providers::{ai_scope, backend_resolver};
-use serde_json::Value as JsonValue;
+use serde_json::{Map, Value as JsonValue};
 use tracing::info;
 use uuid::Uuid;
 
 use super::UniversalExecutor;
+use crate::ai_view::attach_notes;
 use crate::context::AuthMethod;
 use crate::guardian;
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::read_subject::{
-    self, resolve_read_subject, DataClass, ReadSubject, ReadSubjectRequest, ATHLETE_ARGUMENT,
+    self, resolve_read_subject, DataClass, MatchAudience, ReadSubject, ReadSubjectRequest,
+    ATHLETE_ARGUMENT,
 };
 use crate::reconnect::{RECONNECT_BACKEND_KEY, RECONNECT_REQUIRED_KEY};
 use crate::runtime::ToolRuntime;
@@ -194,23 +196,33 @@ impl UniversalExecutor {
             return Ok(());
         };
         let repos = self.resources.repos();
-        let recorded = if self.read_subject.is_some() {
-            if self.resources.tool_registry().data_class(tool_name) == Some(DataClass::Wellness) {
-                subject.record_wellness_read(repos).await
+        let record = async {
+            if self.read_subject.is_some() {
+                if self.resources.tool_registry().data_class(tool_name) == Some(DataClass::Wellness)
+                {
+                    subject.record_wellness_read(repos).await
+                } else {
+                    Ok(())
+                }
+            } else if let Some(class) = subject.class.coach_read_class() {
+                read_subject::record_coach_read(
+                    repos,
+                    &subject.access,
+                    subject.requester,
+                    tool_name,
+                    class,
+                )
+                .await
             } else {
                 Ok(())
             }
-        } else if let Some(class) = subject.class.coach_read_class() {
-            read_subject::record_coach_read(
-                repos,
-                &subject.access,
-                subject.requester,
-                tool_name,
-                class,
-            )
-            .await
-        } else {
-            Ok(())
+        };
+        // Recorded before the body's own declaration opens, so under the
+        // transport the call is served over: the record says when the read
+        // went to the coach's outside assistant.
+        let recorded = match ai_scope::effective_transport(self.transport) {
+            Some(served) => ai_scope::serve_over(served, record).await,
+            None => record.await,
         };
         recorded.map_err(|e| {
             ProtocolError::InternalError(format!(
@@ -238,12 +250,39 @@ impl UniversalExecutor {
     }
 }
 
+/// The field a read result served to an outside assistant names the coached
+/// member it was read from by.
+const COACHED_MEMBER_KEY: &str = "coached_member";
+
+/// Shape the result of a read of `subject`, a coached member, served over
+/// `transport`: the reconnect offer is taken out
+/// ([`withhold_reconnect_offer`]), and a result served to an outside
+/// assistant names the member it came from, so a name fragment the assistant
+/// sent is visibly answered for the one member it reached (EFVP 9.4c). Dravr's
+/// own surfaces already name the athlete of the thread the read is made in.
+pub(super) fn answered_for_member(
+    response: &mut UniversalResponse,
+    subject: &ReadSubject,
+    transport: Option<Transport>,
+) {
+    withhold_reconnect_offer(response);
+    if response.success && MatchAudience::served_over(transport) == MatchAudience::OutsideAssistant
+    {
+        let mut named = Map::new();
+        named.insert(
+            COACHED_MEMBER_KEY.to_owned(),
+            JsonValue::String(subject.access.display_name.clone()),
+        );
+        attach_notes(response, named);
+    }
+}
+
 /// Take the reconnect offer out of a read of a coached athlete: the backend a
 /// window served without one of the athlete's connections names for the chat
 /// pipeline's reconnect mint, which would connect the coach's own account.
 /// The note to the model stays, so it can say which of the athlete's
 /// connections needs them (carnet#1387).
-pub(super) fn withhold_reconnect_offer(response: &mut UniversalResponse) {
+fn withhold_reconnect_offer(response: &mut UniversalResponse) {
     if let Some(JsonValue::Object(sidecar)) = response
         .result
         .as_mut()
@@ -275,8 +314,26 @@ fn take_athlete_argument(args: &mut JsonValue) -> Option<String> {
     }
 }
 
-/// The tronc context a dispatch hands its tool: the caller's identity, admin
-/// flag and tenant as the request names them.
+/// Build the per-call [`ToolContext`] handed to `McpTool::execute` from a
+/// [`UniversalRequest`], with the admin flag it resolved.
+///
+/// Enforces that `user_id` parses as a UUID (fail fast), and that a present
+/// `tenant_id` parses as a UUID. A missing `tenant_id` passes through as
+/// absent — tenant presence is enforced per-tool, not at this boundary, because
+/// some tools legitimately run pre-onboarding (e.g. provider listing). Identity
+/// fields are carried as strings on the host-agnostic context and rebuilt into
+/// the typed [`crate::context::ToolExecutionContext`] inside each tool via
+/// `ToolExecutionContext::from_tronc`.
+///
+/// Resolves the caller's admin flag from the global admin role (`User.role`) and
+/// records it via [`ToolContext::as_admin`]. The flag is then read back as the
+/// cached admin status inside each tool, so admin-gated tools see the same
+/// decision regardless of which dispatch path surfaced the request.
+///
+/// System-admin tools (e.g. system-agent management) gate on the global
+/// admin role, not the per-tenant role: being a tenant owner makes a user
+/// admin *of their tenant*, which must not grant system-wide admin powers. A
+/// global-lookup failure defaults to non-admin (deny-by-default).
 pub(super) async fn build_tool_context(
     resources: &Arc<dyn ToolRuntime>,
     request: &UniversalRequest,
@@ -290,7 +347,7 @@ pub(super) async fn build_tool_context(
         .await
         .ok()
         .flatten()
-        .is_some_and(|user| user.is_admin);
+        .is_some_and(|user| user.role.is_admin());
 
     let mut ctx = ToolContext::new()
         .with_user(user_uuid.to_string())

@@ -93,7 +93,7 @@ pub struct AuthService {
     jwks_manager: Arc<JwksManager>,
     config: Arc<ServerConfig>,
     data: DataContext,
-    /// Emails the super-admins about an account left Pending; `None` sends
+    /// Emails the admins about an account left Pending; `None` sends
     /// the Slack ping alone. Set by the services that create accounts.
     pending_signup_mail: Option<PendingSignupMail>,
 }
@@ -126,7 +126,7 @@ impl AuthService {
         }
     }
 
-    /// Email the super-admins through `mail` when an account this service
+    /// Email the admins through `mail` when an account this service
     /// handles proves its address and still waits for approval.
     #[must_use]
     pub fn with_pending_signup_mail(mut self, mail: Option<PendingSignupMail>) -> Self {
@@ -145,7 +145,7 @@ impl AuthService {
     /// account that is already Active raises nothing here: `user.signed_up`
     /// counts every sign-up. Nor does one that `self_activates`: with sign-up
     /// open to verified addresses, proving the address is what admits it, so
-    /// there is nothing for an operator to decide. The super-admins' email
+    /// there is nothing for an admin to decide. The admins' email
     /// waits for the address to be proven ([`Self::mail_admins_if_pending`]).
     fn announce_if_pending(user: &User, tenant_id: TenantId, self_activates: bool) {
         if user.user_status != UserStatus::Pending || self_activates {
@@ -163,7 +163,7 @@ impl AuthService {
         );
     }
 
-    /// Email the super-admins about an account whose address was just proven
+    /// Email the admins about an account whose address was just proven
     /// for the first time and that still waits for approval (carnet#1056).
     ///
     /// Waiting for the proof keeps a burst of throwaway sign-ups out of the
@@ -353,7 +353,7 @@ impl AuthService {
         // The account exists and the link is spent whatever happens here, so a
         // failed write is logged rather than failing the answer: the coach
         // then meets the role question and the request, as an uninvited coach
-        // does, and a super-admin can still grant access from the console.
+        // does, and an admin can still grant access from the console.
         if invitation.kind == InvitationKind::CoachSeat {
             if let Err(e) = settle_coach_seat(repos, user_id, tenant_id, approved_by).await {
                 error!(user_id = %user_id, error = %e, "Coach-seat invitation redeemed but its seat and role not settled");
@@ -503,9 +503,12 @@ impl AuthService {
         // The auth middleware enforces status on subsequent API calls.
         Self::reject_if_suspended(&user)?;
 
-        // Retroactively approve pending users whose domain now qualifies
+        // Retroactively approve pending users whose domain now qualifies. An
+        // account a rule admits is read again by that write: one suspended
+        // while its password was being verified is refused here.
         let mut user = user;
         self.auto_approve_if_eligible(&mut user).await?;
+        Self::reject_if_suspended(&user)?;
 
         // Update last active timestamp
         self.data
@@ -890,59 +893,6 @@ impl AuthService {
         Ok(())
     }
 
-    /// Re-evaluate auto-approval for existing Pending users.
-    ///
-    /// When `AUTO_APPROVE_DOMAINS` gains a domain — or an operator allow-lists
-    /// the exact address — after a user registered, their account stays
-    /// Pending forever. This method promotes them to Active on their next
-    /// login if their email now qualifies, attributing `approved_by` to the
-    /// allow-listing operator when the promotion comes from a per-email
-    /// pre-approval.
-    ///
-    /// With sign-up open to verified addresses, a proven address qualifies
-    /// too ([`Self::verified_and_self_activating`]); an unproven one never
-    /// does, at login or anywhere else. Nor does one a deleted account's
-    /// tombstone holds, until it is explicitly cleared.
-    async fn auto_approve_if_eligible(&self, user: &mut User) -> AppResult<()> {
-        if user.user_status != UserStatus::Pending
-            || email_held(self.data.repos(), &user.email).await
-        {
-            return Ok(());
-        }
-
-        // A signup code entered before the address was proven (carnet#1128).
-        if let Some(redemption) = self.code_awaiting_activation(user).await {
-            self.activate_by_code(user, redemption.granted_by).await?;
-            user.user_status = UserStatus::Active;
-            user.approved_at = Some(Utc::now());
-            return Ok(());
-        }
-
-        if !self.should_auto_approve_email(&user.email).await
-            && !self.verified_and_self_activating(user.id).await
-        {
-            return Ok(());
-        }
-
-        tracing::info!(user_id = %user.id, "Retroactive auto-approval for pending user");
-
-        let allowed_by = self
-            .pre_approval_for(&user.email)
-            .await
-            .and_then(|entry| entry.allowed_by);
-        let approver = self.existing_operator(allowed_by).await;
-        let updated = self
-            .data
-            .repos()
-            .users
-            .update_status(user.id, UserStatus::Active, approver)
-            .await?;
-        user.user_status = updated.user_status;
-        user.approved_at = updated.approved_at;
-
-        Ok(())
-    }
-
     /// Open a refresh-token family for a device that just logged in.
     ///
     /// The JWT the login minted lasts `JWT_EXPIRY_HOURS`; this is what the
@@ -1108,7 +1058,7 @@ impl AuthService {
             user_id: user.id.to_string(),
             email: user.email.clone(),
             display_name: user.display_name.clone(),
-            is_admin: user.is_admin,
+            is_admin: user.role.is_admin(),
             role: user.role.as_str().to_owned(),
             user_status: user.user_status.to_string(),
             tenant_id,
@@ -1126,6 +1076,7 @@ impl AuthService {
                 user,
             )
             .await,
+            activation: self.activation_of(user).await,
             created_at: user.created_at.to_rfc3339(),
             locale: user.locale.clone(),
             coaching_persona: user.coaching_persona.as_str().to_owned(),

@@ -31,6 +31,8 @@ mod activity_summary_free_fields_test;
 mod backfill_coverage_logic_test;
 #[cfg(feature = "client-chat")]
 mod cli_loop_request_mcp_servers_test;
+#[cfg(all(feature = "tools-data", feature = "tools-goals"))]
+mod date_tool_output_golden_test;
 #[cfg(feature = "tools-analytics")]
 mod fitness_score_window_test;
 #[cfg(all(

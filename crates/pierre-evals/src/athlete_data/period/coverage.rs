@@ -295,6 +295,7 @@ mod tests {
                 has_provider: true,
                 today: day(9),
                 locale: "en".to_owned(),
+                named_subsets: Vec::new(),
                 activities: vec![run(day(7), 10.0), run(day(8), 12.0)],
                 history: PeriodHistory::vouched(inputs(vec![source(Some(sync), deep())])),
             };

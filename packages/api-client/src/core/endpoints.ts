@@ -66,6 +66,11 @@ export const ENDPOINTS = {
     ATHLETE_THREAD: (athleteUserId: string) => `/api/chat/athletes/${athleteUserId}/thread`,
     /** A coached athlete's live plan, read-only, as their coach reads it from Group info */
     ATHLETE_PLAN: (athleteUserId: string) => `/api/chat/athletes/${athleteUserId}/plan`,
+    /** A coached athlete's thresholds per sport, as their coach reads them from Group info (`GET`, `?group_id=`) */
+    ATHLETE_PHYSIOLOGY: (athleteUserId: string) => `/api/chat/athletes/${athleteUserId}/physiology`,
+    /** Set (`PUT`) one of a coached athlete's thresholds, as their coach (`?group_id=`) */
+    ATHLETE_PHYSIOLOGY_ANCHOR: (athleteUserId: string, sport: string, anchor: string) =>
+      `/api/chat/athletes/${athleteUserId}/physiology/${sport}/${anchor}`,
     /** The plan thread's athlete: their live plan and the coach's draft over it */
     SUBJECT_PLAN: (conversationId: string) => `/api/chat/conversations/${conversationId}/subject-plan`,
     /** Publish (POST) the coach's draft as the athlete's live plan */
@@ -224,8 +229,16 @@ export const ENDPOINTS = {
     INVITES: (id: string) => `/api/groups/${id}/invites`,
     /** Specific invite */
     INVITE: (groupId: string, inviteId: string) => `/api/groups/${groupId}/invites/${inviteId}`,
-    /** Detach the human coach (admin/owner only) */
+    /**
+     * The group's human coach: DELETE detaches them (admin/owner only), PUT
+     * makes the caller, its owner holding coach access, the coach of their
+     * coachless group
+     */
     COACH: (id: string) => `/api/groups/${id}/coach`,
+    /** The invite the server holds for the caller: PUT holds a code, GET reads it */
+    HELD_INVITE: '/api/user/group-invite',
+    /** Join the group of the invite the server holds for the caller */
+    JOIN_HELD_INVITE: '/api/chat/groups/join',
     /** Check group creation permissions */
     PERMISSIONS: '/api/groups/permissions',
     /** Leave a group */
@@ -274,6 +287,39 @@ export const ENDPOINTS = {
      * GDPR Article 20); metered per account.
      */
     EXPORT: '/api/user/export',
+    /**
+     * The originals bundle the export leaves out (carnet#1541): GET answers
+     * the latest, POST asks for one, optionally sealed with a passphrase;
+     * session only, 3 a day.
+     */
+    EXPORT_ORIGINALS: '/api/user/export/originals',
+    /** One originals bundle of the signed-in athlete. */
+    EXPORT_ORIGINALS_BUNDLE: (id: string) => `/api/user/export/originals/${encodeURIComponent(id)}`,
+    /**
+     * Its download: a short signed URL as JSON, or the file itself streamed
+     * from a server that signs none.
+     */
+    EXPORT_ORIGINALS_DOWNLOAD: (id: string) =>
+      `/api/user/export/originals/${encodeURIComponent(id)}/download`,
+    /**
+     * The athlete's statutory access requests to a company (carnet#1646):
+     * GET lists them newest first, POST writes a draft; session only.
+     */
+    DATA_ACCESS_REQUESTS: '/api/user/data-access-requests',
+    /** One request: GET reads it, PATCH edits a draft. */
+    DATA_ACCESS_REQUEST: (id: string) => `/api/user/data-access-requests/${encodeURIComponent(id)}`,
+    /** One request's letter (GET, `?locale=`). */
+    DATA_ACCESS_REQUEST_LETTER: (id: string) => `/api/user/data-access-requests/${encodeURIComponent(id)}/letter`,
+    /** The athlete sent the letter on a day (POST). */
+    DATA_ACCESS_REQUEST_SENT: (id: string) => `/api/user/data-access-requests/${encodeURIComponent(id)}/sent`,
+    /** A GDPR company extended its deadline (POST). */
+    DATA_ACCESS_REQUEST_EXTENSION: (id: string) =>
+      `/api/user/data-access-requests/${encodeURIComponent(id)}/extension`,
+    /** The company answered on a day (POST). */
+    DATA_ACCESS_REQUEST_ANSWERED: (id: string) =>
+      `/api/user/data-access-requests/${encodeURIComponent(id)}/answered`,
+    /** The athlete closed the request (POST). */
+    DATA_ACCESS_REQUEST_CLOSE: (id: string) => `/api/user/data-access-requests/${encodeURIComponent(id)}/close`,
     /**
      * Clear what a deleted account left on an identity the signed-in account
      * now holds: its own proven email, or a provider account it was refused
@@ -390,6 +436,8 @@ export const ENDPOINTS = {
     UNITS: '/api/me/units',
     /** The athlete's own anchors per sport family, with range, source and date (`GET`, `?locale=`) */
     PHYSIOLOGY: '/api/me/physiology',
+    /** Set (`PUT`) one of the athlete's own anchors, answered as the read is (`?locale=`) */
+    PHYSIOLOGY_ANCHOR: (sport: string, anchor: string) => `/api/me/physiology/${sport}/${anchor}`,
     /** How often the coach checks in on its own — asked in onboarding, changed in Settings (`GET`, `PUT`) */
     CHECK_IN: '/api/me/check-in',
     /** The connected calendar Dravr's pushes go to, chosen in Connections (`GET`, `PUT`, `DELETE`) */
@@ -467,6 +515,9 @@ export const ENDPOINTS = {
     CHANNELS_AVAILABLE: '/api/messaging/channels/available',
     /** Start linking a channel — returns linking URL/code (+ QR for deep-link) */
     LINK_INIT: (channel: string) => `/api/messaging/link/init/${encodeURIComponent(channel)}`,
+    /** Finish a Slack/Discord link the phone app started, with the provider code handed back to it */
+    LINK_COMPLETE: (channel: string) =>
+      `/api/messaging/link/complete/${encodeURIComponent(channel)}`,
     /** The channels the user has already linked (poll to detect link completion) */
     LINKS: '/api/messaging/links',
     /** Unlink a channel */

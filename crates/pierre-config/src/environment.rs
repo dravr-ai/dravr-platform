@@ -11,6 +11,7 @@
 
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use pierre_auth::config::oauth::provider_callback_uri;
+use pierre_core::config::fitness::FitnessConfig;
 use pierre_core::constants::limits::DEFAULT_ACTIVITIES_LIMIT;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
@@ -40,6 +41,8 @@ pub use crate::chat_tools::ChatToolSettings;
 pub use crate::coach_home::CoachHomeConfig;
 // Inbound webhook secrets
 pub use crate::webhooks::WebhookSecrets;
+// Messaging channel credentials
+pub use crate::channels::ChannelCredentials;
 // Logging
 pub use crate::logging::LoggingConfig;
 // MCP
@@ -146,9 +149,33 @@ pub struct ServerConfig {
     pub chat_tools: ChatToolSettings,
     /// What inbound provider and messaging webhooks are verified against
     pub webhooks: WebhookSecrets,
+    /// The messaging channels the environment configured: what the channel
+    /// seed stores and the menu publishers send with. Empty unless
+    /// [`Self::from_env`] built this config.
+    #[serde(default)]
+    pub channels: ChannelCredentials,
     /// When Coach Home's attention queue raises a reason
     #[serde(default)]
     pub coach_home: CoachHomeConfig,
+    /// The deployment's fitness configuration, read once at startup
+    /// (`FitnessConfig::load`).
+    ///
+    /// Weather is its one reader, and reads only `weather_api`: `enabled`
+    /// (`FITNESS_WEATHER_ENABLED`, on unless it reads `false`) is whether an
+    /// activity list is given the ambient temperature its source left out,
+    /// and `base_url` is where the weather vendors are asked. At its default
+    /// each vendor is asked on its own host; any other value is the single
+    /// origin of the archive, the forecast, the gazetteer and
+    /// `OpenWeatherMap`. No `weather_api` means no backfill, and the vendors'
+    /// own hosts for the tools an athlete asks for weather with.
+    ///
+    /// The weather clients are built from this instance and never from a
+    /// stored fitness configuration, which has the same shape: an athlete
+    /// writes that document (`set_fitness_config`, the fitness configuration
+    /// routes), so an origin read from it would let them aim the server's
+    /// requests at a host of their choosing.
+    #[serde(default)]
+    pub fitness: FitnessConfig,
 }
 
 impl ServerConfig {
@@ -208,7 +235,9 @@ impl ServerConfig {
             timeouts: ServerTimeouts::from_env(),
             chat_tools: ChatToolSettings::from_env(),
             webhooks: WebhookSecrets::from_env(),
+            channels: ChannelCredentials::from_env(),
             coach_home: CoachHomeConfig::from_env(),
+            fitness: FitnessConfig::load()?,
         };
 
         config.validate()?;

@@ -6,7 +6,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { clsx } from 'clsx';
-import { LogOut, MessageSquareText, Settings } from 'lucide-react';
+import { ArrowLeftRight, LogOut, MessageSquareText, Settings } from 'lucide-react';
 import { DravrLogo } from '../DravrLogo';
 import { useTranslation } from '@pierre/i18n';
 import { useEscapeLayer } from '../../hooks/useDialog';
@@ -16,6 +16,15 @@ import {
   FEEDBACK_ACCOUNT_MENU_UNREAD_KEYS,
   UNREAD_COUNT_ARIA_KEYS,
 } from '@pierre/shared-constants';
+
+/**
+ * An admin's way to the other mode (carnet#1631): the account menu and the
+ * phone drawer offer it beside Sign out. Absent for an athlete.
+ */
+export interface ModeSwitch {
+  label: string;
+  onSelect: () => void;
+}
 
 /** One destination the rail offers. */
 export interface RailTab {
@@ -42,6 +51,8 @@ interface IconRailProps {
   userLabel: string;
   /** The Dravr team's replies waiting unread in the feedback thread. */
   feedbackUnread: number;
+  /** Offered to an admin only: switch to the admin console. */
+  modeSwitch?: ModeSwitch;
 }
 
 /**
@@ -64,6 +75,7 @@ export function IconRail({
   userInitial,
   userLabel,
   feedbackUnread,
+  modeSwitch,
 }: IconRailProps) {
   const { t } = useTranslation();
   return (
@@ -140,6 +152,7 @@ export function IconRail({
           onSendFeedback={onSendFeedback}
           feedbackUnread={feedbackUnread}
           onSignOut={onSignOut}
+          modeSwitch={modeSwitch}
         />
       </div>
     </aside>
@@ -153,6 +166,7 @@ interface AccountMenuProps {
   onSendFeedback: () => void;
   onSignOut: () => void;
   feedbackUnread: number;
+  modeSwitch?: ModeSwitch;
 }
 
 const MENU_ITEM_CLASS =
@@ -172,6 +186,7 @@ function AccountMenu({
   onSendFeedback,
   onSignOut,
   feedbackUnread,
+  modeSwitch,
 }: AccountMenuProps) {
   const { t, language } = useTranslation();
   const unreadLabel = t(countKey(feedbackUnread, language, UNREAD_COUNT_ARIA_KEYS), { count: feedbackUnread });
@@ -259,6 +274,17 @@ function AccountMenu({
             )}
           </button>
           <div className="mx-1 my-1.5 h-px bg-outline-variant/40" aria-hidden="true" />
+          {modeSwitch && (
+            <button
+              type="button"
+              onClick={choose(modeSwitch.onSelect)}
+              className={MENU_ITEM_CLASS}
+              data-testid="switch-view-mode"
+            >
+              <ArrowLeftRight className="h-4 w-4 text-on-surface-variant" aria-hidden="true" />
+              {modeSwitch.label}
+            </button>
+          )}
           <button type="button" onClick={choose(onSignOut)} className={MENU_ITEM_CLASS}>
             <LogOut className="h-4 w-4 text-on-surface-variant" aria-hidden="true" />
             {t('shell.navSignOut')}

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Playwright E2E tests for super admin impersonation feature.
+// ABOUTME: Playwright E2E tests for the admin impersonation feature.
 // ABOUTME: Tests impersonation start/end, banner display, and role-based visibility.
 
 import { test, expect, type Page } from '@playwright/test';
-import { applyTestStubs, signInThroughHostedPage } from './test-helpers';
+import { applyTestStubs, loginToDashboard, pickViewModeAtSignIn, setupDashboardMocks, signInThroughHostedPage } from './test-helpers';
 
-// Helper to authenticate as a super admin and navigate to users tab
-async function loginAsSuperAdminAndNavigateToUsers(page: Page) {
+// Helper to authenticate as an admin and navigate to users tab
+async function loginAsAdminAndNavigateToUsers(page: Page) {
   await applyTestStubs(page);
   // Mock setup status
   await page.route('**/admin/setup/status', async (route) => {
@@ -19,7 +19,7 @@ async function loginAsSuperAdminAndNavigateToUsers(page: Page) {
     });
   });
 
-  // Mock the hosted sign-in's code exchange - SUPER ADMIN role
+  // Mock the hosted sign-in's code exchange - ADMIN role
   await page.route('**/oauth/token', async (route) => {
     await route.fulfill({
       status: 200,
@@ -30,10 +30,10 @@ async function loginAsSuperAdminAndNavigateToUsers(page: Page) {
         expires_in: 86400,
         csrf_token: 'test-csrf-token',
         user: {
-          user_id: 'super-admin-1',
-          email: 'superadmin@test.com',
-          display_name: 'Super Admin',
-          role: 'super_admin',
+          user_id: 'admin-1',
+          email: 'admin@test.com',
+          display_name: 'Admin One',
+          role: 'admin',
           is_admin: true,
           user_status: 'active',
           tier: 'enterprise',
@@ -52,6 +52,7 @@ async function loginAsSuperAdminAndNavigateToUsers(page: Page) {
   });
 
   await page.goto('/');
+  pickViewModeAtSignIn(page, 'admin');
   await signInThroughHostedPage(page);
 
   // Wait for dashboard sidebar to appear - the sidebar contains Dravr logo
@@ -59,58 +60,7 @@ async function loginAsSuperAdminAndNavigateToUsers(page: Page) {
   await page.waitForTimeout(300);
 }
 
-// Helper to authenticate as a regular admin
-async function loginAsRegularAdmin(page: Page) {
-  await applyTestStubs(page);
-  await page.route('**/admin/setup/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ needs_setup: false, admin_user_exists: true }),
-    });
-  });
-
-  // Mock the hosted sign-in's code exchange - REGULAR ADMIN role
-  await page.route('**/oauth/token', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        access_token: 'test-jwt-token',
-        token_type: 'Bearer',
-        expires_in: 86400,
-        csrf_token: 'test-csrf-token',
-        user: {
-          user_id: 'admin-1',
-          email: 'admin@test.com',
-          display_name: 'Admin User',
-          role: 'admin',
-          is_admin: true,
-          user_status: 'active',
-          tier: 'professional',
-        },
-      }),
-    });
-  });
-
-  // Mock analytics
-  await page.route('**/api/dashboard/analytics**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ daily_usage: [] }),
-    });
-  });
-
-  await page.goto('/');
-  await signInThroughHostedPage(page);
-
-  // Wait for dashboard sidebar to appear
-  await page.waitForSelector('text=Dravr', { timeout: 10000 });
-  await page.waitForTimeout(300);
-}
-
-test.describe('Impersonation - Super Admin Access', () => {
+test.describe('Impersonation - Admin Access', () => {
   test.beforeEach(async ({ page }) => {
     // Mock pending users
     await page.route('**/api/admin/pending-users', async (route) => {
@@ -121,7 +71,11 @@ test.describe('Impersonation - Super Admin Access', () => {
       });
     });
 
-    // Mock users list with a regular user that can be impersonated
+    // The users list is read once, as the admin lands on Users, so every row a
+    // test opens is in it from the start: a user who can be impersonated,
+    // another admin, and an account still pending.
+    // Each row carries `role` and the `is_admin` derived from it, as the
+    // server's list does (`UserSummary`).
     await page.route('**/api/admin/users**', async (route) => {
       await route.fulfill({
         status: 200,
@@ -136,6 +90,7 @@ test.describe('Impersonation - Super Admin Access', () => {
                 email: 'testuser@example.com',
                 display_name: 'Test User',
                 role: 'user',
+                is_admin: false,
                 user_status: 'active',
                 tier: 'starter',
                 created_at: '2024-01-15T10:00:00Z',
@@ -146,13 +101,25 @@ test.describe('Impersonation - Super Admin Access', () => {
                 email: 'otheradmin@example.com',
                 display_name: 'Other Admin',
                 role: 'admin',
+                is_admin: true,
                 user_status: 'active',
                 tier: 'professional',
                 created_at: '2024-01-10T10:00:00Z',
                 last_active: '2024-01-20T15:30:00Z',
               },
+              {
+                id: 'pending-user-1',
+                email: 'pending@example.com',
+                display_name: 'Pending User',
+                role: 'user',
+                is_admin: false,
+                user_status: 'pending',
+                tier: 'trial',
+                created_at: '2024-01-15T10:00:00Z',
+                last_active: null,
+              },
             ],
-            total: 2,
+            total: 3,
             has_more: false,
           },
         }),
@@ -209,22 +176,22 @@ test.describe('Impersonation - Super Admin Access', () => {
       });
     });
 
-    await loginAsSuperAdminAndNavigateToUsers(page);
+    await loginAsAdminAndNavigateToUsers(page);
   });
 
-  test('super admin sees Super Admin role in sidebar', async ({ page }) => {
-    // Should see the Super Admin role indicator in the sidebar
-    await expect(page.getByText('Super Admin').first()).toBeVisible();
+  test('admin sees the Admin role in sidebar', async ({ page }) => {
+    // The role indicator under the name, not the name itself
+    await expect(page.locator('aside').getByText('Admin', { exact: true }).first()).toBeVisible();
   });
 
-  test('super admin sees Users tab', async ({ page }) => {
+  test('admin sees Users tab', async ({ page }) => {
     // Navigate to Users tab - use button role for sidebar navigation
     const usersTab = page.locator('button', { hasText: 'Users' }).first();
     await usersTab.click();
     await expect(page.locator('h1').filter({ hasText: 'Users' })).toBeVisible({ timeout: 5000 });
   });
 
-  test('super admin sees Impersonate User button for active regular users', async ({ page }) => {
+  test('admin sees Impersonate User button for active regular users', async ({ page }) => {
     await page.locator('button', { hasText: 'Users' }).first().click();
     await page.waitForTimeout(500);
 
@@ -242,91 +209,36 @@ test.describe('Impersonation - Super Admin Access', () => {
     await expect(page.getByRole('button', { name: /Impersonate User/i })).toBeVisible();
   });
 
-  test('impersonate button not shown for super admin users', async ({ page }) => {
-    // Add a super admin user to the mock
-    await page.route('**/api/admin/users**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          message: 'Retrieved users',
-          data: {
-            users: [
-              {
-                id: 'super-admin-2',
-                email: 'othersuper@example.com',
-                display_name: 'Other Super Admin',
-                role: 'super_admin',
-                user_status: 'active',
-                tier: 'enterprise',
-                created_at: '2024-01-10T10:00:00Z',
-                last_active: '2024-01-20T15:30:00Z',
-              },
-            ],
-            total: 1,
-            has_more: false,
-          },
-        }),
-      });
-    });
-
+  test('impersonate button not shown for admin users', async ({ page }) => {
     await page.locator('button', { hasText: 'Users' }).first().click();
-    await page.waitForTimeout(500);
+    await page.locator('button', { hasText: 'Active' }).first().click();
 
-    // Click on a super admin user
-    const userRow = page.getByText('othersuper@example.com').first();
-    if (await userRow.isVisible()) {
-      await userRow.click();
-      await page.waitForTimeout(500);
+    // Open the other admin
+    await page.getByText('otheradmin@example.com').first().click();
 
-      // Should NOT see Impersonate User button (can't impersonate other super admins)
-      const impersonateButton = page.getByRole('button', { name: /Impersonate User/i });
-      await expect(impersonateButton).not.toBeVisible();
-    }
+    // The drawer is open on that account, down to its actions
+    const drawer = page.getByRole('dialog', { name: 'User Details' });
+    await expect(drawer.getByText('otheradmin@example.com')).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'Reset Password' })).toBeVisible();
+
+    // An admin is never impersonated
+    await expect(page.getByRole('button', { name: /Impersonate User/i })).toHaveCount(0);
   });
 
   test('impersonate button not shown for pending users', async ({ page }) => {
-    await page.route('**/api/admin/users**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          message: 'Retrieved users',
-          data: {
-            users: [
-              {
-                id: 'pending-user-1',
-                email: 'pending@example.com',
-                display_name: 'Pending User',
-                role: 'user',
-                user_status: 'pending',
-                tier: 'trial',
-                created_at: '2024-01-15T10:00:00Z',
-                last_active: null,
-              },
-            ],
-            total: 1,
-            has_more: false,
-          },
-        }),
-      });
-    });
-
     await page.locator('button', { hasText: 'Users' }).first().click();
-    await page.waitForTimeout(500);
+    await page.locator('button', { hasText: 'All Users' }).first().click();
 
-    // Click on the pending user
-    const userRow = page.getByText('pending@example.com').first();
-    if (await userRow.isVisible()) {
-      await userRow.click();
-      await page.waitForTimeout(500);
+    // Open the pending account
+    await page.getByText('pending@example.com').first().click();
 
-      // Should NOT see Impersonate User button (can't impersonate pending users)
-      const impersonateButton = page.getByRole('button', { name: /Impersonate User/i });
-      await expect(impersonateButton).not.toBeVisible();
-    }
+    // The drawer is open on that account, down to its actions
+    const drawer = page.getByRole('dialog', { name: 'User Details' });
+    await expect(drawer.getByText('pending@example.com')).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'Reset Password' })).toBeVisible();
+
+    // Only an active account is impersonated
+    await expect(page.getByRole('button', { name: /Impersonate User/i })).toHaveCount(0);
   });
 });
 
@@ -415,7 +327,7 @@ test.describe('Impersonation - Start and End Flow', () => {
       });
     });
 
-    await loginAsSuperAdminAndNavigateToUsers(page);
+    await loginAsAdminAndNavigateToUsers(page);
   });
 
   test('can start impersonation and see banner', async ({ page }) => {
@@ -560,107 +472,19 @@ test.describe('Impersonation - Start and End Flow', () => {
   });
 });
 
-test.describe('Impersonation - Regular Admin Cannot Impersonate', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.route('**/api/admin/pending-users', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, message: 'Retrieved 0 pending users', data: { count: 0, users: [] } }),
-      });
+test.describe('Impersonation - A User Cannot Impersonate', () => {
+  test('a user without the admin role has no Users screen and no Impersonate User button', async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user' });
+    await loginToDashboard(page);
+
+    await expect(page.locator('aside').getByRole('button', { name: 'Users', exact: true })).toHaveCount(0);
+
+    // A typed admin hash resolves to Home instead of mounting the Users screen.
+    await page.evaluate(() => {
+      window.location.hash = '#users';
     });
-
-    await page.route('**/api/admin/users**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          message: 'Retrieved users',
-          data: {
-            users: [
-              {
-                id: 'user-1',
-                email: 'testuser@example.com',
-                display_name: 'Test User',
-                role: 'user',
-                user_status: 'active',
-                tier: 'starter',
-                created_at: '2024-01-15T10:00:00Z',
-                last_active: '2024-01-20T15:30:00Z',
-              },
-            ],
-            total: 1,
-            has_more: false,
-          },
-        }),
-      });
-    });
-
-    await page.route('**/admin/users/*/rate-limit', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          user_id: 'user-1',
-          tier: 'starter',
-          rate_limits: {
-            monthly: { limit: 10000, used: 500, remaining: 9500 },
-          },
-          reset_times: {
-            monthly_reset: '2024-02-01T00:00:00Z',
-          },
-        }),
-      });
-    });
-
-    await page.route('**/admin/users/*/activity**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          user_id: 'user-1',
-          period_days: 30,
-          total_requests: 500,
-          top_tools: [],
-        }),
-      });
-    });
-
-    await page.route('**/api/admin/users/*/admin-profile**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          user_id: 'user-1',
-          coaching_persona: 'casual',
-          default_coach_id: null,
-          installed_agents: [],
-          joined_groups: [],
-        }),
-      });
-    });
-
-    await loginAsRegularAdmin(page);
-  });
-
-  test('regular admin does not see Impersonate User button', async ({ page }) => {
-    await page.locator('button', { hasText: 'Users' }).first().click();
-    await page.waitForTimeout(500);
-
-    // Click the Active tab button in the user management tabs
-    await page.locator('button', { hasText: 'Active' }).first().click();
-    await page.waitForTimeout(300);
-
-    const userRow = page.getByText('testuser@example.com').first();
-    if (await userRow.isVisible()) {
-      await userRow.click();
-      await page.waitForTimeout(500);
-
-      // Regular admin should NOT see Impersonate User button
-      const impersonateButton = page.getByRole('button', { name: /Impersonate User/i });
-      await expect(impersonateButton).not.toBeVisible();
-    }
+    await expect(page).toHaveURL(/#home$/);
+    await expect(page.getByRole('button', { name: /Impersonate User/i })).toHaveCount(0);
   });
 });
 
@@ -749,7 +573,7 @@ test.describe('Impersonation - Error Handling', () => {
       });
     });
 
-    await loginAsSuperAdminAndNavigateToUsers(page);
+    await loginAsAdminAndNavigateToUsers(page);
   });
 
   test('handles impersonation API error gracefully', async ({ page }) => {

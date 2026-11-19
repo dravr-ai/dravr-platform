@@ -1,5 +1,5 @@
 // ABOUTME: Admin route exposing memory extraction worker health from its run ledger, beside user_facts aggregates
-// ABOUTME: Runs, failures and backlog are measured; the scope follows the caller's role, platform-wide for a super admin
+// ABOUTME: Runs, failures and backlog are measured; the scope follows the caller's credential, platform-wide for an admin
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -63,8 +63,7 @@ pub async fn handle_get_memory_metrics(
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Query(params): Query<MemoryMetricsQuery>,
 ) -> AppResult<impl IntoResponse> {
-    let scope =
-        console_read_scope(&context.repos, &admin_token, params.tenant_id.as_deref()).await?;
+    let scope = console_read_scope(&admin_token, params.tenant_id.as_deref())?;
 
     let now_ms = Utc::now().timestamp_millis();
     let lease_ms = i64::try_from(EXTRACTION_JOB_LEASE.as_millis()).unwrap_or(i64::MAX);

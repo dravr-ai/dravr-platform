@@ -65,6 +65,20 @@ const PLAN_TOOLS: [&str; 3] = [
     "push_training_plan",
 ];
 
+/// The tools the catalog seeds gated above `starter` and carnet#1587 moved down.
+/// A self-serve athlete's tenant is created on `starter`, so a higher gate
+/// refuses them on every transport.
+const ANALYSIS_TOOLS: [&str; 8] = [
+    "analyze_goal_feasibility",
+    "analyze_performance_trends",
+    "analyze_training_load",
+    "analyze_weather_impact",
+    "detect_patterns",
+    "generate_recommendations",
+    "get_nutrient_timing",
+    "predict_performance",
+];
+
 /// Floor on the registered set so the registry half of the comparison can
 /// never pass vacuously (an empty registry has no missing tools).
 const MIN_REGISTERED_TOOLS: usize = 100;
@@ -203,6 +217,50 @@ async fn plan_tool_catalog_rows_preserve_default_availability() {
         assert!(
             entry.requires_provider.is_none(),
             "'{tool}' must not require a provider — comparable catalog rows carry NULL"
+        );
+    }
+}
+
+/// A starter tenant can call the analysis tools the catalog seeds gated higher.
+///
+/// Read at the guardian gate every transport passes, on the tenant a fresh
+/// user is given (`starter`, as `create_tenant_for_user` gives a self-serve
+/// athlete), so a plan gate left on any of them fails here by name.
+#[tokio::test]
+async fn a_starter_tenant_can_call_the_analysis_tools() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (_owner, tenant) = seed_user_with_tenant(&resources, "analysis-starter").await;
+    let plan = resources
+        .common
+        .repos
+        .tenants
+        .get_by_id(tenant)
+        .await
+        .unwrap()
+        .plan;
+    assert_eq!(
+        plan, "starter",
+        "the fixture tenant must be on starter, or this test proves nothing about it"
+    );
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+
+    for tool in ANALYSIS_TOOLS {
+        let entry = resources
+            .common
+            .repos
+            .tool_selection
+            .get_tool_catalog_entry(tool)
+            .await
+            .unwrap()
+            .unwrap_or_else(|| panic!("'{tool}' has no tool_catalog row"));
+        assert_eq!(
+            entry.min_plan,
+            TenantPlan::Starter,
+            "'{tool}' must be min_plan starter — a self-serve athlete's tenant is starter"
+        );
+        assert!(
+            tenant_tool_enabled(&runtime, tenant, tool).await,
+            "'{tool}' must be enabled for a starter tenant"
         );
     }
 }

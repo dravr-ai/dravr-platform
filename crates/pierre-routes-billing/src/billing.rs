@@ -259,6 +259,13 @@ async fn checkout<C: BillingCtx + MiddlewareCtx>(
     auth: AuthenticatedUser,
     AxumJson(body): AxumJson<CheckoutBody>,
 ) -> AppResult<Json<CheckoutResponse>> {
+    // A purchase is the account owner's to make, never an admin's acting as
+    // them (carnet#1634).
+    auth.refuse_impersonation(
+        BillingCtx::repos(resources.as_ref()).admin_audit.as_ref(),
+        "start a billing checkout",
+    )
+    .await?;
     let tenant_id = resolve_tenant_id(resources.as_ref(), &auth).await?;
     let req = CheckoutRequest {
         tier: body.tier,
@@ -293,6 +300,13 @@ async fn portal<C: BillingCtx + MiddlewareCtx>(
     auth: AuthenticatedUser,
     AxumJson(body): AxumJson<PortalBody>,
 ) -> AppResult<Json<PortalResponse>> {
+    // The portal session signs in to the owner's billing account and outlives
+    // an admin's support session (carnet#1634).
+    auth.refuse_impersonation(
+        BillingCtx::repos(resources.as_ref()).admin_audit.as_ref(),
+        "open the billing portal",
+    )
+    .await?;
     let row = own_subscription(resources.as_ref(), auth.user_id).await?;
     let req = PortalRequest {
         provider_customer_id: row.provider_customer_id,

@@ -7,12 +7,11 @@
 //! Dev/test fixture HTTP API.
 //!
 //! Serves the small slice of the Strava API that the real Strava provider
-//! calls (`/athlete`, `/athlete/activities`, `/activities/{id}`,
-//! `/athletes/{id}/stats`), backed by rows seeded into the
-//! `synthetic_activities` table. In dev the Strava provider's base URL is
-//! pointed here (`PIERRE_STRAVA_API_BASE_URL`), so seeded test users fetch
-//! their activities through the exact same provider code path a real user
-//! would — no synthetic-provider special-casing.
+//! calls (`/athlete`, `/athlete/activities`, `/activities/{id}`), backed by
+//! rows seeded into the `synthetic_activities` table. In dev the Strava
+//! provider's base URL is pointed here (`PIERRE_STRAVA_API_BASE_URL`), so
+//! seeded test users fetch their activities through the exact same provider
+//! code path a real user would — no synthetic-provider special-casing.
 //!
 //! It also serves the Garmin stand-in ([`pierre_dev_fixture::garmin`]): the
 //! `OAuth2` PKCE consent and token endpoints, `user/id`, deregistration, and
@@ -132,7 +131,6 @@ fn app(pool: SqlitePool, garmin: GarminFixture) -> Router {
         .route("/athlete", get(athlete))
         .route("/athlete/activities", get(athlete_activities))
         .route("/activities/{id}", get(activity_detail))
-        .route("/athletes/{id}/stats", get(athlete_stats))
         .route("/health", get(|| async { "ok" }))
         .with_state(pool)
         .merge(garmin::router(garmin))
@@ -261,92 +259,6 @@ fn strava_error(
         "errors": [{ "resource": resource, "field": field, "code": code }],
     });
     (status, Json(body)).into_response()
-}
-
-/// `GET /athletes/{id}/stats` — returns the bearer user's ride and run totals in
-/// Strava's athlete-stats JSON shape, for both all-time and the current calendar
-/// year (`ytd_*`). The path id is ignored; the user is resolved from the bearer
-/// like the other handlers. Ride and run buckets are emitted because those are the
-/// fields the Strava provider's `get_stats` reads — matching how the real provider
-/// sums ride+run. The `ytd_*` totals re-run the same aggregation filtered to the
-/// current year so dev exercises the annual-vs-lifetime distinction.
-async fn athlete_stats(State(pool): State<SqlitePool>, headers: HeaderMap) -> Json<Value> {
-    let Some(user_id) = user_from_bearer(&headers) else {
-        warn!("missing or malformed bearer; returning zeroed stats");
-        return Json(strava_stats_json(None));
-    };
-
-    // Aggregate ride-like and run-like activities separately. Substring matches
-    // (`%ride%`, `%run%`) catch the seeded variants — gravel_ride, virtual_ride,
-    // mountain_bike_ride, trail_run — the same way real Strava folds them into
-    // its ride/run buckets. SQLite SUM ignores NULL distance/elevation (e.g. yoga).
-    // The `ytd_*` aggregates reuse the ride/run buckets but additionally require
-    // the activity's calendar year to match the current year (SQLite `strftime`),
-    // so they form a strict subset of the all-time totals.
-    let row = sqlx::query(
-        "SELECT \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' THEN 1 ELSE 0 END), 0) AS ride_count, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' THEN distance_meters END), 0.0) AS ride_distance, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' THEN duration_seconds END), 0) AS ride_time, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' THEN elevation_gain END), 0.0) AS ride_elev, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' THEN 1 ELSE 0 END), 0) AS run_count, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' THEN distance_meters END), 0.0) AS run_distance, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' THEN duration_seconds END), 0) AS run_time, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' THEN elevation_gain END), 0.0) AS run_elev, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN 1 ELSE 0 END), 0) AS ytd_ride_count, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN distance_meters END), 0.0) AS ytd_ride_distance, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN duration_seconds END), 0) AS ytd_ride_time, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%ride%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN elevation_gain END), 0.0) AS ytd_ride_elev, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN 1 ELSE 0 END), 0) AS ytd_run_count, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN distance_meters END), 0.0) AS ytd_run_distance, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN duration_seconds END), 0) AS ytd_run_time, \
-         COALESCE(SUM(CASE WHEN sport_type LIKE '%run%' AND strftime('%Y', start_date) = strftime('%Y', 'now') THEN elevation_gain END), 0.0) AS ytd_run_elev \
-         FROM synthetic_activities WHERE user_id = ?",
-    )
-    .bind(&user_id)
-    .fetch_one(&pool)
-    .await;
-
-    match row {
-        Ok(row) => {
-            info!(user_id = %user_id, "served seeded athlete stats");
-            Json(strava_stats_json(Some(&row)))
-        }
-        Err(e) => {
-            warn!(user_id = %user_id, error = %e, "stats query failed");
-            Json(strava_stats_json(None))
-        }
-    }
-}
-
-/// Build Strava athlete-stats JSON from an aggregate row, or all-zero totals when
-/// the row is absent (missing bearer or query error). Column names follow the
-/// `<bucket>_<metric>` aliases the stats query emits.
-fn strava_stats_json(row: Option<&SqliteRow>) -> Value {
-    let totals = |count_col, dist_col, time_col, elev_col| {
-        let (count, distance, moving_time, elevation_gain) =
-            row.map_or((0_i64, 0.0_f64, 0_i64, 0.0_f64), |r| {
-                (
-                    r.try_get::<i64, _>(count_col).unwrap_or(0),
-                    r.try_get::<f64, _>(dist_col).unwrap_or(0.0),
-                    r.try_get::<i64, _>(time_col).unwrap_or(0),
-                    r.try_get::<f64, _>(elev_col).unwrap_or(0.0),
-                )
-            });
-        json!({
-            "count": count,
-            "distance": distance,
-            "moving_time": moving_time,
-            "elevation_gain": elevation_gain,
-        })
-    };
-
-    json!({
-        "all_ride_totals": totals("ride_count", "ride_distance", "ride_time", "ride_elev"),
-        "all_run_totals": totals("run_count", "run_distance", "run_time", "run_elev"),
-        "ytd_ride_totals": totals("ytd_ride_count", "ytd_ride_distance", "ytd_ride_time", "ytd_ride_elev"),
-        "ytd_run_totals": totals("ytd_run_count", "ytd_run_distance", "ytd_run_time", "ytd_run_elev"),
-    })
 }
 
 /// Map a `synthetic_activities` row to a Strava summary-activity JSON object.

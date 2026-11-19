@@ -1,5 +1,5 @@
 // ABOUTME: The invitation half of the pre-approval allow — issue a single-use link, mail it, report what became of it
-// ABOUTME: The token goes to the notifier, or to a super-admin who asked for the link itself; never to a log
+// ABOUTME: The token goes to the notifier, or to an admin who asked for the link itself; never to a log
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,10 +7,10 @@
 //! The invitation an allow may send.
 //!
 //! The invitation's token goes to the notifier and nowhere else, with one
-//! exception: a super-admin may ask for the link itself (`return_link`), and
+//! exception: an admin may ask for the link itself (`return_link`), and
 //! then it is answered to them instead of mailed. That is for operator-driven
 //! end-to-end testing on a deployed environment, where the test accounts'
-//! addresses have no mailbox anyone reads; a super-admin can already mint any
+//! addresses have no mailbox anyone reads; an admin can already mint any
 //! account's access, so handing them the link grants nothing new. The link is
 //! not mailed then (a mail that failed would withdraw the very link just
 //! answered), no notifier is needed, and no `user.invited` event is raised,
@@ -42,7 +42,7 @@ use crate::context::AdminApiContext;
 pub(super) enum Delivery<'ctx> {
     /// Mailed through the approval notifier.
     Mail,
-    /// Answered to the super-admin who asked, as a link on the web app at
+    /// Answered to the admin who asked, as a link on the web app at
     /// `frontend_url`.
     Link {
         /// The web app the link opens.
@@ -52,7 +52,7 @@ pub(super) enum Delivery<'ctx> {
 
 /// How the allow in `request` delivers its invitation, or the refusal it
 /// takes before anything is written: 403 for `return_link` from a token below
-/// super-admin, 400 for `return_link` without `send_invite`, 503 for
+/// admin, 400 for `return_link` without `send_invite`, 503 for
 /// `return_link` on a server with no frontend URL to build the link on.
 pub(super) fn delivery<'ctx>(
     ctx: &'ctx AdminApiContext,
@@ -94,7 +94,7 @@ pub(super) enum InviteReport {
         expires_at: DateTime<Utc>,
     },
     /// A single-use invitation was issued and its link answered to the
-    /// super-admin who asked, not mailed.
+    /// admin who asked, not mailed.
     Link {
         /// The accept link, token in its fragment.
         url: String,
@@ -125,7 +125,7 @@ impl InviteReport {
         }
     }
 
-    /// The accept link, when the super-admin asked for it.
+    /// The accept link, when the admin asked for it.
     pub(super) fn invite_url(&self) -> Option<&str> {
         match self {
             Self::Link { url, .. } => Some(url),
@@ -221,7 +221,7 @@ pub(super) async fn send_invite_if_eligible(
 pub(super) enum Carrier<'ctx> {
     /// The notifier, which mails it.
     Notifier(&'ctx dyn UserApprovalNotifier),
-    /// The super-admin who asked, as a link on the web app at `frontend_url`.
+    /// The admin who asked, as a link on the web app at `frontend_url`.
     Operator { frontend_url: &'ctx str },
 }
 
@@ -246,7 +246,7 @@ pub(super) async fn issue_and_deliver(
                     recipient = %mask_email(email),
                     token_id = %admin_token.token_id,
                     kind = kind.label(),
-                    "Invitation link issued to the super-admin who asked, not mailed"
+                    "Invitation link issued to the admin who asked, not mailed"
                 );
                 Ok(InviteReport::Link {
                     url: issued.url(frontend_url),

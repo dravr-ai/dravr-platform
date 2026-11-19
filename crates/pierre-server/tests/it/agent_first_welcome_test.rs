@@ -255,13 +255,27 @@ async fn first_sync_posted(resources: &ServerContext, user_id: Uuid, tenant: Ten
     let now = Utc::now();
     let lease = repos
         .platform_post_claims
-        .claim_platform_post_once(tenant, user_id, purpose, now - Duration::minutes(15), now)
+        .claim_platform_post_once(
+            tenant,
+            user_id,
+            purpose,
+            PostPurpose::NO_SUBJECT,
+            now - Duration::minutes(15),
+            now,
+        )
         .await
         .unwrap()
         .expect("the first-sync claim is free");
     assert!(repos
         .platform_post_claims
-        .mark_platform_post_posted(tenant, user_id, purpose, &lease, Utc::now())
+        .mark_platform_post_posted(
+            tenant,
+            user_id,
+            purpose,
+            PostPurpose::NO_SUBJECT,
+            &lease,
+            Utc::now()
+        )
         .await
         .unwrap());
 }

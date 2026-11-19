@@ -234,6 +234,10 @@ pub struct CreateLinkStateParams<'a> {
     pub channel_user_id: Option<&'a str>,
     /// Display name from platform (for login page greeting)
     pub sender_name: Option<&'a str>,
+    /// Where the provider's OAuth code is handed back to the phone app that
+    /// started the link; `None` for a link started on the web, which completes
+    /// only in a browser signed in as `user_id` (carnet#1580)
+    pub app_return_uri: Option<&'a str>,
     /// Expiration timestamp (RFC 3339)
     pub expires_at: &'a str,
 }
@@ -252,6 +256,7 @@ impl fmt::Debug for CreateLinkStateParams<'_> {
                 &self.channel_user_id.map(|_| "[REDACTED]"),
             )
             .field("sender_name", &self.sender_name.map(|_| "[REDACTED]"))
+            .field("app_return_uri", &self.app_return_uri)
             .field("expires_at", &self.expires_at)
             .finish()
     }
@@ -545,8 +550,10 @@ pub trait MessagingRepository: Send + Sync {
     /// sender with `get_channel_link(bot_tenant, ..)`), while the athlete lives
     /// in their own tenant, so a tenant-scoped read would hide it from them.
     /// The row names its owner, and a user id is strictly narrower than a
-    /// tenant, so the result is only ever the caller's own links. Callers pass
-    /// the authenticated user's id, never one taken from a request.
+    /// tenant, so the result is only ever one account's links. Callers pass
+    /// the authenticated user's id, never one taken from a request, except the
+    /// admin user read, which lists the links of the account an admin token
+    /// names so an admin can see whom a Slack tap acts as (carnet#1576).
     async fn list_channel_links_for_user(&self, user_id: &str) -> AppResult<Vec<Value>>;
 
     /// List all channel links for a user
@@ -696,6 +703,57 @@ pub trait MessagingRepository: Send + Sync {
 
     /// Invalidate any active OTP link states for a sender (cleanup before new flow).
     async fn invalidate_otp_link_states(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<()>;
+
+    /// Hold a pairing code for the sender who redeemed it until they confirm,
+    /// parking it on `otp_step = 'awaiting_link_confirm'` (carnet#1596).
+    ///
+    /// In one transaction: any other code this sender held is handed back
+    /// unspent, the sender's own in-chat OTP flow is spent (the pairing link
+    /// supersedes it), and the code is bound to this sender. Nothing is linked
+    /// and the code stays unspent until the sender confirms.
+    ///
+    /// Returns `false` when the code is not a live deep-link code minted on an
+    /// account for `channel_type` in this tenant.
+    ///
+    /// # Errors
+    /// Returns a database error when a statement or the commit fails.
+    async fn hold_link_for_confirmation(
+        &self,
+        code: &str,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<bool>;
+
+    /// Spend a pairing code this sender holds, once they confirm it
+    /// (carnet#1596). The hold is checked in the statement that spends the
+    /// code, so a sender another redeemer displaced cannot finish it.
+    ///
+    /// Returns `false`, spending nothing, when the code is not live or not
+    /// held by `channel_user_id` for `channel_type` in this tenant.
+    ///
+    /// # Errors
+    /// Returns a database error when the update fails.
+    async fn spend_held_link_code(
+        &self,
+        code: &str,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<bool>;
+
+    /// Hand back, unspent, every pairing code this sender holds, so the
+    /// account that started it can still finish it. A code another sender has
+    /// taken over since is theirs and stays held.
+    ///
+    /// # Errors
+    /// Returns a database error when the update fails.
+    async fn release_link_confirmations(
         &self,
         tenant_id: TenantId,
         channel_type: &str,

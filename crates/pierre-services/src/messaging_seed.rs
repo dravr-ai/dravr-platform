@@ -1,27 +1,35 @@
-// ABOUTME: Seed messaging channel configs from environment variables on server startup
-// ABOUTME: Reads Slack, Telegram, Meta WhatsApp, Meta Messenger, and Discord env vars and upserts DB channel configs
+// ABOUTME: Seed messaging channel configs from the server configuration on startup
+// ABOUTME: Upserts the Slack, Telegram, Meta WhatsApp, Meta Messenger and Discord channels the configuration names
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use std::env;
 
-use pierre_core::constant_time::configured_secret;
+use pierre_config::environment::{ChannelCredentials, WebhookSecrets};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::backends::UpsertChannelConfigParams;
 use pierre_database::repositories::MessagingRepository;
 use pierre_database::RepositoryRegistry;
+use secrecy::{ExposeSecret, SecretString};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-/// Seed messaging channel configs from environment variables
+/// Seed the messaging channel configs the server configuration names
 ///
-/// Reads channel credentials from env vars and upserts them into the database.
+/// Upserts the credentials `channels` and `webhooks` captured from the
+/// environment at startup into the database. The environment itself is not
+/// read for them here: a configuration that names no channel seeds none,
+/// whatever the process exports (carnet#1600).
 /// Resolves the admin user's tenant as the owning tenant for all channel configs,
 /// and marks every seeded config platform scope (see `seed_platform_config`).
-/// Skipped silently when no messaging env vars are set.
-pub async fn seed_from_env(repos: &RepositoryRegistry) {
+/// Skipped silently when the configuration names no channel.
+pub async fn seed_from_config(
+    repos: &RepositoryRegistry,
+    channels: &ChannelCredentials,
+    webhooks: &WebhookSecrets,
+) {
     let admin_email = env::var("ADMIN_EMAIL").unwrap_or_else(|_| "admin@example.com".to_owned());
     let Some(tenant_id) = resolve_admin_tenant(repos, &admin_email).await else {
         // No admin user yet — skip seeding (server may be starting fresh before bootstrap)
@@ -30,19 +38,19 @@ pub async fn seed_from_env(repos: &RepositoryRegistry) {
 
     let mut seeded = 0;
 
-    if let Some(count) = seed_slack(&*repos.messaging, tenant_id).await {
+    if let Some(count) = seed_slack(&*repos.messaging, tenant_id, webhooks).await {
         seeded += count;
     }
-    if let Some(count) = seed_telegram(&*repos.messaging, tenant_id).await {
+    if let Some(count) = seed_telegram(&*repos.messaging, tenant_id, channels).await {
         seeded += count;
     }
-    if let Some(count) = seed_whatsapp(&*repos.messaging, tenant_id).await {
+    if let Some(count) = seed_whatsapp(&*repos.messaging, tenant_id, channels).await {
         seeded += count;
     }
-    if let Some(count) = seed_messenger(&*repos.messaging, tenant_id).await {
+    if let Some(count) = seed_messenger(&*repos.messaging, tenant_id, channels).await {
         seeded += count;
     }
-    if let Some(count) = seed_discord(&*repos.messaging, tenant_id).await {
+    if let Some(count) = seed_discord(&*repos.messaging, tenant_id, channels).await {
         seeded += count;
     }
 
@@ -105,24 +113,31 @@ async fn upsert_as_platform(
     }
 }
 
-/// Seed Slack channel config from `SLACK_BOT_TOKEN` + `SLACK_SIGNING_SECRET`
-async fn seed_slack(database: &(dyn MessagingRepository + '_), tenant_id: TenantId) -> Option<u32> {
-    let bot_token = env::var("SLACK_BOT_TOKEN").ok()?;
-    // A blank signing secret configures none, as the ops route reads it.
-    let signing_secret = configured_secret("SLACK_SIGNING_SECRET")?;
+/// The secret a configured credential holds.
+fn exposed(secret: Option<&SecretString>) -> Option<&str> {
+    secret.map(ExposeSecret::expose_secret)
+}
 
-    if bot_token.is_empty() {
-        return None;
-    }
+/// Seed Slack channel config from `SLACK_BOT_TOKEN` + `SLACK_SIGNING_SECRET`
+///
+/// Both are the values the interactive route reads, so a blank one
+/// configures no Slack channel here either.
+async fn seed_slack(
+    database: &(dyn MessagingRepository + '_),
+    tenant_id: TenantId,
+    webhooks: &WebhookSecrets,
+) -> Option<u32> {
+    let bot_token = exposed(webhooks.slack_bot_token.as_ref())?;
+    let signing_secret = exposed(webhooks.slack_signing_secret.as_ref())?;
 
     let id = Uuid::new_v4().to_string();
     let params = UpsertChannelConfigParams {
         id: &id,
         tenant_id,
         channel_type: "slack",
-        api_key: Some(&bot_token),
+        api_key: Some(bot_token),
         api_secret: None,
-        webhook_secret: Some(&signing_secret),
+        webhook_secret: Some(signing_secret),
         verify_token: None,
         account_id: None,
         phone_number: None,
@@ -137,13 +152,10 @@ async fn seed_slack(database: &(dyn MessagingRepository + '_), tenant_id: Tenant
 async fn seed_telegram(
     database: &(dyn MessagingRepository + '_),
     tenant_id: TenantId,
+    channels: &ChannelCredentials,
 ) -> Option<u32> {
-    let bot_token = env::var("TELEGRAM_BOT_TOKEN").ok()?;
-    let webhook_secret = env::var("TELEGRAM_WEBHOOK_SECRET").ok()?;
-
-    if bot_token.is_empty() || webhook_secret.is_empty() {
-        return None;
-    }
+    let bot_token = exposed(channels.telegram_bot_token.as_ref())?;
+    let webhook_secret = exposed(channels.telegram_webhook_secret.as_ref())?;
 
     let id = Uuid::new_v4().to_string();
     let params = UpsertChannelConfigParams {
@@ -152,11 +164,11 @@ async fn seed_telegram(
         channel_type: "telegram",
         api_key: None,
         api_secret: None,
-        webhook_secret: Some(&webhook_secret),
+        webhook_secret: Some(webhook_secret),
         verify_token: None,
         account_id: None,
         phone_number: None,
-        bot_token: Some(&bot_token),
+        bot_token: Some(bot_token),
         is_active: true,
     };
 
@@ -167,28 +179,23 @@ async fn seed_telegram(
 async fn seed_whatsapp(
     database: &(dyn MessagingRepository + '_),
     tenant_id: TenantId,
+    channels: &ChannelCredentials,
 ) -> Option<u32> {
-    let app_secret = env::var("META_WHATSAPP_APP_SECRET").ok()?;
-    let access_token = env::var("META_WHATSAPP_ACCESS_TOKEN").ok()?;
-
-    if app_secret.is_empty() || access_token.is_empty() {
-        return None;
-    }
-
-    let phone_number_id = env::var("META_WHATSAPP_PHONE_NUMBER_ID").ok();
-    let verify_token = configured_secret("META_WHATSAPP_VERIFY_TOKEN");
+    let app_secret = exposed(channels.whatsapp_app_secret.as_ref())?;
+    let access_token = exposed(channels.whatsapp_access_token.as_ref())?;
+    let verify_token = exposed(channels.whatsapp_verify_token.as_ref());
 
     let id = Uuid::new_v4().to_string();
     let params = UpsertChannelConfigParams {
         id: &id,
         tenant_id,
         channel_type: "whatsapp",
-        api_key: Some(&access_token),
+        api_key: Some(access_token),
         api_secret: None,
-        webhook_secret: Some(&app_secret),
-        verify_token: verify_token.as_deref(),
+        webhook_secret: Some(app_secret),
+        verify_token,
         account_id: None,
-        phone_number: phone_number_id.as_deref(),
+        phone_number: channels.whatsapp_phone_number_id.as_deref(),
         bot_token: None,
         is_active: true,
     };
@@ -200,25 +207,21 @@ async fn seed_whatsapp(
 async fn seed_messenger(
     database: &(dyn MessagingRepository + '_),
     tenant_id: TenantId,
+    channels: &ChannelCredentials,
 ) -> Option<u32> {
-    let app_secret = env::var("META_MESSENGER_APP_SECRET").ok()?;
-    let page_access_token = env::var("META_MESSENGER_PAGE_ACCESS_TOKEN").ok()?;
-
-    if app_secret.is_empty() || page_access_token.is_empty() {
-        return None;
-    }
-
-    let verify_token = configured_secret("META_MESSENGER_VERIFY_TOKEN");
+    let app_secret = exposed(channels.messenger_app_secret.as_ref())?;
+    let page_access_token = exposed(channels.messenger_page_access_token.as_ref())?;
+    let verify_token = exposed(channels.messenger_verify_token.as_ref());
 
     let id = Uuid::new_v4().to_string();
     let params = UpsertChannelConfigParams {
         id: &id,
         tenant_id,
         channel_type: "messenger",
-        api_key: Some(&page_access_token),
+        api_key: Some(page_access_token),
         api_secret: None,
-        webhook_secret: Some(&app_secret),
-        verify_token: verify_token.as_deref(),
+        webhook_secret: Some(app_secret),
+        verify_token,
         account_id: None,
         phone_number: None,
         bot_token: None,
@@ -232,15 +235,10 @@ async fn seed_messenger(
 async fn seed_discord(
     database: &(dyn MessagingRepository + '_),
     tenant_id: TenantId,
+    channels: &ChannelCredentials,
 ) -> Option<u32> {
-    let bot_token = env::var("DISCORD_BOT_TOKEN").ok()?;
-    let public_key = env::var("DISCORD_PUBLIC_KEY").ok()?;
-
-    if bot_token.is_empty() || public_key.is_empty() {
-        return None;
-    }
-
-    let application_id = env::var("DISCORD_APPLICATION_ID").ok();
+    let bot_token = exposed(channels.discord_bot_token.as_ref())?;
+    let public_key = exposed(channels.discord_public_key.as_ref())?;
 
     let id = Uuid::new_v4().to_string();
     let params = UpsertChannelConfigParams {
@@ -249,11 +247,11 @@ async fn seed_discord(
         channel_type: "discord",
         api_key: None,
         api_secret: None,
-        webhook_secret: Some(&public_key),
+        webhook_secret: Some(public_key),
         verify_token: None,
-        account_id: application_id.as_deref(),
+        account_id: channels.discord_application_id.as_deref(),
         phone_number: None,
-        bot_token: Some(&bot_token),
+        bot_token: Some(bot_token),
         is_active: true,
     };
 

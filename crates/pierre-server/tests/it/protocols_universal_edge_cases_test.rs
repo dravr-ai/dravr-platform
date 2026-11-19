@@ -134,7 +134,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
             (*database).clone(),
             auth_manager,
             "test_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -147,6 +147,8 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -170,7 +172,7 @@ async fn create_executor_no_oauth() -> Result<UniversalToolExecutor> {
             (*database).clone(),
             auth_manager,
             "test_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -183,6 +185,8 @@ async fn create_executor_no_oauth() -> Result<UniversalToolExecutor> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await

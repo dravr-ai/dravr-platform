@@ -31,7 +31,7 @@ use pierre_core::models::{Tenant, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
-use pierre_test_support::delegation::create_group_agent;
+use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::CONVERSATION_ID;
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
@@ -161,6 +161,7 @@ impl Fixture {
             )
             .await
             .unwrap();
+        grant_coach_access(repos, coach.id).await.unwrap();
         assert!(repos
             .groups
             .set_group_coach_user(&group.id.to_string(), Some(coach.id), owner.tenant)
@@ -503,6 +504,46 @@ async fn only_the_coachs_own_thread_about_an_athlete_answers() {
         assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
         assert_eq!(reason(&body), "no_subject");
     }
+}
+
+/// A coach still attached whose coach access was withdrawn reads, publishes
+/// and discards nothing in the thread (carnet#1511), and the draft is theirs
+/// again once access is back.
+#[tokio::test]
+async fn a_coach_whose_access_is_off_is_refused_on_each_request() {
+    let fx = Fixture::new().await;
+    fx.coach_drafts().await;
+    fx.repos()
+        .users
+        .set_manages_roster(fx.coach.id, false)
+        .await
+        .unwrap();
+
+    for (status, body) in [
+        fx.get_plan(&fx.thread, &fx.coach.auth).await,
+        fx.publish(true).await,
+        fx.discard().await,
+    ] {
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert_eq!(reason(&body), "no_coach_access", "{body}");
+        assert_eq!(
+            body["message"],
+            "Your coach access is off, so you cannot act for this group's athletes",
+            "{body}"
+        );
+    }
+
+    fx.repos()
+        .users
+        .set_manages_roster(fx.coach.id, true)
+        .await
+        .unwrap();
+    let (status, read) = fx.get_plan(&fx.thread, &fx.coach.auth).await;
+    assert_eq!(status, StatusCode::OK, "{read}");
+    assert!(
+        read["draft_state"].is_object(),
+        "the draft survived the refusals: {read}"
+    );
 }
 
 #[tokio::test]

@@ -77,12 +77,10 @@ pub(crate) fn describe(command: &Command) -> Option<LocalAudit> {
 /// The `user` verbs that write the database.
 fn describe_user(action: &UserCommand) -> Option<LocalAudit> {
     let audit = match action {
-        UserCommand::Create {
-            email, super_admin, ..
-        } => LocalAudit::new(
+        UserCommand::Create { email, .. } => LocalAudit::new(
             "user.create_admin",
             format!("Created admin account {email}"),
-            json!({ "email": email, "super_admin": super_admin }),
+            json!({ "email": email }),
         ),
         UserCommand::Promote { email } => LocalAudit::new(
             "user.promote",

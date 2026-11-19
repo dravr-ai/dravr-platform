@@ -26,6 +26,11 @@ use serde::{Deserialize, Serialize};
 /// never classifies a call.
 pub const CLIENT_PLATFORM_HEADER: &str = "x-client-platform";
 
+/// The label a stored row names a call by when it declared no transport.
+/// No [`Transport`] stores it, so [`Transport::of_label`] never reads it as
+/// one.
+pub const UNDECLARED_TRANSPORT: &str = "undeclared";
+
 /// The surface a call arrived through.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Transport {
@@ -81,6 +86,50 @@ impl Transport {
         } else {
             Self::WebApp
         }
+    }
+
+    /// Every transport, for a caller that maps each to a stored label.
+    pub const ALL: [Self; 7] = [
+        Self::WebApp,
+        Self::MobileApp,
+        Self::Messaging,
+        Self::PlatformJob,
+        Self::McpHttp,
+        Self::A2a,
+        Self::ApiKey,
+    ];
+
+    /// The stable label a stored row names this transport by.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::WebApp => "web_app",
+            Self::MobileApp => "mobile_app",
+            Self::Messaging => "messaging",
+            Self::PlatformJob => "platform_job",
+            Self::McpHttp => "mcp_http",
+            Self::A2a => "a2a",
+            Self::ApiKey => "api_key",
+        }
+    }
+
+    /// The label a stored row names a call served over `transport` by: its
+    /// [`Self::as_str`], or [`UNDECLARED_TRANSPORT`] when it declared none.
+    #[must_use]
+    pub const fn label_of(transport: Option<Self>) -> &'static str {
+        match transport {
+            Some(served) => served.as_str(),
+            None => UNDECLARED_TRANSPORT,
+        }
+    }
+
+    /// The transport a stored label names, or `None` for a label no
+    /// transport stores.
+    #[must_use]
+    pub fn of_label(stored: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|transport| transport.as_str() == stored)
     }
 
     /// The transport of work started inside a call that already serves
@@ -192,6 +241,37 @@ mod tests {
                 "{transport:?}"
             );
         }
+    }
+
+    #[test]
+    fn each_stored_label_reads_back_as_its_transport_and_nothing_else_parses() {
+        assert_eq!(
+            Transport::ALL,
+            ALL,
+            "bug: Transport::ALL lists every variant"
+        );
+        for transport in ALL {
+            assert_eq!(
+                Transport::of_label(transport.as_str()),
+                Some(transport),
+                "bug: a stored label reads back as the transport it stores"
+            );
+        }
+        assert_eq!(
+            Transport::of_label("carrier_pigeon"),
+            None,
+            "bug: a label no transport stores parses as none"
+        );
+        assert_eq!(
+            Transport::label_of(None),
+            UNDECLARED_TRANSPORT,
+            "bug: an undeclared call is stored under the undeclared label"
+        );
+        assert_eq!(
+            Transport::of_label(UNDECLARED_TRANSPORT),
+            None,
+            "bug: the undeclared label is no transport's"
+        );
     }
 
     #[test]

@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
+use pierre_core::errors::ErrorCode;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{TenantId, User, UserStatus, UserTier};
 use pierre_core::pagination::{PaginationDirection, PaginationParams};
@@ -32,7 +33,6 @@ async fn test_create_and_get_user() {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(Utc::now()),
@@ -133,7 +133,6 @@ async fn test_last_active_update() {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(Utc::now()),
@@ -415,7 +414,7 @@ async fn test_update_user_status() {
 
     assert!(result.is_ok());
 
-    let updated_user = result.unwrap();
+    let updated_user = result.unwrap().user;
     assert_eq!(updated_user.user_status, UserStatus::Active);
     assert_eq!(updated_user.approved_by, Some(admin_user.id));
     assert!(updated_user.approved_at.is_some());
@@ -454,7 +453,7 @@ async fn test_update_user_status_without_approver() {
 
     assert!(result.is_ok());
 
-    let updated_user = result.unwrap();
+    let updated_user = result.unwrap().user;
     assert_eq!(updated_user.user_status, UserStatus::Active);
     // approved_by should be None when no approver UUID is provided
     assert_eq!(updated_user.approved_by, None);
@@ -651,7 +650,7 @@ async fn test_user_serialization_in_database() {
     );
     user.tier = UserTier::Enterprise;
     user.user_status = UserStatus::Active;
-    user.is_admin = true;
+    user.role = UserRole::Admin;
 
     db.repositories().users.create(&user).await.unwrap();
 
@@ -669,7 +668,7 @@ async fn test_user_serialization_in_database() {
     assert_eq!(retrieved.display_name, user.display_name);
     assert_eq!(retrieved.tier, user.tier);
     assert_eq!(retrieved.user_status, user.user_status);
-    assert_eq!(retrieved.is_admin, user.is_admin);
+    assert_eq!(retrieved.role, user.role);
     assert_eq!(retrieved.is_active, user.is_active);
 }
 
@@ -743,7 +742,8 @@ async fn test_user_status_transitions() {
         .users
         .update_status(user.id, UserStatus::Active, Some(admin.id))
         .await
-        .unwrap();
+        .unwrap()
+        .user;
     assert_eq!(active_user.user_status, UserStatus::Active);
     assert_eq!(active_user.approved_by, Some(admin.id));
 
@@ -753,7 +753,8 @@ async fn test_user_status_transitions() {
         .users
         .update_status(user.id, UserStatus::Suspended, Some(admin.id))
         .await
-        .unwrap();
+        .unwrap()
+        .user;
     assert_eq!(suspended_user.user_status, UserStatus::Suspended);
 
     // Transition: Suspended -> Active (reactivation)
@@ -762,13 +763,18 @@ async fn test_user_status_transitions() {
         .users
         .update_status(user.id, UserStatus::Active, Some(admin.id))
         .await
-        .unwrap();
+        .unwrap()
+        .user;
     assert_eq!(reactivated_user.user_status, UserStatus::Active);
 }
 
 #[tokio::test]
 async fn test_set_admin_status_promote_demote() {
     let db = create_test_database().await;
+    // Another admin in good standing, so demoting this one leaves the
+    // platform an admin (the last active one cannot be demoted).
+    let standing = create_test_admin_user("standing@example.com", Some("Standing".to_owned()));
+    db.repositories().users.create(&standing).await.unwrap();
     let user = create_test_user("promote@example.com", Some("Promote Me".to_owned()));
     db.repositories().users.create(&user).await.unwrap();
 
@@ -778,8 +784,8 @@ async fn test_set_admin_status_promote_demote() {
         .users
         .set_admin_status(user.id, true)
         .await
-        .unwrap();
-    assert!(promoted.is_admin);
+        .unwrap()
+        .user;
     assert_eq!(promoted.role, UserRole::Admin);
 
     // Idempotency: promoting an already-admin user is safe
@@ -788,8 +794,8 @@ async fn test_set_admin_status_promote_demote() {
         .users
         .set_admin_status(user.id, true)
         .await
-        .unwrap();
-    assert!(repromoted.is_admin);
+        .unwrap()
+        .user;
     assert_eq!(repromoted.role, UserRole::Admin);
 
     // Demote to user
@@ -798,61 +804,193 @@ async fn test_set_admin_status_promote_demote() {
         .users
         .set_admin_status(user.id, false)
         .await
-        .unwrap();
-    assert!(!demoted.is_admin);
+        .unwrap()
+        .user;
     assert_eq!(demoted.role, UserRole::User);
 }
 
+/// The role decides who is an admin, on `create` and on `update`: a `User`
+/// carries no other answer (carnet#1574), and the listing and the first
+/// admin read it.
 #[tokio::test]
-async fn test_set_admin_status_preserves_super_admin_on_promote() {
+async fn the_role_decides_who_is_an_admin() {
     let db = create_test_database().await;
-    // Seed user as super-admin
-    let mut user = create_test_user("super@example.com", Some("Super".to_owned()));
-    user.is_admin = true;
-    user.role = UserRole::SuperAdmin;
-    db.repositories().users.create(&user).await.unwrap();
+    let users = &db.repositories().users;
 
-    // Verify role persisted from create (guards against SELECT queries
-    // that forget to include the role column)
-    let after_create = db
-        .repositories()
-        .users
-        .get_global(user.id)
+    let mut by_role = create_test_user("by_role@example.com", Some("By Role".to_owned()));
+    by_role.role = UserRole::Admin;
+    users.create(&by_role).await.unwrap();
+    let stored = users.get_global(by_role.id).await.unwrap().unwrap();
+    assert_eq!(stored.role, UserRole::Admin, "create() stores the role");
+    assert!(stored.is_active_admin());
+
+    let plain_account = create_test_user("plain@example.com", Some("Plain".to_owned()));
+    users.create(&plain_account).await.unwrap();
+    let stored = users.get_global(plain_account.id).await.unwrap().unwrap();
+    assert_eq!(stored.role, UserRole::User);
+    assert!(!stored.is_active_admin());
+
+    let listed: Vec<Uuid> = users
+        .list_admins()
         .await
         .unwrap()
-        .unwrap();
+        .iter()
+        .map(|u| u.id)
+        .collect();
     assert_eq!(
-        after_create.role,
-        UserRole::SuperAdmin,
-        "create() must persist SuperAdmin role"
+        listed,
+        vec![by_role.id],
+        "the listing reads the role: the plain account is not in it"
     );
+    let first = users.get_first_admin_user().await.unwrap().unwrap();
+    assert_eq!(first.id, by_role.id);
 
-    // Re-promoting should preserve SuperAdmin (not downgrade to Admin)
-    let result = db
-        .repositories()
-        .users
-        .set_admin_status(user.id, true)
-        .await
-        .unwrap();
-    assert!(result.is_admin);
-    assert_eq!(result.role, UserRole::SuperAdmin);
+    // The whole-row write holds the same rule, both ways: handed back with
+    // the role, a plain user is an admin.
+    let plain = create_test_user("rewritten@example.com", Some("Rewritten".to_owned()));
+    users.create(&plain).await.unwrap();
+    let mut promoted = users.get_global(plain.id).await.unwrap().unwrap();
+    promoted.role = UserRole::Admin;
+    users.update(&promoted).await.unwrap();
+    let stored = users.get_global(plain.id).await.unwrap().unwrap();
+    assert_eq!(stored.role, UserRole::Admin);
+    // And an admin handed back with the role reset is demoted.
+    let mut demoted = stored;
+    demoted.role = UserRole::User;
+    users.update(&demoted).await.unwrap();
+    let stored = users.get_global(plain.id).await.unwrap().unwrap();
+    assert_eq!(stored.role, UserRole::User);
+
+    // Re-promoting an admin keeps it one.
+    let result = users.set_admin_status(by_role.id, true).await.unwrap().user;
+    assert_eq!(result.role, UserRole::Admin);
 }
 
+/// The last active admin cannot be demoted: the platform always keeps one
+/// account that can manage it. A suspended or deactivated admin does not
+/// count as the one left standing.
 #[tokio::test]
-async fn test_set_admin_status_rejects_super_admin_demote() {
+async fn test_set_admin_status_rejects_demoting_the_last_active_admin() {
     let db = create_test_database().await;
-    let mut user = create_test_user("sa_protect@example.com", Some("SA Protect".to_owned()));
-    user.is_admin = true;
-    user.role = UserRole::SuperAdmin;
-    db.repositories().users.create(&user).await.unwrap();
+    let users = &db.repositories().users;
+    let last = create_test_admin_user("last_admin@example.com", Some("Last".to_owned()));
+    users.create(&last).await.unwrap();
+    let mut suspended = create_test_admin_user("held_admin@example.com", Some("Held".to_owned()));
+    suspended.user_status = UserStatus::Suspended;
+    users.create(&suspended).await.unwrap();
+    let mut departed = create_test_admin_user("gone_admin@example.com", Some("Gone".to_owned()));
+    departed.is_active = false;
+    users.create(&departed).await.unwrap();
 
-    // Demoting a super-admin must fail
-    let result = db
-        .repositories()
-        .users
-        .set_admin_status(user.id, false)
-        .await;
-    assert!(result.is_err(), "super-admin demote must be rejected");
+    let refused = users.set_admin_status(last.id, false).await;
+    let error = refused.expect_err("the last active admin must not be demoted");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
+    assert!(
+        error.message.contains("last active admin"),
+        "the refusal says why: {}",
+        error.message
+    );
+    let still = users.get_global(last.id).await.unwrap().unwrap();
+    assert_eq!(
+        still.role,
+        UserRole::Admin,
+        "the refused demotion wrote nothing"
+    );
+
+    // An admin who is not in good standing can be demoted: it was never the
+    // one the platform relies on.
+    let demoted = users
+        .set_admin_status(suspended.id, false)
+        .await
+        .unwrap()
+        .user;
+    assert_eq!(demoted.role, UserRole::User);
+
+    // With a second admin in good standing, the first can be demoted.
+    let second = create_test_admin_user("second_admin@example.com", Some("Second".to_owned()));
+    users.create(&second).await.unwrap();
+    let demoted = users.set_admin_status(last.id, false).await.unwrap().user;
+    assert_eq!(demoted.role, UserRole::User);
+    // And now `second` is the last one.
+    assert!(users.set_admin_status(second.id, false).await.is_err());
+}
+
+/// The last active admin cannot be suspended or sent back to pending, and a
+/// whole-row write cannot demote, suspend or deactivate it either.
+#[tokio::test]
+async fn the_last_active_admin_cannot_be_suspended_or_deactivated() {
+    let db = create_test_database().await;
+    let users = &db.repositories().users;
+    let last = create_test_admin_user("only_admin@example.com", Some("Only".to_owned()));
+    users.create(&last).await.unwrap();
+    let athlete = create_test_user("athlete@example.com", Some("Athlete".to_owned()));
+    users.create(&athlete).await.unwrap();
+
+    for status in [UserStatus::Suspended, UserStatus::Pending] {
+        let error = users
+            .update_status(last.id, status, None)
+            .await
+            .expect_err("the last active admin must stay active");
+        assert_eq!(error.code, ErrorCode::InvalidInput, "{status:?}");
+    }
+    assert_eq!(
+        users
+            .get_global(last.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .user_status,
+        UserStatus::Active
+    );
+    // Anyone else is suspended as before.
+    let held = users
+        .update_status(athlete.id, UserStatus::Suspended, None)
+        .await
+        .unwrap()
+        .user;
+    assert_eq!(held.user_status, UserStatus::Suspended);
+
+    let stored = users.get_global(last.id).await.unwrap().unwrap();
+    let mut demoted = stored.clone();
+    demoted.role = UserRole::User;
+    let mut suspended = stored.clone();
+    suspended.user_status = UserStatus::Suspended;
+    let mut deactivated = stored.clone();
+    deactivated.is_active = false;
+    for (change, write) in [
+        ("demoted", demoted),
+        ("suspended", suspended),
+        ("deactivated", deactivated),
+    ] {
+        let error = users
+            .update(&write)
+            .await
+            .expect_err("a whole-row write must not take the last admin out");
+        assert_eq!(error.code, ErrorCode::InvalidInput, "{change}");
+    }
+    // A whole-row write that leaves it an active admin still lands.
+    let mut renamed = stored;
+    renamed.display_name = Some("Still The Admin".to_owned());
+    users.update(&renamed).await.unwrap();
+
+    // With a second admin in good standing, the first can be suspended.
+    let second = create_test_admin_user("relief_admin@example.com", Some("Relief".to_owned()));
+    users.create(&second).await.unwrap();
+    assert!(!users.is_last_active_admin(&last).await.unwrap());
+    let held = users
+        .update_status(last.id, UserStatus::Suspended, None)
+        .await
+        .unwrap()
+        .user;
+    assert_eq!(held.user_status, UserStatus::Suspended);
+    assert!(
+        users.is_last_active_admin(&second).await.unwrap(),
+        "the suspended admin no longer counts"
+    );
+    assert!(
+        !users.is_last_active_admin(&athlete).await.unwrap(),
+        "a user is never the last admin"
+    );
 }
 
 #[tokio::test]
@@ -870,14 +1008,12 @@ async fn test_set_admin_status_nonexistent_user() {
 async fn test_list_admins_returns_only_admins() {
     let db = create_test_database().await;
 
-    // Seed 1 admin, 1 super-admin, 2 regular users
+    // Seed 2 admins, 2 regular users
     let admin = create_test_admin_user("admin1@example.com", Some("Admin 1".to_owned()));
     db.repositories().users.create(&admin).await.unwrap();
 
-    let mut super_admin = create_test_user("super1@example.com", Some("Super 1".to_owned()));
-    super_admin.is_admin = true;
-    super_admin.role = UserRole::SuperAdmin;
-    db.repositories().users.create(&super_admin).await.unwrap();
+    let second_admin = create_test_admin_user("admin2@example.com", Some("Admin 2".to_owned()));
+    db.repositories().users.create(&second_admin).await.unwrap();
 
     let user1 = create_test_user("user1@example.com", Some("User 1".to_owned()));
     db.repositories().users.create(&user1).await.unwrap();
@@ -888,8 +1024,8 @@ async fn test_list_admins_returns_only_admins() {
     assert_eq!(admins.len(), 2);
     // Results are ordered by email ascending
     assert_eq!(admins[0].email, "admin1@example.com");
-    assert_eq!(admins[1].email, "super1@example.com");
-    assert!(admins.iter().all(|u| u.is_admin));
+    assert_eq!(admins[1].email, "admin2@example.com");
+    assert!(admins.iter().all(|u| u.role.is_admin()));
 }
 
 #[tokio::test]
@@ -1041,6 +1177,7 @@ async fn listings_return_the_columns_the_row_holds() {
         .users
         .get_by_status_cursor(
             "active",
+            None,
             &PaginationParams {
                 cursor: None,
                 limit: 500,
@@ -1058,22 +1195,6 @@ async fn listings_return_the_columns_the_row_holds() {
     );
 }
 
-/// An account whose row says `is_admin` but whose role column still reads
-/// `user` (a seeder that omitted the column) is an admin on both backends.
-/// Postgres used to read the column as it was and hand back a plain user.
-#[tokio::test]
-async fn an_admin_flag_upgrades_a_plain_user_role() {
-    let db = create_test_database().await;
-    let repos = db.repositories();
-    let mut user = create_test_admin_user(&format!("flagged_{}@example.com", Uuid::new_v4()), None);
-    user.role = UserRole::User;
-    repos.users.create(&user).await.unwrap();
-
-    let stored = repos.users.get_global(user.id).await.unwrap().unwrap();
-    assert!(stored.is_admin);
-    assert_eq!(stored.role, UserRole::Admin);
-}
-
 /// A status the model does not know is refused rather than answered with an
 /// empty listing, on both backends; `SQLite` used to return nothing.
 #[tokio::test]
@@ -1085,6 +1206,7 @@ async fn an_unknown_status_is_refused() {
         .users
         .get_by_status_cursor(
             "archived",
+            None,
             &PaginationParams {
                 cursor: None,
                 limit: 10,

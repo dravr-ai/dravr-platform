@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Admin console client for the coach-access queue — list requests, grant or decline one (carnet#738)
-// ABOUTME: Super-admin only on the server; same session-authenticated axios and AdminResponse envelope as admin.ts
+// ABOUTME: Admin only on the server; same session-authenticated axios and AdminResponse envelope as admin.ts
 
 import type { CoachAccessRequest, CoachAccessRequestView, CoachAccessStatus } from '@pierre/shared-types';
 import { axios } from './client';

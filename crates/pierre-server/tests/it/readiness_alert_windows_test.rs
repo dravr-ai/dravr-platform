@@ -164,15 +164,12 @@ async fn alerts(
         state["readiness"].is_string(),
         "the ladder was read: {state}"
     );
-    Ok(state["alerts"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default())
+    Ok(state["alerts"].as_array().map_or_default(|a| {
+        a.iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    }))
 }
 
 /// One night of `hours` asleep, woken on the morning `days_ago` days back.

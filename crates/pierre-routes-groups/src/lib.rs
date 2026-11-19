@@ -65,6 +65,10 @@ pub mod groups;
 /// attached human coach the weekly digest mode only.
 mod group_update_access;
 
+/// The roster an outside client acting for the group's coach is served:
+/// never a member who stopped sharing with the coach.
+mod outside_roster;
+
 /// Push-notification endpoints (device tokens, preferences, feed, scheduling).
 pub mod notifications;
 

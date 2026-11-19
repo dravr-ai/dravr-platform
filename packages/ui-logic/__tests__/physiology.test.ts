@@ -60,7 +60,7 @@ describe('physiologyAnchorFacts', () => {
 
 describe('usePhysiology', () => {
   it('reads the anchors in the app language and again when the units change', async () => {
-    const body: PhysiologyResponse = { sports: [{ sport: 'ride', anchors: [MAP] }] };
+    const body: PhysiologyResponse = { sports: [{ sport: 'ride', anchors: [MAP] }], offered: [] };
     const getPhysiology = vi.fn().mockResolvedValue(body);
     const usePhysiology = createPhysiologyHook({ getPhysiology }, { useLanguage: () => 'fr' });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

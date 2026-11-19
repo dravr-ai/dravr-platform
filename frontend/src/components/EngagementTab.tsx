@@ -14,7 +14,8 @@ import {
 import type { AdminTimeRange } from "../hooks/useAdminTimeRange";
 import AdminScopeBar from "./AdminScopeBar";
 import { usageAnalyticsQuery } from "./analyticsQueries";
-import { Card } from "./ui";
+import { BADGE_TONE, Card } from "./ui";
+import { coachCategoryTone } from "./coachCategory";
 import { ADMIN_LOCALE } from "../utils/adminLocale";
 
 interface EngagementTabProps {
@@ -95,7 +96,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
             </p>
             <button
               onClick={() => onNavigate?.("agents")}
-              className="px-6 py-2.5 rounded-lg bg-primary/20 text-primary font-medium hover:bg-primary/30 transition-colors border border-primary/30"
+              className={`${BADGE_TONE.primary.tone} ${BADGE_TONE.primary.hover} px-6 py-2.5 rounded-lg font-medium transition-colors border border-primary/30`}
             >
               Go to Agents
             </button>
@@ -212,7 +213,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
                         </p>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-xs px-2 py-1 rounded bg-primary/20 text-primary">
+                        <span className={`text-xs px-2 py-1 rounded ${BADGE_TONE[coachCategoryTone(coach.category)].tone}`}>
                           {coach.category || "general"}
                         </span>
                       </td>
@@ -275,7 +276,7 @@ function TimeRangeSelector({
                 onClick={() => onChange(numValue)}
                 className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
                   timeRange === numValue
-                    ? "bg-primary/20 text-primary border border-primary/30"
+                    ? `${BADGE_TONE.primary.tone} border border-primary/30`
                     : "text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface border border-transparent"
                 }`}
               >

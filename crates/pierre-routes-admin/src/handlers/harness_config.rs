@@ -15,7 +15,7 @@
 //! each tenant currently shares a single global document. Per-tenant
 //! overrides are a Phase D follow-up — adding the column now would
 //! complicate the dispatch read path without enabling new behavior. Being
-//! global, it refuses a token scoped to one tenant.
+//! global, it refuses a token that does not reach every tenant.
 //!
 //! PUT is a compare-and-set ([`super::setting_revision`]) on the `updated_at` GET
 //! returned. A row that does not parse still answers GET, with what this instance

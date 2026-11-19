@@ -40,11 +40,9 @@ use tracing::warn;
 
 use crate::polyline::{decode_polyline, encode_polyline};
 use crate::route_privacy::{trim_route_endpoints, DEFAULT_PRIVACY_RADIUS_METERS};
-use crate::routes::{build_route_summary_from_streams, haversine_meters_between, ClimbCategory};
-
-/// Mean Earth radius in metres, for the planar distances simplification ranks
-/// points by. The same sphere the haversine uses.
-const EARTH_RADIUS_METERS: f64 = 6_371_000.0;
+use crate::routes::{
+    build_route_summary_from_streams, haversine_meters_between, ClimbCategory, EARTH_RADIUS_METERS,
+};
 
 /// How far off its chord a point must sit for simplification to keep it: a
 /// centimetre changes nothing a map can draw, and floating-point noise on a
@@ -362,6 +360,37 @@ impl RouteTrack {
             climbs,
         }
     }
+
+    /// The drawable track of an encoded route overview, such as a Strava
+    /// `summary_polyline`: decoded, then gated and trimmed as
+    /// [`Self::from_overview`] does.
+    ///
+    /// `None` when the polyline is blank or malformed, or when too little of
+    /// it survives the trim. The one decode every reader of a stored overview
+    /// goes through, so the Home map, a list's route sketch and a place's
+    /// start read the same line.
+    #[must_use]
+    pub fn trimmed_overview(encoded: &str) -> Option<Self> {
+        let encoded = encoded.trim();
+        if encoded.is_empty() {
+            return None;
+        }
+        let points = decode_polyline(encoded)?;
+        Self::from_overview(&points).ok()
+    }
+
+    /// The first drawn point, `(latitude, longitude)`: for a recorded ride,
+    /// where the line picks the ride up after the privacy trim.
+    #[must_use]
+    pub fn first_point(&self) -> Option<(f64, f64)> {
+        self.coordinates.first().copied()
+    }
+
+    /// The last drawn point, `(latitude, longitude)`.
+    #[must_use]
+    pub fn last_point(&self) -> Option<(f64, f64)> {
+        self.coordinates.last().copied()
+    }
 }
 
 /// A route overview polyline with its endpoint neighbourhoods removed,
@@ -373,10 +402,7 @@ impl RouteTrack {
 /// to draw — the sketch is then absent rather than a stub.
 #[must_use]
 pub fn trimmed_overview_polyline(encoded: &str) -> Option<String> {
-    let points = decode_polyline(encoded.trim())?;
-    RouteTrack::from_overview(&points)
-        .ok()
-        .map(|track| encode_polyline(&track.coordinates))
+    RouteTrack::trimmed_overview(encoded).map(|track| encode_polyline(&track.coordinates))
 }
 
 /// Pair the GPS and altitude channels and keep the points both halves record.
@@ -739,5 +765,52 @@ mod tests {
             RouteTrack::from_public_path(&[(46.0, -72.0), (f64::NAN, 0.0), (46.001, -72.0)])
                 .unwrap();
         assert_eq!(gated.coordinates, vec![(46.0, -72.0), (46.001, -72.0)]);
+    }
+
+    /// The one decode of an encoded overview is a decode followed by
+    /// `from_overview`, the read Home's route and the list sketch rely on.
+    #[test]
+    fn a_trimmed_overview_is_the_decoded_overview_trimmed() {
+        for points in [weaving(600), northward(300), northward(10)] {
+            let encoded = encode_polyline(&points);
+            assert_eq!(
+                RouteTrack::trimmed_overview(&encoded),
+                decode_polyline(&encoded).and_then(|p| RouteTrack::from_overview(&p).ok()),
+                "bug: trimmed_overview differs from decode then from_overview"
+            );
+            assert_eq!(
+                RouteTrack::trimmed_overview(&format!("  {encoded}\n")),
+                RouteTrack::trimmed_overview(&encoded),
+                "bug: surrounding whitespace changes the overview"
+            );
+        }
+        assert_eq!(
+            RouteTrack::trimmed_overview("   "),
+            None,
+            "bug: a blank overview drew"
+        );
+    }
+
+    /// The first and last drawn points are where the line picks the ride up
+    /// and leaves it past the privacy trim: just outside the radius around
+    /// each recorded end, never the ends themselves.
+    #[test]
+    fn a_track_names_its_first_and_last_drawn_points() {
+        let recorded = northward(300);
+        let track = RouteTrack::from_overview(&recorded).unwrap();
+        let (first, last) = (track.first_point().unwrap(), track.last_point().unwrap());
+        let (start, end) = (recorded[0], recorded[recorded.len() - 1]);
+        for (what, point, recorded_end) in [("first", first, start), ("last", last, end)] {
+            let meters = haversine_meters_between(point.0, point.1, recorded_end.0, recorded_end.1);
+            assert!(
+                (DEFAULT_PRIVACY_RADIUS_METERS..DEFAULT_PRIVACY_RADIUS_METERS + 50.0)
+                    .contains(&meters),
+                "bug: the {what} point sits {meters:.0} m from its recorded end, not just past the trim"
+            );
+        }
+        assert!(
+            first.0 < last.0,
+            "bug: a northward ride's first point is north of its last: {first:?} {last:?}"
+        );
     }
 }

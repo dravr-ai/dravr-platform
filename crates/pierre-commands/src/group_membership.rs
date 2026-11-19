@@ -31,6 +31,7 @@ use pierre_services::delegated_link_on_join::propose_on_join;
 use pierre_services::locale::user_locale;
 use pierre_tool_runtime::protocol::delegation_services;
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use crate::{CommandHandler, PlatformCommandContext};
 
@@ -358,6 +359,58 @@ impl CommandHandler for GroupCreateHandler {
     }
 }
 
+/// A refusal of a member's join that names the group: the caller's own
+/// standing, not the code's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JoinRefusal {
+    /// The caller is already a member.
+    AlreadyMember,
+    /// The group holds as many members as it may.
+    Full,
+}
+
+/// What joining from an invite the server held did (carnet#1648).
+#[derive(Debug)]
+pub enum HeldInviteJoin {
+    /// The caller joined the group now, as an athlete for a member invite or
+    /// as its human coach for a coach invite; `reply` is what `/group join`
+    /// would have answered (for an athlete, what joining shares with the
+    /// coach and how to stop it).
+    Joined {
+        /// The group joined
+        group: CoachingGroup,
+        /// Which side of the group the caller joined
+        kind: GroupInviteKind,
+        /// The reply `/group join` would have given
+        reply: String,
+    },
+    /// The caller was already in the invite's group on that side.
+    AlreadyMember {
+        /// The group
+        group: CoachingGroup,
+        /// Which side of the group the caller is on
+        kind: GroupInviteKind,
+    },
+    /// The invite could not be used: gone, withdrawn, used up, or its group
+    /// archived or full. `reply` says so in the caller's language.
+    Refused {
+        /// Why: a full group is kept for a retry, anything else is final
+        reason: HeldInviteRefusal,
+        /// The refusal `/group join` would have given
+        reply: String,
+    },
+}
+
+/// Why a held invite's join was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeldInviteRefusal {
+    /// The group holds as many members as it may: a seat may open, so the
+    /// hold is kept (carnet#1650)
+    GroupFull,
+    /// The invite is unusable for this account, now or ever
+    Invalid,
+}
+
 /// Handler for `/group join <invite-code>`.
 ///
 /// The one door into a group: a member-kind invite adds the caller as
@@ -424,36 +477,52 @@ impl GroupJoinHandler {
         Ok(())
     }
 
-    async fn join_as_member(
+    /// The two refusals worth naming the group for, read before anything is
+    /// written — both are the caller's own situation, not the code's.
+    async fn standing_refusal(
         ctx: &PlatformCommandContext,
-        code: &str,
         group: &CoachingGroup,
-        group_tenant: TenantId,
-    ) -> Result<CommandResponse, AppError> {
-        let reg = ctx.ctx.messaging_strings_registry();
-        let locale = ctx.locale.as_str();
+    ) -> Result<Option<JoinRefusal>, AppError> {
         let repos = ctx.ctx.repos();
         let group_id = group.id.to_string();
-
-        // The two refusals worth naming the group for — both are the
-        // caller's own situation, not the code's.
         if repos
             .groups
             .get_member(&group_id, ctx.user_id)
             .await?
             .is_some()
         {
-            return Ok(CommandResponse::text(reg.render(
-                KEY_GROUP_JOIN_ALREADY_MEMBER,
-                locale,
-                &[&group.name],
-            )));
+            return Ok(Some(JoinRefusal::AlreadyMember));
         }
         if repos.groups.count_members(&group_id).await? >= i64::from(group.max_members) {
-            return Ok(CommandResponse::text(reg.render(
-                KEY_GROUP_JOIN_FULL,
-                locale,
-                &[&group.name],
+            return Ok(Some(JoinRefusal::Full));
+        }
+        Ok(None)
+    }
+
+    /// The reply naming the group for a [`JoinRefusal`].
+    fn refusal_text(
+        ctx: &PlatformCommandContext,
+        group: &CoachingGroup,
+        refusal: JoinRefusal,
+    ) -> String {
+        let key = match refusal {
+            JoinRefusal::AlreadyMember => KEY_GROUP_JOIN_ALREADY_MEMBER,
+            JoinRefusal::Full => KEY_GROUP_JOIN_FULL,
+        };
+        ctx.ctx
+            .messaging_strings_registry()
+            .render(key, ctx.locale.as_str(), &[&group.name])
+    }
+
+    async fn join_as_member(
+        ctx: &PlatformCommandContext,
+        code: &str,
+        group: &CoachingGroup,
+        group_tenant: TenantId,
+    ) -> Result<CommandResponse, AppError> {
+        if let Some(refusal) = Self::standing_refusal(ctx, group).await? {
+            return Ok(CommandResponse::text(Self::refusal_text(
+                ctx, group, refusal,
             )));
         }
 
@@ -477,6 +546,168 @@ impl GroupJoinHandler {
             channel = %ctx.channel_type,
             "Joined coaching group via /group join"
         );
+
+        let reply = Self::after_member_joined(ctx, group, group_tenant).await?;
+        Ok(CommandResponse::text(reply))
+    }
+
+    /// Join the caller to the group of the invite the server held for them
+    /// (carnet#1648), as `/group join` would: a member invite joins them as an
+    /// athlete, with the coach-link proposal, the coach's notice and the reply
+    /// that tells them what joining shares; a coach invite attaches them as
+    /// the group's human coach.
+    ///
+    /// The caller's conversation in the group is theirs to file, since no
+    /// thread was typed in to take its model from; the reply goes into it.
+    /// The checks are the command's, except a member invite's expiry
+    /// ([`pierre_groups::GroupService::join_group_from_held_invite`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns the repository's or the service's error for a failure that is
+    /// not the invite's or the caller's standing; every refusal is an
+    /// [`HeldInviteJoin`] outcome instead.
+    pub async fn join_held_invite(
+        ctx: &PlatformCommandContext,
+        invite_id: Uuid,
+    ) -> Result<HeldInviteJoin, AppError> {
+        let repos = ctx.ctx.repos();
+        let invalid = || Self::held_invalid(ctx);
+        let Some(invite) = repos
+            .groups
+            .get_invite_by_id(&invite_id.to_string())
+            .await?
+        else {
+            return Ok(invalid());
+        };
+        let group_tenant = TenantId::parse_str(&invite.tenant_id)
+            .map_err(|e| AppError::internal(format!("Invalid invite tenant: {e}")))?;
+        let Some(group) = repos
+            .groups
+            .get_group(&invite.group_id.to_string(), group_tenant)
+            .await?
+        else {
+            return Ok(invalid());
+        };
+        if invite.kind == GroupInviteKind::Coach {
+            return Self::attach_held_coach(ctx, &invite.code, group, group_tenant).await;
+        }
+
+        match Self::standing_refusal(ctx, &group).await? {
+            Some(JoinRefusal::AlreadyMember) => {
+                return Ok(HeldInviteJoin::AlreadyMember {
+                    group,
+                    kind: GroupInviteKind::Member,
+                })
+            }
+            Some(JoinRefusal::Full) => {
+                let reply = Self::refusal_text(ctx, &group, JoinRefusal::Full);
+                return Ok(HeldInviteJoin::Refused {
+                    reason: HeldInviteRefusal::GroupFull,
+                    reply,
+                });
+            }
+            None => {}
+        }
+
+        match ctx
+            .ctx
+            .group_service()
+            .join_group_from_held_invite(&invite_id.to_string(), ctx.user_id)
+            .await
+        {
+            Ok(_) => {}
+            Err(e) if Self::is_code_refusal(&e) => return Ok(invalid()),
+            Err(e) => return Err(e),
+        }
+
+        info!(
+            user_id = %ctx.user_id,
+            group_id = %group.id,
+            channel = %ctx.channel_type,
+            "Joined coaching group from a held invite"
+        );
+
+        let reply = Self::after_member_joined(ctx, &group, group_tenant).await?;
+        Ok(HeldInviteJoin::Joined {
+            group,
+            kind: GroupInviteKind::Member,
+            reply,
+        })
+    }
+
+    /// The refusal of a held invite no one could use, in the caller's
+    /// language: the same fixed reply `/group join` gives an unusable code.
+    fn held_invalid(ctx: &PlatformCommandContext) -> HeldInviteJoin {
+        HeldInviteJoin::Refused {
+            reason: HeldInviteRefusal::Invalid,
+            reply: ctx.ctx.messaging_strings_registry().render(
+                KEY_GROUP_JOIN_INVALID_CODE,
+                ctx.locale.as_str(),
+                &[],
+            ),
+        }
+    }
+
+    /// Attach the caller as `group`'s human coach from a held coach invite,
+    /// under the rule `/group join` applies ([`may_coach_group`]). The invite
+    /// is checked whole, expiry included: a coach invite goes to an account
+    /// that already coaches, which signs in and redeems it at once.
+    async fn attach_held_coach(
+        ctx: &PlatformCommandContext,
+        code: &str,
+        group: CoachingGroup,
+        group_tenant: TenantId,
+    ) -> Result<HeldInviteJoin, AppError> {
+        let Some(user) = ctx.ctx.repos().users.get_global(ctx.user_id).await? else {
+            return Ok(Self::held_invalid(ctx));
+        };
+        if !may_coach_group(&user, ctx.tenant_id, group_tenant) {
+            return Ok(Self::held_invalid(ctx));
+        }
+        if group.coach_user_id == Some(ctx.user_id) {
+            return Ok(HeldInviteJoin::AlreadyMember {
+                group,
+                kind: GroupInviteKind::Coach,
+            });
+        }
+        let attached = match ctx
+            .ctx
+            .group_service()
+            .redeem_coach_invite(code, ctx.user_id, group_tenant)
+            .await
+        {
+            Ok(attached) => attached,
+            Err(e) if Self::is_code_refusal(&e) => return Ok(Self::held_invalid(ctx)),
+            Err(e) => return Err(e),
+        };
+        info!(
+            user_id = %ctx.user_id,
+            group_id = %attached.id,
+            channel = %ctx.channel_type,
+            "Attached as human coach from a held invite"
+        );
+        let reply = ctx.ctx.messaging_strings_registry().render(
+            KEY_GROUP_JOINED_AS_COACH,
+            ctx.locale.as_str(),
+            &[&attached.name],
+        );
+        Ok(HeldInviteJoin::Joined {
+            group: attached,
+            kind: GroupInviteKind::Coach,
+            reply,
+        })
+    }
+
+    /// What follows a member's join on every path: the coach-link proposal,
+    /// the coach's notice, and the reply for the athlete.
+    async fn after_member_joined(
+        ctx: &PlatformCommandContext,
+        group: &CoachingGroup,
+        group_tenant: TenantId,
+    ) -> Result<String, AppError> {
+        let reg = ctx.ctx.messaging_strings_registry();
+        let locale = ctx.locale.as_str();
 
         Self::propose_coach_link(ctx, group, group_tenant).await;
 
@@ -504,7 +735,7 @@ impl GroupJoinHandler {
         }
 
         let welcome = reg.render(KEY_GROUP_JOINED, locale, &[&group.name]);
-        Ok(CommandResponse::text(format!("{welcome}\n\n{sharing}")))
+        Ok(format!("{welcome}\n\n{sharing}"))
     }
 
     /// Propose the joining member's coaching-platform link, when the group's
@@ -687,6 +918,12 @@ impl CommandHandler for GroupJoinHandler {
     /// so an archived thread is left archived and holds no slot.
     fn resumes_thread(&self, _args: &[String]) -> bool {
         false
+    }
+
+    /// Joining grants the group's coach sharing (ADR-002), and a coach code
+    /// attaches the caller as the coach who reads every member.
+    fn outlives_support_session(&self, _: &[String]) -> bool {
+        true
     }
 
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {

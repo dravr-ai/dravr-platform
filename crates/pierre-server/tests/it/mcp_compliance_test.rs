@@ -153,6 +153,7 @@ use crate::common;
 
 use pierre_mcp_schema::*;
 use pierre_mcp_server::tools::registry_builtin::get_tools;
+use pierre_tool_runtime::protocol::trust_labels::TRUST_LABELS_META_KEY;
 use serde_json::json;
 
 /// Test that the initialize response has the correct structure
@@ -275,11 +276,8 @@ fn test_tools_list_response_format() {
 /// Test tool response format
 #[test]
 fn test_tool_response_format() {
-    let tool_response = ToolResponse {
-        content: vec![Content::text("Test response".to_owned())],
-        is_error: false,
-        structured_content: Some(json!({"result": "success"})),
-    };
+    let tool_response = ToolResponse::text("Test response".to_owned())
+        .with_structured_content(json!({"result": "success"}));
 
     let json_value = serde_json::to_value(&tool_response).expect("Should serialize");
 
@@ -293,6 +291,37 @@ fn test_tool_response_format() {
     assert_eq!(content_array.len(), 1);
     assert_eq!(content_array[0]["type"], "text");
     assert_eq!(content_array[0]["text"], "Test response");
+}
+
+/// A result's `_meta` is an object whose keys carry a reverse-DNS prefix and a
+/// slash (MCP `Result._meta`), and a result that sets none sends no key.
+#[test]
+fn test_tool_response_meta_format() {
+    let plain = serde_json::to_value(ToolResponse::text("Test response".to_owned()))
+        .expect("Should serialize");
+    assert!(
+        plain.get("_meta").is_none(),
+        "a result without meta sends no _meta key"
+    );
+
+    let labelled = ToolResponse::text("Test response".to_owned())
+        .with_meta(TRUST_LABELS_META_KEY, json!({"v": 1, "tier": "T0"}));
+    let json_value = serde_json::to_value(&labelled).expect("Should serialize");
+    let meta = json_value["_meta"].as_object().expect("_meta is an object");
+    assert_eq!(meta.len(), 1, "one key was set");
+    for key in meta.keys() {
+        let (prefix, name) = key
+            .split_once('/')
+            .unwrap_or_else(|| panic!("{key} has no slash"));
+        assert!(
+            prefix.split('.').count() >= 2 && !name.is_empty(),
+            "{key} is not a reverse-DNS-prefixed name"
+        );
+        assert!(
+            !prefix.starts_with("io.modelcontextprotocol"),
+            "{key} uses the prefix the protocol reserves"
+        );
+    }
 }
 
 /// Test content types

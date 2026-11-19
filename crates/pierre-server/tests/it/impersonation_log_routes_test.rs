@@ -1,5 +1,5 @@
 // ABOUTME: GET /api/admin/impersonate/sessions and /sessions/{id} — the impersonation log the admin console reads
-// ABOUTME: Pins that a super admin reads each session with both parties named, and anyone else is refused
+// ABOUTME: Pins that an admin reads each session with both parties named, and anyone else is refused
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -22,23 +22,22 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::ImpersonationRoutes;
 use serde_json::Value;
 
-async fn super_admin(resources: &Arc<ServerContext>) -> User {
+async fn admin_session(resources: &Arc<ServerContext>) -> User {
     let mut user = User::new(
         "root-operator@example.com".to_owned(),
         "hash".to_owned(),
         Some("Root".to_owned()),
     );
     user.user_status = UserStatus::Active;
-    user.is_admin = true;
-    user.role = UserRole::SuperAdmin;
+    user.role = UserRole::Admin;
     resources.common.repos.users.create(&user).await.unwrap();
     user
 }
 
 #[tokio::test]
-async fn a_super_admin_reads_the_log_and_one_session() {
+async fn an_admin_reads_the_log_and_one_session() {
     let resources = create_test_server_resources().await.unwrap();
-    let operator = super_admin(&resources).await;
+    let operator = admin_session(&resources).await;
     let (_, target) = create_test_user_with_email(&resources.agent.database, "athlete@example.com")
         .await
         .unwrap();
@@ -79,7 +78,7 @@ async fn a_super_admin_reads_the_log_and_one_session() {
 }
 
 #[tokio::test]
-async fn anyone_but_a_super_admin_is_refused_the_log() {
+async fn anyone_but_an_admin_is_refused_the_log() {
     let resources = create_test_server_resources().await.unwrap();
     let (_, athlete) = create_test_user_with_email(&resources.agent.database, "plain@example.com")
         .await
@@ -98,7 +97,7 @@ async fn anyone_but_a_super_admin_is_refused_the_log() {
 #[tokio::test]
 async fn the_log_reaches_every_session_past_the_first_page() {
     let resources = create_test_server_resources().await.unwrap();
-    let operator = super_admin(&resources).await;
+    let operator = admin_session(&resources).await;
     let (_, target) = create_test_user_with_email(&resources.agent.database, "paged@example.com")
         .await
         .unwrap();

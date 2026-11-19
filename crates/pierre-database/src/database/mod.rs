@@ -42,6 +42,8 @@ pub mod app_attest_keys;
 pub mod archive_erasures;
 /// The athlete's gear ledger (`SQLite`) backing `AthleteGearRepository`.
 pub mod athlete_gear;
+/// The places an athlete trains from (`SQLite`) backing `AthletePlaceRepository`.
+pub mod athlete_places;
 /// The calendar an athlete chose for Dravr's pushes (`SQLite`)
 pub mod calendar_preferences;
 /// Chat conversation and message storage
@@ -50,7 +52,7 @@ pub mod chat;
 pub mod check_in_preferences;
 /// Claim verdicts from the bullshit detector pipeline
 pub mod claim_verdicts;
-/// Coach-access requests a super-admin decides (`SQLite`)
+/// Coach-access requests an admin decides (`SQLite`)
 pub mod coach_access_requests;
 /// A coach's "Traité" on Coach Home attention reasons (`SQLite`)
 pub mod coach_attention_dismissals;
@@ -62,6 +64,8 @@ pub mod coach_reply_reviews;
 pub mod coaching_groups;
 /// Athlete commitments (`SQLite`) backing `CommitmentRepository`.
 pub mod commitments;
+/// The athlete's statutory data access requests (`SQLite`)
+pub mod data_access_requests;
 /// Delegated connections (`SQLite`) backing `DelegatedConnectionRepository`.
 pub mod delegated_connections;
 /// Email-verification token management — proving a registered address
@@ -86,7 +90,7 @@ pub mod fitness_configurations;
 pub mod garmin_push_inbox;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
-/// Impersonation session management for super admin user impersonation
+/// Impersonation session management for admin user impersonation
 pub mod impersonation;
 /// Import tombstones (`SQLite`) backing `ImportTombstoneRepository`.
 pub mod import_tombstones;
@@ -179,6 +183,8 @@ pub mod usage_counters;
 pub mod use_case_exposures;
 /// An athlete's own data, one page at a time, for the portable export (`SQLite`)
 pub mod user_export;
+/// The SQLite originals-bundle state, emitted from the shared implementation.
+pub mod user_export_bundles;
 /// Per-user Home preferences (`SQLite`) backing `HomePreferencesRepository`.
 pub mod user_home_preferences;
 /// Single-use user invitation links (`SQLite`)

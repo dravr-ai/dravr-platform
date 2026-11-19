@@ -33,6 +33,7 @@
 //! own; the real provider's mapping is pinned by its inline tests.
 
 use crate::common;
+use crate::common::{offline_provider_config, offline_provider_registry};
 use dravr_cageux::zones::HrZones;
 use pierre_core::models::zones::HrZoneSet;
 use secrecy::SecretString;
@@ -60,8 +61,6 @@ use pierre_core::models::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::tools::implementations::endurance_export::ExportDossierTool;
-use pierre_providers::intervals_icu_provider::default_config;
-use pierre_providers::ProviderRegistry;
 use pierre_test_support::delegation::create_group_agent;
 use pierre_tool_runtime::implementations::physiology::SetPhysiologyTool;
 use pierre_tool_runtime::implementations::physiology_import::ImportProviderThresholdsTool;
@@ -184,9 +183,9 @@ impl World {
     async fn new() -> Self {
         let api = Api::default();
         let base = create_test_server_resources().await.unwrap();
-        let mut config = default_config();
+        let mut config = offline_provider_config(INTERVALS_ICU);
         config.api_base_url = spawn_api(api.clone()).await;
-        let mut registry = ProviderRegistry::new();
+        let mut registry = offline_provider_registry();
         registry.set_default_config(INTERVALS_ICU, config);
         let mut context = (*base).clone();
         context.fitness.provider_registry = Arc::new(registry);

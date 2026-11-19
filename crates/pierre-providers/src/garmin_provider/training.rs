@@ -887,8 +887,7 @@ mod tests {
     fn description_of(session: &PlannedSession) -> String {
         body(session)["description"]
             .as_str()
-            .map(str::to_owned)
-            .unwrap_or_default()
+            .map_or_default(str::to_owned)
     }
 
     #[test]

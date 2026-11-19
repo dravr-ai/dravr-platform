@@ -8,6 +8,7 @@ import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import type { UserRole } from '@pierre/shared-types';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,7 +19,7 @@ const DB_PATH = path.join(PROJECT_ROOT, 'data', 'integration-test.db');
 export interface TestUser {
   email: string;
   password: string;
-  role?: 'admin' | 'super_admin' | 'user';
+  role?: UserRole;
 }
 
 export interface CreateUserResult {
@@ -55,10 +56,13 @@ function getAdminSetupCommand(): string {
 }
 
 /**
- * Create an admin user using the pierre-cli binary.
- * This is the primary method for seeding test users.
+ * Create a test user using the pierre-cli binary, with the role it names:
+ * an admin (the default, and what `user create` makes on its own) or a plain
+ * active user (`user create --role user`), who signs in and holds no admin
+ * power. This is the primary method for seeding test users.
  */
-export async function createTestAdminUser(user: TestUser): Promise<CreateUserResult> {
+export async function createTestUser(user: TestUser): Promise<CreateUserResult> {
+  const role: UserRole = user.role ?? 'admin';
   try {
     const adminSetup = getAdminSetupCommand();
     // Security: Don't log the full command with password - it's sensitive
@@ -70,9 +74,15 @@ export async function createTestAdminUser(user: TestUser): Promise<CreateUserRes
     if (/[;&|`$"'\\<>]/.test(user.password)) {
       return { success: false, error: 'Password contains invalid characters' };
     }
-    const command = `${adminSetup} user create --email "${user.email}" --password "${user.password}" --force`;
+    // Security: the role reaches the command line, so it is one of the two it can be
+    if (role !== 'admin' && role !== 'user') {
+      return { success: false, error: 'Invalid role' };
+    }
+    // An admin is created by the command as it always was; only a plain user names its role
+    const roleFlag = role === 'user' ? ' --role user' : '';
+    const command = `${adminSetup} user create --email "${user.email}" --password "${user.password}"${roleFlag} --force`;
     // Security: Don't log the full command or DATABASE_URL as they may contain credentials
-    console.log(`[DB Setup] Creating admin user: ${user.email}`);
+    console.log(`[DB Setup] Creating ${role} user: ${user.email}`);
 
     execSync(command, {
       cwd: PROJECT_ROOT,
@@ -82,7 +92,7 @@ export async function createTestAdminUser(user: TestUser): Promise<CreateUserRes
     });
 
     // Security: Only log success status, not the full output which may contain sensitive info
-    console.log(`[DB Setup] Admin user created successfully`);
+    console.log(`[DB Setup] ${role} user created successfully`);
     return { success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -97,9 +107,17 @@ export async function createTestAdminUser(user: TestUser): Promise<CreateUserRes
 
     return {
       success: false,
-      error: `Failed to create admin user: ${errorMessage}`,
+      error: `Failed to create ${role} user: ${errorMessage}`,
     };
   }
+}
+
+/**
+ * Create an admin user using the pierre-cli binary, whatever role the user
+ * object names.
+ */
+export async function createTestAdminUser(user: TestUser): Promise<CreateUserResult> {
+  return createTestUser({ ...user, role: 'admin' });
 }
 
 /**

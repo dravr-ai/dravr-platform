@@ -23,11 +23,6 @@ vi.mock('../../services/api', () => ({
   },
 }));
 
-const viewer = vi.hoisted(() => ({ role: 'super_admin' }));
-vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({ user: { role: viewer.role } }),
-}));
-
 const api = vi.mocked(adminApi);
 
 function agentPrompt(requested: string, served: string) {
@@ -58,7 +53,6 @@ async function openAgent() {
 describe('SystemPromptsTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    viewer.role = 'super_admin';
     api.getContremaitreStatus.mockResolvedValue({
       configured: true,
       repo: 'dravr-ai/dravr-contremaitre',
@@ -164,21 +158,6 @@ describe('SystemPromptsTab', () => {
     expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
   });
 
-  it('shows a plain admin the agent prompts and asks for nothing the server refuses them', async () => {
-    viewer.role = 'admin';
-    api.getAgentPrompt.mockResolvedValue(agentPrompt('en', 'en'));
-    renderTab();
-
-    await openAgent();
-    expect(await screen.findByText('text in en')).toBeTruthy();
-
-    expect(api.getContremaitreStatus).not.toHaveBeenCalled();
-    expect(api.listSystemPrompts).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: 'Sync Now' })).toBeNull();
-    expect(screen.queryByText('System prompts could not be loaded.')).toBeNull();
-    expect(screen.getByText(/System prompts and sync are for super admins/)).toBeTruthy();
-  });
-
   it('states counts that add up and words for what each one means', async () => {
     renderTab();
 
@@ -186,6 +165,7 @@ describe('SystemPromptsTab', () => {
       '101 prompts: 22 system, 75 agent per language, 4 persona. 76 synced from contremaitre, 25 seed copies.',
     );
     expect(screen.getByText('Sync configured')).toBeTruthy();
+    expect(screen.getByText('Sync configured')).toHaveClass('badge-success');
     expect(screen.queryByText('Connected')).toBeNull();
     expect(await screen.findByText('synced')).toBeTruthy();
   });

@@ -23,7 +23,7 @@ import {
   type ColorScheme,
   type HairlineInk,
 } from '../src/design-system';
-import { TEXT_FLOOR, contrast, hexToRgb, over, triple } from './wcag';
+import { TEXT_FLOOR, contrast, hexToRgb, over, triple } from '../src/wcag';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..');

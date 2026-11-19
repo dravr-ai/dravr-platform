@@ -52,16 +52,17 @@ use pierre_core::admin::models::{
 use pierre_core::constants::provider_capture::BASELINE_CAPTURE_VERSION;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{
-    ActivityBuilder, DataSource, DeviceType, SportType, StoredHealthMetrics, StoredRecoveryMetrics,
-    StoredSleepSession, Tenant, TenantId, TimeSeriesData, User, UserOAuthToken, UserStatus,
+    ActivityBuilder, CachedRowKey, DataSource, DeviceType, SportType, StoredHealthMetrics,
+    StoredRecoveryMetrics, StoredSleepSession, Tenant, TenantId, TimeSeriesData, User,
+    UserOAuthToken, UserStatus,
 };
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, ActivityFetchFailure, ActivityFetchFailureRecord, ActivityStreamsWrite,
-    BackfillCoverage, BackfillJobClaim, BackfillJobKind, BackfillJobState, HistoryWalkRowState,
-    JobLease, JobProgress, JobProgressStep, PersonalBest, PersonalBestSeed, ProviderDataPurge,
-    PurgeReason, PurgedHistoryWalk, ReopenFrom, StoredRouteTrack, StreamOrigin, SyncCursorRow,
-    WalkHandOff, STREAMS_FORMAT_VERSION,
+    AthletePlace, BackfillCoverage, BackfillJobClaim, BackfillJobKind, BackfillJobState,
+    HistoryWalkRowState, JobLease, JobProgress, JobProgressStep, PersonalBest, PersonalBestSeed,
+    PlaceNameSource, PlaceRun, ProviderDataPurge, PurgeReason, PurgedHistoryWalk, ReopenFrom,
+    StoredRouteTrack, StreamOrigin, SyncCursorRow, WalkHandOff, STREAMS_FORMAT_VERSION,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
@@ -180,6 +181,8 @@ fn two_samples() -> TimeSeriesData {
         temperature: None,
         gps_coordinates: None,
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 
@@ -755,6 +758,93 @@ async fn a_users_provider_purge_takes_exactly_their_rows_in_that_tenant() {
         .await
         .unwrap();
     assert_removed(&garmin_left, 1, 1);
+}
+
+/// A place the athlete's clustering keeps, at the start of their `provider` run.
+fn seeded_place(id: &str, name: (&str, PlaceNameSource)) -> AthletePlace {
+    AthletePlace {
+        id: id.to_owned(),
+        centroid_lat: 45.5,
+        centroid_lon: -73.6,
+        radius_m: 300.0,
+        activity_count: 1,
+        name: Some(name.0.to_owned()),
+        name_source: Some(name.1),
+        version: 1,
+        computed_at: Utc::now(),
+        created_at: Utc::now(),
+    }
+}
+
+/// A provider purge deletes the provider's rows, never the athlete's places:
+/// a place is an aggregate over every provider's starts, which the places
+/// worker recomputes from what remains (carnet#1484, slice 6). The purged
+/// rows' `place_id` goes with the rows.
+#[tokio::test]
+async fn a_provider_purge_keeps_the_athletes_places_for_their_recompute() {
+    let world = world().await;
+    let repos = world.repos();
+    let (athlete, tenant) = world.athlete;
+    let row = |provider: &str| CachedRowKey {
+        provider: provider.to_owned(),
+        activity_id: format!("{provider}-run-{athlete}-{tenant}"),
+    };
+    let places = &repos.athlete_places;
+    let stamp = places.cached_rows_stamp(&tenant, athlete).await.unwrap();
+    places
+        .replace_clustering(
+            &tenant,
+            athlete,
+            &[seeded_place("p-city", ("Montréal", PlaceNameSource::City))],
+            &[(row("garmin"), Some("p-city".to_owned()))],
+            &PlaceRun {
+                rows_seen: stamp.rows,
+                newest_synced_at: stamp.newest_synced_at,
+                version: 1,
+                computed_at: Utc::now(),
+                home_declared_at_seen: None,
+            },
+        )
+        .await
+        .unwrap();
+    places
+        .create_athlete_place(
+            &tenant,
+            athlete,
+            &seeded_place("p-named", ("Gai-Luron", PlaceNameSource::Athlete)),
+            &row("whoop"),
+        )
+        .await
+        .unwrap();
+
+    repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "whoop", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+
+    let mut kept: Vec<String> = places
+        .list(&tenant, athlete)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|place| place.id)
+        .collect();
+    kept.sort();
+    assert_eq!(
+        kept,
+        ["p-city", "p-named"],
+        "bug: a provider purge deleted the athlete's places instead of leaving them to a recompute"
+    );
+    let due = places
+        .due_users(100, 1, Utc::now())
+        .await
+        .unwrap()
+        .contains(&(tenant, athlete));
+    assert!(
+        due,
+        "bug: after a purge took rows, the athlete's places are not due a recompute"
+    );
 }
 
 /// The tables of [`ONE_ROW_TABLES`] the health sync writes for a scope; a

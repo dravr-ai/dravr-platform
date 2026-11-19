@@ -7,14 +7,35 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use dravr_meteo::{WeatherError, WeatherProvider, WeatherQuery, WeatherSample};
+use pierre_core::config::fitness::WeatherApiConfig;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
-use pierre_services::weather_backfill::fill_activity_temperatures;
+use pierre_fitness_compute::weather_clients::WeatherClients;
+use pierre_services::weather_backfill::WeatherBackfill;
+
+use crate::common::REFUSED_ORIGIN;
+
+/// The backfill over `provider`, its geocoder on the refused origin every
+/// test context's weather clients are built on: these activities carry their
+/// coordinates, or no place at all, so nothing is geocoded.
+async fn fill_activity_temperatures(
+    activities: &[Activity],
+    provider: Arc<dyn WeatherProvider>,
+) -> HashMap<String, f32> {
+    let clients = WeatherClients::new(Some(&WeatherApiConfig {
+        base_url: REFUSED_ORIGIN.to_owned(),
+        ..WeatherApiConfig::default()
+    }));
+    WeatherBackfill::new(provider, Arc::new(clients))
+        .fill(activities)
+        .await
+}
 
 struct ConstantProvider {
     temp: f32,

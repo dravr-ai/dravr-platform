@@ -115,7 +115,7 @@ pub fn clamp_window_days(requested: Option<i64>) -> i64 {
 
 /// The report for the `window_days` before `now`.
 ///
-/// `scope` is the tenant the reader acts in, or `None` for a super-admin's
+/// `scope` is the tenant the reader acts in, or `None` for an admin's
 /// platform-wide read; every milestone is read in that same scope.
 ///
 /// # Errors

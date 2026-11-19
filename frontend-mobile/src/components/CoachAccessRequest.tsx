@@ -20,7 +20,7 @@ import {
 } from '@pierre/shared-constants';
 import type { CoachAccessRequest as CoachAccessRequestRecord } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { Button } from './ui';
+import { BADGE_TONE, badgeInkColor, Button } from './ui';
 import { ProviderGlyph } from './ProviderGlyph';
 import { userApi } from '../services/api';
 import { useThemeColors } from '../constants/theme';
@@ -282,12 +282,12 @@ function SeatGlyph({ kind }: { kind: 'ask' | 'pending' | 'granted' }) {
   const pending = kind === 'pending';
   return (
     <View
-      className={`w-9 h-9 rounded-full items-center justify-center ${pending ? 'bg-warning/15' : 'bg-primary-container'}`}
+      className={`w-9 h-9 rounded-full items-center justify-center ${pending ? BADGE_TONE.warning.fill : 'bg-primary-container'}`}
     >
       <Feather
         name={pending ? 'clock' : kind === 'granted' ? 'check-circle' : 'user-check'}
         size={18}
-        color={pending ? colors.ink.warning : colors.tokens.onPrimaryContainer}
+        color={pending ? badgeInkColor('warning', colors) : colors.tokens.onPrimaryContainer}
       />
     </View>
   );

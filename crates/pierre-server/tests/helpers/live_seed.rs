@@ -40,7 +40,7 @@ use uuid::Uuid;
 /// What every athlete a lane seeds has in common: their role, the cost of
 /// their password hash and how their tenant is named.
 pub(crate) struct AthleteProfile<'a> {
-    /// The user's role; `is_admin` follows it (`UserRole::is_admin_or_higher`).
+    /// The user's role; `is_admin` follows it (`UserRole::is_admin`).
     pub role: UserRole,
     /// The bcrypt cost of the password hash. Nobody signs in as a fixture
     /// athlete; a lane that seeds many of them takes the cheapest cost.
@@ -73,7 +73,6 @@ pub(crate) async fn create_athlete(
         .unwrap();
     let mut user = User::new(email.to_owned(), password_hash, Some(display.to_owned()));
     user.role = profile.role;
-    user.is_admin = profile.role.is_admin_or_higher();
     user.tier = UserTier::Enterprise;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);

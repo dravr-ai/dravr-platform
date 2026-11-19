@@ -36,7 +36,6 @@ async fn test_get_users_by_status_cursor() -> Result<()> {
             strava_token: None,
             is_active: true,
             user_status: UserStatus::Pending,
-            is_admin: false,
             role: UserRole::User,
             approved_by: None,
             approved_at: None,
@@ -61,7 +60,10 @@ async fn test_get_users_by_status_cursor() -> Result<()> {
 
     // Test first page (limit 2)
     let params = PaginationParams::forward(None, 2);
-    let page1 = repos.users.get_by_status_cursor("pending", &params).await?;
+    let page1 = repos
+        .users
+        .get_by_status_cursor("pending", None, &params)
+        .await?;
 
     assert_eq!(page1.items.len(), 2);
     assert!(page1.has_more);
@@ -71,7 +73,7 @@ async fn test_get_users_by_status_cursor() -> Result<()> {
     let params2 = PaginationParams::forward(page1.next_cursor.clone(), 2);
     let page2 = repos
         .users
-        .get_by_status_cursor("pending", &params2)
+        .get_by_status_cursor("pending", None, &params2)
         .await?;
 
     assert_eq!(page2.items.len(), 2);
@@ -82,7 +84,7 @@ async fn test_get_users_by_status_cursor() -> Result<()> {
     let params3 = PaginationParams::forward(page2.next_cursor.clone(), 2);
     let page3 = repos
         .users
-        .get_by_status_cursor("pending", &params3)
+        .get_by_status_cursor("pending", None, &params3)
         .await?;
 
     assert_eq!(page3.items.len(), 1);
@@ -115,7 +117,10 @@ async fn test_cursor_pagination_empty_results() -> Result<()> {
 
     let repos = database.repositories();
     let params = PaginationParams::forward(None, 10);
-    let page = repos.users.get_by_status_cursor("active", &params).await?;
+    let page = repos
+        .users
+        .get_by_status_cursor("active", None, &params)
+        .await?;
 
     assert_eq!(page.items.len(), 0);
     assert!(!page.has_more);
@@ -142,7 +147,6 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
             strava_token: None,
             is_active: true,
             user_status: UserStatus::Pending,
-            is_admin: false,
             role: UserRole::User,
             approved_by: None,
             approved_at: None,
@@ -164,7 +168,10 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
 
     // Get first page
     let params = PaginationParams::forward(None, 2);
-    let page1 = repos.users.get_by_status_cursor("pending", &params).await?;
+    let page1 = repos
+        .users
+        .get_by_status_cursor("pending", None, &params)
+        .await?;
 
     assert_eq!(page1.items.len(), 2);
     assert!(page1.has_more);
@@ -179,7 +186,6 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Pending,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -202,7 +208,7 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
     let params2 = PaginationParams::forward(page1.next_cursor.clone(), 2);
     let page2 = repos
         .users
-        .get_by_status_cursor("pending", &params2)
+        .get_by_status_cursor("pending", None, &params2)
         .await?;
 
     // Should get remaining item from original 3 (not the newly added one)

@@ -7,8 +7,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { authApi, userApi } from '../services/api';
-import { describeApiError, describeEmailTombstone, isInvalidSignupCode } from '@pierre/ui-logic';
+import { describeApiError, describeEmailTombstone, inviteJourneyPromise, isInvalidSignupCode } from '@pierre/ui-logic';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useInviteJourney } from '../hooks/useInviteJourney';
 import { Button, Card, Badge, Input } from './ui';
 
 // Clock icon for pending status
@@ -62,9 +63,10 @@ export default function PendingApproval() {
   const [signupCode, setSignupCode] = useState('');
   const [redeeming, setRedeeming] = useState(false);
   const [redeemError, setRedeemError] = useState<string | null>(null);
-  // Set once a code was accepted but the account still waits on the
-  // confirmation link: the field gives way to what happens next.
-  const [redeemed, setRedeemed] = useState<{ groupJoined: boolean } | null>(null);
+  // Set once a code was accepted but the account is still not in: the field
+  // gives way to what happens next. A held group invite approves nothing, so
+  // the account may be waiting on review rather than on its address.
+  const [redeemed, setRedeemed] = useState<{ groupJoined: boolean; inviteHeld: boolean } | null>(null);
 
   // An approval or a confirmed address lands on the server, not here: re-read
   // the session while the page is up, and whenever the tab comes back, so the
@@ -98,6 +100,10 @@ export default function PendingApproval() {
   }, [userStatus, emailVerified, updateUser]);
 
   const needsEmailConfirmation = user?.email_verified === false;
+  // The invite this account joins once it is in, and whether an administrator
+  // reviews it first, as the session says (carnet#1649, #1650).
+  const invite = useInviteJourney();
+  const reviewed = user?.activation === 'review';
   const tombstone = user?.email_tombstone;
   // A tombstoned address the athlete has proven: theirs to start fresh with.
   const offersClear = tombstone !== undefined && !needsEmailConfirmation;
@@ -125,14 +131,18 @@ export default function PendingApproval() {
     setRedeeming(true);
     setRedeemError(null);
     try {
-      const { user_status, group_joined } = await userApi.redeemSignupCode(code);
+      const { user_status, group_joined, group_invite_held } = await userApi.redeemSignupCode(code);
       if (user_status === 'active') {
         // The account is in: the app leaves this screen on the new status.
         updateUser({ user_status });
+      } else if (group_invite_held === true) {
+        // A group invite code: the server holds it, and the account joins
+        // the group once it is let in (carnet#1648). Nothing has joined yet.
+        setRedeemed({ groupJoined: false, inviteHeld: true });
       } else {
         // Accepted, but the address is not confirmed yet: the confirmation
         // link activates it.
-        setRedeemed({ groupJoined: group_joined === true });
+        setRedeemed({ groupJoined: group_joined === true, inviteHeld: false });
       }
     } catch (err) {
       // The server says which refusal it was: not a code, already active,
@@ -168,7 +178,7 @@ export default function PendingApproval() {
               <DravrLogo size={64} />
 
               <div className="mt-6 mb-4">
-                <ClockIcon className="w-16 h-16 text-nutrition mx-auto" />
+                <ClockIcon className="w-16 h-16 text-warning mx-auto" />
               </div>
 
               <h1 className="font-display text-2xl font-semibold text-on-surface">
@@ -190,6 +200,20 @@ export default function PendingApproval() {
                   </>
                 )}
               </p>
+              {invite !== null && !tombstone && (
+                <p
+                  className="mt-3 text-sm font-medium text-on-surface max-w-sm"
+                  data-testid="pending-invite-promise"
+                >
+                  {(() => {
+                    const promise = inviteJourneyPromise(
+                      { inviter_name: invite.inviterName, group_name: invite.groupName },
+                      reviewed,
+                    );
+                    return t(promise.key, promise.values);
+                  })()}
+                </p>
+              )}
               {needsEmailConfirmation && tombstone && (
                 <p
                   className="mt-2 text-sm text-on-surface-variant max-w-sm"
@@ -252,7 +276,16 @@ export default function PendingApproval() {
                     role="status"
                     className="bg-surface-container-low border ghost-border text-on-surface px-4 py-3 rounded-lg text-sm space-y-1"
                   >
-                    <p>{t('auth.signupCodeAcceptedConfirmEmail')}</p>
+                    {/* A held invite on a confirmed address still waits on
+                        review: telling them to confirm it would send them
+                        looking for a mail that never comes. */}
+                    <p>
+                      {redeemed.inviteHeld && !needsEmailConfirmation
+                        ? t('auth.pendingApprovalMessage')
+                        : redeemed.inviteHeld && reviewed
+                          ? t('auth.signupCodeAcceptedConfirmEmailReview')
+                          : t('auth.signupCodeAcceptedConfirmEmail')}
+                    </p>
                     {redeemed.groupJoined && <p>{t('auth.signupCodeJoinedGroup')}</p>}
                   </div>
                 ) : showSignupCode ? (
@@ -344,30 +377,31 @@ export default function PendingApproval() {
                 {needsEmailConfirmation ? (
                   <>
                     <li className="flex items-start gap-2">
-                      <span className="text-activity mt-0.5">•</span>
+                      <span className="text-primary mt-0.5">•</span>
                       <span>{t('auth.openConfirmationLink')}</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <span className="text-activity mt-0.5">•</span>
-                      <span>{t('auth.activatesOnConfirm')}</span>
+                      <span className="text-primary mt-0.5">•</span>
+                      {/* Under review, confirming is not what activates the account. */}
+                      <span>{t(reviewed ? 'auth.adminWillReview' : 'auth.activatesOnConfirm')}</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <span className="text-activity mt-0.5">•</span>
+                      <span className="text-primary mt-0.5">•</span>
                       <span>{t('auth.thenConnectService')}</span>
                     </li>
                   </>
                 ) : (
                   <>
                     <li className="flex items-start gap-2">
-                      <span className="text-activity mt-0.5">•</span>
+                      <span className="text-primary mt-0.5">•</span>
                       <span>{t('auth.adminWillReview')}</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <span className="text-activity mt-0.5">•</span>
+                      <span className="text-primary mt-0.5">•</span>
                       <span>{t('auth.emailOnApproval')}</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <span className="text-activity mt-0.5">•</span>
+                      <span className="text-primary mt-0.5">•</span>
                       <span>{t('auth.afterApprovalAccess')}</span>
                     </li>
                   </>

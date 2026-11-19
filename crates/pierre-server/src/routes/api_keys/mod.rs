@@ -62,6 +62,12 @@ impl ApiKeyRoutes {
         Json(request): Json<CreateApiKeyRequestSimple>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
+        // A key outlives the support session that would mint it.
+        auth.refuse_impersonation(
+            resources.common.repos.admin_audit.as_ref(),
+            "create an API key",
+        )
+        .await?;
 
         // Create API key using service layer
         let service = ApiKeyService::new(resources);

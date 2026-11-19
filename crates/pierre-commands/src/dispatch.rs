@@ -13,6 +13,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, TurnOrigin};
 use pierre_runtime_context::CommandCtx;
 use pierre_services::conversation_forge::reactivate_for_turn;
+use pierre_tool_runtime::context::refuse_in_support_session;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::info;
 use uuid::Uuid;
@@ -190,6 +191,32 @@ impl fmt::Debug for DispatchOutcome {
     }
 }
 
+/// The command `text` would run, when what it leaves behind outlives the
+/// session that typed it.
+///
+/// Returns its catalogue name when its handler says so for these arguments
+/// ([`crate::CommandHandler::outlives_support_session`]); `None` for anything
+/// else, including text that is not a command. Parses exactly as
+/// [`try_dispatch`] does, so the command it names is the one that would run.
+/// A surface that serves an admin's support session asks this before the turn
+/// starts and refuses the command there.
+#[must_use]
+pub fn command_outliving_support_session(
+    text: &str,
+    command_registry: &Arc<CommandRegistry>,
+    command_handler_registry: &CommandHandlerRegistry,
+) -> Option<String> {
+    if !text.trim().starts_with('/') {
+        return None;
+    }
+    let parsed =
+        CommandMatcher::from_registry(command_registry).try_match(text, command_registry)?;
+    command_handler_registry
+        .get(&parsed.name)
+        .filter(|handler| handler.outlives_support_session(&parsed.args))
+        .map(|_| parsed.name)
+}
+
 /// Try to execute `text` as a slash command.
 ///
 /// This is the single dispatch authority for every chat surface — messaging
@@ -240,7 +267,7 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
         // Command name is registered in the definitions registry but has
         // no handler bound. This is a startup wiring mismatch, not a user
         // typo — return a loud internal error rather than the localized
-        // unknown-command reply so operators see the bug.
+        // unknown-command reply so admins see the bug.
         return Err(AppError::internal(format!(
             "Command '{}' has no handler registered",
             parsed.name
@@ -264,7 +291,10 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
         tool_runtime: Arc::clone(req.tool_runtime),
     };
 
-    let result = run_handler(&req, &ctx, handler.as_ref()).await;
+    let result = match refuse_outliving_command(&ctx, handler.as_ref(), &parsed.name).await {
+        Ok(()) => run_handler(&req, &ctx, handler.as_ref()).await,
+        Err(refused) => Err(refused),
+    };
     let ok = result.is_ok();
     info!(
         target: "notify",
@@ -283,6 +313,29 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
         rotated_to: ctx.rotation.taken().cloned(),
         opened_topic: ctx.rotation.opened_topic().map(ToOwned::to_owned),
     })
+}
+
+/// Refuse a command whose effect outlives the session when the turn runs in
+/// an admin's support session
+/// ([`pierre_tool_runtime::context::SUPPORT_SESSION`]), audited (carnet#1634).
+///
+/// Asked on the text the dispatcher parsed, so a tapped suggestion whose
+/// words are such a command is refused too: the chat route's own check reads
+/// the postback, which is no command, before the pipeline resolves it.
+async fn refuse_outliving_command(
+    ctx: &PlatformCommandContext,
+    handler: &dyn CommandHandler,
+    command: &str,
+) -> AppResult<()> {
+    if !handler.outlives_support_session(&ctx.args) {
+        return Ok(());
+    }
+    refuse_in_support_session(
+        ctx.ctx.repos().admin_audit.as_ref(),
+        ctx.user_id,
+        &format!("run the {command} command"),
+    )
+    .await
 }
 
 /// Run `handler` for the turn, behind the two checks a command passes before

@@ -210,7 +210,7 @@ test.describe('Text never paints over text', () => {
   for (const width of [1440, 390]) {
     test(`the user drawer's usage rows stay on their lines at ${width}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
-      await setupDashboardMocks(page, { role: 'super_admin', language: 'fr' });
+      await setupDashboardMocks(page, { role: 'admin', language: 'fr' });
       await mockAdminUserDrawer(page, NOW);
       await loginToDashboard(page);
       await go(page, 'users');
@@ -238,7 +238,7 @@ test.describe('Text never paints over text', () => {
 
   test('the admin activity rows at 1024', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 768 });
-    await setupDashboardMocks(page, { role: 'super_admin', language: 'fr' });
+    await setupDashboardMocks(page, { role: 'admin', language: 'fr' });
     await page.route('**/api/admin/analytics/recent-activity**', (route) =>
       route.fulfill(
         json({
@@ -268,7 +268,7 @@ test.describe('Text never paints over text', () => {
 
   test('the sign-up funnel stays inside its tiles at 1024', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 768 });
-    await setupDashboardMocks(page, { role: 'super_admin', language: 'fr' });
+    await setupDashboardMocks(page, { role: 'admin', language: 'fr' });
     await page.route('**/api/admin/analytics/new-users**', (route) =>
       route.fulfill(
         envelope({
@@ -301,7 +301,7 @@ test.describe('Text never paints over text', () => {
 
   test('a feature flag key never runs under its buttons', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await setupDashboardMocks(page, { role: 'super_admin', language: 'fr' });
+    await setupDashboardMocks(page, { role: 'admin', language: 'fr' });
     await page.route('**/api/admin/users**', (route) =>
       new URL(route.request().url()).pathname !== '/api/admin/users' ? route.fallback() : route.fulfill(
         envelope({

@@ -834,6 +834,7 @@ describe('recent activities', () => {
 
     const failed = await screen.findByTestId('home-activities-sync-failed');
     expect(failed).toHaveTextContent(/Strava · Sync failed/);
+    expect(failed.props.className).toContain('bg-error/10');
     expect(failed).not.toHaveTextContent(/Last synced/);
     expect(screen.getAllByText(/Last synced: /)).toHaveLength(1);
     expect(screen.getByTestId('home-activities-synced-at')).toHaveTextContent(/28 Sep|Sep 28/);
@@ -887,6 +888,7 @@ describe('recent activities', () => {
 
     const failed = await screen.findByTestId('home-activities-sync-failed');
     expect(failed).toHaveTextContent(/Strava · Sync failed/);
+    expect(failed.props.className).toContain('bg-error/10');
     expect(failed.props.accessibilityLiveRegion).toBe('polite');
     expect(announce).not.toHaveBeenCalled();
     announce.mockRestore();

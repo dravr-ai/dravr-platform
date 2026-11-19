@@ -11,6 +11,16 @@ use serde::{Deserialize, Serialize};
 #[cfg(doc)]
 use super::ActivityCacheRepository;
 
+/// What [`ActivityCacheRepository::amend_listed_reads`] did to the rows a
+/// provider's own list page named.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct AmendedReads {
+    /// Activities of the page the store already holds a row for.
+    pub present: u64,
+    /// Rows that took a tag or gear read they lacked or held differently.
+    pub filled: u64,
+}
+
 /// Why an activity fetch did not count as a sync.
 ///
 /// Only a provider answer that vouches for its list moves freshness. Each

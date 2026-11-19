@@ -190,7 +190,7 @@ pub async fn handle_list_strava_pool_apps(
 /// capacity the connect path offers: the env app and the enabled pool apps,
 /// each app's use capped at its `seat_cap`, so `left` is what a newcomer can
 /// still take. They differ exactly by the holders on disabled apps and the
-/// excess over a cap. Emails go to the super-admin in the body only; the log
+/// excess over a cap. Emails go to the admin in the body only; the log
 /// carries counts.
 ///
 /// # Errors

@@ -17,10 +17,6 @@ vi.mock('../../services/api', () => ({
   adminUsageApi: {},
 }));
 
-vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({ user: { role: 'admin' } }),
-}));
-
 vi.mock('react-chartjs-2', () => ({ Line: () => <div data-testid="usage-chart" /> }));
 
 function renderPanel() {

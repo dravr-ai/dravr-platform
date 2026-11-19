@@ -82,10 +82,8 @@ describe('parseTakeoverEvent', () => {
 describe('parseTakeoverBridgeMessage', () => {
   it('reads connected, and closed with or without its answer', () => {
     expect(parseTakeoverBridgeMessage('{"type":"connected"}')).toEqual({ type: 'connected' });
-    expect(parseTakeoverBridgeMessage('{"type":"connected","follow_on":"garmin"}')).toEqual({
-      type: 'connected',
-      follow_on: 'garmin',
-    });
+    // A grant named beside it is dropped: no authorization follows a sign-in.
+    expect(parseTakeoverBridgeMessage('{"type":"connected","follow_on":"garmin"}')).toEqual({ type: 'connected' });
     expect(parseTakeoverBridgeMessage('{"type":"closed"}')).toEqual({ type: 'closed' });
     expect(
       parseTakeoverBridgeMessage('{"type":"closed","outcome":{"type":"outcome","status_code":200,"body":{"status":"failed","error":"x"}}}'),

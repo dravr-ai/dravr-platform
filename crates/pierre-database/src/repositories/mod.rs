@@ -28,6 +28,8 @@ pub mod activity_streams;
 pub mod admin;
 /// The admin audit trail: one row per operator write (carnet#1391).
 pub mod admin_audit;
+/// What a user write does, in its own transaction, to the credentials an account holds as an admin.
+pub(crate) mod admin_standing;
 /// Repository trait for agent package artefacts (flavour, skeleton, workouts beside an agent's prompt).
 pub mod agent_artefacts;
 /// Repository trait for the agent drafts `/agent create` parks for `/confirm` and `/deny`.
@@ -52,6 +54,8 @@ pub mod app_attest_keys;
 pub mod archive_erasures;
 /// Repository trait, statements and shared body for the athlete's gear ledger (carnet#711).
 pub mod athlete_gear;
+/// `AthletePlaceRepository`: the places an athlete trains from, clustered from trimmed starts.
+pub mod athlete_places;
 /// Repository trait and shared body for the calendar an athlete chose for Dravr's pushes (carnet#1393).
 pub mod calendar_preferences;
 /// Repository traits for chat conversation persistence.
@@ -63,6 +67,8 @@ pub(crate) mod chat_backend;
 pub(crate) mod chat_delete;
 /// A participant's thumbs on one reply: its statements and the bodies behind them.
 pub(crate) mod chat_feedback;
+/// A participant's page of conversations and its total: the list statements.
+pub(crate) mod chat_list;
 /// A thread's rows about a group member: the prompt read that keeps only the readable ones.
 pub(crate) mod chat_member_rows;
 /// Who belongs to a conversation: its membership statements and the bodies behind them.
@@ -93,6 +99,8 @@ pub mod coach_reply_reviews;
 pub mod coaching_groups;
 /// Repository trait for athlete commitments swept against real activity data.
 pub mod commitments;
+/// Repository trait and shared body for the athlete's statutory data access requests (carnet#1646).
+pub mod data_access_requests;
 /// Repository traits for data source registration persistence.
 pub mod data_source;
 /// Repository trait, shared statements and body for delegated connections: a member's provider read through their group coach.
@@ -119,6 +127,8 @@ pub mod garmin_push_inbox;
 pub(crate) mod group_digest_sql;
 /// Shared statements for group invites, run by the coaching-group repository body.
 pub(crate) mod group_invite_sql;
+/// Shared statements for group memberships, run by the coaching-group repository body.
+pub(crate) mod group_member_sql;
 /// Shared statements for a coaching group's room transcript.
 pub(crate) mod group_transcript;
 /// Repository traits for coaching harness memory (Tier 0 foundations).
@@ -127,7 +137,7 @@ pub mod harness_memory;
 pub mod health;
 /// Shared statements, row decoders and body for data sources, sleep, recovery and health snapshots.
 pub mod health_persistence;
-/// Repository trait, statements and shared body for super-admin impersonation sessions.
+/// Repository trait, statements and shared body for admin impersonation sessions.
 pub mod impersonation;
 /// Tombstones of a deleted account's provider accounts and email, by hash, refused until cleared.
 pub mod import_tombstones;
@@ -238,6 +248,8 @@ pub mod use_case_exposures;
 pub mod user_access;
 /// The tables an athlete's data export reads, and the ones it withholds with a reason each.
 pub mod user_export;
+/// `UserExportBundleRepository`: the durable state of each originals bundle an athlete asked for.
+pub mod user_export_bundles;
 /// Repository trait and shared body for the per-user choices Home's layout honours.
 pub mod user_home_preferences;
 /// Repository trait, statements and shared body for single-use user invitations.
@@ -254,13 +266,15 @@ pub mod user_physiological_profiles;
 pub(crate) mod user_physiology_sport_anchors;
 /// Shared statements and bodies for the single-column preference writes on the users row.
 pub mod user_preferences;
-/// Shared statements and body for the profile document, goals and user configuration.
+/// Repository trait, statements and shared body for the profile document, goals and user configuration.
 pub mod user_profiles;
 /// Repository trait, statements and shared body for per-user rate-limit overrides.
 pub mod user_rate_limit_overrides;
 /// The rows that block deleting a user, the ones the delete clears itself, and
 /// the conflict a residual reference maps to.
 pub(crate) mod user_references;
+/// Shared statements of the user repository, run by its body in `users`.
+pub(crate) mod user_sql;
 /// Repository trait, statements and shared body for per-user admin tier overrides.
 pub mod user_tier_overrides;
 /// Repository trait, statements and shared body for per-user admin tool overrides.
@@ -301,8 +315,9 @@ pub use activity_streams::*;
 pub use admin::*;
 pub use admin_audit::{
     AdminAuditRepository, AuditEventFilter, AuditEventRecord, AuditOutcome, AuditSource,
-    NewAuditEvent, RecentReadKey, AUDIT_PAGE_MAX,
+    NewAuditEvent, RecentReadKey, SettledAuditEvent, AUDIT_PAGE_MAX,
 };
+pub use admin_standing::{StandingWrite, WithdrawnAdminCredentials};
 pub use agent_artefacts::*;
 pub use agent_drafts::*;
 pub use agents::*;
@@ -310,9 +325,12 @@ pub use api_keys::*;
 pub use app_attest_keys::AppAttestKeyRepository;
 pub use archive_erasures::{ArchiveErasureRepository, PendingArchiveErasure};
 pub use athlete_gear::{AthleteGearRepository, GearDeletion};
+pub use athlete_places::{
+    AthletePlace, AthletePlaceRepository, CachedRowsStamp, PlaceNameSource, PlaceRun,
+};
 pub use calendar_preferences::{CalendarPreference, CalendarPreferenceRepository};
 pub use chat::*;
-pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread};
+pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread, SubjectThreads};
 pub use check_in_preferences::{CheckInPreferenceRepository, CheckInSubscriber};
 pub use claim_verdicts::*;
 pub use coach_access_requests::CoachAccessRequestRepository;
@@ -321,9 +339,14 @@ pub use coach_attention_dismissals::{
 };
 pub use coach_data_reads::{
     CoachDataRead, CoachDataReadRepository, CoachReadClass, CoachReadSurface, NewCoachDataRead,
+    RecordedTransport,
 };
 pub use coach_reply_reviews::CoachReplyReviewRepository;
 pub use commitments::*;
+pub use data_access_requests::{
+    DataAccessLaw, DataAccessRequest, DataAccessRequestRepository, DataAccessScope,
+    DataAccessStatus, ReminderStage, DUE_SOON_DAYS,
+};
 pub use data_source::*;
 pub use delegated_connections::*;
 pub use engagement::EngagementRepository;
@@ -384,6 +407,9 @@ pub use user_export::{
     UserExportPage, UserExportRepository, UserExportTable, CREDENTIAL_MARKERS,
     NOT_CREDENTIAL_COLUMNS, USER_EXPORT_EXCLUDED_TABLES, USER_EXPORT_TABLES,
 };
+pub use user_export_bundles::{
+    BundleContents, BundleStatus, ExportBundle, UserExportBundleRepository,
+};
 pub use user_home_preferences::{
     HomePreferences, HomePreferencesRepository, HomePreferencesUpdate,
 };
@@ -391,6 +417,7 @@ pub use user_invitations::UserInvitationRepository;
 pub use user_mcp_tokens::*;
 pub use user_onboarding::*;
 pub use user_physiological_profiles::*;
+pub use user_profiles::ProfileRepository;
 pub use user_rate_limit_overrides::*;
 pub use user_references::{
     UserPurge, DELETION_BLOCKERS_SQL, POSTGRES_ONLY_USER_OWNED_TABLES, POSTGRES_USER_PURGE,

@@ -66,6 +66,24 @@ describe('VerdictDrawer subline', () => {
     expect(screen.getByText('1 supported')).toBeInTheDocument();
   });
 
+  it('draws each status pill in the tone its verdict carries', () => {
+    render(
+      <VerdictDrawer
+        verdicts={[
+          verdict('v1'),
+          verdict('v2', { status: 'contradicted' }),
+          verdict('v3', { status: 'unverifiable', evidence_strength: 'none' }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('supported')).toHaveClass('badge-success');
+    expect(screen.getByText('contradicted')).toHaveClass('badge-error');
+    // A toneless verdict is the neutral pair, never the muted secondary badge.
+    expect(screen.getByText('unverifiable')).toHaveClass('badge-neutral');
+  });
+
   it('says it is still reading while the rows are in flight', () => {
     render(<VerdictDrawer verdicts={[]} loading onClose={vi.fn()} />);
 

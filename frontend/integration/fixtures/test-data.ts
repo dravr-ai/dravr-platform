@@ -16,11 +16,6 @@ export const testUsers: Record<string, TestUser> = {
     password: 'IntegrationTestPass123!',
     role: 'admin',
   },
-  superAdmin: {
-    email: 'integration-super@test.local',
-    password: 'SuperAdminPass456!',
-    role: 'super_admin',
-  },
   regularUser: {
     email: 'integration-user@test.local',
     password: 'RegularUserPass789!',

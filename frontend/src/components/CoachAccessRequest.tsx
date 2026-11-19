@@ -20,7 +20,7 @@ import { useTranslation } from '@pierre/i18n';
 import { providersApi, userApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useSeatAfterPlatformLink } from '../hooks/coachAccessHooks';
-import { Button } from './ui';
+import { BADGE_TONE, Button } from './ui';
 import ProviderConnectionCards from './ProviderConnectionCards';
 
 /**
@@ -63,7 +63,7 @@ interface CoachAccessRequestProps {
  * Reads where the coach's latest request stands so a return visit shows it.
  * A request asked from a group names it; either way a grant attaches the
  * coach to every coachless group they own (carnet#1521). Asking grants
- * nothing (ADR-018): a super-admin decides, and the pending state says so,
+ * nothing (ADR-018): an admin decides, and the pending state says so,
  * with the date it was sent, that the answer comes here and by email, and the
  * way to withdraw it (carnet#1522). A declined request shows the reason the
  * team gave, when it gave one, beside "Ask again".
@@ -297,7 +297,7 @@ function SeatGlyph({ pending }: { pending: boolean }) {
       aria-hidden="true"
       className={clsx(
         'flex h-9 w-9 shrink-0 items-center justify-center rounded-full',
-        pending ? 'bg-warning/15 text-on-warning-container' : 'bg-primary-container text-on-primary-container',
+        pending ? BADGE_TONE.warning.tone : 'bg-primary-container text-on-primary-container',
       )}
     >
       {pending ? <Clock className="h-[18px] w-[18px]" /> : <UserCheck className="h-[18px] w-[18px]" />}

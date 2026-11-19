@@ -660,6 +660,7 @@ mod tests {
                 return Err(AppError::internal("judge provider timed out"));
             }
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: r#"{"verdict":"supported","confidence":0.9,"rationale":"Replicated in trials."}"#
                     .to_owned(),
                 model: "mock-model".to_owned(),
@@ -716,6 +717,7 @@ mod tests {
             task::yield_now().await;
             self.in_flight.fetch_sub(1, Ordering::SeqCst);
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: r#"{"verdict":"unverifiable","confidence":0.5,"rationale":"Unclear."}"#
                     .to_owned(),
                 model: "mock-model".to_owned(),

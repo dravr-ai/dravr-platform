@@ -119,6 +119,7 @@ mod phase_1_integration {
         async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: self.reply.clone(),
                 model: self.model.clone(),
                 usage: Some(TokenUsage::new(42, 11, 53)),
@@ -162,7 +163,6 @@ mod phase_1_integration {
             password_hash,
             Some("Phase 1 Admin".to_owned()),
         );
-        user.is_admin = true;
         user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);

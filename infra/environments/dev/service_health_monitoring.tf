@@ -108,42 +108,44 @@ locals {
   ]
 
   service_chart_tiles = [
-    for i, chart in local.service_charts : {
-      xPos   = (i % 2) * local.chart_width
-      yPos   = local.chart_height + floor(i / 2) * local.chart_height
-      width  = local.chart_width
-      height = local.chart_height
-      widget = {
-        title = chart.title
-        xyChart = {
-          chartOptions = { mode = "COLOR" }
-          dataSets = [
-            for legend, query in chart.queries : {
-              plotType           = "LINE"
-              legendTemplate     = legend
-              targetAxis         = "Y1"
-              timeSeriesQuery    = { prometheusQuery = query }
-              minAlignmentPeriod = "60s"
-            }
-          ]
+    for i, chart in local.service_charts : merge(
+      # Monitoring drops a zero position on write, so a 0 written here plans
+      # a perpetual in-place update; omit it instead (the API's default is 0).
+      { for k, v in { xPos = (i % 2) * local.chart_width, yPos = local.chart_height + floor(i / 2) * local.chart_height } : k => v if v != 0 },
+      {
+        width  = local.chart_width
+        height = local.chart_height
+        widget = {
+          title = chart.title
+          xyChart = {
+            chartOptions = { mode = "COLOR" }
+            dataSets = [
+              for legend, query in chart.queries : {
+                plotType           = "LINE"
+                legendTemplate     = legend
+                targetAxis         = "Y1"
+                timeSeriesQuery    = { prometheusQuery = query }
+                minAlignmentPeriod = "60s"
+              }
+            ]
+          }
         }
-      }
-    }
+    })
   ]
 
   policies_top = local.chart_height + ceil(length(local.service_charts) / 2) * local.chart_height
 
   policy_tiles = [
-    for i, policy in local.charted_policies : {
-      xPos   = (i % 4) * local.tile_width
-      yPos   = local.policies_top + floor(i / 4) * local.tile_height
-      width  = local.tile_width
-      height = local.tile_height
-      widget = {
-        title      = policy.display_name
-        alertChart = { name = policy.name }
-      }
-    }
+    for i, policy in local.charted_policies : merge(
+      { for k, v in { xPos = (i % 4) * local.tile_width, yPos = local.policies_top + floor(i / 4) * local.tile_height } : k => v if v != 0 },
+      {
+        width  = local.tile_width
+        height = local.tile_height
+        widget = {
+          title      = policy.display_name
+          alertChart = { name = policy.name }
+        }
+    })
   ]
 }
 
@@ -262,8 +264,8 @@ resource "google_monitoring_dashboard" "service_health" {
       tiles = concat(
         [
           {
-            xPos   = 0
-            yPos   = 0
+            # At the origin, so no xPos/yPos: a written 0 never reads back
+            # (see service_chart_tiles) and plans an update on every run.
             width  = 48
             height = local.chart_height
             widget = {

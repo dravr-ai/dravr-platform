@@ -7,7 +7,7 @@
 use crate::pricing::{cost_for_record, costs_of_usage_groups};
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::admin::scope::AdminScope;
-use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_core::models::{MonthlyLimitOverride, OperatorRosterGrant, User, UserStatus};
 use pierre_database::database::repositories::UserMcpTokenRepository;
@@ -15,15 +15,31 @@ use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_database::repositories::analytics::next_utc_month_start;
 use pierre_database::repositories::LlmUsageScope;
 use pierre_database::RepositoryRegistry;
+use pierre_middleware::admin_guard::require_admin;
 use pierre_middleware::mask_email;
 use pierre_runtime_context::DataContext;
 use serde::Serialize;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+/// Who acts on an account, and the rank rule an admin account is held to.
+mod caller;
+pub use caller::*;
+
+/// What an account held on its admin standing, withdrawn when it loses it.
+mod credentials;
+pub use credentials::*;
+
 /// Plan, tier, roster and override administration.
 mod overrides;
 pub use overrides::*;
+
+/// The decision of a pending sign-up by a sign-up rule or the Slack room.
+mod sign_up;
+pub use sign_up::{
+    activate_pending_sign_up, decide_sign_up, ApprovedSignUp, PendingActivation, SignUpApproval,
+    SignUpDecision,
+};
 
 // =========================================================================
 // Result types returned by service functions
@@ -218,52 +234,6 @@ pub struct RecentActivityResult {
 // Tenant scope resolution
 // =========================================================================
 
-/// Verify an admin user belongs to the target tenant.
-///
-/// Super-admin users can access any tenant. Regular admins are restricted
-/// to tenants they belong to via the `tenant_users` junction table.
-///
-/// # Errors
-///
-/// Returns `PermissionDenied` if the admin does not belong to `target_tenant_id`,
-/// or `Internal`/`NotFound` if the admin record or tenant list cannot be loaded.
-pub async fn verify_admin_tenant_access(
-    data: &DataContext,
-    admin_user_id: Uuid,
-    target_tenant_id: TenantId,
-) -> Result<(), AppError> {
-    // SECURITY: Global lookup — verifying admin's own tenant access
-    let user = data
-        .repos()
-        .users
-        .get_global(admin_user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to fetch admin user: {e}")))?
-        .ok_or_else(|| AppError::not_found("Admin user not found"))?;
-
-    // Super-admins can access any tenant
-    if user.role.is_super_admin() {
-        return Ok(());
-    }
-
-    // Regular admins must belong to the target tenant
-    let admin_tenants = data
-        .repos()
-        .tenants
-        .list_for_user(admin_user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to get admin tenants: {e}")))?;
-
-    let belongs_to_tenant = admin_tenants.iter().any(|t| t.id == target_tenant_id);
-
-    belongs_to_tenant.ok_or_else(|| {
-        AppError::new(
-            ErrorCode::PermissionDenied,
-            "Admin does not belong to the target tenant",
-        )
-    })
-}
-
 // =========================================================================
 // User lifecycle helpers
 // =========================================================================
@@ -331,59 +301,77 @@ pub async fn assign_user_to_admin_tenant(
     Ok(())
 }
 
-/// Verify the authenticated user has super-admin privileges.
-///
-/// # Errors
-///
-/// Returns `PermissionDenied` if the user is not a super-admin, or `NotFound`
-/// / `Internal` if the user record cannot be loaded.
-pub async fn require_super_admin(user_id: Uuid, data: &DataContext) -> Result<(), AppError> {
-    // SECURITY: Global lookup — checking admin's own super-admin role
-    let user = data
-        .repos()
-        .users
-        .get_global(user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to get user: {e}")))?
-        .ok_or_else(|| AppError::not_found("User not found"))?;
-
-    if !user.role.is_super_admin() {
-        warn!(
-            user_id = %user_id,
-            "Non-super-admin attempted privileged operation"
-        );
-        return Err(AppError::new(
-            ErrorCode::PermissionDenied,
-            "Super-admin privileges required to create super-admin tokens",
-        ));
-    }
-    Ok(())
-}
-
 // =========================================================================
 // User approval and suspension
 // =========================================================================
 
+/// A user's status after [`transition_user_status`], and what the move took
+/// away.
+#[derive(Debug)]
+pub struct StatusTransition {
+    /// The account as stored after the transition.
+    pub user: User,
+    /// The admin credentials withdrawn because the account left the active
+    /// status; empty on activation, and for an account that held none. The
+    /// caller records it ([`record_withdrawn_admin_credentials`]).
+    pub withdrawn: WithdrawnAdminCredentials,
+    /// The status the account had before the transition, as the write read
+    /// it.
+    pub previous: UserStatus,
+}
+
 /// Shared user-status state transition: global lookup, already-in-target-state
 /// guard, and status update.
 ///
-/// Used by [`approve_user`], the admin suspend handler, the pre-approval path
-/// and `pierre-cli`'s local user commands.
+/// Used by [`approve_user`] for an admin's approval, the admin suspend
+/// handler and `pierre-cli`'s local user commands: an admin's decision,
+/// which may bring a suspended account back. A sign-up rule's activation
+/// is not one and does not come through here ([`activate_pending_sign_up`]).
+/// The last active admin cannot be
+/// suspended: `UserRepository::update_status` refuses it. Nor does an admin
+/// take itself out of `Active`, as it does not demote itself
+/// ([`demote_user_from_admin`]): it would be signed out with its device
+/// logins withdrawn, and only another admin could bring it back.
 ///
-/// `approved_by` is the audit identity recorded against the transition: the
-/// operator behind the request when there is one, `None` for a service token
-/// that is not tied to a user row.
+/// An account moved out of `Active` is no longer an active admin, whatever
+/// its role: the device-login tokens it approved and the impersonations it
+/// has open are withdrawn by the repository in the transaction that changes
+/// the status, so the two cannot come apart.
+///
+/// `acting` is the account and who changes its status
+/// ([`AccountCaller::acting_on`], which holds an admin account to a
+/// platform caller). The transition is written against
+/// [`AccountCaller::recorded_as`]. A caller that is an admin's own session
+/// ([`AccountCaller::acting_admin`]) is refused taking that admin out of
+/// `Active`; a service token and `pierre-cli` on the host act as no admin
+/// and have no self to refuse. The Slack sign-up room does not come
+/// through here: its taps decide a pending account only
+/// ([`decide_sign_up`], which [`approve_user`] takes for it).
 ///
 /// # Errors
 ///
-/// Returns `InvalidInput` if the user is already in `target_status`, `NotFound`
-/// if the user does not exist, or `Internal` if a repository call fails.
+/// Returns `InvalidInput` if the caller's own admin is the target and
+/// `target_status` is not `Active`, if the user is already in
+/// `target_status` or is the last active admin being moved out of `Active`,
+/// `NotFound` if the user does not exist, or the repository's error if a
+/// call fails.
 pub async fn transition_user_status(
     repos: &RepositoryRegistry,
-    target_user_id: Uuid,
+    acting: &ActingOn<'_>,
     target_status: UserStatus,
-    approved_by: Option<Uuid>,
-) -> Result<User, AppError> {
+) -> Result<StatusTransition, AppError> {
+    let target_user_id = acting.id();
+    if acting.caller().acting_admin() == Some(target_user_id) {
+        let refusal = match target_status {
+            UserStatus::Active => None,
+            UserStatus::Suspended => Some("Cannot suspend yourself"),
+            UserStatus::Pending => Some("Cannot set yourself back to pending"),
+        };
+        if let Some(message) = refusal {
+            return Err(AppError::invalid_input(message));
+        }
+    }
+
     // Admin operations use global lookup (users may not have tenant_users entries)
     let user = repos
         .users
@@ -407,47 +395,96 @@ pub async fn transition_user_status(
         return Err(AppError::invalid_input(message));
     }
 
-    repos
+    // The repository's own error is returned as it is: its refusal to suspend
+    // the last active admin is the caller's to read, not a server fault.
+    let write = repos
         .users
-        .update_status(target_user_id, target_status, approved_by)
+        .update_status(target_user_id, target_status, acting.caller().recorded_as())
         .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to update user status in database");
-            AppError::internal(format!("Failed to update user status: {e}"))
-        })
+        .inspect_err(|e| error!(error = %e, "Failed to update user status in database"))?;
+    Ok(StatusTransition {
+        user: write.user,
+        withdrawn: write.withdrawn,
+        previous: user.user_status,
+    })
 }
 
-/// Approve a pending user: transition to Active, assign the approver's tenant,
-/// and auto-create a default MCP token.
+/// Approve an account: make it active, give it a tenant, and create its
+/// default MCP token.
 ///
-/// The one approval path behind `POST /admin/approve-user/{id}` and its console
-/// mount. `approved_by` is the operator recorded against the approval (the
-/// signed-in admin of a console session, the approving super-admin of a
-/// device-login token, `None` for a service token); `tenant` is the approver's
-/// tenant scope, see [`assign_user_to_admin_tenant`].
+/// The one approval of every surface (carnet#1589): the admin API and its
+/// console mount, `pierre-cli user approve`, and the Slack sign-up room.
+///
+/// `acting` is the account and who approves it
+/// ([`AccountCaller::acting_on`]). The status write is the caller's:
+///
+/// - an admin's decision ([`transition_user_status`]) makes active a pending
+///   account or a suspended one, which it reinstates, and refuses one
+///   already active;
+/// - a surface that decides sign-ups only ([`AccountCaller::decides_sign_ups_only`],
+///   the Slack room) writes only while the account is still pending
+///   ([`decide_sign_up`]): a sign-up decided meanwhile, here or elsewhere,
+///   is [`SignUpApproval::LostAtTheWrite`] and nothing is written.
+///
+/// Then the tenant: the account joins `tenant`, the approver's (the active
+/// tenant of a console session, or the one an admin token is bound to),
+/// when there is one; an account that still belongs to no tenant is given
+/// one of its own. An approval that cannot give the account its tenant
+/// must not leave it active with none and nobody told, so it is put back
+/// to the status it had ([`SignUpApproval::PutBack`]), where the next
+/// approval finishes it. Last, the account's default MCP token, which a
+/// failure only logs.
 ///
 /// # Errors
 ///
-/// Returns `InvalidInput` if the user is already active, `NotFound` if the user
-/// does not exist, or `Internal` if any underlying repository call fails.
+/// Returns `InvalidInput` when an admin approves an account already active
+/// or its own, `NotFound` for an account that does not exist, the
+/// repository's error when the approving write fails, and what failed after
+/// it when the account could not be put back.
 pub async fn approve_user(
     repos: &RepositoryRegistry,
-    approved_by: Option<Uuid>,
+    acting: &ActingOn<'_>,
     tenant: Option<TenantId>,
-    target_user_id: Uuid,
-) -> Result<User, AppError> {
-    let updated_user =
-        transition_user_status(repos, target_user_id, UserStatus::Active, approved_by).await?;
+) -> Result<SignUpApproval, AppError> {
+    let approved = if acting.caller().decides_sign_ups_only() {
+        decide_sign_up(repos, acting, SignUpDecision::Approve).await?
+    } else {
+        Some(transition_user_status(repos, acting, UserStatus::Active).await?)
+    };
+    let Some(StatusTransition { user, previous, .. }) = approved else {
+        return Ok(SignUpApproval::LostAtTheWrite);
+    };
 
-    assign_user_to_admin_tenant(repos, tenant, target_user_id).await?;
+    let tenant_id = match approved_account_tenant(repos, tenant, &user).await {
+        Ok(tenant_id) => tenant_id,
+        Err(cause) => return sign_up::put_back(repos, acting, previous, cause).await,
+    };
 
-    create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), target_user_id).await;
+    create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), user.id).await;
 
-    Ok(updated_user)
+    Ok(SignUpApproval::Approved(Box::new(ApprovedSignUp {
+        user,
+        tenant_id,
+    })))
+}
+
+/// The tenant an approved account is attributed to: `tenant`, the
+/// approver's, which the account joins, or else the one it owns or belongs
+/// to, provisioned when it has none.
+async fn approved_account_tenant(
+    repos: &RepositoryRegistry,
+    tenant: Option<TenantId>,
+    user: &User,
+) -> Result<Option<TenantId>, AppError> {
+    if let Some(tenant_id) = tenant {
+        assign_user_to_admin_tenant(repos, Some(tenant_id), user.id).await?;
+        return Ok(Some(tenant_id));
+    }
+    sign_up::own_tenant(repos, user).await
 }
 
 // =========================================================================
-// Admin privilege management (super-admin only)
+// Admin privilege management (an admin manages admins)
 // =========================================================================
 
 /// Outcome of an admin privilege change (promote or demote)
@@ -459,8 +496,18 @@ pub struct AdminPrivilegeChangeResult {
     pub email: String,
     /// New admin status
     pub is_admin: bool,
-    /// User role after the change (user, admin, `super_admin`)
+    /// User role after the change (`user` or `admin`)
     pub role: String,
+}
+
+/// Outcome of a demotion: the change, and what it took away.
+#[derive(Debug)]
+pub struct AdminDemotion {
+    /// The account after the demotion.
+    pub change: AdminPrivilegeChangeResult,
+    /// The admin credentials withdrawn with the role. The caller records it
+    /// ([`record_withdrawn_admin_credentials`]).
+    pub withdrawn: WithdrawnAdminCredentials,
 }
 
 /// Admin user summary for the admins listing
@@ -472,7 +519,7 @@ pub struct AdminUserSummary {
     pub email: String,
     /// Display name (optional)
     pub display_name: Option<String>,
-    /// User role (admin or `super_admin`)
+    /// User role (always `admin`)
     pub role: String,
     /// User status (active, pending, suspended)
     pub user_status: String,
@@ -480,41 +527,84 @@ pub struct AdminUserSummary {
     pub created_at: String,
 }
 
-/// Promote a user to admin: set `is_admin = true` and role to Admin (preserving `SuperAdmin`).
+/// Give `user` the admin role: the write every promotion makes.
 ///
-/// Only super-admins can perform this operation to prevent privilege escalation.
+/// The admin API and the console reach it through
+/// [`promote_user_to_admin`], which checks the caller first; `pierre-cli
+/// user promote` on the host calls it as it is, since no admin's session is
+/// behind that command.
+///
+/// An admin is approved first, then promoted (carnet#1589). An account that
+/// is not active is refused: a pending one holding the role would hold
+/// every power the moment any sign-up rule let it in, without an admin ever
+/// having approved it, and a suspended one is reinstated by an approval,
+/// which is where the decision to bring it back belongs.
 ///
 /// # Errors
 ///
-/// Returns `PermissionDenied` if the caller is not a super-admin, `InvalidInput`
-/// if the target is already an admin, `NotFound` if the target does not exist,
-/// or `Internal` on repository failures.
+/// Returns `InvalidInput` if `user` is already an admin or is not active,
+/// or `Internal` when the write fails.
+pub async fn grant_admin_role(repos: &RepositoryRegistry, user: &User) -> Result<User, AppError> {
+    if user.role.is_admin() {
+        return Err(AppError::invalid_input("User is already an admin"));
+    }
+    refuse_promoting_unless_active(user)?;
+
+    Ok(repos
+        .users
+        .set_admin_status(user.id, true)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to promote user: {e}")))?
+        .user)
+}
+
+/// Refuse the promotion of an account that is not active, saying what its
+/// status is and what to do first.
+///
+/// The one statement of the rule that an admin is an approved account
+/// first: [`grant_admin_role`] refuses with it, and the bootstrap seeder
+/// asks it before bringing an existing account to the admin role.
+///
+/// # Errors
+///
+/// Returns `InvalidInput` if `user` is pending or suspended.
+pub fn refuse_promoting_unless_active(user: &User) -> Result<(), AppError> {
+    if user.user_status == UserStatus::Active {
+        return Ok(());
+    }
+    Err(AppError::invalid_input(format!(
+        "Only an active account is promoted to admin, and this one is {}. \
+         Approve the account first, then promote it.",
+        user.user_status
+    )))
+}
+
+/// Promote a user to admin: give them the `Admin` role.
+///
+/// Any admin may do this; nobody else can, so a user cannot escalate. The
+/// target is an active account ([`grant_admin_role`]).
+///
+/// # Errors
+///
+/// Returns `PermissionDenied` if the caller is not an admin, `InvalidInput`
+/// if the target is already an admin or is not active, `NotFound` if the
+/// target does not exist, or `Internal` on repository failures.
 pub async fn promote_user_to_admin(
-    data: &DataContext,
+    repos: &RepositoryRegistry,
     admin_user_id: Uuid,
     target_user_id: Uuid,
 ) -> Result<AdminPrivilegeChangeResult, AppError> {
-    require_super_admin(admin_user_id, data).await?;
+    require_admin(admin_user_id, &repos.users).await?;
 
-    // SECURITY: Global lookup — super-admins promote across tenants
-    let user = data
-        .repos()
+    // SECURITY: Global lookup — admins promote across tenants
+    let user = repos
         .users
         .get_global(target_user_id)
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch target user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
 
-    if user.is_admin {
-        return Err(AppError::invalid_input("User is already an admin"));
-    }
-
-    let updated = data
-        .repos()
-        .users
-        .set_admin_status(target_user_id, true)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to promote user: {e}")))?;
+    let updated = grant_admin_role(repos, &user).await?;
 
     info!(
         admin_user_id = %admin_user_id,
@@ -526,51 +616,51 @@ pub async fn promote_user_to_admin(
     Ok(AdminPrivilegeChangeResult {
         user_id: updated.id.to_string(),
         email: updated.email,
-        is_admin: updated.is_admin,
+        is_admin: updated.role.is_admin(),
         role: updated.role.as_str().to_owned(),
     })
 }
 
-/// Demote an admin user: set `is_admin = false` and role to User.
+/// Demote an admin user: reset their role to `User`.
 ///
-/// Only super-admins can perform this operation. Demoting super-admins is rejected
-/// at the repository layer to prevent accidental privilege loss. Self-demotion is rejected
-/// to avoid locking the caller out of admin actions.
+/// Any admin may demote another admin. Self-demotion is rejected to avoid
+/// locking the caller out of admin actions, and the repository refuses to
+/// demote the last active admin, so the platform always keeps one.
+///
+/// The device-login tokens the demoted admin approved and the impersonations
+/// it has open are withdrawn by the repository in the transaction that
+/// resets the role.
 ///
 /// # Errors
 ///
-/// Returns `PermissionDenied` if the caller is not a super-admin, `InvalidInput`
-/// for self-demotion or when the target is not an admin, `NotFound` if the target
-/// does not exist, or `Internal` on repository failures.
+/// Returns `PermissionDenied` if the caller is not an admin, `InvalidInput`
+/// for self-demotion, when the target is not an admin or when it is the last
+/// active admin, `NotFound` if the target does not exist, or the repository's
+/// error on a failed write.
 pub async fn demote_user_from_admin(
-    data: &DataContext,
+    repos: &RepositoryRegistry,
     admin_user_id: Uuid,
     target_user_id: Uuid,
-) -> Result<AdminPrivilegeChangeResult, AppError> {
-    require_super_admin(admin_user_id, data).await?;
+) -> Result<AdminDemotion, AppError> {
+    require_admin(admin_user_id, &repos.users).await?;
 
     if admin_user_id == target_user_id {
         return Err(AppError::invalid_input("Cannot demote yourself"));
     }
 
-    let user = data
-        .repos()
+    let user = repos
         .users
         .get_global(target_user_id)
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch target user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
 
-    if !user.is_admin {
+    if !user.role.is_admin() {
         return Err(AppError::invalid_input("User is not an admin"));
     }
 
-    let updated = data
-        .repos()
-        .users
-        .set_admin_status(target_user_id, false)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to demote user: {e}")))?;
+    let write = repos.users.set_admin_status(target_user_id, false).await?;
+    let (updated, withdrawn) = (write.user, write.withdrawn);
 
     info!(
         admin_user_id = %admin_user_id,
@@ -579,28 +669,30 @@ pub async fn demote_user_from_admin(
         "User demoted from admin"
     );
 
-    Ok(AdminPrivilegeChangeResult {
-        user_id: updated.id.to_string(),
-        email: updated.email,
-        is_admin: updated.is_admin,
-        role: updated.role.as_str().to_owned(),
+    Ok(AdminDemotion {
+        change: AdminPrivilegeChangeResult {
+            user_id: updated.id.to_string(),
+            email: updated.email,
+            is_admin: updated.role.is_admin(),
+            role: updated.role.as_str().to_owned(),
+        },
+        withdrawn,
     })
 }
 
 /// List all admin users across all tenants.
 ///
-/// Only super-admins can view the full admin roster. Returns admins (and super-admins)
-/// ordered by email ascending.
+/// Any admin can view the full admin roster, ordered by email ascending.
 ///
 /// # Errors
 ///
-/// Returns `PermissionDenied` if the caller is not a super-admin, or `Internal`
+/// Returns `PermissionDenied` if the caller is not an admin, or `Internal`
 /// if the admin listing repository call fails.
 pub async fn list_all_admins(
     data: &DataContext,
     admin_user_id: Uuid,
 ) -> Result<Vec<AdminUserSummary>, AppError> {
-    require_super_admin(admin_user_id, data).await?;
+    require_admin(admin_user_id, &data.repos().users).await?;
 
     let admins = data
         .repos()
@@ -632,19 +724,20 @@ pub const PASSWORD_RESET_TTL_SECONDS: u64 = 3600;
 /// Generate a cryptographically random password reset token and store its hash.
 ///
 /// The raw token is returned to be delivered to the user; only the SHA-256 hash
-/// is persisted. `reset_by` is the audit identity recorded against the token —
-/// the operator's UUID when the request names one, a service name otherwise.
-/// Shared by the admin reset handler and `pierre-cli`, each of which resolves
-/// the target user beforehand (the handler through
-/// [`find_user_in_admin_scope`]).
+/// is persisted. Whoever holds the token signs in as the account, so `acting`
+/// holds an admin account to a platform caller
+/// ([`AccountCaller::acting_on`]). The token is issued under the caller's
+/// [`AccountCaller::audit_name`]: the admin's id when the caller acts as
+/// one, a service name or `pierre-cli` otherwise. Shared by the admin reset
+/// handler and `pierre-cli`, each of which resolves the target user
+/// beforehand (the handler through [`find_user_in_admin_scope`]).
 ///
 /// # Errors
 ///
 /// Returns `Internal` if token persistence fails.
 pub async fn issue_password_reset_token(
     repos: &RepositoryRegistry,
-    target_user_id: Uuid,
-    reset_by: &str,
+    acting: &ActingOn<'_>,
 ) -> Result<String, AppError> {
     use crate::link_token::generate_link_token;
 
@@ -656,10 +749,10 @@ pub async fn issue_password_reset_token(
     repos
         .password_reset
         .store_token(
-            target_user_id,
+            acting.id(),
             &generated.selector,
             &generated.verifier_hash,
-            reset_by,
+            &acting.caller().audit_name(),
         )
         .await
         .map_err(|e| AppError::internal(format!("Failed to create reset token: {e}")))?;
@@ -667,10 +760,11 @@ pub async fn issue_password_reset_token(
     Ok(generated.token)
 }
 
-/// Find the user an admin is resetting a password for, within the admin's scope.
+/// Find the user an admin reads or resets a password for, within the admin's
+/// scope.
 ///
-/// `scope` is `None` for a platform-wide caller (a super-admin, or an admin
-/// token bound to no tenant) and the admin's tenant otherwise, in which case a
+/// `scope` is `None` for a platform-wide caller (an admin's console session,
+/// or an admin token bound to no tenant) and the admin's tenant otherwise, in which case a
 /// user outside that tenant answers `NotFound` exactly like a missing one.
 ///
 /// # Errors
@@ -1027,8 +1121,7 @@ pub async fn fetch_recent_activity(
                 .parse()
                 .ok()
                 .and_then(|id: Uuid| users.get(&id))
-                .map(|user| user.email.clone())
-                .unwrap_or_default(),
+                .map_or_default(|user| user.email.clone()),
         })
         .collect();
 

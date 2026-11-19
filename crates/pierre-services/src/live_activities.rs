@@ -13,16 +13,48 @@
 //! activity store, under one retention policy, and projects it into
 //! `cached_activities`, which every reader reads (carnet#1482).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use uuid::Uuid;
+/// Which side of the live/walk line a write is on (carnet#1486).
+///
+/// Only a live write — one that reads the provider's present — can land a
+/// session; every direct [`LiveActivityStore::ingest`] caller names its side,
+/// so a new writer has to choose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteOrigin {
+    /// A read of the provider's present: a chat turn's read, the capture
+    /// sweep, a webhook-driven read, a backfill, a group snapshot, a push.
+    Live,
+    /// A copy of the past: the history walk, the detail walk, a rewrite of a
+    /// held row.
+    Walk,
+    /// Data that did not come from reading the provider: an adoption of the
+    /// cache, an upload, a seed.
+    Import,
+}
+
+/// A workout a live write landed: newer than every workout the athlete held
+/// from any source, and no copy of one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LandedSession {
+    /// The live source key the write was made under.
+    pub provider: String,
+    /// The landed workout's id under that source.
+    pub activity_id: String,
+    /// When the workout started.
+    pub start: DateTime<Utc>,
+    /// The store held nothing before this write: the athlete's first data.
+    pub first_in_store: bool,
+}
 
 /// What one live ingest did.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LiveIngest {
     /// Rows held after the write: inserted, updated or unchanged. A row the
     /// athlete deleted is not one of them.
@@ -33,8 +65,12 @@ pub struct LiveIngest {
     /// ([`LiveActivityStore::erase`]), or they start in the future, past a
     /// clock's skew of the read.
     pub refused: u64,
-    /// Whether a session newer than every activity held landed.
+    /// Whether a session newer than every activity held from the write's own
+    /// source landed.
     pub newer_session: bool,
+    /// What a [`WriteOrigin::Live`] write landed ([`landed_session`]); always
+    /// `None` for a walk or an import.
+    pub landed: Option<LandedSession>,
 }
 
 /// The write path of every provider's activities.
@@ -43,6 +79,10 @@ pub trait LiveActivityStore: Send + Sync {
     /// Keep `activities`, read from `provider` for the athlete, at the sync
     /// stamp `synced_at`, and serve them to the cache readers. An activity
     /// the athlete deleted ([`Self::erase`]) is neither kept nor served.
+    ///
+    /// `origin` says which side of the live/walk line the write is on: only a
+    /// [`WriteOrigin::Live`] write reports what it landed
+    /// ([`LiveIngest::landed`]).
     ///
     /// # Errors
     ///
@@ -55,11 +95,14 @@ pub trait LiveActivityStore: Send + Sync {
         provider: &str,
         activities: &[Activity],
         synced_at: DateTime<Utc>,
+        origin: WriteOrigin,
     ) -> AppResult<LiveIngest>;
 
     /// Keep one pushed `activity`, received at `received_at`, unless a copy
     /// of it received later is already held: a push retried after a newer
-    /// one leaves the newer copy standing. Returns whether it was kept.
+    /// one leaves the newer copy standing. A push reads the provider's
+    /// present, so the write is [`WriteOrigin::Live`] and reports what it
+    /// landed; [`LiveIngest::stored`] says whether it was kept.
     ///
     /// # Errors
     ///
@@ -71,7 +114,7 @@ pub trait LiveActivityStore: Send + Sync {
         provider: &str,
         activity: &Activity,
         received_at: DateTime<Utc>,
-    ) -> AppResult<bool>;
+    ) -> AppResult<LiveIngest>;
 
     /// Rewrite the content of the athlete's standing `activity` of
     /// `provider` in place, keeping its receipt: a figure derived from data
@@ -238,4 +281,326 @@ pub trait LiveActivityStore: Send + Sync {
     ///
     /// Returns an error when the store fails.
     async fn delete_user(&self, user_id: Uuid) -> AppResult<u64>;
+}
+
+/// Fraction digits the store keeps of a start: PostgreSQL's `TIMESTAMPTZ`
+/// holds microseconds.
+const STORED_START_DIGITS: u16 = 6;
+
+/// The one landing rule (carnet#1486): which workout, if any, a live write
+/// of `written` under `provider` landed. Pure.
+///
+/// A write lands a session when barrage saw a newer session of the source
+/// (`newer_session`, computed over the rows it kept) and one of the rows it
+/// kept is new across every source and no copy of a held workout:
+///
+/// - `held_before` is the newest start the athlete held from any source,
+///   read before the write; `None` when the store held nothing, which lands
+///   the newest kept row as the athlete's first data;
+/// - `kept_around` is every source's cache rows around the write, read after
+///   it, so a row barrage refused (future-dated, or one the athlete erased)
+///   is never in it;
+/// - the candidates are the written rows found in `kept_around` that start
+///   after `held_before`; `kept_around` is grouped as every reader's dedup
+///   groups it ([`merge_duplicates`]), and the newest candidate whose group
+///   holds no workout started at or before `held_before` lands. An id that
+///   two providers share in the window counts as held — a scrape keeps the
+///   provider's own id — so that case fails closed.
+#[must_use]
+pub fn landed_session(
+    provider: &str,
+    written: &[Activity],
+    newer_session: bool,
+    held_before: Option<DateTime<Utc>>,
+    kept_around: &[Activity],
+    dedup: &DedupConfig,
+) -> Option<LandedSession> {
+    use chrono::SubsecRound;
+
+    if !newer_session {
+        return None;
+    }
+    let written_keys: HashSet<(&str, &str)> = written
+        .iter()
+        .map(|activity| (activity.provider(), activity.id()))
+        .collect();
+    // The newest start held is read from the store's start column, which
+    // PostgreSQL keeps to the microsecond; a row's start comes from its
+    // record, which keeps the nanosecond. Compared at the store's precision,
+    // a held ride is held on every backend.
+    let held = |start: DateTime<Utc>| {
+        held_before.is_some_and(|held| start.trunc_subsecs(STORED_START_DIGITS) <= held)
+    };
+    let mut candidates: Vec<&Activity> = kept_around
+        .iter()
+        .filter(|row| written_keys.contains(&(row.provider(), row.id())) && !held(row.start_date()))
+        .collect();
+    if candidates.is_empty() {
+        return None;
+    }
+    candidates.sort_by(|a, b| {
+        b.start_date()
+            .cmp(&a.start_date())
+            .then_with(|| a.id().cmp(b.id()))
+    });
+    let mut by_id: HashMap<&str, Vec<&Activity>> = HashMap::new();
+    for row in kept_around {
+        by_id.entry(row.id()).or_default().push(row);
+    }
+    let member_held = |id: &str| {
+        by_id.get(id).is_none_or(|rows| {
+            let providers: HashSet<&str> = rows.iter().map(|row| row.provider()).collect();
+            providers.len() > 1 || rows.iter().any(|row| held(row.start_date()))
+        })
+    };
+    let (_, report) = merge_duplicates(kept_around.to_vec(), dedup);
+    let landed = candidates.into_iter().find(|candidate| {
+        report
+            .groups
+            .iter()
+            .find(|group| group.fragment_ids.iter().any(|id| id == candidate.id()))
+            .is_none_or(|group| !group.fragment_ids.iter().any(|id| member_held(id)))
+    })?;
+    Some(LandedSession {
+        provider: provider.to_owned(),
+        activity_id: landed.id().to_owned(),
+        start: landed.start_date(),
+        first_in_store: held_before.is_none(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::slice;
+
+    use super::*;
+    use chrono::{Duration, TimeZone};
+    use pierre_core::models::{ActivityBuilder, SportType};
+
+    fn noon() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 11, 18, 12, 0, 0).unwrap()
+    }
+
+    fn ride(id: &str, provider: &str, start: DateTime<Utc>) -> Activity {
+        ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3_600, provider)
+            .distance_meters(30_000.0)
+            .build()
+    }
+
+    fn dedup() -> DedupConfig {
+        DedupConfig {
+            overlap_tolerance_secs: 300,
+            time_window_minutes: 15,
+            distance_tolerance_pct: 10.0,
+        }
+    }
+
+    /// What a write of `written` under `provider` lands, the store having
+    /// held up to `held_before` and kept `kept` around the write.
+    fn land(
+        provider: &str,
+        written: &[&Activity],
+        newer_session: bool,
+        held_before: Option<DateTime<Utc>>,
+        kept: &[&Activity],
+    ) -> Option<LandedSession> {
+        let written: Vec<Activity> = written.iter().map(|&a| a.clone()).collect();
+        let kept: Vec<Activity> = kept.iter().map(|&a| a.clone()).collect();
+        landed_session(
+            provider,
+            &written,
+            newer_session,
+            held_before,
+            &kept,
+            &dedup(),
+        )
+    }
+
+    #[test]
+    fn an_empty_store_lands_the_first_data() {
+        let first = ride("s1", "strava", noon());
+        let landed = landed_session(
+            "strava",
+            slice::from_ref(&first),
+            true,
+            None,
+            slice::from_ref(&first),
+            &dedup(),
+        )
+        .expect("bug: the first workout in an empty store must land");
+        assert!(
+            landed.first_in_store,
+            "bug: an empty store's landing is the first data"
+        );
+        assert_eq!(
+            landed.activity_id, "s1",
+            "bug: the written ride must be the one landed"
+        );
+    }
+
+    #[test]
+    fn a_held_ride_read_back_at_the_stores_precision_does_not_land_again() {
+        // PostgreSQL keeps a start to the microsecond while the row's own
+        // record keeps the nanosecond: the newest start held reads back
+        // short of the same ride's start.
+        let start = noon() + Duration::nanoseconds(123_456_789);
+        let served = ride("s1", "strava", start);
+        let held_column = noon() + Duration::microseconds(123_456);
+        assert_eq!(
+            land("strava", &[&served], true, Some(held_column), &[&served]),
+            None,
+            "bug: a ride already held lands again when its start is read at the store's precision"
+        );
+    }
+
+    #[test]
+    fn a_second_sources_copy_of_a_held_ride_does_not_land() {
+        let held = ride("g1", "garmin", noon());
+        let copy = ride("s1", "strava", noon() + Duration::minutes(4));
+        assert_eq!(
+            land(
+                "strava",
+                &[&copy],
+                true,
+                Some(held.start_date()),
+                &[&held, &copy]
+            ),
+            None,
+            "bug: Strava's copy of a held Garmin ride must not land"
+        );
+    }
+
+    #[test]
+    fn the_timed_copy_of_a_held_date_only_scrape_does_not_land() {
+        let midnight = Utc.with_ymd_and_hms(2026, 11, 18, 0, 0, 0).unwrap();
+        let scrape = ride("t1", "sciotte_strava", midnight);
+        let api = ride("s1", "strava", midnight + Duration::hours(10));
+        assert_eq!(
+            land("strava", &[&api], true, Some(midnight), &[&scrape, &api]),
+            None,
+            "bug: the API's timed copy of a held date-only scrape of the same day must not land"
+        );
+    }
+
+    #[test]
+    fn a_refused_future_row_beside_a_copy_lands_nothing() {
+        let held = ride("g1", "garmin", noon());
+        let copy = ride("s1", "strava", noon() + Duration::minutes(3));
+        let future = ride("s2", "strava", noon() + Duration::days(3));
+        // Barrage refused the future row, so the read after the write does
+        // not hold it.
+        assert_eq!(
+            land(
+                "strava",
+                &[&copy, &future],
+                true,
+                Some(held.start_date()),
+                &[&held, &copy]
+            ),
+            None,
+            "bug: a future-dated row the store refused must not make a copy land"
+        );
+    }
+
+    #[test]
+    fn an_erased_row_not_kept_does_not_land() {
+        let held = ride("g1", "garmin", noon());
+        let erased = ride("s9", "strava", noon() + Duration::hours(5));
+        assert_eq!(
+            land(
+                "strava",
+                &[&erased],
+                true,
+                Some(held.start_date()),
+                &[&held]
+            ),
+            None,
+            "bug: a row the store did not keep must not land"
+        );
+    }
+
+    #[test]
+    fn a_new_ride_after_the_newest_held_lands_under_its_source() {
+        let held = ride("g1", "garmin", noon());
+        let next = ride("s2", "strava", noon() + Duration::minutes(80));
+        assert_eq!(
+            land(
+                "strava",
+                &[&next],
+                true,
+                Some(held.start_date()),
+                &[&held, &next]
+            ),
+            Some(LandedSession {
+                provider: "strava".to_owned(),
+                activity_id: "s2".to_owned(),
+                start: next.start_date(),
+                first_in_store: false,
+            }),
+            "bug: a distinct ride after the newest held must land, named with its source"
+        );
+    }
+
+    #[test]
+    fn the_newest_new_ride_of_a_write_lands() {
+        let held = ride("g1", "garmin", noon());
+        let first = ride("s2", "strava", noon() + Duration::hours(3));
+        let second = ride("s3", "strava", noon() + Duration::hours(6));
+        let landed = land(
+            "strava",
+            &[&first, &second],
+            true,
+            Some(held.start_date()),
+            &[&held, &first, &second],
+        )
+        .expect("bug: a write of two new rides must land one");
+        assert_eq!(
+            landed.activity_id, "s3",
+            "bug: the newest new ride must be the one landed"
+        );
+    }
+
+    #[test]
+    fn no_newer_session_never_lands() {
+        let held = ride("g1", "garmin", noon());
+        let next = ride("s2", "strava", noon() + Duration::hours(2));
+        assert_eq!(
+            land(
+                "strava",
+                &[&next],
+                false,
+                Some(held.start_date()),
+                &[&held, &next]
+            ),
+            None,
+            "bug: no newer session must never land"
+        );
+    }
+
+    #[test]
+    fn an_api_copy_sharing_a_held_scrapes_id_does_not_land() {
+        let midnight = Utc.with_ymd_and_hms(2026, 11, 18, 0, 0, 0).unwrap();
+        // A scrape of Strava keeps Strava's own id, under the sciotte key.
+        let scrape = ride("1234567", "sciotte", midnight);
+        let api = ride("1234567", "strava", midnight + Duration::hours(10));
+        assert_eq!(
+            land("strava", &[&api], true, Some(midnight), &[&scrape, &api]),
+            None,
+            "bug: the API copy of a held scrape with the same id must not land"
+        );
+        let run = ActivityBuilder::new(
+            "1234567",
+            "Run",
+            SportType::Run,
+            midnight + Duration::hours(20),
+            1_800,
+            "strava",
+        )
+        .build();
+        assert_eq!(
+            land("strava", &[&run], true, Some(midnight), &[&scrape, &run]),
+            None,
+            "bug: an id another source's held row carries must fail closed"
+        );
+    }
 }

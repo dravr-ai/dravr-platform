@@ -40,14 +40,14 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::coach_athlete_reads_test::{
-    fixture, mentions, ok, person, post_mcp, refused_reason, Fixture, Person, ATHLETE_STREAM_RUN,
-    UPLOAD,
+    fixture, mentions, ok, person, post_mcp, refused_reason, Fixture, Person, ATHLETE_NAME,
+    ATHLETE_STREAM_RUN, UPLOAD,
 };
 use crate::common;
 
 /// One person's wellness, each number distinct from the other person's.
 #[derive(Debug, Clone, Copy)]
-struct Wellness {
+pub(crate) struct Wellness {
     sleep_seconds: u32,
     hrv: f64,
     resting_hr: u16,
@@ -56,7 +56,7 @@ struct Wellness {
     hrv_series: [f64; 2],
 }
 
-const ATHLETE_WELLNESS: Wellness = Wellness {
+pub(crate) const ATHLETE_WELLNESS: Wellness = Wellness {
     sleep_seconds: 25_200,
     hrv: 68.4,
     resting_hr: 46,
@@ -87,7 +87,7 @@ const GRANT_WHERE: &str = "Group info → What your human coach can do";
 const NOT_SHARED: &str = "Mira Subject has not shared their wellness";
 
 /// Every wellness read, with arguments that read the athlete.
-fn wellness_reads() -> Vec<(&'static str, Value)> {
+pub(crate) fn wellness_reads() -> Vec<(&'static str, Value)> {
     let activities = json!({ "activity_provider": UPLOAD });
     let nutrition = json!({
         "weight_kg": 60.0, "height_cm": 168.0, "age": 31, "gender": "female",
@@ -134,7 +134,7 @@ fn physiology(who: Person, wellness: Wellness, ftp: u32) -> UserPhysiologicalPro
 
 /// A week of `who`'s wellness, synced from Intervals.icu: a night's sleep
 /// each night, today's recovery and weigh-in, and an hour of heart rate.
-async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) {
+pub(crate) async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) {
     let repos = f.repos();
     let source = repos
         .data_sources
@@ -703,7 +703,7 @@ async fn a_wellness_read_naming_an_athlete_over_mcp_reads_them_under_their_grant
     }
     // A derived read answers over MCP exactly as the athlete's own read there.
     for (tool, params) in external_wellness_reads().into_iter().skip(4) {
-        let coachs = ok(
+        let mut coachs = ok(
             f.call(
                 &f.mcp_executor(),
                 f.coach,
@@ -717,6 +717,16 @@ async fn a_wellness_read_naming_an_athlete_over_mcp_reads_them_under_their_grant
             f.call(&f.mcp_executor(), f.athlete, tool, params).await,
             tool,
         );
+        // The coach's read says whose data it is (EFVP 9.4c); the athlete's
+        // own read is of no one else.
+        assert_eq!(
+            coachs
+                .as_object_mut()
+                .and_then(|read| read.remove("coached_member")),
+            Some(json!(ATHLETE_NAME)),
+            "bug: {tool} with athlete= over MCP does not name the member it read"
+        );
+        assert!(athletes.get("coached_member").is_none(), "{athletes}");
         assert_eq!(
             coachs, athletes,
             "bug: {tool} with athlete= over MCP answers as the athlete's own read over MCP"

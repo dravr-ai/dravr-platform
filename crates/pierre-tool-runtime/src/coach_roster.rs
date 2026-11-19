@@ -230,7 +230,7 @@ pub fn read_snapshot(snapshot: &MemberFitnessSnapshot) -> RosterReading {
     RosterReading {
         form: snapshot.form_reading().map(|reading| RosterForm {
             band: reading.band,
-            as_of: local_date(snapshot.computed_at, zone),
+            as_of: snapshot.computed_on(),
         }),
         ctl: snapshot.ctl.map(f64::round),
         days_since_last_activity: snapshot.days_since_last_activity,

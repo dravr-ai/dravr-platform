@@ -34,7 +34,7 @@
 //! is error-prone)"*. This module applies the identical reasoning to weekdays:
 //! the server knows the answer, so the server says it.
 
-use chrono::{DateTime, Datelike, NaiveDate, NaiveTime, Utc, Weekday};
+use chrono::{DateTime, Datelike, Days, NaiveDate, NaiveTime, TimeDelta, Utc, Weekday};
 use chrono_tz::Tz;
 
 /// Resolve a stored `users.timezone` into a zone, falling back to UTC.
@@ -409,4 +409,124 @@ pub fn local_date(instant: DateTime<Utc>, zone: Tz) -> NaiveDate {
 #[must_use]
 pub fn clock_date(instant: DateTime<Utc>, zone: Tz) -> NaiveDate {
     instant.with_timezone(&zone).date_naive()
+}
+
+/// The Monday of the week `date` falls in: weeks run Monday to Sunday on the
+/// athlete's calendar, as Home's plan strip and its volume weeks do.
+#[must_use]
+pub fn monday_of(date: NaiveDate) -> NaiveDate {
+    date.checked_sub_days(Days::new(u64::from(date.weekday().num_days_from_monday())))
+        .unwrap_or(date)
+}
+
+/// The instant the athlete's `date` begins in `zone`.
+///
+/// Where the zone skips its midnight (a DST gap, as Beirut and Cairo spring
+/// forward), the day begins the instant the gap opens: midnight under the
+/// offset in force the day before.
+#[must_use]
+pub fn day_start_utc(date: NaiveDate, zone: Tz) -> DateTime<Utc> {
+    use chrono::{Offset, TimeZone};
+
+    let midnight = date.and_time(NaiveTime::MIN);
+    zone.from_local_datetime(&midnight).earliest().map_or_else(
+        || {
+            // At the calendar's first day there is no day before to read an
+            // offset from: midnight UTC is the only instant left.
+            midnight
+                .checked_sub_signed(TimeDelta::days(1))
+                .map(|before| zone.offset_from_utc_datetime(&before).fix())
+                .and_then(|offset| {
+                    midnight
+                        .checked_sub_signed(TimeDelta::seconds(i64::from(offset.local_minus_utc())))
+                })
+                .unwrap_or(midnight)
+                .and_utc()
+        },
+        |start| start.with_timezone(&Utc),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+
+    use super::*;
+
+    fn ymd(year: i32, month: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(year, month, day).unwrap_or(NaiveDate::MIN)
+    }
+
+    #[test]
+    fn a_week_starts_on_its_monday() {
+        assert_eq!(
+            monday_of(ymd(2026, 11, 15)),
+            ymd(2026, 11, 9),
+            "bug: a Sunday is not in the week of the Monday before it"
+        );
+        assert_eq!(
+            monday_of(ymd(2026, 11, 9)),
+            ymd(2026, 11, 9),
+            "bug: a Monday is not its own week's start"
+        );
+        assert_eq!(
+            monday_of(ymd(2027, 1, 1)),
+            ymd(2026, 12, 28),
+            "bug: a week that straddles new year does not start in the old year"
+        );
+    }
+
+    #[test]
+    fn a_day_starts_at_the_athletes_midnight() {
+        let montreal = resolve_zone(Some("America/Montreal"));
+        assert_eq!(
+            day_start_utc(ymd(2026, 1, 1), montreal),
+            Utc.with_ymd_and_hms(2026, 1, 1, 5, 0, 0)
+                .single()
+                .unwrap_or_default(),
+            "bug: Montreal's midnight is not 05:00 UTC in winter"
+        );
+    }
+
+    #[test]
+    fn a_skipped_midnight_east_of_utc_starts_the_day_when_the_gap_opens() {
+        // Beirut springs forward from 00:00 (UTC+2) to 01:00 (UTC+3) on the
+        // last Sunday of March, so the 29th begins at 22:00 UTC on the 28th.
+        let beirut = resolve_zone(Some("Asia/Beirut"));
+        let date = ymd(2026, 3, 29);
+        assert!(
+            beirut
+                .from_local_datetime(&date.and_time(NaiveTime::MIN))
+                .earliest()
+                .is_none(),
+            "bug: the fixture zone no longer skips this midnight, so the gap is untested"
+        );
+        let start = day_start_utc(date, beirut);
+        assert_eq!(
+            start,
+            Utc.with_ymd_and_hms(2026, 3, 28, 22, 0, 0)
+                .single()
+                .unwrap_or_default(),
+            "bug: a day whose midnight is skipped does not begin when the gap opens"
+        );
+        assert_eq!(
+            (start - TimeDelta::nanoseconds(1))
+                .with_timezone(&beirut)
+                .date_naive(),
+            ymd(2026, 3, 28),
+            "bug: the instant before the day begins is not the day before"
+        );
+    }
+
+    #[test]
+    fn the_calendars_first_day_starts_east_of_utc_without_a_panic() {
+        // Tokyo's midnight on the calendar's first day falls before the first
+        // instant chrono holds, so it has no local start to map.
+        let tokyo = resolve_zone(Some("Asia/Tokyo"));
+        assert_eq!(
+            day_start_utc(NaiveDate::MIN, tokyo),
+            NaiveDate::MIN.and_time(NaiveTime::MIN).and_utc(),
+            "bug: a day with no local start and no day before is not read from midnight UTC"
+        );
+    }
 }

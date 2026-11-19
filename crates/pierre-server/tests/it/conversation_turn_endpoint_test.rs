@@ -53,7 +53,6 @@ async fn create_admin_user_and_token(
         password_hash,
         Some("Admin User".to_owned()),
     );
-    user.is_admin = true;
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);

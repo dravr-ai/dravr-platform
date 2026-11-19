@@ -83,6 +83,7 @@ impl LlmProvider for DataFirstProvider {
             (GENERAL_ANSWER.to_owned(), None)
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: "data-first-model".to_owned(),
             usage: None,

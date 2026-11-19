@@ -29,7 +29,7 @@ use uuid::Uuid;
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named, only};
-use pierre_core::models::{Pillar, TenantId};
+use pierre_core::models::{Pillar, PostPurpose, TenantId};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::{
     CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
@@ -121,6 +121,7 @@ async fn check_in_posted(fx: &Fixture, at: chrono::DateTime<Utc>) {
             fx.tenant,
             fx.user_id,
             "check_in",
+            PostPurpose::NO_SUBJECT,
             at - Duration::hours(1),
             at,
         )
@@ -128,7 +129,14 @@ async fn check_in_posted(fx: &Fixture, at: chrono::DateTime<Utc>) {
         .unwrap()
         .expect("the hour's claim takes the post");
     assert!(claims
-        .mark_platform_post_posted(fx.tenant, fx.user_id, "check_in", &lease_token, at)
+        .mark_platform_post_posted(
+            fx.tenant,
+            fx.user_id,
+            "check_in",
+            PostPurpose::NO_SUBJECT,
+            &lease_token,
+            at
+        )
         .await
         .unwrap());
 }

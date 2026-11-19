@@ -24,11 +24,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::common::offline_provider_registry;
 use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
 use dravr_enforme::traits::credential_store::CredentialStore;
-use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::wire::{SESSION_ROTATED, SESSION_ROTATED_HEADER};
 use pierre_core::constants::oauth_providers::{
@@ -38,7 +38,7 @@ use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::core::{CredentialKind, OAuth2Credentials};
-use pierre_providers::registry::ProviderRegistry;
+use pierre_providers::sciotte_provider::startup_reads;
 use pierre_providers::token_writeback::StoredTokenRow;
 use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::trainingpeaks_accounts::trainingpeaks_profile;
@@ -49,6 +49,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
+use crate::common::REFUSED_WELLNESS;
 use crate::db_fixtures::seed_user;
 
 const SESSION_ID: &str = "sess-rotating";
@@ -113,8 +114,7 @@ fn requested_date(request: &str) -> String {
     request
         .split("date=")
         .nth(1)
-        .map(|rest| rest.chars().take(10).collect())
-        .unwrap_or_default()
+        .map_or_default(|rest| rest.chars().take(10).collect())
 }
 
 /// Serve the stand-in; returns its base URL and how many exports it answered.
@@ -185,9 +185,11 @@ async fn a_health_sync_read_that_rotated_the_session_stores_it_over_the_row() {
         .await
         .unwrap();
     let (base, exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
-    let client = SciotteClient::new(&base, None).unwrap();
+    let client = startup_reads(&[String::from(&base)], None).unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let orchestrator = storage.build_orchestrator(Some(client)).unwrap();
+    let orchestrator = storage
+        .build_orchestrator(Some(client), REFUSED_WELLNESS)
+        .unwrap();
 
     orchestrator
         .sync_user(&user_id.to_string(), "garmin")
@@ -216,9 +218,11 @@ async fn a_health_sync_never_overwrites_a_row_a_reconnect_replaced_during_the_re
     let reconnect = session_row(user_id, tenant, SCIOTTE_GARMIN, RECONNECTED_COOKIE);
     let (base, exports) =
         spawn_rotating_scraper(Arc::new(Mutex::new(Some((Arc::clone(&repos), reconnect))))).await;
-    let client = SciotteClient::new(&base, None).unwrap();
+    let client = startup_reads(&[String::from(&base)], None).unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let orchestrator = storage.build_orchestrator(Some(client)).unwrap();
+    let orchestrator = storage
+        .build_orchestrator(Some(client), REFUSED_WELLNESS)
+        .unwrap();
 
     orchestrator
         .sync_user(&user_id.to_string(), "garmin")
@@ -246,8 +250,8 @@ async fn a_trainingpeaks_profile_read_stores_a_rotated_session_only_over_a_stand
 
     let replacement: Replacement = Arc::new(Mutex::new(None));
     let (base, _) = spawn_rotating_scraper(Arc::clone(&replacement)).await;
-    let registry =
-        ProviderRegistry::new().with_sciotte_client(Some(SciotteClient::new(&base, None).unwrap()));
+    let registry = offline_provider_registry()
+        .with_sciotte_reads(Some(startup_reads(&[String::from(&base)], None).unwrap()));
 
     trainingpeaks_profile(&registry, &*repos.oauth_tokens, &read_from, &session)
         .await
@@ -280,6 +284,47 @@ async fn a_trainingpeaks_profile_read_stores_a_rotated_session_only_over_a_stand
     );
 }
 
+/// With two read services, a TrainingPeaks profile read — its import, read
+/// and the export of the rotation — goes to the service the session's id
+/// names (carnet#1504). `sess-rotating` names the second of two services:
+/// the jump hash every API revision computes the same way pins it there.
+#[tokio::test]
+async fn a_trainingpeaks_profile_read_reaches_the_read_service_its_session_names() {
+    let (repos, user_id, tenant, _db) = setup().await;
+    let row = session_row(user_id, tenant, SCIOTTE_TRAININGPEAKS, STORED_COOKIE);
+    repos.oauth_tokens.upsert_token(&row).await.unwrap();
+    let read_from = StoredTokenRow::of(&row).unwrap();
+    let (first, first_exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
+    let (second, second_exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
+    let registry = offline_provider_registry()
+        .with_sciotte_reads(Some(startup_reads(&[first, second], None).unwrap()));
+
+    trainingpeaks_profile(
+        &registry,
+        &*repos.oauth_tokens,
+        &read_from,
+        &session_with(STORED_COOKIE),
+    )
+    .await
+    .expect("the profile is read");
+
+    assert_eq!(
+        *second_exports.lock().unwrap(),
+        1,
+        "the rotation was exported from the service the session names"
+    );
+    assert_eq!(
+        *first_exports.lock().unwrap(),
+        0,
+        "nothing of the read reached the other service"
+    );
+    assert_eq!(
+        stored_cookie(&repos, user_id, tenant, SCIOTTE_TRAININGPEAKS).await,
+        ROTATED_COOKIE,
+        "the rotation its own service exported is stored"
+    );
+}
+
 /// The session stored on `user_id`'s `backend` row: its id and `session`
 /// cookie, and whether the row still holds no refresh token.
 async fn stored_session(
@@ -302,7 +347,7 @@ async fn stored_session(
     )
 }
 
-/// A super admin's clone copies one Garmin session onto another account, in
+/// An admin's clone copies one Garmin session onto another account, in
 /// its own tenant. A provider read on the source account that rotates the
 /// session stores the rotated copy over the row it read only, its `NULL`
 /// refresh token kept though the auth layer hands the provider an empty one;
@@ -325,8 +370,8 @@ async fn a_provider_read_that_rotates_a_cloned_session_stores_it_on_the_row_read
         .unwrap();
 
     let (base, exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
-    let registry =
-        ProviderRegistry::new().with_sciotte_client(Some(SciotteClient::new(&base, None).unwrap()));
+    let registry = offline_provider_registry()
+        .with_sciotte_reads(Some(startup_reads(&[String::from(&base)], None).unwrap()));
     let provider = registry.create_provider(SCIOTTE_GARMIN).unwrap();
     provider
         .set_credentials(OAuth2Credentials {
@@ -363,15 +408,15 @@ async fn a_provider_read_that_rotates_a_cloned_session_stores_it_on_the_row_read
     assert_eq!(
         stored_session(&repos, clone, clone_tenant, SCIOTTE_GARMIN).await,
         (SESSION_ID.to_owned(), STORED_COOKIE.to_owned(), true),
-        "the super admin's clone in another account is never written"
+        "the admin's clone in another account is never written"
     );
 }
 
-/// A health sync's reader names no athlete, so when a super admin's clone
+/// A health sync's reader names no athlete, so when an admin's clone
 /// shares the session it read through, it cannot tell the row read from the
 /// clone's: nothing is stored, and the clone's row is never written.
 #[tokio::test]
-async fn a_health_sync_never_writes_a_super_admin_clone_of_the_session() {
+async fn a_health_sync_never_writes_an_admin_clone_of_the_session() {
     let (repos, reader, reader_tenant, db) = setup().await;
     let (clone, clone_tenant) = seed_user(&db).await;
     for (user, tenant) in [(reader, reader_tenant), (clone, clone_tenant)] {
@@ -384,7 +429,10 @@ async fn a_health_sync_never_writes_a_super_admin_clone_of_the_session() {
     let (base, exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let orchestrator = storage
-        .build_orchestrator(Some(SciotteClient::new(&base, None).unwrap()))
+        .build_orchestrator(
+            Some(startup_reads(&[String::from(&base)], None).unwrap()),
+            REFUSED_WELLNESS,
+        )
         .unwrap();
 
     // The clone's sync has been handed its row, as concurrent syncs of both

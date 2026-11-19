@@ -19,7 +19,8 @@ use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use dravr_meteo::{WeatherError, WeatherProvider, WeatherQuery, WeatherSample};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
-use pierre_services::weather_backfill::fill_activity_temperatures;
+use pierre_fitness_compute::weather_clients::WeatherClients;
+use pierre_services::weather_backfill::WeatherBackfill;
 use tokio::time::sleep;
 
 /// Passes over the backfill before the test gives up.
@@ -95,8 +96,11 @@ async fn fills_temperature_via_city_geocoding_when_gps_absent() {
         build_activity_city_only("a2", "Montreal", "Quebec"),
     ];
 
+    // No weather configuration is the vendors' own hosts: Open-Meteo's
+    // gazetteer, which this test is about.
+    let backfill = WeatherBackfill::new(provider, Arc::new(WeatherClients::new(None)));
     let mut calls_before_pass = 0;
-    let mut result = fill_activity_temperatures(&activities, provider.clone()).await;
+    let mut result = backfill.fill(&activities).await;
     let mut attempt = 1;
     while result.len() < activities.len() && attempt < GEOCODE_ATTEMPTS {
         eprintln!(
@@ -107,7 +111,7 @@ async fn fills_temperature_via_city_geocoding_when_gps_absent() {
         attempt += 1;
         sleep(GEOCODE_BACKOFF).await;
         calls_before_pass = calls.load(Ordering::SeqCst);
-        result = fill_activity_temperatures(&activities, provider.clone()).await;
+        result = backfill.fill(&activities).await;
     }
 
     assert_eq!(

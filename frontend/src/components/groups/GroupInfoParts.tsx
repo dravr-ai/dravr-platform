@@ -94,12 +94,16 @@ export function ValueRow({ label, value, ...rest }: { label: string; value: stri
   );
 }
 
-/** The dot that says, beside its word, whether a member shares their training with the group. */
+/**
+ * The dot that says, beside its word, whether a member shares their training
+ * with the group. Sharing is a state, so it takes `success`: a pillar hue marks
+ * a category and nothing else.
+ */
 export function SharingState({ on, onLabel, offLabel }: { on: boolean; onLabel: string; offLabel: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span aria-hidden="true" className={clsx('h-2 w-2 shrink-0 rounded-full', on ? 'bg-activity' : 'bg-outline-variant')} />
-      <span className={on ? 'font-medium text-on-activity-container' : 'text-on-surface-variant'}>
+      <span aria-hidden="true" className={clsx('h-2 w-2 shrink-0 rounded-full', on ? 'bg-success' : 'bg-outline-variant')} />
+      <span className={on ? 'font-medium text-on-success-container' : 'text-on-surface-variant'}>
         {on ? onLabel : offLabel}
       </span>
     </span>

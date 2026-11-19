@@ -127,8 +127,8 @@ pub(crate) use llm_usage_token_sums;
 /// Totals per `(provider, model, call_type)` for one scope since `$2`,
 /// heaviest first; turn-summary rows and direct tool rows ($3 and $4) are no LLM
 /// call and carry no tokens, so they are left out and do not inflate `calls`.
-/// `$scope` is the predicate on `$1` (and `$5`) that picks the rows: a tenant
-/// or every tenant, a user, or a user's rows in one tenant.
+/// `$scope` is the predicate on `$1` that picks the rows: a tenant or every
+/// tenant, or a user.
 macro_rules! llm_usage_aggregates_sql {
     ($scope:literal) => {
         concat!(
@@ -146,22 +146,18 @@ macro_rules! llm_usage_aggregates_sql {
 }
 
 /// A tenant's totals per `(provider, model, call_type)` since `$2`; every
-/// tenant's when `$1` binds `NULL`, the super-admin path.
+/// tenant's when `$1` binds `NULL`, the platform-wide path.
 pub(crate) const LLM_USAGE_AGGREGATES_SQL: &str =
     llm_usage_aggregates_sql!("($1 IS NULL OR tenant_id = $1)");
 
 /// A user's totals per `(provider, model, call_type)` since `$2`.
 pub(crate) const LLM_USAGE_AGGREGATES_BY_USER_SQL: &str = llm_usage_aggregates_sql!("user_id = $1");
 
-/// A user's totals in one tenant (`$5`) per `(provider, model, call_type)` since `$2`.
-pub(crate) const LLM_USAGE_AGGREGATES_BY_USER_IN_TENANT_SQL: &str =
-    llm_usage_aggregates_sql!("tenant_id = $5 AND user_id = $1");
-
 /// Totals per UTC calendar day for one scope since `$2`, oldest first, with
 /// the same exclusions as the aggregates. `$day` is the
 /// engine's spelling of a row's UTC day as `YYYY-MM-DD` text; `$scope` is the
-/// predicate on `$1` (and `$5`), as in [`llm_usage_aggregates_sql`]. Postgres averages an integer column as
-/// `NUMERIC`, so the average is cast to a double on both.
+/// predicate on `$1`, as in [`llm_usage_aggregates_sql`]. Postgres averages an
+/// integer column as `NUMERIC`, so the average is cast to a double on both.
 macro_rules! llm_usage_daily_series_sql {
     ($day:literal, $scope:literal) => {
         concat!(
@@ -566,57 +562,6 @@ macro_rules! impl_llm_usage_repository {
                     .iter()
                     .map(daily_from_row)
                     .collect()
-            }
-
-            async fn get_llm_usage_aggregates_by_user_in_tenant(
-                &self,
-                user_id: &str,
-                tenant_id: &str,
-                since: &str,
-            ) -> AppResult<Vec<LlmUsageAggregateRow>> {
-                sqlx::query(LLM_USAGE_AGGREGATES_BY_USER_IN_TENANT_SQL)
-                    .bind(user_id)
-                    .bind(since_bound(since)?)
-                    .bind(TURN_SUMMARY_CALL_TYPE)
-                    .bind(DIRECT_TOOL_CALL_TYPE)
-                    .bind(tenant_id)
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to query LLM usage aggregates by user: {e}"
-                        ))
-                    })?
-                    .iter()
-                    .map(aggregate_from_row)
-                    .collect()
-            }
-
-            async fn get_llm_usage_daily_series_by_user_in_tenant(
-                &self,
-                user_id: &str,
-                tenant_id: &str,
-                since: &str,
-            ) -> AppResult<Vec<LlmUsageDailyRow>> {
-                sqlx::query(llm_usage_daily_series_sql!(
-                    $day,
-                    "tenant_id = $5 AND user_id = $1"
-                ))
-                .bind(user_id)
-                .bind(since_bound(since)?)
-                .bind(TURN_SUMMARY_CALL_TYPE)
-                .bind(DIRECT_TOOL_CALL_TYPE)
-                .bind(tenant_id)
-                .fetch_all(self.pool())
-                .await
-                .map_err(|e| {
-                    AppError::database(format!(
-                        "Failed to query LLM usage daily series by user: {e}"
-                    ))
-                })?
-                .iter()
-                .map(daily_from_row)
-                .collect()
             }
 
             async fn get_recent_llm_calls_admin(

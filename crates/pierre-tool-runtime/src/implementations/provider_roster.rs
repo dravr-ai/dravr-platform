@@ -30,7 +30,11 @@
 //!    not resolve as the caller's own.
 //! 4. **Standing, not just the roster.** A coach with no group, or without
 //!    coach access, still reads their roster, with what it takes to link
-//!    anyone on it.
+//!    anyone on it. A coach still attached to a group while their coach
+//!    access is off coaches no group by the one coach rule
+//!    ([`roster_access`]), so the roster names no member of that group for
+//!    them: only an athlete behind a link they already hold is listed, and
+//!    every other athlete is counted as in none of their groups.
 
 use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
@@ -49,6 +53,7 @@ use pierre_core::models::{CoachAccessStatus, RosterAccess, TenantId};
 use pierre_mcp_schema::PropertySchema;
 use pierre_runtime_context::DataContext;
 use pierre_services::coach_platform::{check_roster_transport, roster_platforms, CoachPlatform};
+use pierre_services::coach_roster::{self, roster_access};
 use pierre_services::delegated_link_states::{roster_link_states, LinkState, RosterLinkState};
 use pierre_tools_core::ToolResult;
 
@@ -252,13 +257,18 @@ pub(super) fn platform_refusal(error: &AppError) -> Option<ProviderRosterRefusal
 struct Standing {
     coach_access: bool,
     access_requested: bool,
+    /// Still attached to an active group as its coach while coach access is
+    /// off: the groups are theirs to coach again once it is back.
+    attached_without_access: bool,
     groups_coached: usize,
     can_invite: bool,
 }
 
 /// Read `coach`'s standing: coach access as coaching a group takes it
-/// (`manages_roster`, or platform admin), whether a request for it waits
-/// when they do not hold it, the active groups they coach, and whether they
+/// ([`User::holds_coach_access`](pierre_core::models::User::holds_coach_access)),
+/// whether a request for it waits when they do not hold it, the active
+/// groups they coach by the one coach rule ([`roster_access`]: none while
+/// their coach access is off, though they stay attached), and whether they
 /// may issue the invite of any of them (an owner or admin membership: a
 /// coach attached by a coach invite holds none).
 async fn standing(data: &DataContext, coach: Uuid) -> AppResult<Standing> {
@@ -267,52 +277,73 @@ async fn standing(data: &DataContext, coach: Uuid) -> AppResult<Standing> {
         .users
         .get_global(coach)
         .await?
-        .is_some_and(|user| user.manages_roster || user.is_admin);
+        .is_some_and(|user| user.holds_coach_access());
     let access_requested = !coach_access
         && repos
             .coach_access_requests
             .latest_for_user(coach)
             .await?
             .is_some_and(|request| request.status == CoachAccessStatus::Pending);
-    let mut groups_coached = 0;
+    let (groups, attached_without_access) = match roster_access(repos, coach).await? {
+        coach_roster::RosterAccess::Granted(groups) => (groups, false),
+        coach_roster::RosterAccess::NoCoachAccess(_) => (Vec::new(), true),
+        coach_roster::RosterAccess::NotACoach => (Vec::new(), false),
+    };
     let mut can_invite = false;
-    for group in repos.groups.list_groups_coached_by(coach).await? {
-        if !group.is_active {
-            continue;
+    for group in &groups {
+        if can_invite {
+            break;
         }
-        groups_coached += 1;
-        if !can_invite {
-            can_invite = repos
-                .groups
-                .get_member(&group.id.to_string(), coach)
-                .await?
-                .is_some_and(|member| member.role.can_manage_members());
-        }
+        can_invite = repos
+            .groups
+            .get_member(&group.id.to_string(), coach)
+            .await?
+            .is_some_and(|member| member.role.can_manage_members());
     }
     Ok(Standing {
         coach_access,
         access_requested,
-        groups_coached,
+        attached_without_access,
+        groups_coached: groups.len(),
         can_invite,
     })
 }
 
+/// How a caller whose request for coach access waits is told so.
+const ACCESS_REQUEST_WAITS: &str =
+    "Your request for it is waiting for the Dravr team to decide: there is nothing more to ask.";
+
+/// How coach access is come by, for a caller with no request waiting.
+const ACCESS_COMES_WITH: &str = "it comes with a TrainingPeaks coach account, or the Dravr team \
+                                 turns it on when you ask for it in the app.";
+
 /// What it takes, from `standing`, to link a roster athlete not linked yet.
 fn next_steps(standing: &Standing) -> Vec<String> {
+    if standing.attached_without_access {
+        // Their groups exist and are still theirs: nothing is created, and
+        // no athlete is linked until coach access is back.
+        let regained = if standing.access_requested {
+            ACCESS_REQUEST_WAITS.to_owned()
+        } else {
+            format!("To have it back: {ACCESS_COMES_WITH}")
+        };
+        return vec![format!(
+            "Your coach access is off, so no athlete can be linked for now. You are still \
+             attached to your Dravr groups as their coach, and you coach them again once coach \
+             access is back. {regained}"
+        )];
+    }
     let mut steps = Vec::new();
     if standing.access_requested {
-        steps.push(
-            "Coaching a Dravr group takes coach access, which you do not hold yet. Your request \
-             for it is waiting for the Dravr team to decide: there is nothing more to ask."
-                .to_owned(),
-        );
+        steps.push(format!(
+            "Coaching a Dravr group takes coach access, which you do not hold yet. \
+             {ACCESS_REQUEST_WAITS}"
+        ));
     } else if !standing.coach_access {
-        steps.push(
-            "Coaching a Dravr group takes coach access, which you do not hold yet: it comes with \
-             a TrainingPeaks coach account, or the Dravr team turns it on when you ask for it in \
-             the app."
-                .to_owned(),
-        );
+        steps.push(format!(
+            "Coaching a Dravr group takes coach access, which you do not hold yet: \
+             {ACCESS_COMES_WITH}"
+        ));
     }
     let joined = "Once an athlete joins with the email your platform lists for them and verifies \
                   it, `propose_athlete_link` asks them to confirm the link in the app.";
@@ -382,6 +413,13 @@ async fn named_member(
 /// `states`, one platform's roster, as the tool lists it: members by display
 /// name, everyone else as counts.
 ///
+/// The link states read the coach attachment alone. `coaches_no_group` is
+/// the caller's standing by the one coach rule when it says otherwise — still
+/// attached, coach access off ([`Standing::attached_without_access`]): they
+/// coach no group, so an athlete no link of theirs holds is in none of their
+/// groups, counted and never named. A link they already hold is listed as it
+/// is for anyone.
+///
 /// # Errors
 ///
 /// Returns the repository error from a group lookup.
@@ -389,6 +427,7 @@ async fn project(
     data: &DataContext,
     platform: &dyn CoachPlatform,
     states: Vec<RosterLinkState>,
+    coaches_no_group: bool,
 ) -> AppResult<ProviderRosterPlatform> {
     let roster_size = states.len();
     let mut names: HashMap<Uuid, String> = HashMap::new();
@@ -397,6 +436,12 @@ async fn project(
     let mut others: BTreeMap<(ProviderRosterState, ProviderRosterAccess), usize> = BTreeMap::new();
     for RosterLinkState { athlete, state } in states {
         let access = ProviderRosterAccess::of(athlete.access);
+        if coaches_no_group && state.link().is_none() {
+            *others
+                .entry((ProviderRosterState::NotInYourGroups, access))
+                .or_default() += 1;
+            continue;
+        }
         let kind = ProviderRosterState::of(&state);
         let Some((member_id, group)) = named_member(data, &state, &mut link_groups).await? else {
             *others.entry((kind, access)).or_default() += 1;
@@ -460,22 +505,6 @@ pub(super) async fn roster_states(
     match read {
         Ok(states) => Ok(Ok(states)),
         Err(e) => platform_refusal(&e).map(Err).ok_or(e),
-    }
-}
-
-/// One platform's roster for the caller, or why it was not read.
-///
-/// # Errors
-///
-/// Returns a repository or provider error that is no linking refusal.
-async fn platform_roster(
-    context: &ToolExecutionContext,
-    platform: &dyn CoachPlatform,
-    tenant: TenantId,
-) -> AppResult<ProviderRosterPlatform> {
-    match roster_states(context, platform, tenant).await? {
-        Ok(states) => project(&context.resources.data(), platform, states).await,
-        Err(why) => Ok(refused(platform, why)),
     }
 }
 
@@ -561,22 +590,35 @@ impl McpTool<dyn ToolRuntime> for GetProviderRosterTool {
                 }
             };
 
-            let mut rosters = Vec::with_capacity(platforms.len());
+            let mut reads = Vec::with_capacity(platforms.len());
             for platform in &platforms {
-                rosters.push(platform_roster(&context, platform.as_ref(), tenant).await?);
+                reads.push(roster_states(&context, platform.as_ref(), tenant).await?);
             }
             // One platform, refused: the refusal is the answer.
-            if let [only] = rosters.as_slice() {
-                if let Some(r) = &only.refusal {
-                    return Ok(ToolResult::error(json!({
-                        "reason": r.reason,
-                        "error": r.error,
-                        "provider": only.provider,
-                    })));
-                }
+            if let ([only], [Err(r)]) = (platforms.as_slice(), reads.as_slice()) {
+                return Ok(ToolResult::error(json!({
+                    "reason": r.reason,
+                    "error": r.error,
+                    "provider": only.user_facing(),
+                })));
             }
 
-            let standing = standing(&context.resources.data(), context.user_id).await?;
+            // Read once, after the rosters (a live roster read may file the
+            // caller's request for coach access), and before they are listed:
+            // what the roster names depends on it.
+            let data = context.resources.data();
+            let standing = standing(&data, context.user_id).await?;
+            let mut rosters = Vec::with_capacity(platforms.len());
+            let platform_reads = platforms.iter().zip(reads);
+            for (platform, read) in platform_reads {
+                rosters.push(match read {
+                    Ok(states) => {
+                        let coaches_no_group = standing.attached_without_access;
+                        project(&data, platform.as_ref(), states, coaches_no_group).await?
+                    }
+                    Err(why) => refused(platform.as_ref(), why),
+                });
+            }
             info!(
                 requester = %context.user_id,
                 platforms = rosters.len(),
@@ -612,9 +654,49 @@ mod tests {
         Standing {
             coach_access,
             access_requested: false,
+            attached_without_access: false,
             groups_coached,
             can_invite,
         }
+    }
+
+    #[test]
+    fn a_coach_still_attached_whose_access_is_off_is_told_so_and_never_to_create_a_group() {
+        let attached = Standing {
+            attached_without_access: true,
+            ..standing(false, 0, false)
+        };
+        let steps = next_steps(&attached);
+        assert_eq!(steps.len(), 1, "{steps:?}");
+        assert!(steps[0].contains("Your coach access is off"), "{steps:?}");
+        assert!(
+            steps[0].contains("still attached to your Dravr groups as their coach"),
+            "{steps:?}"
+        );
+        assert!(
+            steps[0].contains("turns it on when you ask for it in the app"),
+            "how coach access is asked for: {steps:?}"
+        );
+        for absent in [
+            "create one you coach",
+            "propose_athlete_link",
+            "/group invite",
+        ] {
+            assert!(
+                !steps[0].contains(absent),
+                "bug: {absent:?} is no step for a coach whose groups exist: {steps:?}"
+            );
+        }
+
+        let waiting = Standing {
+            access_requested: true,
+            ..attached
+        };
+        let steps = next_steps(&waiting);
+        assert_eq!(steps.len(), 1, "{steps:?}");
+        assert!(steps[0].contains("Your coach access is off"), "{steps:?}");
+        assert!(steps[0].contains("waiting for the Dravr team"), "{steps:?}");
+        assert!(!steps[0].contains("when you ask for it"), "{steps:?}");
     }
 
     #[test]

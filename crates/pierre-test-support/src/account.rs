@@ -9,7 +9,7 @@ use pierre_database::repositories::{AccountDeletion, AccountDeletionPlan, Deleti
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
-/// Delete `user_id` through the account deletion, as an operator.
+/// Delete `user_id` through the account deletion, as an admin.
 ///
 /// No provider backend is purged and no upstream grant reported: what a test
 /// whose account holds no provider needs. `firebase_project` queues the

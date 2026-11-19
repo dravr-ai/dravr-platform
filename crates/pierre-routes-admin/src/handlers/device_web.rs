@@ -1,5 +1,5 @@
 // ABOUTME: Browser-facing approval page for the RFC 8628 device flow — the gcloud-style zero-token bootstrap
-// ABOUTME: The operator signs in as a super-admin (email/password) in the browser to approve a pending CLI login
+// ABOUTME: The operator signs in as an admin (email/password) in the browser to approve a pending CLI login
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,8 +8,8 @@
 //!
 //! Unlike the token-gated `POST /admin/device/approve` (a headless/CI fallback),
 //! this is the primary, gcloud-style path: the operator opens
-//! `GET /admin/device?user_code=XXXX` and approves by signing in **as a
-//! super-admin** (email/password, verified directly against the API host). No
+//! `GET /admin/device?user_code=XXXX` and approves by signing in **as an
+//! admin** (email/password, verified directly against the API host). No
 //! pre-existing token is needed — the browser sign-in *is* the authorization.
 //!
 //! Approval is **credential-gated** (re-auth per approval, sudo-style) rather
@@ -60,7 +60,7 @@ impl fmt::Debug for DevicePageQuery {
 /// The sign-in-and-approve form submitted by the operator.
 #[derive(Deserialize)]
 pub struct DeviceApproveForm {
-    /// Operator email (must resolve to a super-admin to approve).
+    /// Operator email (must resolve to an admin to approve).
     pub email: String,
     /// Operator password.
     pub password: String,
@@ -133,7 +133,7 @@ pub async fn handle_device_page(Query(query): Query<DevicePageQuery>) -> Html<St
     Html(render_form(&user_code, None))
 }
 
-/// `POST /admin/device/approve-web` — sign in as a super-admin and approve/deny.
+/// `POST /admin/device/approve-web` — sign in as an admin and approve/deny.
 pub async fn handle_device_approve_web(
     State(context): State<Arc<AdminApiContext>>,
     peer: PeerAddress,
@@ -143,7 +143,7 @@ pub async fn handle_device_approve_web(
     let user_code = sanitize_user_code(&form.user_code);
 
     // The attempt is counted in the sign-in windows before the password is
-    // checked (carnet#804, carnet#908): this page signs in a super-admin, the
+    // checked (carnet#804, carnet#908): this page signs in an admin, the
     // account most worth guessing. A browser that signed in to the account
     // before is metered on its own, out of strangers' reach (carnet#1088).
     let limiter = &context.sign_in_limiter;
@@ -204,11 +204,13 @@ async fn resolve_approval(
     user_code: &str,
     form: &DeviceApproveForm,
 ) -> Html<String> {
-    if !user.role.is_super_admin() {
+    // An admin in good standing: a suspended or pending admin still holds its
+    // password, and must not mint a token with it.
+    if !user.is_active_admin() {
         return Html(render_form(
             user_code,
             Some(&format!(
-                "{} is not a super-admin. Approving a CLI login requires a super-admin account.",
+                "{} is not an admin in good standing. Approving a CLI login requires an active admin account.",
                 user.email
             )),
         ));
@@ -218,7 +220,7 @@ async fn resolve_approval(
     let Ok(Some(record)) = repo.get_device_authorization_by_user_code(user_code).await else {
         return Html(render_message(
             "Login request not found",
-            "That code is unknown or has already been used. Start a new login from the CLI.",
+            "That code is unknown, has expired or has already been used. Start a new login from the CLI.",
         ));
     };
     if record.status != "pending" {
@@ -291,7 +293,7 @@ fn render_form(user_code: &str, error: Option<&str>) -> String {
     });
     let body = format!(
         "<h1>Approve CLI sign-in</h1>\
-<p class=\"lead\">Confirm the code shown by <code>pierre-cli auth login</code>, then sign in as a super-admin to approve.</p>\
+<p class=\"lead\">Confirm the code shown by <code>pierre-cli auth login</code>, then sign in as an admin to approve.</p>\
 <div class=\"user-code\">{code}</div>\
 <form method=\"post\" action=\"/admin/device/approve-web\">\
 <input type=\"hidden\" name=\"user_code\" value=\"{code}\">\

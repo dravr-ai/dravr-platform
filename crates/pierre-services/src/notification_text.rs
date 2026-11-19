@@ -19,12 +19,14 @@
 //! This mirrors [`crate::memory_facts::SentenceRenderer`]: one renderer over
 //! the live string catalogue, one locale, no surface gluing English to data.
 
+use chrono::NaiveDate;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_COACH_ACCESS_DECLINED_REASON_BODY, KEY_GROUP_DIGEST_ALL_CLEAR,
-    KEY_GROUP_DIGEST_CONCERNS_HEADER, KEY_GROUP_DIGEST_CONCERN_DEEP_FATIGUE,
-    KEY_GROUP_DIGEST_CONCERN_HEAVY_BLOCK, KEY_GROUP_DIGEST_CONCERN_INACTIVE,
-    KEY_GROUP_DIGEST_CONCERN_OVERTRAINING_RISK, KEY_GROUP_DIGEST_CONCERN_VOLUME_DROP,
-    KEY_GROUP_DIGEST_FRESH, KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER, KEY_GROUP_DIGEST_MANAGER_SCOPE,
+    envelope_anchor_label_key, MessagingStringsRegistry, KEY_COACH_ACCESS_DECLINED_REASON_BODY,
+    KEY_GROUP_DIGEST_ALL_CLEAR, KEY_GROUP_DIGEST_CONCERNS_HEADER,
+    KEY_GROUP_DIGEST_CONCERN_DEEP_FATIGUE, KEY_GROUP_DIGEST_CONCERN_HEAVY_BLOCK,
+    KEY_GROUP_DIGEST_CONCERN_INACTIVE, KEY_GROUP_DIGEST_CONCERN_OVERTRAINING_RISK,
+    KEY_GROUP_DIGEST_CONCERN_VOLUME_DROP, KEY_GROUP_DIGEST_FRESH,
+    KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER, KEY_GROUP_DIGEST_MANAGER_SCOPE,
     KEY_GROUP_DIGEST_MEMBERS_HEADER, KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE,
     KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE_PREV, KEY_GROUP_DIGEST_ROOM_SCOPE,
     KEY_GROUP_DIGEST_SUMMARY_DISTANCE, KEY_GROUP_DIGEST_TREND_DECLINING,
@@ -32,11 +34,14 @@ use pierre_contremaitre::messaging_strings::{
     KEY_NOTIFICATION_PR_DISTANCE_10K, KEY_NOTIFICATION_PR_DISTANCE_5K,
     KEY_NOTIFICATION_PR_DISTANCE_HALF_MARATHON, KEY_NOTIFICATION_PR_DISTANCE_MARATHON,
 };
-use pierre_core::models::UnitSystem;
+use pierre_core::models::{SportAnchorName, UnitSystem};
 use pierre_notifications::events::{
     action_label_key, NotificationEvent, COACH_ACCESS_DECLINE_REASON_PARAM,
+    DATA_ACCESS_COMPANY_PARAM, DATA_ACCESS_DUE_ON_PARAM, DATA_ACCESS_REFERENCE_PARAM,
 };
 use serde_json::{Map, Value};
+
+use crate::data_access_requests;
 
 /// Group-digest concern code: form in the deepest fatigue band.
 pub const CONCERN_DEEP_FATIGUE: &str = "deep_fatigue";
@@ -119,6 +124,9 @@ impl<'a> NotificationTextRenderer<'a> {
             NotificationEvent::GroupWeeklyDigest => self.group_digest_body(params),
             NotificationEvent::PersonalRecord => self.personal_record_body(params),
             NotificationEvent::CoachAccessDeclined => self.coach_access_declined_body(params),
+            NotificationEvent::CoachPhysiologySet => self.coach_physiology_set_body(params),
+            NotificationEvent::DataAccessRequestDueSoon
+            | NotificationEvent::DataAccessRequestOverdue => self.data_access_body(event, params),
             _ => self.render(event.body_key(), event.body_params(), params),
         }
     }
@@ -177,14 +185,14 @@ impl<'a> NotificationTextRenderer<'a> {
             Some(PR_DISTANCE_MARATHON) => Some(KEY_NOTIFICATION_PR_DISTANCE_MARATHON),
             _ => None,
         };
-        let distance = key.map(|key| self.line(key, &[])).unwrap_or_default();
+        let distance = key.map_or_default(|key| self.line(key, &[]));
         self.line(
             NotificationEvent::PersonalRecord.body_key(),
             &[&distance, &param_text(params.get("time_display"))],
         )
     }
 
-    /// The declined coach-access body: with the super-admin's reason when the
+    /// The declined coach-access body: with the admin's reason when the
     /// notice carries one, the plain decline otherwise — never a sentence
     /// with an empty slot where the reason would be.
     fn coach_access_declined_body(&self, params: &Map<String, Value>) -> String {
@@ -194,6 +202,40 @@ impl<'a> NotificationTextRenderer<'a> {
         } else {
             self.line(KEY_COACH_ACCESS_DECLINED_REASON_BODY, &[reason.trim()])
         }
+    }
+
+    /// The body telling an athlete their coach set a threshold: the coach,
+    /// then the anchor named in this locale from its stored code. A code this
+    /// build does not know leaves the name slot empty rather than showing the
+    /// code.
+    fn coach_physiology_set_body(&self, params: &Map<String, Value>) -> String {
+        let anchor = params
+            .get("anchor")
+            .and_then(Value::as_str)
+            .and_then(SportAnchorName::parse)
+            .map_or_default(|name| self.line(&envelope_anchor_label_key(name.as_str()), &[]));
+        self.line(
+            NotificationEvent::CoachPhysiologySet.body_key(),
+            &[&param_text(params.get("coach_name")), &anchor],
+        )
+    }
+
+    /// A data access reminder's body: the company, the reference, and the due
+    /// date written out in this locale from the ISO date the row stores. A
+    /// date that does not parse is shown as stored rather than dropped.
+    fn data_access_body(&self, event: NotificationEvent, params: &Map<String, Value>) -> String {
+        let stored = param_text(params.get(DATA_ACCESS_DUE_ON_PARAM));
+        let due = NaiveDate::parse_from_str(&stored, "%Y-%m-%d").map_or(stored, |date| {
+            data_access_requests::written_date(date, self.locale)
+        });
+        self.line(
+            event.body_key(),
+            &[
+                &param_text(params.get(DATA_ACCESS_COMPANY_PARAM)),
+                &param_text(params.get(DATA_ACCESS_REFERENCE_PARAM)),
+                &due,
+            ],
+        )
     }
 
     /// The group weekly digest, one line per fact: the summary, the trend,

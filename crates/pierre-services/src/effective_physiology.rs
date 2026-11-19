@@ -142,7 +142,7 @@ pub async fn effective_physiology(
         .user_physiological_profile
         .get_user_physiological_profile(tenant, user_id)
         .await?
-        .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
+        .filter(ai_scope::admit_profile);
     let held = profile.as_ref();
     let lacking = Anchors {
         resting_hr: wanted.resting_hr && held.and_then(|p| p.resting_hr).is_none(),

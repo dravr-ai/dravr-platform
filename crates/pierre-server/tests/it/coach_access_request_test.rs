@@ -1,5 +1,5 @@
-// ABOUTME: End-to-end coach-access requests (carnet#738): a coach asks in one tap, a super-admin grants or declines
-// ABOUTME: Pins the one-pending rule, the group checks, the notify ping, the super-admin gate and the group attach
+// ABOUTME: End-to-end coach-access requests (carnet#738): a coach asks in one tap, an admin grants or declines
+// ABOUTME: Pins the one-pending rule, the group checks, the notify ping, the admin gate and the group attach
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,7 +9,7 @@
 
 //! A coach without coach access who makes a group during onboarding gets it
 //! coachless (ADR-018). These tests drive the way out: the coach's own route
-//! opens a request, the console queue lists it, and a super-admin's grant
+//! opens a request, the console queue lists it, and an admin's grant
 //! gives `manages_roster` and attaches the coach to that group — while the
 //! request alone grants nothing, a plain admin cannot decide it, and a
 //! decided request cannot be decided again.
@@ -26,6 +26,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_COACH_ACCESS_DECLINED_REASON_BODY, KEY_COACH_ACCESS_ROOM_LINE_ATHLETE,
     KEY_COACH_ACCESS_ROOM_LINE_COACH,
 };
+use pierre_core::admin::models::{AdminPermissions, CreateAdminTokenRequest};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::roster_display_name;
 use pierre_core::models::{
@@ -47,6 +48,7 @@ use pierre_services::locale::user_locale;
 use pierre_test_support::delegation::{
     add_group_member, create_coached_group, create_coachless_group, create_group_agent,
 };
+use secrecy::ExposeSecret;
 use serde_json::{json, Value};
 use serial_test::serial;
 use std::sync::Arc;
@@ -82,6 +84,36 @@ fn console(resources: &Arc<ServerContext>) -> axum::Router {
     AdminRoutes::cookie_admin_routes::<ServerContext>(admin_context(resources), resources)
 }
 
+/// The service-token mount: the same handlers behind a bearer admin token.
+fn token_mount(resources: &Arc<ServerContext>) -> axum::Router {
+    AdminRoutes::routes(admin_context(resources))
+}
+
+/// A service token holding every permission and not the super-admin flag:
+/// the strongest credential the flag gate of these handlers refuses.
+async fn token_without_the_flag(resources: &Arc<ServerContext>) -> Result<String> {
+    let request = CreateAdminTokenRequest {
+        service_name: "coach-access-unflagged".to_owned(),
+        service_description: None,
+        permissions: Some(AdminPermissions::super_admin().to_vec()),
+        expires_in_days: Some(1),
+        is_super_admin: false,
+        tenant_id: None,
+        operator_user_id: None,
+    };
+    let generated = resources
+        .common
+        .repos
+        .admin
+        .create_token(
+            &request,
+            resources.auth.admin_jwt_secret.as_ref(),
+            &resources.auth.jwks_manager,
+        )
+        .await?;
+    Ok(format!("Bearer {}", generated.jwt_token.expose_secret()))
+}
+
 /// The caller's own coach-access routes.
 fn me(resources: &Arc<ServerContext>) -> axum::Router {
     CoachAccessRoutes::routes(Arc::clone(resources))
@@ -97,7 +129,6 @@ struct Session {
 /// Create an active user with `role` owning a tenant, and sign it in.
 async fn session(resources: &Arc<ServerContext>, email: &str, role: UserRole) -> Result<Session> {
     let mut user = User::new(email.to_owned(), "unused-hash".to_owned(), None);
-    user.is_admin = role.is_admin_or_higher();
     user.role = role;
     user.user_status = UserStatus::Active;
     let user_id = user.id;
@@ -222,7 +253,7 @@ async fn a_second_tap_returns_the_request_already_waiting() -> Result<()> {
 
 #[tokio::test]
 #[serial]
-async fn a_super_admin_grant_makes_the_requester_the_coach_of_their_group() -> Result<()> {
+async fn an_admin_grant_makes_the_requester_the_coach_of_their_group() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let repos = &resources.common.repos;
     let coach = session(&resources, "grant-coach@example.com", UserRole::User).await?;
@@ -240,7 +271,7 @@ async fn a_super_admin_grant_makes_the_requester_the_coach_of_their_group() -> R
     assert_eq!(requested.field("group_name"), "Tuesday Rides");
     assert_eq!(requested.field("origin"), "asked");
 
-    let operator = session(&resources, "grant-super@example.com", UserRole::SuperAdmin).await?;
+    let operator = session(&resources, "grant-super@example.com", UserRole::Admin).await?;
     let queue: Value = AxumTestRequest::get("/api/admin/coach-access-requests")
         .header("Authorization", &operator.auth)
         .send(console(&resources))
@@ -321,13 +352,15 @@ async fn a_super_admin_grant_makes_the_requester_the_coach_of_their_group() -> R
 
 #[tokio::test]
 #[serial]
-async fn only_a_super_admin_decides_and_a_decline_lets_the_coach_ask_again() -> Result<()> {
+async fn only_an_admin_decides_and_a_decline_lets_the_coach_ask_again() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let coach = session(&resources, "decline-coach@example.com", UserRole::User).await?;
     let (_, opened) = ask(&resources, &coach.auth, json!({})).await;
     let request_id = opened["request"]["id"].as_str().unwrap().to_owned();
 
-    let admin = session(&resources, "plain-admin@example.com", UserRole::Admin).await?;
+    // An account that is not an admin, a tenant owner included, decides no
+    // request and reads no queue.
+    let admin = session(&resources, "not-an-admin@example.com", UserRole::User).await?;
     for path in [
         "/api/admin/coach-access-requests".to_owned(),
         format!("/api/admin/coach-access-requests/{request_id}/grant"),
@@ -341,8 +374,41 @@ async fn only_a_super_admin_decides_and_a_decline_lets_the_coach_ask_again() -> 
             .header("Authorization", &admin.auth)
             .send(console(&resources))
             .await;
-        assert_eq!(refused.status(), 403, "{path} is super-admin only");
+        assert_eq!(refused.status(), 403, "{path} is for admins only");
     }
+
+    // A service token reaches the handlers through the token mount, where no
+    // session check stands in front of them. Without the super-admin flag it
+    // is refused by each handler, whatever permissions it lists.
+    let unflagged = token_without_the_flag(&resources).await?;
+    for (path, post) in [
+        ("/admin/coach-access-requests".to_owned(), false),
+        (
+            format!("/admin/coach-access-requests/{request_id}/grant"),
+            true,
+        ),
+        (
+            format!("/admin/coach-access-requests/{request_id}/decline"),
+            true,
+        ),
+    ] {
+        let request = if post {
+            AxumTestRequest::post(&path)
+        } else {
+            AxumTestRequest::get(&path)
+        };
+        let refused = request
+            .header("Authorization", &unflagged)
+            .send(token_mount(&resources))
+            .await;
+        assert_eq!(refused.status(), 403, "{path} needs the super-admin flag");
+        let body: Value = refused.json();
+        assert_eq!(
+            body["message"], "Permission denied: super-admin token required",
+            "{path}: {body}"
+        );
+    }
+
     let user = resources
         .common
         .repos
@@ -351,13 +417,20 @@ async fn only_a_super_admin_decides_and_a_decline_lets_the_coach_ask_again() -> 
         .await?
         .expect("coach");
     assert!(!user.manages_roster, "nothing may have been written");
+    let pending = resources
+        .common
+        .repos
+        .coach_access_requests
+        .get(Uuid::parse_str(&request_id)?)
+        .await?
+        .expect("the request");
+    assert_eq!(
+        pending.status,
+        CoachAccessStatus::Pending,
+        "a refused decision leaves the request open"
+    );
 
-    let operator = session(
-        &resources,
-        "decline-super@example.com",
-        UserRole::SuperAdmin,
-    )
-    .await?;
+    let operator = session(&resources, "decline-super@example.com", UserRole::Admin).await?;
     let (events, _guard) = capture_notify();
     let declined: Value = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{request_id}/decline"
@@ -396,7 +469,7 @@ async fn only_a_super_admin_decides_and_a_decline_lets_the_coach_ask_again() -> 
 async fn a_decision_names_a_requester_this_pod_never_saw() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let repos = &resources.common.repos;
-    let operator = session(&resources, "unseen-super@example.com", UserRole::SuperAdmin).await?;
+    let operator = session(&resources, "unseen-super@example.com", UserRole::Admin).await?;
 
     for (email, decision) in [
         ("unseen-granted@example.com", "grant"),
@@ -469,7 +542,7 @@ async fn a_grant_leaves_a_group_that_found_a_coach_meanwhile_alone() -> Result<(
         .set_group_coach_user(&group.to_string(), Some(other.user_id), coach.tenant_id)
         .await?;
 
-    let operator = session(&resources, "late-super@example.com", UserRole::SuperAdmin).await?;
+    let operator = session(&resources, "late-super@example.com", UserRole::Admin).await?;
     let granted: Value = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{request_id}/grant"
     ))
@@ -522,7 +595,7 @@ async fn deleting_the_requester_takes_their_requests_along() -> Result<()> {
 async fn a_grant_racing_a_decline_leaves_the_row_and_the_access_in_agreement() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let repos = &resources.common.repos;
-    let operator = session(&resources, "race-super@example.com", UserRole::SuperAdmin).await?;
+    let operator = session(&resources, "race-super@example.com", UserRole::Admin).await?;
 
     for round in 0..30 {
         let coach = session(
@@ -582,12 +655,7 @@ async fn a_grant_after_a_decline_is_refused_and_gives_nothing() -> Result<()> {
     let group = coachless_group(&resources, &coach).await?;
     let (_, opened) = ask(&resources, &coach.auth, json!({ "group_id": group })).await;
     let request_id: Uuid = opened["request"]["id"].as_str().unwrap().parse()?;
-    let operator = session(
-        &resources,
-        "late-grant-super@example.com",
-        UserRole::SuperAdmin,
-    )
-    .await?;
+    let operator = session(&resources, "late-grant-super@example.com", UserRole::Admin).await?;
 
     coach_access::decline(repos, request_id, Some(operator.user_id), None, None).await?;
     let error = coach_access::grant(repos, request_id, Some(operator.user_id), None)
@@ -649,7 +717,7 @@ async fn refuse_group_writes(resources: &ServerContext) {
 async fn a_failed_grant_restores_the_coach_access_it_found() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let repos = &resources.common.repos;
-    let operator = session(&resources, "undo-super@example.com", UserRole::SuperAdmin).await?;
+    let operator = session(&resources, "undo-super@example.com", UserRole::Admin).await?;
 
     let fresh = session(&resources, "undo-fresh@example.com", UserRole::User).await?;
     let fresh_group = coachless_group(&resources, &fresh).await?;
@@ -846,12 +914,7 @@ async fn one_grant_coaches_every_coachless_group_the_coach_owns_and_says_so_in_e
     assert_eq!(status, 201, "{opened}");
     let request_id = opened["request"]["id"].as_str().unwrap().to_owned();
 
-    let operator = session(
-        &resources,
-        "every-group-super@example.com",
-        UserRole::SuperAdmin,
-    )
-    .await?;
+    let operator = session(&resources, "every-group-super@example.com", UserRole::Admin).await?;
     let (events, _guard) = capture_notify();
     let granted = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{request_id}/grant"
@@ -944,7 +1007,7 @@ async fn one_grant_coaches_every_coachless_group_the_coach_owns_and_says_so_in_e
 async fn a_decline_carries_its_reason_to_the_request_the_notice_and_the_queue() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let coach = session(&resources, "reason-coach@example.com", UserRole::User).await?;
-    let operator = session(&resources, "reason-super@example.com", UserRole::SuperAdmin).await?;
+    let operator = session(&resources, "reason-super@example.com", UserRole::Admin).await?;
 
     let (_, opened) = ask(&resources, &coach.auth, json!({})).await;
     let request_id = opened["request"]["id"].as_str().unwrap().to_owned();
@@ -1058,16 +1121,11 @@ async fn a_coach_withdraws_a_waiting_request_and_may_ask_again_at_once() -> Resu
     assert_eq!(mine["request"], Value::Null);
 
     // Asking again opens a new request at once; the withdrawn one is no
-    // longer there for a super-admin to decide.
+    // longer there for an admin to decide.
     let (status, reopened) = ask(&resources, &coach.auth, json!({})).await;
     assert_eq!(status, 201, "{reopened}");
     assert_ne!(reopened["request"]["id"], first_id.as_str());
-    let operator = session(
-        &resources,
-        "withdraw-super@example.com",
-        UserRole::SuperAdmin,
-    )
-    .await?;
+    let operator = session(&resources, "withdraw-super@example.com", UserRole::Admin).await?;
     let gone = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{first_id}/grant"
     ))
@@ -1112,12 +1170,7 @@ async fn asking_again_replaces_a_decline_so_a_withdrawn_ask_reads_the_plain_ask(
     let resources = create_test_server_resources().await?;
     let repos = &resources.common.repos;
     let coach = session(&resources, "replaced-coach@example.com", UserRole::User).await?;
-    let operator = session(
-        &resources,
-        "replaced-super@example.com",
-        UserRole::SuperAdmin,
-    )
-    .await?;
+    let operator = session(&resources, "replaced-super@example.com", UserRole::Admin).await?;
 
     let (_, first) = ask(&resources, &coach.auth, json!({})).await;
     let first_id = first["request"]["id"].as_str().unwrap().to_owned();
@@ -1231,7 +1284,7 @@ async fn a_grant_attaches_only_the_coachless_groups_in_the_coachs_own_tenant() -
     let operator = session(
         &resources,
         "tenant-scope-super@example.com",
-        UserRole::SuperAdmin,
+        UserRole::Admin,
     )
     .await?;
 

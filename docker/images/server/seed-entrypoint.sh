@@ -81,7 +81,7 @@ if [ "$DOMAIN" = "agents" ]; then
 fi
 
 echo "Running: pierre-cli ${VERB} ${DOMAIN}"
-# The bootstrap seeder creates the operator (ADMIN_EMAIL) as super_admin directly —
+# The bootstrap seeder creates the admin (ADMIN_EMAIL) with the admin role directly —
 # see pierre-database seeder role derivation. We do NOT promote via `pierre-cli user
 # create` here: that path bootstraps the full KeyManager, which requires
 # PIERRE_MASTER_ENCRYPTION_KEY, and the seed job runs with a zero seeding key only.

@@ -129,6 +129,7 @@ describe('GearScreen', () => {
     expect(within(road).getByTestId('gear-default-road')).toHaveTextContent('· Default');
     const warning = within(road).getByTestId('gear-warning-road');
     expect(warning).toHaveTextContent('This pair has 512 km, past the 500 km you set.');
+    expect(warning.props.className).toContain('bg-warning/10');
     expect(within(warning).getByTestId('icon-alert-triangle')).toBeTruthy();
     // A pair with activities is retired, never deleted.
     expect(within(road).queryByTestId('gear-delete-road')).toBeNull();

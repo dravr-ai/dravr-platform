@@ -40,12 +40,14 @@ pub mod sleep_helpers;
 mod token_writeback;
 /// Reads a tool's `ToolResponse` back: raised error codes, sentinels and the universal reply
 mod tool_response;
+/// The trust label a result carries for a caller that writes its own reply.
+pub mod trust_labels;
 /// Core universal protocol types (`UniversalRequest`, `UniversalResponse`, executor alias)
 pub mod types;
 
 pub use auth::AuthService;
 pub use coach_calendar::delegation_services;
-pub use executor::UniversalExecutor;
+pub use executor::{record_refused_admin_call, RefusedAdminCall, UniversalExecutor};
 pub use types::{
     auth_required_provider, guardian_block_reason, is_no_provider_refusal, UniversalRequest,
     UniversalResponse, UniversalTool, UniversalToolExecutor, META_AUTH_REQUIRED_PROVIDER,

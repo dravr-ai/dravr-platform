@@ -17,7 +17,7 @@ use crate::ai_view;
 use crate::coach_seat::TurnSeat;
 use crate::context::{
     scoped_read_subject, DispatchOrigin, TurnAsk, CONVERSATION_ID, CONVERSATION_TENANT,
-    GRANTED_SCOPES, GUARDIAN_TURN_TOKEN, READ_SUBJECT, TURN_AGENT_ID, TURN_ASK,
+    GRANTED_SCOPES, GUARDIAN_TURN_TOKEN, READ_SUBJECT, SUPPORT_SESSION, TURN_AGENT_ID, TURN_ASK,
     TURN_DIRECT_MESSAGE, TURN_LOCALE,
 };
 use crate::first_party_tools;
@@ -27,6 +27,7 @@ use crate::protocol::provider_helpers::no_provider_refusal;
 use crate::protocol::provider_offer::{
     connections_page, external_no_provider_response, provider_offers, ConnectRoute,
 };
+use crate::protocol::trust_labels;
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::read_subject::ReadSubject;
@@ -36,6 +37,7 @@ use crate::scopes::missing_scope;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use futures_util::future::Either;
+use pierre_auth::auth::ImpersonationGrant;
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::WithConsent;
 use pierre_core::constants::oauth::providers::is_credential_free;
@@ -49,13 +51,17 @@ use serde_json::Value as JsonValue;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
-use subject::{build_tool_context, subject_tool_context, withhold_reconnect_offer, Parties};
+use subject::{answered_for_member, build_tool_context, subject_tool_context, Parties};
 use tracing::{info, warn, Instrument};
 use uuid::Uuid;
 
+/// Admin-only tool calls from outside Dravr's own surfaces, on the audit trail.
+mod admin_call_audit;
 /// Whose data a dispatched call reads (carnet#1387).
 mod subject;
 mod turn_signals;
+
+pub use admin_call_audit::{record_refused_admin_call, RefusedAdminCall};
 
 /// The two facts the dispatch chokepoint needs to decide a provider refusal.
 ///
@@ -110,6 +116,9 @@ pub struct UniversalExecutor {
     /// The turn and the athlete's message it answers, read from
     /// [`crate::context::TURN_ASK`] like `turn_locale` and scoped back the same way.
     turn_ask: Option<TurnAsk>,
+    /// The admin's support session the turn runs in, read from
+    /// [`SUPPORT_SESSION`] like `turn_locale` and scoped back the same way.
+    support_session: Option<ImpersonationGrant>,
     /// Per-**utterance** token used solely as the Guardian's turn key so per-turn
     /// budgets accumulate over one user message's `ReAct` loop and
     /// reset on the next. Distinct from `conversation_id` (the persistent thread
@@ -178,6 +187,7 @@ impl fmt::Debug for UniversalExecutor {
             .field("turn_locale", &self.turn_locale)
             .field("turn_direct_message", &self.turn_direct_message)
             .field("turn_ask", &self.turn_ask)
+            .field("support_session", &self.support_session)
             .field("turn_token", &self.turn_token)
             .field("scopes", &self.scopes)
             .field("seat", &self.seat)
@@ -210,6 +220,7 @@ impl UniversalExecutor {
             // way.
             turn_direct_message: TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten(),
             turn_ask: TURN_ASK.try_with(Clone::clone).ok().flatten(),
+            support_session: SUPPORT_SESSION.try_with(Clone::clone).ok().flatten(),
             // Inherit the caller's turn token when this executor is built inside
             // a tool body (nested dispatch), so a nested write is charged to the
             // SAME turn as its caller. Absent outside any tool scope
@@ -541,10 +552,21 @@ impl UniversalExecutor {
         // The one span per tool call, opened here because every transport
         // funnels through this function; see `dispatch_span`.
         let span = tool_call_span(&request);
+        // An admin-only call from outside Dravr's own surfaces is on the audit
+        // trail before it is dispatched, or it is not run (EFVP 9.4d).
+        let audited = self.admin_call_audit(&request).await?;
         // Boxed: a tool body may dispatch another tool through here
         // (`analyze_activity` → `get_activity_intelligence`), and an inline
         // `dispatch` future would ride in that body's future and its callers'.
         let result = Box::pin(self.dispatch(request).instrument(span.clone())).await;
+        if let Some(started) = &audited {
+            admin_call_audit::settle(
+                self.resources.repos().admin_audit.as_ref(),
+                started,
+                &result,
+            )
+            .await;
+        }
         record_outcome(&span, &result);
         result
     }
@@ -797,6 +819,7 @@ impl UniversalExecutor {
         // records them for the call that encloses it; the caller's own call
         // runs under theirs. Boxed: the scopes around the tool body would
         // otherwise ride inline in every caller's future.
+        let body = SUPPORT_SESSION.scope(self.support_session.clone(), body);
         let body = Box::pin(if subject.is_some() {
             Either::Left(ai_scope::with_subject_consent(
                 consent_withheld.clone(),
@@ -893,8 +916,8 @@ impl UniversalExecutor {
         }
 
         let mut universal = tool_response_to_universal_response(&tool_name, &response);
-        if subject.is_some() {
-            withhold_reconnect_offer(&mut universal);
+        if let Some(subject) = &subject {
+            answered_for_member(&mut universal, subject, transport);
         }
         let mut held_back = read_side_withheld;
         if response.is_error
@@ -928,8 +951,19 @@ impl UniversalExecutor {
         // provenance it inherits from this call. At the MCP and A2A entry
         // points no derivation encloses the call, so that provenance is this
         // call's own.
-        if self.caller_writes_reply && provenance.served_provider_data() && !response.is_error {
-            reply_check::note_unchecked_reply(&mut universal);
+        // The same caller is told how sensitive what it was served is, and how
+        // far to trust it, in a label its host reads (owl phase 1).
+        if self.caller_writes_reply && !response.is_error {
+            if provenance.served_provider_data() {
+                reply_check::note_unchecked_reply(&mut universal);
+            }
+            let declared = self.resources.tool_registry().tool_data(&tool_name);
+            trust_labels::attach(
+                &mut universal,
+                &tool_name,
+                declared,
+                &provenance.source_classes(),
+            );
         }
 
         // What the backstop let through reaches the turn: a first-party-only
@@ -1004,7 +1038,7 @@ impl UniversalExecutor {
     /// already received an answer from.
     async fn record_dispatch(&self, r: DispatchRecord<'_>) {
         let duration_ms = u64::try_from(r.started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let tenant_id = r.tenant_uuid.map(|t| t.to_string()).unwrap_or_default();
+        let tenant_id = r.tenant_uuid.map_or_default(|t| t.to_string());
 
         info!(
             target: "notify",
@@ -1092,7 +1126,7 @@ impl UniversalExecutor {
         reason: DenyReason,
     ) -> UniversalResponse {
         // Operators see every block, whatever transport raised it.
-        let tenant_id = tenant.map(|t| t.to_string()).unwrap_or_default();
+        let tenant_id = tenant.map_or_default(|t| t.to_string());
         info!(
             target: "notify",
             event = "guardian.denied",
@@ -1131,26 +1165,6 @@ impl UniversalExecutor {
     }
 }
 
-/// Build the per-call [`ToolContext`] handed to `McpTool::execute` from a
-/// [`UniversalRequest`].
-///
-/// Enforces that `user_id` parses as a UUID (fail fast), and that a present
-/// `tenant_id` parses as a UUID. A missing `tenant_id` passes through as
-/// absent — tenant presence is enforced per-tool, not at this boundary, because
-/// some tools legitimately run pre-onboarding (e.g. provider listing). Identity
-/// fields are carried as strings on the host-agnostic context and rebuilt into
-/// the typed [`crate::context::ToolExecutionContext`] inside each tool via
-/// `ToolExecutionContext::from_tronc`.
-///
-/// Resolves the caller's admin flag from the global `User.is_admin` flag and
-/// records it via [`ToolContext::as_admin`]. The flag is then read back as the
-/// cached admin status inside each tool, so admin-gated tools see the same
-/// decision regardless of which dispatch path surfaced the request.
-///
-/// System-admin tools (e.g. system-agent management) gate on the global
-/// `is_admin` flag, not the per-tenant role: being a tenant owner makes a user
-/// admin *of their tenant*, which must not grant system-wide admin powers. A
-/// global-lookup failure defaults to non-admin (deny-by-default).
 /// Refuse a tool the caller's grant does not cover.
 ///
 /// Required scopes are derived from the tool's own capability flags

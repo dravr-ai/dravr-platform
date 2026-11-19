@@ -6,7 +6,7 @@
 
 import React, { useState } from 'react';
 import { authApi } from '../services/api';
-import { Button, Input } from './ui';
+import { Button, Input, Alert } from './ui';
 import { useTranslation } from '@pierre/i18n';
 
 interface ForgotPasswordProps {
@@ -78,13 +78,9 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
 
             <form className="space-y-5" onSubmit={handleSubmit}>
               {error && (
-                <div
-                  role="alert"
-                  aria-live="polite"
-                  className="bg-error/10 border border-error/30 text-error px-4 py-3 rounded-lg text-sm"
-                >
+                <Alert tone="error" role="alert" aria-live="polite" className="border px-4 py-3">
                   {error}
-                </div>
+                </Alert>
               )}
 
               <Input

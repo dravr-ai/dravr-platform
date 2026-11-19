@@ -15,12 +15,12 @@
 //! password ever crosses a side channel, and the link opens nothing for anyone
 //! who is not reading that inbox.
 //!
-//! A super-admin may also invite a coach the team recruited
+//! An admin may also invite a coach the team recruited
 //! ([`InvitationKind::CoachSeat`], carnet#1524). It is the same link, locked
 //! to the same address; redeeming it also settles what a coach otherwise
 //! meets on the way in ([`settle_coach_seat`]): coach access
 //! (`manages_roster`, an operator grant by the inviter — the decision ADR-018
-//! leaves to a super-admin, taken before sign-up rather than after a
+//! leaves to an admin, taken before sign-up rather than after a
 //! request) and the coach role, so the coach meets neither the role question
 //! nor the coach-access request.
 //!

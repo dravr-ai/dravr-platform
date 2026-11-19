@@ -123,6 +123,7 @@ impl LlmProvider for ScriptedExtractor {
     }
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
         Ok(ChatResponse {
+            replay_blocks: None,
             content: self.answer(request)?,
             model: "scripted".to_owned(),
             usage: Some(TokenUsage::new(1, 1, 2)),

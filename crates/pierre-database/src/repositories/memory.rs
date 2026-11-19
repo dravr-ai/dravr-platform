@@ -230,7 +230,7 @@ pub(crate) const EXPIRE_ONBOARDING_FACTS_SQL: &str = r"
             ";
 
 /// A tenant's fact totals and recency counters in one pass; every tenant's
-/// when `$3` binds `NULL`, the super-admin path.
+/// when `$3` binds `NULL`, the platform-wide path.
 pub(crate) const COUNT_USER_FACTS_SQL: &str = r"
             SELECT
                 COUNT(*)                                          AS total,

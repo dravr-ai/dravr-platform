@@ -20,12 +20,10 @@
 // withdrawn is told once to sign in again.
 //
 // Garmin's grant writes what its session cannot (workout and calendar push),
-// so Garmin signs in first and authorizes its grant right after (JF's
-// directive 8): the sign-in's answer names that authorization while the
-// grant is owed, the hosted sign-in's carries its URL, the picker keeps a
-// connected card with an owed grant pickable, an OAuth start of a dead grant
-// beside a live session authorizes it, and a write the grant alone makes is
-// refused with its authorization link.
+// yet a Garmin sign-in ends at `connected`: no sign-in answer, hosted page
+// or picker card sends the athlete on to Garmin's authorization. An OAuth
+// start of a dead grant beside a live session authorizes it, and a write the
+// grant alone makes is refused with its authorization link (JF's directive 8).
 #![cfg(all(feature = "provider-garmin", feature = "health-sync"))]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -215,6 +213,42 @@ async fn an_oauth_start_of_a_dead_grant_answers_with_the_hosted_sign_in() {
         ),
         "garmin",
         "bug: the web start of a dead grant is not the Garmin sign-in"
+    );
+}
+
+/// A start that falls back from a sign-in that could not complete
+/// (`sign_in_blocked`) authorizes a dead grant on the web launch route and the
+/// mobile init, instead of sending the athlete back into that sign-in
+/// (carnet#1667).
+#[tokio::test]
+async fn an_oauth_start_after_a_blocked_sign_in_authorizes_a_dead_grant() {
+    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&scraper).await;
+    let (user_id, _user, tenant, token) = athlete(&resources).await;
+    hold_grant(&resources, user_id, tenant).await;
+    kill_grant(&resources, user_id, tenant).await;
+
+    let resp = AxumTestRequest::get("/api/oauth/mobile/init/garmin?sign_in_blocked=true")
+        .header("authorization", &format!("Bearer {token}"))
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(resp.status(), 200, "{}", resp.text());
+    let started: Value = serde_json::from_str(&resp.text()).unwrap();
+    let url = started["authorization_url"].as_str().unwrap_or_default();
+    assert!(
+        url.contains("client_id=") && !url.contains(HOSTED_SIGNIN_PATH),
+        "bug: the mobile fallback from a blocked sign-in was sent back to it: {started}"
+    );
+
+    let resp = AxumTestRequest::get("/api/oauth/authorize/garmin?sign_in_blocked=true")
+        .header("authorization", &format!("Bearer {token}"))
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(resp.status(), 302, "{}", resp.text());
+    let location = resp.header("location").expect("a redirect");
+    assert!(
+        location.contains("client_id=") && !location.contains(HOSTED_SIGNIN_PATH),
+        "bug: the web fallback from a blocked sign-in was sent back to it: {location}"
     );
 }
 
@@ -489,11 +523,10 @@ async fn concurrent_withdrawals_of_one_grant_tell_the_athlete_once() {
     );
 }
 
-/// A Garmin sign-in goes on to Garmin's authorization while its grant is
-/// owed (directive 8): over a dead grant it names the grant, for the app to
-/// start; beside a live grant it asks for nothing.
+/// A Garmin sign-in ends at `connected` whether its grant is dead or live:
+/// nothing sends the athlete on to Garmin's own sign-in page.
 #[tokio::test]
-async fn a_garmin_sign_in_goes_on_to_its_grant_only_while_it_is_owed() {
+async fn a_garmin_sign_in_ends_connected_with_no_grant_redirect() {
     let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
     let resources = server_with_garmin_oauth(&scraper).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
@@ -503,14 +536,9 @@ async fn a_garmin_sign_in_goes_on_to_its_grant_only_while_it_is_owed() {
     let (status, body) = sign_in(&resources, &token).await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["status"], "connected", "{body}");
-    assert_eq!(
-        body["oauth_follow_on"]["provider"],
-        oauth_providers::GARMIN,
-        "bug: the sign-in over a dead grant does not go on to its authorization: {body}"
-    );
     assert!(
-        body["oauth_follow_on"].get("authorization_url").is_none(),
-        "the app starts the authorization its own way: {body}"
+        body.get("oauth_follow_on").is_none(),
+        "bug: the sign-in over a dead grant redirects to Garmin's authorization: {body}"
     );
 
     let (other, _user, other_tenant, other_token) = athlete(&resources).await;
@@ -518,15 +546,15 @@ async fn a_garmin_sign_in_goes_on_to_its_grant_only_while_it_is_owed() {
     let (_, beside) = sign_in(&resources, &other_token).await;
     assert_eq!(beside["status"], "connected", "{beside}");
     assert!(
-        beside["oauth_follow_on"].is_null(),
+        beside.get("oauth_follow_on").is_none(),
         "bug: a live grant is asked for again: {beside}"
     );
 }
 
-/// The hosted sign-in a Garmin link opens holds no token that can start an
-/// authorization, so its answer carries Garmin's authorization URL itself.
+/// The hosted sign-in a Garmin link opens ends at `connected` too: its
+/// answer carries no Garmin authorization URL to navigate to.
 #[tokio::test]
-async fn the_hosted_garmin_sign_in_carries_its_grants_authorization_url() {
+async fn the_hosted_garmin_sign_in_carries_no_grant_authorization_url() {
     let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
     let resources = server_with_garmin_oauth(&scraper).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
@@ -545,17 +573,10 @@ async fn the_hosted_garmin_sign_in_carries_its_grants_authorization_url() {
 
     let (status, body) = sign_in(&resources, &link).await;
     assert_eq!(status, 200, "{body}");
-    assert_eq!(
-        body["oauth_follow_on"]["provider"],
-        oauth_providers::GARMIN,
-        "{body}"
-    );
-    let url = body["oauth_follow_on"]["authorization_url"]
-        .as_str()
-        .unwrap_or_else(|| panic!("bug: the hosted sign-in has no way on to the grant: {body}"));
+    assert_eq!(body["status"], "connected", "{body}");
     assert!(
-        url.contains("client_id=") && !url.contains(HOSTED_SIGNIN_PATH),
-        "bug: the follow-on is not Garmin's authorization: {url}"
+        body.get("oauth_follow_on").is_none(),
+        "bug: the hosted sign-in navigates on to Garmin's authorization: {body}"
     );
 }
 
@@ -639,10 +660,10 @@ async fn the_grant_writes_link_opens_garmins_authorization_beside_a_live_session
     );
 }
 
-/// The hosted picker keeps a connected Garmin card whose grant is owed
-/// pickable, naming the grant to authorize; a live grant owes nothing.
+/// The hosted picker shows a connected Garmin card as connected whether its
+/// grant is dead or live: it never sends the athlete to Garmin's own sign-in.
 #[tokio::test]
-async fn the_hosted_picker_offers_an_owed_garmin_grant_on_a_connected_card() {
+async fn the_hosted_picker_offers_no_garmin_grant_on_a_connected_card() {
     let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
     let resources = server_with_garmin_oauth(&scraper).await;
     let picker = |user_id: Uuid, tenant: TenantId| {
@@ -667,19 +688,36 @@ async fn the_hosted_picker_offers_an_owed_garmin_grant_on_a_connected_card() {
     hold_grant(&resources, user_id, tenant).await;
     kill_grant(&resources, user_id, tenant).await;
     let page = picker(user_id, tenant).await.text();
+    let card = picker_garmin_card(&page);
+    assert_eq!(card["connected"], true, "{card}");
     assert!(
-        page.contains(r#""oauth_owed":"garmin""#),
-        "bug: the connected Garmin card hides the grant it owes"
+        card.get("oauth_owed").is_none() && !page.contains("oauth_owed"),
+        "bug: the connected Garmin card offers Garmin's authorization: {card}"
     );
 
     let (live, _user, live_tenant, _token) = athlete(&resources).await;
     hold_session(&resources, live, live_tenant, LIVE_SESSION).await;
     hold_grant(&resources, live, live_tenant).await;
     let page = picker(live, live_tenant).await.text();
+    let card = picker_garmin_card(&page);
+    assert_eq!(card["connected"], true, "{card}");
     assert!(
-        !page.contains(r#""oauth_owed":"#),
-        "bug: a live grant is offered again on the picker"
+        card.get("oauth_owed").is_none(),
+        "bug: a live grant is offered again on the picker: {card}"
     );
+}
+
+/// The Garmin card the hosted picker page embeds, as the page's script reads it.
+fn picker_garmin_card(page: &str) -> Value {
+    let start = page.find("providers: ").expect("the page embeds its cards") + "providers: ".len();
+    let json = &page[start..];
+    let end = json.find(",\n").expect("the card list ends its line");
+    let cards: Vec<Value> =
+        serde_json::from_str(&json[..end]).expect("the embedded cards are JSON");
+    cards
+        .into_iter()
+        .find(|card| card["provider"] == oauth_providers::SCIOTTE_GARMIN)
+        .expect("the picker offers the Garmin card")
 }
 
 /// A workout write the Garmin grant alone makes, for an athlete whose grant
@@ -768,7 +806,7 @@ async fn an_unnamed_prescription_for_a_dead_garmin_grant_gets_its_authorization_
 /// A workout prescribed for an athlete whose only Garmin connection is a dead
 /// grant, with no session, is refused, and the refusal is never Garmin's bare
 /// authorization: an athlete with no session reconnects through the hosted
-/// sign-in first, which goes on to the grant (JF's directives 1 and 8).
+/// sign-in first (JF's directives 1 and 8).
 #[tokio::test]
 async fn an_unnamed_prescription_for_a_dead_garmin_grant_alone_is_refused() {
     let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
@@ -807,31 +845,25 @@ async fn an_unnamed_prescription_for_a_dead_garmin_grant_alone_is_refused() {
     );
 }
 
-/// A Garmin sign-in repeated moments later, answered from the session it
-/// stored, still goes on to the grant it owes: an authorization left
-/// unfinished is offered again.
+/// A Garmin sign-in repeated moments later is answered from the session it
+/// stored, and ends at `connected` with no grant redirect either time.
 #[tokio::test]
-async fn a_repeated_garmin_sign_in_still_goes_on_to_its_owed_grant() {
+async fn a_repeated_garmin_sign_in_is_answered_from_its_session() {
     let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
     let resources = server_with_garmin_oauth(&scraper).await;
     let (_user_id, _user, _tenant, token) = athlete(&resources).await;
 
     let (_, first) = sign_in(&resources, &token).await;
-    assert_eq!(
-        first["oauth_follow_on"]["provider"],
-        oauth_providers::GARMIN,
-        "{first}"
-    );
+    assert!(first.get("oauth_follow_on").is_none(), "{first}");
     let (status, again) = sign_in(&resources, &token).await;
     assert_eq!(status, 200, "{again}");
     assert_eq!(
         again["short_circuit"], true,
         "the stored session answers: {again}"
     );
-    assert_eq!(
-        again["oauth_follow_on"]["provider"],
-        oauth_providers::GARMIN,
-        "bug: the repeated sign-in dropped the grant it owes: {again}"
+    assert!(
+        again.get("oauth_follow_on").is_none(),
+        "bug: the repeated sign-in redirects to Garmin's grant: {again}"
     );
     assert_eq!(
         calls_matching(&calls, "login").len(),

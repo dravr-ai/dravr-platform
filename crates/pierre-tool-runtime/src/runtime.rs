@@ -44,12 +44,13 @@ use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::AgentsRepository;
 use pierre_database::repositories::{BackfillJobKind, ProviderPurge};
 use pierre_database::RepositoryRegistry;
+use pierre_fitness_compute::weather_clients::WeatherClients;
 use pierre_llm::LlmProvider;
 use pierre_providers::originals::OriginalsStore;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::group_chat_poster::GroupChatPoster;
-use pierre_services::live_activities::LiveActivityStore;
+use pierre_services::live_activities::{LandedSession, LiveActivityStore};
 
 #[cfg(feature = "transport-sse")]
 use pierre_services::provider_refresh::SyncNotifier;
@@ -276,6 +277,16 @@ pub enum ReauthRetry {
     UntilLinkExpires,
 }
 
+/// Where a live write's landing goes (carnet#1486).
+///
+/// The activity store decides the landing inside its own ingest; the writer
+/// only hands it on. Best-effort: the sink logs its own failures.
+#[async_trait]
+pub trait SessionLandedSink: Send + Sync {
+    /// A live write landed `session` for the athlete.
+    async fn session_landed(&self, user_id: Uuid, tenant_id: TenantId, session: LandedSession);
+}
+
 /// Narrow façade over the server's shared services that tool implementations
 /// are allowed to depend on.
 ///
@@ -300,6 +311,11 @@ pub trait ToolRuntime: Send + Sync + 'static {
 
     /// Registry of fitness providers (Strava, Garmin, …).
     fn provider_registry(&self) -> &Arc<ProviderRegistry>;
+
+    /// The context's weather clients (history, forecast, place geocoder), on
+    /// the origins the deployment's weather configuration names. Every
+    /// weather call a tool makes goes through these.
+    fn weather(&self) -> &Arc<WeatherClients>;
 
     /// Hot-reloadable `IntelligenceConfig` snapshot registry.
     fn cageux_config_registry(&self) -> &Arc<CageuxConfigRegistry>;
@@ -421,6 +437,15 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// no chat to post into, and the post stays in the group's room
     /// transcript; the production `ServerContext` overrides it.
     fn group_chat_poster(&self) -> Option<&Arc<dyn GroupChatPoster>> {
+        None
+    }
+
+    /// Optional seam a live write hands the workout it landed to
+    /// (carnet#1486): the server's sink posts the coach's reaction or sends
+    /// the per-session digest. Defaults to `None` — a runtime with no server
+    /// behind it announces nothing; the production `ServerContext` overrides
+    /// it.
+    fn session_landed_sink(&self) -> Option<Arc<dyn SessionLandedSink>> {
         None
     }
 

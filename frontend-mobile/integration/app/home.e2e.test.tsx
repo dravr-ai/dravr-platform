@@ -106,6 +106,8 @@ function homeServer(overrides: StubRoutes = {}): StubRoutes {
     // Your team row reads the agent list for who is on the team (carnet#1528);
     // none here, so the row draws nothing and the screen is the same.
     'GET /api/agents': { data: { agents: [] } },
+    // The join strip: no invite is held, so Home draws none.
+    'GET /api/user/group-invite': { data: { held: null } },
     // The athlete's one thread a day's question is drafted into (carnet#840),
     // whose lead the team row names first.
     'GET /api/chat/personal': {
@@ -177,7 +179,7 @@ describe('the Home tab over the wire', () => {
 
     expect(await screen.findByTestId('route-track', {}, { timeout: FIRST_MAP_TIMEOUT_MS })).toBeTruthy();
     await screen.findByTestId('home-activity-sketch-intervals_icu-i77');
-    await waitFor(() => expect(stub.requestsFor('GET')).toHaveLength(13));
+    await waitFor(() => expect(stub.requestsFor('GET')).toHaveLength(14));
 
     const urls = stub.requestsFor('GET').map((request) => request.url).sort();
     expect(urls).toEqual(
@@ -198,6 +200,8 @@ describe('the Home tab over the wire', () => {
         '/api/me/training-status',
         '/api/me/training-volume',
         '/api/providers',
+        // The join strip's read of the invite the server holds (carnet#1650).
+        '/api/user/group-invite',
       ].sort(),
     );
     // Every one is a read: none of them carries a body.

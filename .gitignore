@@ -148,3 +148,13 @@ judge-bakeoff-results.json
 
 # scripts/setup/config-edit.sh: backups and ledger of setup edits (hold secrets)
 .setup-state/
+
+# Impeccable design-detector hook: .impeccable/config.json (shared suppressions) is
+# committed; the hook's caches hold absolute local paths and config.local.json holds
+# one developer's overrides.
+**/.impeccable/hook.cache.json
+**/.impeccable/hook.pending.json
+**/.impeccable/config.local.json
+
+# The sign-in extension's packed zips (extensions/dravr-signin/package.sh)
+extensions/dravr-signin/dist/

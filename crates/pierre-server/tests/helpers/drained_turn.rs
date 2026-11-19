@@ -161,6 +161,7 @@ impl LlmProvider for ParkedProvider {
             ));
         }
         Ok(ChatResponse {
+            replay_blocks: None,
             content: self.answer.clone(),
             model: "mock-model".to_owned(),
             usage: None,
@@ -330,9 +331,10 @@ pub(crate) fn whatsapp_text_payload(
     })
 }
 
-/// Outbound bodies stored for the sender's session, oldest first. A reply
-/// whose live send fails in tests is still persisted alongside its
-/// retry-queue entry, so a notice or an answer is observable here either way.
+/// Outbound bodies stored for the sender's session, oldest first. A reply is
+/// persisted whether its send succeeds (the context's offline adapter) or
+/// fails (alongside its retry-queue entry), so a notice or an answer is
+/// observable here either way.
 pub(crate) async fn outbound_bodies(
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
@@ -349,13 +351,12 @@ pub(crate) async fn outbound_bodies(
     };
     db.get_session_messages(session_id, tenant_id, 100, 0)
         .await
-        .map(|rows| {
+        .map_or_default(|rows| {
             rows.into_iter()
                 .filter(|r| r["direction"].as_str() == Some("outbound"))
                 .filter_map(|r| r["content_body"].as_str().map(ToOwned::to_owned))
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// Wait until the in-flight tracker sees a turn, or give up after ten seconds.

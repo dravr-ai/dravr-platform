@@ -68,14 +68,20 @@ async fn athlete_with_status(resources: &ServerContext, status: UserStatus) -> (
 
 /// The `client_id` claim of the session JWT a sign-in or refresh answered
 /// with: the app that redeemed the code (RFC 9068 §2.2).
-fn session_client(resources: &ServerContext, body: &Value) -> Option<String> {
+async fn session_client(resources: &ServerContext, body: &Value) -> Option<String> {
     let token = body["access_token"]
         .as_str()
         .expect("the answer carries an access token");
     resources
         .auth
         .auth_manager
-        .validate_session_token(token, &resources.auth.jwks_manager)
+        .validate_session_token(
+            token,
+            &resources.auth.jwks_manager,
+            resources.common.repos.admin_audit.as_ref(),
+            "sign in to the OAuth consent screen",
+        )
+        .await
         .expect("the access token is a session this server signed")
         .client_id
 }
@@ -196,7 +202,7 @@ async fn the_web_app_signs_in_with_cookies_csrf_and_the_user() {
     assert!(body.get("refresh_token").is_none(), "{body}");
     // The session names the app that redeemed the code.
     assert_eq!(
-        session_client(&resources, &body).as_deref(),
+        session_client(&resources, &body).await.as_deref(),
         Some(WEB_CLIENT_ID)
     );
 
@@ -209,6 +215,40 @@ async fn the_web_app_signs_in_with_cookies_csrf_and_the_user() {
         .send(first_party_router(&resources, DEFAULT_PEER))
         .await;
     assert_eq!(me.status(), 200, "{}", me.body_text());
+}
+
+/// What the apps read to tell an admin from a user: `role`, and `is_admin`
+/// beside it, which is the role's own answer and never a second source. The
+/// code exchange and the session restore both carry the pair, for a user and
+/// for an admin.
+#[tokio::test]
+async fn the_sign_in_and_the_session_carry_the_role_and_the_flag_it_decides() {
+    let resources = create_test_server_resources().await.unwrap();
+    for (promoted, role, is_admin) in [(false, "user", false), (true, "admin", true)] {
+        let (user_id, email) = athlete_with_status(&resources, UserStatus::Active).await;
+        if promoted {
+            let users = &resources.common.repos.users;
+            users.set_admin_status(user_id, true).await.unwrap();
+        }
+
+        let response = SignIn::new(&email, PASSWORD).run(&resources).await.token();
+        assert_eq!(response.status(), 200, "{}", response.body_text());
+        let body: Value = response.json();
+        assert_eq!(body["user"]["role"], role, "{body}");
+        assert_eq!(body["user"]["is_admin"], is_admin, "{body}");
+
+        let me = AxumTestRequest::get("/api/auth/session")
+            .header(
+                "authorization",
+                &format!("Bearer {}", body["access_token"].as_str().unwrap()),
+            )
+            .send(first_party_router(&resources, DEFAULT_PEER))
+            .await;
+        assert_eq!(me.status(), 200, "{}", me.body_text());
+        let session: Value = me.json();
+        assert_eq!(session["user"]["role"], role, "{session}");
+        assert_eq!(session["user"]["is_admin"], is_admin, "{session}");
+    }
 }
 
 /// The mobile app gets a refresh token only when it asks for one, and the
@@ -236,7 +276,7 @@ async fn the_mobile_app_gets_a_refresh_token_only_with_offline_access() {
         .as_str()
         .expect("offline_access carries a refresh token");
     assert_eq!(
-        session_client(&resources, &with).as_deref(),
+        session_client(&resources, &with).await.as_deref(),
         Some(MOBILE_CLIENT_ID)
     );
 
@@ -255,7 +295,7 @@ async fn the_mobile_app_gets_a_refresh_token_only_with_offline_access() {
     // The refresh family remembers the app it was opened for, so the renewed
     // session still names it.
     assert_eq!(
-        session_client(&resources, &refreshed).as_deref(),
+        session_client(&resources, &refreshed).await.as_deref(),
         Some(MOBILE_CLIENT_ID)
     );
 }

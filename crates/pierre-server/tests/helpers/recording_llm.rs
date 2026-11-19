@@ -146,6 +146,7 @@ impl LlmProvider for RecordingProvider {
         let queued = self.queued.lock().unwrap().pop_front();
         let content = queued.unwrap_or_else(|| self.standing.lock().unwrap().clone());
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: "mock-model".to_owned(),
             usage: Some(TokenUsage::new(25, 15, 40)),

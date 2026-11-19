@@ -10,7 +10,12 @@ vi.mock('../../services/api', () => ({
   userApi: { clearImportTombstone: vi.fn(), redeemSignupCode: vi.fn() },
 }))
 
+vi.mock('../../hooks/useInviteJourney', () => ({
+  useInviteJourney: vi.fn(() => null),
+}))
+
 import PendingApproval from '../PendingApproval'
+import { useInviteJourney } from '../../hooks/useInviteJourney'
 import { authApi, userApi } from '../../services/api'
 
 const mockLogout = vi.fn()
@@ -24,6 +29,8 @@ import { useAuth } from '../../hooks/useAuth'
 describe('PendingApproval', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    sessionStorage.clear()
+    vi.mocked(useInviteJourney).mockReturnValue(null)
   })
 
   it('should render pending approval title', () => {
@@ -208,6 +215,48 @@ describe('PendingApproval', () => {
       expect(await screen.findByText("You've also joined the group this code came from.")).toBeInTheDocument()
     })
 
+    it('says the review is what remains when a held invite meets a confirmed address (carnet#1648)', async () => {
+      vi.mocked(userApi.redeemSignupCode).mockResolvedValue({
+        user_status: 'pending',
+        group_joined: null,
+        group_invite_held: true,
+      })
+      const user = userEvent.setup()
+      renderPending(true)
+
+      await enterCode(user, 'MRT2026X')
+
+      expect(
+        await screen.findByText("Your registration is being reviewed. You'll get an email once it's approved."),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('Code accepted. Confirm your email address to activate your account.'),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText("You've also joined the group this code came from.")).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Signup code')).not.toBeInTheDocument()
+    })
+
+    it('takes a group member code as accepted, held for the join once the account is in (carnet#1648)', async () => {
+      vi.mocked(userApi.redeemSignupCode).mockResolvedValue({
+        user_status: 'pending',
+        group_joined: null,
+        group_invite_held: true,
+      })
+      const user = userEvent.setup()
+      const { mockUpdateUser } = renderPending(false)
+
+      await enterCode(user, 'MRT2026X')
+
+      expect(userApi.redeemSignupCode).toHaveBeenCalledWith('MRT2026X')
+      expect(
+        await screen.findByText('Code accepted. Confirm your email address to activate your account.'),
+      ).toBeInTheDocument()
+      // Nothing has joined yet: the join waits on the account being let in.
+      expect(screen.queryByText("You've also joined the group this code came from.")).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Signup code')).not.toBeInTheDocument()
+      expect(mockUpdateUser).not.toHaveBeenCalled()
+    })
+
     it("shows the server's refusal inline and keeps the field to retry", async () => {
       vi.mocked(userApi.redeemSignupCode).mockRejectedValue({
         isAxiosError: true,
@@ -248,5 +297,95 @@ describe('PendingApproval', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('PendingApproval — the invite it keeps in view (carnet#1649, #1650)', () => {
+  const JOURNEY = { inviterName: 'Jeremy B.', groupName: 'Morning Riders', kind: 'member' as const }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    sessionStorage.clear()
+    vi.mocked(useInviteJourney).mockReturnValue(null)
+  })
+
+  function renderPending(emailVerified: boolean, activation?: 'confirm_email' | 'review') {
+    vi.mocked(useAuth).mockReturnValue({
+      user: { id: '1', email: 'pending@example.com', email_verified: emailVerified, activation },
+      logout: mockLogout,
+      updateUser: vi.fn(),
+    } as unknown as ReturnType<typeof useAuth>)
+    render(<PendingApproval />)
+  }
+
+  it('promises the join once the address is confirmed', () => {
+    vi.mocked(useInviteJourney).mockReturnValue(JOURNEY)
+    renderPending(false, 'confirm_email')
+
+    expect(screen.getByTestId('pending-invite-promise')).toHaveTextContent(
+      'Then you join Jeremy B. in “Morning Riders”. Nothing to redo.',
+    )
+  })
+
+  it('promises the join after approval when the session says an administrator reviews the sign-up', () => {
+    vi.mocked(useInviteJourney).mockReturnValue(JOURNEY)
+    renderPending(false, 'review')
+
+    expect(screen.getByTestId('pending-invite-promise')).toHaveTextContent(
+      'Once your account is approved, you join Jeremy B. in “Morning Riders”. Nothing to redo.',
+    )
+  })
+
+  it('does not list confirming as what activates an account under review', () => {
+    renderPending(false, 'review')
+
+    expect(screen.getByText('An administrator will review your registration')).toBeInTheDocument()
+    expect(screen.queryByText('Your account activates as soon as the address is confirmed')).not.toBeInTheDocument()
+  })
+
+  it('promises nothing without an invite', () => {
+    renderPending(false)
+    expect(screen.queryByTestId('pending-invite-promise')).not.toBeInTheDocument()
+  })
+
+  it('does not say confirming activates the account when a held invite is under review', async () => {
+    vi.mocked(userApi.redeemSignupCode).mockResolvedValue({
+      user_status: 'pending',
+      group_joined: null,
+      group_invite_held: true,
+    })
+    const user = userEvent.setup()
+    renderPending(false, 'review')
+
+    await user.click(screen.getByRole('button', { name: 'Have a signup code?' }))
+    await user.type(screen.getByLabelText('Signup code'), 'MRT2026X')
+    await user.click(screen.getByRole('button', { name: 'Use code' }))
+
+    expect(
+      await screen.findByText(
+        'Code accepted. Confirm your email address; an administrator will then approve your account.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Code accepted. Confirm your email address to activate your account.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps the confirm-only wording for a held invite when the sign-up was not reviewed', async () => {
+    vi.mocked(userApi.redeemSignupCode).mockResolvedValue({
+      user_status: 'pending',
+      group_joined: null,
+      group_invite_held: true,
+    })
+    const user = userEvent.setup()
+    renderPending(false, 'confirm_email')
+
+    await user.click(screen.getByRole('button', { name: 'Have a signup code?' }))
+    await user.type(screen.getByLabelText('Signup code'), 'MRT2026X')
+    await user.click(screen.getByRole('button', { name: 'Use code' }))
+
+    expect(
+      await screen.findByText('Code accepted. Confirm your email address to activate your account.'),
+    ).toBeInTheDocument()
   })
 })

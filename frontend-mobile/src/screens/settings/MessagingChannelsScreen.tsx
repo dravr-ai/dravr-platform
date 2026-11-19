@@ -11,6 +11,11 @@ import { messagingApi } from '../../services/api';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 import { openExternal } from '../../utils/openExternal';
+import {
+  channelLinkReturnUri,
+  describeChannelLinkError,
+  runOAuthChannelLink,
+} from '../../utils/oauthChannelLink';
 
 /**
  * Manage which chat apps are linked to the account.
@@ -62,21 +67,30 @@ export function MessagingChannelsScreen() {
   /**
    * Start the link and hand the athlete to the chat app.
    *
-   * `initLink` returns the provider's own URL carrying the pairing code — a
-   * `t.me` or `wa.me` address — so opening it lands in the installed app with
-   * the code already in the message box. That is the path the onboarding
-   * screen's Open button takes; settings takes it too rather than only
-   * listing what somebody linked elsewhere. The link lands server-side, and
-   * the focus effect reloads the list when the athlete comes back.
+   * For a deep-link channel `initLink` returns the provider's own URL carrying
+   * the pairing code — a `t.me` or `wa.me` address — so opening it lands in the
+   * installed app with the code already in the message box. That is the path
+   * the onboarding screen's Open button takes; settings takes it too rather
+   * than only listing what somebody linked elsewhere. The link lands
+   * server-side, and the focus effect reloads the list when the athlete comes
+   * back. Slack and Discord authorize in an auth session instead, and this app
+   * finishes the link with its own login (carnet#1580).
    */
   const handleLink = (channel: AvailableChannel) => {
     void (async () => {
       setBusyChannel(channel.channel);
       try {
-        const link = await messagingApi.initLink(channel.channel);
-        await openExternal(link.linking_url, t);
+        const returnUri = channelLinkReturnUri();
+        const link = await messagingApi.initLink(channel.channel, returnUri);
+        if (link.method === 'oauth') {
+          if (await runOAuthChannelLink(link, returnUri)) {
+            await load();
+          }
+        } else {
+          await openExternal(link.linking_url, t);
+        }
       } catch (err) {
-        const message = describeApiError(err, { t, fallbackKey: 'app.failedLoadChannels' });
+        const message = describeChannelLinkError(err, t);
         Alert.alert(
           t('app.couldNotStartConnection', { channel: channel.display_name }),
           message,

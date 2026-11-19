@@ -459,6 +459,7 @@ mod tests {
             detail_read: segment_read,
             segment_read,
             stored_at: None,
+            place: None,
         }
     }
 

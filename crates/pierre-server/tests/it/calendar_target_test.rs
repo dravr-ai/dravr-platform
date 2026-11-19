@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::common::offline_provider_registry;
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
@@ -17,10 +18,11 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
+use pierre_core::ai_policy::SourceClass;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
-    Activity, Athlete, CalendarEventRef, ConnectionType, PlannedSession, PrescribedWorkout, Stats,
+    Activity, Athlete, CalendarEventRef, ConnectionType, PlannedSession, PrescribedWorkout,
     TenantId, UserOAuthToken,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
@@ -29,6 +31,7 @@ use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
+use pierre_providers::ai_scope::{self, Provenance};
 use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
@@ -160,10 +163,6 @@ impl FitnessProvider for MockCalendar {
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
         Err(AppError::not_found(id.to_owned()))
     }
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Err(AppError::internal("not read by this test"))
-    }
-
     async fn list_calendar_events(
         &self,
         from: NaiveDate,
@@ -236,7 +235,7 @@ async fn fixture(connected: &[&str]) -> Result<Fixture> {
     common::init_server_config();
     common::init_test_http_clients();
     let resources = create_test_server_resources().await?;
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     let calendar = ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::CALENDAR_WRITE);
     for (name, capabilities) in [
         (
@@ -675,6 +674,46 @@ async fn a_disconnected_choice_is_passed_over_with_a_note() -> Result<()> {
     Ok(())
 }
 
+/// owl phase 1 (carnet#1539): what `get_training_plan` serves of an agent's
+/// writing is recorded as such, a calendar entry with no live plan and the
+/// live plan alike, and nothing is when it serves neither.
+#[tokio::test]
+async fn the_plan_read_records_each_agent_written_thing_it_serves() -> Result<()> {
+    let fx = fixture(&[MOCK_A]).await?;
+    let agent_written =
+        |read: &Provenance| read.source_classes().contains(&SourceClass::AgentWritten);
+
+    let bare = Provenance::new();
+    ai_scope::tracking(bare.clone(), fx.ok("get_training_plan", json!({}))).await?;
+    assert!(
+        !agent_written(&bare),
+        "no plan, no entry: nothing an agent wrote"
+    );
+
+    fx.ok(
+        "prescribe_workout",
+        json!({ "date": prescription_date(), "session": session(), "provider": MOCK_A }),
+    )
+    .await?;
+    let entry = Provenance::new();
+    let read = ai_scope::tracking(entry.clone(), fx.ok("get_training_plan", json!({}))).await?;
+    assert!(read["plan"].is_null(), "still no live plan: {read}");
+    assert!(
+        agent_written(&entry),
+        "the calendar entry is an agent's prescription: {read}"
+    );
+
+    fx.save_plan().await;
+    let live = Provenance::new();
+    let read = ai_scope::tracking(live.clone(), fx.ok("get_training_plan", json!({}))).await?;
+    assert!(!read["plan"].is_null(), "the plan is live: {read}");
+    assert!(
+        agent_written(&live),
+        "the live plan is an agent's writing: {read}"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_prescription_stays_on_its_provider_and_withdraws_from_it() -> Result<()> {
     let fx = fixture(&[MOCK_A, MOCK_B]).await?;
@@ -841,7 +880,7 @@ async fn a_week_note_goes_only_to_a_calendar_that_holds_week_notes() -> Result<(
 
 #[test]
 fn intervals_icu_declares_the_capability_and_stays_the_target_of_an_athlete_connected_to_it() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     assert!(registry
         .calendar_write_providers()
         .contains(&"intervals_icu"));
@@ -889,7 +928,7 @@ fn write(
 /// the API connection.
 #[test]
 fn garmin_writes_its_calendar_without_taking_an_athletes_existing_one() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     assert!(registry.calendar_write_providers().contains(&"garmin"));
     assert!(!registry
         .calendar_write_providers()

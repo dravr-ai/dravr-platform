@@ -19,8 +19,9 @@ import {
 import { claimInContext, formatDateTime, parseEvidenceRefs } from '@pierre/chat-utils';
 import type { EvidenceRef } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
-import { OverflowMenu } from '../ui';
+import { BADGE_TONE, OverflowMenu } from '../ui';
 import { useDialog } from '../../hooks/useDialog';
+import { verdictBadgeTone } from './verdictBadgeTone';
 
 /** The reply the verdicts were drawn from, as the chat surface holds it. */
 export interface VerdictSource {
@@ -65,23 +66,6 @@ interface VerdictDrawerProps {
    * operator card: every chip, and the raw ids under Provenance.
    */
   renderTriage?: (verdict: ClaimVerdict) => ReactNode;
-}
-
-/** Chip classes for the tone the shared rollup assigns a status. */
-function statusToneClass(verdict: ClaimVerdict): string {
-  switch (VERDICT_STATUS_TONE[verdict.status]) {
-    case 'success':
-      return 'bg-success/15 text-on-success-container';
-    case 'warning':
-      return 'bg-warning/15 text-on-warning-container';
-    case 'error':
-      return 'bg-error/15 text-error';
-    case 'info':
-      return 'bg-info/15 text-on-info-container';
-    case 'secondary':
-    default:
-      return 'bg-surface-container-high text-on-surface';
-  }
 }
 
 /** One provenance row, rendered only for an id the read actually returned. */
@@ -275,24 +259,25 @@ function VerdictCard({
     strength: t(EVIDENCE_STRENGTH_LABEL_KEY[verdict.evidence_strength]),
   });
   const confidenceLabel = t('chat.confidenceLabel', { confidence: (verdict.confidence * 100).toFixed(0) });
+  const statusTone = BADGE_TONE[verdictBadgeTone(VERDICT_STATUS_TONE[verdict.status])].tone;
 
   return (
     <article data-testid="verdict-card" className="space-y-4 border-b ghost-border px-5 py-5 text-sm last:border-b-0">
       {operator ? (
         <div className="flex flex-wrap gap-2 text-xs">
-          <span className={`rounded-full px-2 py-0.5 ${statusToneClass(verdict)}`}>{statusLabel}</span>
-          <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">
+          <span className={`rounded-full px-2 py-0.5 ${statusTone}`}>{statusLabel}</span>
+          <span className={`rounded-full px-2 py-0.5 ${BADGE_TONE.neutral.tone}`}>
             {categoryLabel}
           </span>
-          <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">{evidenceLabel}</span>
-          <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">
+          <span className={`rounded-full px-2 py-0.5 ${BADGE_TONE.neutral.tone}`}>{evidenceLabel}</span>
+          <span className={`rounded-full px-2 py-0.5 ${BADGE_TONE.neutral.tone}`}>
             {verdict.layer_fired}
           </span>
-          <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">{confidenceLabel}</span>
+          <span className={`rounded-full px-2 py-0.5 ${BADGE_TONE.neutral.tone}`}>{confidenceLabel}</span>
         </div>
       ) : (
         <div className="flex items-center gap-2">
-          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusToneClass(verdict)}`}>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusTone}`}>
             {statusLabel}
           </span>
           <span className="min-w-0 flex-1 text-xs text-outline" data-testid="verdict-meta">

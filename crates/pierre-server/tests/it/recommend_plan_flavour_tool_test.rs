@@ -22,6 +22,7 @@ use pierre_core::models::groups::{
 use pierre_core::models::{ArtefactKind, PackageArtefact, Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
+use pierre_test_support::delegation::grant_coach_access;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::scopes::{missing_scope, required_scopes};
@@ -846,6 +847,7 @@ async fn attach_as_coach(
         .id;
     let group_id = Uuid::new_v4();
     let now = Utc::now();
+    grant_coach_access(repos, agent).await?;
     repos
         .groups
         .create_group(
@@ -1328,8 +1330,7 @@ async fn an_a_race_too_soon_for_a_block_is_named_not_silently_dropped() -> Resul
     assert_eq!(payload["season"]["status"], "laid", "{}", payload["season"]);
     let unlaid: Vec<&str> = payload["season"]["unlaid_peaks"]
         .as_array()
-        .map(|a| a.iter().filter_map(Value::as_str).collect())
-        .unwrap_or_default();
+        .map_or_default(|a| a.iter().filter_map(Value::as_str).collect());
     assert_eq!(
         unlaid,
         vec![crowded.as_str()],

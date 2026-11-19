@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! carnet#1524: a super-admin invites a coach the team recruited. The invite
+//! carnet#1524: an admin invites a coach the team recruited. The invite
 //! is the single-use mailed link of every invitation, locked to the address,
 //! and its redemption also settles coach access (`manages_roster`, an
 //! operator grant by the inviter) and the coach role, so the coach meets no
@@ -98,7 +98,7 @@ impl UserApprovalNotifier for RecordingNotifier {
 }
 
 /// One in-memory database behind the admin routes, the acceptance handler and
-/// the onboarding read, and the super-admin operator issuing invitations.
+/// the onboarding read, and the admin operator issuing invitations.
 struct Harness {
     resources: Arc<ServerContext>,
     admin: axum::Router,
@@ -146,7 +146,7 @@ impl Harness {
                 (*database).clone(),
                 (*auth_manager).clone(),
                 "test_jwt_secret",
-                config,
+                common::offline_config(config),
                 cache,
                 ServerContextOptions {
                     rsa_key_size_bits: Some(2048),
@@ -159,6 +159,8 @@ impl Harness {
                     archive_imports: None,
                     live_records: None,
                     blobs: None,
+                    #[cfg(feature = "client-messaging")]
+                    channel_adapters: common::offline_adapters(),
                 },
             )
             .await?,
@@ -196,7 +198,7 @@ impl Harness {
         context.frontend_url = Some(FRONTEND_URL.to_owned());
 
         let operator_email = "team-operator@example.com".to_owned();
-        let operator_id = seed_user(&repos, &operator_email, UserRole::SuperAdmin).await?;
+        let operator_id = seed_user(&repos, &operator_email, UserRole::Admin).await?;
 
         Ok(Self {
             resources,
@@ -321,7 +323,6 @@ async fn seed_user(repos: &Arc<RepositoryRegistry>, email: &str, role: UserRole)
     let mut user = User::new(email.to_owned(), password_hash, Some("Seeded".to_owned()));
     user.user_status = UserStatus::Active;
     user.role = role;
-    user.is_admin = role.is_admin_or_higher();
     let id = user.id;
     repos.users.create(&user).await?;
     Ok(id)

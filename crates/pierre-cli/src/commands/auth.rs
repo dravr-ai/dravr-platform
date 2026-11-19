@@ -7,7 +7,7 @@
 //! Authenticated-CLI session commands.
 //!
 //! `auth login` runs the device flow and caches the returned admin token;
-//! `auth approve`/`auth deny` let a super-admin resolve someone else's pending
+//! `auth approve`/`auth deny` let an admin resolve someone else's pending
 //! login; `auth status`/`auth logout` inspect and clear the local cache.
 
 use chrono::Utc;
@@ -80,7 +80,7 @@ pub(crate) fn status() -> AppResult<()> {
 
 /// `pierre-cli auth approve|deny <user_code>` — resolve a pending device login.
 ///
-/// A super-admin runs this (via a cached super-admin login, or an explicit
+/// An admin runs this (via a cached super-admin login, or an explicit
 /// `--token`) to approve or deny another machine's `auth login`.
 ///
 /// # Errors

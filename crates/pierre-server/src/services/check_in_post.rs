@@ -58,7 +58,6 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_contremaitre::use_case_catalogue::Predicate;
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::errors::AppResult;
-use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{CheckInCadence, PostPurpose, TenantId, UserStatus};
 use pierre_database::repositories::CheckInSubscriber;
 use pierre_services::athlete_state::AthleteState;
@@ -69,7 +68,7 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
 use crate::services::platform_post::{PlatformPost, PostSurface};
-use crate::services::post_delivery::{linked_dms, post_in_app, post_to_dm, PostAthlete};
+use crate::services::post_delivery::{coach_quiet_hours, linked_dms, post_to_one, PostAthlete};
 
 /// How often the check-in tick runs.
 ///
@@ -81,10 +80,6 @@ pub const CHECK_IN_TICK_INTERVAL: StdDuration = StdDuration::from_mins(30);
 
 /// The worker's name in logs and in the worker-run ledger.
 const WORKER_NAME: &str = "coach check-in scheduler";
-
-/// Why a check-in on a closed window was not sent, as
-/// `messaging.proactive_held` reports it.
-const HELD_WINDOW_CLOSED: &str = "window_closed";
 
 /// Outcome of one check-in tick — exposed for tests and metrics.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -244,8 +239,7 @@ impl CheckInPoster {
         }
     }
 
-    /// Post a claimed check-in to its one destination: the DM the athlete
-    /// last wrote from while its window is open, else their in-app thread.
+    /// Post a claimed check-in to its one destination ([`post_to_one`]).
     ///
     /// Answers the destination and whether the reply was stored, or `None`
     /// when nothing could be attempted anywhere.
@@ -258,30 +252,16 @@ impl CheckInPoster {
     ) -> Option<(PostSurface, bool)> {
         let prompt = |locale: &str| check_in_prompt(resources, cadence, locale);
         let dms = linked_dms(resources, athlete, now).await;
-        if let Some(dm) = dms.open {
-            let surface = PostSurface::Channel(dm.channel_type);
-            let on_dm = post_to_dm(
-                resources,
-                self.post.as_ref(),
-                self.resolver.as_ref(),
-                athlete,
-                dm,
-                &prompt,
-            )
-            .await;
-            if let Some(posted) = on_dm {
-                return Some((surface, posted));
-            }
-            // No instruction in the DM's language: the app's thread, in the
-            // athlete's own, is still a destination.
-        } else {
-            for channel in &dms.held {
-                report_held(athlete.tenant_id, *channel);
-            }
-        }
-        post_in_app(resources, self.post.as_ref(), athlete, &prompt)
-            .await
-            .map(|posted| (PostSurface::InApp, posted))
+        post_to_one(
+            resources,
+            self.post.as_ref(),
+            self.resolver.as_ref(),
+            athlete,
+            dms,
+            &prompt,
+            PostPurpose::CheckIn,
+        )
+        .await
     }
 }
 
@@ -358,6 +338,7 @@ async fn mark_check_in_posted(
             tenant_id,
             user_id,
             PostPurpose::CheckIn.as_str(),
+            PostPurpose::NO_SUBJECT,
             lease,
             now,
         )
@@ -406,6 +387,7 @@ async fn claim_check_in(
             tenant_id,
             user_id,
             PostPurpose::CheckIn.as_str(),
+            PostPurpose::NO_SUBJECT,
             since,
             now,
         )
@@ -431,7 +413,13 @@ async fn release_check_in(
         .common
         .repos
         .platform_post_claims
-        .release_platform_post(tenant_id, user_id, PostPurpose::CheckIn.as_str(), lease)
+        .release_platform_post(
+            tenant_id,
+            user_id,
+            PostPurpose::CheckIn.as_str(),
+            PostPurpose::NO_SUBJECT,
+            lease,
+        )
         .await
     {
         warn!(error = %e, "Check-in: releasing the claim of an unmade check-in failed");
@@ -464,65 +452,6 @@ fn check_in_prompt(
     Some(prompt)
 }
 
-/// Whether the athlete's quiet hours for coach notifications cover `now`.
-///
-/// Read on the clock the preference names, else the athlete's own zone. An
-/// athlete with no such preference, or an unreadable one, has none.
-#[cfg(feature = "client-notifications")]
-async fn coach_quiet_hours(
-    resources: &ServerContext,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    now: DateTime<Utc>,
-    zone: Tz,
-) -> bool {
-    use pierre_core::models::check_in::within_quiet_hours;
-    use pierre_notifications::models::NotificationCategory;
-    use pierre_notifications::TenantId as CommTenantId;
-
-    let Some(service) = resources.common.notification_service.as_ref() else {
-        return false;
-    };
-    let preferences = match service
-        .get_notification_preferences(user_id, CommTenantId(tenant_id.as_uuid()))
-        .await
-    {
-        Ok(preferences) => preferences,
-        Err(e) => {
-            warn!(error = %e, "Check-in: notification preferences unreadable; no quiet hours applied");
-            return false;
-        }
-    };
-    let Some(coach) = preferences
-        .iter()
-        .find(|preference| preference.category == NotificationCategory::Coach)
-    else {
-        return false;
-    };
-    let (Some(start), Some(end)) = (coach.quiet_hours_start, coach.quiet_hours_end) else {
-        return false;
-    };
-    let clock = coach
-        .timezone
-        .as_deref()
-        .and_then(|name| name.parse::<Tz>().ok())
-        .unwrap_or(zone);
-    within_quiet_hours(start, end, now.with_timezone(&clock).time())
-}
-
-/// Notification preferences are compiled out of this build, so no quiet
-/// hours are on record to hold a check-in.
-#[cfg(not(feature = "client-notifications"))]
-async fn coach_quiet_hours(
-    _resources: &ServerContext,
-    _user_id: Uuid,
-    _tenant_id: TenantId,
-    _now: DateTime<Utc>,
-    _zone: Tz,
-) -> bool {
-    false
-}
-
 /// Report one check-in: where it was posted, and whether the agent's reply
 /// grounded in the athlete's data and was stored.
 fn report_check_in(
@@ -544,19 +473,6 @@ fn report_check_in(
     );
 }
 
-/// Report a DM whose window had closed, so the check-in was not sent there.
-fn report_held(tenant_id: TenantId, channel: ChannelType) {
-    info!(
-        target: "notify",
-        event = "messaging.proactive_held",
-        tenant_id = %tenant_id,
-        channel = %channel,
-        purpose = PostPurpose::CheckIn.as_str(),
-        reason = HELD_WINDOW_CLOSED,
-        "proactive check-in held"
-    );
-}
-
 /// Start the check-in worker: a [`CheckInPoster`] over the composition root,
 /// ticking every [`CHECK_IN_TICK_INTERVAL`] on the worker-run ledger, so
 /// across instances a tick runs once.
@@ -564,7 +480,10 @@ pub fn start_check_in_scheduler(resources: &Arc<ServerContext>, post: Arc<dyn Pl
     let poster = Arc::new(CheckInPoster::new(
         Arc::downgrade(resources),
         post,
-        config_adapter_resolver(Arc::clone(&resources.common.repos)),
+        config_adapter_resolver(
+            Arc::clone(&resources.common.repos),
+            Arc::clone(&resources.mcp.channel_adapters),
+        ),
     ));
     spawn_periodic(
         WORKER_NAME,

@@ -87,6 +87,8 @@ SHA = os.environ["CI_VERDICT_SHA"]
 BRANCH = os.environ["CI_VERDICT_BRANCH"]
 BEFORE = os.environ["CI_VERDICT_BEFORE"]
 REPO = os.environ["CI_VERDICT_REPO"]
+# The retired CI: Verdict workflow (removed 2026-11-19): its runs on shas
+# pushed before then are never scored.
 SELF = ".github/workflows/ci-verdict.yml"
 ZERO = "0" * 40
 OK = {"success", "skipped", "neutral"}

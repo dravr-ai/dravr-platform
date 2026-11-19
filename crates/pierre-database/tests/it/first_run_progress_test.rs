@@ -12,7 +12,7 @@
 //! `PostgreSQL`.
 
 use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
-use pierre_core::models::TenantId;
+use pierre_core::models::{PostPurpose, TenantId};
 use pierre_database::repositories::FirstRunDay;
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
@@ -149,7 +149,14 @@ async fn the_check_in_landing_reads_back_per_tenant() {
     );
 
     let lease_token = claims
-        .claim_platform_post_since(tenant, user_id, "check_in", at(16, 0), morning)
+        .claim_platform_post_since(
+            tenant,
+            user_id,
+            "check_in",
+            PostPurpose::NO_SUBJECT,
+            at(16, 0),
+            morning,
+        )
         .await
         .unwrap()
         .expect("the first claim of the day takes the post");
@@ -164,7 +171,14 @@ async fn the_check_in_landing_reads_back_per_tenant() {
 
     let landed = morning + Duration::seconds(3);
     assert!(claims
-        .mark_platform_post_posted(tenant, user_id, "check_in", &lease_token, landed)
+        .mark_platform_post_posted(
+            tenant,
+            user_id,
+            "check_in",
+            PostPurpose::NO_SUBJECT,
+            &lease_token,
+            landed
+        )
         .await
         .unwrap());
     assert_eq!(

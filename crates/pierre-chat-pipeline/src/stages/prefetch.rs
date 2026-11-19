@@ -405,8 +405,7 @@ pub async fn inject_startup_context(
                 let scope_note = data_reqs
                     .activities
                     .as_ref()
-                    .map(|req| window_scope_note(req, Utc::now()))
-                    .unwrap_or_default();
+                    .map_or_default(|req| window_scope_note(req, Utc::now()));
                 let context_msg = format!(
                     "{STARTUP_GROUNDING_LEAD} {scope_note}\n\n{}",
                     injectable_activity_text(&window.content)
@@ -697,8 +696,7 @@ pub async fn maybe_refresh_activity_context(
     let scope_note = data_reqs
         .activities
         .as_ref()
-        .map(|req| window_scope_note(req, Utc::now()))
-        .unwrap_or_default();
+        .map_or_default(|req| window_scope_note(req, Utc::now()));
     inject_activity_refresh(llm_messages, &window.content, &scope_note) && window.served
 }
 

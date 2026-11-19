@@ -6,8 +6,8 @@
 
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
-use axum::Json;
+use axum::response::{IntoResponse, Response};
+use axum::{Extension, Json};
 use chrono::{Duration, Utc};
 use pierre_auth::http::oauth_client;
 use pierre_core::errors::messaging::MessagingError;
@@ -16,6 +16,7 @@ use pierre_core::models::TenantId;
 use pierre_database::backends::{
     CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository, TenantRepository,
 };
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use rand::Rng;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -28,12 +29,18 @@ use uuid::Uuid;
 
 mod destination;
 mod link_account;
+mod oauth_link;
 
 use super::templates;
 use crate::mcp::resources::ServerContext;
 use destination::build_linking_url;
 pub(crate) use destination::can_complete_a_link;
 use link_account::resolve_user_from_form;
+pub(crate) use oauth_link::complete_app_link;
+use oauth_link::{
+    complete_oauth_link, hand_back_to_app, pending_oauth_link, require_starter, signed_in_account,
+    ProviderAnswer,
+};
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::AppError;
 use pierre_middleware::{extract_auth_from_headers, PeerAddress};
@@ -50,27 +57,31 @@ const CODE_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx
 pub(crate) struct LinkCallbackQuery {
     /// State parameter containing the linking verification code
     pub state: Option<String>,
-    /// Channel-specific user ID, when the caller already knows it.
-    ///
-    /// Set by deep-link completions and internal callers. OAuth providers do
-    /// not send this — they send `code`, which the exchange below turns into an
-    /// identity.
-    pub channel_user_id: Option<String>,
     /// Authorization code from an OAuth provider, exchanged for the user's id.
+    /// The query never names the channel identity or its display name: only
+    /// the provider may vouch for either (see [`link_callback`]).
     pub code: Option<String>,
-    /// Display name from the platform
-    pub display_name: Option<String>,
 }
 
 impl fmt::Debug for LinkCallbackQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LinkCallbackQuery")
             .field("state", &self.state.as_ref().map(|_| "[REDACTED]"))
-            .field("channel_user_id", &self.channel_user_id)
             .field("code", &self.code.as_ref().map(|_| "[REDACTED]"))
-            .field("display_name", &self.display_name)
             .finish()
     }
+}
+
+/// Optional body of `POST /api/messaging/link/init/{channel}`.
+///
+/// The phone app names where the provider's code comes back to it, because the
+/// auth session it opens has no Dravr session that could vouch for the
+/// account (carnet#1580). The web app sends no body.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct LinkInitBody {
+    /// The app's channel-link callback: `dravr://messaging/link-callback`, or
+    /// its Expo Go form where the deployment allows Expo Go.
+    pub app_return_uri: Option<String>,
 }
 
 /// Response body for a channel link initiation
@@ -169,17 +180,46 @@ fn qr_svg_for(url: &str) -> Option<String> {
 /// else is a code the bot can never redeem.
 pub(crate) async fn init_channel_link(
     State(resources): State<Arc<ServerContext>>,
+    Extension(adapters): Extension<Arc<dyn ChannelAdapterFactory>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
+    body: Option<Json<LinkInitBody>>,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
+    // A linked chat keeps acting as the athlete after the support session ends.
+    auth.refuse_impersonation(
+        resources.common.repos.admin_audit.as_ref(),
+        "link a messaging channel",
+    )
+    .await?;
     let caller_tenant_id = resolve_tenant_id(&auth, &resources).await?;
+    let Json(body) = body.unwrap_or_default();
     let user_id = auth.user_id.to_string();
 
     let channel_type = ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
 
     let method = channel_type.linking_method();
+    // Only an OAuth link reaches the callback, so only it hands a code back.
+    // The return URI is the app's own fixed callback or nothing: one the
+    // caller chose would collect the code of anyone they forwarded the link to.
+    let app_return_uri = match (method, body.app_return_uri.as_deref()) {
+        (LinkingMethod::OAuth, Some(uri)) => {
+            if !resources
+                .common
+                .config
+                .oauth2_server
+                .first_party_redirects
+                .accepts_channel_link_return(uri)
+            {
+                return Err(AppError::invalid_input(
+                    "app_return_uri is not the Dravr app's channel-link callback",
+                ));
+            }
+            Some(uri)
+        }
+        _ => None,
+    };
     let code = generate_link_code();
     let expires_at = Utc::now() + Duration::minutes(LINK_CODE_TTL_MINUTES);
     let id = Uuid::new_v4().to_string();
@@ -223,6 +263,7 @@ pub(crate) async fn init_channel_link(
             .external_services
             .meta_graph_api_base
             .as_deref(),
+        adapters.as_ref(),
     )
     .await?;
 
@@ -235,6 +276,7 @@ pub(crate) async fn init_channel_link(
         method: &method.to_string(),
         channel_user_id: None,
         sender_name: None,
+        app_return_uri,
         expires_at: &expires_at.to_rfc3339(),
     };
     db.create_link_state(&params).await?;
@@ -270,13 +312,28 @@ pub(crate) async fn init_channel_link(
 
 /// GET /api/messaging/link/callback/:channel
 ///
-/// Handles OAuth callback or deep-link verification completion.
-/// Consumes the verification code and creates a permanent channel link.
+/// The provider's redirect after an OAuth link's authorize step.
+///
+/// The identity comes only from the provider's code exchange. The link code
+/// proves which Dravr account is linking, never which channel identity: an
+/// id taken from the query string would let any holder of their own code bind
+/// someone else's Slack or Discord id to their account, and every later DM
+/// from that id would then run as theirs (carnet#1577).
+///
+/// The link completes only for the account that started it (carnet#1580): a
+/// link the phone app started hands the code back to the app, which finishes
+/// it with its own login; any other completes only in a browser signed in as
+/// that account. See [`oauth_link`].
+///
+/// The link state is checked before the provider is called, so a stale,
+/// unknown, cross-channel or foreign code costs no exchange.
 pub(crate) async fn link_callback(
     State(resources): State<Arc<ServerContext>>,
+    Extension(adapters): Extension<Arc<dyn ChannelAdapterFactory>>,
     Path(channel): Path<String>,
     Query(query): Query<LinkCallbackQuery>,
-) -> Result<impl IntoResponse, AppError> {
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
     // Validate channel type early (reject unknown channels before DB operations)
     ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
@@ -286,86 +343,38 @@ pub(crate) async fn link_callback(
         .as_deref()
         .ok_or_else(|| AppError::invalid_input("Missing state parameter with linking code"))?;
 
-    // Resolve who this is. A caller that already knows says so; an OAuth
-    // provider sends a `code` we exchange. Requiring `channel_user_id`
-    // unconditionally is what made every Slack/Discord attempt a 400: the
-    // provider never sends it, and nothing else was going to.
-    let exchanged;
-    let channel_user_id = if query.channel_user_id.is_some() {
-        query.channel_user_id.as_deref()
-    } else if let Some(oauth_code) = query.code.as_deref() {
-        exchanged = exchange_oauth_identity(&resources, &channel, state_code, oauth_code).await?;
-        Some(exchanged.as_str())
-    } else {
-        None
-    };
-    let channel_user_id = channel_user_id.ok_or_else(|| {
-        AppError::invalid_input(
-            "Callback carried neither an OAuth code nor a channel user id, so there is \
-             no identity to link.",
-        )
-    })?;
-
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
+    let pending = pending_oauth_link(db, state_code, &channel).await?;
 
-    // Non-consuming lookup to extract tenant_id for the tenant-scoped consumption
-    let preview = db
-        .get_link_state(state_code)
-        .await?
-        .ok_or_else(|| AppError::invalid_input("Link code is invalid or expired"))?;
-
-    let tenant_id_str = preview["tenant_id"]
-        .as_str()
-        .ok_or_else(|| AppError::internal("Link state missing tenant_id"))?;
-    let tenant_id = TenantId::parse_str(tenant_id_str)
-        .map_err(|_| AppError::internal("Link state has invalid tenant_id"))?;
-
-    // Verify the URL channel matches the link state channel to prevent cross-channel replay
-    let stored_channel = preview["channel_type"].as_str().unwrap_or_default();
-    if stored_channel != channel {
-        warn!(
-            url_channel = %channel,
-            stored_channel = %stored_channel,
-            "Channel mismatch between URL and link state"
-        );
-        return Err(AppError::invalid_input(format!(
-            "Channel mismatch: link was created for {stored_channel}, not {channel}"
-        )));
+    let answer = query
+        .code
+        .as_deref()
+        .map_or(ProviderAnswer::Declined, ProviderAnswer::Approved);
+    if let Some(app_return_uri) = pending.app_return_uri.as_deref() {
+        return Ok(hand_back_to_app(
+            app_return_uri,
+            &channel,
+            state_code,
+            answer,
+        ));
     }
-
-    // Atomically consume the link state with tenant_id guard
-    let link_state = db.consume_link_state(state_code, tenant_id).await?;
-
-    let user_id = link_state["user_id"]
-        .as_str()
-        .ok_or_else(|| AppError::invalid_input("Link state has no associated user"))?;
-
-    let link_id = Uuid::new_v4().to_string();
-    let link_params = CreateChannelLinkParams {
-        id: &link_id,
-        tenant_id,
-        user_id,
-        channel_type: &channel,
-        channel_user_id,
-        display_name: query.display_name.as_deref(),
+    let ProviderAnswer::Approved(oauth_code) = answer else {
+        return Err(AppError::invalid_input(
+            "Callback carried no OAuth code, so there is no identity to link.",
+        ));
     };
-    db.create_channel_link(&link_params).await?;
+    require_starter(signed_in_account(&resources, &headers).await?, &pending)?;
 
-    info!(
-        channel = %channel,
-        user_id = %user_id,
-        channel_user_id = %channel_user_id,
-        "Channel linked successfully"
-    );
-
-    Ok((
-        StatusCode::OK,
-        Json(json!({
-            "status": "linked",
-            "channel": channel,
-            "channel_user_id": channel_user_id,
-        })),
-    ))
+    let linked = complete_oauth_link(
+        &resources,
+        adapters.as_ref(),
+        &channel,
+        state_code,
+        oauth_code,
+        &pending,
+    )
+    .await?;
+    Ok((StatusCode::OK, Json(linked)).into_response())
 }
 
 /// GET /api/messaging/links
@@ -711,10 +720,8 @@ async fn complete_link_and_respond(
 
 /// Exchange an OAuth authorization code for the sender's id on that platform.
 ///
-/// This is the half that was missing. The callback used to demand a
-/// `channel_user_id` query parameter that no OAuth provider sends, so Slack and
-/// Discord links always failed — the provider is the only party that knows who
-/// just authorised, and nothing was asking it.
+/// The provider is the only party that knows who just authorised, so this is
+/// the callback's only source of the channel identity.
 ///
 /// Identity only: the token is used once to read the id and never stored. We are
 /// not acting on the user's behalf on Slack or Discord, so keeping a credential
@@ -727,31 +734,19 @@ async fn complete_link_and_respond(
 /// the provider's raw body — a rejected exchange can echo the client secret back.
 async fn exchange_oauth_identity(
     resources: &Arc<ServerContext>,
+    adapters: &dyn ChannelAdapterFactory,
     channel: &str,
-    link_code: &str,
+    tenant_id: TenantId,
     oauth_code: &str,
-) -> Result<String, AppError> {
+) -> Result<ProviderIdentity, AppError> {
     let channel_type = ChannelType::from_str(channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
 
+    // `tenant_id` comes from the link state our own `state` code keys, which
+    // the caller has already resolved. The provider's `oauth_code` is not a
+    // key we issued: a link state looked up by it never matches, so it would
+    // reject every OAuth link as "invalid or expired".
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
-    // Two different codes arrive on this callback and they are not
-    // interchangeable: `link_code` is our own state token, which is what the
-    // link-state row is keyed by, and `oauth_code` is the provider's
-    // authorization code, which only the provider can resolve. Looking the
-    // tenant up by the provider's code never matches — it is not a key we
-    // issued — so that mistake fails every OAuth link with "invalid or
-    // expired" no matter how the channel is configured.
-    let tenant_str = db
-        .get_link_state(link_code)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|s| s["tenant_id"].as_str().map(str::to_owned))
-        .unwrap_or_default();
-    let tenant_id = TenantId::parse_str(&tenant_str)
-        .map_err(|_| AppError::invalid_input("Link code is invalid or expired"))?;
-
     let config = db
         .get_channel_config(tenant_id, channel)
         .await?
@@ -771,11 +766,16 @@ async fn exchange_oauth_identity(
     let base_url = &resources.common.config.base_url;
     let redirect_uri = format!("{base_url}/api/messaging/link/callback/{channel_type}");
 
-    let (token_url, identity_url) = oauth_endpoints(channel_type)?;
+    // The production factory names no origin, so the exchange goes to the
+    // provider's own host. A test context's names one of its own, so a
+    // route-driven test never posts its fixture client secret to the real
+    // one (carnet#1615).
+    let api_origin = adapters.destination_api_base(channel_type);
+    let (token_url, identity_url) = oauth_endpoints(channel_type, api_origin.as_deref())?;
 
     exchange_code_for_identity(
-        token_url,
-        identity_url,
+        &token_url,
+        &identity_url,
         client_id,
         client_secret,
         oauth_code,
@@ -785,34 +785,59 @@ async fn exchange_oauth_identity(
     .await
 }
 
-/// The token and identity endpoints for an OAuth channel.
+/// Slack's own origin, where an `OpenID` Connect link is exchanged.
+const SLACK_API_ORIGIN: &str = "https://slack.com";
+
+/// Discord's own origin, where an `OAuth2` link is exchanged.
+const DISCORD_API_ORIGIN: &str = "https://discord.com";
+
+/// The token and identity endpoints for an OAuth channel, on `api_origin`
+/// when the caller names one and on the provider's own host otherwise.
 ///
-/// Split out so the pairing is assertable on its own, and so the round trip
-/// below can be pointed at a stub without reaching for a config knob that would
-/// exist only for tests.
+/// The origin is what the server context's adapter factory answers for the
+/// channel ([`ChannelAdapterFactory::destination_api_base`]): `None` from
+/// the production factory, an origin of its own from a test context's. The
+/// paths are the provider's either way.
 ///
 /// # Errors
 ///
 /// Returns `AppError` for a channel that does not link by OAuth.
 pub fn oauth_endpoints(
     channel_type: ChannelType,
-) -> Result<(&'static str, &'static str), AppError> {
+    api_origin: Option<&str>,
+) -> Result<(String, String), AppError> {
     match channel_type {
-        ChannelType::Slack => Ok((
-            "https://slack.com/api/openid.connect.token",
-            "https://slack.com/api/openid.connect.userInfo",
-        )),
-        ChannelType::Discord => Ok((
-            "https://discord.com/api/oauth2/token",
-            "https://discord.com/api/users/@me",
-        )),
+        ChannelType::Slack => {
+            let origin = api_origin.unwrap_or(SLACK_API_ORIGIN);
+            Ok((
+                format!("{origin}/api/openid.connect.token"),
+                format!("{origin}/api/openid.connect.userInfo"),
+            ))
+        }
+        ChannelType::Discord => {
+            let origin = api_origin.unwrap_or(DISCORD_API_ORIGIN);
+            Ok((
+                format!("{origin}/api/oauth2/token"),
+                format!("{origin}/api/users/@me"),
+            ))
+        }
         other => Err(AppError::invalid_input(format!(
             "{other} does not link by OAuth"
         ))),
     }
 }
 
-/// Exchange an authorization code for the sender's id against the given
+/// Who the provider says just authorised: their stable id on that platform and,
+/// when the provider gives one, the name they go by there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderIdentity {
+    /// Stable user id: Slack `OpenID` Connect `sub`, Discord `id`.
+    pub id: String,
+    /// Slack `name`; Discord `global_name`, else `username`.
+    pub display_name: Option<String>,
+}
+
+/// Exchange an authorization code for the sender's identity against the given
 /// endpoints.
 ///
 /// Takes the endpoints as parameters rather than deriving them, which is what
@@ -836,7 +861,7 @@ pub async fn exchange_code_for_identity(
     code: &str,
     redirect_uri: &str,
     channel: &str,
-) -> Result<String, AppError> {
+) -> Result<ProviderIdentity, AppError> {
     // The bounded OAuth client: a provider that stalls must not hold the
     // athlete's link request open with no end.
     let client = oauth_client()?;
@@ -888,7 +913,7 @@ pub async fn exchange_code_for_identity(
         })?;
 
     // Slack OIDC returns the stable user id as `sub`; Discord returns `id`.
-    identity
+    let id = identity
         .get("sub")
         .or_else(|| identity.get("id"))
         .and_then(Value::as_str)
@@ -897,7 +922,18 @@ pub async fn exchange_code_for_identity(
         .ok_or_else(|| {
             warn!(channel = %channel, "identity response carried no user id");
             AppError::internal("Could not read the account identity")
-        })
+        })?;
+
+    // Slack OIDC names the user `name`; Discord's `global_name` is the display
+    // name and may be null, with `username` always present.
+    let display_name = ["name", "global_name", "username"]
+        .iter()
+        .find_map(|key| identity.get(*key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned);
+
+    Ok(ProviderIdentity { id, display_name })
 }
 
 #[cfg(test)]
@@ -910,9 +946,7 @@ mod tests {
     fn link_callback_query_debug_hides_state_and_code() {
         let query = LinkCallbackQuery {
             state: Some(format!("{SENTINEL}-state")),
-            channel_user_id: Some("U1".to_owned()),
             code: Some(format!("{SENTINEL}-code")),
-            display_name: None,
         };
         let printed = format!("{query:?}");
         assert!(!printed.contains(SENTINEL), "{printed}");

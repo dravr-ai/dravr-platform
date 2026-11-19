@@ -30,6 +30,7 @@ use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::admin::jwks::JwksManager;
+use crate::oauth2_server::first_party::names_third_party;
 use pierre_core::constants::{
     limits::{OAUTH_ACCESS_TOKEN_EXPIRY_HOURS, USER_SESSION_EXPIRY_HOURS},
     service_names::{MCP, OAUTH2_AUTHORIZE, PIERRE_MCP_SERVER},
@@ -42,7 +43,11 @@ use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::backends::UserRepository;
 
 mod method;
-pub use method::{AuthMethod, ImpersonationGrant};
+mod session_token;
+pub use method::{
+    refuse_support_session, AuthMethod, ImpersonationGrant, IMPERSONATION_REFUSED_ACTION,
+    IMPERSONATION_WRITE_REFUSED,
+};
 
 /// Response for checking system setup status
 ///
@@ -194,7 +199,7 @@ pub struct Claims {
     /// Use POST /api/tenants/switch to change the active tenant.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_tenant_id: Option<String>,
-    /// Original user ID when impersonating (the super admin)
+    /// Original user ID when impersonating (the admin)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub impersonator_id: Option<String>,
     /// Impersonation session ID for audit trail
@@ -238,6 +243,29 @@ impl Claims {
         self.client_id
             .as_deref()
             .filter(|client_id| *client_id == self.sub)
+    }
+
+    /// Whether the token is a third party's: it names a client that is not
+    /// one of Dravr's own apps ([`names_third_party`]), whatever its grant.
+    #[must_use]
+    pub fn is_delegated(&self) -> bool {
+        names_third_party(self.client_id.as_deref())
+    }
+
+    /// Whether the token is a session of Dravr's own apps: not a third
+    /// party's, and holding the whole [`OAuthScope::self_grant`].
+    ///
+    /// Both must hold. A delegated token holding every scope is still its
+    /// client's, and a narrower grant naming no client was minted before the
+    /// `client_id` claim existed (a delegation) or before the `scope` claim
+    /// did, so it is not taken for a session.
+    ///
+    /// An impersonation token is a session by this test: it names no client
+    /// and holds every scope. A reader that must not take one refuses it by
+    /// its own claim, as [`AuthManager::validate_session_token`] does.
+    #[must_use]
+    pub fn is_session(&self) -> bool {
+        !self.is_delegated() && OAuthScope::is_self_grant(&OAuthScope::parse_granted(&self.scope))
     }
 }
 
@@ -362,7 +390,9 @@ impl AuthManager {
     ///
     /// # Errors
     ///
-    /// As [`Self::generate_token_with_tenant`].
+    /// As [`Self::generate_token_with_tenant`], and when `client_id` names a
+    /// client that is not one of Dravr's own apps: a session holds every
+    /// scope, and a token naming a third party is that party's delegation.
     pub fn generate_client_session_token(
         &self,
         user: &User,
@@ -398,6 +428,10 @@ impl AuthManager {
 
     /// Mint a self-grant session token for `user` addressed to `audience`,
     /// naming the client it was signed in to, if any.
+    ///
+    /// Refuses a third-party `client_id` by the rule [`Claims::is_delegated`]
+    /// reads a token with, so no token this signs is a delegation holding
+    /// the `admin` scope.
     fn generate_session_for(
         &self,
         user: &User,
@@ -406,6 +440,12 @@ impl AuthManager {
         audience: &str,
         client_id: Option<&str>,
     ) -> AppResult<String> {
+        if names_third_party(client_id) {
+            return Err(AppError::internal(
+                "A session names one of Dravr's own apps or no client",
+            ));
+        }
+
         let now = Utc::now();
         let expiry = now + Duration::hours(self.token_expiry_hours);
 
@@ -439,7 +479,7 @@ impl AuthManager {
         Ok(token)
     }
 
-    /// Generate an impersonation `JWT` token for a super admin impersonating another user
+    /// Generate an impersonation `JWT` token for an admin impersonating another user
     ///
     /// # Errors
     ///
@@ -538,39 +578,6 @@ impl AuthManager {
         Ok(token)
     }
 
-    /// Validate a token as the athlete's own session: a first-party credential,
-    /// minted with the whole self grant, held by the athlete themselves.
-    ///
-    /// A delegated OAuth access token is refused however valid its signature.
-    /// It is a third party's credential, as narrow as the athlete consented
-    /// to, and a surface that takes a session — the OAuth consent screen above
-    /// all, where a session approves new grants — would otherwise act on it
-    /// with the athlete's whole authority.
-    ///
-    /// An impersonation token is refused too. It is an operator acting as the
-    /// athlete for an hour at most, and only the auth middleware checks that
-    /// its session is still live. Taken as a session here, it would approve
-    /// grants and mint first-party sessions in the athlete's name that outlive
-    /// the hour and the impersonation's end (carnet#909, carnet#1560).
-    ///
-    /// # Errors
-    ///
-    /// Everything [`Self::validate_token`] refuses, a token whose grant is
-    /// narrower than [`OAuthScope::self_grant`], and an impersonation token.
-    pub fn validate_session_token(
-        &self,
-        token: &str,
-        jwks_manager: &JwksManager,
-    ) -> AppResult<Claims> {
-        let claims = Self::require_self_grant(self.validate_token(token, jwks_manager)?)?;
-        if claims.impersonation_session_id.is_some() {
-            return Err(AppError::auth_invalid(
-                "An impersonation token is not a session",
-            ));
-        }
-        Ok(claims)
-    }
-
     /// Validate the authorization server's own sign-in token, minted by
     /// [`Self::generate_authorization_session_token`]: audience
     /// [`OAUTH2_AUTHORIZE`] and the whole self grant.
@@ -581,24 +588,24 @@ impl AuthManager {
     /// # Errors
     ///
     /// A token that fails signature, issuer or expiry checks, whose audience
-    /// is not [`OAUTH2_AUTHORIZE`], or whose grant is narrower than the self
-    /// grant.
+    /// is not [`OAUTH2_AUTHORIZE`], that names a third-party client, or whose
+    /// grant is narrower than the self grant.
     pub fn validate_authorization_session_token(
         &self,
         token: &str,
         jwks_manager: &JwksManager,
     ) -> AppResult<Claims> {
-        Self::require_self_grant(Self::validate_token_for(
+        Self::require_session(Self::validate_token_for(
             token,
             jwks_manager,
             &[OAUTH2_AUTHORIZE],
         )?)
     }
 
-    /// `claims` when they carry the whole self grant; a delegated grant is
-    /// not a session.
-    fn require_self_grant(claims: Claims) -> AppResult<Claims> {
-        if OAuthScope::is_self_grant(&OAuthScope::parse_granted(&claims.scope)) {
+    /// `claims` when they are a session ([`Claims::is_session`]); a token a
+    /// third party holds, or one with a narrower grant, is not one.
+    fn require_session(claims: Claims) -> AppResult<Claims> {
+        if claims.is_session() {
             Ok(claims)
         } else {
             Err(AppError::auth_invalid(
@@ -940,8 +947,8 @@ impl AuthManager {
 
     /// Check if initial setup is needed by verifying if any admin user exists
     ///
-    /// This checks for any user with `is_admin=true` flag, consistent with how
-    /// the admin setup endpoint validates existing admin users.
+    /// This checks for any active user holding the admin role, consistent with
+    /// how the admin setup endpoint validates existing admin users.
     ///
     /// # Errors
     ///
@@ -953,10 +960,10 @@ impl AuthManager {
         &self,
         users: &dyn UserRepository,
     ) -> AppResult<SetupStatusResponse> {
-        // Check for any active user with is_admin=true (consistent with admin setup endpoint)
+        // Check for any active user holding the admin role (consistent with admin setup endpoint)
         match users.get_by_status("active", None).await {
             Ok(users) => {
-                let admin_exists = users.iter().any(|u| u.is_admin);
+                let admin_exists = users.iter().any(|u| u.role.is_admin());
                 if admin_exists {
                     // Admin user exists, setup is complete
                     Ok(SetupStatusResponse {

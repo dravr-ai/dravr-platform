@@ -90,7 +90,24 @@ mod tests {
             "altitude": [44.0, 44.2],
             "temperature": [12.0, 12.0],
             "gps_coordinates": [[45.5, -73.6], [45.5001, -73.6001]],
-            "distance": [0.0, 8.2]
+            "distance": [0.0, 8.2],
+            "grade_smooth": [0.0, 1.2],
+            "moving": [true, false]
+        })
+    }
+
+    /// One effort as the detail's segment table writes it, dated off the
+    /// streams.
+    fn segment_efforts() -> Value {
+        json!({
+            "segment_efforts": [{
+                "id": "9001",
+                "name": "Côte test",
+                "elapsed_time": 372,
+                "distance": 1_800.0,
+                "segment_id": "1234567",
+                "start_date": "2026-11-07T13:10:00Z"
+            }]
         })
     }
 
@@ -107,6 +124,7 @@ mod tests {
             "description": "Sortie test, vent de face",
             "workout_type": 11,
             "commute": false,
+            "tags": { "12": true },
             "trainer": false
         });
         let detail = with(
@@ -123,7 +141,7 @@ mod tests {
                 "route": route(),
                 "streams": streams()
             }),
-            &laps_and_splits(),
+            &with(&laps_and_splits(), &segment_efforts()),
         );
         check(
             SciotteTarget::Strava,

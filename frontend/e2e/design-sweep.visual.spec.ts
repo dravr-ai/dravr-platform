@@ -6,6 +6,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { webNavLabels } from '@pierre/shared-constants';
+import type { UserRole } from '@pierre/shared-types';
 import {
   setupDashboardMocks,
   loginToDashboard,
@@ -15,7 +16,10 @@ import {
   navigateToTab,
   ONBOARDED_STATUS,
   TOKENS_TAB_LABEL,
+  waitForLoginScreen,
 } from './test-helpers';
+import { setupBillingMocks } from './billing-mocks';
+import { mockSetupStatus, mockSignedOut, mockSignupConfig, takeoverToken } from './auth-mocks';
 import { describeLayoutFailures, measurePageLayout } from './layout-gate';
 import { mockCoach } from './coach-home-mocks';
 import { PENDING_REQUEST, SEAT_CONVERSATION_ID, setupCoachSeatMocks } from './coach-seat-mocks';
@@ -71,7 +75,7 @@ async function setTheme(page: Page, theme: (typeof THEMES)[number]) {
 
 async function sweep(
   page: Page,
-  opts: { role: 'user' | 'super_admin'; surfaces: readonly string[]; theme: (typeof THEMES)[number] },
+  opts: { role: UserRole; surfaces: readonly string[]; theme: (typeof THEMES)[number] },
 ) {
   const { role, surfaces, theme } = opts;
   await setupDashboardMocks(page, { role });
@@ -428,8 +432,7 @@ test.describe('design sweep', () => {
     });
 
     test(`admin surfaces render in ${theme}`, async ({ page }) => {
-      // A super admin's tabs are the admin's plus the ones behind ViewConfiguration.
-      await sweep(page, { role: 'super_admin', surfaces: ADMIN_SURFACES, theme });
+      await sweep(page, { role: 'admin', surfaces: ADMIN_SURFACES, theme });
     });
   }
 });
@@ -643,5 +646,243 @@ test.describe('design sweep — pending coach Home', () => {
         await sweepUntrainedCoachRoom(page, theme, width);
       });
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Tone surfaces (carnet#1584). Every banner, notice, inline error, medallion,
+// toast and state button reads ALERT_TONE, BADGE_TONE or a Button variant,
+// and most of them only appear in a state the registry walk never reaches: a
+// failed form, a saved setting, a payment problem, a provider's sign-in. Each
+// pass below drives one into view and captures it, so a reviewer sees the
+// tones on the surfaces they live on, in both schemes.
+// ---------------------------------------------------------------------------
+
+async function captureTone(page: Page, theme: (typeof THEMES)[number], name: string) {
+  await setTheme(page, theme);
+  await page.screenshot({ path: `design-sweep/${theme}/tones-${name}.png` });
+}
+
+const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+
+/** The sign-up form's own error alert, after a mismatched confirmation. */
+async function sweepRegisterError(page: Page, theme: (typeof THEMES)[number]) {
+  await mockSetupStatus(page);
+  await mockSignupConfig(page);
+  await page.goto('/');
+  await waitForLoginScreen(page, 10_000);
+  await page.getByText("Don't have an account?").click();
+  await page.locator('input[name="email"]').fill('newuser@test.com');
+  await page.locator('input[name="password"]').fill('SecurePassword123');
+  await page.locator('input[name="confirmPassword"]').fill('DifferentPassword');
+  await page.getByRole('button', { name: 'Create Account' }).click();
+  await expect(page.getByText('Passwords do not match')).toBeVisible();
+  await captureTone(page, theme, 'auth-register-error');
+}
+
+/** Platform Settings: the auto-approval switch on, its success status and the saved alert. */
+async function sweepPlatformSettings(page: Page, theme: (typeof THEMES)[number]) {
+  await setupDashboardMocks(page, { role: 'admin' });
+  let enabled = false;
+  await page.route('**/api/admin/settings/auto-approval', async (route, request) => {
+    if (request.method() === 'PUT') enabled = Boolean(request.postDataJSON()?.enabled);
+    await route.fulfill(
+      json({ data: { enabled, auto_approve_domains: [], overridden_by_env: false, description: 'Auto-approve new users' } }),
+    );
+  });
+  await page.route('**/api/admin/settings/signup', (route) =>
+    route.fulfill(
+      json({
+        data: {
+          open: true,
+          daily_limit: 50,
+          activate_on_verified_email: true,
+          counted: 3,
+          counted_since: '2026-11-15T00:00:00Z',
+          turnstile_configured: false,
+          description: 'Sign-up guards',
+        },
+      }),
+    ),
+  );
+  await loginToDashboard(page);
+  page.setDefaultTimeout(5_000);
+  await navigateToTab(page, 'Platform Settings');
+  await page.getByRole('switch', { name: 'Auto-Approve Registrations' }).click();
+  const saved = page.getByText('Setting updated successfully.');
+  await expect(saved).toBeVisible();
+  await expect(page.getByText(/Auto-approval is enabled/)).toBeVisible();
+  await saved.scrollIntoViewIfNeeded();
+  await captureTone(page, theme, 'admin-platform-settings');
+}
+
+/** Tool Management with a globally disabled tool: the error banner and its chips. */
+async function sweepToolBanner(page: Page, theme: (typeof THEMES)[number]) {
+  await setupDashboardMocks(page, { role: 'admin' });
+  await page.route('**/api/admin/tools/global-disabled', (route) =>
+    route.fulfill(json({ success: true, data: { disabled_tools: ['calculate_metrics'], count: 1 } })),
+  );
+  await page.route('**/api/admin/tools/tenant/*/summary', (route) =>
+    route.fulfill(
+      json({
+        success: true,
+        data: {
+          tenant_id: 'user-123',
+          total_tools: 2,
+          enabled_tools: 1,
+          disabled_tools: 1,
+          overridden_tools: 0,
+          globally_disabled_count: 1,
+          plan_restricted_count: 0,
+        },
+      }),
+    ),
+  );
+  await page.route(/\/api\/admin\/tools\/tenant\/[^/]+$/, (route) =>
+    route.fulfill(
+      json({
+        success: true,
+        data: [
+          { tool_name: 'get_activities', display_name: 'Get Activities', description: 'Retrieve fitness activities', category: 'Activity', is_enabled: true, source: 'Default', min_plan: 'Free' },
+          { tool_name: 'calculate_metrics', display_name: 'Calculate Metrics', description: 'Calculate TRIMP and TSS', category: 'Analytics', is_enabled: false, source: 'GlobalDisabled', min_plan: 'Enterprise' },
+        ],
+      }),
+    ),
+  );
+  await loginToDashboard(page);
+  page.setDefaultTimeout(5_000);
+  await navigateToTab(page, 'Tool Management');
+  await expect(page.getByText('Globally Disabled Tools')).toBeVisible();
+  await captureTone(page, theme, 'admin-tool-banner');
+  // The rows' switches (ui/Switch): one on, one disabled off.
+  await page.getByRole('switch', { name: 'Toggle Calculate Metrics' }).scrollIntoViewIfNeeded();
+  await captureTone(page, theme, 'admin-tool-switches');
+}
+
+/** Pending users: the success approve button and the quiet danger-outline suspend, at rest and hovered. */
+async function sweepPendingUsers(page: Page, theme: (typeof THEMES)[number]) {
+  await setupDashboardMocks(page, { role: 'admin' });
+  await page.route('**/api/admin/pending-users', (route) =>
+    route.fulfill(
+      json({
+        success: true,
+        message: 'Retrieved 1 pending users',
+        data: {
+          count: 1,
+          users: [
+            { id: 'user-1', email: 'pending1@example.com', display_name: 'Pending User 1', status: 'pending', tier: 'trial', created_at: '2026-11-14T10:00:00Z', last_active_at: null },
+          ],
+        },
+      }),
+    ),
+  );
+  await loginToDashboard(page);
+  page.setDefaultTimeout(5_000);
+  await navigateToTab(page, 'Users');
+  await expect(page.getByText('pending1@example.com')).toBeVisible();
+  await captureTone(page, theme, 'admin-users-pending');
+  await page.getByRole('button', { name: 'Suspend' }).first().hover();
+  await page.waitForTimeout(400);
+  await captureTone(page, theme, 'admin-users-pending-suspend-hover');
+}
+
+/** Billing in dunning: the payment-problem error banner, its danger button, the plan cards. */
+async function sweepBillingProblem(page: Page, theme: (typeof THEMES)[number]) {
+  await setupDashboardMocks(page, { role: 'user', email: 'pro@pierre.dev' });
+  await setupBillingMocks(page, { noSubscription: false, subscriptionStatus: 'past_due' });
+  await loginToDashboard(page);
+  page.setDefaultTimeout(5_000);
+  await page.locator('button', { hasText: 'Usage' }).first().click();
+  await expect(page.getByRole('heading', { name: /Payment problem/i })).toBeVisible();
+  await captureTone(page, theme, 'user-billing-payment-problem');
+}
+
+/** The login takeover's page: its connected and closed medallions. */
+async function sweepSignInCheck(page: Page, theme: (typeof THEMES)[number], outcome: 'connected' | 'closed') {
+  const token = takeoverToken();
+  await mockSetupStatus(page);
+  await mockSignedOut(page);
+  await page.routeWebSocket('**/ws/providers/sciotte/takeover**', (ws) => {
+    ws.send(JSON.stringify({ type: 'status', state: 'ready', width: 320, height: 568 }));
+    if (outcome === 'connected') {
+      ws.send(JSON.stringify({ type: 'outcome', status_code: 200, body: { status: 'connected', provider: 'sciotte_garmin' } }));
+    }
+    void ws.close();
+  });
+  await page.goto(`/sign-in-check#token=${encodeURIComponent(token)}`);
+  await expect(page.getByTestId(`sign-in-check-${outcome}`)).toBeVisible();
+  await captureTone(page, theme, `sign-in-check-${outcome}`);
+}
+
+/** The provider sign-in modal: TrainingPeaks' warning notice, then a refused login's error medallion. */
+async function sweepSciotteModal(page: Page, theme: (typeof THEMES)[number]) {
+  await setupDashboardMocks(page, { role: 'user', skipProvidersRoute: true });
+  await page.route('**/api/providers', (route) =>
+    route.fulfill(
+      json({
+        providers: [
+          { provider: 'sciotte_trainingpeaks', display_name: 'TrainingPeaks', requires_oauth: false, connected: false, capabilities: ['activities'], consent_required: true },
+        ],
+      }),
+    ),
+  );
+  await page.route('**/api/providers/sciotte/login', (route) =>
+    route.fulfill(json({ status: 'error', error: 'TrainingPeaks did not accept that username and password.' })),
+  );
+  await loginToDashboard(page);
+  page.setDefaultTimeout(5_000);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByTestId('settings-menu-connections').click();
+  await page.getByTestId('provider-row-sciotte_trainingpeaks').getByRole('button', { name: 'Connect', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('note')).toBeVisible();
+  await captureTone(page, theme, 'sciotte-modal-notice');
+  await dialog.getByLabel('Username').fill('coach-account');
+  await dialog.getByLabel('Password', { exact: true }).fill('not-a-real-password');
+  await dialog.getByLabel('I understand that TrainingPeaks could suspend my account, and I accept that risk.').check();
+  await dialog.getByRole('button', { name: 'Log In' }).click();
+  await expect(dialog.getByText('TrainingPeaks did not accept that username and password.')).toBeVisible();
+  await captureTone(page, theme, 'sciotte-modal-error');
+}
+
+/** A success toast, from copying a reply in the open thread. */
+async function sweepToast(page: Page, theme: (typeof THEMES)[number]) {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await setupDashboardMocks(page, { role: 'user' });
+  await page.route('**/api/chat/conversations/*/messages**', (route) => route.fulfill(json(THREAD_MESSAGES)));
+  await page.route('**/api/chat/conversations**', async (route, request) => {
+    const url = request.url();
+    if (url.includes('/messages') || url.includes('/read')) {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill(json(THREAD_CONVERSATIONS));
+  });
+  await loginToDashboard(page);
+  page.setDefaultTimeout(5_000);
+  await page.goto('/#chat/conv-sweep');
+  await expect(page.getByTestId('message-row').first()).toBeVisible();
+  await setTheme(page, theme);
+  const lastReply = page.getByTestId('message-row').last();
+  await lastReply.hover();
+  await lastReply.getByTitle('Copy message').click();
+  await expect(page.getByText('Copied', { exact: false }).first()).toBeVisible();
+  // The toast slides in (DESIGN.md §7); a capture inside it reads as faded ink.
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: `design-sweep/${theme}/tones-toast-success.png` });
+}
+
+test.describe('design sweep — tone surfaces', () => {
+  test.describe.configure({ timeout: 120_000 });
+  for (const theme of THEMES) {
+    test(`the sign-up error renders in ${theme}`, async ({ page }) => sweepRegisterError(page, theme));
+    test(`Platform Settings' saved state renders in ${theme}`, async ({ page }) => sweepPlatformSettings(page, theme));
+    test(`the globally-disabled tools banner renders in ${theme}`, async ({ page }) => sweepToolBanner(page, theme));
+    test(`pending users' actions render in ${theme}`, async ({ page }) => sweepPendingUsers(page, theme));
+    test(`billing's payment problem renders in ${theme}`, async ({ page }) => sweepBillingProblem(page, theme));
+    test(`the sign-in check's connected state renders in ${theme}`, async ({ page }) => sweepSignInCheck(page, theme, 'connected'));
+    test(`the sign-in check's closed state renders in ${theme}`, async ({ page }) => sweepSignInCheck(page, theme, 'closed'));
+    test(`the provider sign-in modal renders in ${theme}`, async ({ page }) => sweepSciotteModal(page, theme));
+    test(`a success toast renders in ${theme}`, async ({ page }) => sweepToast(page, theme));
   }
 });

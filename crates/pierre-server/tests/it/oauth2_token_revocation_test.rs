@@ -30,6 +30,7 @@ use chrono::{DateTime, Duration, SubsecRound, Utc};
 use pierre_auth::auth::DelegatedGrant;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::endpoints::OAuth2AuthorizationServer;
+use pierre_auth::oauth2_server::first_party::{MOBILE_CLIENT_ID, WEB_CLIENT_ID};
 use pierre_auth::oauth2_server::grant_standing::GrantStandings;
 use pierre_auth::oauth2_server::models::{
     AuthorizeRequest, ClientRegistrationRequest, TokenRequest,
@@ -41,6 +42,7 @@ use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{OAuth2RefreshToken, OAuthClientGrant, TenantId, User, UserStatus};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -211,6 +213,8 @@ async fn connect(world: &World) -> Connection {
             scope: SCOPE.to_owned(),
             granted_at: Utc::now(),
             revoked_at: None,
+            consent_version: None,
+            consent_locale: None,
         })
         .await
         .unwrap();
@@ -818,6 +822,8 @@ async fn consenting_again_does_not_revive_a_token_from_before_the_revocation() {
             scope: SCOPE.to_owned(),
             granted_at: Utc::now(),
             revoked_at: None,
+            consent_version: None,
+            consent_locale: None,
         })
         .await
         .unwrap();
@@ -900,6 +906,8 @@ async fn a_standing_is_held_for_its_window_and_forgotten_on_demand() {
             scope: SCOPE.to_owned(),
             granted_at: Utc::now(),
             revoked_at: None,
+            consent_version: None,
+            consent_locale: None,
         })
         .await
         .unwrap();
@@ -982,13 +990,13 @@ async fn validate_and_refresh_calls_a_revoked_token_invalid() {
             .send(oauth2_routes(&world.resources))
     };
     let before: Value = verdict(connection.access_token.clone()).await.json();
-    assert_eq!(before["status"], "valid", "{before}");
+    assert_eq!(before["status"], "valid", "{}", decided(&before));
 
     revoke_in_connected_apps(&world, &connection.grant_id).await;
 
     let after: Value = verdict(connection.access_token.clone()).await.json();
-    assert_eq!(after["status"], "invalid", "{after}");
-    assert_eq!(after["reason"], "grant_revoked", "{after}");
+    assert_eq!(after["status"], "invalid", "{}", decided(&after));
+    assert_eq!(after["reason"], "grant_revoked", "{}", decided(&after));
 }
 
 /// The screen names the app and where it is, not its opaque client id.
@@ -1006,4 +1014,225 @@ async fn connected_apps_lists_a_clients_name_and_host() {
     assert_eq!(grant["client_id"], connection.client.id.as_str());
     assert_eq!(grant["client_name"], "Revocation client");
     assert_eq!(grant["client_host"], "app.example.com");
+}
+
+// ── A delegation holding every scope is still governed by its grant ─────────
+//
+// The authorization server mints no token holding all five scopes for an
+// application, since `admin` is not delegated. These mint one, to pin that it
+// would stop with its grant as any other delegation does, and that a session
+// naming one of Dravr's own apps stays out of all of it (carnet#1511).
+
+/// An access token for `connection`'s client holding every scope, in the
+/// tenant the athlete consented in: the token endpoint's minter, given a
+/// grant the endpoint never issues.
+fn token_holding_every_scope(world: &World, connection: &Connection) -> String {
+    let scopes: Vec<String> = OAuthScope::self_grant()
+        .iter()
+        .map(|scope| scope.as_str().to_owned())
+        .collect();
+    world
+        .resources
+        .auth
+        .auth_manager
+        .generate_oauth_access_token(
+            &world.resources.auth.jwks_manager,
+            &DelegatedGrant {
+                client_id: &connection.client.id,
+                scopes: &scopes,
+                audience: None,
+            },
+            &world.user_id,
+            &[],
+            Some(world.tenant_id.to_string()),
+        )
+        .unwrap()
+}
+
+/// Dravr's own apps, as a session names the one that signed in.
+const FIRST_PARTY_APPS: [&str; 2] = [WEB_CLIENT_ID, MOBILE_CLIENT_ID];
+
+/// The session one of Dravr's apps holds for the athlete, naming the app.
+fn app_session(world: &World, app: &str) -> String {
+    world
+        .resources
+        .auth
+        .auth_manager
+        .generate_client_session_token(
+            &world.user,
+            &world.resources.auth.jwks_manager,
+            Some(world.tenant_id.to_string()),
+            Some(app),
+        )
+        .unwrap()
+}
+
+/// What a validate-and-refresh verdict decided, for a failure message: its
+/// status and reason only, since a `refreshed` verdict carries tokens.
+fn decided(verdict: &Value) -> String {
+    format!("{} ({})", verdict["status"], verdict["reason"])
+}
+
+/// `POST /oauth2/validate-and-refresh` under `token`: the JSON verdict.
+async fn validation_verdict(world: &World, token: &str) -> Value {
+    AxumTestRequest::post("/oauth2/validate-and-refresh")
+        .header("authorization", &format!("Bearer {token}"))
+        .json(&json!({}))
+        .send(oauth2_routes(&world.resources))
+        .await
+        .json()
+}
+
+/// `/mcp` serves it as the delegation it is, and stops serving it when the
+/// athlete revokes the application: the withdrawal check does not take every
+/// scope for the athlete's own session.
+#[tokio::test]
+async fn revoking_in_connected_apps_stops_a_token_holding_every_scope() {
+    let world = world().await;
+    let connection = connect(&world).await;
+    let wide = token_holding_every_scope(&world, &connection);
+    assert_eq!(
+        mcp_status(&world, &wide).await,
+        200,
+        "a delegation holding every scope is served as one"
+    );
+
+    revoke_in_connected_apps(&world, &connection.grant_id).await;
+
+    assert_eq!(
+        mcp_status(&world, &wide).await,
+        401,
+        "the revoked application's token stops at once"
+    );
+    let refused = world
+        .resources
+        .auth
+        .auth_middleware
+        .authenticate_scoped_request(Some(&format!("Bearer {wide}")), &[])
+        .await
+        .unwrap_err();
+    assert!(
+        refused
+            .message
+            .contains("withdrew this application's access"),
+        "refused as withdrawn, not for another reason: {}",
+        refused.message
+    );
+}
+
+/// RFC 7009: the application revoking such a token finds the grant it rides
+/// on, and another application is refused the same call.
+#[tokio::test]
+async fn a_client_revoking_its_token_holding_every_scope_withdraws_the_grant() {
+    let world = world().await;
+    let connection = connect(&world).await;
+    let other = connect(&world).await;
+    let wide = token_holding_every_scope(&world, &connection);
+    // Served once first, so the grant's standing is cached when it is revoked.
+    assert_eq!(
+        mcp_status(&world, &wide).await,
+        200,
+        "a delegation holding every scope is served as one"
+    );
+
+    let foreign = revoke_at_endpoint(&world, &other.client, &wide).await;
+    assert_eq!(foreign.status(), 400, "{}", foreign.body_text());
+    let body: Value = serde_json::from_str(&foreign.body_text()).unwrap();
+    assert_eq!(
+        body["error"], "unauthorized_client",
+        "the token is read as its client's grant"
+    );
+
+    let revoked = revoke_at_endpoint(&world, &connection.client, &wide).await;
+    assert_eq!(revoked.status(), 200, "{}", revoked.body_text());
+
+    assert_eq!(
+        mcp_status(&world, &wide).await,
+        401,
+        "the revoked token stops at once, its cached standing forgotten"
+    );
+    assert_eq!(
+        mcp_status(&world, &connection.access_token).await,
+        401,
+        "the grant the token rode on is withdrawn"
+    );
+    let refreshed = refresh(&world, &connection.client, &connection.refresh_token).await;
+    // Its status before its body is read: a refresh that went through
+    // answers with tokens, and `assert_invalid_grant` prints the body.
+    assert_eq!(
+        refreshed.status(),
+        400,
+        "the withdrawn grant's refresh token is refused"
+    );
+    assert_invalid_grant(&refreshed);
+}
+
+/// A session naming one of Dravr's own apps is no delegated grant either:
+/// presented at the endpoint it revokes nothing, and is not read as another
+/// client's token.
+#[tokio::test]
+async fn a_session_naming_its_app_at_the_revocation_endpoint_is_left_alone() {
+    let world = world().await;
+    let connection = connect(&world).await;
+
+    for app in FIRST_PARTY_APPS {
+        let session = app_session(&world, app);
+
+        let answered = revoke_at_endpoint(&world, &connection.client, &session).await;
+        assert_eq!(answered.status(), 200, "{app}: {}", answered.body_text());
+
+        assert_eq!(
+            mcp_status(&world, &connection.access_token).await,
+            200,
+            "{app}: the client's own grant is not withdrawn"
+        );
+        let still_signed_in = AxumTestRequest::get("/api/me/oauth-grants")
+            .header("Authorization", &format!("Bearer {session}"))
+            .send(OAuthGrantsRoutes::routes(Arc::clone(&world.resources)))
+            .await;
+        assert_eq!(still_signed_in.status(), 200, "{app}");
+    }
+}
+
+/// The validation route reads the grant of a token holding every scope, as
+/// `/mcp` does.
+#[tokio::test]
+async fn validate_and_refresh_calls_a_revoked_token_holding_every_scope_invalid() {
+    let world = world().await;
+    let connection = connect(&world).await;
+    let wide = token_holding_every_scope(&world, &connection);
+    let before = validation_verdict(&world, &wide).await;
+    assert_eq!(before["status"], "valid", "{}", decided(&before));
+
+    revoke_in_connected_apps(&world, &connection.grant_id).await;
+
+    let after = validation_verdict(&world, &wide).await;
+    assert_eq!(after["status"], "invalid", "{}", decided(&after));
+    assert_eq!(after["reason"], "grant_revoked", "{}", decided(&after));
+}
+
+/// A session naming one of Dravr's own apps rides on no grant: a withdrawn
+/// grant row under the app's own client id does not call the session invalid.
+#[tokio::test]
+async fn validate_and_refresh_reads_no_grant_for_a_session_naming_its_app() {
+    let world = world().await;
+
+    for app in FIRST_PARTY_APPS {
+        world
+            .resources
+            .common
+            .repos
+            .oauth2_server
+            .withdraw_client_access(
+                &world.user_id.to_string(),
+                &world.tenant_id.to_string(),
+                app,
+                SCOPE,
+            )
+            .await
+            .unwrap();
+
+        let verdict = validation_verdict(&world, &app_session(&world, app)).await;
+        assert_eq!(verdict["status"], "valid", "{app}: {}", decided(&verdict));
+    }
 }

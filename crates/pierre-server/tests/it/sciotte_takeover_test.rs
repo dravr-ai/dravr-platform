@@ -34,7 +34,6 @@ use common::{create_test_user_with_email, generate_test_token};
 use futures_util::{SinkExt, StreamExt};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::provider_terms_version;
-use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::constants::oauth_providers::SCIOTTE_GARMIN;
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -97,6 +96,9 @@ struct Seen {
 }
 
 static SCRAPER: OnceLock<(Arc<Seen>, String)> = OnceLock::new();
+
+/// A read service nothing listens on: a sign-in step sent there fails.
+const UNREACHABLE_READ_SERVICE: &str = "http://127.0.0.1:9";
 
 fn scraper() -> &'static (Arc<Seen>, String) {
     SCRAPER.get_or_init(|| {
@@ -252,8 +254,21 @@ impl Athlete {
         Self::on(resources).await
     }
 
-    /// An athlete of a platform whose Garmin OAuth is served too, so a
-    /// sign-in goes on to the grant it owes (carnet#1494).
+    /// An athlete of a platform whose sign-ins run on a service of their own
+    /// (carnet#1504): the stand-in serves sign-ins, and the read service is a
+    /// closed port no step of a sign-in may reach.
+    async fn on_a_separate_sign_in_service() -> Self {
+        let mut config =
+            common::test_server_config_with_sciotte_usr_pwd_garmin(UNREACHABLE_READ_SERVICE);
+        config.external_services.sciotte.login_url = Some(scraper().1.clone());
+        let resources = common::create_test_server_resources_with_config(config)
+            .await
+            .unwrap();
+        Self::on(resources).await
+    }
+
+    /// An athlete of a platform whose Garmin OAuth is served too: a sign-in
+    /// still ends at `connected`, never at Garmin's authorization.
     async fn with_garmin_oauth() -> Self {
         Self::on(server_with_garmin_oauth(&scraper().1).await).await
     }
@@ -521,6 +536,44 @@ async fn the_athlete_signs_in_through_the_relay_and_the_session_is_stored() {
     );
 }
 
+/// The athlete keeps moving the pointer after the click that signs them in:
+/// sciotte answers and closes while those moves are still on their way, and
+/// the sign-in concludes from that answer instead of ending as if the service
+/// had left without one.
+#[tokio::test]
+async fn a_sign_in_concludes_though_the_athlete_keeps_moving_after_it() {
+    let athlete = Athlete::new().await;
+    let token = athlete.park(&email(CHALLENGED), &attempt()).await;
+    let mut viewer = athlete.open(&token).await.expect("the relay upgrades");
+    read_event(&mut viewer, "status").await;
+
+    for action in ["down", "up"] {
+        send(
+            &mut viewer,
+            json!({"type": "pointer", "action": action, "x": 30.0, "y": 310.0}),
+        )
+        .await;
+    }
+    for step in 0..40_u32 {
+        send(
+            &mut viewer,
+            json!({"type": "pointer", "action": "move", "x": 31.0 + f64::from(step), "y": 310.0}),
+        )
+        .await;
+    }
+
+    let (outcome, _) = read_event(&mut viewer, "outcome").await;
+    assert_eq!(outcome["status_code"], 200, "{outcome}");
+    assert_eq!(
+        outcome["body"]["status"], "connected",
+        "bug: the moves after the sign-in made the relay drop its answer: {outcome}"
+    );
+    assert!(
+        athlete.holds_garmin_session().await,
+        "the session is stored"
+    );
+}
+
 /// Sign the athlete in through an open takeover: the stand-in's pointer `up`
 /// authenticates. The step answer the viewer receives.
 async fn sign_in_through(viewer: &mut Viewer) -> Value {
@@ -538,31 +591,26 @@ async fn sign_in_through(viewer: &mut Viewer) -> Value {
     outcome["body"].clone()
 }
 
-/// A Garmin sign-in a takeover concluded goes on to the grant it owes, as
-/// the same sign-in over HTTP does (carnet#1494): the app starts it from the
-/// provider it names.
+/// A Garmin sign-in a takeover concluded ends at `connected`, as the same
+/// sign-in over HTTP does, even with Garmin's OAuth configured: nothing sends
+/// the athlete on to Garmin's own sign-in page.
 #[tokio::test]
-async fn a_takeover_sign_in_goes_on_to_the_garmin_grant_it_owes() {
+async fn a_takeover_sign_in_ends_connected_without_a_garmin_grant_redirect() {
     let athlete = Athlete::with_garmin_oauth().await;
     let token = athlete.park(&email(CHALLENGED), &attempt()).await;
     let mut viewer = athlete.open(&token).await.expect("the relay upgrades");
 
     let answer = sign_in_through(&mut viewer).await;
-    assert_eq!(
-        answer["oauth_follow_on"]["provider"], GARMIN,
-        "bug: a takeover sign-in does not go on to its grant: {answer}"
-    );
     assert!(
-        answer["oauth_follow_on"].get("authorization_url").is_none(),
-        "the app starts the authorization its own way: {answer}"
+        answer.get("oauth_follow_on").is_none(),
+        "bug: a takeover sign-in sends the athlete on to Garmin's grant: {answer}"
     );
 }
 
-/// The hosted connect picker starts a grant with its own token, but a
-/// takeover concludes on the takeover page, where that page is gone: the
-/// answer carries Garmin's authorization URL itself.
+/// A hosted takeover (the connect picker's link) ends at `connected` too: the
+/// answer carries no Garmin authorization URL to navigate to.
 #[tokio::test]
-async fn a_hosted_takeover_sign_in_carries_its_grants_authorization_url() {
+async fn a_hosted_takeover_sign_in_carries_no_grant_authorization_url() {
     let athlete = Athlete::with_garmin_oauth().await;
     let attempt_id = attempt();
     athlete.park(&email(CHALLENGED), &attempt_id).await;
@@ -585,13 +633,9 @@ async fn a_hosted_takeover_sign_in_carries_its_grants_authorization_url() {
     let mut viewer = athlete.open(&token).await.expect("the relay upgrades");
 
     let answer = sign_in_through(&mut viewer).await;
-    assert_eq!(answer["oauth_follow_on"]["provider"], GARMIN, "{answer}");
-    let url = answer["oauth_follow_on"]["authorization_url"]
-        .as_str()
-        .unwrap_or_else(|| panic!("bug: the takeover page has no way on to the grant: {answer}"));
     assert!(
-        url.contains("client_id="),
-        "bug: the follow-on is not Garmin's authorization: {url}"
+        answer.get("oauth_follow_on").is_none(),
+        "bug: a hosted takeover sign-in navigates on to Garmin's grant: {answer}"
     );
 }
 
@@ -753,4 +797,36 @@ async fn the_service_ending_with_no_answer_cancels_the_attempt_and_says_it_ended
         !athlete.holds_garmin_session().await,
         "a takeover the service ended links nothing"
     );
+}
+
+/// The takeover socket, the step its relay sends and the export after it all
+/// reach the sign-in service, the one that parked the browser (carnet#1504).
+#[tokio::test]
+async fn a_takeover_signs_in_on_a_sign_in_service_of_its_own() {
+    let athlete = Athlete::on_a_separate_sign_in_service().await;
+    let token = athlete.park(&email(CHALLENGED), &attempt()).await;
+    let mut viewer = athlete
+        .open(&token)
+        .await
+        .expect("the relay upgrades against the sign-in service");
+    sign_in_through(&mut viewer).await;
+    assert!(
+        athlete.holds_garmin_session().await,
+        "the session the sign-in service exported is stored"
+    );
+}
+
+/// A cancel reaches the service that runs the attempt's step (carnet#1504).
+#[tokio::test]
+async fn a_cancel_reaches_a_sign_in_service_of_its_own() {
+    let athlete = Athlete::on_a_separate_sign_in_service().await;
+    let attempt_id = attempt();
+    athlete.park(&email(CHALLENGED), &attempt_id).await;
+    athlete.cancel(&attempt_id).await;
+
+    let key = athlete.cancel_key(&attempt_id);
+    eventually("the cancel reached the sign-in service", || {
+        scraper().0.cancels.lock().unwrap().contains(&key)
+    })
+    .await;
 }

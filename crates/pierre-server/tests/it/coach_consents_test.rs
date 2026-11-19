@@ -39,6 +39,7 @@ use common::{
     test_server_config_with_api_base,
 };
 use helpers::axum_test::AxumTestRequest;
+use helpers::impersonation::{assert_support_refused, impersonation_of};
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier};
 use pierre_core::constants::oauth::{INTERVALS_ICU, WHOOP};
 use pierre_core::models::groups::{
@@ -304,7 +305,7 @@ async fn world(api_base: &str) -> World {
 }
 
 /// A stored API key for `user_id`, and the full key to present.
-async fn api_key(res: &Arc<ServerContext>, user_id: Uuid) -> String {
+pub(crate) async fn api_key(res: &Arc<ServerContext>, user_id: Uuid) -> String {
     let data = ApiKeyManager::new().generate_api_key(false);
     let key = ApiKey {
         id: Uuid::new_v4().to_string(),
@@ -1111,4 +1112,78 @@ async fn a_member_grants_and_revokes_what_their_coach_may_do() {
     a_grant_from_before_the_widening_is_told_until_kept(&w).await;
     an_own_login_to_the_links_platform_keeps_its_wellness(&w).await;
     a_group_with_no_coach_offers_nothing(&w).await;
+}
+
+/// A confirm and a consent grant are the member's own acts, and outlive any
+/// support session: an admin acting as the member confirms no link and grants
+/// nothing, though the session may revoke; the member's own session then
+/// confirms and grants as before (carnet#1634).
+#[tokio::test]
+async fn a_support_session_confirms_and_grants_nothing() {
+    let w = world(&spawn_api().await).await;
+    let support = impersonation_of(&w.res, &w.m1.auth).await;
+
+    let (status, proposed) = w
+        .send(
+            AxumTestRequest::post(&w.links_path()),
+            &w.coach.auth,
+            &json!({
+                "provider": "intervals_icu",
+                "provider_athlete_id": M1_ATHLETE,
+                "member_user_id": w.m1.id,
+            }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{proposed}");
+    let link = Uuid::parse_str(proposed["id"].as_str().unwrap()).unwrap();
+    let confirm_path = format!("{}/{link}/confirm", w.links_path());
+    let confirm = json!({ "calendar_write": true, "wellness_read": true });
+
+    let (status, body) = w
+        .send(AxumTestRequest::post(&confirm_path), &support, &confirm)
+        .await;
+    assert_support_refused(
+        status.as_u16(),
+        &body.to_string(),
+        "confirm a delegated link",
+    );
+    assert_eq!(
+        w.stored(link).await.status,
+        DelegationStatus::Proposed,
+        "the refused confirm leaves the link proposed"
+    );
+
+    let (status, body) = w.put_consents(&support, &confirm).await;
+    assert_support_refused(status.as_u16(), &body.to_string(), "grant coach consents");
+    assert_eq!(
+        w.consents(&w.m1).await,
+        CoachConsents::default(),
+        "the refused grant leaves every consent withheld"
+    );
+    let (status, body) = w
+        .put_consents(&support, &json!({ "calendar_write": false }))
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a support session may revoke: {body}"
+    );
+
+    let (status, body) = w
+        .send(AxumTestRequest::post(&confirm_path), &w.m1.auth, &confirm)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        w.stored(link).await.status,
+        DelegationStatus::Confirmed,
+        "the member's own confirm is served"
+    );
+    let (status, body) = w
+        .put_consents(&w.m4.auth, &json!({ "calendar_write": true }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "the member's own grant: {body}");
+    assert!(
+        w.consents(&w.m4).await.calendar_write,
+        "the member's own grant is stored"
+    );
 }

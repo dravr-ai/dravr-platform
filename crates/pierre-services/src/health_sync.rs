@@ -17,7 +17,6 @@ use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::models::connection::{ConnectedUser, ProviderCredentials};
 use dravr_enforme::models::cursor::SyncCursor;
 use dravr_enforme::models::deletion::DeletionPolicy;
-use dravr_enforme::providers::build_provider_registry_with_reader;
 use dravr_enforme::providers::sciotte_reader::DailySummaryReader;
 use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_enforme::traits::credential_store::CredentialStore;
@@ -31,7 +30,6 @@ use dravr_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use dravr_enforme::{RequestGate, RequestGateHandle};
 use dravr_equilibre_sync::SyncStatus;
 use dravr_riviere::DataPoint;
-use dravr_sciotte::client::SciotteClient;
 use pierre_core::constants::oauth::providers::TOKEN_TYPE_SESSION;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{DelegatedConnection, DelegationStatus, TenantId, UserOAuthToken};
@@ -40,6 +38,7 @@ use pierre_database::{AuthRepos, FitnessRepos, RepositoryRegistry};
 use pierre_providers::backend_resolver::{pushed_backend_for, sync_backend};
 use pierre_providers::credential_kind;
 use pierre_providers::request_budget::RequestBudget;
+use pierre_providers::sciotte_provider::SciotteReads;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -52,8 +51,11 @@ use crate::sciotte_health_reader::{self, RefusedSessionReader, SciotteServiceRea
 use crate::wellness_store::{IntradaySeries, WellnessLanded, WellnessStore, WellnessWriteMode};
 
 mod push_fed;
+mod wellness_origin;
 
-pub use push_fed::{history_walk_scope, wellness_pull_stands_down};
+pub use wellness_origin::WellnessOrigins;
+
+pub use push_fed::{history_walk_scope, sync_error_is_push_stand_down, wellness_pull_stands_down};
 use push_fed::{history_walk_writes, history_walk_writes_night, wellness_fed_by_push};
 
 /// Adapter bridging dravr-enforme's store traits to Pierre's repository layer.
@@ -186,6 +188,17 @@ pub trait SyncCredentialRefresher: Send + Sync {
     ) -> EnformeResult<Option<DelegatedWellness>>;
 }
 
+/// What serves a user's `provider` pull ([`PierreSyncStorage::serving_token`]).
+enum Serving {
+    /// The token row of the provider's sync backend.
+    Token(Box<UserOAuthToken>),
+    /// The user holds that row, but the provider's wellness reaches them by
+    /// push, so nothing of theirs is pulled.
+    PushFed,
+    /// The user holds no row for it.
+    NoRow,
+}
+
 /// One sync of a member by the scheduler's delegated wellness pass.
 struct DelegatedSync {
     /// The member whose wellness the pass syncs.
@@ -288,8 +301,15 @@ impl PierreSyncStorage {
     /// storage for post-construction injection of the credential refresher.
     /// The orchestrator is ready to run the scheduler or handle webhook events.
     /// The scrape-backed providers read their daily summaries on the dedicated
-    /// sciotte service (ADR-021) through `sciotte`, the server's one client
-    /// for it: no browser runs in this pod.
+    /// sciotte services (ADR-021) through `sciotte`, the server's read
+    /// services: no browser runs in this pod.
+    ///
+    /// Intervals.icu and WHOOP wellness are read at `origins`, the APIs the
+    /// server's provider registry names for them
+    /// ([`WellnessOrigins::named_by`]); a provider it names none for, on a
+    /// server that registers no such provider, is not read. No orchestrator
+    /// is built on the hosts dravr-enforme would pick by itself
+    /// (carnet#1615).
     ///
     /// # Errors
     ///
@@ -297,17 +317,20 @@ impl PierreSyncStorage {
     /// vendor call with timeouts and never builds an untimed client instead.
     pub fn build_orchestrator(
         self: &Arc<Self>,
-        sciotte: Option<SciotteClient>,
+        sciotte: Option<SciotteReads>,
+        origins: WellnessOrigins<'_>,
     ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
         let reader: Arc<dyn DailySummaryReader> = Arc::new(SciotteServiceReader::new(
             sciotte,
             self.session_rows.clone(),
         ));
-        self.build_orchestrator_with_reader(&reader)
+        self.build_orchestrator_with_reader(&reader, origins)
     }
 
     /// Build a `SyncOrchestrator` backed by this adapter whose scrape-backed
-    /// providers read their daily summaries through `reader`.
+    /// providers read their daily summaries through `reader`, and whose
+    /// Intervals.icu and WHOOP wellness are read at `origins`
+    /// ([`Self::build_orchestrator`]).
     ///
     /// # Errors
     ///
@@ -315,6 +338,7 @@ impl PierreSyncStorage {
     pub fn build_orchestrator_with_reader(
         self: &Arc<Self>,
         reader: &Arc<dyn DailySummaryReader>,
+        origins: WellnessOrigins<'_>,
     ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
         let storage = Arc::clone(self);
         // A session the scraper refused is read no more in the same sync.
@@ -335,7 +359,7 @@ impl PierreSyncStorage {
         });
 
         let config = dravr_enforme::SyncConfig::from_env();
-        let providers = build_provider_registry_with_reader(&reader)?;
+        let providers = wellness_origin::sync_providers(&reader, origins)?;
 
         Ok(Arc::new(dravr_enforme::SyncOrchestrator::new(
             deps, providers, config,
@@ -343,16 +367,14 @@ impl PierreSyncStorage {
     }
 
     /// The token row that serves `provider` for this user: the row of its
-    /// [`sync_backend`], or `None` when the user holds none — or when, in
-    /// that row's tenant, the provider's wellness reaches them by push
-    /// ([`wellness_fed_by_push`]). Such a user's days arrive by push, so every
-    /// pull of them (scheduled, on request, after a connect) finds nothing of
-    /// their own to read, as the roster already leaves them out.
-    async fn serving_token(
-        &self,
-        user_uuid: Uuid,
-        provider: &str,
-    ) -> EnformeResult<Option<UserOAuthToken>> {
+    /// [`sync_backend`], [`Serving::NoRow`] when the user holds none, or
+    /// [`Serving::PushFed`] when, in that row's tenant, the provider's
+    /// wellness reaches them by push ([`wellness_fed_by_push`]). Such a
+    /// user's days arrive by push, so every pull of them (scheduled, on
+    /// request, after a connect) finds nothing of their own to read, as the
+    /// roster already leaves them out. The two are told apart so a write that
+    /// stands down says so ([`Self::resolve_tenant_id`]).
+    async fn serving_token(&self, user_uuid: Uuid, provider: &str) -> EnformeResult<Serving> {
         let backend = sync_backend(provider);
         let tokens = self
             .auth
@@ -360,12 +382,14 @@ impl PierreSyncStorage {
             .get_tokens(user_uuid, None)
             .await
             .map_err(|e| EnformeError::store(format!("Failed to look up user tokens: {e}")))?;
-        let Some(serving) = tokens.iter().find(|t| t.provider == backend) else {
-            return Ok(None);
+        let Some(serving) = tokens.into_iter().find(|t| t.provider == backend) else {
+            return Ok(Serving::NoRow);
         };
-        let tenant = token_tenant_id(serving)?;
-        let fed_by_push = wellness_fed_by_push(&self.registry, user_uuid, tenant, provider).await?;
-        Ok((!fed_by_push).then(|| serving.clone()))
+        let tenant = token_tenant_id(&serving)?;
+        if wellness_fed_by_push(&self.registry, user_uuid, tenant, provider).await? {
+            return Ok(Serving::PushFed);
+        }
+        Ok(Serving::Token(Box::new(serving)))
     }
 
     /// Resolve the tenant a user's `provider` rows are written under: the
@@ -385,16 +409,24 @@ impl PierreSyncStorage {
             .parse::<Uuid>()
             .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
 
-        if let Some(token) = self.serving_token(user_uuid, provider).await? {
-            return token_tenant_id(&token);
+        let push_fed = match self.serving_token(user_uuid, provider).await? {
+            Serving::Token(token) => return token_tenant_id(&token),
+            Serving::PushFed => true,
+            Serving::NoRow => false,
+        };
+        if let Some(tenant) = self.wellness_link_tenant(user_uuid, provider).await? {
+            return Ok(tenant);
         }
-        self.wellness_link_tenant(user_uuid, provider)
-            .await?
-            .ok_or_else(|| {
-                EnformeError::store(format!(
-                    "No token serves provider '{provider}' for user '{user_id}'"
-                ))
-            })
+        // A pull a push grant overtook mid-sync ends here: it still fails, so
+        // no day the push holds is written twice, but it says why
+        // (carnet#1590).
+        Err(if push_fed {
+            EnformeError::push_fed(user_id, provider)
+        } else {
+            EnformeError::store(format!(
+                "No token serves provider '{provider}' for user '{user_id}'"
+            ))
+        })
     }
 
     /// The tenant `member`'s confirmed `provider` link files their wellness
@@ -496,6 +528,12 @@ impl PierreSyncStorage {
     /// The worker ledger the delegated pass claims each link's sync in.
     pub(crate) fn worker_runs(&self) -> &dyn WorkerRunRepository {
         self.registry.worker_runs.as_ref()
+    }
+
+    /// The registry this adapter reads and writes through: the scheduled
+    /// cycle's stamps, notices and stand-down checks read the same rows.
+    pub(crate) const fn registry(&self) -> &Arc<RepositoryRegistry> {
+        &self.registry
     }
 }
 
@@ -797,6 +835,12 @@ impl CredentialStore for PierreSyncStorage {
     /// pass's sync of them ([`delegated_sync_scope`]), and has no credentials
     /// anywhere else: an on-demand refresh or a webhook never spends the
     /// coach's key.
+    ///
+    /// # Errors
+    ///
+    /// [`EnformeError::PushFed`] when the athlete holds the row but its
+    /// wellness reaches them by push and no coach's link serves them: the
+    /// pull stands down rather than reading as expired credentials.
     async fn get_credentials(
         &self,
         user_id: &str,
@@ -806,8 +850,20 @@ impl CredentialStore for PierreSyncStorage {
             .parse::<Uuid>()
             .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
 
-        let Some(token) = self.serving_token(user_uuid, provider).await? else {
-            return self.delegated_credentials(user_uuid, provider).await;
+        let token = match self.serving_token(user_uuid, provider).await? {
+            Serving::Token(token) => *token,
+            Serving::NoRow => return self.delegated_credentials(user_uuid, provider).await,
+            // A grant stored between the caller's stand-down check and this
+            // read ends the sync as the stand-down it is, not as expired
+            // credentials (carnet#1590): enforme hands this error back
+            // unchanged, where `Ok(None)` would read as a dead credential.
+            Serving::PushFed => {
+                return self
+                    .delegated_credentials(user_uuid, provider)
+                    .await?
+                    .map(Some)
+                    .ok_or_else(|| EnformeError::push_fed(user_id, provider));
+            }
         };
         let tenant_id = token_tenant_id(&token)?;
         let backend = sync_backend(provider);
@@ -841,8 +897,7 @@ impl CredentialStore for PierreSyncStorage {
         // tests): return the stored token row as-is.
         let scopes = token
             .scope
-            .map(|s| s.split(' ').map(String::from).collect::<Vec<_>>())
-            .unwrap_or_default();
+            .map_or_default(|s| s.split(' ').map(String::from).collect::<Vec<_>>());
         Ok(Some(ProviderCredentials {
             access_token: token.access_token.expose_secret().to_owned(),
             refresh_token: token
@@ -877,9 +932,10 @@ impl CredentialStore for PierreSyncStorage {
         // An athlete served through their coach's link holds nothing of their
         // own to refresh, and the coach's key is the coach's to renew: the
         // sync ends as expired, and no connection is touched.
-        let Some(token) = self.serving_token(user_uuid, provider).await? else {
+        let Serving::Token(token) = self.serving_token(user_uuid, provider).await? else {
             return Err(expired());
         };
+        let token = *token;
         // A scrape session has no refresh grant: the refusal is the verdict,
         // flagged on the session's own backend while its row still carries it.
         if token.token_type == TOKEN_TYPE_SESSION {

@@ -28,7 +28,6 @@ use secrecy::SecretString;
 use std::sync::{Arc, Mutex};
 
 use chrono::{NaiveDate, TimeZone, Utc};
-use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::wire::ATHLETE_REQUIRED;
 use pierre_providers::core::{
@@ -40,8 +39,8 @@ use pierre_providers::models::{SportType, WorkoutStep};
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::sciotte_provider::{
-    SciotteGarminProviderFactory, SciotteProviderFactory, SciotteTarget,
-    SciotteTrainingPeaksProviderFactory,
+    startup_reads, SciotteGarminProviderFactory, SciotteProviderFactory, SciotteReads,
+    SciotteTarget, SciotteTrainingPeaksProviderFactory,
 };
 use pierre_providers::spi::{
     ProviderCapabilities, ProviderDescriptor, SciotteDescriptor, SciotteGarminDescriptor,
@@ -259,7 +258,7 @@ fn request_lines(seen: &Mutex<Vec<String>>, path: &str, session: &str) -> Vec<St
 }
 
 async fn the_trainingpeaks_provider_reads_and_converts_the_plan(
-    client: &SciotteClient,
+    client: &SciotteReads,
     seen: &Mutex<Vec<String>>,
 ) {
     let trainingpeaks = connected(
@@ -320,7 +319,7 @@ async fn the_trainingpeaks_provider_reads_and_converts_the_plan(
     assert!(import.contains(r#""provider":"trainingpeaks""#), "{import}");
 }
 
-async fn a_coach_account_is_told_it_has_no_calendar_not_sent_to_log_in(client: &SciotteClient) {
+async fn a_coach_account_is_told_it_has_no_calendar_not_sent_to_log_in(client: &SciotteReads) {
     let coach = connected(
         &SciotteTrainingPeaksProviderFactory::new(Some(client.clone())),
         "sciotte_trainingpeaks",
@@ -366,7 +365,7 @@ async fn a_coach_account_is_told_it_has_no_calendar_not_sent_to_log_in(client: &
     }
 }
 
-async fn a_dead_session_still_asks_for_a_reconnect(client: &SciotteClient) {
+async fn a_dead_session_still_asks_for_a_reconnect(client: &SciotteReads) {
     let dead = connected(
         &SciotteTrainingPeaksProviderFactory::new(Some(client.clone())),
         "sciotte_trainingpeaks",
@@ -387,7 +386,7 @@ async fn a_dead_session_still_asks_for_a_reconnect(client: &SciotteClient) {
 }
 
 async fn the_strava_and_garmin_mirrors_refuse_the_read(
-    client: &SciotteClient,
+    client: &SciotteReads,
     seen: &Mutex<Vec<String>>,
 ) {
     let strava = connected(
@@ -430,7 +429,7 @@ async fn the_planned_read_reaches_the_scraper_and_keeps_its_refusals_apart() {
     let seen = Arc::new(Mutex::new(Vec::new()));
     spawn_scraper_stub(listener, seen.clone());
 
-    let client = SciotteClient::new(&format!("http://{addr}"), None)
+    let client = startup_reads(&[String::from(&format!("http://{addr}"))], None)
         .expect("a loopback client needs no audience"); // Safe: loopback URL
 
     the_trainingpeaks_provider_reads_and_converts_the_plan(&client, &seen).await;

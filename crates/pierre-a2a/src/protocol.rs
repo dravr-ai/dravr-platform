@@ -37,8 +37,10 @@ use pierre_runtime_context::A2ACtx;
 use pierre_tool_runtime::coach_listing;
 use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::first_party_tools;
+use pierre_tool_runtime::protocol::trust_labels::{self, TRUST_LABELS_META_KEY};
 use pierre_tool_runtime::protocol::{
-    guardian_block_reason, UniversalRequest, UniversalResponse, UniversalToolExecutor,
+    guardian_block_reason, record_refused_admin_call, RefusedAdminCall, UniversalRequest,
+    UniversalResponse, UniversalToolExecutor,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use std::fmt;
@@ -140,8 +142,9 @@ impl SendFailure {
 
 /// Result of executing a message against its task.
 enum SendOutcome {
-    /// A named tool ran successfully and produced this result
-    Tool(String, Value),
+    /// A named tool ran successfully and produced this result, with the
+    /// trust label the executor put on it, if any
+    Tool(String, Value, Option<Value>),
     /// The coach answered the message
     Coach(String),
     /// The caller canceled the task while the coach was answering: the task
@@ -574,6 +577,7 @@ impl A2AServer {
             );
         }
 
+        let tool = Self::extract_tool_intent(&message).map(|(tool, _)| tool);
         let mut prepared = match Self::prepare_send(
             resources,
             &principal,
@@ -584,7 +588,10 @@ impl A2AServer {
         .await
         {
             Ok(prepared) => prepared,
-            Err(err) => return *err,
+            Err(err) => {
+                Self::record_refused_send(resources, &principal, tool.as_deref()).await;
+                return *err;
+            }
         };
         prepared.text_turn = text_turn;
 
@@ -597,6 +604,7 @@ impl A2AServer {
             )
             .await
             {
+                Self::record_refused_send(resources, &principal, tool.as_deref()).await;
                 return *err;
             }
         }
@@ -818,7 +826,9 @@ impl A2AServer {
             (None, Some((tool_name, params))) => {
                 Self::execute_registered_tool(ctx, tool_runtime, &principal, &tool_name, params)
                     .await
-                    .map_or_else(SendOutcome::Failure, |r| SendOutcome::Tool(tool_name, r))
+                    .map_or_else(SendOutcome::Failure, |(result, labels)| {
+                        SendOutcome::Tool(tool_name, result, labels)
+                    })
             }
             // A message addressing no registered tool has nothing to run:
             // the task fails with the shape the surface accepts.
@@ -851,14 +861,18 @@ impl A2AServer {
             SendOutcome::Failure(failure) => {
                 Self::finalize_failed(ctx, &task_id, &context_id, history, failure).await;
             }
-            SendOutcome::Tool(tool_name, result) => {
+            SendOutcome::Tool(tool_name, result, labels) => {
+                // The trust label rides on the artifact's metadata, for the
+                // caller's host, as it rides on an MCP result's `_meta`.
+                let metadata = labels
+                    .map(|labels| Map::from_iter([(TRUST_LABELS_META_KEY.to_owned(), labels)]));
                 let artifact = Artifact {
                     artifact_id: Uuid::new_v4().to_string(),
                     parts: vec![Part::data(result.clone())], // Safe: JSON value ownership for part
                     name: Some(format!("{tool_name} result")),
                     description: None,
                     extensions: Vec::new(),
-                    metadata: None,
+                    metadata,
                 };
                 Self::finalize_completed(
                     ctx,
@@ -917,25 +931,62 @@ impl A2AServer {
         None
     }
 
+    /// An admin-only call refused before it reaches the executor, which
+    /// writes the audit row of every other one, is written `refused` here: every
+    /// admin-only call over A2A is on the trail (EFVP 9.4d). An unknown tool is
+    /// no admin-only one, so it writes nothing.
+    async fn record_refused(tool_runtime: &Arc<dyn ToolRuntime>, user_id: Uuid, tool_name: &str) {
+        record_refused_admin_call(
+            tool_runtime.as_ref(),
+            &RefusedAdminCall {
+                tool_name,
+                user_id,
+                tenant_id: None,
+                transport: Transport::A2a,
+                protocol: "a2a",
+            },
+        )
+        .await;
+    }
+
+    /// Record the admin-only call a message names, `tool`, refused before
+    /// its task ran (a continuation of a finished or running task, a task
+    /// that could not be stored, a push config refused): every admin-only
+    /// call over A2A is on the trail (EFVP 9.4d). A message naming no tool
+    /// writes nothing.
+    async fn record_refused_send(
+        resources: &A2AResources,
+        principal: &AuthPrincipal,
+        tool: Option<&str>,
+    ) {
+        if let Some(tool) = tool {
+            Self::record_refused(&resources.tool_runtime, principal.user_id, tool).await;
+        }
+    }
+
     /// Execute a registered tool against the authenticated user's tenant.
-    /// Returns the tool output on success, or the failure (surfaced on the task
-    /// as the `failed` status message).
+    /// Returns the tool output and its trust label on success, or the failure
+    /// (surfaced on the task as the `failed` status message).
     async fn execute_registered_tool(
         ctx: &Arc<dyn A2ACtx>,
         tool_runtime: &Arc<dyn ToolRuntime>,
         principal: &AuthPrincipal,
         tool_name: &str,
         tool_params: Value,
-    ) -> Result<Value, SendFailure> {
+    ) -> Result<(Value, Option<Value>), SendFailure> {
         let user_id = principal.user_id;
         // Resolve tenant context — required for all A2A tool execution.
         let tenant = principal.active_tenant_id.map(TenantId::from_uuid);
         let tenant_context =
             match extract_tenant_context_internal(ctx.repos(), user_id, tenant).await {
                 Ok(Some(context)) => context,
-                Ok(None) => return Err(SendFailure::text("User does not belong to any tenant")),
+                Ok(None) => {
+                    Self::record_refused(tool_runtime, user_id, tool_name).await;
+                    return Err(SendFailure::text("User does not belong to any tenant"));
+                }
                 Err(e) => {
                     log_tenant_failure(user_id, &e);
+                    Self::record_refused(tool_runtime, user_id, tool_name).await;
                     return Err(SendFailure::text("Failed to resolve tenant context"));
                 }
             };
@@ -960,9 +1011,13 @@ impl A2AServer {
         };
 
         match executor.execute_tool(request).await {
-            Ok(response) if response.success => Ok(response
-                .result
-                .unwrap_or_else(|| Value::Object(Map::default()))),
+            Ok(response) if response.success => {
+                let labels = trust_labels::labels_of(&response).cloned();
+                let result = response
+                    .result
+                    .unwrap_or_else(|| Value::Object(Map::default()));
+                Ok((result, labels))
+            }
             Ok(response) => {
                 let data = guardian_refusal_data(&response);
                 Err(SendFailure {
@@ -1030,24 +1085,36 @@ impl A2AServer {
         let text_turn =
             Self::admit_text_turn(resources, &principal, &mut message, request.id.as_ref()).await?;
 
-        let mut prepared = Self::prepare_send(
+        let tool = Self::extract_tool_intent(&message).map(|(tool, _)| tool);
+        let mut prepared = match Self::prepare_send(
             resources,
             &principal,
             message,
             text_turn.is_some(),
             request.id.as_ref(),
         )
-        .await?;
+        .await
+        {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                Self::record_refused_send(resources, &principal, tool.as_deref()).await;
+                return Err(err);
+            }
+        };
         prepared.text_turn = text_turn;
 
         if let Some(config_input) = configuration.push_notification_config {
-            Self::store_push_config(
+            if let Err(err) = Self::store_push_config(
                 resources,
                 &prepared.task_id,
                 config_input,
                 request.id.as_ref(),
             )
-            .await?;
+            .await
+            {
+                Self::record_refused_send(resources, &principal, tool.as_deref()).await;
+                return Err(err);
+            }
         }
 
         // Subscribe before spawning so no event can be missed.

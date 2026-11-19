@@ -33,14 +33,15 @@ fn catalogue_file(table: &[(&str, &'static str)], key: &str) -> &'static str {
     )
 }
 
-/// Bootstrap an operator so the agent seeder has an admin to own the rows.
+/// Bootstrap an admin so the agent seeder has one to own the rows.
 async fn seeded_repos() -> (Arc<RepositoryRegistry>, Uuid, TenantId) {
     let database = common::create_test_database().await.unwrap();
     let repos = Arc::clone(database.repositories());
     bootstrap::run(
         BootstrapArgs {
-            admin_email: "operator@dravr.ai".to_owned(),
-            admin_password: "OperatorPass123!".to_owned(),
+            admin_email: "admin@dravr.ai".to_owned(),
+            admin_password: "AdminPass123!".to_owned(),
+            demo_password: None,
         },
         &repos,
     )

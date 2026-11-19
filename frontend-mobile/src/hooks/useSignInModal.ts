@@ -29,7 +29,7 @@ const CLOSED: SignInModalState = { target: null, consentRequired: false, history
 /** The card a sign-in is opened for: its notice, and what its OAuth fallback reads. */
 type SignInCard = Pick<
   ExtendedProviderStatus,
-  'consent_required' | 'provider' | 'connected' | 'recommended_backend' | 'seats_left'
+  'consent_required' | 'provider' | 'connected' | 'needs_reauth' | 'recommended_backend' | 'seats_left'
 >;
 
 export interface SignInModal extends SignInModalState {

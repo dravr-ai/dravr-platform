@@ -36,7 +36,9 @@ pub(super) fn time_series(sciotte: &SciotteActivity) -> Option<TimeSeriesData> {
 
 /// Sciotte's [`SciotteStreams`] as cageux's [`TimeSeriesData`]: the two
 /// mirror each other field for field, every channel as long as the time axis
-/// and a `None` sample one the channel did not record.
+/// and a `None` sample one the channel did not record. Strava's own
+/// `grade_smooth` and `moving` cross as they stand; the route fallback below
+/// carries neither.
 fn streams_to_time_series(streams: &SciotteStreams) -> TimeSeriesData {
     TimeSeriesData {
         timestamps: streams.timestamps.clone(),
@@ -48,6 +50,8 @@ fn streams_to_time_series(streams: &SciotteStreams) -> TimeSeriesData {
         temperature: streams.temperature.clone(),
         gps_coordinates: streams.gps_coordinates.clone(),
         distance: streams.distance.clone(),
+        grade_smooth: streams.grade_smooth.clone(),
+        moving: streams.moving.clone(),
     }
 }
 
@@ -111,6 +115,8 @@ fn route_to_time_series(route: &SciotteRouteTrack) -> TimeSeriesData {
         temperature: None,
         gps_coordinates: Some(route.coordinates.iter().copied().map(Some).collect()),
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 
@@ -161,6 +167,37 @@ mod tests {
         assert_eq!(
             series.altitude, None,
             "nothing the streams lack is invented"
+        );
+    }
+
+    #[test]
+    fn strava_grade_and_moving_channels_cross_on_the_time_axis() {
+        let activity = scraped(&json!({
+            "streams": {
+                "timestamps": [0, 1, 2],
+                "grade_smooth": [1.5, null, -0.4],
+                "moving": [true, null, false],
+                "gps_coordinates": [[45.5, -73.6], null, null]
+            }
+        }));
+        let series = time_series(&activity).unwrap_or_else(|| panic!("bug: no series"));
+        assert_eq!(
+            series.grade_smooth,
+            Some(vec![Some(1.5), None, Some(-0.4)]),
+            "bug: the smoothed grade channel was dropped"
+        );
+        assert_eq!(
+            series.moving,
+            Some(vec![Some(true), None, Some(false)]),
+            "bug: the moving channel was dropped"
+        );
+        let bare = scraped(&json!({
+            "streams": { "timestamps": [0], "gps_coordinates": [[45.5, -73.6]] }
+        }));
+        let series = time_series(&bare).unwrap_or_else(|| panic!("bug: no series"));
+        assert!(
+            series.grade_smooth.is_none() && series.moving.is_none(),
+            "bug: a channel the page never read was invented"
         );
     }
 

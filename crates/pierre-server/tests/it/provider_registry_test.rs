@@ -8,17 +8,16 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::common::offline_provider_registry;
 
 use pierre_core::models::TenantId;
 use pierre_mcp_server::constants::oauth_providers;
-use pierre_providers::registry::{
-    create_provider, create_tenant_provider, global_registry, ProviderRegistry,
-};
+use pierre_providers::registry::{create_provider, create_tenant_provider, global_registry};
 use uuid::Uuid;
 
 #[test]
 fn test_registry_creation() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     assert!(registry.is_supported(oauth_providers::STRAVA));
     assert!(!registry.is_supported("nonexistent"));
 }

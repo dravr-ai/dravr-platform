@@ -8,29 +8,12 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { APP_SHELL_TIMEOUT_MS, loginToDashboard, setupDashboardMocks, waitForLoginScreen } from './test-helpers';
+import { mockSetupStatus, mockSignupConfig } from './auth-mocks';
 
 // Helper to set up common API mocks for the registration page
 async function setupBasicMocks(page: import('@playwright/test').Page) {
-  // Mock setup status
-  await page.route('**/admin/setup/status', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        needs_setup: false,
-        admin_user_exists: true,
-        message: 'Admin user configured',
-      }),
-    });
-  });
-  // Sign-up open, no bot check: the form holds submit until this answers.
-  await page.route('**/api/auth/signup-config', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ open: true, turnstile_site_key: null }),
-    });
-  });
+  await mockSetupStatus(page);
+  await mockSignupConfig(page);
 }
 
 // Helper to navigate to registration page from login
@@ -345,13 +328,7 @@ test.describe('Registration Page - Sign-up paused', () => {
   test('a closed sign-up shows the paused notice instead of the form', async ({ page }) => {
     await setupBasicMocks(page);
     // Registered after the open mock, so this answer wins: an operator paused sign-up.
-    await page.route('**/api/auth/signup-config', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ open: false, turnstile_site_key: null }),
-      });
-    });
+    await mockSignupConfig(page, { open: false });
     await page.goto('/');
     await waitForLoginScreen(page, 10000);
     await page.getByText("Don't have an account?").click();

@@ -26,7 +26,9 @@ use pierre_core::models::groups::GroupInvite;
 use pierre_core::models::{SignupCodeRedemption, SignupCodeSource, User, UserStatus};
 
 use super::AuthService;
-use crate::admin_ops::{create_default_mcp_token_for_user, transition_user_status};
+use crate::admin_ops::{
+    activate_pending_sign_up, create_default_mcp_token_for_user, AccountCaller,
+};
 use crate::import_tombstones::email_held;
 use crate::signup_codes::{self, invalid_signup_code};
 use crate::signup_policy::admit_signup_code;
@@ -148,14 +150,16 @@ impl AuthService {
     /// and activate the account now when its address is proven.
     ///
     /// A code never overrides a deleted account's hold on the address, never
-    /// revives a suspended account, and never gets past a closed kill switch.
-    /// An account holds one redemption.
+    /// revives a suspended account, never activates an account that holds
+    /// the admin role, and never gets past a closed kill switch. An account
+    /// holds one redemption.
     ///
     /// # Errors
     ///
     /// Returns a not-found error for an unknown account, a suspended-account
     /// error, an invalid-input error for an account that is already active,
-    /// holds a deleted account's address or already redeemed a code, the
+    /// holds the admin role, holds a deleted account's address or already
+    /// redeemed a code, the
     /// uniform invalid-code error, a quota-exceeded error when sign-up is
     /// closed, and the repository's error when a write fails.
     pub async fn redeem_signup_code(
@@ -180,6 +184,14 @@ impl AuthService {
             }
             UserStatus::Pending => {}
         }
+        // Refused before a use of the code is claimed: a code activates a
+        // sign-up, and an account holding the admin role is approved by an
+        // admin (`Self::may_self_activate`).
+        if user.role.is_admin() {
+            return Err(AppError::invalid_input(
+                "An admin account is approved by another admin, not by a signup code",
+            ));
+        }
         if email_held(repos, &user.email).await {
             return Err(AppError::invalid_input(
                 "This address belonged to a deleted Dravr account. Start fresh with it first, then enter your code.",
@@ -195,8 +207,15 @@ impl AuthService {
         let claimed = self.claim_and_record(user_id, code).await?;
 
         let status = if self.email_already_proven(&user).await? {
-            self.activate_by_code(&user, claimed.granted_by).await?;
-            UserStatus::Active
+            let stored = self.activate_by_code(&user, claimed.granted_by).await?;
+            // Suspended since this redemption read the account pending: the
+            // answer a suspended account gets above, with nothing activated.
+            if stored.user_status == UserStatus::Suspended {
+                return Err(AppError::account_suspended(
+                    "Your account has been suspended",
+                ));
+            }
+            stored.user_status
         } else {
             UserStatus::Pending
         };
@@ -281,20 +300,30 @@ impl AuthService {
 
     /// Activate `user` on a code: Active in the minter's name while that
     /// account exists, its default MCP token, and the redemption marked.
+    /// The account as the store holds it afterwards.
+    ///
+    /// The caller read `user` pending, and the activation lands only while
+    /// it still is ([`activate_pending_sign_up`]). An account an admin
+    /// decided in between is returned as it stands, with no token and the
+    /// redemption left unmarked: a code never revives a suspended account.
     pub(super) async fn activate_by_code(
         &self,
         user: &User,
         granted_by: Option<Uuid>,
-    ) -> AppResult<()> {
+    ) -> AppResult<User> {
         let repos = self.data.repos();
         let approver = self.existing_operator(granted_by).await;
-        transition_user_status(repos, user.id, UserStatus::Active, approver).await?;
+        let rule = AccountCaller::sign_up_rule(approver);
+        let activation = activate_pending_sign_up(repos, &rule.acting_on(user.clone())?).await?;
+        if !activation.activated {
+            return Ok(activation.user);
+        }
         create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), user.id).await;
         repos
             .signup_codes
             .mark_activated(user.id, Utc::now())
             .await?;
         info!(user_id = %user.id, approved_by = ?approver, "Account activated by a signup code");
-        Ok(())
+        Ok(activation.user)
     }
 }

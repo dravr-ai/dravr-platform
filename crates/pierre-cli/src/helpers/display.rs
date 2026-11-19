@@ -75,21 +75,35 @@ pub(crate) fn display_generated_token(token: &GeneratedAdminToken) {
     println!("\nSuccess Token is ready to use!");
 }
 
-/// Display admin user creation success message
-pub(crate) fn display_admin_user_success(email: &str, name: &str, super_admin: bool) {
-    let role_str = if super_admin { "Super Admin" } else { "Admin" };
-    println!("\nSuccess {role_str} User Created Successfully!");
+/// Display the success message for a plain account `user create --role
+/// user` made or re-asserted
+pub(crate) fn display_plain_user_success(email: &str, name: &str) {
+    println!("\nSuccess User Created Successfully!");
     println!("{}", "=".repeat(50));
     println!("User USER DETAILS:");
     println!("   Email: {email}");
     println!("   Name: {name}");
-    println!("   Role: {role_str}");
-    println!("   Tier: Enterprise (Full access)");
+    println!("   Role: User (no admin access)");
     println!("   Status: Active");
 
-    if super_admin {
-        println!("   Capabilities: Can impersonate other users");
-    }
+    println!("\nKey LOGIN CREDENTIALS:");
+    println!("{}", "=".repeat(50));
+    println!("   Email: {email}");
+    println!("   Password: (the one you just entered — not echoed for security)");
+    println!("\nSuccess User is ready to use!");
+}
+
+/// Display admin user creation success message
+pub(crate) fn display_admin_user_success(email: &str, name: &str) {
+    println!("\nSuccess Admin User Created Successfully!");
+    println!("{}", "=".repeat(50));
+    println!("User USER DETAILS:");
+    println!("   Email: {email}");
+    println!("   Name: {name}");
+    println!("   Role: Admin");
+    println!("   Tier: Enterprise (Full access)");
+    println!("   Status: Active");
+    println!("   Capabilities: Can impersonate other users");
 
     println!("\nKey LOGIN CREDENTIALS:");
     println!("{}", "=".repeat(50));
@@ -99,11 +113,8 @@ pub(crate) fn display_admin_user_success(email: &str, name: &str, super_admin: b
     println!("\nWARNING IMPORTANT SECURITY NOTES:");
     println!("• Change the default password in production!");
     println!("• This user has full access to the admin interface");
-    if super_admin {
-        println!("• Super admin can impersonate any non-super-admin user");
-    }
+    println!("• An admin can impersonate any user who is not an admin");
     println!("• Use strong passwords and enable 2FA if available");
-    println!("• Consider creating additional admin users with limited permissions");
 
     println!("\nDocs NEXT STEPS:");
     println!("1. Start the Pierre MCP Server:");

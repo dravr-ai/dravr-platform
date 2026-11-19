@@ -60,12 +60,18 @@ pub use route_track::{
 /// `route_ref` a drawable public line is stored and named by.
 pub mod route_compose;
 
-/// The one place-name geocoder (dravr-meteo's Open-Meteo gazetteer behind its cache).
+/// Sunrise and sunset for a place and day, from NOAA's solar position equations.
+pub mod daylight;
+/// How a free-text place becomes a gazetteer query.
 pub mod geocoding;
 /// Route and trail discovery via OpenStreetMap (Overpass API + OSM piste data).
 pub mod osm_routes;
+/// Where an athlete trains: trimmed activity starts clustered into places with stable ids.
+pub mod places;
 /// Weather impact analysis + provider factory (delegates vendor logic to dravr-meteo).
 pub mod weather;
+// Outer doc intentionally omitted, as for `weather_cache_adapter` below.
+pub mod weather_clients;
 // Outer doc intentionally omitted — `weather_cache_adapter.rs`'s
 // inner `//!` header is authoritative. When both an outer `///` on the
 // mod declaration and an inner `//!` exist, rustdoc concatenates them

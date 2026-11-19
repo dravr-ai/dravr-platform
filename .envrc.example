@@ -134,6 +134,17 @@ export PIERRE_DEFAULT_PROVIDER=strava
 # Never 8091: that is the isolated Pierre server's port, and setup refuses a
 # sciotte port equal to HTTP_PORT.
 # export DRAVR_SCIOTTE_REMOTE_URL="http://127.0.0.1:8096"
+# A deployed API may list several read services, comma-separated, each one
+# instance; every call naming a session goes to the one its id picks
+# (carnet#1504). Local development runs one, and scripts/sciotte-local.sh and
+# the login canary read a single URL.
+#
+# Sign-ins on their own sciotte service (carnet#1504), optional. A sign-in that
+# asks for a code parks its browser in one instance's memory, so a deployment
+# runs sign-ins on a service capped at one instance and reads on the one above.
+# Unset sends sign-ins to DRAVR_SCIOTTE_REMOTE_URL, which is what one local
+# service wants.
+# export DRAVR_SCIOTTE_LOGIN_URL="http://127.0.0.1:8098"
 
 # ----------------------------------------------------------------------------
 # Strava Provider Configuration
@@ -585,6 +596,8 @@ export FITNESS_EFFORT_HARD_MAX="7.0"
 
 # Weather Integration Settings
 export FITNESS_WEATHER_WIND_THRESHOLD="15.0"
+# Whether an activity list is given the ambient temperature its source left
+# out, asked of the weather vendor. Read once at startup; on unless "false".
 export FITNESS_WEATHER_ENABLED="true"
 export FITNESS_WEATHER_CACHE_DURATION_HOURS="24"
 export FITNESS_WEATHER_REQUEST_TIMEOUT_SECONDS="10"
@@ -727,8 +740,8 @@ export TOKIO_THREAD_NAME="pierre-worker"
 
 # export QUOTA_DAILY_MESSAGE_CAP=""            # Default: 50      Range: 5..1000
 # export QUOTA_WEEKLY_MESSAGE_CAP=""           # Default: 250     Range: 25..5000
-# export QUOTA_DAILY_TOKEN_BUDGET=""           # Default: 500_000 Range: 10_000..10_000_000
-# export QUOTA_WEEKLY_TOKEN_BUDGET=""          # Default: 2_000_000 Range: 50_000..50_000_000
+# export QUOTA_DAILY_TOKEN_BUDGET=""           # Default: 1_000_000 Range: 10_000..20_000_000
+# export QUOTA_WEEKLY_TOKEN_BUDGET=""          # Default: 4_000_000 Range: 50_000..100_000_000
 # export QUOTA_DAILY_TOOL_CALL_LIMIT=""        # Default: 100     Range: 10..5000
 # export QUOTA_WEEKLY_TOOL_CALL_LIMIT=""       # Default: 500     Range: 50..25_000
 # export QUOTA_MAX_ACTIVE_CONVERSATIONS=""     # Default: 10      Range: 1..50

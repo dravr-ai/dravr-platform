@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Serialises dev Cloud Run rollouts: waits until no dev service is mid-rollout, or until one service settles
-# ABOUTME: Holds the one list of dev Cloud Run services every deploy workflow waits on; fails closed on every unknown
+# ABOUTME: Holds the dev Cloud Run services every deploy waits on, plus the labelled sciotte ones; fails closed on every unknown
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -26,10 +26,25 @@
 # passes. Rolls that do not touch the database leave the flag off, so an
 # emergency frontend redeploy never waits on it.
 #
+# Discovered services (carnet#1504): sciotte runs as several services on one
+# image, all labelled component=sciotte — the read service <prefix>-sciotte, extra
+# read services <prefix>-sciotte-read-<n> and the sign-in service
+# <prefix>-sciotte-login. Terraform decides how many exist, so a fixed list here
+# would go stale on the next apply and a deploy would roll beside a service it
+# never saw. Quiesce mode therefore also lists the services carrying
+# DISCOVERY_LABEL in the region, keeps those named <prefix>-<suffix>, and waits
+# on them beside DEV_SERVICE_SUFFIXES; service mode looks there for a suffix the
+# fixed list does not name. A failed list call exits 1 like a failed describe;
+# an empty answer is a region with no labelled service, which waits on the
+# fixed list alone. List mode prints every labelled service's suffix, one per
+# line, and waits on nothing: the satellite deploy lane moves exactly the
+# services this script waits on because it reads them here.
+#
 # Usage:
 #   wait-cloud-run-service-ready.sh quiesce --region <region> --prefix <prefix> [--db-headroom <n>] [--timeout-seconds <n>]
 #   wait-cloud-run-service-ready.sh service --region <region> --prefix <prefix> --service <suffix> [--timeout-seconds <n>]
 #   wait-cloud-run-service-ready.sh headroom --region <region> --prefix <prefix> --db-headroom <n> --fresh-after <epoch> [--timeout-seconds <n>]
+#   wait-cloud-run-service-ready.sh list --region <region> --prefix <prefix>
 #
 # headroom waits for the database gate alone, on points whose whole 60 s window
 # opens at or after --fresh-after (epoch seconds). Each point is the maximum over
@@ -42,7 +57,8 @@
 #              never defaulted: a defaulted region describes services that do not
 #              exist there, or worse, other ones that do.
 #   --prefix   the dev service-name prefix (vars.GCP_DEV_SERVICE_NAME).
-#   --service  one suffix from DEV_SERVICE_SUFFIXES below (service mode only).
+#   --service  one suffix from DEV_SERVICE_SUFFIXES below, or of a service carrying
+#              DISCOVERY_LABEL under --prefix (service mode only).
 #   --db-headroom  free Cloud SQL connection slots to wait for (quiesce and
 #              headroom modes). Needs curl, a gcloud project and
 #              roles/monitoring.viewer.
@@ -84,16 +100,24 @@
 # cross-workflow lock (a GCS object taken with ifGenerationMatch around deploy
 # and settle) would close that window, and none exists yet.
 #
-# Every gcloud failure (including a service that does not exist), an empty or
-# non-JSON answer, a Monitoring call that fails or answers an HTTP error, a
-# missing tool and an invalid argument exits 1 immediately.
+# Every gcloud failure (including a service that does not exist, and a failed
+# discovery list), an empty or non-JSON answer, a Monitoring call that fails or
+# answers an HTTP error, a missing tool and an invalid argument exits 1
+# immediately.
 # Only a timeout is reached by waiting, and it exits 1 too.
 
 set -euo pipefail
 
-# The one list of dev Cloud Run services. Every deploy workflow reaches it through
-# this script, and the test harness pins which jobs must call it.
+# The fixed dev Cloud Run services; the labelled sciotte services are discovered
+# beside them (see the header). Every deploy workflow reaches both through this
+# script, and the test harness pins which jobs must call it.
 DEV_SERVICE_SUFFIXES=(api frontend photograveur sciotte)
+# The label every sciotte service carries (infra/environments/dev), read and
+# sign-in alike. deploy-satellite-cloud-run.yml's `also_label` deploys the same
+# set, so the two must name the same label: a service it deploys that this
+# script cannot find fails that deploy's settle wait instead of going unwatched.
+DISCOVERY_LABEL_KEY="component"
+DISCOVERY_LABEL_VALUE="sciotte"
 
 # The dev Cloud SQL instance every service above shares, named from the same
 # prefix as the services (infra/modules/database). It is a db-f1-micro:
@@ -126,7 +150,7 @@ die() {
 }
 
 usage() {
-  die "usage: $0 quiesce|service|headroom --region <region> --prefix <prefix> [--service <suffix>] [--db-headroom <n>] [--fresh-after <epoch>] [--timeout-seconds <n>] — $1"
+  die "usage: $0 quiesce|service|headroom|list --region <region> --prefix <prefix> [--service <suffix>] [--db-headroom <n>] [--fresh-after <epoch>] [--timeout-seconds <n>] — $1"
 }
 
 # ---------------------------------------------------------------------------
@@ -135,8 +159,8 @@ usage() {
 [ $# -ge 1 ] || usage "no mode given"
 MODE="$1"; shift
 case "${MODE}" in
-  quiesce|service|headroom) ;;
-  *) usage "unknown mode '${MODE}' (must be quiesce, service or headroom)" ;;
+  quiesce|service|headroom|list) ;;
+  *) usage "unknown mode '${MODE}' (must be quiesce, service, headroom or list)" ;;
 esac
 
 REGION=""
@@ -182,21 +206,20 @@ if [ "${MODE}" = "headroom" ]; then
   SERVICES=()
 elif [ -n "${FRESH_AFTER}" ]; then
   usage "--fresh-after belongs to headroom mode"
+elif [ "${MODE}" = "list" ]; then
+  { [ -z "${SERVICE_SUFFIX}" ] && [ -z "${DB_HEADROOM}" ]; } \
+    || usage "list mode prints the labelled services; --service and --db-headroom are not accepted"
+  SERVICES=()
 elif [ "${MODE}" = "service" ]; then
   [ -n "${SERVICE_SUFFIX}" ] || usage "service mode needs --service"
   [ -z "${DB_HEADROOM}" ] || usage "--db-headroom gates the next roll, so it belongs to quiesce mode"
-  known=""
-  for s in "${DEV_SERVICE_SUFFIXES[@]}"; do
-    [ "${s}" = "${SERVICE_SUFFIX}" ] && known="yes"
-  done
-  [ -n "${known}" ] || die "--service '${SERVICE_SUFFIX}' is not a dev Cloud Run service (${DEV_SERVICE_SUFFIXES[*]}); add it to DEV_SERVICE_SUFFIXES in $0 so every deploy waits on it"
-  SERVICES=("${PREFIX}-${SERVICE_SUFFIX}")
+  [[ "${SERVICE_SUFFIX}" =~ ^[a-z0-9][a-z0-9-]*$ ]] || usage "--service '${SERVICE_SUFFIX}' is not a Cloud Run service-name suffix"
+  # Membership is checked below, once discovery has run: a suffix outside the
+  # fixed list may name a labelled service.
+  SERVICES=()
 else
   [ -z "${SERVICE_SUFFIX}" ] || usage "quiesce mode waits on every dev service; --service is not accepted"
   SERVICES=()
-  for s in "${DEV_SERVICE_SUFFIXES[@]}"; do
-    SERVICES+=("${PREFIX}-${s}")
-  done
 fi
 
 for tool in gcloud jq date sleep mktemp tr head; do
@@ -205,6 +228,67 @@ done
 
 WORK=$(mktemp -d)
 trap 'rm -rf "${WORK}"' EXIT
+
+# ---------------------------------------------------------------------------
+# Suffixes of the services carrying DISCOVERY_LABEL under PREFIX, minus the ones
+# the fixed list already names, set in DISCOVERED (de-duplicated, in the order
+# gcloud lists them). Only stdout is read: gcloud prints "Listed 0 items." on
+# stderr, which is not a service name.
+# ---------------------------------------------------------------------------
+DISCOVERED=()
+discover_services() {
+  # LIST_ALL=yes keeps the suffixes the fixed list also names: list mode
+  # prints every labelled service, the deploy lane's one source for them.
+  local out="${WORK}/discovered.txt" err="${WORK}/discovered.err" name suffix s seen fixed
+  local filter="metadata.labels.${DISCOVERY_LABEL_KEY}=${DISCOVERY_LABEL_VALUE}"
+  gcloud run services list --region="${REGION}" --filter="${filter}" --format='value(metadata.name)' >"${out}" 2>"${err}" \
+    || die "gcloud run services list --region=${REGION} --filter=${filter} failed: $(tr '\n' ' ' <"${err}")"
+  while IFS= read -r name || [ -n "${name}" ]; do
+    [ -n "${name}" ] || continue
+    [[ "${name}" =~ ^[a-z][a-z0-9-]*$ ]] \
+      || die "gcloud run services list --region=${REGION} --filter=${filter} answered '${name}', which is not a service name"
+    # Another prefix's service in the same region (another environment) is
+    # not dev's to wait on.
+    [ "${name#"${PREFIX}"-}" != "${name}" ] || continue
+    suffix="${name#"${PREFIX}"-}"
+    [ -n "${suffix}" ] || continue
+    seen=""
+    fixed=()
+    [ "${LIST_ALL:-}" = "yes" ] || fixed=("${DEV_SERVICE_SUFFIXES[@]}")
+    for s in ${fixed[@]+"${fixed[@]}"} ${DISCOVERED[@]+"${DISCOVERED[@]}"}; do
+      [ "${s}" = "${suffix}" ] && seen="yes"
+    done
+    [ -n "${seen}" ] || DISCOVERED+=("${suffix}")
+  done <"${out}"
+}
+
+if [ "${MODE}" = "list" ]; then
+  LIST_ALL=yes discover_services
+  for s in ${DISCOVERED[@]+"${DISCOVERED[@]}"}; do
+    printf '%s\n' "${s}"
+  done
+  exit 0
+elif [ "${MODE}" = "quiesce" ]; then
+  discover_services
+  for s in "${DEV_SERVICE_SUFFIXES[@]}" ${DISCOVERED[@]+"${DISCOVERED[@]}"}; do
+    SERVICES+=("${PREFIX}-${s}")
+  done
+elif [ "${MODE}" = "service" ]; then
+  known=""
+  for s in "${DEV_SERVICE_SUFFIXES[@]}"; do
+    [ "${s}" = "${SERVICE_SUFFIX}" ] && known="yes"
+  done
+  # Discovery runs only for a suffix the fixed list lacks, so an API or
+  # frontend settle never depends on a list call it does not need.
+  if [ -z "${known}" ]; then
+    discover_services
+    for s in ${DISCOVERED[@]+"${DISCOVERED[@]}"}; do
+      [ "${s}" = "${SERVICE_SUFFIX}" ] && known="yes"
+    done
+  fi
+  [ -n "${known}" ] || die "--service '${SERVICE_SUFFIX}' is not a dev Cloud Run service (${DEV_SERVICE_SUFFIXES[*]}, or one labelled ${DISCOVERY_LABEL_KEY}=${DISCOVERY_LABEL_VALUE} under ${PREFIX}-); add it to DEV_SERVICE_SUFFIXES in $0 so every deploy waits on it"
+  SERVICES=("${PREFIX}-${SERVICE_SUFFIX}")
+fi
 
 # Only the database gate talks to Cloud Monitoring: without --db-headroom no
 # project, token or curl is needed. The token is read once; it outlives the

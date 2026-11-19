@@ -4,11 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::civil_time::{clock_date, resolve_zone};
 use crate::transport::TransportPolicy;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use dravr_cageux::algorithms::training_load::DailyTrainingLoad;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -359,6 +360,28 @@ pub struct GroupMember {
     /// profile on read, not stored)
     #[serde(default)]
     pub display_name: Option<String>,
+}
+
+impl CoachingGroup {
+    /// The members an outside client acting for `reader` is never told of:
+    /// when `reader` is this group's coach, every other member who stopped
+    /// sharing their training with the coach (EFVP 2026-11-17, decision
+    /// 9.4c); none for any other reader. Dravr's own surfaces name them all.
+    #[must_use]
+    pub fn unnamed_to_outside_client_of(
+        &self,
+        reader: Uuid,
+        members: &[GroupMember],
+    ) -> HashSet<Uuid> {
+        if self.coach_user_id != Some(reader) {
+            return HashSet::new();
+        }
+        members
+            .iter()
+            .filter(|member| member.user_id != reader && !member.coach_sharing_consent)
+            .map(|member| member.user_id)
+            .collect()
+    }
 }
 
 /// Who spoke in a group transcript entry.
@@ -780,7 +803,7 @@ pub struct MemberFitnessSnapshot {
 }
 
 /// One morning of a run of form readings, counted back from the snapshot's
-/// own day.
+/// own day on the member's calendar ([`MemberFitnessSnapshot::computed_on`]).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct FormMorning {
     /// Days before the snapshot's own day: `0` is that day.
@@ -791,13 +814,22 @@ pub struct FormMorning {
 }
 
 impl MemberFitnessSnapshot {
+    /// The member's own civil day the snapshot was computed on: `computed_at`
+    /// read on their clock, in [`Self::timezone`] (UTC when unset). The day
+    /// the training load, its form reading and the deep-fatigue mornings
+    /// describe (carnet#1640).
+    #[must_use]
+    pub fn computed_on(&self) -> NaiveDate {
+        clock_date(self.computed_at, resolve_zone(self.timezone.as_deref()))
+    }
+
     /// The member's form reading, banded by cageux from the `tsb`/`form_ctl`
-    /// pair of the day the snapshot was computed. `None` when the training
-    /// load could not be computed.
+    /// pair of the day the snapshot was computed ([`Self::computed_on`]).
+    /// `None` when the training load could not be computed.
     #[must_use]
     pub fn form_reading(&self) -> Option<FormReading> {
         Some(FormReading::from_daily_load(&DailyTrainingLoad {
-            date: self.computed_at.date_naive(),
+            date: self.computed_on(),
             ctl: self.ctl?,
             atl: self.atl?,
             tsb: self.tsb?,
@@ -837,11 +869,16 @@ pub struct RosterActivity {
     /// `None` for HR-only / treadmill / non-GPS sources. Surfaced so the LLM
     /// can answer "endroit entre vous deux" questions without fabricating.
     pub city: Option<String>,
-    /// Optional starting latitude when the source carries GPS. Paired with
-    /// `start_longitude`. `None` for HR-only sources. Lets the LLM do
-    /// midpoint / distance math when both members have coordinates.
+    /// Latitude of where the route is picked up past the privacy trim: the
+    /// first point of the activity's summary polyline once the privacy radius
+    /// around each end is cut, the line the Home map draws. Never the raw start a
+    /// provider recorded, which is usually the member's door (carnet#1592).
+    /// `None` when the activity carries no overview that survives the trim:
+    /// HR-only and treadmill sources, a route too short to trim, and sources
+    /// that store no polyline. Paired with `start_longitude`, so the LLM can
+    /// do midpoint / distance math when both members have one.
     pub start_latitude: Option<f64>,
-    /// Optional starting longitude. See [`Self::start_latitude`].
+    /// Longitude of the same trimmed start. See [`Self::start_latitude`].
     pub start_longitude: Option<f64>,
     /// Optional total ascent in meters when the source carries it (Strava,
     /// sciotte, Coros all parse it). `None` for sources without elevation

@@ -4,6 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
 use super::sport_type_alias::sport_family_head;
 use super::SportType;
 
@@ -15,7 +18,8 @@ use super::SportType;
 /// cycling, a trail run is running. Everything without a family of its own
 /// — walking, hiking, gym work, snow sports — is `Other`, so a runner who
 /// also hikes is still single-sport.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum SportFamily {
     /// Running, on any surface, real or virtual.
     Running,

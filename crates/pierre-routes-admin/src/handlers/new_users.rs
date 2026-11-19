@@ -1,5 +1,5 @@
 // ABOUTME: Admin handler for the new-user cohort: each account created in a window and how far it got
-// ABOUTME: Super-admins read platform-wide; any other admin reads the members of the tenant it acts in
+// ABOUTME: An admin or a super-admin token reads platform-wide; a scoped token reads the members of the tenant it acts in
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,13 +17,14 @@ use serde::Deserialize;
 use tracing::{error, info};
 
 use pierre_core::admin::models::{AdminPermission as AdminPerm, ValidatedAdminToken};
+use pierre_core::admin::scope::ScopeCaller;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_services::new_user_cohort::{clamp_window_days, fetch_new_user_cohort};
 
 use super::api_keys::json_response;
 use super::types::AdminResponse;
-use super::users::token_tenant;
+
 use crate::context::AdminApiContext;
 
 /// Query string of the new-user report.
@@ -36,31 +37,34 @@ pub(crate) struct NewUsersQuery {
 /// Where an admin token reads the new-user cohort.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CohortScope {
-    /// Every account in every tenant: a super-admin's read, and only theirs.
+    /// Every account in every tenant: the read of an admin's console session
+    /// or a super-admin token, and only theirs.
     Platform,
     /// The members of the tenant the token acts in.
     Tenant(TenantId),
-    /// Nowhere: an admin that is not a super-admin and acts in no tenant.
+    /// Nowhere: a token without the super-admin flag that acts in no tenant.
     Refused,
 }
 
-/// The scope `token` reads the cohort in. Only a super-admin reads
-/// platform-wide; any other admin reads the tenant it acts in, and one acting
+/// The scope `token` reads the cohort in. Only a credential carrying the
+/// super-admin flag (an admin's console session, a super-admin token) reads
+/// platform-wide; a scoped token reads the tenant it acts in, and one acting
 /// in none is refused rather than handed every tenant's accounts.
 fn cohort_scope(token: &ValidatedAdminToken) -> AppResult<CohortScope> {
-    if token.is_super_admin {
-        return Ok(CohortScope::Platform);
-    }
-    Ok(token_tenant(token)?.map_or(CohortScope::Refused, CohortScope::Tenant))
+    Ok(match token.scope_caller()? {
+        ScopeCaller::Platform => CohortScope::Platform,
+        ScopeCaller::BoundTo(tenant) => CohortScope::Tenant(tenant),
+        ScopeCaller::Unbound => CohortScope::Refused,
+    })
 }
 
 /// `GET /admin/analytics/new-users?days=N` — the accounts created in the last
 /// `N` days, each with its activation milestones, and the funnel over them.
 ///
-/// A super-admin reads every account; any other admin reads only the members
-/// of the tenant it acts in, with every milestone read in that tenant. An
-/// admin that is not a super-admin and acts in no tenant is refused: the
-/// platform-wide read is the super-admin's alone.
+/// An admin's console session, like a super-admin token, reads every account;
+/// a scoped token reads only the members of the tenant it acts in, with every
+/// milestone read in that tenant. A token without the flag that acts in no
+/// tenant is refused: the platform-wide read is not its own.
 ///
 /// # Errors
 ///
@@ -139,7 +143,7 @@ mod tests {
             permissions: if is_super_admin {
                 AdminPermissions::super_admin()
             } else {
-                AdminPermissions::console_admin()
+                AdminPermissions::default_admin()
             },
             is_super_admin,
             tenant_id: tenant.map(|t| t.to_string()),
@@ -149,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_super_admin_reads_platform_wide() {
+    fn only_the_super_admin_flag_reads_platform_wide() {
         let tenant = TenantId::generate();
         assert_eq!(
             cohort_scope(&admin(true, None)).unwrap(),
@@ -158,7 +162,7 @@ mod tests {
         assert_eq!(
             cohort_scope(&admin(true, Some(tenant))).unwrap(),
             CohortScope::Platform,
-            "a super-admin acting in a tenant still reads platform-wide"
+            "a credential with the flag acting in a tenant still reads platform-wide"
         );
     }
 
@@ -172,11 +176,11 @@ mod tests {
     }
 
     #[test]
-    fn an_admin_acting_in_no_tenant_is_refused_the_platform_read() {
+    fn a_scoped_token_bound_to_no_tenant_is_refused_the_platform_read() {
         assert_eq!(
             cohort_scope(&admin(false, None)).unwrap(),
             CohortScope::Refused,
-            "a plain admin with no tenant must not fall through to every tenant's accounts"
+            "a token without the super-admin flag and with no tenant must not fall through to every tenant's accounts"
         );
     }
 }

@@ -158,6 +158,7 @@ mod guided_turn {
                 self.reply.clone()
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content,
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),

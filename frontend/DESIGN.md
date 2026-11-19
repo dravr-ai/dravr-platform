@@ -384,6 +384,8 @@ a third channel — there is no glow in this system.
 | Secondary | `.btn-secondary` | Confirmation, ghost-style with center-expanding underline. |
 | Tertiary | `.btn-tertiary` | Text-only action in `primary` ink, sentence case, no tracking. |
 | Danger | `.btn-danger` | Destructive — paired with confirmation pattern. |
+| Danger outline | `.btn-danger-outline` | A quiet destructive action in a row — revoke, suspend, reject, remove. Outline shape edged in `error`/30, label in `on-error-container` at rest and on its `error`/10 hover tint (≥ 5.11:1 over every ground); bare `error` reads 4.13:1 on that hover. |
+| Success | `.btn-success` | An affirmative state action — approve, reactivate. `success` under `on-primary` (5.0:1 light, 6.26:1 dark); hover moves to `on-success-container`, deeper in light and lighter in dark, so the label only gains contrast. |
 | Outline | `.btn-outline` | Inverse of primary for primary-tinted backgrounds. |
 | Size | `.btn-sm`, `.btn-lg` | Override default size. |
 
@@ -401,6 +403,14 @@ action shortcuts within cards — see the Agent card "Chat" button.
 - `bg-pierre-violet` (or any dark surface) paired with `text-on-surface` /
   `text-pierre-dark`. Use `.btn-primary` or pair explicitly with
   `text-on-primary`.
+- A pillar hue as a button's fill or state (`bg-activity text-on-primary` on
+  an approve button). Approve is `variant="success"`; save, upgrade and export
+  are the plain primary button. A `hover:bg-<hue>/80` under white ink falls to
+  3.5:1 in light.
+- A tinted button written by hand (`bg-primary/15 text-primary`). It reads
+  `BADGE_TONE` — tone and hover — like a pressable chip.
+- `text-error hover:bg-error/10` on a secondary or outline button. That is
+  `variant="danger-outline"`.
 - Hard-coded inline `style={{ backgroundColor: '#00241a' }}`. Use the class.
 
 ### Cards
@@ -422,12 +432,110 @@ callouts over photographic boreal imagery. Do not use over flat surfaces.
 
 ### Badges
 
-`.badge` = neutral 12px rounded-full chip on `surface-container-high`. Variants
-match feedback states: `.badge-success`, `.badge-warning`, `.badge-error`,
-`.badge-info`. Pillar-tinted variants live alongside (`.badge-mobility`, etc.).
+`.badge` is the shape — a 12px rounded-full chip — and a tone class colours it:
+`.badge-neutral` (`surface-container-high` under `on-surface`), the feedback
+states `.badge-success`, `.badge-warning`, `.badge-error`, `.badge-info`,
+`.badge-primary` for a recommendation rather than a state (a chat app's
+"Recommended"), `.badge-accent` (solid `primary-container`) for a primary-family
+pill that must read apart from a `primary` one or mark the current moment
+(an admin activity row's conversation beside its LLM call; the plan card's
+"now"), the pillar tints `.badge-activity`, `.badge-nutrition`,
+`.badge-recovery` and `.badge-mobility`, and the muted `.badge-secondary`.
+**A pillar hue marks a category and nothing else — on a badge, an alert, a
+button, a toast, a progress bar or a number**: a state — verified, active,
+synced, configured, connected, approved, over a limit — takes the feedback
+tone that fits it, normally `success`, and a plain descriptor (an A2A
+capability) is `neutral`. A count that is neither a state nor a category is
+body ink. One
+function, `coachCategoryPillar` in `frontend/src/components/coachCategory.ts`,
+places a category under its pillar — the same keys as the phone's
+`categoryPillar`, with case folded where the phone matches the key exactly;
+the admin pill, the store's dot and the team picker's avatar each derive their
+class from it and keep their own fallback. Each tint is its hue at /15 under
+the ink the token tree binds to it — error and primary included, on `on-error-container` and
+`on-primary-container`, because the bare hue falls under AA on its own tint
+(4.2:1 and 4.17:1 in light). The tone classes carry colour only, so a
+pill with its own shape — the verdict chip and drawer, the admin status, role
+and category pills — takes the same pair: every tinted pill picks its class
+through `BADGE_TONE` in `frontend/src/components/ui/badgeTone.ts` (an agent
+category through `coachCategoryTone`), and
+`components/ui/__tests__/badgeTone.test.ts` measures every pair over every
+ground in both schemes.
+On the phone six of them (`neutral`, `primary` and the four feedback states;
+no `accent`, pillar or `secondary` tone) are
+`frontend-mobile/src/components/ui/Badge.tsx`'s `BADGE_TONE`, which the verdict
+chip reads too; each tint names its bound ink explicitly, since React Native
+inherits no text colour from a fill.
 
-System-agent tag: `bg-primary/10 text-primary border border-primary/20`. Reads
-on the light card surface at AA contrast.
+### Alerts
+
+A tinted message block — an inline error, a success confirmation, a warning,
+an informational note, a header strip like the reconnect banner, a status
+medallion's disc — takes its colour from **one table**:
+`ALERT_TONE` in `frontend/src/components/ui/alertTone.ts` on the web
+(`.alert-success`, `.alert-warning`, `.alert-error`, `.alert-info` in
+index.css) and `frontend-mobile/src/components/ui/alertTone.ts` on the phone.
+Each tone is the feedback hue at **/10**, its edge at **/30** (drawn only where
+the block sets a border), and the ink the token tree binds to the hue —
+`on-error-container`, `on-warning-container`, `on-success-container`,
+`on-info-container`. The bare hue never labels its own tint: `bg-error/20
+text-error` reads 4.25:1 on the canvas, a `text-warning` glyph on
+`bg-warning/10` 2.60:1 over a sheet, `bg-success/10 text-success` 2.87:1 on
+the top tier.
+The bound ink clears 4.76:1 at worst (warning, light,
+`surface-container-highest`) over every ground in both schemes, so it serves
+the body, the title and the icon alike; a body already in `on-surface` may
+stay there. A denser tint is not a stronger alert: the inks fall under AA at
+/20 on the top tier, so escalation goes to the edge (the usage banner's burst
+level draws `border-warning/60`) or to the next tone.
+
+`ui/Alert` is the standard block on the web — `.alert`, `rounded-lg p-3
+text-sm`, plus a `border` utility for the edge — and its `role` is the
+caller's. A banner with its own shape (a header strip, a notice with a title
+and an icon) puts `ALERT_TONE[tone].tone` on its own element and lets the
+title and icon inherit the ink. React Native inherits no ink, so on the phone
+every `Text` names `ALERT_TONE[tone].ink` and a glyph takes `alertInkColor`.
+A pillar never colours an alert. `components/ui/__tests__/alertTone.test.tsx`
+and the phone's `alertTone.test.ts` measure every tone over all six grounds in
+both schemes; the design-system gate counts what is still hand-written
+(`bg-<feedback>/NN` outside the tone tables) so it can only fall.
+
+**A wash is not an alert.** An alert says something: its words are the
+message, so they take the tone's ink. A wash marks where something sits —
+which value a version replaced and which it became, that the composer is
+writing to the private lane, which plan is yours — under content that stays
+ordinary text: body ink, or for the private lane's quote label the hue's bound
+ink. It is fainter than an alert (/5 or /10, no edge), because the content on
+it is not about the hue. The web's four washes are one table, `WASH_TONE` in
+`frontend/src/components/ui/washTone.ts`, which the version history, the
+composer and the plan card draw from and `alertTone.test.tsx` reads, measuring
+each ink on its wash over every ground in both schemes. The phone's —
+the same version cells and private-lane washes, plus the season bars' phase
+fills, which carry no text at all — are counted by the gate; their version
+cells and private-lane washes draw the same fill and ink tokens as the web's,
+so the table's measurements are theirs too. A Coach Home
+phase band carries its label, so it reads the badge tones (peak and taper at
+`warning`/15; at /20 their ink reads 4.41:1 on the top tier); the phone's season
+bars keep their dark lift because they carry no label, and a labelled band
+there reads `phaseBand`, which never lifts.
+
+### Switches
+
+One on/off control: `ui/Switch` on the web, a `role="switch"` button (Space
+and Enter toggle it natively) named by `label` or `aria-labelledby`, with the
+`.focus-ring-visible` ring and a dimmed disabled state. Its colours are
+`SWITCH_TONE`: on, a `primary` track under an `on-primary` thumb; off, a
+`surface-container-highest` track edged in `outline` under an `outline` thumb.
+The edge is what separates the off control from its ground — the tier alone
+reads under 1.6:1 against every ground — and the thumb takes the track's own
+ink, because a white thumb on the dark scheme's light `primary` reads 1.7:1.
+`Switch.test.tsx` holds both states at 3:1 (WCAG 1.4.11) against every ground
+in both schemes. A switch never takes a feedback hue: an enabled tool is
+`primary` like every other switch. The phone keeps React Native's `Switch` and
+spreads `switchColors(colors.tokens, value)` onto it: on, the same `primary`
+track under an `on-primary` thumb; off, an `outline` track under a
+`surface-container-lowest` thumb, since the native track draws no edge.
+`switchTone.test.ts` measures both at 3:1, so no screen chooses its own accent.
 
 ### Form fields
 
@@ -677,9 +785,10 @@ today line and the A race as a diamond; a countdown list on a phone).
   never a red or green verdict, never colour alone.
 - **A non-sharer is status only**: avatar on the quiet tint, one sentence, "Lui
   écrire". No strip, no plan, no figure, in any view.
-- **Phase bands are tokens**: base/prep `surface-container-high`, build `info/15`,
-  specialty `primary/20`, peak and taper `warning/20`, transition and recovery a
-  dashed `outline`, a draft a dashed `primary` (`phaseStyle.ts`).
+- **Phase bands are tokens**: base/prep `surface-container-high`, build and
+  peak/taper the badge's `info` and `warning` tones (`/15`, §5 Alerts),
+  specialty `primary/20`, transition and recovery a dashed `outline`, a draft a
+  dashed `primary` (`phaseStyle.ts`).
 - The page owns its scrolling (a bleed surface): the table and the season never
   gain a second vertical scroller, and the page never scrolls sideways at 390.
 
@@ -759,7 +868,9 @@ All motion respects `prefers-reduced-motion: reduce`.
 
 Pillar and feedback hues appear as an 8px dot beside a word or as an avatar
 ground; as text they use their `on-*-container` ink, which the token test
-measures over every tier at the /15 tint. Bare `nutrition`/`warning` on
+measures over every tier at the /15 tint. A tinted block or chip reads
+`ALERT_TONE` or `BADGE_TONE` and never pairs a hue with its own tint by hand
+(§5 Alerts). Bare `nutrition`/`warning` on
 `surface` is 3.2:1 and is never used as body text.
 
 The avatar ground is one of six slots, and `AVATAR_SLOT_HUES` in

@@ -12,8 +12,7 @@ import {
   type SupportedLanguage,
 } from "@pierre/i18n";
 import { adminApi } from "../services/api";
-import { useAdminScope } from "../hooks/useAdminScope";
-import { Card, Button, Textarea } from "./ui";
+import { ALERT_TONE, BADGE_TONE, Card, Button, Textarea } from "./ui";
 import { clsx } from "clsx";
 import { ADMIN_LOCALE } from "../utils/adminLocale";
 
@@ -119,9 +118,6 @@ interface PromptSummary {
 
 export default function SystemPromptsTab() {
   const queryClient = useQueryClient();
-  // The server refuses a plain admin the sync state and the system prompts, so
-  // neither is asked for; agent prompts are every admin's to read.
-  const { isSuperAdmin } = useAdminScope();
   const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
@@ -132,7 +128,6 @@ export default function SystemPromptsTab() {
   const { data: status } = useQuery({
     queryKey: CONTREMAITRE_QUERY_KEYS.status,
     queryFn: () => adminApi.getContremaitreStatus(),
-    enabled: isSuperAdmin,
   });
 
   // Fetch system prompts list
@@ -143,7 +138,6 @@ export default function SystemPromptsTab() {
   } = useQuery({
     queryKey: CONTREMAITRE_QUERY_KEYS.prompts,
     queryFn: () => adminApi.listSystemPrompts(),
-    enabled: isSuperAdmin,
   });
 
   // Fetch the agents the registry holds
@@ -245,27 +239,19 @@ export default function SystemPromptsTab() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h2 className="text-lg font-semibold text-on-surface">Prompts</h2>
-            {!isSuperAdmin && (
-              <span className="text-sm text-on-surface-variant">
-                Agent prompts, read-only. System prompts and sync are for super
-                admins.
-              </span>
-            )}
             {status && (
               <div className="flex items-center gap-2 text-sm text-on-surface-variant">
                 <span
                   className={clsx(
                     "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
-                    status.configured
-                      ? "bg-activity/10 text-on-activity-container"
-                      : "bg-on-surface-variant/10 text-on-surface-variant",
+                    BADGE_TONE[status.configured ? "success" : "secondary"].tone,
                   )}
                 >
                   <span
                     className={clsx(
                       "w-1.5 h-1.5 rounded-full",
                       status.configured
-                        ? "bg-activity"
+                        ? "bg-success"
                         : "bg-on-surface-variant",
                     )}
                   />
@@ -295,24 +281,22 @@ export default function SystemPromptsTab() {
               </div>
             )}
           </div>
-          {isSuperAdmin && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => syncMutation.mutate()}
-              disabled={syncMutation.isPending || !status?.configured}
-              title={
-                !status?.configured
-                  ? "Contremaitre not configured"
-                  : "Sync from GitHub"
-              }
-            >
-              {syncMutation.isPending ? "Syncing..." : "Sync Now"}
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending || !status?.configured}
+            title={
+              !status?.configured
+                ? "Contremaitre not configured"
+                : "Sync from GitHub"
+            }
+          >
+            {syncMutation.isPending ? "Syncing..." : "Sync Now"}
+          </Button>
         </div>
         {syncMutation.isSuccess && syncMutation.data && (
-          <div className="mt-2 text-sm text-activity">
+          <div className={clsx("mt-2 text-sm", ALERT_TONE.success.ink)}>
             Synced {syncMutation.data.synced}, skipped{" "}
             {syncMutation.data.skipped}
             {syncMutation.data.failed > 0 &&
@@ -324,65 +308,59 @@ export default function SystemPromptsTab() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Prompt list */}
         <Card variant="dark" className="p-0 lg:col-span-1">
-          {isSuperAdmin && (
-            <>
-              <div className="p-4 border-b border-outline-variant">
-                <h3 className="text-sm font-medium text-on-surface-variant">
-                  {promptsFailed
-                    ? "System Prompts"
-                    : `${prompts.length} System Prompt${prompts.length !== 1 ? "s" : ""}`}
-                </h3>
-                <p className="mt-1 text-xs text-on-surface-variant/70">
-                  Written in English only: these are instructions to the model,
-                  in every locale.
-                </p>
-              </div>
-              {isLoading ? (
-                <div className="flex justify-center py-8">
-                  <div className="pierre-spinner" />
-                </div>
-              ) : promptsFailed ? (
-                <p className="p-4 text-sm text-error" role="alert">
-                  System prompts could not be loaded.
-                </p>
-              ) : (
-                <div className="divide-y divide-outline-variant">
-                  {prompts.map((prompt: PromptSummary) => (
-                    <button
-                      key={prompt.key}
-                      onClick={() => handleSelectPrompt(prompt.key)}
+          <div className="p-4 border-b border-outline-variant">
+            <h3 className="text-sm font-medium text-on-surface-variant">
+              {promptsFailed
+                ? "System Prompts"
+                : `${prompts.length} System Prompt${prompts.length !== 1 ? "s" : ""}`}
+            </h3>
+            <p className="mt-1 text-xs text-on-surface-variant/70">
+              Written in English only: these are instructions to the model,
+              in every locale.
+            </p>
+          </div>
+          {isLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="pierre-spinner" />
+            </div>
+          ) : promptsFailed ? (
+            <p className="p-4 text-sm text-error" role="alert">
+              System prompts could not be loaded.
+            </p>
+          ) : (
+            <div className="divide-y divide-outline-variant">
+              {prompts.map((prompt: PromptSummary) => (
+                <button
+                  key={prompt.key}
+                  onClick={() => handleSelectPrompt(prompt.key)}
+                  className={clsx(
+                    "w-full text-left px-4 py-3 hover:bg-surface-container-high transition-colors",
+                    selectedPrompt === prompt.key &&
+                      "bg-primary/5 border-l-2 border-primary",
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-on-surface truncate">
+                      {formatPromptKey(prompt.key)}
+                    </span>
+                    <span
                       className={clsx(
-                        "w-full text-left px-4 py-3 hover:bg-surface-container-high transition-colors",
-                        selectedPrompt === prompt.key &&
-                          "bg-primary/5 border-l-2 border-primary",
+                        "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium",
+                        BADGE_TONE[prompt.source === "contremaitre" ? "success" : "secondary"].tone,
                       )}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-on-surface truncate">
-                          {formatPromptKey(prompt.key)}
-                        </span>
-                        <span
-                          className={clsx(
-                            "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium",
-                            prompt.source === "contremaitre"
-                              ? "bg-activity/10 text-on-activity-container"
-                              : "bg-on-surface-variant/10 text-on-surface-variant",
-                          )}
-                        >
-                          {prompt.source === "contremaitre"
-                            ? "synced"
-                            : "seed copy"}
-                        </span>
-                      </div>
-                      <div className="text-xs text-on-surface-variant mt-0.5">
-                        {prompt.content_length.toLocaleString(ADMIN_LOCALE)}{" "}
-                        chars
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
+                      {prompt.source === "contremaitre"
+                        ? "synced"
+                        : "seed copy"}
+                    </span>
+                  </div>
+                  <div className="text-xs text-on-surface-variant mt-0.5">
+                    {prompt.content_length.toLocaleString(ADMIN_LOCALE)}{" "}
+                    chars
+                  </div>
+                </button>
+              ))}
+            </div>
           )}
           <div className="p-4 border-y border-outline-variant">
             <h3 className="text-sm font-medium text-on-surface-variant">
@@ -430,9 +408,7 @@ export default function SystemPromptsTab() {
               <AgentPromptPanel key={selectedAgent} slug={selectedAgent} />
             ) : !selectedPrompt ? (
               <div className="flex items-center justify-center h-64 text-on-surface-variant">
-                {isSuperAdmin
-                  ? "Select a prompt to view or edit"
-                  : "Select an agent prompt to read"}
+                Select a prompt to view or edit
               </div>
             ) : detailLoading ? (
               <div className="flex justify-center py-8">
@@ -450,9 +426,7 @@ export default function SystemPromptsTab() {
                       <span
                         className={clsx(
                           "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium",
-                          promptDetail.source === "contremaitre"
-                            ? "bg-activity/10 text-on-activity-container"
-                            : "bg-on-surface-variant/10 text-on-surface-variant",
+                          BADGE_TONE[promptDetail.source === "contremaitre" ? "success" : "secondary"].tone,
                         )}
                       >
                         {promptDetail.source === "contremaitre"
@@ -531,7 +505,7 @@ export default function SystemPromptsTab() {
                     )}
                     {updateMutation.isSuccess &&
                       updateMutation.data?.commit_sha && (
-                        <div className="text-sm text-activity">
+                        <div className={clsx("text-sm", ALERT_TONE.success.ink)}>
                           Committed to GitHub:{" "}
                           {updateMutation.data.commit_sha.slice(0, 8)}
                         </div>

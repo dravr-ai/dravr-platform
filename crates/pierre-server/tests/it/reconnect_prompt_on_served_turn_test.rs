@@ -861,6 +861,7 @@ impl LlmProvider for ActivitiesThenAnswer {
             format!("{LEAKED_NARRATION}\n\n{AGENT_ANSWER}")
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: "served-turn-model".to_owned(),
             usage: None,
@@ -1209,6 +1210,7 @@ impl LlmProvider for AnswersFromResults {
     }
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
         Ok(ChatResponse {
+            replay_blocks: None,
             content: AGENT_ANSWER.to_owned(),
             model: HEADLESS_MODEL.to_owned(),
             usage: None,

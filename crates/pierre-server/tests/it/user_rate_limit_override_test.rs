@@ -33,7 +33,6 @@ async fn build_user(
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: Some(user_id),
         approved_at: Some(now),

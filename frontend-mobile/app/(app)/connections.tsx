@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Connections modal route presented over tabs, role-gated
-// ABOUTME: Renders ConnectionsScreen for regular users; admins (platform operators) redirect to Settings
+// ABOUTME: Connections modal route presented over tabs
+// ABOUTME: Renders the screen for every signed-in account, admins included: the phone has no admin console
 
-import { hiddenFromOperators } from '../../src/navigation/hiddenFromOperators';
 import { ConnectionsScreen } from '../../src/screens/connections/ConnectionsScreen';
 
-export default hiddenFromOperators(ConnectionsScreen);
+export default ConnectionsScreen;

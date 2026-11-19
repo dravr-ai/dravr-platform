@@ -16,7 +16,7 @@
 //! and why).
 //!
 //! Super-admin only, since it hands one account read access to another's
-//! provider data, and a super-admin may act across tenants: the session lands
+//! provider data, and that credential may act across tenants: the session lands
 //! in the target's own default tenant (the first active one, the same
 //! resolution the tenant middleware uses), wherever the source's row lives.
 //! No `provider.connected` event is raised (an operator copy is not an

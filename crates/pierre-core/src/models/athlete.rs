@@ -1,4 +1,4 @@
-// ABOUTME: Athlete profile and statistics models from fitness providers
+// ABOUTME: Athlete profile and statistics models served to tools
 // ABOUTME: Athlete profile, Stats with the coverage its totals span, and period totals
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,8 +7,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::coverage::{Coverage, CoverageWindow, WindowScope};
-use super::{Activity, PhysiologicalSex};
+use super::coverage::Coverage;
+use super::PhysiologicalSex;
 
 /// Represents an athlete/user profile from any provider
 ///
@@ -29,6 +29,7 @@ use super::{Activity, PhysiologicalSex};
 ///     provider: "strava".into(),
 ///     sex: None,
 ///     created_at: None,
+///     active_streak: None,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -57,23 +58,30 @@ pub struct Athlete {
     /// recorded before it, so a history walk stops there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
+    /// The athlete's current activity streak, as Strava itself reports it
+    /// on the profile (the scraped Strava session only, the athlete's own
+    /// account). It is Strava's own figure, never a
+    /// Dravr computation: nothing derives or recomputes it from activities,
+    /// and `None` means the provider did not report one, not that the
+    /// athlete has no streak.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_streak: Option<ActiveStreak>,
 }
 
 /// Aggregated fitness statistics for an athlete
 ///
-/// The top-level `total_*` fields cover exactly what `coverage` says: the
-/// athlete's whole history only when its window's scope is
-/// [`WindowScope::Lifetime`]. A provider with no aggregate endpoint sums a
-/// recent page of workouts or a window of days, and says so there, so a
-/// sample is never read as a lifetime figure (carnet#919). When the provider
-/// also exposes calendar-year figures, `year_to_date` carries the
-/// current-year totals so a consumer can distinguish "annual" from "lifetime"
-/// without inferring it from the numbers.
+/// The top-level `total_*` fields are summed over every source the athlete
+/// holds, merged, so a workout two sources recorded counts once. They cover
+/// exactly what `coverage` says: its window and whether the stored history
+/// behind it is complete, never one provider's sample read as a lifetime
+/// figure (carnet#919). `year_to_date` carries the current calendar year's
+/// totals so a consumer can distinguish "annual" from "all-time" without
+/// inferring it from the numbers.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use pierre_core::models::coverage::Coverage;
+/// use pierre_core::models::coverage::{Coverage, CoverageWindow};
 /// use pierre_core::models::Stats;
 ///
 /// let stats = Stats {
@@ -81,7 +89,11 @@ pub struct Athlete {
 ///     total_distance: 1500000.0, // 1500 km in meters
 ///     total_duration: 540000, // 150 hours in seconds
 ///     total_elevation_gain: 25000.0, // 25km of elevation
-///     coverage: Coverage::lifetime(150),
+///     coverage: Coverage::complete(CoverageWindow {
+///         total: Some(150),
+///         returned: 150,
+///         ..CoverageWindow::default()
+///     }),
 ///     year_to_date: None,
 /// };
 /// ```
@@ -95,57 +107,34 @@ pub struct Stats {
     pub total_duration: u64,
     /// Elevation gained over the activities `coverage` spans (meters)
     pub total_elevation_gain: f64,
-    /// Which activities the `total_*` fields were summed over: the scope of
-    /// its window (`lifetime`, `recent_activities` or `last_days`), how many
-    /// and from which day
+    /// Which activities the `total_*` fields were summed over: the window
+    /// asked, how many, from which day to which, and whether the stored
+    /// history behind it is complete
     pub coverage: Coverage,
-    /// Current calendar-year totals, when the provider supplies them.
-    /// `None` means the provider does not expose a year-to-date breakdown
-    /// (consumers must not treat the `total_*` fields as annual).
+    /// Current calendar-year totals. `None` means no year-to-date breakdown
+    /// was computed (consumers must not treat the `total_*` fields as
+    /// annual).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub year_to_date: Option<PeriodTotals>,
 }
 
-impl Stats {
-    /// Totals summed over `activities`, the sample `scope` names, with no
-    /// year-to-date breakdown.
-    ///
-    /// An activity missing a distance or an elevation adds nothing to that
-    /// total. Each float total starts from `0.0`: `Iterator::sum` over `f64`
-    /// starts from `-0.0`, which would reach an athlete as `-0`. The coverage
-    /// counts the activities and the days they span.
-    #[must_use]
-    pub fn summed_over(activities: &[Activity], scope: WindowScope) -> Self {
-        let total = |field: fn(&Activity) -> Option<f64>| {
-            activities
-                .iter()
-                .filter_map(field)
-                .fold(0.0, |sum, value| sum + value)
-        };
-        let count = u64::try_from(activities.len()).unwrap_or(u64::MAX);
-        let starts = || activities.iter().map(Activity::start_date);
-        Self {
-            total_activities: count,
-            total_distance: total(Activity::distance_meters),
-            total_duration: activities.iter().map(Activity::duration_seconds).sum(),
-            total_elevation_gain: total(Activity::elevation_gain),
-            coverage: Coverage::complete(CoverageWindow {
-                scope,
-                oldest: starts().min().map(|at| at.date_naive()),
-                newest: starts().max().map(|at| at.date_naive()),
-                total: Some(count),
-                returned: count,
-                ..CoverageWindow::default()
-            }),
-            year_to_date: None,
-        }
-    }
+/// A provider's own report of the athlete's current streak of consecutive
+/// active days. Carried as the provider states it: Dravr does not recompute
+/// it from the athlete's activities.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ActiveStreak {
+    /// Days in the streak
+    pub length: u32,
+    /// Where the provider says the streak stands (Strava: `Ongoing`)
+    pub status: String,
+    /// Activities that counted toward streaks
+    pub valid_activity_count: u32,
 }
 
 /// Aggregated activity totals scoped to a single time period.
 ///
 /// Used for the `year_to_date` breakdown on [`Stats`]; mirrors the shape of the
-/// lifetime totals so a period can be reported with the same fields.
+/// all-time totals so a period can be reported with the same fields.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PeriodTotals {
     /// Number of recorded activities in the period
@@ -156,76 +145,4 @@ pub struct PeriodTotals {
     pub total_duration: u64,
     /// Elevation gained in the period (meters)
     pub total_elevation_gain: f64,
-}
-
-#[cfg(test)]
-mod tests {
-    use chrono::TimeZone;
-
-    use super::*;
-    use crate::models::{ActivityBuilder, SportType};
-
-    fn run(id: &str, distance: Option<f64>, climb: Option<f64>) -> Activity {
-        let mut builder = ActivityBuilder::new(
-            id.to_owned(),
-            "Run".to_owned(),
-            SportType::Run,
-            Utc.with_ymd_and_hms(2026, 11, 1, 12, 0, 0).unwrap(),
-            1_800,
-            "apple_health_archive".to_owned(),
-        );
-        if let Some(distance) = distance {
-            builder = builder.distance_meters(distance);
-        }
-        if let Some(climb) = climb {
-            builder = builder.elevation_gain(climb);
-        }
-        builder.build()
-    }
-
-    #[test]
-    fn totals_with_nothing_to_sum_are_positive_zero() {
-        let stats = Stats::summed_over(&[run("a", None, None)], WindowScope::Lifetime);
-        assert!(
-            stats.total_elevation_gain.is_sign_positive() && stats.total_elevation_gain == 0.0,
-            "bug: no elevation must total 0.0, not -0.0"
-        );
-        assert!(
-            stats.total_distance.is_sign_positive() && stats.total_distance == 0.0,
-            "bug: no distance must total 0.0, not -0.0"
-        );
-        let empty = Stats::summed_over(&[], WindowScope::Lifetime);
-        assert!(
-            empty.total_elevation_gain.is_sign_positive(),
-            "bug: no activities must total 0.0, not -0.0"
-        );
-    }
-
-    #[test]
-    fn totals_add_what_each_activity_records() {
-        let activities = [
-            run("a", Some(10_000.0), Some(120.0)),
-            run("b", Some(5_000.0), None),
-        ];
-        let stats = Stats::summed_over(&activities, WindowScope::Lifetime);
-        assert_eq!(stats.total_activities, 2, "bug: both activities count");
-        assert!(
-            (stats.total_distance - 15_000.0).abs() < f64::EPSILON,
-            "bug: distances add"
-        );
-        assert!(
-            (stats.total_elevation_gain - 120.0).abs() < f64::EPSILON,
-            "bug: a missing elevation adds nothing"
-        );
-        assert_eq!(stats.total_duration, 3_600, "bug: durations add");
-        assert_eq!(
-            (stats.coverage.window.scope, stats.coverage.window.total),
-            (WindowScope::Lifetime, Some(2)),
-            "bug: the coverage names the sample and counts it"
-        );
-        assert!(
-            stats.year_to_date.is_none(),
-            "bug: no year-to-date breakdown"
-        );
-    }
 }

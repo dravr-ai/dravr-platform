@@ -231,7 +231,7 @@ async fn admin_bearer(resources: &Arc<ServerContext>, super_admin: bool) -> Stri
     format!("Bearer {}", token.jwt_token.expose_secret())
 }
 
-/// A super-admin reads every provider's order, flips Strava's, and reads it
+/// An admin reads every provider's order, flips Strava's, and reads it
 /// back; the store holds what the route said.
 #[tokio::test]
 async fn a_super_admin_flips_one_providers_order_and_reads_every_order_back() {

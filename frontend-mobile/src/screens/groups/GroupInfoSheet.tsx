@@ -17,7 +17,7 @@ import {
 } from '@pierre/shared-constants';
 import { distanceSymbol } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
-import { Button, CollapsibleSection, Input, Row } from '../../components/ui';
+import { Button, CollapsibleSection, Input, Row, switchColors } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCoachSeat } from '../../hooks/useCoachSeat';
 import { CoachAccessRequest } from '../../components/CoachAccessRequest';
@@ -44,11 +44,14 @@ import {
 } from '../../hooks/useGroups';
 import { useOpenAthleteThread } from '../../hooks/useCoachPlan';
 import { GroupInsightsSection } from './GroupInsightsSection';
+import { ClaimCoachBlock } from './ClaimCoachBlock';
 import { GroupLeadRows } from './GroupLeadRows';
 import { GroupTranscriptSection } from './GroupTranscriptSection';
 import { MemberRow } from './MemberRow';
 import { AthletePlanView } from './AthletePlanView';
+import { AthletePhysiologyView } from './AthletePhysiologyView';
 import { DelegatedConnectionsSection } from './DelegatedConnectionsSection';
+import { CoachAssistantNotice } from './CoachAssistantNotice';
 import { CoachConsentsSection } from './CoachConsentsSection';
 import { CoachReadLog } from './CoachReadLog';
 import { CONNECTIONS_ROUTE, threadHref } from '../../navigation/routes';
@@ -182,6 +185,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   // The member whose live plan the coach is reading, drawn in place of the
   // roster (carnet#1244).
   const [viewingPlanFor, setViewingPlanFor] = useState<GroupMember | null>(null);
+  const [viewingThresholdsFor, setViewingThresholdsFor] = useState<GroupMember | null>(null);
 
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [roleChangingUserId, setRoleChangingUserId] = useState<string | null>(null);
@@ -450,6 +454,16 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
     );
   }
 
+  if (viewingThresholdsFor) {
+    return (
+      <AthletePhysiologyView
+        member={viewingThresholdsFor}
+        groupId={groupId}
+        onBack={() => setViewingThresholdsFor(null)}
+      />
+    );
+  }
+
   if (viewingPlanFor) {
     return (
       <AthletePlanView
@@ -478,6 +492,11 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           asked, the dated timeline (carnet#1520). */}
       {seat.offered && (
         <CoachAccessRequest groupId={groupId} variant="block" onOpenConnections={openConnections} />
+      )}
+
+      {/* The owner who holds coach access and has no coach yet can be it (carnet#1650). */}
+      {!!group && !group.coach_user_id && isOwner && mayApproveSignups && !seat.offered && (
+        <ClaimCoachBlock groupId={groupId} />
       )}
 
       <View className="mt-4">
@@ -524,6 +543,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                 }
                 isOpeningPlan={pendingAthleteId === member.user_id}
                 onViewPlan={isGroupCoach && member.user_id !== user?.id ? setViewingPlanFor : undefined}
+                onViewThresholds={isGroupCoach && member.user_id !== user?.id ? setViewingThresholdsFor : undefined}
               />
             ))
           )}
@@ -567,6 +587,19 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           </CollapsibleSection>
         )}
 
+        {/* Told once to a sharing member until they answer it here: the coach's
+            AI tools read them by name. In view as the sheet opens, never inside the
+            collapsed Settings that holds the coach-sharing switch. */}
+        {showsCoachSharing && coachName && coachSharing?.assistant_notice_due && (
+          <View className="mb-8">
+            <CoachAssistantNotice
+              coach={coachName}
+              disabled={isSavingCoachSharing}
+              onAnswer={(keep) => void handleCoachSharingChange(keep)}
+            />
+          </View>
+        )}
+
         {isAdmin && (
           <CollapsibleSection title={t('groups.activeInvitesCount', { n: activeInvites.length })} testID="group-info-invites">
             <View style={CANCEL_PANEL_INSET}>
@@ -586,7 +619,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                       value={approvesSignup}
                       onValueChange={setApprovesSignup}
                       disabled={isCreatingInvite}
-                      trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                      {...switchColors(colors.tokens, approvesSignup)}
                       testID="group-invite-approves-signup-switch"
                     />
                   }
@@ -678,7 +711,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                       value={group.peer_data_sharing}
                       onValueChange={(value) => void setGroupFlag({ peer_data_sharing: value })}
                       disabled={isUpdatingGroup}
-                      trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                      {...switchColors(colors.tokens, group.peer_data_sharing)}
                       testID="group-peer-sharing-switch"
                     />
                   }
@@ -692,7 +725,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                       value={group.respond_mode === 'mentions'}
                       onValueChange={(value) => void setGroupFlag({ respond_mode: value ? 'mentions' : 'all' })}
                       disabled={isUpdatingGroup}
-                      trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                      {...switchColors(colors.tokens, group.respond_mode === 'mentions')}
                       testID="group-respond-mode-switch"
                     />
                   }
@@ -746,7 +779,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                     value={myMembership.peer_sharing_consent}
                     onValueChange={(value) => void handleConsentChange(value)}
                     disabled={isSavingConsent}
-                    trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                    {...switchColors(colors.tokens, myMembership.peer_sharing_consent)}
                     testID="peer-consent-switch"
                   />
                 }
@@ -766,7 +799,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                       value={coachSharing?.consent ?? false}
                       onValueChange={(value) => void handleCoachSharingChange(value)}
                       disabled={!coachSharing || isSavingCoachSharing}
-                      trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                      {...switchColors(colors.tokens, coachSharing?.consent ?? false)}
                       testID="coach-sharing-switch"
                     />
                   }

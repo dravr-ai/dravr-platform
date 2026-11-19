@@ -222,9 +222,8 @@ mod sink_tests {
     /// own locale, which is what lets the sink render one registry key into two
     /// languages for one athlete.
     ///
-    /// Stops at the resolution rather than the send: the adapters post to
-    /// hardcoded channel hosts, so a test that went one step further would be
-    /// asserting the network.
+    /// Stops at the resolution: the send itself, through the context's
+    /// adapter factory, is driven by `startup_channel_egress_test`.
     #[tokio::test]
     async fn linked_channels_resolve_once_each_in_their_own_locale() {
         let resources = create_test_server_resources().await.unwrap();
@@ -330,6 +329,7 @@ mod sink_tests {
             Arc::new(MessagingChannelSink::new(
                 Arc::clone(&resources.common.repos),
                 Arc::clone(&resources.mcp.messaging_strings_registry),
+                Arc::clone(&resources.mcp.channel_adapters),
             )),
         );
         let unlinked = production
@@ -380,8 +380,8 @@ mod sink_tests {
     /// raised in the athlete's tenant must still reach that chat, through the
     /// bot that holds it — and never reach another user's chat on the same bot.
     ///
-    /// Stops at the resolution and the bot's config, for the reason the test
-    /// above gives: the adapter posts to the channel's real host.
+    /// Stops at the resolution and the bot's config, like the test above: the
+    /// send is driven by `startup_channel_egress_test`.
     #[tokio::test]
     async fn a_bot_made_link_under_another_tenant_is_reached_through_that_bot() {
         let resources = create_test_server_resources().await.unwrap();
@@ -459,7 +459,8 @@ mod sink_tests {
 
         // The sender is the bot that holds the chat, resolved by the same call
         // `send_to_linked_channels` makes: its config under the link's tenant.
-        let (_, sender) = resolve_target_sender(messaging, &targets[0])
+        let adapters = resources.mcp.channel_adapters.as_ref();
+        let (_, sender) = resolve_target_sender(messaging, adapters, &targets[0])
             .await
             .expect("the bot that holds the chat sends to it");
         assert_eq!(sender.tenant_id, bot_tenant.to_string());
@@ -472,7 +473,7 @@ mod sink_tests {
             tenant_id: athlete_tenant,
             ..targets[0].clone()
         };
-        assert!(resolve_target_sender(messaging, &athlete_scoped)
+        assert!(resolve_target_sender(messaging, adapters, &athlete_scoped)
             .await
             .is_none());
 

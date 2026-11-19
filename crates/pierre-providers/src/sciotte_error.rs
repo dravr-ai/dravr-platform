@@ -58,6 +58,12 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use serde_json::{Map, Value};
 use tracing::warn;
 
+mod context_read;
+mod login_answer;
+
+pub use login_answer::is_login_flow_lost;
+use login_answer::unexpected_error;
+
 /// The provider slug an auth-shaped sciotte error names. The provider layer
 /// replaces it with the backend that owns the session.
 const AUTH_PROVIDER: &str = "sciotte";
@@ -155,26 +161,7 @@ pub fn to_app_error_as(error: ClientError, brand: &str) -> AppError {
         }
         refused @ ClientError::QueryRefused { .. } => AppError::internal(refused.to_string()),
         mismatch @ ClientError::CountMismatch { .. } => AppError::internal(mismatch.to_string()),
-        cancelled @ ClientError::Unexpected { .. } if cancelled.is_login_cancelled() => {
-            with_refusal_marker(
-                AppError::new(ErrorCode::ResourceLocked, "The sign-in was cancelled"),
-                LOGIN_CANCELLED,
-            )
-        }
-        // LIMITATION(registre#746): the login-step `ClientError::Unexpected` arm also receives a
-        // login that ran out its budget, which the service answers `401 session_expired`.
-        ClientError::Unexpected {
-            exchange,
-            status,
-            body,
-        } if is_login_step(operation) => AppError::internal(format!(
-            "sciotte returned HTTP {status} with no recognizable login status \
-             (x-request-id {}, marker: {}); check DRAVR_SCIOTTE_AUDIENCE / IAM / \
-             service health",
-            exchange.request_id,
-            answer_marker(&body)
-        )),
-        unexpected @ ClientError::Unexpected { .. } => AppError::internal(unexpected.to_string()),
+        unexpected @ ClientError::Unexpected { .. } => unexpected_error(unexpected, operation),
     }
 }
 
@@ -237,14 +224,6 @@ fn reworded(code: ErrorCode, said: &str, message: String) -> AppError {
     AppError::new(code, message)
 }
 
-/// Whether `operation` is one of the three steps of an interactive login.
-const fn is_login_step(operation: Option<Operation>) -> bool {
-    matches!(
-        operation,
-        Some(Operation::Login | Operation::SubmitOtp | Operation::Select2fa)
-    )
-}
-
 /// Whether `operation` moves a session between the platform and the service.
 const fn is_session_transfer(operation: Option<Operation>) -> bool {
     matches!(operation, Some(Operation::Export | Operation::Import))
@@ -304,6 +283,9 @@ pub(crate) fn athlete_not_accessible() -> AppError {
 /// Every other error maps as [`to_app_error`] maps it.
 #[must_use]
 pub(crate) fn own_read_error(error: ClientError, brand: &str) -> AppError {
+    if let Some(retryable) = context_read::retryable(&error, brand) {
+        return retryable;
+    }
     if !matches!(
         error.operation(),
         Some(Operation::Activities | Operation::PlannedWorkouts)
@@ -360,8 +342,9 @@ fn with_refusal_marker(mut error: AppError, marker: &str) -> AppError {
 }
 
 /// The scraper refusal `error` carries ([`ATHLETE_REQUIRED`],
-/// [`ATHLETE_NOT_ACCESSIBLE`], [`LOGIN_CHALLENGE`], [`LOGIN_CANCELLED`]), or
-/// `None` for any other error.
+/// [`ATHLETE_NOT_ACCESSIBLE`], [`LOGIN_CHALLENGE`], [`LOGIN_CANCELLED`],
+/// [`NO_PENDING_LOGIN`](dravr_sciotte::wire::NO_PENDING_LOGIN)), or `None` for
+/// any other error.
 #[must_use]
 pub fn sciotte_refusal(error: &AppError) -> Option<&str> {
     error
@@ -608,7 +591,7 @@ mod tests {
     fn a_shed_of_a_session_transfer_is_internal_and_carries_no_wait() {
         for operation in [Operation::Export, Operation::Import] {
             let client_error = shed(operation, 17, Some("chrome_budget"));
-            let request = client_error.exchange().map(named).unwrap_or_default();
+            let request = client_error.exchange().map_or_default(named);
             let error = mapped(client_error, ErrorCode::InternalError, None);
             assert_eq!(shed_retry_after_secs(&error), None);
             assert_eq!(
@@ -825,7 +808,7 @@ mod tests {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 json!({ "error": reason }),
             );
-            let request = client_error.exchange().map(named).unwrap_or_default();
+            let request = client_error.exchange().map_or_default(named);
             let error = own_read_error(client_error, "TrainingPeaks");
             assert_eq!(error.code, ErrorCode::InternalError);
             assert_eq!(sciotte_refusal(&error), None);
@@ -1029,7 +1012,7 @@ mod tests {
         });
         for operation in [Operation::Login, Operation::SubmitOtp, Operation::Select2fa] {
             let client_error = unexpected(operation, StatusCode::BAD_REQUEST, body.clone());
-            let request = client_error.exchange().map(named).unwrap_or_default();
+            let request = client_error.exchange().map_or_default(named);
             let error = mapped(client_error, ErrorCode::InternalError, None);
             assert_eq!(
                 error.message,
@@ -1041,6 +1024,33 @@ mod tests {
             );
             assert!(!error.message.contains("hunter2"));
             assert!(!error.message.contains("s-1"));
+        }
+    }
+
+    #[test]
+    fn a_code_step_the_service_holds_no_sign_in_for_is_a_lost_flow() {
+        let body = json!({ "error": "no_pending_login" });
+        for operation in [Operation::SubmitOtp, Operation::Select2fa] {
+            let error = mapped(
+                unexpected(operation, StatusCode::NOT_FOUND, body.clone()),
+                ErrorCode::InvalidInput,
+                Some(&json!({"sciotte_refusal": "no_pending_login"})),
+            );
+            assert!(is_login_flow_lost(&error), "{operation:?}");
+        }
+        // The first step parks nothing yet, and another status is not the
+        // service's answer for a missing flow: both stay system failures.
+        for (operation, status) in [
+            (Operation::Login, StatusCode::NOT_FOUND),
+            (Operation::SubmitOtp, StatusCode::BAD_REQUEST),
+        ] {
+            let error = to_app_error(unexpected(operation, status, body.clone()));
+            assert_eq!(
+                error.code,
+                ErrorCode::InternalError,
+                "{operation:?} {status}"
+            );
+            assert!(!is_login_flow_lost(&error), "{operation:?} {status}");
         }
     }
 

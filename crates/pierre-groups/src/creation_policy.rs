@@ -101,14 +101,14 @@ where
 ///
 /// Coaching a group means reading its consenting athletes' training, so it
 /// takes `manages_roster` — earned by a `TrainingPeaks` coach account or
-/// granted by a super-admin, never self-served (ADR-018) — or platform
+/// granted by an admin, never self-served (ADR-018) — or platform
 /// admin. Athlete membership is cross-tenant; coach attachment is not, so the
 /// caller must act in the group's own tenant. The one rule behind redeeming a
 /// coach invite (`/group join`) and creating a group as its coach
 /// (`POST /api/groups`, and `/group create` through [`creator_coaches_group`]).
 #[must_use]
 pub fn may_coach_group(user: &User, caller_tenant: TenantId, group_tenant: TenantId) -> bool {
-    (user.manages_roster || user.is_admin) && caller_tenant == group_tenant
+    user.holds_coach_access() && caller_tenant == group_tenant
 }
 
 /// Whether the creator of a group in `tenant_id` becomes its human coach
@@ -128,11 +128,16 @@ pub fn creator_coaches_group(user: &User, tenant_id: TenantId) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_core::permissions::UserRole;
 
-    fn user(manages_roster: bool, is_admin: bool) -> User {
+    fn user(manages_roster: bool, admin: bool) -> User {
         let mut user = User::new("coach@example.com".to_owned(), "hash".to_owned(), None);
         user.manages_roster = manages_roster;
-        user.is_admin = is_admin;
+        user.role = if admin {
+            UserRole::Admin
+        } else {
+            UserRole::User
+        };
         user
     }
 

@@ -6,10 +6,11 @@
 
 import React from 'react';
 import { clsx } from 'clsx';
-import { MessageSquareText } from 'lucide-react';
+import { ArrowLeftRight, MessageSquareText } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
 import { useDialog } from '../../hooks/useDialog';
 import { badgeLabel, countKey, UNREAD_COUNT_ARIA_KEYS } from '@pierre/shared-constants';
+import type { ModeSwitch } from './IconRail';
 
 export interface MobileNavTab {
   id: string;
@@ -113,6 +114,8 @@ interface MobileDrawerProps {
   onSignOut: () => void;
   /** The Dravr team's replies waiting unread in the feedback thread. */
   feedbackUnread: number;
+  /** Offered to an admin only: switch between the console and the athlete app. */
+  modeSwitch?: ModeSwitch;
 }
 
 export const MobileDrawer: React.FC<MobileDrawerProps> = ({
@@ -128,6 +131,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   onSendFeedback,
   onSignOut,
   feedbackUnread,
+  modeSwitch,
 }) => {
   const { t, language } = useTranslation();
 
@@ -262,6 +266,20 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
               </span>
             )}
           </button>
+          {modeSwitch && (
+            <button
+              type="button"
+              data-testid="drawer-switch-view-mode"
+              onClick={() => {
+                onClose();
+                modeSwitch.onSelect();
+              }}
+              className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface min-h-[48px]"
+            >
+              <ArrowLeftRight className="w-5 h-5" aria-hidden="true" />
+              <span>{modeSwitch.label}</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {

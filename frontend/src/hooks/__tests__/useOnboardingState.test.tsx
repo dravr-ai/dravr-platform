@@ -19,12 +19,15 @@ const updateUser = vi.fn();
 
 const SESSION_USER = { user_id: 'u1', role: 'user', user_status: 'active' };
 let sessionUser: Record<string, unknown> = SESSION_USER;
+// The mode the admin chose at sign-in (carnet#1631); null until chosen.
+let viewMode: 'admin' | 'athlete' | null = null;
 
 vi.mock('../useAuth', () => ({
   useAuth: () => ({
     user: sessionUser,
     isAuthenticated: true,
     updateUser,
+    viewMode,
   }),
 }));
 vi.mock('../useAvailableChannels', () => ({
@@ -297,6 +300,25 @@ describe('useOnboardingState — an invite link records the athlete role', () =>
     await waitFor(() => expect(result.current.ctx.coachesOthers).toBe(true));
     expect(setCoachingRole).not.toHaveBeenCalled();
   });
+
+  // carnet#1648: the confirmation tab carries no link; the server's join of
+  // the invite it held is what says the account came through one.
+  it('records the role when the join arrives after the status, with the role question already up', async () => {
+    getOnboardingStatus.mockResolvedValue(NEW_ACCOUNT);
+    const { result, rerender } = renderHook(
+      ({ invited }: { invited: boolean }) => useOnboardingState({ invitedAsAthlete: invited }),
+      { wrapper, initialProps: { invited: false } },
+    );
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('profile_type'));
+    expect(setCoachingRole).not.toHaveBeenCalled();
+
+    rerender({ invited: true });
+
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('connect_provider'));
+    expect(setCoachingRole).toHaveBeenCalledTimes(1);
+    expect(setCoachingRole).toHaveBeenCalledWith(false);
+    expect(setOnboardingStep).toHaveBeenCalledWith('profile_type', 'complete');
+  });
 });
 
 describe('useOnboardingState — the usage-analytics question (carnet#1366)', () => {
@@ -446,9 +468,11 @@ describe('useOnboardingState — an admin never meets the flow', () => {
   });
   afterEach(() => {
     sessionUser = SESSION_USER;
+    viewMode = null;
   });
 
-  it('a status another surface cached for the admin opens no step', () => {
+  it.each(['admin', null] as const)('a status another surface cached for the admin opens no step (mode %s)', (mode) => {
+    viewMode = mode;
     sessionUser = { user_id: 'u1', role: 'admin', user_status: 'active' };
     // The dashboard reads the shared status for every account, an admin's too.
     client.setQueryData(QUERY_KEYS.user.onboardingStatus(), {
@@ -464,5 +488,34 @@ describe('useOnboardingState — an admin never meets the flow', () => {
     expect(result.current.ctx.needsProviderConnection).toBeUndefined();
     expect(currentOnboardingStep(result.current.ctx)).toBeNull();
     expect(getOnboardingStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('useOnboardingState — an admin in the athlete mode meets it like any athlete (carnet#1631)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    client.clear();
+  });
+  afterEach(() => {
+    sessionUser = SESSION_USER;
+    viewMode = null;
+  });
+
+  it('reads the status and opens the connect step for an admin with no provider', async () => {
+    sessionUser = { user_id: 'u1', role: 'admin', user_status: 'active' };
+    viewMode = 'athlete';
+    getOnboardingStatus.mockResolvedValue({
+      needs_provider_connection: true,
+      coaches_others: false,
+      chosen_channel: null,
+      steps: [],
+    });
+
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+
+    expect(result.current.ctx.onboardingActive).toBe(true);
+    await waitFor(() => expect(result.current.ctx.needsProviderConnection).toBe(true));
+    expect(getOnboardingStatus).toHaveBeenCalled();
   });
 });

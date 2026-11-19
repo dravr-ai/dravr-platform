@@ -103,14 +103,11 @@ fn date_only_capture_json() -> Value {
 
 /// The ids of the activities a `get_activities` payload lists, in order.
 fn listed_ids(payload: &Value) -> Vec<String> {
-    payload["activities"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|row| row["id"].as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
+    payload["activities"].as_array().map_or_default(|rows| {
+        rows.iter()
+            .filter_map(|row| row["id"].as_str().map(str::to_owned))
+            .collect()
+    })
 }
 
 /// Connect `athlete` to Strava through the usr/pwd capture.
@@ -382,6 +379,8 @@ fn export_samples() -> TimeSeriesData {
             Some((45.5003, -73.60)),
         ]),
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 

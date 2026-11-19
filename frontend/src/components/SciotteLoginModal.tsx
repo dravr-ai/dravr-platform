@@ -7,6 +7,7 @@
 import { lazy, Suspense, useCallback, useEffect, useId, useState } from 'react';
 import { oauthApi } from '../services/api';
 import { startOAuthInThisTab } from '../utils/oauthReturn';
+import { detectSigninExtension, ExtensionSignInError, signInWithExtension } from '../utils/signinExtension';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { useTranslation } from '@pierre/i18n';
 import { ProviderIcon } from './ProviderConnectionCards';
@@ -21,15 +22,15 @@ import {
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDialog } from '../hooks/useDialog';
 import { useTheme } from '../hooks/useTheme';
-import { Button, RevealButton } from './ui';
+import { ALERT_TONE, Button, RevealButton } from './ui';
 import { ProviderNotice } from './ProviderNotice';
 import {
   SCIOTTE_CODE_REJECTED,
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
+  SCIOTTE_NUMBER_MATCH_REPOLL_MS,
   loginIdentifierField,
-  oauthFollowOn,
   providerGlyphInk,
   signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
@@ -42,7 +43,7 @@ const TakeoverViewer = lazy(() => import('./takeover/TakeoverViewer'));
 // `logging-in` is the credential login, with its elapsed-time copy;
 // `verifying` is a continuation of it (a code, a 2FA pick), which is not;
 // `takeover` is the athlete answering a provider's robot check themselves.
-type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'verifying' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'takeover' | 'success' | 'error';
+type LoginPhase = 'choose' | 'credentials' | 'browser' | 'logging-in' | 'verifying' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'takeover' | 'success' | 'error';
 
 /** The takeover token a `takeover_required` answer's link carries in its fragment. */
 function takeoverToken(takeoverUrl: string): string | null {
@@ -59,12 +60,8 @@ type LoginMethod = 'email' | 'google' | 'apple';
 interface SciotteLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  /**
-   * The sign-in stored its session. `followOn` names the provider's own
-   * authorization the sign-in goes on to (Garmin's grant, which pushes
-   * workouts; carnet#1494), which the caller starts.
-   */
-  onConnected: (followOn?: string) => void;
+  /** The sign-in stored its session: the connect is done, and no authorization follows it. */
+  onConnected: () => void;
   /** Target platform: "strava", "garmin", "trainingpeaks" or "coros" */
   target?: SciotteTarget;
   /**
@@ -135,6 +132,11 @@ export default function SciotteLoginModal({
   const [method, setMethod] = useState<LoginMethod>('email');
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // The failure on screen can hand over to the card's OAuth: a sign-in that
+  // could not complete (carnet#1477), a reconnect's included (carnet#1667).
+  // The athlete's click starts it, so the new tab it opens is never a popup
+  // the browser blocks.
+  const [oauthOffered, setOAuthOffered] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
@@ -159,11 +161,25 @@ export default function SciotteLoginModal({
   // and closes this whole stack via `onConnected`. Only meaningful when
   // `target === 'strava'` — Garmin and others don't expose an OAuth backend.
   const [showOAuthSetup, setShowOAuthSetup] = useState(false);
+  // The Dravr sign-in extension, when this browser has it: the provider's
+  // sign-in then runs in a real tab of the athlete's own browser, where the
+  // provider sees a person, and hands its cookies over (carnet#1617).
+  const [extensionReady, setExtensionReady] = useState(false);
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    // Closing or unmounting the window stops the detection, timers included.
+    const detection = new AbortController();
+    void detectSigninExtension(detection.signal).then((version) => {
+      if (!detection.signal.aborted) setExtensionReady(version !== null);
+    });
+    return () => detection.abort();
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
       // Garmin and TrainingPeaks sign in with their own credentials — skip the choose phase
       setPhase(SCIOTTE_LOGIN_PRESETS[target].directCredentials ? 'credentials' : 'choose');
+      setOAuthOffered(false);
       setMethod('email');
       setConsentAccepted(false);
       setStatus('');
@@ -207,7 +223,7 @@ export default function SciotteLoginModal({
       if (data.status === 'connected') {
         setPhase('success');
         setStatus(t('app.connectedBang'));
-        onConnected(oauthFollowOn(data) ?? undefined);
+        onConnected();
         setTimeout(onClose, 1500);
       } else if (data.status === 'two_factor_choice') {
         setTwoFactorOptions(data.options || []);
@@ -250,17 +266,53 @@ export default function SciotteLoginModal({
     [onClose, onConnected, t]
   );
 
-  // A refused credential login — or the same refusal a takeover ends with.
-  const applyLoginRefusal = useCallback(
-    (err: unknown) => {
-      if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
-        onFallBackToOAuth();
+  // The sign-in run in the athlete's own browser: the extension opens the
+  // provider's page in a tab, the athlete signs in there as they always do,
+  // and the provider's cookies come back to be stored as any sign-in's.
+  const handleBrowserSignin = useCallback(async () => {
+    setError(null);
+    setPhase('browser');
+    // Closing the window abandons the sign-in: the exchange with the
+    // extension stops, and nothing below touches the closed window's state.
+    const signal = beginRequest();
+    try {
+      const catalog = await oauthApi.browserSigninCatalog();
+      const entry = catalog.providers.find((provider) => provider.provider === target);
+      if (!entry) throw new ExtensionSignInError('unavailable');
+      const cookies = await signInWithExtension(entry, signal);
+      if (signal.aborted) return;
+      setPhase('logging-in');
+      const data = await oauthApi.browserSignin(target, cookies, { tosConsent: consentAccepted });
+      if (signal.aborted) return;
+      applyLoginAnswer(data);
+    } catch (err) {
+      if (signal.aborted) return;
+      // Closing the sign-in tab, or the extension's notice unaccepted, leaves
+      // the athlete where they were: the credentials, nothing lost.
+      if (err instanceof ExtensionSignInError && (err.reason === 'closed' || err.reason === 'declined')) {
+        setPhase('credentials');
         return;
       }
       setError(refusalMessage(err, 'auth.loginFailed'));
       setPhase('error');
+    }
+  }, [applyLoginAnswer, beginRequest, consentAccepted, refusalMessage, target]);
+
+  // Show `message` as the failure, offering the card's OAuth when `err` is a
+  // refusal it falls back on.
+  const showFailure = useCallback(
+    (err: unknown, message: string) => {
+      setOAuthOffered(onFallBackToOAuth !== undefined && signInFallsBackToOAuth(refusalReason(err)));
+      setError(message);
+      setPhase('error');
     },
-    [onFallBackToOAuth, refusalMessage]
+    [onFallBackToOAuth]
+  );
+
+  // A refused credential login — or the same refusal a takeover ends with.
+  const applyLoginRefusal = useCallback(
+    (err: unknown) => showFailure(err, refusalMessage(err, 'auth.loginFailed')),
+    [refusalMessage, showFailure]
   );
 
   // Email/password login — in-process headless Chrome
@@ -332,6 +384,9 @@ export default function SciotteLoginModal({
     [refusalMessage]
   );
 
+  // How many number-match polls have answered `number_match` again.
+  const [pollRound, setPollRound] = useState(0);
+
   // 2FA option selection
   const handleSelectTwoFactor = useCallback(
     async (optionId: string) => {
@@ -348,7 +403,7 @@ export default function SciotteLoginModal({
         if (data.status === 'connected') {
           setPhase('success');
           setStatus(t('app.connectedBang'));
-          onConnected(oauthFollowOn(data) ?? undefined);
+          onConnected();
           setTimeout(onClose, 1500);
         } else if (data.status === 'otp_required') {
           setPhase('otp');
@@ -367,6 +422,7 @@ export default function SciotteLoginModal({
           setStatus(isRealNumber
             ? t('shell.sciotteTapMatchingNumber')
             : t('shell.sciotteApproveOnPhone'));
+          if (optionId === 'poll') setPollRound((round) => round + 1);
         } else {
           // The provider's refusal is in its own words and in English; the
           // modal words it in the user's language, as the hosted pages do.
@@ -375,17 +431,12 @@ export default function SciotteLoginModal({
         }
       } catch (err) {
         if (signal.aborted) return;
-        if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
-          onFallBackToOAuth();
-          return;
-        }
-        setError(continuationError(err));
-        setPhase('error');
+        showFailure(err, continuationError(err));
       } finally {
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [beginRequest, attemptId, continuationError, onClose, onConnected, onFallBackToOAuth, t]
+    [beginRequest, attemptId, continuationError, onClose, onConnected, showFailure, t]
   );
 
   // Auto-poll once when number-match phase is reached — the phone notification
@@ -397,16 +448,17 @@ export default function SciotteLoginModal({
     ? t('shell.sciotteEnterCodeFrom', { provider: providerLabel })
     : t('shell.sciotteEnterCode');
 
-  const [pollingStarted, setPollingStarted] = useState(false);
+  // While the number shows, poll: at once when it first appears, then every
+  // SCIOTTE_NUMBER_MATCH_REPOLL_MS after a poll that answered it again, until
+  // the athlete's tap moves the sign-in on or the modal leaves the phase.
   useEffect(() => {
-    if (phase === 'number-match' && matchNumber && !pollingStarted) {
-      setPollingStarted(true);
-      handleSelectTwoFactor('poll');
-    }
-    if (phase !== 'number-match') {
-      setPollingStarted(false);
-    }
-  }, [phase, matchNumber]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (phase !== 'number-match' || !matchNumber) return undefined;
+    const timer = setTimeout(
+      () => handleSelectTwoFactor('poll'),
+      pollRound === 0 ? 0 : SCIOTTE_NUMBER_MATCH_REPOLL_MS
+    );
+    return () => clearTimeout(timer);
+  }, [phase, matchNumber, pollRound]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Elapsed seconds + cycling status text while the sciotte browser runs.
   // The single-shot POST gives no real-time progress; this keeps the modal
@@ -451,7 +503,7 @@ export default function SciotteLoginModal({
         if (data.status === 'connected') {
           setPhase('success');
           setStatus(t('app.connectedBang'));
-          onConnected(oauthFollowOn(data) ?? undefined);
+          onConnected();
           setTimeout(onClose, 1500);
         } else if (data.status === 'otp_required') {
           setPhase('otp');
@@ -466,17 +518,12 @@ export default function SciotteLoginModal({
         }
       } catch (err) {
         if (signal.aborted) return;
-        if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
-          onFallBackToOAuth();
-          return;
-        }
-        setError(continuationError(err));
-        setPhase('error');
+        showFailure(err, continuationError(err));
       } finally {
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [otpCode, beginRequest, attemptId, continuationError, onClose, onConnected, onFallBackToOAuth, t]
+    [otpCode, beginRequest, attemptId, continuationError, onClose, onConnected, showFailure, t]
   );
 
 
@@ -518,8 +565,11 @@ export default function SciotteLoginModal({
             <div>
               <h2 id={titleId} className="text-lg font-semibold text-on-surface">{t('frag.connectTo')} {providerLabel}</h2>
               {/* The logging-in and verifying bodies already print this line
-                  under their spinner; repeating it here would print it twice (carnet#1299). */}
-              {progressLabel && phase !== 'logging-in' && phase !== 'verifying' && (
+                  under their spinner; repeating it here would print it twice (carnet#1299).
+                  A refused sign-in's body names its state ("Login Failed") as its
+                  heading, and the status the attempt set on its way ("Connecting to
+                  TrainingPeaks…") would otherwise outlive it up here (carnet#1584). */}
+              {progressLabel && phase !== 'logging-in' && phase !== 'verifying' && phase !== 'error' && (
                 <p className="text-xs text-on-surface/50">{progressLabel}</p>
               )}
               {historyMode && (
@@ -545,6 +595,13 @@ export default function SciotteLoginModal({
           {/* Phase: Choose */}
           {phase === 'choose' && (
             <div className="space-y-3">
+              {/* With the extension, the provider's own page opens in a tab of
+                  this browser; the credentials step carries the notice first. */}
+              {extensionReady && (
+                <Button variant="primary" size="lg" className="w-full" onClick={() => setPhase('credentials')}>
+                  {t('app.continueWithProvider', { provider: providerLabel })}
+                </Button>
+              )}
               <Button
                 variant="secondary"
                 size="lg"
@@ -627,6 +684,25 @@ export default function SciotteLoginModal({
                   onAcceptedChange={setConsentAccepted}
                 />
               )}
+              {extensionReady && (
+                <div className="mb-4">
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    className="w-full"
+                    disabled={!!notice && !consentAccepted}
+                    onClick={() => void handleBrowserSignin()}
+                  >
+                    {t('app.continueWithProvider', { provider: providerLabel })}
+                  </Button>
+                  <div className="relative my-4">
+                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t ghost-border" /></div>
+                    <div className="relative flex justify-center text-xs">
+                      <span className="px-3 bg-surface-container-highest text-on-surface/50">{t('auth.orDivider')}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
               <form onSubmit={handleEmailLogin} className="space-y-4">
                 <div>
                   <label htmlFor="sciotte-email" className="block text-sm text-on-surface/60 mb-1.5">
@@ -680,6 +756,18 @@ export default function SciotteLoginModal({
             </div>
           )}
 
+          {/* Phase: Browser sign-in, the provider's page open in a tab */}
+          {phase === 'browser' && (
+            <div className="flex items-center justify-center py-12" data-testid="sciotte-browser-signin">
+              <div className="text-center">
+                <div className="pierre-spinner w-16 h-16 mx-auto mb-4 border-[3px]" />
+                <p className="text-on-surface/80 text-sm font-medium">
+                  {t('app.finishAuthInBrowser', { provider: providerLabel })}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Phase: Logging in */}
           {phase === 'logging-in' && (
             <div className="flex items-center justify-center py-12">
@@ -709,8 +797,8 @@ export default function SciotteLoginModal({
           {phase === 'two-factor' && (
             <div>
               <div className="text-center mb-4">
-                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-warning/10 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className={`${ALERT_TONE.warning.tone} w-12 h-12 mx-auto mb-3 rounded-full flex items-center justify-center`}>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
                 </div>
@@ -750,7 +838,7 @@ export default function SciotteLoginModal({
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
                 <div className="w-24 h-24 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-info/20 to-info/10 border-2 border-info/40 flex items-center justify-center">
-                  <span className="text-5xl font-bold text-info">{matchNumber}</span>
+                  <span className={`text-5xl font-bold ${ALERT_TONE.info.ink}`}>{matchNumber}</span>
                 </div>
                 <p className="text-on-surface font-medium mb-1">{t('shell.sciotteTapNumber')}</p>
                 <p className="text-on-surface/50 text-sm mb-4">{t('shell.sciotteGoogleNotificationHint')}</p>
@@ -764,8 +852,8 @@ export default function SciotteLoginModal({
           {phase === 'otp' && (
             <div>
               <div className="text-center mb-4">
-                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-warning/10 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className={`${ALERT_TONE.warning.tone} w-12 h-12 mx-auto mb-3 rounded-full flex items-center justify-center`}>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
                 </div>
@@ -821,10 +909,10 @@ export default function SciotteLoginModal({
           {phase === 'success' && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-activity/10 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                <div className={`${ALERT_TONE.success.tone} w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center`}>
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                 </div>
-                <p className="text-activity text-lg font-medium">{t('shell.sciotteConnected')}</p>
+                <p className={`${ALERT_TONE.success.ink} text-lg font-medium`}>{t('shell.sciotteConnected')}</p>
                 <p className="text-on-surface/50 text-sm mt-1">
                   {historyMode
                     ? t('providers.history.modalCopying')
@@ -838,17 +926,24 @@ export default function SciotteLoginModal({
           {phase === 'error' && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-error/10 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                <div className={`${ALERT_TONE.error.tone} w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center`}>
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
                 </div>
                 <p className="text-error text-lg font-medium mb-2">{t('shell.sciotteLoginFailed')}</p>
                 <p className="text-on-surface/50 text-sm max-w-sm mb-4">{error}</p>
-                <Button
-                  variant="secondary"
-                  onClick={() => { setPhase(preset.directCredentials ? 'credentials' : 'choose'); setError(null); }}
-                >
-                  {t('chat.tryAgain')}
-                </Button>
+                <div className="flex flex-col items-center gap-2">
+                  {oauthOffered && onFallBackToOAuth && (
+                    <Button variant="primary" onClick={onFallBackToOAuth} data-testid="sciotte-oauth-fallback">
+                      {t('app.continueWithProvider', { provider: providerLabel })}
+                    </Button>
+                  )}
+                  <Button
+                    variant="secondary"
+                    onClick={() => { setPhase(preset.directCredentials ? 'credentials' : 'choose'); setError(null); setOAuthOffered(false); }}
+                  >
+                    {t('chat.tryAgain')}
+                  </Button>
+                </div>
               </div>
             </div>
           )}

@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { a2aApi } from '../services/api';
 import type { A2AClientRegistrationRequest, A2AClientCredentials } from '../types/api';
-import { Button, Card, Textarea, Input } from './ui';
+import { Button, Card, Textarea, Input, ALERT_TONE } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
@@ -136,9 +136,9 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
           </p>
         </div>
 
-        <div className="bg-nutrition/15 border border-nutrition/30 rounded-lg p-4 mb-6">
+        <div className={`${ALERT_TONE.warning.tone} border rounded-lg p-4 mb-6`}>
           <div className="flex items-center mb-2">
-            <h3 className="text-sm font-medium text-nutrition">{t('a2a.securityNoticeTitle')}</h3>
+            <h3 className="text-sm font-medium">{t('a2a.securityNoticeTitle')}</h3>
           </div>
           <p className="text-sm text-on-surface">
             {t('a2a.securityNoticeBody')}
@@ -337,10 +337,10 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
 
         {/* Error Display */}
         {createMutation.error && (
-          <div className="bg-error/15 border border-error/30 rounded-lg p-4">
+          <div className={`${ALERT_TONE.error.tone} border rounded-lg p-4`}>
             <div className="flex items-center">
               <div>
-                <h3 className="text-sm font-medium text-error">{t('a2a.registrationFailed')}</h3>
+                <h3 className="text-sm font-medium">{t('a2a.registrationFailed')}</h3>
                 <p className="text-sm text-on-surface mt-1">
                   {describeApiError(createMutation.error, { t, fallbackKey: 'a2a.registerError' })}
                 </p>

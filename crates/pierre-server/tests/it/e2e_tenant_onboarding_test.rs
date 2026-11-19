@@ -74,7 +74,6 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: true,
         role: UserRole::Admin,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -100,7 +99,6 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: true,
         role: UserRole::Admin,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -191,7 +189,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
             (*database).clone(),
             auth_manager,
             "test_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -204,6 +202,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
@@ -350,7 +350,6 @@ async fn setup_multitenant_scenario(
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),

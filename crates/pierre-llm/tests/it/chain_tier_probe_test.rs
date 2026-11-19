@@ -80,6 +80,7 @@ impl EmbacleLlmProvider for Scripted {
         self.calls.fetch_add(1, Ordering::SeqCst);
         match self.behaviour {
             Behaviour::Answers(text) => Ok(ChatResponse {
+                replay_blocks: None,
                 content: text.to_owned(),
                 model: self.models[0].clone(),
                 usage: None,

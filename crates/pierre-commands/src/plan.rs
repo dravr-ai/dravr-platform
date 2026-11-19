@@ -26,12 +26,13 @@ use pierre_memory::training_plans::{
 };
 use pierre_providers::ai_scope;
 use pierre_services::athlete_clock;
+use pierre_services::coach_roster::{roster_access, RosterAccess};
 use pierre_services::coached_athlete::CoachedAthleteRefusal;
 use pierre_services::training_plan_render::{
     plan_goal_is_stale, select_active_weeks, SelectedWeek, ACTIVE_WEEKS,
 };
 use pierre_tool_runtime::implementations::plan_scope::{self, CoachedPlanRefusal};
-use pierre_tool_runtime::read_subject::{self, MemberMiss};
+use pierre_tool_runtime::read_subject::{self, MatchAudience, MemberMiss};
 use std::fmt::Write as _;
 use tracing::info;
 use uuid::Uuid;
@@ -509,8 +510,10 @@ async fn plan_body(
 /// or the line saying why it is not shown.
 ///
 /// `None` when the name is not the coach's to resolve — the caller coaches no
-/// active group, or named themself — and the caller's own plan answers, as
-/// `/plan` with an argument does for anyone who coaches no group.
+/// active group by the one coach rule ([`roster_access`]: attached to none,
+/// or attached with their coach access off), or named themself — and the
+/// caller's own plan answers, as `/plan` with an argument does for anyone who
+/// coaches no group.
 ///
 /// The reply is private on every surface: bare `/plan` is not a room-visible
 /// command, so a room delivers it to the caller alone. The athlete's plan is
@@ -525,22 +528,29 @@ async fn coached_athlete_plan(
     let repos = ctx.ctx.repos();
     let reg = ctx.ctx.messaging_strings_registry();
     let locale = &ctx.locale;
-    let coaches_a_group = repos
-        .groups
-        .list_groups_coached_by(ctx.user_id)
-        .await?
-        .iter()
-        .any(|group| group.is_active);
-    if !coaches_a_group {
+    if !matches!(
+        roster_access(repos, ctx.user_id).await?,
+        RosterAccess::Granted(_)
+    ) {
         return Ok(None);
     }
 
     // Every name in a reply is user-set free text in rich text, so escaped.
     let typed = escape_markdown(query);
-    let found = match read_subject::match_coached_member(repos, ctx.user_id, query, None).await? {
+    let found = match read_subject::match_coached_member(
+        repos,
+        ctx.user_id,
+        query,
+        None,
+        MatchAudience::current(),
+    )
+    .await?
+    {
         Ok(found) => found,
-        Err(MemberMiss::Requester) => return Ok(None),
-        Err(MemberMiss::NoMatch) => {
+        // Coach access lost between the rule asked above and this match is
+        // answered as it is above: the caller's own plan.
+        Err(MemberMiss::Requester | MemberMiss::NoCoachAccess) => return Ok(None),
+        Err(MemberMiss::NoMatch | MemberMiss::NoSharingMatch) => {
             return Ok(Some(reg.render(
                 KEY_PLAN_ATHLETE_NO_MATCH,
                 locale,
@@ -602,10 +612,14 @@ fn refusal_line(ctx: &PlatformCommandContext, refused: &CoachedPlanRefusal, type
     let reg = ctx.ctx.messaging_strings_registry();
     let locale = &ctx.locale;
     match refused {
-        // Only a membership that changed since the match fails these two,
-        // and that reads as no match.
+        // Only a membership that changed since the match fails the last two,
+        // and that reads as no match. The first is reachable only when coach
+        // access is lost between the rule asked before the match and the
+        // gates: a caller without it never gets this far.
         CoachedPlanRefusal::Coaching(
-            CoachedAthleteRefusal::NotGroupCoach | CoachedAthleteRefusal::NotAMember,
+            CoachedAthleteRefusal::NoCoachAccess
+            | CoachedAthleteRefusal::NotGroupCoach
+            | CoachedAthleteRefusal::NotAMember,
         ) => reg.render(KEY_PLAN_ATHLETE_NO_MATCH, locale, &[typed]),
         CoachedPlanRefusal::Coaching(CoachedAthleteRefusal::CoachSharingRevoked {
             athlete,

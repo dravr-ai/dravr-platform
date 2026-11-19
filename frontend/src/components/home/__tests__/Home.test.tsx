@@ -11,6 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { TrainingPlanResponse } from '@pierre/shared-types';
 import { ThemeProvider } from '../../../hooks/useTheme';
 import { HomeBriefing } from '../Home';
+import { ToastProvider } from '../../ui';
 import { GettingStartedMeter } from '../GettingStarted';
 import { activity, homePlan, recentResponse, routeView, TODAY } from './homeFixtures';
 import { calendarAnswer } from './calendarFixtures';
@@ -35,6 +36,9 @@ const api = vi.hoisted(() => ({
   getOnboardingStatus: vi.fn(),
   getAvailableChannels: vi.fn(),
   listLinks: vi.fn(),
+  heldInvite: vi.fn(),
+  getGroup: vi.fn(),
+  joinHeldInvite: vi.fn(),
 }));
 
 type Prefs = { plan_suggestion_hidden: boolean; getting_started_hidden?: boolean };
@@ -61,9 +65,19 @@ vi.mock('../../../services/api', () => ({
     getConversations: api.getConversations,
   },
   userApi: { getOnboardingStatus: api.getOnboardingStatus },
+  groupsApi: { heldInvite: api.heldInvite, getGroup: api.getGroup, joinHeldInvite: api.joinHeldInvite },
   messagingLinkApi: { getAvailableChannels: api.getAvailableChannels, listLinks: api.listLinks },
   // The route-marker beta is off: these suites pin the map without its markers.
   featureFlagsApi: { getMyFeatures: async () => ({ flags: {}, known: [] }) },
+}));
+
+// Today reads the session for the held-invite strip and Your team's coach line.
+vi.mock('../../../hooks/useAuth', () => ({
+  useAuth: () => ({
+    user: { id: 'u-1', user_status: 'active', manages_roster: false },
+    isAuthenticated: true,
+    impersonation: { isImpersonating: false },
+  }),
 }));
 
 // The picker is the onboarding step's, pinned by its own suite and by the
@@ -98,13 +112,15 @@ function renderHome() {
   const view = render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <HomeBriefing
-          onNavigate={onNavigate}
-          actions={actions}
-          onPickTeam={onPickTeam}
-          onOpenChatApp={onOpenChatApp}
-          onOpenFirstStep={onOpenFirstStep}
-        />
+        <ToastProvider>
+          <HomeBriefing
+            onNavigate={onNavigate}
+            actions={actions}
+            onPickTeam={onPickTeam}
+            onOpenChatApp={onOpenChatApp}
+            onOpenFirstStep={onOpenFirstStep}
+          />
+        </ToastProvider>
       </ThemeProvider>
     </QueryClientProvider>,
   );
@@ -221,6 +237,8 @@ beforeEach(() => {
   api.listAgents.mockResolvedValue({ agents: [RECOVERY, NOT_ON_TEAM, FUELLING, ENDURANCE] });
   api.getPersonalConversation.mockResolvedValue({ id: 'conv-home', title: 'Home', agent_id: ENDURANCE.id });
   api.getConversations.mockResolvedValue({ conversations: [], total: 0 });
+  api.heldInvite.mockResolvedValue({ held: null });
+  api.getGroup.mockResolvedValue({ id: 'g-1', coach_user_id: null, coach_display_name: null });
   api.getRecentActivities.mockResolvedValue(recentResponse());
   api.getActivityRoute.mockResolvedValue({ route: routeView(), reason: null });
   api.getCalendar.mockImplementation(async (from: string, to: string) => calendarAnswer(from, to));
@@ -839,5 +857,117 @@ describe('Home — Getting started meter', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Hide Getting started' }));
     expect(api.updateHomePreferences).toHaveBeenCalledExactlyOnceWith({ getting_started_hidden: true });
     await waitFor(() => expect(screen.queryByTestId('home-getting-started-meter')).toBeNull());
+  });
+});
+
+// carnet#1649: Your team ends on the human coach once the athlete has joined.
+describe('Home — the coach an invite led to (carnet#1649)', () => {
+  it('ends Your team on the coach of the athlete\'s group', async () => {
+    api.getConversations.mockResolvedValue({
+      conversations: [{ id: 'conv-room', agent_id: ENDURANCE.id, group_id: 'g-1', updated_at: '2026-11-09T12:00:00Z' }],
+      total: 1,
+    });
+    api.getGroup.mockResolvedValue({ id: 'g-1', coach_user_id: 'coach-1', coach_display_name: 'Jeremy B.' });
+    renderHome();
+
+    // humanCoach.inviteJourney.yourCoach: the athlete's human coach
+    expect(await screen.findByTestId('home-team-coach')).toHaveTextContent('Jeremy B. · your coach'); // humanCoach
+  });
+
+  it('says nothing of a coach for a group without one', async () => {
+    api.getConversations.mockResolvedValue({
+      conversations: [{ id: 'conv-room', agent_id: ENDURANCE.id, group_id: 'g-1', updated_at: '2026-11-09T12:00:00Z' }],
+      total: 1,
+    });
+    renderHome();
+
+    await screen.findByTestId('home-team');
+    await waitFor(() => expect(api.getGroup).toHaveBeenCalled());
+    expect(screen.queryByTestId('home-team-coach')).not.toBeInTheDocument();
+  });
+});
+
+// carnet#1650: the invite the server still holds, as one strip on Home.
+describe('Home — the held invite strip (carnet#1650)', () => {
+  const HELD = {
+    kind: 'member',
+    group_name: 'Morning Riders',
+    inviter_name: 'Jeremy B.',
+    inviter_initials: 'JB',
+    has_coach: true,
+    coach_name: 'Jeremy B.',
+    held_at: '2026-11-10T10:00:00Z',
+    state: 'pending',
+  };
+
+  it('shows nothing when the server holds no invite', async () => {
+    renderHome();
+    await screen.findByTestId('home-team');
+    expect(screen.queryByTestId('held-invite-strip')).not.toBeInTheDocument();
+  });
+
+  it('offers the join once, and opens the room it joined', async () => {
+    api.heldInvite.mockResolvedValue({ held: HELD });
+    api.joinHeldInvite.mockResolvedValue({
+      outcome: 'joined',
+      kind: 'member',
+      group_id: 'g-1',
+      group_name: 'Morning Riders',
+      conversation_id: 'conv-room',
+    });
+    const { onNavigate, actions } = renderHome();
+
+    const strip = await screen.findByTestId('held-invite-strip');
+    expect(strip).toHaveTextContent('Jeremy B. invites you to “Morning Riders”.');
+    expect(within(strip).getAllByRole('button')).toHaveLength(1);
+    await userEvent.click(within(strip).getByRole('button', { name: "Join Jeremy B.'s group" }));
+
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledExactlyOnceWith('chat/conv-room'));
+    expect(actions.dismiss).toHaveBeenCalled();
+    expect(api.joinHeldInvite).toHaveBeenCalledTimes(1);
+  });
+
+  it('says the group is full for a hold the server marked full, and retries on the one button', async () => {
+    api.heldInvite.mockResolvedValue({ held: { ...HELD, state: 'group_full' } });
+    api.joinHeldInvite.mockResolvedValue({ outcome: 'refused', reason: 'group_full', message: 'Complet' });
+    renderHome();
+
+    const strip = await screen.findByTestId('held-invite-strip');
+    expect(within(strip).getByTestId('held-invite-strip-full')).toHaveTextContent(
+      "Jeremy B.'s group is full for now.",
+    );
+    await userEvent.click(within(strip).getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(api.joinHeldInvite).toHaveBeenCalledTimes(1));
+    expect(within(strip).getByTestId('held-invite-strip-full')).toBeInTheDocument();
+  });
+
+  it('says the join failed and keeps the button', async () => {
+    api.heldInvite.mockResolvedValue({ held: HELD });
+    api.joinHeldInvite.mockRejectedValue({ response: { status: 500, data: {} } });
+    renderHome();
+
+    const strip = await screen.findByTestId('held-invite-strip');
+    await userEvent.click(within(strip).getByRole('button', { name: "Join Jeremy B.'s group" }));
+    expect(await within(strip).findByTestId('held-invite-strip-failed')).toHaveTextContent(
+      "Couldn't join the group. Try again.",
+    );
+    expect(within(strip).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
+  it("says why in the server's words when the join is refused for good, as the strip goes with the hold", async () => {
+    // The server drops the hold with a refusal for good, so the next read is empty.
+    let held: typeof HELD | null = HELD;
+    api.heldInvite.mockImplementation(async () => ({ held }));
+    api.joinHeldInvite.mockImplementation(async () => {
+      held = null;
+      return { outcome: 'refused', reason: 'invalid', message: "Ce code n'est pas valide." };
+    });
+    renderHome();
+
+    const strip = await screen.findByTestId('held-invite-strip');
+    await userEvent.click(within(strip).getByRole('button', { name: "Join Jeremy B.'s group" }));
+
+    expect(await screen.findByText("Ce code n'est pas valide.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId('held-invite-strip')).not.toBeInTheDocument());
   });
 });

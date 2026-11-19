@@ -1,10 +1,10 @@
-// ABOUTME: The server's one sciotte client and the per-platform factories that share it
+// ABOUTME: The sciotte clients a server builds at startup and the per-platform factories that share them
 // ABOUTME: Each factory builds a SciotteProvider aimed at one scraped platform (ADR-021)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Building the sciotte client once at startup, and the [`ProviderFactory`]
+//! Building the sciotte clients once at startup, and the [`ProviderFactory`]
 //! for each platform the scraper service reads — Strava, Garmin Connect,
 //! TrainingPeaks and COROS Training Hub.
 
@@ -15,25 +15,20 @@ use dravr_sciotte::client::{ClientError, ConfigError, SciotteClient};
 use dravr_sciotte::models::AthleteId;
 use tracing::{error, warn};
 
-use super::{SciotteProvider, SciotteTarget};
+use super::{SciotteProvider, SciotteReads, SciotteTarget};
 use crate::core::{FitnessProvider, ProviderConfig, ProviderFactory};
 use crate::delegation::DelegatedReads;
 use crate::errors::{AppError, AppResult};
 
-/// The server's one sciotte client, built once at startup.
+/// One sciotte service's client, built once at startup from its `base_url`
+/// and the shared `audience` (`DRAVR_SCIOTTE_AUDIENCE`).
 ///
-/// Built from the service's `remote_url` and `audience` as the server's
-/// configuration read them at startup (`DRAVR_SCIOTTE_REMOTE_URL`,
-/// `DRAVR_SCIOTTE_AUDIENCE`), and handed to
-/// [`ProviderRegistry::with_sciotte_client`](crate::registry::ProviderRegistry::with_sciotte_client),
-/// which shares it with every sciotte call. `None` when no service is
-/// configured, and — logged once here — when the configured one cannot be
-/// built, including a service off loopback with no audience, which would
-/// refuse every request: every call to the service then reports it
-/// unconfigured.
+/// `None` — logged once here — when the client cannot be built, including a
+/// service off loopback with no audience, which would refuse every request:
+/// the caller then reports the service unconfigured
+/// ([`startup_reads`](super::startup_reads)).
 #[must_use]
-pub fn startup_client(remote_url: Option<&str>, audience: Option<&str>) -> Option<SciotteClient> {
-    let base_url = remote_url?;
+pub(super) fn startup_client(base_url: &str, audience: Option<&str>) -> Option<SciotteClient> {
     match SciotteClient::new(base_url, audience) {
         Ok(client) => Some(client),
         Err(ClientError::Config(ConfigError::AudienceRequired { .. })) => {
@@ -53,13 +48,67 @@ pub fn startup_client(remote_url: Option<&str>, audience: Option<&str>) -> Optio
     }
 }
 
+/// The client sign-ins reach the scraper service through, as the server's
+/// configuration built it at startup.
+///
+/// A sign-in parks its browser in one instance's memory while the athlete
+/// fetches a code, so a deployment runs sign-ins on a service capped at one
+/// instance, apart from the read service (carnet#1504).
+#[derive(Clone)]
+pub enum SciotteLoginClient {
+    /// No sign-in service is configured (`DRAVR_SCIOTTE_LOGIN_URL` unset):
+    /// sign-ins go to the read service, the one-service shape of local
+    /// development and the test doubles.
+    Unconfigured,
+    /// The sign-in service's own client.
+    Built(SciotteClient),
+    /// A sign-in service is configured but its client could not be built.
+    /// Sign-ins are refused rather than sent to the read service, which may
+    /// run more than one instance and lose the parked browser.
+    Unbuildable,
+}
+
+impl fmt::Debug for SciotteLoginClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Unconfigured => "SciotteLoginClient::Unconfigured",
+            Self::Built(_) => "SciotteLoginClient::Built",
+            Self::Unbuildable => "SciotteLoginClient::Unbuildable",
+        })
+    }
+}
+
+/// The sign-in client for `login_url`, built with the read service's
+/// `audience`, which the sign-in service shares.
+///
+/// A configured URL whose client cannot be built (an off-loopback service with
+/// no audience included) is logged once here, naming the sign-in service and
+/// the cause, and refuses every sign-in.
+#[must_use]
+pub fn startup_login_client(login_url: Option<&str>, audience: Option<&str>) -> SciotteLoginClient {
+    let Some(base_url) = login_url else {
+        return SciotteLoginClient::Unconfigured;
+    };
+    match SciotteClient::new(base_url, audience) {
+        Ok(client) => SciotteLoginClient::Built(client),
+        Err(e) => {
+            error!(
+                error = %e,
+                "DRAVR_SCIOTTE_LOGIN_URL is set but its client could not be built; \
+                 sign-ins are refused until it is fixed"
+            );
+            SciotteLoginClient::Unbuildable
+        }
+    }
+}
+
 /// Factory for Strava — Sciotte provider
 ///
-/// Every factory holds a clone of the server's one [`SciotteClient`] (`None`
+/// Every factory holds a clone of the server's read services ([`SciotteReads`], `None`
 /// when no scraper service is configured), so each provider it builds shares
-/// that client's connection pool and identity-token cache.
+/// those clients' connection pools and identity-token caches.
 pub struct SciotteProviderFactory {
-    client: Option<SciotteClient>,
+    reads: Option<SciotteReads>,
 }
 
 impl fmt::Debug for SciotteProviderFactory {
@@ -70,10 +119,10 @@ impl fmt::Debug for SciotteProviderFactory {
 }
 
 impl SciotteProviderFactory {
-    /// A factory whose providers call the scraper service through `client`.
+    /// A factory whose providers call the scraper services through `reads`.
     #[must_use]
-    pub const fn new(client: Option<SciotteClient>) -> Self {
-        Self { client }
+    pub const fn new(reads: Option<SciotteReads>) -> Self {
+        Self { reads }
     }
 }
 
@@ -82,7 +131,7 @@ impl ProviderFactory for SciotteProviderFactory {
         Ok(Box::new(SciotteProvider::new(
             config,
             SciotteTarget::Strava,
-            self.client.clone(),
+            self.reads.clone(),
         )))
     }
 
@@ -93,7 +142,7 @@ impl ProviderFactory for SciotteProviderFactory {
 
 /// Factory for Garmin Connect — Sciotte provider
 pub struct SciotteGarminProviderFactory {
-    client: Option<SciotteClient>,
+    reads: Option<SciotteReads>,
 }
 
 impl fmt::Debug for SciotteGarminProviderFactory {
@@ -104,10 +153,10 @@ impl fmt::Debug for SciotteGarminProviderFactory {
 }
 
 impl SciotteGarminProviderFactory {
-    /// A factory whose providers call the scraper service through `client`.
+    /// A factory whose providers call the scraper services through `reads`.
     #[must_use]
-    pub const fn new(client: Option<SciotteClient>) -> Self {
-        Self { client }
+    pub const fn new(reads: Option<SciotteReads>) -> Self {
+        Self { reads }
     }
 }
 
@@ -116,7 +165,7 @@ impl ProviderFactory for SciotteGarminProviderFactory {
         Ok(Box::new(SciotteProvider::new(
             config,
             SciotteTarget::Garmin,
-            self.client.clone(),
+            self.reads.clone(),
         )))
     }
 
@@ -127,7 +176,7 @@ impl ProviderFactory for SciotteGarminProviderFactory {
 
 /// Factory for TrainingPeaks — Sciotte provider
 pub struct SciotteTrainingPeaksProviderFactory {
-    client: Option<SciotteClient>,
+    reads: Option<SciotteReads>,
 }
 
 impl fmt::Debug for SciotteTrainingPeaksProviderFactory {
@@ -138,10 +187,10 @@ impl fmt::Debug for SciotteTrainingPeaksProviderFactory {
 }
 
 impl SciotteTrainingPeaksProviderFactory {
-    /// A factory whose providers call the scraper service through `client`.
+    /// A factory whose providers call the scraper services through `reads`.
     #[must_use]
-    pub const fn new(client: Option<SciotteClient>) -> Self {
-        Self { client }
+    pub const fn new(reads: Option<SciotteReads>) -> Self {
+        Self { reads }
     }
 }
 
@@ -150,7 +199,7 @@ impl ProviderFactory for SciotteTrainingPeaksProviderFactory {
         Ok(Box::new(SciotteProvider::new(
             config,
             SciotteTarget::TrainingPeaks,
-            self.client.clone(),
+            self.reads.clone(),
         )))
     }
 
@@ -182,14 +231,14 @@ impl DelegatedReads for SciotteTrainingPeaksProviderFactory {
         Ok(Box::new(SciotteProvider::delegated(
             config,
             athlete,
-            self.client.clone(),
+            self.reads.clone(),
         )))
     }
 }
 
 /// Factory for COROS Training Hub — Sciotte provider
 pub struct SciotteCorosProviderFactory {
-    client: Option<SciotteClient>,
+    reads: Option<SciotteReads>,
 }
 
 impl fmt::Debug for SciotteCorosProviderFactory {
@@ -200,10 +249,10 @@ impl fmt::Debug for SciotteCorosProviderFactory {
 }
 
 impl SciotteCorosProviderFactory {
-    /// A factory whose providers call the scraper service through `client`.
+    /// A factory whose providers call the scraper services through `reads`.
     #[must_use]
-    pub const fn new(client: Option<SciotteClient>) -> Self {
-        Self { client }
+    pub const fn new(reads: Option<SciotteReads>) -> Self {
+        Self { reads }
     }
 }
 
@@ -212,7 +261,7 @@ impl ProviderFactory for SciotteCorosProviderFactory {
         Ok(Box::new(SciotteProvider::new(
             config,
             SciotteTarget::Coros,
-            self.client.clone(),
+            self.reads.clone(),
         )))
     }
 

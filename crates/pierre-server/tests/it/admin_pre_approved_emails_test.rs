@@ -156,7 +156,7 @@ impl Harness {
 
         context.frontend_url = Some(FRONTEND_URL.to_owned());
 
-        // The super-admin who approved the device login. `pierre-cli auth
+        // The admin who approved the device login. `pierre-cli auth
         // login` mints its token against exactly this account.
         let operator_email = "device-operator@example.com".to_owned();
         let operator_id =
@@ -321,7 +321,6 @@ async fn seed_user(
     let mut user = User::new(email.to_owned(), password_hash, Some("Seeded".to_owned()));
     user.user_status = status;
     user.role = role;
-    user.is_admin = role.is_admin_or_higher();
     let id = user.id;
     repos.users.create(&user).await?;
     Ok(id)
@@ -1100,7 +1099,7 @@ async fn a_returned_link_requires_an_invitation() -> Result<()> {
     Ok(())
 }
 
-/// The operator e2e path: a super-admin gets the accept link back instead of
+/// The operator e2e path: an admin gets the accept link back instead of
 /// a mail, and the link creates the account once.
 #[tokio::test]
 async fn a_super_admin_gets_the_link_back_and_nothing_is_mailed() -> Result<()> {

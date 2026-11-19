@@ -97,11 +97,11 @@ use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
 use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Activity, TenantId};
+use pierre_core::models::{Activity, RouteGeometrySource, TenantId};
 use pierre_database::repositories::StoredRouteTrack;
 use pierre_database::RepositoryRegistry;
-use pierre_fitness_compute::polyline::decode_polyline;
 use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError, MAP_MAX_POINTS};
+use pierre_services::activity_track::{stored_track, StoredTrack};
 use pierre_tool_runtime::activity_detail_store;
 use pierre_tool_runtime::protocol::auth::AuthService;
 use pierre_tool_runtime::protocol::provider_helpers::configured_provider;
@@ -238,26 +238,6 @@ pub type ActivityRouteOutcome = Result<RouteTrack, RouteMiss>;
 fn expires_at(outcome: &ActivityRouteOutcome, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
     matches!(outcome, Err(RouteMiss::Unavailable))
         .then(|| now + Duration::minutes(UNREAD_ROUTE_RECHECK_MINUTES))
-}
-
-/// Where a stored route's geometry came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RouteGeometrySource {
-    /// The route overview on the cached activity (Strava's `summary_polyline`).
-    SummaryPolyline,
-    /// The activity's recorded streams, read from the provider.
-    Streams,
-}
-
-impl RouteGeometrySource {
-    /// The slug the stored row carries.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::SummaryPolyline => "summary_polyline",
-            Self::Streams => "streams",
-        }
-    }
 }
 
 /// The cached activity a route is read for, with the provider key its cached
@@ -582,7 +562,11 @@ pub async fn activity_route(
     if let Some(outcome) = stored_route(repos, tenant_id, user_id, cached, asked).await? {
         return Ok(outcome);
     }
-    if let Some(track) = overview_track(cached.activity) {
+    if let Some(track) = cached
+        .activity
+        .summary_polyline()
+        .and_then(RouteTrack::trimmed_overview)
+    {
         let source = RouteGeometrySource::SummaryPolyline;
         return settle(repos, tenant_id, user_id, cached, source, Ok(track)).await;
     }
@@ -649,15 +633,14 @@ struct StoredAnswer {
 
 impl StoredAnswer {
     /// Whether `stored` answers this request.
-    fn takes(self, stored: &StoredRouteTrack) -> bool {
+    fn takes(self, stored: &StoredTrack) -> bool {
         let Some(asked_at) = self.retry_asked_at else {
             return true;
         };
         match stored {
-            StoredRouteTrack::Unavailable {
+            StoredTrack::Unavailable {
                 reason,
                 expires_at: Some(expires_at),
-                ..
             } if reason == UNAVAILABLE => {
                 // An `unavailable` expires a fixed time after its read, so
                 // its expiry names when it was read.
@@ -748,7 +731,7 @@ async fn read_streams_by(
 
 /// The outcome stored for the activity, or `None` when none is stored, the
 /// stored one has expired, it does not answer this request (`asked`) or it no
-/// longer decodes.
+/// longer decodes ([`stored_track`] logs a track that does not).
 async fn stored_route(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
@@ -757,22 +740,22 @@ async fn stored_route(
     asked: StoredAnswer,
 ) -> AppResult<Option<ActivityRouteOutcome>> {
     let activity_id = cached.activity.id();
-    let Some(stored) = repos
-        .activity_route_tracks
-        .get_route_track(&tenant_id, user_id, cached.provider, activity_id)
+    let Some(stored) = stored_track(repos, &tenant_id, user_id, cached.provider, activity_id)
         .await?
         .filter(|stored| asked.takes(stored))
     else {
         return Ok(None);
     };
-    let outcome = stored_outcome(&stored);
+    let outcome = match stored {
+        StoredTrack::Drawn { track, .. } => Some(Ok(track)),
+        StoredTrack::Unavailable { reason, .. } => RouteMiss::from_slug(&reason).map(Err),
+    };
     if outcome.is_none() {
-        // A row whose track no longer decodes (the track shape has evolved
-        // since it was written) is a miss: read again and the upsert
-        // overwrites it.
+        // A reason this build does not know is a miss: read again and the
+        // upsert overwrites it.
         warn!(
             activity_id,
-            "stored route track no longer decodes; reading it again"
+            "stored route reason no longer decodes; reading it again"
         );
     }
     Ok(outcome)
@@ -868,28 +851,6 @@ async fn read_streams(
             RouteTrack::from_streams(streams).map_err(RouteMiss::Settled)
         });
     Ok((answered_by, outcome))
-}
-
-/// The drawable track the activity's own route overview yields, or `None`
-/// when it carries none, it does not decode, or too little of it survives the
-/// trim to settle the question.
-fn overview_track(activity: &Activity) -> Option<RouteTrack> {
-    let encoded = activity
-        .summary_polyline()
-        .map(str::trim)
-        .filter(|encoded| !encoded.is_empty())?;
-    let points = decode_polyline(encoded)?;
-    RouteTrack::from_overview(&points).ok()
-}
-
-/// The outcome a stored row records, or `None` when the row no longer decodes.
-fn stored_outcome(stored: &StoredRouteTrack) -> Option<ActivityRouteOutcome> {
-    match stored {
-        StoredRouteTrack::Drawn { track_json, .. } => {
-            serde_json::from_str::<RouteTrack>(track_json).ok().map(Ok)
-        }
-        StoredRouteTrack::Unavailable { reason, .. } => RouteMiss::from_slug(reason).map(Err),
-    }
 }
 
 /// One read's outcome as it is stored.

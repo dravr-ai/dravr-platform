@@ -17,28 +17,36 @@ use sqlx::error::DatabaseError;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use std::collections::HashMap;
+use tracing::info;
 use uuid::Uuid;
 
 use super::user_preferences as preferences;
 use crate::backends::shared::enums::user_status_to_str;
 use crate::database::Database;
+use crate::repositories::admin::DEACTIVATE_OPERATOR_TOKENS_SQL;
+use crate::repositories::admin_standing::impl_admin_standing_writes;
+use crate::repositories::impersonation::{END_ALL_SESSIONS_SQL, END_SESSIONS_OF_TARGET_SQL};
 use crate::repositories::user_profiles::{
     impl_profile_repository, CREATE_GOAL_SQL, GET_USER_CONFIGURATION_SQL, GET_USER_GOALS_SQL,
     GET_USER_PROFILE_SQL, SAVE_USER_CONFIGURATION_SQL, UPSERT_USER_PROFILE_SQL,
 };
 use crate::repositories::user_references::{user_reference_from_row, DELETION_BLOCKERS_SQL};
-use crate::repositories::users::{
-    impl_user_repository, listing_status_filter, user_from_row, user_status_filter,
+use crate::repositories::user_sql::{
     users_by_ids_sql, ADD_TENANT_MEMBER_SQL, COUNT_USERS_CREATED_SINCE_SQL, COUNT_USERS_SQL,
     CREATE_USER_SQL, FIRST_ADMIN_USER_SQL, GET_USER_BY_EMAIL_SQL, GET_USER_BY_FIREBASE_UID_SQL,
-    GET_USER_BY_ID_SQL, GET_USER_IN_TENANT_SQL, LIST_ADMIN_USERS_SQL, SET_USER_ADMIN_STATUS_SQL,
-    SET_USER_TENANT_SQL, SET_USER_TIER_SQL, UPDATE_LAST_ACTIVE_SQL, UPDATE_USER_DISPLAY_NAME_SQL,
-    UPDATE_USER_PASSWORD_SQL, UPDATE_USER_SQL, UPDATE_USER_STATUS_SQL,
-    USERS_BY_STATUS_AFTER_CURSOR_SQL, USERS_BY_STATUS_IN_TENANT_SQL, USERS_BY_STATUS_PAGE_SQL,
-    USERS_BY_STATUS_SQL,
+    GET_USER_BY_ID_SQL, GET_USER_IN_TENANT_SQL, LINK_FEDERATED_IDENTITY_SQL, LIST_ADMIN_USERS_SQL,
+    SET_USER_ADMIN_STATUS_SQL, SET_USER_TENANT_SQL, SET_USER_TIER_SQL, UPDATE_LAST_ACTIVE_SQL,
+    UPDATE_USER_DISPLAY_NAME_SQL, UPDATE_USER_PASSWORD_SQL, UPDATE_USER_SQL,
+    UPDATE_USER_STATUS_FROM_SQL, UPDATE_USER_STATUS_SQL, USERS_BY_STATUS_AFTER_CURSOR_SQL,
+    USERS_BY_STATUS_IN_TENANT_SQL, USERS_BY_STATUS_PAGE_SQL, USERS_BY_STATUS_SQL,
+};
+use crate::repositories::users::{
+    admin_removal_lock_sql, impl_user_repository, is_last_active_admin_among, last_admin_refusal,
+    listing_status_filter, user_from_row, user_status_filter, FederatedLink,
 };
 use crate::repositories::uuid_columns::TextUuid;
 use crate::repositories::{ProfileRepository, UserRepository};
+use crate::repositories::{StandingWrite, WithdrawnAdminCredentials};
 
 /// `SQLite`'s extended result codes for a violated uniqueness constraint:
 /// `SQLITE_CONSTRAINT_UNIQUE` and `SQLITE_CONSTRAINT_PRIMARYKEY`. `create` turns one
@@ -74,5 +82,13 @@ fn duplicate_user_error(error: &sqlx::Error) -> Option<AppError> {
     })
 }
 
-impl_user_repository!(Database, SqliteRow, TextUuid, duplicate_user_error);
+impl_admin_standing_writes!(Database, SqliteRow, TextUuid);
+impl_user_repository!(
+    Database,
+    SqliteRow,
+    TextUuid,
+    duplicate_user_error,
+    "BEGIN IMMEDIATE",
+    ""
+);
 impl_profile_repository!(Database, TextUuid);

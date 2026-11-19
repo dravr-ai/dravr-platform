@@ -7,7 +7,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
-import { Card, Badge, Input, Button, Modal } from './ui';
+import { Card, Badge, Input, Button, Modal, Alert, ALERT_TONE, BADGE_TONE, Switch } from './ui';
 import { useAuth } from '../hooks/useAuth';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
@@ -299,10 +299,10 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
     <div className="space-y-6">
       {/* Global Disabled Banner */}
       {globalDisabled?.data && globalDisabled.data.count > 0 && (
-        <Card variant="dark" className="!bg-error/20 border-error/30">
+        <div className={`${ALERT_TONE.error.tone} border rounded-xl p-4 md:p-6`}>
           <div className="flex items-start gap-3">
             <svg
-              className="w-5 h-5 text-error mt-0.5 flex-shrink-0"
+              className="w-5 h-5 mt-0.5 flex-shrink-0"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -315,9 +315,9 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
               />
             </svg>
             <div>
-              <h3 className="font-medium text-error">Globally Disabled Tools</h3>
-              <p className="text-sm text-error mt-1">
-                {globalDisabled.data.count} tool(s) are disabled via <code className="bg-error/50 px-1 rounded">PIERRE_DISABLED_TOOLS</code> environment variable.
+              <h3 className="font-medium">Globally Disabled Tools</h3>
+              <p className="text-sm mt-1">
+                {globalDisabled.data.count} tool(s) are disabled via <code className={`${BADGE_TONE.error.tone} px-1 rounded`}>PIERRE_DISABLED_TOOLS</code> environment variable.
                 These cannot be enabled through the admin UI.
               </p>
               <div className="flex flex-wrap gap-2 mt-2">
@@ -329,7 +329,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
               </div>
             </div>
           </div>
-        </Card>
+        </div>
       )}
 
       {/* Summary Stats */}
@@ -512,23 +512,13 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                     <td className="py-3 px-3">
                       <div className="flex items-center gap-2">
                         {/* Toggle switch */}
-                        <button
-                          onClick={() => handleToggleTool(tool)}
+                        <Switch
+                          checked={tool.is_enabled}
+                          onChange={() => handleToggleTool(tool)}
+                          label={`Toggle ${tool.display_name}`}
                           disabled={globallyDisabled}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
-                            tool.is_enabled ? 'bg-success' : 'bg-outline'
-                          } ${globallyDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          role="switch"
-                          aria-checked={tool.is_enabled}
-                          aria-label={`Toggle ${tool.display_name}`}
                           title={globallyDisabled ? 'Cannot toggle globally disabled tools' : undefined}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              tool.is_enabled ? 'translate-x-6' : 'translate-x-1'
-                            }`}
-                          />
-                        </button>
+                        />
 
                         {/* Remove override button (only if source is tenant override) */}
                         {tool.source.toLowerCase() === 'tenantoverride' && (
@@ -578,14 +568,14 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
             placeholder="e.g., Security concern, Maintenance, Feature deprecation..."
           />
 
-          <div className="p-3 bg-warning/20 text-on-warning-container rounded-lg text-sm">
+          <Alert tone="warning">
             <strong>Note:</strong> This override can be removed later to restore the tool to its default state.
-          </div>
+          </Alert>
 
           {setOverrideMutation.isError && (
-            <div className="p-3 bg-error/20 text-error rounded-lg text-sm">
+            <Alert tone="error">
               Failed to update tool settings. Please try again.
-            </div>
+            </Alert>
           )}
 
           <div className="flex justify-end gap-3">
@@ -629,9 +619,9 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
           />
 
           {setOverrideMutation.isError && (
-            <div className="p-3 bg-error/20 text-error rounded-lg text-sm">
+            <Alert tone="error">
               Failed to update tool settings. Please try again.
-            </div>
+            </Alert>
           )}
 
           <div className="flex justify-end gap-3">

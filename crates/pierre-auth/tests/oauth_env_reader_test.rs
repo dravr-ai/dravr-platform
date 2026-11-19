@@ -141,6 +141,7 @@ fn the_startup_reader_resolves_provider_settings() {
     );
 
     assert_garmin_seat_cap_is_read(&server);
+    assert_a_blank_endpoint_url_overrides_nothing();
 
     for key in [
         "PIERRE_GARMIN_SCOPES",
@@ -152,6 +153,54 @@ fn the_startup_reader_resolves_provider_settings() {
         "PIERRE_STRAVA_CLIENT_SECRET",
     ] {
         env::remove_var(key);
+    }
+}
+
+/// An endpoint URL variable that is set but blank overrides nothing: the
+/// provider keeps its default, where an empty API base would send the
+/// Intervals.icu activity and wellness reads to a URL with no host. Called
+/// from the one test that owns the environment.
+fn assert_a_blank_endpoint_url_overrides_nothing() {
+    const URL_VARS: [&str; 4] = [
+        "PIERRE_INTERVALS_ICU_AUTH_URL",
+        "PIERRE_INTERVALS_ICU_TOKEN_URL",
+        "PIERRE_INTERVALS_ICU_API_BASE_URL",
+        "PIERRE_INTERVALS_ICU_REVOKE_URL",
+    ];
+    // The scopes variable is read by the same reader; whatever the shell
+    // exports for it would be an override of its own.
+    env::remove_var("PIERRE_INTERVALS_ICU_SCOPES");
+    for blank in ["", "   ", "\t\n"] {
+        for var in URL_VARS {
+            env::set_var(var, blank);
+        }
+        assert_eq!(
+            ProviderEndpointOverride::from_env("intervals_icu"),
+            None,
+            "URL variables set to {blank:?} override nothing"
+        );
+        assert!(
+            !OAuthConfig::from_env()
+                .endpoints
+                .contains_key("intervals_icu"),
+            "a provider whose URL variables read {blank:?} carries no entry"
+        );
+    }
+
+    // One real value beside three blank ones: only the real one overrides.
+    env::set_var(
+        "PIERRE_INTERVALS_ICU_API_BASE_URL",
+        "http://127.0.0.1:9/intervals",
+    );
+    assert_eq!(
+        ProviderEndpointOverride::from_env("intervals_icu"),
+        Some(ProviderEndpointOverride {
+            api_base_url: Some("http://127.0.0.1:9/intervals".to_owned()),
+            ..ProviderEndpointOverride::default()
+        })
+    );
+    for var in URL_VARS {
+        env::remove_var(var);
     }
 }
 

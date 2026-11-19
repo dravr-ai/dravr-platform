@@ -34,7 +34,7 @@ use tracing::info;
 use uuid::Uuid;
 
 #[cfg(feature = "provider-sciotte")]
-use dravr_sciotte::client::SciotteClient;
+use dravr_sciotte::client::{ClientError, SciotteClient};
 
 // Conditional imports for provider-specific types
 #[cfg(feature = "provider-coros")]
@@ -46,11 +46,11 @@ use crate::intervals_icu_provider::{
     default_config as intervals_icu_default_config, IntervalsIcuProviderFactory,
 };
 #[cfg(feature = "provider-sciotte")]
-use crate::sciotte_error::require_client;
+use crate::sciotte_error::{require_client, to_app_error};
 #[cfg(feature = "provider-sciotte")]
 use crate::sciotte_provider::{
-    SciotteCorosProviderFactory, SciotteGarminProviderFactory, SciotteProviderFactory,
-    SciotteTarget, SciotteTrainingPeaksProviderFactory,
+    SciotteCorosProviderFactory, SciotteGarminProviderFactory, SciotteLoginClient,
+    SciotteProviderFactory, SciotteReads, SciotteTarget, SciotteTrainingPeaksProviderFactory,
 };
 #[cfg(feature = "provider-coros")]
 use crate::spi::CorosDescriptor;
@@ -110,12 +110,18 @@ pub struct ProviderRegistry {
     /// signing OAuth app or personal API key. `None` counts nothing (a
     /// registry built for a test).
     request_limiter: Option<Arc<ProviderRateLimiter>>,
-    /// The one client every sciotte backend calls the scraper service through,
-    /// shared so they reuse one connection pool and one cached identity token.
-    /// `None` (a registry built for a test, or a server started with no
-    /// service configured) makes every scrape report the service missing.
+    /// The read services every sciotte backend calls the scraper through,
+    /// shared so they reuse one connection pool and one cached identity token
+    /// per service. A session's calls go to the one its id picks. `None` (a
+    /// registry built for a test, or a server started with no service
+    /// configured) makes every scrape report the service missing.
     #[cfg(feature = "provider-sciotte")]
-    sciotte_client: Option<SciotteClient>,
+    sciotte_reads: Option<SciotteReads>,
+    /// The client sign-ins go through: their own service when one is
+    /// configured, since a parked sign-in lives in one instance's memory
+    /// (carnet#1504).
+    #[cfg(feature = "provider-sciotte")]
+    sciotte_login: SciotteLoginClient,
 }
 
 impl fmt::Debug for ProviderRegistry {
@@ -140,7 +146,9 @@ impl ProviderRegistry {
             descriptors: HashMap::new(),
             request_limiter: None,
             #[cfg(feature = "provider-sciotte")]
-            sciotte_client: None,
+            sciotte_reads: None,
+            #[cfg(feature = "provider-sciotte")]
+            sciotte_login: SciotteLoginClient::Unconfigured,
         };
 
         // Register all enabled providers
@@ -387,25 +395,25 @@ impl ProviderRegistry {
     fn register_sciotte_coros(_registry: &mut Self) {}
 
     /// Register the four sciotte backends' factories, each holding a clone of
-    /// this registry's sciotte client.
+    /// this registry's read services.
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte_factories(registry: &mut Self) {
-        let client = registry.sciotte_client.clone();
+        let reads = registry.sciotte_reads.clone();
         registry.register_factory(
             oauth_providers::SCIOTTE,
-            Box::new(SciotteProviderFactory::new(client.clone())),
+            Box::new(SciotteProviderFactory::new(reads.clone())),
         );
         registry.register_factory(
             oauth_providers::SCIOTTE_GARMIN,
-            Box::new(SciotteGarminProviderFactory::new(client.clone())),
+            Box::new(SciotteGarminProviderFactory::new(reads.clone())),
         );
         registry.register_factory(
             oauth_providers::SCIOTTE_TRAININGPEAKS,
-            Box::new(SciotteTrainingPeaksProviderFactory::new(client.clone())),
+            Box::new(SciotteTrainingPeaksProviderFactory::new(reads.clone())),
         );
         registry.register_factory(
             oauth_providers::SCIOTTE_COROS,
-            Box::new(SciotteCorosProviderFactory::new(client)),
+            Box::new(SciotteCorosProviderFactory::new(reads)),
         );
     }
 
@@ -774,36 +782,88 @@ impl ProviderRegistry {
         self
     }
 
-    /// This registry, calling the scraper service through `client` from every
-    /// sciotte backend it builds and handing the same client to the other
-    /// sciotte calls through [`Self::sciotte_client`]. The server builds the
-    /// client once, at startup; `None` leaves the service unconfigured.
+    /// This registry, calling the scraper's read services through `reads`
+    /// from every sciotte backend it builds and handing the same services to
+    /// the other sciotte calls through [`Self::sciotte_reads`]. The server
+    /// builds them once, at startup; `None` leaves the service unconfigured.
     #[cfg(feature = "provider-sciotte")]
     #[must_use]
-    pub fn with_sciotte_client(mut self, client: Option<SciotteClient>) -> Self {
-        self.sciotte_client = client;
+    pub fn with_sciotte_reads(mut self, reads: Option<SciotteReads>) -> Self {
+        self.sciotte_reads = reads;
         Self::register_sciotte_factories(&mut self);
         self
     }
 
-    /// The server's sciotte client, for the calls to the scraper service that
-    /// are not a provider's own reads (logins, session drops, health reads),
+    /// The server's read services, for the calls to the scraper that are not
+    /// a provider's own reads (session drops, health reads, profile reads),
     /// or `None` when no service is configured.
     #[cfg(feature = "provider-sciotte")]
     #[must_use]
-    pub const fn sciotte_client(&self) -> Option<&SciotteClient> {
-        self.sciotte_client.as_ref()
+    pub const fn sciotte_reads(&self) -> Option<&SciotteReads> {
+        self.sciotte_reads.as_ref()
     }
 
-    /// [`Self::sciotte_client`] for a call that cannot run without one.
+    /// [`Self::sciotte_reads`] for a call that cannot run without them.
     ///
     /// # Errors
     ///
     /// The not-configured error when the server started with no scraper
     /// service.
     #[cfg(feature = "provider-sciotte")]
-    pub fn require_sciotte_client(&self) -> AppResult<&SciotteClient> {
-        require_client(self.sciotte_client.as_ref())
+    pub fn require_sciotte_reads(&self) -> AppResult<&SciotteReads> {
+        self.sciotte_reads
+            .as_ref()
+            .ok_or_else(|| to_app_error(ClientError::NotConfigured))
+    }
+
+    /// This registry, sending sign-ins (logins, their code steps, cancels,
+    /// the takeover, the export that follows) through `client`.
+    #[cfg(feature = "provider-sciotte")]
+    #[must_use]
+    pub fn with_sciotte_login_client(mut self, client: SciotteLoginClient) -> Self {
+        self.sciotte_login = client;
+        self
+    }
+
+    /// Whether the copy a sign-in left of `session_id` on its service is the
+    /// one the session's reads use: only when sign-ins run on the first read
+    /// service and the session's id picks that service. A sign-in service of
+    /// its own, or a session another read service takes, leaves a copy no read
+    /// meets, which the sign-in drops (carnet#1504).
+    #[cfg(feature = "provider-sciotte")]
+    #[must_use]
+    pub fn sciotte_sign_in_copy_serves_reads(&self, session_id: &str) -> bool {
+        matches!(self.sciotte_login, SciotteLoginClient::Unconfigured)
+            && self
+                .sciotte_reads
+                .as_ref()
+                .is_some_and(|reads| reads.names_primary(session_id))
+    }
+
+    /// The client a sign-in calls the scraper service through.
+    ///
+    /// Every step of one sign-in must reach the instance that parked its
+    /// browser, so it is the sign-in service's client when one is configured,
+    /// and the first read service's when none is: that service runs one
+    /// instance too.
+    ///
+    /// # Errors
+    ///
+    /// The not-configured error when no service serves sign-ins, and a
+    /// configuration error when a sign-in service is configured but its client
+    /// could not be built: the read service is never used in its place.
+    #[cfg(feature = "provider-sciotte")]
+    pub fn require_sciotte_login_client(&self) -> AppResult<&SciotteClient> {
+        match &self.sciotte_login {
+            SciotteLoginClient::Built(client) => Ok(client),
+            SciotteLoginClient::Unconfigured => {
+                require_client(self.sciotte_reads.as_ref().map(SciotteReads::primary))
+            }
+            SciotteLoginClient::Unbuildable => Err(AppError::config(
+                "DRAVR_SCIOTTE_LOGIN_URL is set but its sciotte client could not be built \
+                 (see the startup log); sign-ins are refused rather than sent to the read service",
+            )),
+        }
     }
 
     /// The budget of `app` (the signing OAuth client's id), with the app's own
@@ -814,6 +874,34 @@ impl ProviderRegistry {
         self.request_limiter
             .as_ref()
             .map(|limiter| RequestBudget::new(Arc::clone(limiter), app.to_owned(), daily_limit))
+    }
+
+    /// The budget `backend`'s signed-in session's detail walk is counted
+    /// in, for the walk to admit its reads against: the walk windows of the
+    /// app `signing` carries (the athlete's grant), else of the server's own
+    /// Strava app `server_app`. `None` when this registry counts nothing or
+    /// counts no session of `backend`.
+    #[must_use]
+    pub fn session_request_budget(
+        &self,
+        backend: &str,
+        signing: Option<&RequestBudget>,
+        server_app: &str,
+    ) -> Option<RequestBudget> {
+        self.request_limiter
+            .as_ref()
+            .and_then(|limiter| RequestBudget::for_session(limiter, backend, signing, server_app))
+    }
+
+    /// The budget the live provider context reads (carnet#1622) of
+    /// `backend`'s signed-in session are counted in for `user_id`: 200 a day
+    /// and 30 in 15 minutes, that athlete's own. `None` when this registry
+    /// counts nothing, or `backend` is no session the limiter counts.
+    #[must_use]
+    pub fn session_context_budget(&self, backend: &str, user_id: Uuid) -> Option<RequestBudget> {
+        self.request_limiter
+            .as_ref()
+            .and_then(|limiter| RequestBudget::for_session_context(limiter, backend, user_id))
     }
 
     /// The budget of the personal API key that belongs to `account`, the

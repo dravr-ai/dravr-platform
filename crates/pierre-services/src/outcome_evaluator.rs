@@ -750,6 +750,7 @@ mod tests {
             let mut asked = self.asked.lock().unwrap();
             asked.extend(request.messages.iter().map(|m| m.content.clone()));
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: r#"{"verdict":"neutral"}"#.to_owned(),
                 model: "recording-judge".to_owned(),
                 usage: None,
@@ -1012,6 +1013,7 @@ mod tests {
         async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, RunnerError> {
             self.requested.lock().unwrap().push(request.model.clone());
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: r#"{"verdict":"neutral"}"#.to_owned(),
                 model: request
                     .model

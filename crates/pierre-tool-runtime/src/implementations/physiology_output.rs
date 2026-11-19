@@ -9,6 +9,7 @@ use pierre_core::models::{
     AnchorProvenance, HrZoneSet, PhysiologicalSex, PowerZoneSet, ProvenancedValue, SportAnchor,
     SportType, ThresholdProvenance, ThresholdStatedOn, UserPhysiologicalProfile,
 };
+use pierre_providers::ai_scope;
 use serde::Serialize;
 
 use crate::training_history_compute::HistoryRefresh;
@@ -18,6 +19,10 @@ pub(crate) fn profile_payload(
     profile: &UserPhysiologicalProfile,
     sport_anchors: Vec<SportAnchor>,
 ) -> PhysiologyProfile {
+    // The echo serves the profile and its anchors, so the result's trust
+    // label names where each value came from, a profile left unsaved included.
+    ai_scope::note_source_classes(profile.source_classes());
+    ai_scope::note_sport_anchors(&sport_anchors);
     PhysiologyProfile {
         ftp_watts: profile.ftp_watts,
         threshold_pace_sec_per_km: profile.threshold_pace_sec_per_km,

@@ -19,7 +19,9 @@ use pierre_core::errors::AppError;
 use pierre_core::models::UpsertMessageFeedbackParams;
 use pierre_middleware::AuthenticatedUser;
 
-use super::common::get_tenant_id;
+use super::common::{
+    conversation_not_found, get_tenant_id, refuse_unshared_subject, refuse_unshared_subject_by_id,
+};
 use super::dto::{MessageFeedbackEntry, UpsertFeedbackRequest};
 
 /// Set (or update) the caller's thumbs up/down feedback on a message.
@@ -39,6 +41,7 @@ pub(super) async fn upsert_feedback(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
+    refuse_unshared_subject_by_id(&resources, &auth, &conversation_id, tenant_id).await?;
     let user_id = auth.user_id.to_string();
 
     // Treat a blank/whitespace comment as "no reason given".
@@ -102,13 +105,14 @@ pub(super) async fn delete_feedback(
     let user_id = auth.user_id.to_string();
 
     // Verify the caller owns the conversation, mirroring the messages-list path.
-    resources
+    let conversation = resources
         .common
         .repos
         .chat
         .get_conversation(&conversation_id, &user_id, tenant_id)
         .await?
-        .ok_or_else(|| AppError::not_found("Conversation not found"))?;
+        .ok_or_else(conversation_not_found)?;
+    refuse_unshared_subject(&resources, &auth, &conversation).await?;
 
     resources
         .common

@@ -1,4 +1,4 @@
-// ABOUTME: Super-admin card for setting a tenant's plan (starter/professional/enterprise)
+// ABOUTME: Admin card for setting a tenant's plan (starter/professional/enterprise)
 // ABOUTME: Plan gates tool availability, so saving invalidates the tenant tools queries
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -34,13 +34,12 @@ export default function TenantPlanCard({ tenantId }: TenantPlanCardProps) {
 
   // Same tenant resolution as ToolAvailability: prop first, then login tenant
   const effectiveTenantId = tenantId || user?.tenant_id || '';
-  const isSuperAdmin = user?.role === 'super_admin';
 
   const { data: planData, isLoading: planLoading } = useQuery({
     queryKey: tenantPlanQueryKey(effectiveTenantId),
     queryFn: () => adminApi.getTenantPlan(effectiveTenantId),
     retry: 1,
-    enabled: isSuperAdmin && !!effectiveTenantId,
+    enabled: !!effectiveTenantId,
   });
   const currentPlan = planData?.plan;
 
@@ -55,8 +54,8 @@ export default function TenantPlanCard({ tenantId }: TenantPlanCardProps) {
     },
   });
 
-  // Backend enforces super-admin; hide the control for everyone else
-  if (!isSuperAdmin || !effectiveTenantId) {
+  // Nothing to set a plan on until the session names a tenant
+  if (!effectiveTenantId) {
     return null;
   }
 

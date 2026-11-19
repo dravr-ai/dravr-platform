@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Agent } from '../../types/api';
+import type { Agent, User } from '../../types/api';
 import SystemCoachesTab from '../SystemCoachesTab';
 
 const AGENT: Agent = {
@@ -92,5 +92,56 @@ describe('SystemCoachesTab edit form', () => {
 
     expect(screen.queryByRole('dialog', { name: 'Assign Users to Agent' })).not.toBeInTheDocument();
     expect(assign).toHaveFocus();
+  });
+});
+
+function user(overrides: Partial<User>): User {
+  return {
+    id: 'user',
+    email: 'user@example.com',
+    is_admin: false,
+    role: 'user',
+    tier: 'starter',
+    created_at: '2026-11-01T00:00:00Z',
+    ...overrides,
+  };
+}
+
+describe('SystemCoachesTab badges', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('tags a git-synced agent as a success and any other source in the muted tone', async () => {
+    vi.mocked(adminApi.getSystemCoaches).mockResolvedValue({
+      agents: [
+        { ...AGENT, id: 'agent-git', title: 'Synced Agent', source: 'contremaitre' },
+        { ...AGENT, id: 'agent-seed', title: 'Seeded Agent', source: 'seed' },
+      ],
+      total: 2,
+      metadata: { timestamp: '', api_version: '' },
+    });
+    renderTab();
+
+    expect(await screen.findByText('git')).toHaveClass('badge-success');
+    expect(screen.getByText('seed')).toHaveClass('badge-secondary');
+  });
+
+  it('draws an active user as a success and any other status in the muted tone in the assign dialog', async () => {
+    vi.mocked(adminApi.getSystemCoaches).mockResolvedValue({
+      agents: [AGENT],
+      total: 1,
+      metadata: { timestamp: '', api_version: '' },
+    });
+    vi.mocked(adminApi.getAllUsers).mockResolvedValue([
+      user({ id: 'u1', email: 'active@example.com', user_status: 'active' }),
+      user({ id: 'u2', email: 'suspended@example.com', user_status: 'suspended' }),
+    ]);
+    renderTab();
+    fireEvent.click(await screen.findByText('Marathon Agent'));
+    fireEvent.click(await screen.findByRole('button', { name: /Assign Users/ }));
+
+    expect(await screen.findByText('active')).toHaveClass('badge-success');
+    expect(screen.getByText('suspended')).toHaveClass('badge-secondary');
   });
 });

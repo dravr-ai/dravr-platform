@@ -1,69 +1,78 @@
-// ABOUTME: Verifies cookie-admin authorization derives permissions from the user's
-// ABOUTME: actual role: a plain Admin manages users but is never elevated to super-admin.
+// ABOUTME: Verifies the console session of an admin carries every admin permission and the super-admin flag
+// ABOUTME: There is one admin role (carnet#1567); who is not an admin is refused by `require_admin`, pinned in pierre-server's suites
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Authorization tests for the cookie-admin guard's role-derived permissions.
+//! Authorization tests for the credential the cookie-admin guard builds.
+//!
+//! The boundary this file used to pin sat between a plain admin and the
+//! tier above it. That tier is gone: the boundary is now between a user and an
+//! admin, and it is held by `require_admin`, which `cookie_admin_middleware`
+//! calls before it builds this credential (`console_user_management_test`
+//! drives it through the router, where a database exists).
 
-use pierre_core::admin::models::AdminPermission;
+use pierre_core::admin::models::{AdminPermission, AdminPermissions};
 use pierre_core::models::User;
 use pierre_core::permissions::UserRole;
 use pierre_middleware::cookie_admin_token;
+use uuid::Uuid;
 
-fn user_with_role(role: UserRole) -> User {
+fn admin() -> User {
     let mut user = User::new(
         "admin@example.com".to_owned(),
         "hash".to_owned(),
         Some("Admin".to_owned()),
     );
-    user.role = role;
+    user.role = UserRole::Admin;
     user
 }
 
 #[test]
-fn super_admin_role_grants_full_permissions() {
-    let token = cookie_admin_token(&user_with_role(UserRole::SuperAdmin), None);
-    assert!(token.is_super_admin);
-    assert!(token
-        .permissions
-        .has_permission(&AdminPermission::ManageAdminTokens));
-    assert!(token
-        .permissions
-        .has_permission(&AdminPermission::ManageUsers));
-}
-
-#[test]
-fn plain_admin_role_manages_users_without_super_permissions() {
-    let token = cookie_admin_token(&user_with_role(UserRole::Admin), None);
+fn an_admin_console_session_carries_every_permission_and_the_flag() {
+    let token = cookie_admin_token(&admin(), None);
     assert!(
-        !token.is_super_admin,
-        "a plain Admin must not be elevated to super-admin via cookie auth"
+        token.is_super_admin,
+        "an admin's console session passes every is_super_admin gate"
     );
-    // Super-only permissions must be absent so the downstream
-    // `require_permission`/`is_super_admin` gates actually deny.
-    for super_only in [
-        AdminPermission::ManageConfiguration,
+    assert_eq!(
+        token.permissions,
+        AdminPermissions::super_admin(),
+        "an admin's console session carries the full permission set"
+    );
+    // Each permission a console tab's handler checks, named so a set that
+    // shrinks fails on the permission it lost.
+    for permission in [
+        AdminPermission::ProvisionKeys,
+        AdminPermission::ManageUsers,
+        AdminPermission::ManageAdminTokens,
         AdminPermission::ViewConfiguration,
+        AdminPermission::ManageConfiguration,
         AdminPermission::ViewAuditLogs,
         AdminPermission::ManageWebsite,
     ] {
         assert!(
-            !token.permissions.has_permission(&super_only),
-            "a plain Admin console session must not carry {super_only}"
+            token.require_permission(&permission).is_ok(),
+            "an admin's console session must carry {permission}"
         );
     }
-    // The console's user and token tabs are served by the admin-token
-    // handlers, which check these, so a plain Admin's session carries them;
-    // the token handlers keep super-admin tokens to super-admin callers.
-    assert!(token
-        .permissions
-        .has_permission(&AdminPermission::ManageUsers));
-    assert!(token
-        .permissions
-        .has_permission(&AdminPermission::ManageAdminTokens));
-    // Key-management (default_admin) permissions remain available.
-    assert!(token
-        .permissions
-        .has_permission(&AdminPermission::ProvisionKeys));
+}
+
+#[test]
+fn the_session_acts_as_the_signed_in_admin_in_the_active_tenant() {
+    let user = admin();
+    let tenant = Uuid::new_v4();
+    let token = cookie_admin_token(&user, Some(tenant));
+    assert_eq!(
+        token.operator_user_id,
+        Some(user.id),
+        "every write is attributed to the signed-in admin"
+    );
+    assert_eq!(token.tenant_id, Some(tenant.to_string()));
+    assert!(
+        token
+            .require_tenant_access(&Uuid::new_v4().to_string())
+            .is_ok(),
+        "the active tenant does not bound an admin: an admin reaches every tenant"
+    );
 }

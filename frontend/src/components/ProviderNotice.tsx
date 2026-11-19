@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import { PROVIDER_NOTICES, type ProviderNoticeKeys } from '@pierre/shared-constants';
-import { Button, Checkbox, Modal, ModalActions } from './ui';
+import { Button, Checkbox, Modal, ModalActions, ALERT_TONE } from './ui';
 
 interface ProviderNoticeProps {
   notice: ProviderNoticeKeys;
@@ -24,15 +24,15 @@ interface ProviderNoticeProps {
 export function ProviderNotice({ notice, id, accepted, onAcceptedChange }: ProviderNoticeProps) {
   const { t } = useTranslation();
   return (
-    <div role="note" className="mb-4 rounded-lg border border-warning/40 bg-warning/10 p-3">
-      <p className="text-sm font-medium text-on-warning-container mb-1">{t(notice.titleKey)}</p>
-      <p className="text-sm text-on-warning-container mb-3">{t(notice.bodyKey)}</p>
+    <div role="note" className={`${ALERT_TONE.warning.tone} mb-4 rounded-lg border p-3`}>
+      <p className="text-sm font-medium mb-1">{t(notice.titleKey)}</p>
+      <p className="text-sm mb-3">{t(notice.bodyKey)}</p>
       <Checkbox
         id={id}
         label={t(notice.consentKey)}
         checked={accepted}
         onChange={(e) => onAcceptedChange(e.target.checked)}
-        labelClassName="text-on-warning-container"
+        labelClassName={ALERT_TONE.warning.ink}
       />
     </div>
   );

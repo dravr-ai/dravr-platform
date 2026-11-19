@@ -1,4 +1,4 @@
-// ABOUTME: Coach-access requests — a coach asks in one tap or withdraws, a super-admin grants or declines (carnet#738)
+// ABOUTME: Coach-access requests — a coach asks in one tap or withdraws, an admin grants or declines (carnet#738)
 // ABOUTME: A grant sets manages_roster and attaches the requester to every coachless group they own; the coach is told
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,15 +13,15 @@
 //! 1. [`request_access`] opens a request, naming the coach's group when they
 //!    asked from one, or filed for them when their Intervals.icu key coaches
 //!    athletes ([`crate::coach_access_evidence`]). It grants nothing; it
-//!    announces itself on the notify channel with what a super-admin decides
+//!    announces itself on the notify channel with what an admin decides
 //!    on (who asked, how the request came, the group it names), and a caller
-//!    holding the email service tells every super-admin
-//!    ([`email_super_admins`]). A request that names no group takes the one
+//!    holding the email service tells every admin
+//!    ([`email_admins`]). A request that names no group takes the one
 //!    its coach later makes to coach ([`name_requested_group`]).
 //! 2. While it waits, the coach may [`withdraw`] it: the row is deleted, so
 //!    they can ask again at once, and the operators hear it on the notify
 //!    channel (`coach_access.cancelled`).
-//! 3. A super-admin reads the queue ([`list_requests`]) and either
+//! 3. An admin reads the queue ([`list_requests`]) and either
 //!    [`grant`]s — `manages_roster` as an operator grant, and the requester
 //!    attached as coach of every active group they own that has no coach
 //!    (carnet#1521), the named one first — or [`decline`]s, optionally saying
@@ -51,12 +51,12 @@ use uuid::Uuid;
 use crate::admin_ops::set_user_manages_roster;
 use crate::analytics::cache_user_email;
 pub use crate::coach_access_notice::CoachAccessNotices;
-use crate::operator_mail::{console_users_url, super_admin_emails};
+use crate::operator_mail::{admin_emails, console_users_url};
 
 /// What [`request_access`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RequestOutcome {
-    /// A new request was opened; the super-admins should hear about it.
+    /// A new request was opened; the admins should hear about it.
     Opened(CoachAccessRequest),
     /// The user already had one waiting, returned as it is. Nobody is told
     /// again: a second tap is not a second request.
@@ -240,7 +240,7 @@ async fn name_group(
     Ok(pending)
 }
 
-/// Announce a request just opened with what a super-admin decides on: who
+/// Announce a request just opened with what an admin decides on: who
 /// asked, how the request came, and the group it names, when it names one.
 ///
 /// The notify channel is the only announcement a request filed from a live
@@ -305,7 +305,7 @@ async fn cache_requester_email(repos: &RepositoryRegistry, user_id: Uuid) {
     }
 }
 
-/// Email every active super-admin about the request just opened.
+/// Email every active admin about the request just opened.
 ///
 /// The email links the console queue under `frontend_url` when the server
 /// has one. `origin` says how the request opened: one filed from an
@@ -314,7 +314,7 @@ async fn cache_requester_email(repos: &RepositoryRegistry, user_id: Uuid) {
 /// Best-effort: an unconfigured email service or a failed send is logged and
 /// never fails the caller; the notify channel and the console queue carry the
 /// request regardless.
-pub async fn email_super_admins(
+pub async fn email_admins(
     repos: &RepositoryRegistry,
     email: Option<&ResendEmailService>,
     frontend_url: Option<&str>,
@@ -350,13 +350,13 @@ pub async fn email_super_admins(
     }
 }
 
-/// The addresses of every active super-admin; `None` (logged) when they
+/// The addresses of every active admin; `None` (logged) when they
 /// cannot be read.
 async fn recipients(repos: &RepositoryRegistry, request_id: Uuid) -> Option<Vec<String>> {
-    match super_admin_emails(repos.users.as_ref()).await {
+    match admin_emails(repos.users.as_ref()).await {
         Ok(recipients) => Some(recipients),
         Err(e) => {
-            warn!(%request_id, error = %e, "Could not list super-admins for a coach access request");
+            warn!(%request_id, error = %e, "Could not list admins for a coach access request");
             None
         }
     }
@@ -625,18 +625,32 @@ async fn apply_grant(
         groups.sort_by_key(|g| g.id != named);
     }
     for group in groups {
-        if repos
-            .groups
-            .set_group_coach_user(&group.id.to_string(), Some(request.user_id), tenant)
-            .await?
-        {
-            attached.push(CoachingGroup {
-                coach_user_id: Some(request.user_id),
-                ..group
-            });
+        if let Some(coached) = attach_coach(repos, group, request.user_id, tenant).await? {
+            attached.push(coached);
         }
     }
     Ok(())
+}
+
+/// Make `coach` the human coach of the coachless `group` in `tenant`: the one
+/// write a coach-access grant and a coach claiming their own coachless group
+/// both make, with no connection to end since a coachless group has none.
+/// Returns the group as it now stands, or `None` when the group is no longer
+/// there to attach.
+pub(crate) async fn attach_coach(
+    repos: &RepositoryRegistry,
+    group: CoachingGroup,
+    coach: Uuid,
+    tenant: TenantId,
+) -> AppResult<Option<CoachingGroup>> {
+    let attached = repos
+        .groups
+        .set_group_coach_user(&group.id.to_string(), Some(coach), tenant)
+        .await?;
+    Ok(attached.then_some(CoachingGroup {
+        coach_user_id: Some(coach),
+        ..group
+    }))
 }
 
 /// Undo a grant whose effects failed after it claimed the request: detach
@@ -691,7 +705,7 @@ async fn undo_grant_claim(
     }
 }
 
-/// Decline a pending request, keeping the super-admin's `reason` when they
+/// Decline a pending request, keeping the admin's `reason` when they
 /// gave one (trimmed and bounded; blank means none). Nothing else changes;
 /// the coach may ask again.
 ///
@@ -766,8 +780,8 @@ pub async fn decline(
 ///
 /// # Errors
 ///
-/// Returns not-found when the user has no waiting request, a conflict when a
-/// super-admin's decision claimed it first, and the repository error
+/// Returns not-found when the user has no waiting request, a conflict when an
+/// admin's decision claimed it first, and the repository error
 /// otherwise.
 pub async fn withdraw(
     repos: &RepositoryRegistry,

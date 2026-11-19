@@ -15,14 +15,15 @@ use std::fmt;
 use std::sync::Arc;
 
 use serde_json::json;
-use tracing::info;
+use tracing::{info, warn};
 
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_core::admin::models::{
     AdminAction, AdminPermission, AdminTokenUsage, ValidatedAdminToken,
 };
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_database::backends::AdminRepository;
+use pierre_database::backends::{AdminRepository, UserRepository};
+use uuid::Uuid;
 
 use pierre_core::admin::AdminJwtManager;
 
@@ -30,6 +31,7 @@ use pierre_core::admin::AdminJwtManager;
 #[derive(Clone)]
 pub struct AdminAuthService {
     admin: Arc<dyn AdminRepository>,
+    users: Arc<dyn UserRepository>,
     jwt_manager: AdminJwtManager,
     jwks_manager: Arc<JwksManager>,
 }
@@ -47,11 +49,19 @@ impl AdminAuthService {
     /// Create new admin auth service with RS256 (REQUIRED)
     ///
     /// Every authentication reads the token row from the database, so a
-    /// revoked or expired token is refused on its next request.
+    /// revoked or expired token is refused on its next request. A token that
+    /// acts as an admin (a device login) also reads that admin's row from
+    /// `users`, so it stops working the moment the admin is demoted,
+    /// suspended or deleted.
     #[must_use]
-    pub fn new(admin: Arc<dyn AdminRepository>, jwks_manager: Arc<JwksManager>) -> Self {
+    pub fn new(
+        admin: Arc<dyn AdminRepository>,
+        users: Arc<dyn UserRepository>,
+        jwks_manager: Arc<JwksManager>,
+    ) -> Self {
         Self {
             admin,
+            users,
             jwt_manager: AdminJwtManager::new(),
             jwks_manager,
         }
@@ -111,6 +121,7 @@ impl AdminAuthService {
     /// - Token not found in database
     /// - Token is inactive or expired
     /// - Token hash verification fails
+    /// - The admin the token acts as is no longer an active admin
     pub async fn authenticate(
         &self,
         token: &str,
@@ -151,10 +162,24 @@ impl AdminAuthService {
 
         // The operator the token acts as lives on its row, written only by the
         // device grant; the signed claims carry no identity of their own.
+        if let Some(operator) = stored_token.operator_user_id {
+            self.require_active_admin(operator, &stored_token.id)
+                .await?;
+        }
         validated_token.operator_user_id = stored_token.operator_user_id;
+        // So does its name. The claims hold the name the token was minted
+        // under; the row's is rewritten when the account that name carried is
+        // deleted, and what the token is called from here on (the trail, the
+        // description of a key it provisions) must not bring that id back.
+        validated_token
+            .service_name
+            .clone_from(&stored_token.service_name);
 
         // Step 5: Log usage (no permission check), and count the use on the
-        // token's own row, which the token list reads.
+        // token's own row, which the token list reads. The row read above
+        // can be retired by now. When its admin's account was deleted, the
+        // writes below leave the caller's address out; a token revoked
+        // meanwhile keeps this request's address.
         self.log_token_usage(&stored_token.id, "auth_check", None, ip_address, true, None)
             .await?;
         self.admin
@@ -167,6 +192,36 @@ impl AdminAuthService {
         );
 
         Ok(validated_token)
+    }
+
+    /// Refuse a token whose `operator` is no longer an admin in good standing.
+    ///
+    /// A device login mints a token on one admin's authority, and the token
+    /// carries that authority for as long as its row is active. The row is
+    /// deactivated when the admin is demoted or suspended, and when the
+    /// admin's account is deleted it is left acting as an operator that is
+    /// no account (`DELETED_ACCOUNT_OPERATOR`), but this read is what holds
+    /// whichever writer changed the account, or the row: the token's power
+    /// is the admin's, read where it lives, and a token whose operator is no
+    /// user has none, reactivated or rotated.
+    async fn require_active_admin(&self, operator: Uuid, token_id: &str) -> AppResult<()> {
+        // SECURITY: Global lookup — an admin token is checked before any tenant context exists
+        let standing = self
+            .users
+            .get_global(operator)
+            .await?
+            .is_some_and(|user| user.is_active_admin());
+        if standing {
+            return Ok(());
+        }
+        warn!(
+            token_id = %token_id,
+            operator_user_id = %operator,
+            "Admin token refused: the admin it acts as is no longer an active admin"
+        );
+        Err(AppError::auth_invalid(
+            "The admin this token acts as is no longer an active admin",
+        ))
     }
 
     /// Log admin token usage for audit trail

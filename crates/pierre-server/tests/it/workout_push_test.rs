@@ -21,6 +21,7 @@
 //! row carrying it, and the request bytes the calendar actually received.
 
 use crate::common;
+use crate::common::{offline_provider_config, offline_provider_registry};
 use secrecy::SecretString;
 
 use pierre_core::permissions::scopes::OAuthScope;
@@ -43,8 +44,6 @@ use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_providers::ai_scope;
-use pierre_providers::intervals_icu_provider::default_config;
-use pierre_providers::ProviderRegistry;
 use pierre_services::parq;
 use pierre_services::plan_fueling::FUELING_WITHHELD_CLAUSE;
 use pierre_tool_runtime::implementations::endurance_workouts::PrescribeWorkoutTool;
@@ -240,8 +239,7 @@ fn respond(
         "PUT" if path == bulk_delete => {
             let doomed: HashSet<i64> = parsed
                 .as_array()
-                .map(|items| items.iter().filter_map(|d| d["id"].as_i64()).collect())
-                .unwrap_or_default();
+                .map_or_default(|items| items.iter().filter_map(|d| d["id"].as_i64()).collect());
             let before = events.len();
             events.retain(|e| !doomed.contains(&e.id));
             (
@@ -559,9 +557,9 @@ async fn fixture(base_url: &str, connect_intervals: bool) -> Result<Fixture> {
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
 
-    let mut config = default_config();
+    let mut config = offline_provider_config(INTERVALS_ICU);
     config.api_base_url = base_url.to_owned();
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.set_default_config(INTERVALS_ICU, config);
     let mut context = (*resources).clone();
     context.fitness.provider_registry = Arc::new(registry);
@@ -1289,6 +1287,10 @@ async fn a_family_prescription_is_measured_on_the_athletes_stored_anchors() -> R
     assert_eq!(
         anchor["confidence"], "low",
         "no confidence was stated: {result}"
+    );
+    assert_eq!(
+        anchor["kind"], "estimated",
+        "bug: the anchor names the kind it was stored with: {result}"
     );
     Ok(())
 }
@@ -2513,11 +2515,7 @@ async fn a_first_party_only_plan_is_not_pushed_over_an_external_transport() -> R
             .execute_over(transport, "push_training_plan", json!({}))
             .await?;
         assert!(!refused.success, "{transport:?} must be refused");
-        let text = refused
-            .result
-            .as_ref()
-            .map(Value::to_string)
-            .unwrap_or_default();
+        let text = refused.result.as_ref().map_or_default(Value::to_string);
         assert!(
             text.contains("_unavailable_over_this_interface"),
             "{transport:?}: {text}"
@@ -2568,11 +2566,7 @@ async fn a_workout_derived_from_first_party_only_data_is_not_pushed_over_an_exte
         )
         .await?;
         assert!(!refused.success, "{transport:?} must be refused");
-        let text = refused
-            .result
-            .as_ref()
-            .map(Value::to_string)
-            .unwrap_or_default();
+        let text = refused.result.as_ref().map_or_default(Value::to_string);
         assert!(
             text.contains("_unavailable_over_this_interface"),
             "{transport:?}: {text}"

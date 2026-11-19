@@ -57,6 +57,9 @@ pub mod originals;
 /// The periodic backfill that stores the samples of activities uploaded before the sample store held uploads
 pub mod upload_streams_backfill;
 
+/// The periodic recompute of the places athletes train from (carnet#1484)
+pub mod places_worker;
+
 /// The one-time recompute of every athlete's training history after the workout precedence rule changed
 pub mod precedence_recompute;
 
@@ -81,6 +84,10 @@ pub mod gear_ledger;
 #[cfg(feature = "client-messaging")]
 pub mod discord_gateway;
 
+/// The startup publish of the command menus to Telegram and Messenger, for the bot and page the binary names
+#[cfg(feature = "client-messaging")]
+pub mod channel_menus;
+
 /// Slack Socket Mode WebSocket client — bridges real-time Slack events to the webhook pipeline
 #[cfg(feature = "client-messaging")]
 pub mod slack_socket;
@@ -92,6 +99,10 @@ pub mod messaging_ingress;
 /// `feedback.recorded`: the one notify event thumbs, reactions and the feedback thread emit (carnet#1235).
 #[cfg(any(feature = "client-chat", feature = "client-messaging"))]
 pub(crate) mod feedback_events;
+
+/// The Slack client the server's own Web API calls go through, addressed where the adapter factory says
+#[cfg(any(feature = "client-chat", feature = "client-messaging"))]
+pub(crate) mod ops_slack;
 
 /// Account-approved notifier: email + localized message on each linked channel
 #[cfg(feature = "client-messaging")]
@@ -126,6 +137,14 @@ pub mod first_sync_post;
 /// The coach's check-in on the cadence the athlete chose (carnet#831).
 #[cfg(feature = "client-messaging")]
 pub mod check_in_post;
+
+/// The coach's reaction to a workout a live sync just landed (carnet#1486).
+#[cfg(feature = "client-messaging")]
+pub mod activity_landed_post;
+
+/// Where a live write's landing goes: the coach's landing post, the
+/// per-session digest, or both (carnet#1486).
+pub mod session_landed;
 
 /// The two ways a proactive notice reaches an athlete: out through a
 /// messaging channel's adapter, or into a first-party conversation as a

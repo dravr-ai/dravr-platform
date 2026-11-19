@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The token list reads the server for whoever UnifiedConnections opens it for: gated on `role`
-// ABOUTME: A query left on `is_admin` stays disabled for a skewed operator, who then reads an empty list
+// ABOUTME: The token list reads the server for whoever UnifiedConnections opens it for, and only an admin opens that
+// ABOUTME: A rotated token reads as rotated and no bulk revoke takes it; a revoked one stays selectable
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ApiKeyList from '../ApiKeyList';
 
-const viewer = vi.hoisted(() => ({ role: 'admin', is_admin: false }));
+// The flag and the role disagreed once (carnet#1574): the list reads neither.
+const viewer = { role: 'admin', is_admin: false };
 const getAdminTokens = vi.hoisted(() => vi.fn());
 
 vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ isAuthenticated: true, user: viewer }) }));
@@ -30,18 +31,43 @@ describe('ApiKeyList', () => {
     getAdminTokens.mockResolvedValue({ tokens: [] });
   });
 
-  it('fetches for a role admin whose is_admin is false', async () => {
-    viewer.role = 'admin';
-    viewer.is_admin = false;
+  it('shows a rotated token as rotated and leaves it out of a bulk revoke', async () => {
+    const token = (id: string, is_active: boolean, rotated_to_token_id: string | null) => ({
+      id,
+      service_name: `service ${id}`,
+      permissions: [],
+      is_super_admin: false,
+      is_active,
+      created_at: '2026-11-01T12:00:00Z',
+      usage_count: 0,
+      token_prefix: `pierre_at_${id}`,
+      rotated_to_token_id,
+    });
+    getAdminTokens.mockResolvedValue({
+      tokens: [token('live', true, null), token('old', false, 'live'), token('gone', false, null)],
+    });
     renderList();
-    await waitFor(() => expect(getAdminTokens).toHaveBeenCalledTimes(1));
+
+    // Every token, whatever its status: the filter that counts all three.
+    fireEvent.click(await screen.findByRole('button', { name: /\(3\)$/ }));
+
+    // Each token's badge: the rotated one says so, the revoked one does not.
+    const badge = (id: string) =>
+      screen.getByRole('heading', { name: `service ${id}` }).parentElement?.textContent ?? '';
+    expect(badge('old')).toContain('Rotated');
+    expect(badge('gone')).toContain('Inactive');
+    expect(badge('gone')).not.toContain('Rotated');
+    expect(badge('live')).toContain('Active');
+    expect(screen.getByLabelText('Select service old')).toBeDisabled();
+    expect(screen.getByLabelText('Select service gone')).not.toBeDisabled();
+    fireEvent.click(screen.getByLabelText('Select All (2)'));
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+    expect(screen.getByLabelText('Select service old')).not.toBeChecked();
   });
 
-  it('does not fetch for a plain user, whatever a stale is_admin says', async () => {
-    viewer.role = 'user';
-    viewer.is_admin = true;
+  it('fetches for an admin whose is_admin flag is false', async () => {
     renderList();
-    await Promise.resolve();
-    expect(getAdminTokens).not.toHaveBeenCalled();
+    await waitFor(() => expect(getAdminTokens).toHaveBeenCalledTimes(1));
+    expect(getAdminTokens).toHaveBeenCalledWith({ include_inactive: true });
   });
 });

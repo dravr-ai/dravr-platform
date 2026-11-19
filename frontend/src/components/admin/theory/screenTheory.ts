@@ -265,12 +265,12 @@ export const CITED_COMMITS: readonly TheoryCommit[] = Object.values(COMMIT);
 const BEFORE_IMPORT = "before 2026-05-05";
 
 /**
- * The scope rule most screens share since the admin console redesign: a super
- * admin sees every tenant by default and can pick one in the scope bar; a
- * plain admin is pinned to their own tenant and the server refuses any other.
+ * The scope rule most screens share since the admin console redesign: an
+ * admin sees every tenant by default and can pick one in the scope bar. The
+ * reads behind these screens authenticate a user, never a service token.
  */
 const SCOPE_BAR =
-  "Scope: a super admin sees all tenants by default and can pick one tenant in the scope bar; a plain admin always sees their own tenant, and the server refuses a request for any other.";
+  "Scope: an admin sees all tenants by default and can pick one tenant in the scope bar.";
 
 /** Keyed by dashboard tab id: every tab in ADMIN_ONLY_TABS, plus `settings` as an operator sees it. */
 export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
@@ -283,7 +283,7 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
       "Pending: every user with status pending, newest first, no limit, re-read every 30 seconds.",
       "Active, Suspended and All: the full user list, read 100 per page through the cursor and filtered by status in the browser. Search runs in the browser on email and name.",
       "Neither list filters by tenant: every operator with user-management rights sees every tenant's users.",
-      "Approve sets the status, who approved and when, moves the user into the approver's active tenant when there is one, creates an MCP token, and sends the approval email and event. Suspend changes the status only.",
+      "Approve sets the status, who approved and when, moves the user into the approver's active tenant when there is one, creates an MCP token, and sends the approval email and event. Suspend changes the status; for an admin it also withdraws their device logins and ends the impersonations they opened.",
       "New users, Pre-approved, Signup codes and Coach access are separate lists on their own sub-tabs.",
     ],
     since: BEFORE_IMPORT,
@@ -340,10 +340,10 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
     theory:
       "A tool is available through a ladder of rules, highest first: a global disable, the tenant plan, a tenant override, then the catalogue default. This screen shows where on that ladder each tool lands for the tenant.",
     computation: [
-      "The tenant is the signed-in operator's own; there is no tenant picker. A super admin may reach any tenant; another admin only a tenant they belong to.",
+      "The tenant is the signed-in admin's own; there is no tenant picker. The server lets an admin reach any tenant.",
       "Status per tool: disabled by PIERRE_DISABLED_TOOLS, else disabled when the plan is below the tool's minimum plan, else the tenant override, else the catalogue default. An unknown tenant is treated as Enterprise.",
       "Summary counts are counted from that same list.",
-      "Tenant plan (super admins only): a change writes the tenant's plan and clears its tool cache.",
+      "Tenant plan: a change writes the tenant's plan and clears its tool cache.",
       "An override is stored with the operator who made it and clears the cache on the instance that served it. The cache lives five minutes, so other instances can serve the old answer until theirs expires.",
     ],
     since: BEFORE_IMPORT,
@@ -357,7 +357,7 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
     computation: [
       "User picker: the all-users list, searched in the browser, first 25 matches.",
       "Tool list: the tenant result for the user's first tenant, with the user's overrides laid over it, read fresh on every request. Admin tools are hidden because they are gated by role anyway.",
-      "A plain admin may open a user only when they share a tenant.",
+      "An admin may open any user, whatever the tenant.",
       "An override is stored per user and tool, not per tenant, and applies at once to MCP tool calls, the chat tool catalogue and the Guardian.",
     ],
     since: "2026-07-16",
@@ -376,7 +376,7 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
     computation: [
       'Counts and sources come from the registry: "synced" means loaded from contremaitre, "seed copy" means the compiled-in fallback.',
       "Size is the prompt's length in bytes. Agents are listed by slug with their locales; a missing translation falls back to the default locale, which is fr.",
-      "The status bar, system prompts and Sync Now load only for a super admin (configuration rights). Agent prompts are open to any console admin.",
+      "The status bar, system prompts and Sync Now need configuration rights, which every admin holds.",
       "An edit commits the file to contremaitre on GitHub together with the manifest hash that announces it, then applies it on the instance that took the request; every other instance picks it up on its sync poll, every 60 seconds by default. A failed commit changes nothing, and content missing a placeholder its prompt requires is refused. Without contremaitre configured (local development) the edit lives only in that process.",
       "Prompts are platform-wide: nothing on this screen is per tenant.",
     ],
@@ -441,7 +441,7 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
       "Compaction: summarize when the conversation exceeds max_messages or its estimated tokens reach warn; drop the oldest turns with no summary when they reach emergency.",
       "Guardrails: a blocked topic found anywhere in a reply (case-insensitive) replaces the whole reply; a disclaimer trigger word in the reader's locale prepends that locale's disclaimer.",
       "Save: validated, then written by compare-and-set on the last updated_at; a stale save gets a 409 and writes nothing. The instance that saves applies it at once; the others on their settings poll, 30 seconds by default.",
-      "Super admins only, with a global-scope token. Per-tenant overrides do not exist. Every save is recorded in the audit trail.",
+      "Reading needs configuration rights and saving needs the right to manage configuration; every admin holds both. A service token also needs the super-admin flag or no tenant binding: one scoped to a tenant is refused. Per-tenant overrides do not exist. Every save is recorded in the audit trail.",
     ],
     since: BEFORE_IMPORT,
     commits: [
@@ -521,9 +521,9 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
     theory:
       "Service tokens and admin tokens were one list on two screens, so they are one screen now (carnet#1444): a bookmark of the old Admin Tokens tab opens this one. The token itself is shown once; only its hash and prefix are kept.",
     computation: [
-      "List: every admin_tokens row, newest first, with no tenant filter. Super-admin tokens are hidden from anyone who is not a super admin. Active and Inactive are counted in the browser.",
+      "List: every admin_tokens row, newest first, with no tenant filter. Super-admin tokens are hidden from a service token that lacks the super-admin flag. Active and Inactive are counted in the browser.",
       "Requests and Last used: every request the token authenticates adds one to its row and stamps the time and address, so they count from the token's creation.",
-      "Create: only a super admin can create a super-admin token, and anyone else can grant only permissions they hold. 0 days means no expiry.",
+      "Create: an admin can create a super-admin token; a service token without that flag cannot, and grants only permissions it holds. 0 days means no expiry.",
       "Revoke deactivates the token, effective on its next request. Rotate deactivates it and issues a new one with the same name, scope and super-admin flag, valid 365 days by default.",
       "Connected Apps lists the A2A clients the signed-in operator registered.",
     ],
@@ -555,7 +555,7 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
   billing: {
     question: "Can I download LLM usage rows to reconcile an invoice?",
     theory:
-      "The tab exists only in a build made with VITE_BILLING_ENABLED=true, off by default because billing is outside the first release. The export is platform-wide, so the server allows it to super admins only.",
+      "The tab exists only in a build made with VITE_BILLING_ENABLED=true, off by default because billing is outside the first release. The export is platform-wide, so the server allows it to admins only.",
     computation: [
       "Export: the newest N llm_usage rows made in the chosen month (UTC, from the 1st 00:00 to the next month's 1st), across every tenant, leaving out turn summaries and MCP tool rows, N from 1 to 10,000 (default 1,000), as CSV.",
       "A month that is not YYYY-MM is refused. A month with more than N calls exports only its newest N.",
@@ -566,14 +566,14 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
   },
   "impersonation-log": {
     question:
-      "When did a super admin act as another user, as whom, for how long, and why?",
+      "When did an admin act as another user, as whom, for how long, and why?",
     theory:
-      "Impersonation lets a super admin see the product as a user sees it. Every session is recorded so it can be accounted for afterwards.",
+      "Impersonation lets an admin see the product as a user sees it. Every session is recorded so it can be accounted for afterwards.",
     computation: [
       "List: every impersonation session, active and ended, every tenant, newest first by start time, 100 per page. Load older resumes after the last session shown by start time and id, so sessions that started in the same instant are never skipped.",
       "Duration: end, or now while active, minus start, in minutes with a minimum of 1. A deleted account shows as Unknown user.",
-      "Details reads one session for its reason and end time. Starting a session ends the impersonator's active one, and refuses yourself or another super admin.",
-      "Super admins only, checked again by the server.",
+      "Details reads one session for its reason and end time. Starting a session ends the impersonator's active one, and refuses yourself or another admin.",
+      "Admins only, checked again by the server.",
     ],
     since: "2026-09-28",
     commits: [COMMIT["9af6e6490"], COMMIT["304c4ca17"]],
@@ -585,7 +585,7 @@ export const SCREEN_THEORY: Readonly<Record<string, ScreenTheory>> = {
       'Every operator write is recorded, so "who deleted that account?" has an answer that is not someone\'s memory. Request bodies are never read, because they carry secrets.',
     computation: [
       "A layer around every admin router records each non-GET request. Outcome from the HTTP status: 2xx and 3xx succeeded, 4xx refused, 5xx failed. Source from the token: console, pierre-cli or a service token.",
-      "Scope: a super admin sees every tenant; another admin sees their session's active tenant only. Needs user-management rights.",
+      "Scope: an admin sees every tenant. Needs user-management rights.",
       "Newest first by time then id, 50 per page (at most 200). Load older resumes after the last event shown by its time and id, so events recorded in the same instant across a page boundary are all shown.",
       "Filters: outcome and action prefix. A deleted operator's events stay, without who did them.",
     ],

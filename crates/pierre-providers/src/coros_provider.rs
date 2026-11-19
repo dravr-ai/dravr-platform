@@ -53,9 +53,8 @@ use crate::activity_paging::pages_for;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
-use crate::models::coverage::WindowScope;
 use crate::models::refresh_due;
-use crate::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
+use crate::models::{Activity, ActivityBuilder, Athlete, SportType};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::request_budget;
 use crate::utils;
@@ -486,6 +485,7 @@ impl FitnessProvider for CorosProvider {
         let profile: CorosUserProfile = self.api_request("user/profile").await?;
 
         Ok(Athlete {
+            active_streak: None,
             created_at: None,
             id: profile.user_id,
             username: profile
@@ -650,18 +650,6 @@ impl FitnessProvider for CorosProvider {
         let endpoint = format!("workouts/{id}");
         let workout: CorosWorkout = self.api_request(&endpoint).await?;
         Self::convert_workout(&workout)
-    }
-
-    /// COROS has no aggregate endpoint, so the totals are summed over the
-    /// default page of recent workouts, and say so in their coverage.
-    async fn get_stats(&self) -> AppResult<Stats> {
-        let activities = self
-            .get_activities_with_params(&ActivityQueryParams::with_pagination(None, None))
-            .await?;
-        Ok(Stats::summed_over(
-            &activities,
-            WindowScope::RecentActivities,
-        ))
     }
 }
 

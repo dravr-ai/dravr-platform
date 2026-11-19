@@ -306,6 +306,14 @@ pub struct OAuthClientGrant {
     pub granted_at: DateTime<Utc>,
     /// When the grant was revoked (soft delete); `None` while active
     pub revoked_at: Option<DateTime<Utc>>,
+    /// The version of the consent screen's text the user approved: a digest
+    /// of every line the screen can show, in [`Self::consent_locale`]. A
+    /// later authorization asks again when the text in that language has
+    /// changed since. `None` for a grant recorded before versions were, which
+    /// is asked again too.
+    pub consent_version: Option<String>,
+    /// The language the consent screen was shown in when the user approved.
+    pub consent_locale: Option<String>,
 }
 
 /// Where a user's consent to one OAuth client stands in one tenant.

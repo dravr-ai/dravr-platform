@@ -79,6 +79,8 @@ use super::registry::PromptSource;
 /// first entry of [`SUPPORTED_LOCALES`] rather than its own literal, so the
 /// default follows the one list instead of drifting from it — currently
 /// French, because the majority user base is francophone.
+///
+/// LIMITATION(registre#1669): `DEFAULT_LOCALE` is the language of every pre-link messaging prompt (`otp.rs`, `linking.rs`), so an unlinked English speaker reads French.
 pub const DEFAULT_LOCALE: &str = SUPPORTED_LOCALES[0];
 
 // ── Chat pipeline keys ────────────────────────────────────────────────────
@@ -122,7 +124,9 @@ pub const KEY_ENVELOPE_RELABELLED: &str = "messaging.envelope.relabelled";
 /// The anchor sentence: `{0}` its label, `{1}` its value, `{2}` its source.
 pub const KEY_ENVELOPE_ANCHOR: &str = "messaging.envelope.anchor";
 
-/// A low-confidence anchor with no range: `{0}` its value with its unit.
+/// An anchor that reads as an estimate of one value: a low-confidence one
+/// with no range, or one not measured, whatever its confidence. `{0}` its
+/// value with its unit.
 pub const KEY_ENVELOPE_ANCHOR_ESTIMATE: &str = "messaging.envelope.anchor_estimate";
 
 /// A low-confidence anchor's range: `{0}` its low end, `{1}` its high end and
@@ -137,6 +141,26 @@ pub const KEY_ENVELOPE_SOURCE_ATHLETE: &str = "messaging.envelope.source_athlete
 
 /// The source of an anchor someone else produced: `{0}` who.
 pub const KEY_ENVELOPE_SOURCE_FROM: &str = "messaging.envelope.source_from";
+
+/// The source of an anchor brought in from another app that names no
+/// provider (origin `imported`).
+pub const KEY_ENVELOPE_SOURCE_IMPORTED: &str = "messaging.envelope.source_imported";
+
+/// The source of an anchor a model estimated until a measurement exists
+/// (origin `estimated`).
+pub const KEY_ENVELOPE_SOURCE_ESTIMATED: &str = "messaging.envelope.source_estimated";
+
+/// The source of an anchor the weekly promotion filled from the athlete's
+/// recent measurements (origin `promoted`).
+pub const KEY_ENVELOPE_SOURCE_PROMOTED: &str = "messaging.envelope.source_promoted";
+
+/// The source of an anchor the athlete's human coach set, as the athlete
+/// reads it (carnet#1561). No placeholder.
+pub const KEY_HUMAN_COACH_ANCHOR_SOURCE_FOR_ATHLETE: &str = "humanCoach.anchorSource.forAthlete";
+
+/// The source of an anchor an athlete's human coach set, in a coach's view of
+/// the athlete. No placeholder.
+pub const KEY_HUMAN_COACH_ANCHOR_SOURCE_FOR_COACH: &str = "humanCoach.anchorSource.forCoach";
 
 /// The key of the sentence for one envelope finding code (`{0}` measured,
 /// `{1}` bound where the finding carries them).
@@ -461,6 +485,11 @@ pub const KEY_PLATFORM_POST_CHECK_IN_THREE_PER_WEEK_PROMPT: &str =
 /// ended. No placeholders.
 pub const KEY_PLATFORM_POST_CHECK_IN_WEEKLY_PROMPT: &str = "platform_post.check_in.weekly_prompt";
 
+/// Key: the instruction for the coach's reaction to a workout a live sync
+/// just landed (carnet#1486). `{0}` = the workout's local start
+/// (`YYYY-MM-DD HH:MM`), `{1}` = its activity id, `{2}` = its provider key.
+pub const KEY_PLATFORM_POST_ACTIVITY_LANDED_PROMPT: &str = "platform_post.activity_landed.prompt";
+
 // ── Commitment verdict keys ───────────────────────────────────────────────
 // Emitted by the commitment sweep once a promise's window closes. Composed
 // from counts and the sanitized sport slug only — never from the athlete's or
@@ -502,6 +531,9 @@ pub const KEY_LINK_EMAIL_PROMPT: &str = "messaging.link.email_prompt";
 pub const KEY_LINK_LOGOUT_COMPLETE: &str = "messaging.link.logout_complete";
 /// Key: user typed `cancel` during the OTP flow.
 pub const KEY_LINK_CANCELLED: &str = "messaging.link.cancelled";
+/// Key: a pairing link was redeemed; asks the sender to confirm before linking.
+/// `{0}` = the channel's name, `{1}` = the masked email of the account it links to.
+pub const KEY_LINK_CONFIRM_PROMPT: &str = "messaging.link.confirm_prompt";
 /// Key: generic "something went wrong" for unexpected DB/infra errors.
 pub const KEY_LINK_GENERIC_ERROR: &str = "messaging.link.generic_error";
 /// Offer to create an account in-conversation when the address is unknown.
@@ -769,8 +801,6 @@ pub const KEY_DELETE_ACCOUNT_EMAIL_MISMATCH: &str = "commands.delete-account.ema
 /// Key: the confirmation was typed in a shared room, where the email would be
 /// read by everyone in it.
 pub const KEY_DELETE_ACCOUNT_DM_ONLY: &str = "commands.delete-account.dm_only";
-/// Key: an operator account cannot delete itself.
-pub const KEY_DELETE_ACCOUNT_OPERATOR: &str = "commands.delete-account.operator";
 /// Key: the delete is refused over rows other people rely on. `{0}` = one
 /// line per blocker.
 pub const KEY_DELETE_ACCOUNT_BLOCKED: &str = "commands.delete-account.blocked";
@@ -1182,7 +1212,9 @@ pub const KEY_GROUP_READS_HEADER: &str = "commands.group.reads_header";
 /// `{0}` = when (UTC), `{1}` = the coach, `{2}` = the kind of data
 /// ([`KEY_GROUP_READS_TRAINING`] or [`KEY_GROUP_READS_WELLNESS`]), `{3}` = the
 /// tool read through, or the words of a read made outside a tool call
-/// (`KEY_GROUP_READS_SOURCE_*`).
+/// (`KEY_GROUP_READS_SOURCE_*`), followed by
+/// [`KEY_GROUP_READS_SERVED_TO_ASSISTANT`] when the coach's outside AI tool
+/// was served the read.
 pub const KEY_GROUP_READS_LINE: &str = "commands.group.reads_line";
 /// Key: `/group reads` for a group whose human coach read nothing of the
 /// member's within the retention. `{0}` = group name, `{1}` = the months
@@ -1225,6 +1257,11 @@ pub const KEY_GROUP_READS_SOURCE_GROUP_HEALTH: &str = "commands.group.reads_sour
 /// Key: `/group reads` words, in place of a tool, for a read made by the
 /// human coach's copy of the group's weekly digest. No placeholder.
 pub const KEY_GROUP_READS_SOURCE_WEEKLY_DIGEST: &str = "commands.group.reads_source_weekly_digest";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// human coach's view of the athlete's thresholds in Group info
+/// (carnet#1561). No placeholder.
+pub const KEY_GROUP_READS_SOURCE_PHYSIOLOGY_VIEW: &str =
+    "commands.group.reads_source_physiology_view";
 /// Key: the `/group join` reply's sharing line when the group has a human
 /// coach. `{0}` = the coach's name.
 pub const KEY_GROUP_COACH_SHARING_NAMED: &str = "commands.group.coach_sharing_named";
@@ -1267,6 +1304,14 @@ pub const KEY_GROUP_COACH_DETACHED: &str = "humanCoach.group_detached";
 /// carnet#847. `{0}` = the coach's name, `{1}` = the athlete the reply
 /// answered, `{2}` = the reply's opening, `{3}` = the correction.
 pub const KEY_GROUP_REPLY_CORRECTED: &str = "humanCoach.reply_corrected";
+/// Key: `/group reads` words beside a read served to the coach's outside AI
+/// tool.
+///
+/// The server marks a read served to an AI tool the human coach connects to
+/// Dravr from outside it, whose company received the data (EFVP decision
+/// 9.4b). Under `humanCoach.*`, so the vocabulary fence reads its "your
+/// coach" as the human coach. No placeholder.
+pub const KEY_GROUP_READS_SERVED_TO_ASSISTANT: &str = "humanCoach.reads_served_to_assistant";
 /// Key: the room post a coach's publish of an athlete's plan leaves in their
 /// group, when it changed days of a plan the athlete already had.
 ///
@@ -1316,7 +1361,7 @@ pub const KEY_COACH_ACCESS_ROOM_LINE_COACH: &str = "humanCoach.access.roomLineCo
 /// the coach now sees and where the athlete stops it. `{0}` = the coach's
 /// name.
 pub const KEY_COACH_ACCESS_ROOM_LINE_ATHLETE: &str = "humanCoach.access.roomLineAthlete";
-/// Key: the declined coach-access notice's body when the super-admin gave a
+/// Key: the declined coach-access notice's body when the admin gave a
 /// reason. `{0}` = the reason, in the operator's own words.
 pub const KEY_COACH_ACCESS_DECLINED_REASON_BODY: &str = "humanCoach.access.declinedReasonBody";
 
@@ -1597,6 +1642,55 @@ pub const KEY_NOTIFICATION_SEAT_RELEASE_WARNING_TITLE: &str =
 /// the release.
 pub const KEY_NOTIFICATION_SEAT_RELEASE_WARNING_BODY: &str =
     "notifications.event.seat_release_warning.body";
+/// Key: a company must answer the athlete's data access request soon. `{0}` = the company.
+pub const KEY_NOTIFICATION_DATA_ACCESS_REQUEST_DUE_SOON_TITLE: &str =
+    "notifications.event.data_access_request_due_soon.title";
+/// Key: by when. `{0}` company, `{1}` the request's reference, `{2}` the due date.
+pub const KEY_NOTIFICATION_DATA_ACCESS_REQUEST_DUE_SOON_BODY: &str =
+    "notifications.event.data_access_request_due_soon.body";
+/// Key: a company did not answer the athlete's data access request in time. `{0}` = the company.
+pub const KEY_NOTIFICATION_DATA_ACCESS_REQUEST_OVERDUE_TITLE: &str =
+    "notifications.event.data_access_request_overdue.title";
+/// Key: what was missed and the recourse. `{0}` company, `{1}` the request's
+/// reference, `{2}` the due date.
+pub const KEY_NOTIFICATION_DATA_ACCESS_REQUEST_OVERDUE_BODY: &str =
+    "notifications.event.data_access_request_overdue.body";
+/// Key: the letter's access paragraph, shared by both laws. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_ACCESS: &str = "dataAccess.letter.access";
+/// Key: the identifier line. `{0}` = the account or email the athlete uses there.
+pub const KEY_DATA_ACCESS_LETTER_IDENTIFIER: &str = "dataAccess.letter.identifier";
+/// Key: the reference line. `{0}` = the request's reference.
+pub const KEY_DATA_ACCESS_LETTER_REFERENCE: &str = "dataAccess.letter.reference";
+/// Key: the closing formula, a line break, then `{0}` = the athlete's name.
+pub const KEY_DATA_ACCESS_LETTER_CLOSING: &str = "dataAccess.letter.closing";
+/// Key: the letter's date line. `{0}` = the date, written for the locale.
+pub const KEY_DATA_ACCESS_LETTER_DATE: &str = "dataAccess.letter.date";
+/// Key: the Quebec letter's subject. `{0}` = the request's reference.
+pub const KEY_DATA_ACCESS_LETTER_QUEBEC_SUBJECT: &str = "dataAccess.letter.quebec.subject";
+/// Key: to the person in charge of the protection of personal information
+/// (P-39.1 art. 30). `{0}` = the company.
+pub const KEY_DATA_ACCESS_LETTER_QUEBEC_SALUTATION: &str = "dataAccess.letter.quebec.salutation";
+/// Key: the request under P-39.1 art. 27. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_QUEBEC_OPENING: &str = "dataAccess.letter.quebec.opening";
+/// Key: the portability ask, P-39.1 art. 27 para. 3. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_QUEBEC_PORTABILITY: &str = "dataAccess.letter.quebec.portability";
+/// Key: the 30-day answer, P-39.1 art. 32. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_QUEBEC_DEADLINE: &str = "dataAccess.letter.quebec.deadline";
+/// Key: free access and reasonable fees, P-39.1 art. 33. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_QUEBEC_COST: &str = "dataAccess.letter.quebec.cost";
+/// Key: the GDPR letter's subject. `{0}` = the request's reference.
+pub const KEY_DATA_ACCESS_LETTER_GDPR_SUBJECT: &str = "dataAccess.letter.gdpr.subject";
+/// Key: to the data protection officer, or the person responsible for
+/// personal data. `{0}` = the company.
+pub const KEY_DATA_ACCESS_LETTER_GDPR_SALUTATION: &str = "dataAccess.letter.gdpr.salutation";
+/// Key: the request under GDPR Art. 15. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_GDPR_OPENING: &str = "dataAccess.letter.gdpr.opening";
+/// Key: the portability ask, GDPR Art. 20. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_GDPR_PORTABILITY: &str = "dataAccess.letter.gdpr.portability";
+/// Key: the one-month answer, GDPR Art. 12(3). No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_GDPR_DEADLINE: &str = "dataAccess.letter.gdpr.deadline";
+/// Key: free of charge, GDPR Art. 12(5). No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_GDPR_COST: &str = "dataAccess.letter.gdpr.cost";
 /// Key: a group's coach asks to read the member's TrainingPeaks workouts.
 /// No format placeholders.
 pub const KEY_NOTIFICATION_DELEGATION_PROPOSED_TITLE: &str =
@@ -1645,6 +1739,14 @@ pub const KEY_NOTIFICATION_COACH_PLAN_PUSHED_TITLE: &str =
 /// provider name.
 pub const KEY_NOTIFICATION_COACH_PLAN_PUSHED_BODY: &str =
     "notifications.event.coach_plan_pushed.body";
+/// Key: the athlete's human coach set one of their thresholds. `{0}` coach
+/// name.
+pub const KEY_NOTIFICATION_COACH_PHYSIOLOGY_SET_TITLE: &str =
+    "notifications.event.coach_physiology_set.title";
+/// Key: who set which threshold, and where it is. `{0}` coach name, `{1}` the
+/// threshold's label.
+pub const KEY_NOTIFICATION_COACH_PHYSIOLOGY_SET_BODY: &str =
+    "notifications.event.coach_physiology_set.body";
 
 // ── Group weekly digest ───────────────────────────────────────────────────
 //
@@ -1938,8 +2040,7 @@ impl MessagingStringsRegistry {
         }
         per_locale
             .get(DEFAULT_LOCALE)
-            .map(|entry| entry.content.clone())
-            .unwrap_or_default()
+            .map_or_default(|entry| entry.content.clone())
     }
 
     /// The text of `key` in `locale` only, with no fallback; a blank entry is

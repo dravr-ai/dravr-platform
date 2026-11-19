@@ -20,7 +20,7 @@ mod helpers;
 mod bot_links_settings {
     use crate::common::{
         create_test_server_resources, create_test_server_resources_with_config, create_test_tenant,
-        generate_test_token, test_server_config,
+        generate_test_token, offline_email_service, test_server_config,
     };
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::extract::Path;
@@ -30,16 +30,17 @@ mod bot_links_settings {
     use axum::{Json, Router};
     use chrono::{Duration, Utc};
     use hmac::{Hmac, Mac};
+    use pierre_config::environment::ChannelCredentials;
     use pierre_core::models::{TenantId, UserStatus};
     use pierre_database::backends::{
         CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository,
         UpsertChannelConfigParams,
     };
-    use pierre_email::ResendEmailService;
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_mcp_server::messaging_seed::seed_from_env;
+    use pierre_mcp_server::messaging_seed::seed_from_config;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_routes_auth::AuthRoutes;
+    use secrecy::SecretString;
     use serde_json::{json, Value};
     use sha2::{Digest, Sha256};
     use std::env;
@@ -60,8 +61,9 @@ mod bot_links_settings {
     const WHATSAPP_ACCESS_TOKEN: &str = "wa_platform_access_439";
 
     /// Resources with an email service present, so an unlinked sender is
-    /// routed into the in-chat OTP flow rather than handed a link URL. The key
-    /// is fake: the tests put the OTP state in place directly and never send.
+    /// routed into the in-chat OTP flow rather than handed a link URL. The
+    /// service cannot leave the machine: the code a flow emails is never
+    /// delivered, and the tests put the OTP state in place directly.
     /// A `WhatsApp` link asks its number of the Graph API at `graph_api_base`.
     async fn resources_with_email(graph_api_base: String) -> Arc<ServerContext> {
         let mut config = test_server_config();
@@ -72,13 +74,7 @@ mod bot_links_settings {
         Arc::get_mut(&mut resources)
             .expect("no other handle to the fresh ServerContext yet")
             .common
-            .email_service = Some(Arc::new(
-            ResendEmailService::new(
-                "re_fake_test_api_key".to_owned(),
-                "Pierre <noreply@test.pierre.dev>".to_owned(),
-            )
-            .expect("a non-empty key builds the email service"),
-        ));
+            .email_service = Some(offline_email_service());
         resources
     }
 
@@ -120,7 +116,8 @@ mod bot_links_settings {
             user = users
                 .update_status(user_id, UserStatus::Active, Some(user_id))
                 .await
-                .unwrap();
+                .unwrap()
+                .user;
         }
         let tenant = first_tenant(resources, user_id).await;
         let token = generate_test_token(resources, &user).await;
@@ -250,23 +247,26 @@ mod bot_links_settings {
         let (admin, _admin_token) = create_test_tenant(&resources, ADMIN_EMAIL).await.unwrap();
         let bot_tenant = first_tenant(&resources, admin.id).await;
 
-        // The only test in this binary that touches these variables, and it
-        // removes them again before asserting anything.
-        let vars = [
-            ("ADMIN_EMAIL", ADMIN_EMAIL),
-            ("TELEGRAM_BOT_TOKEN", "439:platform-bot-token"),
-            ("TELEGRAM_WEBHOOK_SECRET", TELEGRAM_SECRET),
-            ("META_WHATSAPP_APP_SECRET", WHATSAPP_SECRET),
-            ("META_WHATSAPP_ACCESS_TOKEN", WHATSAPP_ACCESS_TOKEN),
-            ("META_WHATSAPP_PHONE_NUMBER_ID", WHATSAPP_PHONE_ID),
-        ];
-        for (key, value) in vars {
-            env::set_var(key, value);
-        }
-        seed_from_env(&resources.common.repos).await;
-        for (key, _) in vars {
-            env::remove_var(key);
-        }
+        // What `ServerConfig::from_env` captures for a deployment that runs
+        // a Telegram bot and a WhatsApp number. The seed is handed it; the
+        // admin's address is the one thing it still reads from the
+        // environment, set by this test alone and removed before any assert.
+        let channels = ChannelCredentials {
+            telegram_bot_token: Some(SecretString::from("439:platform-bot-token")),
+            telegram_webhook_secret: Some(SecretString::from(TELEGRAM_SECRET)),
+            whatsapp_app_secret: Some(SecretString::from(WHATSAPP_SECRET)),
+            whatsapp_access_token: Some(SecretString::from(WHATSAPP_ACCESS_TOKEN)),
+            whatsapp_phone_number_id: Some(WHATSAPP_PHONE_ID.to_owned()),
+            ..ChannelCredentials::default()
+        };
+        env::set_var("ADMIN_EMAIL", ADMIN_EMAIL);
+        seed_from_config(
+            &resources.common.repos,
+            &channels,
+            &resources.common.config.webhooks,
+        )
+        .await;
+        env::remove_var("ADMIN_EMAIL");
 
         let (athlete_id, athlete_token, athlete_tenant) =
             register_athlete(&resources, "bot-linked-athlete-439@example.com").await;
@@ -292,6 +292,7 @@ mod bot_links_settings {
             method: "otp",
             channel_user_id: Some(&tg_sender_str),
             sender_name: Some("Athlete"),
+            app_return_uri: None,
             expires_at: &(Utc::now() + Duration::minutes(10)).to_rfc3339(),
         })
         .await
@@ -353,6 +354,16 @@ mod bot_links_settings {
 
         let wa_sender = "15550439111";
         send_whatsapp_text(&resources, wa_sender, &format!("LINK {code}")).await;
+        // The code alone links nothing: the bot names the account and waits
+        // for the sender's yes (carnet#1596).
+        assert!(
+            db.get_channel_link(bot_tenant, "whatsapp", wa_sender)
+                .await
+                .unwrap()
+                .is_none(),
+            "bug: a WhatsApp pairing code linked before the sender's yes"
+        );
+        send_whatsapp_text(&resources, wa_sender, "yes").await;
         let wa_link = db
             .get_channel_link(bot_tenant, "whatsapp", wa_sender)
             .await
@@ -452,6 +463,7 @@ mod bot_links_settings {
                     method: "channel_initiated",
                     channel_user_id: Some(chat),
                     sender_name: Some("Page Athlete"),
+                    app_return_uri: None,
                     expires_at: &(Utc::now() + Duration::minutes(10)).to_rfc3339(),
                 })
                 .await

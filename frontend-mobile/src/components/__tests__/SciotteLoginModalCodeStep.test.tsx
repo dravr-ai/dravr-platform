@@ -79,6 +79,15 @@ describe('SciotteLoginModal (mobile) — the code step', () => {
     expect(screen.queryByTestId('sciotte-otp-error')).toBeNull();
   });
 
+  it('names a refused sign-in once, and drops the attempt that led there from the header', async () => {
+    sciotteLogin.mockResolvedValueOnce({ status: 'error', error: 'Those credentials did not work.' });
+    render(<SciotteLoginModal visible onClose={jest.fn()} onConnected={jest.fn()} target="coros" />);
+    signIn();
+    expect(await screen.findByText('Those credentials did not work.')).toBeTruthy();
+    expect(screen.getByText('Connection Failed')).toBeTruthy();
+    expect(screen.queryByText(/Signing in to/)).toBeNull();
+  });
+
   it('says it is verifying the code while the code is checked', async () => {
     await reachCodeStep();
     sciotteSubmitOTP.mockReturnValueOnce(new Promise(() => {}));

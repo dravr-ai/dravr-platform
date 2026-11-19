@@ -86,7 +86,6 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -279,7 +278,7 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -292,6 +291,8 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Group info's record of the human coach's reads of the member's data — who, which kind, through what, when
+// ABOUTME: Group info's record of the human coach's reads of the member's data — who, which kind, through what, when, and if an outside AI tool got it
 // ABOUTME: Shown beside the member's coach sharing; the server lists the member's own reads only, newest first, kept a year
 
 import type { CoachRead } from '@pierre/shared-types';
@@ -17,7 +17,9 @@ interface CoachReadLogProps {
 /**
  * One read: who read, which kind of data, through what, and when. A read made
  * outside a tool call — the plan view, `/plan`, the coach's roster, the
- * coach's thread — reads in plain words; a tool is named as it is.
+ * coach's thread — reads in plain words; a tool is named as it is. A read the
+ * server marked as served to an AI tool the coach connects to Dravr says so
+ * under it.
  */
 function ReadRow({ read }: { read: CoachRead }) {
   const { t, language } = useTranslation();
@@ -44,6 +46,12 @@ function ReadRow({ read }: { read: CoachRead }) {
       <time className="text-xs text-outline" dateTime={read.read_at} data-testid="coach-read-at">
         {formatDateTime(read.read_at, language)}
       </time>
+      {/* The server marked it served to an AI tool the coach connects, whose company received it. */}
+      {read.served_to_assistant && (
+        <span className="basis-full text-xs text-on-surface-variant" data-testid="coach-read-served-to-assistant">
+          {t(COACH_READ_LOG_KEYS.servedToAssistant)}
+        </span>
+      )}
     </li>
   );
 }

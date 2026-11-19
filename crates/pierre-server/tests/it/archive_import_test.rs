@@ -12,7 +12,7 @@
 //! this process, exactly as a local stack runs them; the projection, the
 //! provider reads and the deletion paths are the production ones.
 
-use crate::common;
+use crate::common::{self, acting_on};
 use crate::retention_sweep_test::configure;
 
 use std::io::{Cursor, Write};
@@ -40,7 +40,6 @@ use pierre_core::constants::oauth_providers::{
 use pierre_core::models::{ActivityBuilder, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
-use pierre_database::repositories::DeletionActor;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::routes::imports::import_routes;
@@ -52,6 +51,8 @@ use pierre_mcp_server::services::archive_import::sweeps::erase_deleted_accounts;
 use pierre_mcp_server::services::archive_import::{ArchiveImports, ImportWiring};
 use pierre_mcp_server::services::retention_sweep_worker::retention_sweeper;
 use pierre_providers::upload_provider::file_sha256;
+use pierre_services::admin_ops::AccountCaller;
+use pierre_services::live_activities::WriteOrigin;
 use pierre_services::stored_health;
 use pierre_services::user_removal::{remove_user, UserRemoval};
 use pierre_test_support::fit::FitWorkout;
@@ -539,14 +540,11 @@ async fn an_export_only_athlete_reads_their_wellness_back_from_the_tools() {
 }
 
 fn activity_ids(payload: &Value) -> Vec<String> {
-    let mut ids: Vec<String> = payload["activities"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|row| row["id"].as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut ids: Vec<String> = payload["activities"].as_array().map_or_default(|rows| {
+        rows.iter()
+            .filter_map(|row| row["id"].as_str().map(str::to_owned))
+            .collect()
+    });
     ids.sort();
     ids
 }
@@ -736,7 +734,14 @@ async fn deleting_an_imported_ride_erases_the_strava_copy_of_the_same_workout() 
     let read = [strava_copy, other_day];
     let live = &resources.common.live_activities;
     let synced = live
-        .ingest(athlete.user_id, athlete.tenant, STRAVA, &read, Utc::now())
+        .ingest(
+            athlete.user_id,
+            athlete.tenant,
+            STRAVA,
+            &read,
+            Utc::now(),
+            WriteOrigin::Live,
+        )
         .await
         .expect("the sync is kept");
     assert_eq!(synced.stored, 2, "test setup: both Strava rides are held");
@@ -749,7 +754,14 @@ async fn deleting_an_imported_ride_erases_the_strava_copy_of_the_same_workout() 
     );
 
     let resynced = live
-        .ingest(athlete.user_id, athlete.tenant, STRAVA, &read, Utc::now())
+        .ingest(
+            athlete.user_id,
+            athlete.tenant,
+            STRAVA,
+            &read,
+            Utc::now(),
+            WriteOrigin::Live,
+        )
         .await
         .expect("the sync is kept");
     assert_eq!(
@@ -818,6 +830,7 @@ async fn deleting_an_imported_ride_leaves_the_uploaded_copy_of_the_same_workout(
             "upload",
             slice::from_ref(&uploaded),
             Utc::now(),
+            WriteOrigin::Live,
         )
         .await
         .expect("the upload is kept");
@@ -845,6 +858,7 @@ async fn deleting_an_imported_ride_leaves_the_uploaded_copy_of_the_same_workout(
             "upload",
             slice::from_ref(&uploaded),
             Utc::now(),
+            WriteOrigin::Live,
         )
         .await
         .expect("the upload is kept");
@@ -1087,8 +1101,12 @@ async fn a_deleted_account_is_erased_from_barrage() {
         None,
         None,
         None,
-        athlete.user_id,
-        DeletionActor::Athlete,
+        &acting_on(
+            &resources.common.repos,
+            &AccountCaller::account_holder(athlete.user_id),
+            athlete.user_id,
+        )
+        .await,
     )
     .await
     .expect("the removal runs");
@@ -1157,7 +1175,14 @@ async fn a_deleted_account_is_erased_where_imports_do_not_run() {
     )
     .build();
     let kept = live
-        .ingest(athlete.user_id, athlete.tenant, STRAVA, &[ride], Utc::now())
+        .ingest(
+            athlete.user_id,
+            athlete.tenant,
+            STRAVA,
+            &[ride],
+            Utc::now(),
+            WriteOrigin::Live,
+        )
         .await
         .expect("the read is kept");
     assert_eq!(kept.stored, 1, "test setup: the store holds the read");
@@ -1167,8 +1192,12 @@ async fn a_deleted_account_is_erased_where_imports_do_not_run() {
         None,
         None,
         None,
-        athlete.user_id,
-        DeletionActor::Athlete,
+        &acting_on(
+            &resources.common.repos,
+            &AccountCaller::account_holder(athlete.user_id),
+            athlete.user_id,
+        )
+        .await,
     )
     .await
     .expect("the removal runs");
@@ -1505,8 +1534,12 @@ async fn an_apple_sdnn_reading_keeps_its_own_series_and_goes_with_the_source() {
         None,
         None,
         None,
-        athlete.user_id,
-        DeletionActor::Athlete,
+        &acting_on(
+            repos,
+            &AccountCaller::account_holder(athlete.user_id),
+            athlete.user_id,
+        )
+        .await,
     )
     .await
     .expect("the removal runs");

@@ -9,7 +9,7 @@
 
 use chrono::Utc;
 use pierre_config::tool_selection::ToolSelectionConfig;
-use pierre_core::models::{ToolEnablementSource, UserTier};
+use pierre_core::models::{TenantPlan, ToolEnablementSource, UserTier};
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::UserToolOverride;
 use pierre_services::admin_ops;
@@ -20,12 +20,30 @@ use crate::common;
 
 /// A catalogued starter-plan tool, enabled by default (`tc-001`-adjacent rows).
 const STARTER_TOOL: &str = "get_activities";
-/// A catalogued tool with `min_plan = 'professional'` (tc-048), enabled by
-/// default — invisible to a starter tenant unless user-overridden.
+/// A catalogued tool (tc-048), enabled by default, that the plan-gate tests
+/// raise to `min_plan = 'professional'` — then invisible to a starter tenant
+/// unless user-overridden.
 const PROFESSIONAL_TOOL: &str = "analyze_weather_impact";
 
 fn service(db: &Arc<Database>) -> ToolSelectionService {
     ToolSelectionService::new(&Arc::clone(db.repositories()))
+}
+
+/// Raise `PROFESSIONAL_TOOL` to `min_plan = 'professional'` in this test's own
+/// database.
+///
+/// No seeded catalog row sits above `starter` (plans differ by usage limits,
+/// not by tool, carnet#1587), so a test of the plan gate sets its own. Call it
+/// before the first lookup: the service caches a tenant's tools for minutes.
+async fn gate_at_professional(db: &Arc<Database>) {
+    let catalog = &db.repositories().tool_selection;
+    let mut entry = catalog
+        .get_tool_catalog_entry(PROFESSIONAL_TOOL)
+        .await
+        .unwrap()
+        .expect("the plan-gate tool has a tool_catalog row");
+    entry.min_plan = TenantPlan::Professional;
+    catalog.upsert_tool_catalog_entry(&entry).await.unwrap();
 }
 
 fn service_with_disabled(db: &Arc<Database>, disabled: Vec<String>) -> ToolSelectionService {
@@ -183,6 +201,7 @@ async fn test_user_enable_exposes_plan_restricted_tool() {
         common::create_test_user_with_plan(&db, "enable@example.com", "starter")
             .await
             .unwrap();
+    gate_at_professional(&db).await;
     let svc = service(&db);
 
     // Baseline: plan-restricted for the starter tenant.
@@ -437,6 +456,7 @@ async fn test_plan_change_unlocks_plan_restricted_tool() {
         common::create_test_user_with_plan(&db, "upgrade@example.com", "starter")
             .await
             .unwrap();
+    gate_at_professional(&db).await;
     let svc = service(&db);
 
     // Starter: restricted.

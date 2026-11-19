@@ -1,5 +1,5 @@
-// ABOUTME: MCP tool for discovering real running, cycling, hiking, and ski routes from OSM data
-// ABOUTME: Wraps RouteDiscoveryService and stores each mapped line under a route_ref a map or compose_route reads
+// ABOUTME: MCP tool for discovering routes: the athlete's own loops, then real running, cycling, hiking and ski routes from OSM
+// ABOUTME: Wraps RouteDiscoveryService and the loops search, storing each line under a route_ref a map or compose_route reads
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,20 +9,22 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures_util::future::join_all;
+use futures_util::future::{self, join_all};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use pierre_cache::Cache;
-use pierre_fitness_compute::geocoding::{free_text_query, place_geocoder};
+use pierre_fitness_compute::geocoding::free_text_query;
 use pierre_fitness_compute::osm_routes::{
     DiscoveredRoute, DistanceSource, RouteDiscoveryService, TargetFit,
 };
 use pierre_fitness_compute::route_compose;
+use pierre_services::athlete_loops::{Effort, LoopSearch};
 
 use super::compose_route::ComposeRouteTool;
+use super::weather_forecast::default_place;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
 use crate::route_store::{self, StoredRoute};
@@ -35,6 +37,14 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{resolve_sport_type, SportType, TenantId};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
+
+mod own_loops;
+
+/// What a model reads after a route search, so a session planned on one of
+/// the routes carries its weather and daylight (carnet#1665).
+const FORECAST_NEXT_STEP: &str = "For a session planned on one of these routes, call \
+     get_weather_forecast for this place and the session's hour, and give its conditions and \
+     sunset with the route.";
 
 /// What `discover_routes` answers with.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -52,10 +62,18 @@ pub struct DiscoverRoutesResult {
     pub target_distance_meters: Option<f64>,
     /// How many routes came back.
     pub count: usize,
-    /// The routes: nearest first within each class, or, when a target
-    /// distance was given, the ones whose usable distance lands closest to
-    /// it first.
+    /// The routes. The athlete's own loops (`source` `your_rides`) come
+    /// first, best for the asked `effort`; then OpenStreetMap's, nearest
+    /// first within each class, or, when a target distance was given, the
+    /// ones whose usable distance lands closest to it first.
     pub routes: Vec<DiscoveredRouteEntry>,
+    /// Why no OpenStreetMap route is listed: no public Overpass server
+    /// answered within the search's few seconds, and the athlete's own loops
+    /// answer alone. Absent when OpenStreetMap answered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub osm_unavailable: Option<String>,
+    /// What to read before planning a session on one of the routes.
+    pub next_step: String,
 }
 
 /// Where a route search was centred.
@@ -65,19 +83,21 @@ pub struct RouteSearchCenter {
     pub latitude: f64,
     /// Longitude of the centre.
     pub longitude: f64,
-    /// The resolved place name. Absent when the caller gave coordinates, so
-    /// there was no name to resolve.
+    /// The resolved place name, or the name of the athlete's training place
+    /// searched when no location was given. Absent when the caller gave
+    /// coordinates, or that place has no name to show.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
 }
 
-/// One route as `discover_routes` reports it.
+/// One route as `discover_routes` reports it: one of the athlete's own loops,
+/// or a route from OpenStreetMap.
 ///
-/// Grounded in OpenStreetMap, which is why so much is optional: a way tagged
-/// by a volunteer may carry a name and nothing else.
+/// An OpenStreetMap route is why so much is optional: a way tagged by a
+/// volunteer may carry a name and nothing else.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct DiscoveredRouteEntry {
-    /// The route's name in OSM.
+    /// The route's name in OSM; for an own loop, the ride's name.
     pub name: String,
     /// What kind of route it is, lowercased: cycling, hiking, ski.
     pub route_type: String,
@@ -90,12 +110,13 @@ pub struct DiscoveredRouteEntry {
     /// that exists on the ground and a lower bound on the trail, which can
     /// continue past it. `osm_tag`: the length the mapper declared for the
     /// whole route, however little of it lies inside the search radius.
+    /// `recorded`: the distance the athlete's own ride of the loop recorded.
     pub distance_source: Option<String>,
     /// How the route covers the target distance: `single_pass` (as long as
     /// the target, or short of it by no more than a tenth), `out_and_back`
     /// (out and back reaches it to within that tenth), `repeats` (shorter
-    /// still). Present only when a target was given and the route's length
-    /// is known.
+    /// still). Present only when a target was given and an
+    /// OpenStreetMap route's length is known.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_fit: Option<String>,
     /// How many times the route is covered — 1, 2 for an out-and-back, more
@@ -105,9 +126,11 @@ pub struct DiscoveredRouteEntry {
     pub passes_for_target: Option<u32>,
     /// Difficulty as the source grades it; absent when ungraded.
     pub difficulty: Option<String>,
-    /// Which dataset it came from, lowercased.
+    /// Which dataset it came from, lowercased: `your_rides` for one of the
+    /// athlete's own loops.
     pub source: String,
-    /// Latitude of the route start or centre.
+    /// Latitude of the route start or centre; an own loop's is where its
+    /// privacy-trimmed line starts, never the spot the ride left from.
     pub latitude: f64,
     /// Longitude of the route start or centre.
     pub longitude: f64,
@@ -129,6 +152,26 @@ pub struct DiscoveredRouteEntry {
     /// route meets none of the others.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub connects_to: Vec<String>,
+    /// An own loop's ride: the activity it was recorded as. Only an own loop
+    /// carries it; a map draws the loop by its `route_ref`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity_id: Option<String>,
+    /// The day an own loop was ridden, `YYYY-MM-DD` on the athlete's clock.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
+    /// The name of the athlete's place an own loop starts from, when it has
+    /// one that may be shown here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place_name: Option<String>,
+    /// An own loop's recorded climb, in metres, rounded; absent when none
+    /// was recorded, and for every OpenStreetMap route.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub elevation_gain_meters: Option<f64>,
+    /// How hard an own loop is among the athlete's rides of the sport at
+    /// that place: `easy` (the shortest, flattest third), `moderate` or
+    /// `hard`. Absent where they have too few rides to say.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relative_effort: Option<Effort>,
 }
 
 /// Upper bound on the Overpass `around:` radius to keep response sizes and
@@ -176,7 +219,9 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
                     "Place to search around; latitude/longitude are ignored when it is set. \
                      Give its own name, optionally followed by region and country to choose \
                      among same-named places: 'Prévost, Quebec, Canada'. Write the region \
-                     out: an abbreviation such as 'QC' chooses nothing."
+                     out: an abbreviation such as 'QC' chooses nothing. Omit it and the \
+                     coordinates for the athlete's most frequent training place (Dravr's own \
+                     app and chats only)."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -242,6 +287,19 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             },
         );
 
+        properties.insert(
+            "effort".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "The session's effort: 'easy', 'moderate' or 'hard'. Orders the athlete's \
+                     own loops by where their distance and climb fall among their rides there."
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+
         let schema = JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties.into_iter().collect()),
@@ -255,24 +313,23 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
         };
         answers_with::<DiscoverRoutesResult>(tool_definition(
             "discover_routes",
-            "Find real named running, cycling, hiking or ski routes from OpenStreetMap around \
-             a `place` (preferred) or `latitude`/`longitude`. Call it whenever asked to \
-             propose or find a route, trail or outdoor session in an area. Never invent street \
-             or trail names or terrain not verified here. Returns up to 20 routes, nearest \
-             first: quote `distance_from_center_meters`, never a distance estimated from \
-             coordinates. `distance_source` qualifies `distance_meters`: `mapped_geometry` \
-             is a lower bound; `osm_tag` is the whole route's declared length, of which only \
-             part may lie inside the radius. When the session has a distance, pass \
-             `target_distance_meters` and tell the athlete plainly when a route's \
-             `target_fit` is `out_and_back` or `repeats`. Elevation and surface are NOT \
-             returned: never describe a route as flat, hilly or suited to intervals on the \
-             strength of this tool. An empty list means OSM has no named route in that \
-             radius: widen `radius_meters` or say so plainly, never substitute a name you did \
-             not read here. A mapped route carries a `route_ref`: to show it, name it in a \
-             `dravr-viz` route block with `source_tool` \"discover_routes\" — never write \
-             coordinates. For an itinerary over several stretches, pass their refs in running \
-             order to `compose_route`, each meeting the next (as `connects_to` lists), and \
-             quote the distance it returns.",
+            "Find routes around a `place` (preferred) or `latitude`/`longitude`: first the \
+             athlete's own loops (`source` `your_rides`, past rides that started and ended at a \
+             place they ride from), then named OpenStreetMap routes, nearest first. Call it \
+             whenever asked to propose or find a route, loop, trail or outdoor session. Pass the \
+             session's `effort`, and `target_distance_meters` when it has a distance; say \
+             plainly when `target_fit` is `out_and_back` or `repeats`. Never invent street or \
+             trail names or terrain not read here; quote `distance_from_center_meters`, never a \
+             distance from coordinates. `distance_source`: `mapped_geometry` is a lower bound, \
+             `osm_tag` the whole route's declared length. OpenStreetMap routes carry no \
+             elevation or surface: never call one flat or hilly. `osm_unavailable` means \
+             OpenStreetMap did not answer; an empty list means nothing in that radius: widen \
+             `radius_meters` or say so. To show a route, name its `route_ref` in a `dravr-viz` \
+             route block with `source_tool` \"discover_routes\" — never coordinates or an \
+             activity id. For an itinerary over several stretches, pass their refs in running \
+             order to `compose_route`, each meeting the next (as `connects_to` lists). For a \
+             planned session, also call `get_weather_forecast` for the place and hour, and give \
+             its conditions and sunset.",
             schema,
             annotations("Discover routes", Effect::ReadOnly, Reach::OpenWorld),
         ))
@@ -289,8 +346,12 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
         args: Value,
     ) -> ToolResponse {
         let (tenant_id, user_id) = route_owner(state, ctx);
+        // Read here, inside the call's gate: whether this call may read the
+        // athlete's places, and so offer their own loops.
+        let loops_tenant =
+            own_loops::readable_tenant(&ToolExecutionContext::from_tronc(state, ctx));
         let result: AppResult<ToolResult> = async move {
-            let resolved = match resolve_center(place_geocoder()?, &args).await {
+            let resolved = match search_center(state, &args, loops_tenant, user_id).await? {
                 Ok(center) => center,
                 Err(err) => return Ok(ToolResult::error(err)),
             };
@@ -311,6 +372,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             // A target outside the domain is refused, not clamped: a clamped
             // target would rank routes against a distance nobody asked for.
             let target_distance_meters = parse_target_distance(&args)?;
+            let effort = parse_effort(&args)?;
 
             // Clamp radius into the allowed window without surfacing the clamp to
             // the caller — the LLM should not have to know the magic numbers, and
@@ -328,23 +390,49 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
                 longitude = resolved.longitude,
                 sport = %sport_label(&sport),
                 radius,
+                own_loops = loops_tenant.is_some(),
                 display_name = %resolved.display_name.as_deref().unwrap_or("(raw coordinates)"),
-                "discover_routes: querying Overpass for real OSM routes"
+                "discover_routes: querying Overpass and the athlete's own loops"
             );
 
+            // One task, two reads at once: the Overpass walk, bounded by its
+            // own few seconds, and the store's loops. Never spawned, so both
+            // run under this call's gate and provenance.
             let service = RouteDiscoveryService::with_defaults();
-            let routes = service
-                .discover_routes_for_sport(
-                    &sport,
-                    resolved.latitude,
-                    resolved.longitude,
-                    Some(radius),
+            let walk = service.discover_routes_for_sport(
+                &sport,
+                resolved.latitude,
+                resolved.longitude,
+                Some(radius),
+                target_distance_meters,
+            );
+            let loops = async {
+                let Some(tenant) = loops_tenant else {
+                    return Vec::new();
+                };
+                let search = LoopSearch {
+                    sport: sport.clone(),
+                    latitude: resolved.latitude,
+                    longitude: resolved.longitude,
+                    radius_meters: f64::from(radius),
+                    effort,
                     target_distance_meters,
-                )
-                .await?;
+                };
+                own_loops::search(state, &tenant, user_id, &search).await
+            };
+            let (walk, loops) = future::join(walk, loops).await;
+            let (routes, osm_unavailable) = own_loops::settle_walk(walk, !loops.is_empty())?;
 
+            let mut listed = own_loops::entries(state, tenant_id, user_id, &sport, loops).await;
+            let own_count = listed.len();
             let drawable = store_drawable_routes(state.cache(), tenant_id, user_id, &routes).await;
-            let count = routes.len();
+            listed.extend(
+                routes
+                    .iter()
+                    .zip(drawable)
+                    .map(|(route, drawable)| discovered_route_to_json(route, drawable)),
+            );
+            let count = listed.len();
             let response = DiscoverRoutesResult {
                 sport_type: sport_label(&sport).to_owned(),
                 center: RouteSearchCenter {
@@ -355,14 +443,16 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
                 radius_meters: radius,
                 target_distance_meters,
                 count,
-                routes: routes
-                    .iter()
-                    .zip(drawable)
-                    .map(|(route, drawable)| discovered_route_to_json(route, drawable))
-                    .collect(),
+                routes: listed,
+                osm_unavailable,
+                next_step: FORECAST_NEXT_STEP.to_owned(),
             };
 
-            info!(count, "discover_routes: returning OSM-grounded routes");
+            info!(
+                count,
+                own_loops = own_count,
+                "discover_routes: returning the athlete's loops and OSM-grounded routes"
+            );
             ok_typed("discover_routes", response)
         }
         .await;
@@ -393,6 +483,37 @@ fn display_name(place: &Place) -> String {
     .flatten()
     .collect::<Vec<_>>()
     .join(", ")
+}
+
+/// Where the search is centred: the place or coordinates the caller named,
+/// or, when they named neither and this call may read the athlete's places,
+/// the athlete's most frequent training place, rounded to 0.01° as the
+/// forecast reads it.
+///
+/// # Errors
+///
+/// Returns the repository error when the athlete's places cannot be read,
+/// and the configuration error when no geocoder is configured; a location
+/// that resolves to nothing is the LLM-facing `Err` payload.
+async fn search_center(
+    state: &Arc<dyn ToolRuntime>,
+    args: &Value,
+    loops_tenant: Option<TenantId>,
+    user_id: Uuid,
+) -> AppResult<Result<ResolvedCenter, Value>> {
+    let located = ["place", "latitude", "longitude"]
+        .iter()
+        .any(|name| args.get(*name).is_some_and(|value| !value.is_null()));
+    if let Some(tenant) = loops_tenant.filter(|_| !located) {
+        if let Some(place) = default_place(state.repos(), tenant, user_id).await? {
+            return Ok(Ok(ResolvedCenter {
+                latitude: place.latitude,
+                longitude: place.longitude,
+                display_name: place.place.name,
+            }));
+        }
+    }
+    Ok(resolve_center(state.weather().geocoder()?, args).await)
 }
 
 /// Resolve the search center from the tool arguments.
@@ -611,6 +732,11 @@ fn discovered_route_to_json(
         distance_from_center_meters: route.distance_from_center_meters.round(),
         route_ref: drawable.route_ref,
         connects_to: drawable.connects_to,
+        activity_id: None,
+        date: None,
+        place_name: None,
+        elevation_gain_meters: None,
+        relative_effort: None,
     }
 }
 
@@ -635,6 +761,22 @@ fn parse_target_distance(args: &Value) -> AppResult<Option<f64>> {
              session), got {raw}"
         ))),
     }
+}
+
+/// Read the optional `effort` argument: absent or `null` is none; a word
+/// that is no effort is refused with the words that are.
+fn parse_effort(args: &Value) -> AppResult<Option<Effort>> {
+    let Some(raw) = args.get("effort").filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    raw.as_str()
+        .and_then(Effort::parse)
+        .map(Some)
+        .ok_or_else(|| {
+            AppError::invalid_input(format!(
+                "effort must be one of easy, moderate, hard, got {raw}"
+            ))
+        })
 }
 
 /// Parse the LLM-supplied sport string into the typed [`SportType`].
@@ -770,9 +912,14 @@ mod tests {
             "place": "Paris, Texas",
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
-        let weather = forecast(&DummyWeatherProvider::temperate(), &geocoder, &weather_args)
-            .await
-            .unwrap();
+        let weather = forecast(
+            &DummyWeatherProvider::temperate(),
+            &geocoder,
+            &weather_args,
+            chrono_tz::UTC,
+        )
+        .await
+        .unwrap();
         assert!(!weather.is_error, "{:?}", weather.content);
         assert_eq!(weather.content["latitude"], json!(center.latitude));
         assert_eq!(weather.content["longitude"], json!(center.longitude));

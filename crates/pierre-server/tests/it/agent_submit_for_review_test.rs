@@ -49,7 +49,6 @@ async fn member(
     user.approved_by = Some(user.id);
     user.approved_at = Some(Utc::now());
     if admin {
-        user.is_admin = true;
         user.role = UserRole::Admin;
     }
     resources.common.repos.users.create(&user).await?;

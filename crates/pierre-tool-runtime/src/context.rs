@@ -28,10 +28,12 @@ use uuid::Uuid;
 use crate::read_subject::ReadSubject;
 use crate::runtime::ToolRuntime;
 use crate::tool_selection::ToolSelectionService;
+use pierre_auth::auth::{refuse_support_session, ImpersonationGrant};
 use pierre_cache::Cache;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::User;
 use pierre_database::backends::factory::Database;
+use pierre_database::repositories::admin_audit::AdminAuditRepository;
 use pierre_providers::ProviderRegistry;
 use pierre_services::locale::resolve_user_locale;
 
@@ -151,6 +153,34 @@ tokio::task_local! {
     /// Inherited by a nested dispatch on the same task, so what a prefetched tool
     /// reads through another counts as prefetched too.
     pub static DISPATCH_ORIGIN: DispatchOrigin;
+
+    /// The admin's support session the in-flight chat turn runs in, when an
+    /// admin typed it while acting as the athlete (carnet#1634).
+    ///
+    /// The web and mobile chat scopes it around the whole turn; the executor
+    /// reads it and re-scopes it around each tool body, as it does
+    /// [`TURN_LOCALE`]. What a support session may not leave behind it reads
+    /// through [`refuse_in_support_session`]. Absent on every other turn and
+    /// call.
+    pub static SUPPORT_SESSION: Option<ImpersonationGrant>;
+}
+
+/// Refuse `action` on `user_id`'s account in an admin's support session.
+///
+/// The in-flight chat turn names it ([`SUPPORT_SESSION`]): a connection link
+/// minted for the athlete outlives the session, as every credential does.
+/// The refusal is written to the admin audit trail, attributed to the admin.
+///
+/// # Errors
+///
+/// `PermissionDenied` inside a support session's turn.
+pub async fn refuse_in_support_session(
+    audit: &dyn AdminAuditRepository,
+    user_id: Uuid,
+    action: &str,
+) -> AppResult<()> {
+    let support = SUPPORT_SESSION.try_with(Clone::clone).ok().flatten();
+    refuse_support_session(support.as_ref(), user_id, audit, action).await
 }
 
 /// The chat turn a tool call answers ([`TURN_ASK`]).
@@ -484,7 +514,7 @@ impl ToolExecutionContext {
                 )
             })?;
 
-        Ok(user.is_admin)
+        Ok(user.role.is_admin())
     }
 
     /// Require admin privileges for the current operation

@@ -36,6 +36,7 @@ use pierre_core::models::{
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
+use pierre_database::repositories::SubjectThreads;
 use pierre_groups::creation_policy::GROUP_CREATION_POLICY_KEY;
 use pierre_groups::strategies::tier::{tier_strategy_for, ProfessionalTierStrategy};
 #[cfg(feature = "postgresql")]
@@ -738,11 +739,18 @@ async fn group_create_in_an_archived_empty_thread_adopts_it_and_takes_its_slot()
         "the room holds exactly one slot, and no second thread was created"
     );
     assert_eq!(
-        chat.list_conversations(&user, tenant_id, 50, 0, TransportPolicy::FirstPartyOnly)
-            .await
-            .unwrap()
-            .items
-            .len(),
+        chat.list_conversations(
+            &user,
+            tenant_id,
+            50,
+            0,
+            TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All
+        )
+        .await
+        .unwrap()
+        .items
+        .len(),
         1
     );
 }
@@ -795,7 +803,14 @@ async fn group_create_in_the_personal_thread_files_the_room_beside_it() {
         "and it stays the athlete's personal thread"
     );
     let listed = chat
-        .list_conversations(&user, tenant_id, 50, 0, TransportPolicy::FirstPartyOnly)
+        .list_conversations(
+            &user,
+            tenant_id,
+            50,
+            0,
+            TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
+        )
         .await
         .unwrap()
         .items;
@@ -903,6 +918,7 @@ async fn group_create_in_a_fresh_thread_binds_it_to_the_new_group() {
             50,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()
@@ -977,6 +993,7 @@ async fn group_create_in_a_thread_with_history_files_a_group_conversation_beside
             50,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()
@@ -1476,6 +1493,7 @@ async fn group_join_by_code_adds_the_member_and_files_their_group_conversation()
             50,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()
@@ -1515,6 +1533,7 @@ async fn group_join_by_code_adds_the_member_and_files_their_group_conversation()
             50,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()
@@ -1612,6 +1631,7 @@ async fn group_join_with_a_coach_invite_attaches_an_eligible_roster_coach_only()
             50,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()
@@ -1644,6 +1664,7 @@ async fn group_join_with_a_coach_invite_attaches_an_eligible_roster_coach_only()
             50,
             0,
             TransportPolicy::FirstPartyOnly,
+            SubjectThreads::All,
         )
         .await
         .unwrap()

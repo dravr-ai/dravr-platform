@@ -17,7 +17,7 @@ import {
   notificationPreferenceUpdate,
 } from '@pierre/shared-constants';
 import type { NotificationCategory } from '@pierre/shared-types';
-import { Section, Select } from './ui';
+import { Section, Select, Switch } from './ui';
 import { useNotificationPreferences } from '../hooks/useNotifications';
 import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from '@pierre/i18n';
@@ -108,28 +108,13 @@ export default function NotificationSettingsTab() {
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={pref.enabled}
-                  aria-label={t('notifPrefs.categoryNotifications', { category: meta ? t(meta.labelKey) : pref.category })}
-                  data-testid={`notification-pref-switch-${pref.category}`}
+                <Switch
+                  checked={pref.enabled}
+                  onChange={(enabled) => updatePreference(notificationPreferenceUpdate(pref, { enabled }))}
+                  label={t('notifPrefs.categoryNotifications', { category: meta ? t(meta.labelKey) : pref.category })}
                   disabled={isUpdating}
-                  onClick={() =>
-                    updatePreference(
-                      notificationPreferenceUpdate(pref, { enabled: !pref.enabled }),
-                    )
-                  }
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 ${
-                    pref.enabled ? 'bg-primary' : 'bg-surface-container-high'
-                  }`}
-                >
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                      pref.enabled ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
+                  data-testid={`notification-pref-switch-${pref.category}`}
+                />
               </div>
 
               {pref.enabled && (

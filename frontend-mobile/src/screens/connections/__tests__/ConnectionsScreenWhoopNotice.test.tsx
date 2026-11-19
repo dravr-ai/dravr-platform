@@ -88,7 +88,7 @@ describe('ConnectionsScreen — WHOOP owner authorization', () => {
     fireEvent.press(await screen.findByText('whoop-setup:save'));
 
     await waitFor(() =>
-      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: true }),
+      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: true, signInBlocked: false }),
     );
   });
 
@@ -113,7 +113,7 @@ describe('ConnectionsScreen — WHOOP owner authorization', () => {
     fireEvent.press(await screen.findByText('whoop-setup:save'));
 
     await waitFor(() =>
-      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: false }),
+      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false }),
     );
   });
 
@@ -123,7 +123,7 @@ describe('ConnectionsScreen — WHOOP owner authorization', () => {
     fireEvent.press(await screen.findByText('Connect'));
 
     await waitFor(() =>
-      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: false }),
+      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false }),
     );
     expect(screen.queryByText('whoop-setup:save')).toBeNull();
   });
@@ -142,7 +142,7 @@ describe('ConnectionsScreen — WHOOP owner authorization', () => {
     fireEvent.press(await screen.findByText('whoop-setup:save'));
 
     await waitFor(() =>
-      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: true }),
+      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: true, signInBlocked: false }),
     );
   });
 

@@ -41,7 +41,7 @@ use crate::coach_platform::coach_platform;
 #[cfg(feature = "health-sync")]
 use crate::delegated_read::{holds_own_session, OwnLogins};
 #[cfg(feature = "health-sync")]
-use crate::health_sync::wellness_pull_stands_down;
+use crate::health_sync::{sync_error_is_push_stand_down, wellness_pull_stands_down};
 
 /// Push interface used by the refresh service to inform connected clients.
 ///
@@ -610,101 +610,18 @@ impl RefreshService {
                 return;
             }
 
-            let repos = self.repos.clone();
-            let registry = Arc::clone(&self.registry);
-            let sse = self.sse_manager.clone();
-            let user_id_str = user_id.to_string();
-
-            tokio::spawn(async move {
-                if wellness_pull_stands_down(&registry, &user_id_str, &provider).await {
-                    return;
+            tokio::spawn(
+                BackgroundSync {
+                    orchestrator,
+                    repos: self.repos.clone(),
+                    registry: Arc::clone(&self.registry),
+                    sse: Arc::clone(&self.sse_manager),
+                    user_id,
+                    tenant_id,
+                    provider,
                 }
-                let result = orchestrator.sync_user(&user_id_str, &provider).await;
-
-                match &result {
-                    Ok(sync_result) => {
-                        info!(
-                            provider = %provider,
-                            records_created = sync_result.records_created,
-                            "Background provider sync completed"
-                        );
-
-                        info!(
-                            target: "notify",
-                            event = "sync.completed",
-                            user_id = %user_id,
-                            tenant_id = %tenant_id,
-                            provider = %provider,
-                            records = sync_result.records_created,
-                            trigger = "background",
-                            "provider sync completed"
-                        );
-
-                        // Update last_sync on the token row the sync read
-                        if let Err(e) = repos
-                            .oauth_tokens
-                            .update_provider_last_sync(
-                                user_id,
-                                tenant_id,
-                                &sync_backend(&provider),
-                                Utc::now(),
-                            )
-                            .await
-                        {
-                            warn!("Failed to update last_sync after refresh: {e}");
-                        }
-
-                        // Send SSE notification
-                        let notification = OAuthNotification {
-                            id: Uuid::new_v4().to_string(),
-                            user_id: user_id.to_string(),
-                            provider: provider.clone(),
-                            success: true,
-                            message: format!(
-                                "Synced {} new records from {}",
-                                sync_result.records_created, provider
-                            ),
-                            expires_at: None,
-                            created_at: Utc::now(),
-                            read_at: None,
-                        };
-                        if let Err(e) = sse.send_notification(user_id, &notification).await {
-                            // Not all users have an active SSE stream — this is expected
-                            tracing::debug!(
-                                "SSE notification not delivered (no active stream): {e}"
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        warn!(provider = %provider, error = %e, "Background provider sync failed");
-
-                        info!(
-                            target: "notify",
-                            event = "sync.failed",
-                            user_id = %user_id,
-                            tenant_id = %tenant_id,
-                            provider = %provider,
-                            trigger = "background",
-                            reason = %e,
-                            "provider sync failed"
-                        );
-
-                        let notification = OAuthNotification {
-                            id: Uuid::new_v4().to_string(),
-                            user_id: user_id.to_string(),
-                            provider: provider.clone(),
-                            success: false,
-                            message: format!("Failed to sync {provider}: {e}"),
-                            expires_at: None,
-                            created_at: Utc::now(),
-                            read_at: None,
-                        };
-                        if let Err(e) = sse.send_notification(user_id, &notification).await {
-                            tracing::debug!(%user_id, error = %e, "sync failure notification not delivered over SSE");
-                        }
-                    }
-                }
-            });
+                .run(),
+            );
         }
     }
 
@@ -772,6 +689,19 @@ impl RefreshService {
                     success: true,
                     message: format!("Synced {} new records", sync_result.records_created),
                     records_synced: sync_result.records_created,
+                }
+            }
+            // A push grant stored mid-sync is the stand-down above, reached
+            // late (carnet#1590).
+            Err(e)
+                if sync_error_is_push_stand_down(&self.registry, &user_id_str, provider, &e)
+                    .await =>
+            {
+                RefreshResult {
+                    provider: provider.to_owned(),
+                    success: true,
+                    message: FED_BY_PUSH_MESSAGE.to_owned(),
+                    records_synced: 0,
                 }
             }
             Err(e) => RefreshResult {
@@ -1000,9 +930,15 @@ pub fn compute_smart_interval(
 // Scheduled sync with post-sync notifications
 // ============================================================================
 
+/// The background sync a refresh spawns without waiting
+#[cfg(feature = "health-sync")]
+mod background;
 /// The scheduled sync cycle the server runs
 #[cfg(feature = "health-sync")]
 mod scheduled;
+
+#[cfg(feature = "health-sync")]
+use background::BackgroundSync;
 
 #[cfg(feature = "health-sync")]
 pub use scheduled::token_tenant;

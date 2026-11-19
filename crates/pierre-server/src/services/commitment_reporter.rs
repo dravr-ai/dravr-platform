@@ -60,6 +60,7 @@ use pierre_core::models::TenantId;
 use pierre_database::backends::MessagingRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::commitments::{Commitment, CommitmentOutcome};
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::commitment_sweep::CommitmentReporter;
 use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
 use serde_json::Value;
@@ -158,9 +159,10 @@ impl ServerCommitmentReporter {
     pub fn from_handles(
         repos: Arc<RepositoryRegistry>,
         strings: Arc<MessagingStringsRegistry>,
+        adapters: Arc<dyn ChannelAdapterFactory>,
         #[cfg(feature = "client-notifications")] notifications: Option<Arc<NotificationService>>,
     ) -> Arc<dyn CommitmentReporter> {
-        let resolver = config_adapter_resolver(repos.clone());
+        let resolver = config_adapter_resolver(repos.clone(), adapters);
         Arc::new(Self {
             repos,
             strings,

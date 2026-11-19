@@ -46,6 +46,7 @@ on:
       - 'commands/**'
       - 'frontend/public/**'                  # a2a_public_door_test reads the card's icon
       - 'infra/environments/dev/*.tf'
+      - 'infra/environments/dev/terraform.tfvars'
       # check-keep-warm-traffic.sh and check-cpu-idle-adr.sh scan every infra
       # .tf file (prod, modules): an infra-only push there must reach the fast
       # gate too.
@@ -90,9 +91,6 @@ on:
       - 'infra/artifacts/variables.tf'
       # monitor-scheduled-lanes.test.sh runs the monitor's own python and script.
       - '.github/workflows/monitor-scheduled-lanes.yml'
-      # ci-verdict.test.sh fails when this workflow's trigger list misses a
-      # workflow a branch push can fire.
-      - '.github/workflows/ci-verdict.yml'
       # standing-issue.test.sh checks every monitor that files a standing issue
       # looks it up through scripts/ci/standing-issue.cjs and checks it out.
       - '.github/workflows/billing-drivers-monitor.yml'
@@ -136,6 +134,7 @@ on:
       - 'commands/**'
       - 'frontend/public/**'                  # a2a_public_door_test reads the card's icon
       - 'infra/environments/dev/*.tf'
+      - 'infra/environments/dev/terraform.tfvars'
       # check-keep-warm-traffic.sh and check-cpu-idle-adr.sh scan every infra
       # .tf file (prod, modules): an infra-only push there must reach the fast
       # gate too.
@@ -201,24 +200,20 @@ on:
     - cron: '11 8 * * *'
 
 concurrency:
-  # On main the sha is part of the group, so every commit gets its own group and
-  # nothing can cancel anyone's verdict. Branches share a group per ref and keep
-  # cancelling, where fast feedback beats a stale result.
-  #
-  # The ref test lives in `group` rather than in `cancel-in-progress` because
-  # only the former is known to work here: `cancel-in-progress: ${{ github.ref
-  # != 'refs/heads/main' }}` was tried first and did not hold — run 33026440559
-  # on main was cancelled one second after the next run was created, and that
-  # run's run_started_at equalled its created_at, so it never waited on the
-  # group the way a false would have made it. `group` expressions demonstrably
-  # do evaluate: that is what has been scoping cancellation per ref all along.
-  # The event name is part of the group too: a `schedule` run on main carries
-  # the tip's sha, so without it the cron joined the tip's push-run group and
-  # cancelled that verdict mid-flight (observed 2026-08-31: the 15:59 UTC cron
-  # killed 7eac7b067's push run six minutes in). Push, schedule and dispatch
-  # now each get their own group; the per-commit protection is unchanged.
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
-  cancel-in-progress: true
+  # One run going and one waiting, per lane and per ref (JF, 2026-11-19). A
+  # running run always finishes, so main still turns green and deploys however
+  # often it is pushed; a newer push takes the single waiting slot, replacing
+  # the run that waited there, which GitHub cancels. The run that does go tests
+  # a tree holding every skipped commit. Main used to keep one group per sha and
+  # never cancel: 24 commits on 2026-11-19 queued ~600 jobs for a handful of
+  # slots. Both costs are accepted: an intermediate main commit gets no verdict
+  # of its own (the eviction carnet#169 once counted as a loss), and a branch
+  # re-pushed mid-run finishes the superseded run (what carnet#1114 avoided),
+  # bounded to one. The event name keeps a schedule or dispatch run out of the
+  # push group. `cancel-in-progress` stays a literal: an expression there did
+  # not hold on main (run 33026440559, see ci-backend.yml's history).
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -342,7 +337,7 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install Rust (rustfmt only, no compilation needed)
-        uses: dtolnay/rust-toolchain@1.99.1
+        uses: dtolnay/rust-toolchain@1.100.0
         with:
           components: rustfmt
 
@@ -511,7 +506,7 @@ jobs:
       # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
       # every assertion green: "rm: cannot remove '.../.git/objects': Directory
       # not empty". Only a process writing into the repo mid-delete does that.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, one wellness merge, activity writers, history walk single source, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, frontend asset carry-forward, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, first-party sign-in smoke, workflow test targets, generated stylesheets, backend name exposure, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, prebuilt test binaries, bench A/B, commit verdict, push base resolution, server build key, proven-on-branch job proof, crate scope, scope base, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, one wellness merge, activity writers, host CLI caller, history walk single source, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, frontend asset carry-forward, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, first-party sign-in smoke, workflow test targets, generated stylesheets, backend name exposure, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, prebuilt test binaries, bench A/B, commit verdict, push base resolution, server build key, proven-on-branch job proof, crate scope, scope base, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.auto
@@ -528,6 +523,7 @@ jobs:
           ./scripts/ci/check-one-precedence.test.sh
           ./scripts/ci/check-one-writer.test.sh
           ./scripts/ci/check-activity-writers.test.sh
+          ./scripts/ci/check-host-cli-caller.test.sh
           ./scripts/ci/check-history-walk-single-source.test.sh
           ./scripts/ci/check-inline-paths.test.sh
           ./scripts/ci/check-phantom-surfaces.test.sh
@@ -1646,10 +1642,17 @@ jobs:
           # ChefFamille chose to raise both ceilings by about 2MB
           # (2026-11-14): shipped 121, thin 150.
           #
+          # carnet#1561 (athlete and coach edit thresholds: two REST routes,
+          # the shared physiology writer, a coach notification) added about
+          # 1MB with no new dependency: the thin build read 151MB against its
+          # 150 ceiling (run 44314583449) while main sat exactly on it (run
+          # 44307715156). ChefFamille chose to raise both ceilings by 2MB
+          # (2026-11-18): shipped 123, thin 152.
+          #
           # server-e2e.yml checks the thin binary against this ceiling
-          # scaled to that build (150), so a branch push that skips this job
+          # scaled to that build (152), so a branch push that skips this job
           # is still sized against it. Move both together.
-          MAX_SIZE_MB=121
+          MAX_SIZE_MB=123
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
           # can still cross the gap in a single change.

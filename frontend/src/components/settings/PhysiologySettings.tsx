@@ -2,51 +2,22 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Settings › Physiology — the athlete's anchors per sport family, each with its value, range, source, date and confidence
-// ABOUTME: Read-only: the server words each value as the envelope notice does, a low-confidence one as a range or an estimate (carnet#1516)
+// ABOUTME: The athlete changes one or adds one here, saved through the one physiology writer as their own (carnet#1516, carnet#1561)
 
+import { useState } from 'react';
 import { useTranslation } from '@pierre/i18n';
-import {
-  PHYSIOLOGY_ANCHOR_LABEL_KEY,
-  PHYSIOLOGY_KEY,
-  SPORT_FAMILY_LABEL_KEY,
-} from '@pierre/shared-constants';
-import type { PhysiologyAnchor, SportPhysiology } from '@pierre/shared-types';
-import { describeApiError, physiologyAnchorFacts } from '@pierre/ui-logic';
-import { EmptyState, Section } from '../ui';
-import { usePhysiology } from '../../hooks/usePhysiology';
-
-/**
- * One anchor: its label and the facts under it on the left, its value and
- * who set it on the right — stacked under the label on a narrow pane.
- */
-function AnchorRow({ sport, anchor }: { sport: SportPhysiology['sport']; anchor: PhysiologyAnchor }) {
-  const { t, language } = useTranslation();
-  return (
-    <li
-      className="flex flex-col gap-1 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
-      data-testid={`physiology-${sport}-${anchor.anchor}`}
-    >
-      <div className="min-w-0">
-        <p className="text-sm font-medium text-on-surface">{t(PHYSIOLOGY_ANCHOR_LABEL_KEY[anchor.anchor])}</p>
-        <p className="mt-0.5 text-xs text-on-surface-variant" data-testid={`physiology-${sport}-${anchor.anchor}-facts`}>
-          {physiologyAnchorFacts(t, anchor, language).join(' · ')}
-        </p>
-      </div>
-      <div className="min-w-0 sm:shrink-0 sm:text-right">
-        <p className="text-sm font-medium tabular-nums text-on-surface" data-testid={`physiology-${sport}-${anchor.anchor}-value`}>
-          {anchor.value_text}
-        </p>
-        <p className="mt-0.5 text-xs text-on-surface-variant" data-testid={`physiology-${sport}-${anchor.anchor}-source`}>
-          {anchor.source_text}
-        </p>
-      </div>
-    </li>
-  );
-}
+import { PHYSIOLOGY_EDIT_KEY, PHYSIOLOGY_KEY } from '@pierre/shared-constants';
+import { describeApiError, type AnchorFormTarget } from '@pierre/ui-logic';
+import { Button, EmptyState, Section } from '../ui';
+import { usePhysiology, usePhysiologyEdit } from '../../hooks/usePhysiology';
+import PhysiologyAnchorEditor from './PhysiologyAnchorEditor';
+import PhysiologyAnchorList from './PhysiologyAnchorList';
 
 export default function PhysiologySettings() {
   const { t } = useTranslation();
   const physiology = usePhysiology();
+  const save = usePhysiologyEdit();
+  const [target, setTarget] = useState<AnchorFormTarget | null>(null);
 
   const renderBody = () => {
     if (physiology.isPending) {
@@ -59,25 +30,19 @@ export default function PhysiologySettings() {
         </p>
       );
     }
-    if (physiology.data.sports.length === 0) {
-      return <EmptyState data-testid="physiology-empty">{t(PHYSIOLOGY_KEY.empty)}</EmptyState>;
-    }
     return (
-      <div className="space-y-8">
-        {physiology.data.sports.map((family) => (
-          <Section
-            key={family.sport}
-            title={t(SPORT_FAMILY_LABEL_KEY[family.sport])}
-            headingLevel={3}
-            data-testid={`physiology-${family.sport}`}
-          >
-            <ul className="divide-y divide-outline-variant" aria-label={t(SPORT_FAMILY_LABEL_KEY[family.sport])}>
-              {family.anchors.map((anchor) => (
-                <AnchorRow key={anchor.anchor} sport={family.sport} anchor={anchor} />
-              ))}
-            </ul>
-          </Section>
-        ))}
+      <div className="space-y-6">
+        {physiology.data.sports.length === 0 ? (
+          <EmptyState data-testid="physiology-empty">{t(PHYSIOLOGY_KEY.empty)}</EmptyState>
+        ) : (
+          <PhysiologyAnchorList
+            sports={physiology.data.sports}
+            onEdit={(sport, anchor) => setTarget({ mode: 'edit', sport, anchor })}
+          />
+        )}
+        <Button variant="outline" onClick={() => setTarget({ mode: 'add' })} data-testid="physiology-add">
+          {t(PHYSIOLOGY_EDIT_KEY.add)}
+        </Button>
       </div>
     );
   };
@@ -87,6 +52,12 @@ export default function PhysiologySettings() {
       <Section title={t(PHYSIOLOGY_KEY.title)} description={t(PHYSIOLOGY_KEY.blurb)}>
         {renderBody()}
       </Section>
+      <PhysiologyAnchorEditor
+        target={target}
+        offered={physiology.data?.offered ?? []}
+        onClose={() => setTarget(null)}
+        onSave={(anchorSave) => save.mutateAsync(anchorSave)}
+      />
     </div>
   );
 }

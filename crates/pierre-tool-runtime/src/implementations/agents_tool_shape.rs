@@ -44,6 +44,5 @@ pub(super) fn string_list_property(description: &str, item: &str) -> PropertySch
 pub(super) fn extract_format(args: &Value) -> OutputFormat {
     args.get("format")
         .and_then(Value::as_str)
-        .map(OutputFormat::from_str_param)
-        .unwrap_or_default()
+        .map_or_default(OutputFormat::from_str_param)
 }

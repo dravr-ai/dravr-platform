@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::common::{offline_provider_config, offline_provider_registry};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -26,8 +27,6 @@ use pierre_core::models::{
 use pierre_database::repositories::UserPhysiologicalProfileRepository;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::tools::implementations::endurance_export::ExportDossierTool;
-use pierre_providers::intervals_icu_provider::default_config;
-use pierre_providers::ProviderRegistry;
 use pierre_test_support::db::create_test_db_url;
 use pierre_tool_runtime::implementations::athlete_stats::GetAthleteTool;
 use pierre_tool_runtime::implementations::physiology::SetPhysiologyTool;
@@ -79,9 +78,9 @@ struct World {
 impl World {
     async fn new(reported_sex: Option<&'static str>) -> Self {
         let base = create_test_server_resources().await.unwrap();
-        let mut config = default_config();
+        let mut config = offline_provider_config(INTERVALS_ICU);
         config.api_base_url = spawn_intervals(reported_sex).await;
-        let mut registry = ProviderRegistry::new();
+        let mut registry = offline_provider_registry();
         registry.set_default_config(INTERVALS_ICU, config);
         let mut context = (*base).clone();
         context.fitness.provider_registry = Arc::new(registry);

@@ -46,7 +46,7 @@ pub mod tenant;
 
 // Admin authorization guard
 
-/// Cookie/session-auth + `is_admin` middleware for `/api/admin/...` routes
+/// Cookie/session-auth + admin-role middleware for `/api/admin/...` routes
 pub use admin_guard::cookie_admin_middleware;
 /// Build the role-derived `ValidatedAdminToken` for a cookie-authenticated admin
 pub use admin_guard::cookie_admin_token;
@@ -56,7 +56,7 @@ pub use admin_guard::require_admin;
 // Authentication middleware
 
 /// MCP authentication middleware
-pub use auth::McpAuthMiddleware;
+pub use auth::{AuthRefusal, McpAuthMiddleware};
 /// CSRF protection layer for Axum router (validates cookie-auth state-changing requests)
 pub use csrf::csrf_protection_layer;
 /// Pure-function CSRF validator (header extraction + method-class check + token verification)

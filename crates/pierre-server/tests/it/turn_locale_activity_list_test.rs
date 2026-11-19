@@ -174,6 +174,7 @@ impl LlmProvider for ListingProvider {
             None
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content: tool_call.map_or_else(
                 || "You rode yesterday, an easy hour.".to_owned(),
                 ToOwned::to_owned,

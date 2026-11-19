@@ -8,6 +8,7 @@ import React, { useMemo } from 'react';
 import { Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { avatarSlot, initialsFor, PLAN_THREAD_KEYS, PLAN_VIEW_KEYS } from '@pierre/chat-utils';
+import { COACH_PHYSIOLOGY_KEY } from '@pierre/shared-constants';
 import { useThemeColors } from '../../constants/theme';
 import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
 import { RosterRow } from './RosterRow';
@@ -52,6 +53,11 @@ export interface MemberRowProps {
    * Passed exactly where `onWorkOnPlan` is.
    */
   onViewPlan?: (member: GroupMember) => void;
+  /**
+   * Read and set the member's thresholds per sport (carnet#1561). Passed
+   * exactly where `onViewPlan` is.
+   */
+  onViewThresholds?: (member: GroupMember) => void;
 }
 
 /**
@@ -72,6 +78,7 @@ export function MemberRow({
   onWorkOnPlan,
   isOpeningPlan = false,
   onViewPlan,
+  onViewThresholds,
 }: MemberRowProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -105,6 +112,17 @@ export function MemberRow({
               testID={`member-view-plan-${member.user_id}`}
             >
               <Feather name="eye" size={18} color={colors.tokens.primary} />
+            </TouchableOpacity>
+          )}
+          {onViewThresholds && (
+            <TouchableOpacity
+              className="p-2"
+              onPress={() => onViewThresholds(member)}
+              accessibilityRole="button"
+              accessibilityLabel={t(COACH_PHYSIOLOGY_KEY.title, { name: displayName })}
+              testID={`member-thresholds-${member.user_id}`}
+            >
+              <Feather name="activity" size={18} color={colors.tokens.primary} />
             </TouchableOpacity>
           )}
           {onWorkOnPlan && (

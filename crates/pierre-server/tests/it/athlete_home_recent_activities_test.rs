@@ -37,7 +37,8 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use futures_util::future::join_all;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{
-    Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserOAuthToken,
+    Activity, ActivityBuilder, ConnectionType, RouteGeometrySource, SportType, Tenant, TenantId,
+    User, UserOAuthToken,
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::StoredRouteTrack;
@@ -46,7 +47,6 @@ use pierre_fitness_compute::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
-use pierre_mcp_server::services::activity_route::RouteGeometrySource;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio::time::sleep;

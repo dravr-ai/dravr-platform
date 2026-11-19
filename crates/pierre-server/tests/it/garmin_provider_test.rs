@@ -220,7 +220,6 @@ async fn test_garmin_provider_data_reads_without_stores_are_refused() {
     let refusals = [
         provider.get_activities(Some(10), None).await.err(),
         provider.get_activity("12345").await.err(),
-        provider.get_stats().await.err(),
     ];
     for refusal in refusals {
         let refusal = refusal.expect("a data read without stores is refused");

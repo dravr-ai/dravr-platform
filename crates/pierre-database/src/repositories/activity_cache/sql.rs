@@ -4,6 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+/// How many times an upsert merges over a stored copy that kept changing under it.
+pub(crate) const UPSERT_MERGE_ATTEMPTS: usize = 4;
+
 /// Insert or overwrite one cached activity.
 ///
 /// `$n` placeholders throughout this module: sqlx accepts them on `SQLite` as
@@ -24,6 +27,14 @@
 /// push of the same activity leaves the later one standing. A read stamps
 /// `now`, or, for a read short of the list head, the head's own last sync,
 /// which is never older than a row the head wrote.
+///
+/// A copy merged over what was stored (`$11` true) lands only while the row
+/// still holds the copy it was merged with (`$10`; NULL when the read found
+/// no row, so a row that appeared since refuses it), the guard
+/// [`AMEND_LISTED_READS_SQL`] has: a tag walk's amend that landed since is
+/// never erased, and the caller merges again over what stands. A copy that
+/// carries its own tags and gear is not merged (`$11` false) and is not
+/// guarded.
 pub(crate) const UPSERT_CACHED_ACTIVITY_SQL: &str = r"
     INSERT INTO cached_activities (id, user_id, tenant_id, provider, activity_id, sport_type, start_date, synced_at, data_json)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -32,7 +43,41 @@ pub(crate) const UPSERT_CACHED_ACTIVITY_SQL: &str = r"
         start_date = EXCLUDED.start_date,
         synced_at = EXCLUDED.synced_at,
         data_json = EXCLUDED.data_json
-    WHERE cached_activities.synced_at <= EXCLUDED.synced_at";
+    WHERE cached_activities.synced_at <= EXCLUDED.synced_at
+      AND (NOT $11 OR cached_activities.data_json = $10)";
+
+/// Ids one stored-copy read asks for at most: an archive import writes a
+/// whole history through one call, and a single `IN` list of that size would
+/// pass `SQLite`'s bound-variable limit.
+pub(crate) const STORED_DATA_JSON_CHUNK: usize = 500;
+
+/// The list copies rows store, by the table's uniqueness key with the
+/// activity ids in one `IN` list (`$4` on): what a later write of the same
+/// activities keeps from them ([`stored_activity_json_over`](super::stored_json)).
+/// One read for a page of ids, never one per activity.
+pub(crate) fn stored_data_json_sql(ids: usize) -> String {
+    let placeholders = (4..4 + ids)
+        .map(|i| format!("${i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "
+    SELECT activity_id, data_json
+    FROM cached_activities
+    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
+      AND activity_id IN ({placeholders})"
+    )
+}
+
+/// Replace the `data_json` (`$5`) of one row, by the table's uniqueness key,
+/// only while it still holds the copy (`$6`) the amend was made from: a list
+/// write that landed in between stands, and nothing but `data_json` moves —
+/// not `synced_at`, which is part of the provider's freshness.
+pub(crate) const AMEND_LISTED_READS_SQL: &str = r"
+    UPDATE cached_activities
+    SET data_json = $5
+    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND activity_id = $4
+      AND data_json = $6";
 
 /// Store what a detail read of one cached activity found, on the row its
 /// list read wrote, by the table's uniqueness key, with the instant it is
@@ -55,8 +100,8 @@ pub(crate) const GET_CACHED_ACTIVITIES_SQL: &str = r"
     LIMIT $6";
 
 /// Cached activities across every provider within a window, newest first,
-/// with the provider key each row is stored under and the outcome of its
-/// stored route read.
+/// with the provider key each row is stored under, the outcome of its stored
+/// route read, and its place.
 ///
 /// The route read is joined on the whole key of `activity_route_tracks`. Its
 /// tenant and user are the bound parameters themselves, named in the join as
@@ -65,8 +110,12 @@ pub(crate) const GET_CACHED_ACTIVITIES_SQL: &str = r"
 /// INNER: an activity whose route has not been read keeps its row, with both
 /// route columns NULL, and so does one whose stored read has expired — its
 /// `expires_at` is not after `$6` (now) — because that read is to be made
-/// again. The track itself is not selected. Every id column on both tables is
-/// TEXT on both engines, so the join carries no cast.
+/// again. The track itself is not selected.
+///
+/// The place is joined the same way, on the bound tenant and user and the
+/// row's `place_id`: a `place_id` whose place is gone joins nothing and reads
+/// as no place. Every id column of the three tables is TEXT on both engines,
+/// so no join carries a cast.
 ///
 /// `detail_settled` is whether a stored detail read still answers the row: one
 /// is stored and its recheck instant, if it has one, is after `$6` (now).
@@ -75,7 +124,8 @@ pub(crate) const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
            (ca.detail_json IS NOT NULL
             AND (ca.detail_recheck_at IS NULL OR ca.detail_recheck_at > $6)) AS detail_settled,
            rt.source AS route_source,
-           rt.unavailable_reason AS route_unavailable_reason
+           rt.unavailable_reason AS route_unavailable_reason,
+           ap.id AS place_id, ap.name AS place_name, ap.name_source AS place_name_source
     FROM cached_activities ca
     LEFT JOIN activity_route_tracks rt
            ON rt.tenant_id = $2
@@ -83,18 +133,22 @@ pub(crate) const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
           AND rt.provider = ca.provider
           AND rt.activity_id = ca.activity_id
           AND (rt.expires_at IS NULL OR rt.expires_at > $6)
+    LEFT JOIN athlete_places ap
+           ON ap.tenant_id = $2
+          AND ap.user_id = $1
+          AND ap.id = ca.place_id
     WHERE ca.user_id = $1 AND ca.tenant_id = $2
       AND ca.start_date >= $3 AND ca.start_date <= $4";
 
 /// [`GET_CACHED_ACTIVITY_ROWS_SQL`] as one read asks it
 /// ([`CachedRowsQuery`](super::CachedRowsQuery)): below a page's cursor when
-/// `below`, bound as `$7`–`$9`, and over `keys` provider keys when non-zero,
-/// one placeholder each from the next free number, as `users_by_ids_sql`
-/// binds its batch. Only the placeholder count is formatted; every value
-/// binds through the codec. Ordered by start, key, then id, all descending,
-/// so the cursor's tie-break is the order's own and a page's edge between two
-/// rows of one start never skips or repeats one.
-pub(crate) fn cached_activity_rows_sql(keys: usize, below: bool) -> String {
+/// `below`, bound as `$7`–`$9`; over `keys` provider keys when non-zero, then
+/// over `ids` activity ids when non-zero, one placeholder each from the next
+/// free number, as `users_by_ids_sql` binds its batch. Only the placeholder
+/// count is formatted; every value binds through the codec. Ordered by start,
+/// key, then id, all descending, so the cursor's tie-break is the order's own
+/// and a page's edge between two rows of one start never skips or repeats one.
+pub(crate) fn cached_activity_rows_sql(keys: usize, ids: usize, below: bool) -> String {
     let mut sql = GET_CACHED_ACTIVITY_ROWS_SQL.to_owned();
     if below {
         sql.push_str(
@@ -104,15 +158,21 @@ pub(crate) fn cached_activity_rows_sql(keys: usize, below: bool) -> String {
                AND (ca.provider < $8 OR (ca.provider = $8 AND ca.activity_id < $9))))",
         );
     }
-    let next = if below { 10 } else { 7 };
-    if keys > 0 {
-        let placeholders = (next..next + keys)
+    let mut next = if below { 10 } else { 7 };
+    for (column, count) in [("ca.provider", keys), ("ca.activity_id", ids)] {
+        if count == 0 {
+            continue;
+        }
+        let placeholders = (next..next + count)
             .map(|i| format!("${i}"))
             .collect::<Vec<_>>()
             .join(", ");
-        sql.push_str("\n      AND ca.provider IN (");
+        sql.push_str("\n      AND ");
+        sql.push_str(column);
+        sql.push_str(" IN (");
         sql.push_str(&placeholders);
         sql.push(')');
+        next += count;
     }
     sql.push_str(
         "
@@ -121,6 +181,28 @@ pub(crate) fn cached_activity_rows_sql(keys: usize, below: bool) -> String {
     );
     sql
 }
+
+// A row's place (slice 6, carnet#1484), written here with every other
+// cached_activities write (check-one-writer.sh, G1). The places service
+// writes it through `AthletePlaceRepository::replace_clustering` and
+// `create_athlete_place`.
+
+/// Set one cached row's place (`$5`, NULL to clear), by the table's
+/// uniqueness key.
+pub(crate) const ASSIGN_PLACE_SQL: &str = r"
+    UPDATE cached_activities
+    SET place_id = $5
+    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND activity_id = $4";
+
+/// Clear the place of every cached row of `$2` (user) in `$1` (tenant)
+/// whose place is gone.
+pub(crate) const CLEAR_DANGLING_PLACES_SQL: &str = r"
+    UPDATE cached_activities
+    SET place_id = NULL
+    WHERE tenant_id = $1 AND user_id = $2 AND place_id IS NOT NULL
+      AND place_id NOT IN (
+          SELECT ap.id FROM athlete_places ap WHERE ap.tenant_id = $1 AND ap.user_id = $2
+      )";
 
 /// One cached activity, by the table's uniqueness key.
 pub(crate) const GET_CACHED_ACTIVITY_SQL: &str = r"
@@ -373,12 +455,11 @@ mod tests {
         let start = sql.find("IN (").map(|at| at + 4);
         let list =
             start.and_then(|start| sql[start..].find(')').map(|end| &sql[start..start + end]));
-        list.map(|list| {
+        list.map_or_default(|list| {
             list.split(',')
                 .map(|key| key.trim().trim_matches('\''))
                 .collect()
         })
-        .unwrap_or_default()
     }
 
     /// Every statement that names the user-provided keys names exactly

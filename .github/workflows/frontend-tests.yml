@@ -6,6 +6,8 @@ on:
     paths:
       - 'frontend/**'
       - 'packages/**'
+      # The sign-in extension: its own bun tests, and the e2e that loads it.
+      - 'extensions/**'
       - 'bun.lock'
       - 'crates/pierre-routes-auth/src/**'
       # The hosted sign-in pages' scripts run in src/__tests__/hostedLoginCodeStep.test.ts.
@@ -24,6 +26,8 @@ on:
     paths:
       - 'frontend/**'
       - 'packages/**'
+      # The sign-in extension: its own bun tests, and the e2e that loads it.
+      - 'extensions/**'
       - 'bun.lock'
       - 'crates/pierre-routes-auth/src/**'
       # The hosted sign-in pages' scripts run in src/__tests__/hostedLoginCodeStep.test.ts.
@@ -40,19 +44,20 @@ on:
   workflow_dispatch:  # Allow manual triggering
 
 concurrency:
-  # On main the sha is part of the group, so every commit gets its own group and
-  # nothing can cancel anyone's verdict. Branches share a group per ref and keep
-  # cancelling, where fast feedback beats a stale result.
-  #
-  # The ref test lives in `group` rather than in `cancel-in-progress` because
-  # only the former is known to work here: `cancel-in-progress: ${{ github.ref
-  # != 'refs/heads/main' }}` was tried first and did not hold — run 33026440559
-  # on main was cancelled one second after the next run was created, and that
-  # run's run_started_at equalled its created_at, so it never waited on the
-  # group the way a false would have made it. `group` expressions demonstrably
-  # do evaluate: that is what has been scoping cancellation per ref all along.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
-  cancel-in-progress: true
+  # One run going and one waiting, per lane and per ref (JF, 2026-11-19). A
+  # running run always finishes, so main still turns green and deploys however
+  # often it is pushed; a newer push takes the single waiting slot, replacing
+  # the run that waited there, which GitHub cancels. The run that does go tests
+  # a tree holding every skipped commit. Main used to keep one group per sha and
+  # never cancel: 24 commits on 2026-11-19 queued ~600 jobs for a handful of
+  # slots. Both costs are accepted: an intermediate main commit gets no verdict
+  # of its own (the eviction carnet#169 once counted as a loss), and a branch
+  # re-pushed mid-run finishes the superseded run (what carnet#1114 avoided),
+  # bounded to one. The event name keeps a schedule or dispatch run out of the
+  # push group. `cancel-in-progress` stays a literal: an expression there did
+  # not hold on main (run 33026440559, see ci-backend.yml's history).
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 # Security: Explicit permissions following principle of least privilege
 permissions:
@@ -121,6 +126,18 @@ jobs:
             exit 1
           fi
           bun run test:packages
+
+      - name: Test the sign-in extension
+        run: |
+          # `bun test` over a folder with no test files exits non-zero, but say
+          # what ran, and fail on a selection that lost its suites.
+          EXTENSION_TEST_FILES=$(find extensions/dravr-signin -maxdepth 1 -name '*.test.js' | wc -l | tr -d ' ')
+          echo "Sign-in extension test files: $EXTENSION_TEST_FILES"
+          if [ "$EXTENSION_TEST_FILES" -lt 5 ]; then
+            echo "Expected at least 5 test files in extensions/dravr-signin (signin, background, bridge, notice, package)."
+            exit 1
+          fi
+          bun test extensions/dravr-signin
 
   frontend-tests:
     name: Frontend Test Suite

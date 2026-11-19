@@ -9,7 +9,7 @@
 //! Hosts the `/api/admin/*` REST surface that the browser admin UI calls.
 //! Unlike `/admin/*` routes (admin service-token auth via `pierre-routes-admin`),
 //! these routes accept standard user JWT/cookie authentication and gate on
-//! `users.is_admin = true` via [`pierre_middleware::admin_guard::require_admin`].
+//! `users.role = 'admin'` via [`pierre_middleware::admin_guard::require_admin`].
 //!
 //! Endpoints covered:
 //! - Admin roles (`users/{id}/promote`, `users/{id}/demote`, `admins`)
@@ -53,16 +53,18 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_config::security::llm_base_url_policy as config_llm_base_url_policy;
-use pierre_core::admin::scope::AdminScope;
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
+use pierre_core::models::User;
 use pierre_database::repositories::LlmUsageScope;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::config::LlmChain;
 use pierre_middleware::tenant_path::TenantPath;
-use pierre_middleware::{extract_auth_from_headers, require_admin, McpAuthMiddleware};
+use pierre_middleware::{
+    cookie_admin_token, extract_auth_from_headers, require_admin, McpAuthMiddleware,
+};
 use pierre_runtime_context::{scope_caller, DataContext};
-use pierre_services::admin_ops;
+use pierre_services::admin_ops::{self, AccountCaller, AdminStandingLost};
 use pierre_services::pricing::costs_of_usage_groups;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 
@@ -280,7 +282,7 @@ impl WebAdminRoutes {
                 "/api/admin/tools/user/{user_id}/override/{tool_name}",
                 delete(Self::handle_remove_user_tool_override),
             )
-            // Per-tenant plan (super-admin)
+            // Per-tenant plan
             .route(
                 "/api/admin/tenants/{tenant_id}/plan",
                 get(Self::handle_get_tenant_plan).put(Self::handle_set_tenant_plan),
@@ -321,70 +323,38 @@ impl WebAdminRoutes {
         headers: &HeaderMap,
         resources: &WebAdminContext,
     ) -> Result<AuthResult, AppError> {
+        Ok(Self::authenticate_admin_account(headers, resources)
+            .await?
+            .0)
+    }
+
+    /// [`Self::authenticate_admin`], with the signed-in admin's account: what
+    /// a route that writes against its admin builds its caller from.
+    async fn authenticate_admin_account(
+        headers: &HeaderMap,
+        resources: &WebAdminContext,
+    ) -> Result<(AuthResult, User), AppError> {
         let ctx = Arc::new(resources.clone());
         let auth = extract_auth_from_headers(headers, &ctx).await?;
 
         // Verify admin privileges using centralized guard
-        require_admin(auth.user_id, &resources.repos.users).await?;
+        let admin = require_admin(auth.user_id, &resources.repos.users).await?;
 
-        Ok(auth)
+        Ok((auth, admin))
     }
 
-    /// The tenant a read of `target_user_id`'s usage is limited to: `None` for a
-    /// super admin, and for anyone else the tenant they act in, since sharing a
-    /// tenant with a user grants none of the rows billed to their other tenants
-    /// (carnet#1440). A target outside that tenant is refused rather than read as
-    /// empty rows.
-    async fn usage_read_tenant(
+    /// The target of a per-user read or write, which must exist: a missing
+    /// one is `NotFound`. The caller is an admin ([`Self::authenticate_admin`]
+    /// refused anyone else), and an admin reaches every user on the platform,
+    /// so there is nothing further to authorize (CWE-863 is held by that one
+    /// gate). Every per-user endpoint passes through here so they answer a
+    /// missing user alike.
+    async fn require_target_user(
         resources: &WebAdminContext,
-        auth: &AuthResult,
-        target_user_id: &str,
-    ) -> Result<Option<String>, AppError> {
-        let scope = scope_caller(&Arc::new(resources.clone()), auth)
-            .await?
-            .resolve(None)?;
-        let AdminScope::Tenant { tenant_id } = scope else {
-            return Ok(None);
-        };
-        let target = Uuid::parse_str(target_user_id)
-            .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
-        if resources
-            .repos
-            .tenants
-            .get_user_role(target, tenant_id)
-            .await?
-            .is_none()
-        {
-            return Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Admin is not permitted to view this user's financial data",
-            ));
-        }
-        Ok(Some(tenant_id.to_string()))
-    }
-
-    /// Authorize the acting admin to read a target user's per-user financial data
-    /// (CWE-863). Super-admins (global operators) may read any user's; a
-    /// tenant-scoped admin may read only for a user who shares one of their
-    /// tenants. Returns `NotFound` for a missing target (404 before 403). Every
-    /// per-user financial endpoint passes through here, since the sibling endpoints
-    /// drifting out of sync is exactly what caused this disclosure; the usage read
-    /// then narrows further through [`Self::usage_read_tenant`].
-    async fn authorize_admin_for_user(
-        resources: &WebAdminContext,
-        admin_user_id: Uuid,
         target_user_id: &str,
     ) -> Result<(), AppError> {
         let user_uuid = Uuid::parse_str(target_user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
-        let admin = resources
-            .data
-            .repos()
-            .users
-            .get_global(admin_user_id)
-            .await?
-            .ok_or_else(|| AppError::not_found("Admin user not found"))?;
-        // Existence check first so a missing target returns 404, not 403.
         resources
             .data
             .repos()
@@ -392,29 +362,6 @@ impl WebAdminRoutes {
             .get_global(user_uuid)
             .await?
             .ok_or_else(|| AppError::not_found("User not found"))?;
-        if !admin.role.is_super_admin() {
-            let admin_tenants = resources
-                .data
-                .repos()
-                .tenants
-                .list_for_user(admin_user_id)
-                .await?;
-            let target_tenants = resources
-                .data
-                .repos()
-                .tenants
-                .list_for_user(user_uuid)
-                .await?;
-            let shares_tenant = target_tenants
-                .iter()
-                .any(|t| admin_tenants.iter().any(|a| a.id == t.id));
-            if !shares_tenant {
-                return Err(AppError::new(
-                    ErrorCode::PermissionDenied,
-                    "Admin is not permitted to view this user's financial data",
-                ));
-            }
-        }
         Ok(())
     }
 
@@ -442,16 +389,15 @@ impl WebAdminRoutes {
     // =========================================================================
 
     /// PUT `/api/admin/tenants/{tenant_id}/plan` - set a tenant's plan (unlocks
-    /// plan-gated tools). Super-admin only (billing-adjacent). Busts the
-    /// in-process tool-selection cache so the change is effective immediately.
+    /// plan-gated tools). Busts the in-process tool-selection cache so the
+    /// change is effective immediately.
     async fn handle_set_tenant_plan(
         State(resources): State<WebAdminContext>,
         headers: HeaderMap,
         TenantPath(tenant_id): TenantPath,
         Json(request): Json<SetTenantPlanRequest>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
-        admin_ops::require_super_admin(auth.user_id, &resources.data).await?;
+        Self::authenticate_admin(&headers, &resources).await?;
 
         let updated =
             admin_ops::set_tenant_plan(&resources.repos, tenant_id, &request.plan).await?;
@@ -470,15 +416,13 @@ impl WebAdminRoutes {
 
     /// GET `/api/admin/tenants/{tenant_id}/plan` - read a tenant's current plan.
     ///
-    /// Tenant-scoped admin (or super-admin) — reading the plan is display-level
-    /// (the Tenant Plan card preselects it); changing it stays super-admin only.
+    /// Any admin reads any tenant's plan (the Tenant Plan card preselects it).
     async fn handle_get_tenant_plan(
         State(resources): State<WebAdminContext>,
         headers: HeaderMap,
         TenantPath(tenant_id): TenantPath,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
-        admin_ops::verify_admin_tenant_access(&resources.data, auth.user_id, tenant_id).await?;
+        Self::authenticate_admin(&headers, &resources).await?;
 
         let tenant = resources.repos.tenants.get_by_id(tenant_id).await?;
 
@@ -500,8 +444,8 @@ impl WebAdminRoutes {
         headers: HeaderMap,
         Path(user_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
-        Self::authorize_admin_for_user(&resources, auth.user_id, &user_id).await?;
+        Self::authenticate_admin(&headers, &resources).await?;
+        Self::require_target_user(&resources, &user_id).await?;
 
         let user_uuid = Uuid::parse_str(&user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
@@ -537,7 +481,7 @@ impl WebAdminRoutes {
         Json(request): Json<SetToolOverrideRequest>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
-        Self::authorize_admin_for_user(&resources, auth.user_id, &user_id).await?;
+        Self::require_target_user(&resources, &user_id).await?;
 
         let user_uuid = Uuid::parse_str(&user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
@@ -574,8 +518,8 @@ impl WebAdminRoutes {
         headers: HeaderMap,
         Path((user_id, tool_name)): Path<(String, String)>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
-        Self::authorize_admin_for_user(&resources, auth.user_id, &user_id).await?;
+        Self::authenticate_admin(&headers, &resources).await?;
+        Self::require_target_user(&resources, &user_id).await?;
 
         let user_uuid = Uuid::parse_str(&user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
@@ -633,7 +577,7 @@ impl WebAdminRoutes {
             .into_response())
     }
 
-    /// Promote a user to admin (super-admin only)
+    /// Promote a user to admin
     async fn handle_promote_user(
         State(resources): State<WebAdminContext>,
         headers: HeaderMap,
@@ -651,7 +595,8 @@ impl WebAdminRoutes {
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
         let result =
-            admin_ops::promote_user_to_admin(&resources.data, auth.user_id, user_uuid).await?;
+            admin_ops::promote_user_to_admin(resources.data.repos(), auth.user_id, user_uuid)
+                .await?;
 
         Ok((
             StatusCode::OK,
@@ -669,13 +614,13 @@ impl WebAdminRoutes {
             .into_response())
     }
 
-    /// Demote an admin user back to a regular user (super-admin only)
+    /// Demote an admin user back to a regular user; the last active admin is refused
     async fn handle_demote_user(
         State(resources): State<WebAdminContext>,
         headers: HeaderMap,
         Path(user_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        let (auth, admin) = Self::authenticate_admin_account(&headers, &resources).await?;
 
         info!(
             admin_user_id = %auth.user_id,
@@ -686,8 +631,22 @@ impl WebAdminRoutes {
         let user_uuid = Uuid::parse_str(&user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-        let result =
-            admin_ops::demote_user_from_admin(&resources.data, auth.user_id, user_uuid).await?;
+        let demotion =
+            admin_ops::demote_user_from_admin(resources.data.repos(), auth.user_id, user_uuid)
+                .await?;
+        // This route takes the console session only: the caller is the one
+        // the admin API's console mount builds, so the trail names the
+        // signed-in admin and the console, through the path every surface
+        // records a withdrawal by.
+        AccountCaller::of_token(&cookie_admin_token(&admin, None))
+            .record_withdrawn(
+                resources.data.repos(),
+                &demotion.withdrawn,
+                AdminStandingLost::Demoted,
+                Some(user_uuid),
+            )
+            .await;
+        let result = demotion.change;
 
         Ok((
             StatusCode::OK,
@@ -705,7 +664,7 @@ impl WebAdminRoutes {
             .into_response())
     }
 
-    /// List all admin users across all tenants (super-admin only)
+    /// List all admin users across all tenants
     async fn handle_list_admins(
         State(resources): State<WebAdminContext>,
         headers: HeaderMap,
@@ -751,38 +710,21 @@ impl WebAdminRoutes {
         Path(user_id): Path<String>,
         Query(q): Query<UsageRangeQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
-        Self::authorize_admin_for_user(&resources, auth.user_id, &user_id).await?;
-        let tenant = Self::usage_read_tenant(&resources, &auth, &user_id).await?;
+        Self::authenticate_admin(&headers, &resources).await?;
+        Self::require_target_user(&resources, &user_id).await?;
 
+        // An admin reads the user's usage in every tenant they belong to.
         let from = resolve_start(q.from.as_deref())?.to_rfc3339();
         let usage = resources.repos.llm_usage.as_ref();
-        let (raw_rows, daily, scope) = if let Some(tenant_id) = tenant.as_deref() {
-            (
-                usage
-                    .get_llm_usage_aggregates_by_user_in_tenant(&user_id, tenant_id, &from)
-                    .await?,
-                usage
-                    .get_llm_usage_daily_series_by_user_in_tenant(&user_id, tenant_id, &from)
-                    .await?,
-                LlmUsageScope::UserInTenant {
-                    user_id: &user_id,
-                    tenant_id,
-                },
-            )
-        } else {
-            (
-                usage
-                    .get_llm_usage_aggregates_by_user(&user_id, &from)
-                    .await?,
-                usage
-                    .get_llm_usage_daily_series_by_user(&user_id, &from)
-                    .await?,
-                LlmUsageScope::User(&user_id),
-            )
-        };
+        let raw_rows = usage
+            .get_llm_usage_aggregates_by_user(&user_id, &from)
+            .await?;
+        let daily = usage
+            .get_llm_usage_daily_series_by_user(&user_id, &from)
+            .await?;
 
-        let costs = costs_of_usage_groups(usage, scope, &raw_rows, &from).await?;
+        let costs =
+            costs_of_usage_groups(usage, LlmUsageScope::User(&user_id), &raw_rows, &from).await?;
         let by_model: Vec<LlmUsageAggregateRowWithCost> = raw_rows
             .into_iter()
             .zip(costs)
@@ -809,24 +751,10 @@ impl WebAdminRoutes {
         headers: HeaderMap,
         Query(q): Query<BillingExportQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
         // SECURITY (CWE-863): this export is platform-wide — it returns every
-        // tenant's billing rows with no tenant filter — so restrict it to
-        // super-admins. A tenant-scoped admin must not read other tenants'
-        // billing data.
-        let admin = resources
-            .data
-            .repos()
-            .users
-            .get_global(auth.user_id)
-            .await?
-            .ok_or_else(|| AppError::not_found("Admin user not found"))?;
-        if !admin.role.is_super_admin() {
-            return Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Super-admin privileges required to export platform-wide billing",
-            ));
-        }
+        // tenant's billing rows with no tenant filter. Only an admin reaches
+        // it, and an admin reads every tenant.
+        Self::authenticate_admin(&headers, &resources).await?;
         let (start, end) = parse_month_period(&q.period)?;
         let limit = q.limit.unwrap_or(1_000).clamp(1, 10_000);
         let records = resources

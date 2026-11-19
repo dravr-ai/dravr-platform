@@ -18,7 +18,7 @@ import {
   type UseActivityUploadResult,
   useDistanceUnit,
 } from '@pierre/ui-logic';
-import { EmptyState, Section } from '../../components/ui';
+import { ALERT_TONE, EmptyState, Section } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { ActivityMap } from './ActivityMap';
 import { ActivitySketch, SKETCH_SIZE } from './RouteSketch';
@@ -183,19 +183,19 @@ function SyncFailed({ failure, onRetry }: { failure: SyncFailure; onRetry: () =>
   }, [message, failure.failed_at]);
   return (
     <View
-      className="mx-4 mb-2 flex-row flex-wrap items-center rounded-lg bg-error/15 px-3"
+      className={`mx-4 mb-2 flex-row flex-wrap items-center rounded-lg ${ALERT_TONE.error.fill} px-3`}
       accessibilityRole="alert"
       accessibilityLiveRegion="polite"
       testID="home-activities-sync-failed"
     >
-      <Text className="py-2 text-sm text-on-error-container">{message}</Text>
+      <Text className={`py-2 text-sm ${ALERT_TONE.error.ink}`}>{message}</Text>
       <Pressable
         onPress={onRetry}
         accessibilityRole="button"
         className="ml-1 min-h-11 justify-center px-2"
         testID="home-activities-sync-retry"
       >
-        <Text className="text-sm font-medium text-on-error-container underline">{t('common.retry')}</Text>
+        <Text className={`text-sm font-medium ${ALERT_TONE.error.ink} underline`}>{t('common.retry')}</Text>
       </Pressable>
     </View>
   );

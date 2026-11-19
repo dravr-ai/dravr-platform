@@ -65,7 +65,6 @@ async fn setup_test_database() -> Result<(Database, String, Uuid)> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: true,
         role: UserRole::Admin,
         approved_by: None, // Admin doesn't need approval
         approved_at: None,
@@ -88,7 +87,7 @@ async fn setup_test_database() -> Result<(Database, String, Uuid)> {
     let admin_request = CreateAdminTokenRequest {
         service_name: "test_admin".to_owned(),
         service_description: Some("Test admin for approval workflow".to_owned()),
-        permissions: None, // Super admin gets all permissions
+        permissions: None, // Admin gets all permissions
         expires_in_days: Some(1),
         is_super_admin: true,
         tenant_id: None,
@@ -122,7 +121,6 @@ async fn test_get_pending_users() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Pending,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -149,7 +147,6 @@ async fn test_get_pending_users() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: Some(admin_user_id),
         approved_at: Some(Utc::now()),
@@ -194,7 +191,6 @@ async fn test_approve_user() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Pending,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -236,7 +232,6 @@ async fn test_approve_user() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: Some(admin_user_id), // Approved by admin user
         approved_at: Some(Utc::now()),
@@ -289,7 +284,6 @@ async fn test_suspend_user() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: Some(admin_user_id),
         approved_at: Some(Utc::now()),
@@ -342,7 +336,6 @@ async fn test_user_status_transitions() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Pending,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -402,7 +395,6 @@ async fn test_approve_user_assigns_admin_tenant() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Pending,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -477,7 +469,6 @@ async fn test_approved_users_share_tenant_with_admin() -> Result<()> {
             strava_token: None,
             is_active: true,
             user_status: UserStatus::Pending,
-            is_admin: false,
             role: UserRole::User,
             approved_by: None,
             approved_at: None,
@@ -528,7 +519,7 @@ async fn test_approved_users_share_tenant_with_admin() -> Result<()> {
         .get_global(admin_user_id)
         .await?
         .unwrap();
-    assert!(admin.is_admin);
+    assert!(admin.role.is_admin());
 
     Ok(())
 }
@@ -548,7 +539,6 @@ async fn test_delete_user() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: Some(admin_user_id),
         approved_at: Some(Utc::now()),
@@ -624,7 +614,6 @@ async fn test_update_tenant_id_creates_tenant_users_entry() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: Some(admin_user_id),
         approved_at: Some(Utc::now()),
@@ -685,7 +674,6 @@ async fn test_get_by_status_none_returns_all_users() -> Result<()> {
             strava_token: None,
             is_active: true,
             user_status: UserStatus::Active,
-            is_admin: false,
             role: UserRole::User,
             approved_by: Some(admin_user_id),
             approved_at: Some(Utc::now()),
@@ -759,7 +747,6 @@ async fn test_pending_users_visible_without_tenant_entry() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Pending,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,
@@ -820,7 +807,6 @@ async fn test_update_tenant_id_idempotent() -> Result<()> {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,

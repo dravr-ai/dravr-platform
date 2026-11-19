@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
+import { actsAsAdmin } from '@pierre/shared-types';
 import { userApi } from '../services/api';
 import type { OnboardingStatusResponse } from '@pierre/api-client';
 import { useAuth } from './useAuth';
@@ -81,8 +82,10 @@ export interface OnboardingState {
 /** What the hook's host knows about how the user arrived. */
 export interface OnboardingArrival {
   /**
-   * The user opened a group invite link — a coach inviting an athlete — so
-   * the role is recorded as athlete for them and Profil is behind them.
+   * The user came through a group invite — a coach inviting an athlete — so
+   * the role is recorded as athlete for them and Profil is behind them. It can
+   * turn true after the status has loaded: the join of an invite the server
+   * held answers after the first render (carnet#1648).
    */
   invitedAsAthlete?: boolean;
 }
@@ -99,15 +102,15 @@ export interface OnboardingArrival {
  * (carnet#1042).
  */
 export function useOnboardingState({ invitedAsAthlete = false }: OnboardingArrival = {}): OnboardingState {
-  const { user, isAuthenticated, updateUser } = useAuth();
+  const { user, isAuthenticated, updateUser, viewMode } = useAuth();
 
-  // Admins are exempt: their primary intent is administering, not chatting, so
-  // a missing provider on the admin account must not block them from the
-  // dashboard. The backend 403 still applies if an admin tries to chat without
-  // a provider. (See `feedback_spa_gate_on_role_not_is_admin`: gate on role.)
-  const isAdminRole = user?.role === 'admin' || user?.role === 'super_admin';
+  // The admin console is exempt: its intent is administering, not chatting, so
+  // a missing provider on the admin account must not block it. An admin who
+  // chose the athlete mode meets onboarding like any athlete, and one who has
+  // not chosen yet is still at the mode picker, so nothing is fetched for them
+  // (carnet#1631). Gated on role, never on `is_admin`.
   const onboardingActive = Boolean(
-    isAuthenticated && user?.user_status === 'active' && !isAdminRole,
+    isAuthenticated && user?.user_status === 'active' && !actsAsAdmin(user, viewMode),
   );
 
   // The status is a shared query that other surfaces read for every account —

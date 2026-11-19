@@ -9,10 +9,10 @@
 //! Flow:
 //! 1. `POST /admin/device/authorization` (public) — the CLI gets a `device_code`
 //!    + short `user_code` and starts polling.
-//! 2. A super-admin approves via `POST /admin/device/approve` (super-admin admin
-//!    token), naming the `user_code`. Dravr's admin authority is the token
-//!    (there is no super-admin browser identity), so approval reuses
-//!    `admin_auth_middleware` rather than a cookie session.
+//! 2. An admin approves via `POST /admin/device/approve` (super-admin admin
+//!    token), naming the `user_code`. This route's authority is the token, so
+//!    approval reuses `admin_auth_middleware` rather than a cookie session;
+//!    the browser page that signs an admin in is `device_web`.
 //! 3. `POST /admin/device/token` (public) — once approved, the CLI's next poll
 //!    mints a fresh super-admin admin token (the same [`create_token`] path
 //!    `pierre-cli token generate --super-admin` uses) and the row is deleted
@@ -35,14 +35,14 @@ use secrecy::SecretString;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use pierre_core::admin::models::{
     CreateAdminTokenRequest, ValidatedAdminToken, DEVICE_CLI_SERVICE_PREFIX,
 };
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::DeviceAuthorization;
+use pierre_core::models::{DeviceAuthorization, User};
 
 use super::api_keys::json_response;
 use super::strava_pool::deny_if_not_super_admin;
@@ -252,7 +252,7 @@ pub async fn handle_device_token(
         STATUS_PENDING => Ok(device_error(
             StatusCode::BAD_REQUEST,
             "authorization_pending",
-            "Waiting for a super-admin to approve this login",
+            "Waiting for an admin to approve this login",
         )),
         STATUS_DENIED => {
             context
@@ -277,7 +277,7 @@ pub async fn handle_device_token(
 /// delete (so concurrent polls can never mint two tokens), then mint a fresh
 /// super-admin admin token that acts as the approver.
 ///
-/// `approved_by` is the approving super-admin's user id, recorded by the
+/// `approved_by` is the approving admin's user id, recorded by the
 /// approval; the minted token stores it as its `operator_user_id`, the one
 /// identity the config routes and the pre-approval audit read. An approval
 /// made through a service token names no person, so its token has no operator.
@@ -310,14 +310,30 @@ async fn mint_approved_token(
         },
     );
     // The approver's address goes back to the CLI that asked ("approved by"),
-    // never into a log.
+    // never into a log. An approval outlives neither its admin's standing nor
+    // the account: the token would act as someone who is no longer an admin.
     let subject = match operator {
-        Some(operator) => context
-            .repos
-            .users
-            .get_global(operator)
-            .await?
-            .map(|user| user.email),
+        Some(operator) => {
+            // SECURITY: Global lookup — the approver is an admin, not a tenant member
+            let approver = context
+                .repos
+                .users
+                .get_global(operator)
+                .await?
+                .filter(User::is_active_admin);
+            let Some(approver) = approver else {
+                warn!(
+                    operator_user_id = %operator,
+                    "Device login not minted: its approver is no longer an active admin"
+                );
+                return Ok(device_error(
+                    StatusCode::BAD_REQUEST,
+                    "access_denied",
+                    "The admin who approved this login is no longer an active admin; start a new login",
+                ));
+            };
+            Some(approver.email)
+        }
         None => None,
     };
     let minted = context
@@ -354,6 +370,11 @@ async fn mint_approved_token(
 /// is recorded, so the minted token acts as the same person. A service token
 /// names no one, and the token its approval mints has no operator.
 ///
+/// An expired login answers 410 only until the next login starts: starting
+/// one deletes the expired rows, and the code then answers 404, as a code
+/// that was never issued does. The 404 says "unknown or expired" for that
+/// reason.
+///
 /// # Errors
 /// Returns an error if the lookup or status update fails.
 pub async fn handle_device_approve(
@@ -383,7 +404,9 @@ pub async fn handle_device_approve(
         return Ok(admin_json(
             AdminResponse {
                 success: false,
-                message: format!("Unknown user_code: {user_code}"),
+                message: format!(
+                    "Unknown or expired user_code: {user_code}. Start a new login for a new code."
+                ),
                 data: None,
             },
             StatusCode::NOT_FOUND,
@@ -431,8 +454,7 @@ pub async fn handle_device_approve(
 
     let approver = admin_token
         .operator_user_id
-        .map(|id| id.to_string())
-        .unwrap_or_default();
+        .map_or_default(|id| id.to_string());
     context
         .repos
         .oauth2_server

@@ -168,13 +168,13 @@ async fn test_cache_invalidate_pattern() -> Result<()> {
         tenant_id,
         user_id,
         "strava".to_owned(),
-        CacheResource::LastKnownStats,
+        CacheResource::LastKnownAthleteProfile,
     );
     let key3 = CacheKey::new(
         tenant_id,
         user_id,
         "strava".to_owned(),
-        CacheResource::Stats { athlete_id: 456 },
+        CacheResource::ProviderRoster,
     );
 
     cache.set(&key1, &data, Duration::from_mins(1)).await?;
@@ -260,7 +260,7 @@ async fn test_cache_capacity_eviction() -> Result<()> {
 
     // Fill cache beyond capacity
     for i in 0..20 {
-        let key = test_cache_key(CacheResource::Stats { athlete_id: i });
+        let key = test_cache_key(CacheResource::Custom(format!("entry_{i}")));
         cache.set(&key, &data, Duration::from_mins(1)).await?;
     }
 
@@ -269,7 +269,7 @@ async fn test_cache_capacity_eviction() -> Result<()> {
     // but it should be less than 20
     let mut count = 0;
     for i in 0..20 {
-        let key = test_cache_key(CacheResource::Stats { athlete_id: i });
+        let key = test_cache_key(CacheResource::Custom(format!("entry_{i}")));
         if cache.exists(&key).await? {
             count += 1;
         }
@@ -302,7 +302,7 @@ async fn test_cache_background_cleanup() -> Result<()> {
                 tenant_id,
                 user_id,
                 "strava".to_owned(),
-                CacheResource::Stats { athlete_id: i },
+                CacheResource::Custom(format!("entry_{i}")),
             )
         })
         .collect();
@@ -346,7 +346,7 @@ async fn test_cache_clear_all() -> Result<()> {
                 tenant_id,
                 user_id,
                 "strava".to_owned(),
-                CacheResource::Stats { athlete_id: i },
+                CacheResource::Custom(format!("entry_{i}")),
             )
         })
         .collect();
@@ -403,7 +403,7 @@ async fn test_cache_different_resource_types() -> Result<()> {
             after: None,
             sport_type: None,
         },
-        CacheResource::Stats { athlete_id: 456 },
+        CacheResource::ProviderRoster,
     ];
 
     for resource in &resources {

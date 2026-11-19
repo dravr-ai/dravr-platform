@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use dravr_canot::channel::MessagingChannel;
 use dravr_canot::channels::discord::gateway::{start_gateway, GatewayConfig, GatewaySinks};
-use dravr_canot::factory::create_adapter_from_config;
 use pierre_core::models::messaging::{ChannelType, InboundReaction, IncomingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::MessagingRepository;
@@ -20,7 +19,6 @@ use tracing::{info, warn};
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
 use crate::services::messaging_ingress::reactions;
-use pierre_runtime_context::DataContext;
 
 /// Start the Discord Gateway background service
 ///
@@ -38,7 +36,10 @@ pub fn start_discord_gateway(resources: &Arc<ServerContext>) {
         }
     };
 
-    let config = GatewayConfig::new(bot_token);
+    let config = gateway_config(
+        bot_token,
+        resources.mcp.channel_adapters.discord_gateway_url(),
+    );
     let (tx, rx) = mpsc::channel::<IncomingMessage>(256);
     let (reaction_tx, reaction_rx) = mpsc::channel::<InboundReaction>(256);
     let sinks = GatewaySinks {
@@ -64,6 +65,20 @@ pub fn start_discord_gateway(resources: &Arc<ServerContext>) {
     info!("Discord Gateway: started");
 }
 
+/// The Gateway client's configuration for `bot_token`: Discord's own
+/// Gateway, or `gateway_url` when the context's adapter factory names one
+/// ([`ChannelAdapterFactory::discord_gateway_url`]), which only a test
+/// context's does.
+///
+/// [`ChannelAdapterFactory::discord_gateway_url`]: pierre_services::channel_adapters::ChannelAdapterFactory::discord_gateway_url
+fn gateway_config(bot_token: String, gateway_url: Option<String>) -> GatewayConfig {
+    let config = GatewayConfig::new(bot_token);
+    match gateway_url {
+        Some(url) => config.with_gateway_url(url),
+        None => config,
+    }
+}
+
 /// Process incoming messages from the Gateway mpsc channel
 async fn process_gateway_messages(
     resources: Arc<ServerContext>,
@@ -75,7 +90,7 @@ async fn process_gateway_messages(
             sender_name = ?message.sender_name,
             "Discord Gateway: received message"
         );
-        let Some((tenant_id, adapter)) = resolve_channel_config(&resources.data()).await else {
+        let Some((tenant_id, adapter)) = resolve_channel_config(&resources).await else {
             continue;
         };
         dispatch_message(&resources, tenant_id, adapter, message).await;
@@ -83,15 +98,21 @@ async fn process_gateway_messages(
     info!("Discord Gateway: message processor stopped");
 }
 
-/// Load the Discord channel config from DB and construct an adapter
+/// Load the Discord channel config from DB and construct an adapter through
+/// the factory the context was built on, as the webhook routes do.
 async fn resolve_channel_config(
-    data: &DataContext,
+    resources: &ServerContext,
 ) -> Option<(TenantId, Arc<dyn MessagingChannel>)> {
+    let data = resources.data();
     let db: &dyn MessagingRepository = data.repos().messaging.as_ref();
     let configs = db.get_configs_by_channel_type("discord").await.ok()?;
     let config = configs.first()?;
     let tenant_id = parse_tenant_id(config)?;
-    let adapter = create_adapter_from_config(ChannelType::Discord, config).ok()?;
+    let adapter = resources
+        .mcp
+        .channel_adapters
+        .build(ChannelType::Discord, config)
+        .ok()?;
     Some((tenant_id, adapter))
 }
 
@@ -117,9 +138,10 @@ async fn dispatch_message(
         ChannelType::Discord,
         &adapter,
         &messages,
-        // Socket-mode turns open their placeholder against the channel's
-        // real API, as every production turn does.
-        None,
+        // Socket-mode turns open their placeholder where the context's
+        // adapter factory says, as webhook turns do: the channel's real API
+        // in a deployment.
+        resources.mcp.channel_adapters.status_api_base().as_deref(),
     )
     .await;
 

@@ -16,6 +16,7 @@ import {
 } from '@pierre/ui-logic';
 import { dataExportApi, type UserDataExportFile } from '../services/api';
 import { Button, Section } from './ui';
+import OriginalsBundlePanel from './OriginalsBundlePanel';
 
 /** The last bytes of the file as text, read without loading the rest. */
 function readTail(content: Blob): Promise<string> {
@@ -103,6 +104,7 @@ export default function DataExportSection() {
           {failure}
         </p>
       )}
+      <OriginalsBundlePanel />
     </Section>
   );
 }

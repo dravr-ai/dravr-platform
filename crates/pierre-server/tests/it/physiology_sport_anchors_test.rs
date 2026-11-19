@@ -9,9 +9,10 @@
 
 use anyhow::Result;
 use pierre_core::models::periodization::{AnchorConfidence, SportFamily};
-use pierre_core::models::{SportAnchorName, TenantId};
+use pierre_core::models::{MeasurementKind, SportAnchorName, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::TransportPolicy;
+use pierre_tool_runtime::envelope_notices::envelope_in_payload;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -390,6 +391,52 @@ async fn a_map_with_no_definition_is_flagged_on_a_plan_that_targets_map() -> Res
     assert_eq!(
         anchor["own_conversions"], false,
         "MAP alone states one end of no ratio"
+    );
+    Ok(())
+}
+
+/// An estimate stored at high confidence reaches the envelope notice as an
+/// estimate (carnet#1562): the day's anchor names its kind beside its
+/// confidence, and the notice reads it off the save's result, so it never
+/// names the estimate as a measurement.
+#[tokio::test]
+async fn an_estimate_at_high_confidence_reaches_the_notice_as_an_estimate() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    set_physiology(
+        &executor,
+        user_id,
+        &tenant_id,
+        json!({ "sport_anchors": [{
+            "sport": "ride", "anchor": "map", "value": 380, "kind": "estimated",
+            "confidence": "high", "source": "intervals.icu"
+        }]}),
+    )
+    .await?;
+
+    let saved = save_family_week(&executor, user_id, &tenant_id).await?;
+
+    let anchor = &saved["envelope"]["days"][0]["anchor"];
+    assert_eq!(
+        anchor["anchor"], "map",
+        "the day's targets sit on MAP: {saved:#}"
+    );
+    assert_eq!(
+        anchor["confidence"], "high",
+        "the stored confidence, never derived: {saved:#}"
+    );
+    assert_eq!(
+        anchor["kind"], "estimated",
+        "bug: the anchor a session sits on dropped the stored kind: {saved:#}"
+    );
+    let noticed = envelope_in_payload("save_training_plan", &saved)
+        .into_iter()
+        .find_map(|day| day.anchor)
+        .expect("the notice reads the day's anchor off the save");
+    assert_eq!(
+        noticed.kind,
+        Some(MeasurementKind::Estimated),
+        "bug: the notice reads the estimate as a measurement"
     );
     Ok(())
 }

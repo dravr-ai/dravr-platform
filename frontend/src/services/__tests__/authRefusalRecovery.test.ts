@@ -181,12 +181,12 @@ describe('shared response interceptor: which refusals recover by re-authenticati
 
   it('leaves the athlete signed in on a role 403, and still rejects', async () => {
     // The point of the whole change. This refusal survives re-authentication —
-    // a plain admin who is signed out lands back on the same 403 — so clearing
+    // a user without the admin role who is signed out lands back on the same 403 — so clearing
     // the session over it is a login loop, not a recovery.
     harness = harnessFor(
       403,
       {},
-      { code: 'PermissionDenied', message: 'Super-admin privileges required' },
+      { code: 'PermissionDenied', message: 'Admin privileges required' },
     )
 
     const refusal = await harness.client
@@ -198,7 +198,7 @@ describe('shared response interceptor: which refusals recover by re-authenticati
     expect((refusal as AxiosError).message).toBe('Request failed with status code 403')
     expect((refusal as AxiosError<{ code: string; message: string }>).response?.data).toEqual({
       code: 'PermissionDenied',
-      message: 'Super-admin privileges required',
+      message: 'Admin privileges required',
     })
     expect(harness.clear).not.toHaveBeenCalled()
     expect(harness.authFailures()).toBe(0)

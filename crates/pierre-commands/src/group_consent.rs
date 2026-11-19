@@ -72,6 +72,11 @@ pub struct GroupConsentHandler;
 
 #[async_trait]
 impl CommandHandler for GroupConsentHandler {
+    /// `yes` widens who reads the member's training; `no` narrows it.
+    fn outlives_support_session(&self, args: &[String]) -> bool {
+        parse_consent_args(args).is_some_and(|(_, granted)| granted)
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let reg = ctx.ctx.messaging_strings_registry();
         let locale = ctx.locale.as_str();
@@ -223,6 +228,23 @@ mod tests {
                 source: "list_groups_for_user_all",
             })
             .collect()
+    }
+
+    #[test]
+    fn only_a_consent_turned_on_leaves_a_grant_behind() {
+        let handler = GroupConsentHandler;
+        for granted in [&["yes"][..], &["coach", "yes"]] {
+            assert!(
+                handler.outlives_support_session(&args(granted)),
+                "a consent turned on outlives the support session: {granted:?}"
+            );
+        }
+        for withheld in [&["no"][..], &["coach", "no"], &[], &["maybe"]] {
+            assert!(
+                !handler.outlives_support_session(&args(withheld)),
+                "a withdrawal or a malformed consent grants nothing: {withheld:?}"
+            );
+        }
     }
 
     #[test]

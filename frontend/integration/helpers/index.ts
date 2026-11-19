@@ -15,6 +15,7 @@ export {
 
 export {
   createTestAdminUser,
+  createTestUser,
   generateApiToken,
   cleanupTestDatabase,
   ensureDataDirectory,
@@ -27,12 +28,12 @@ export {
 export {
   loginWithCredentials,
   createAndLoginAsAdmin,
-  createAndLoginAsSuperAdmin,
   createAndLoginTestUser,
   logout,
   isLoggedIn,
   signInButton,
   navigateToTab,
   waitForDashboardLoad,
+  type LoginLanding,
   type LoginResult,
 } from './auth-helpers';

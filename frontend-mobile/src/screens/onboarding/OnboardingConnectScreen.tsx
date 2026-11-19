@@ -20,7 +20,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useThemeColors } from '../../constants/theme';
-import { Button } from '../../components/ui';
+import { ALERT_TONE, Button } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { ImportOwnDataRow } from '../../components/ImportOwnDataRow';
@@ -228,7 +228,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
   // the platform (currently only WHOOP once the user has registered a BYO
   // app). Sciotte providers handle their own credential flow via the modal.
   const launchOAuth = useCallback(
-    async (providerId: string, providerName: string, tosConsent = false) => {
+    async (providerId: string, providerName: string, tosConsent = false, signInBlocked = false) => {
       // The row the authorization belongs to: `garmin` and `strava` land on
       // the card of their sign-in backend, whose row shows the spinner.
       const cardKey = cardForSlug(providerId, providers)?.provider ?? providerId;
@@ -237,7 +237,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
         setConnectError(null);
         setAwaitingOAuthFor(providerName);
         const returnUrl = getOAuthCallbackUrl();
-        const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl, { tosConsent });
+        const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl, { tosConsent, signInBlocked });
         const result = await WebBrowser.openAuthSessionAsync(
           oauthResponse.authorization_url,
           returnUrl,
@@ -342,7 +342,9 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
   const fallBackToOAuth = (provider: SciotteTarget) => () => {
     const card = cardForSlug(provider, providers);
     signIn.close();
-    void launchOAuth(provider, card?.display_name ?? provider);
+    // The sign-in could not complete: the server must not turn this start
+    // back into that sign-in (carnet#1667).
+    void launchOAuth(provider, card?.display_name ?? provider, false, true);
   };
 
   /** The connect `handleConnect` resumes once any OAuth notice is accepted. */
@@ -568,9 +570,9 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
         {connectError && (
           <View
             accessibilityLiveRegion="polite"
-            className="mt-4 rounded-lg border border-error/40 bg-error/10 px-4 py-3"
+            className={`mt-4 rounded-lg border ${ALERT_TONE.error.edge} ${ALERT_TONE.error.fill} px-4 py-3`}
           >
-            <Text className="text-sm text-error">{connectError}</Text>
+            <Text className={`text-sm ${ALERT_TONE.error.ink}`}>{connectError}</Text>
           </View>
         )}
 
@@ -621,12 +623,9 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
       <SciotteLoginModal
         visible={signIn.target !== null}
         onClose={signIn.close}
-        onConnected={(followOn) => {
+        onConnected={() => {
           signIn.close();
           void finalizeConnection();
-          // Garmin signs in first and authorizes its grant, which pushes
-          // workouts, right after (carnet#1494).
-          if (followOn) void launchOAuth(followOn, cardForSlug(followOn, providers)?.display_name ?? followOn);
         }}
         target={signIn.target ?? 'strava'}
         consentRequired={signIn.consentRequired}

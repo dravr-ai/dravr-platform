@@ -14,12 +14,16 @@
 //! published one, where the plan was pushed, and the agent's group replies
 //! this week.
 //!
-//! - **Who may call it.** A user with `manages_roster` or platform admin who
-//!   coaches at least one active group; anyone else gets 403.
+//! - **Who may call it.** A user who holds coach access (`manages_roster`,
+//!   or platform admin) and coaches at least one active group; anyone else
+//!   gets 403, with `details.reason = "no_coach_access"` for a caller still
+//!   attached to a group as its coach whose coach access is off.
 //! - **Consent.** Only a `shared` row carries anything beyond the athlete's
 //!   name, groups and status: no number, nothing inferred, for the others.
 //!   A shared row carries nothing from a provider whose AI use the athlete
 //!   withheld: the coach and the agent read one projection (carnet#1262).
+//!   An outside client acting for the coach (an API key) is not listed an
+//!   athlete who stopped sharing at all, nor counted one.
 //! - **Each read is gated and recorded.** Before a sharer's training or plan
 //!   is read, the one coach-read gate is asked for them, as the agent's
 //!   roster asks it (`pierre_tool_runtime::coach_roster::gate_page_reads`,
@@ -52,10 +56,11 @@ use axum::{
 };
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use futures_util::stream::{self, StreamExt, TryStreamExt};
+use pierre_auth::auth::AuthResult;
 use pierre_config::coach_home::CoachHomeConfig;
 use pierre_core::civil_time;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::groups::MemberFitnessSnapshot;
+use pierre_core::models::groups::{CoachingGroup, MemberFitnessSnapshot};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::training_plans::DraftOwner;
 use pierre_database::repositories::CoachReadSurface;
@@ -72,8 +77,9 @@ use pierre_services::coach_attention::{
 use pierre_services::coach_plan_draft::{draft_outline, CoachDraftTarget};
 use pierre_services::coach_replies::{self, CoachReplyView, ReplyPageQuery};
 use pierre_services::coach_roster::{
-    gather_roster, order_roster, roster_access, OrderedMember, RosterAccess, RosterAthleteStatus,
-    RosterGroupRef, RosterGroupSummary, ROSTER_LOOKUP_CONCURRENCY,
+    gather_roster, order_roster, roster_access, GatheredRoster, OrderedMember, RosterAccess,
+    RosterAthleteStatus, RosterGroupRef, RosterGroupSummary, NO_COACH_ACCESS,
+    ROSTER_LOOKUP_CONCURRENCY,
 };
 use pierre_services::coached_athlete::CoachedAthleteAccess;
 use pierre_tool_runtime::coach_roster::{
@@ -81,6 +87,7 @@ use pierre_tool_runtime::coach_roster::{
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tracing::info;
 use uuid::Uuid;
 
@@ -274,13 +281,41 @@ impl CoachRosterRoutes {
     }
 }
 
-/// The refusal for a caller who may not read a roster, shared by every
-/// coach-roster route.
-pub(crate) fn not_a_coach() -> AppError {
+/// The refusal for a caller attached to no active group as its coach.
+fn not_a_coach() -> AppError {
     AppError::new(
         ErrorCode::PermissionDenied,
         "Only a coach attached to a group can read a roster",
     )
+}
+
+/// The refusal for a caller still attached to a group as its coach whose
+/// coach access is off, with the `details.reason` a client branches on.
+fn no_coach_access() -> AppError {
+    let mut error = AppError::new(
+        ErrorCode::PermissionDenied,
+        "Your coach access is off, so you cannot read a roster",
+    );
+    error.details = Some(Box::new(json!({ "reason": NO_COACH_ACCESS })));
+    error
+}
+
+/// The active groups `coach` reads a roster over, shared by every
+/// coach-roster route.
+///
+/// # Errors
+///
+/// 403 when the caller may not read a roster ([`roster_access`]); the
+/// repository error otherwise.
+pub(crate) async fn roster_groups(
+    repos: &RepositoryRegistry,
+    coach: Uuid,
+) -> AppResult<Vec<CoachingGroup>> {
+    match roster_access(repos, coach).await? {
+        RosterAccess::Granted(groups) => Ok(groups),
+        RosterAccess::NoCoachAccess(_) => Err(no_coach_access()),
+        RosterAccess::NotACoach => Err(not_a_coach()),
+    }
 }
 
 /// `GET /api/coach/roster` — the caller's athletes, one page.
@@ -293,13 +328,12 @@ pub async fn handle_roster(
     auth: AuthenticatedUser,
     Query(query): Query<RosterQuery>,
 ) -> Result<Response, AppError> {
-    let coach = auth.into_inner().user_id;
+    let auth = auth.into_inner();
+    let coach = auth.user_id;
     let repos = &resources.common.repos;
-    let RosterAccess::Granted(groups) = roster_access(repos, coach).await? else {
-        return Err(not_a_coach());
-    };
+    let groups = roster_groups(repos, coach).await?;
 
-    let gathered = gather_roster(repos, coach, &groups).await?;
+    let gathered = roster_served_to(repos, &auth, &groups).await?;
     let scope = RosterScope {
         visible_members: gathered.visible_members(),
         roster_members: gathered.roster_members(),
@@ -388,6 +422,25 @@ pub async fn handle_roster(
         .into_response())
 }
 
+/// The roster of `groups` as it is served to `auth`, its coach. An outside
+/// client acting for the coach is never told of an athlete who stopped
+/// sharing (EFVP 2026-11-17, decision 9.4c), as the agent's
+/// `get_roster_overview`, a first-party-only tool, never tells one.
+async fn roster_served_to(
+    repos: &RepositoryRegistry,
+    auth: &AuthResult,
+    groups: &[CoachingGroup],
+) -> AppResult<GatheredRoster> {
+    let gathered = gather_roster(repos, auth.user_id, groups).await?;
+    Ok(
+        if ai_scope::served_outside(auth.acts_for_outside_client()) {
+            gathered.served_to_outside_client()
+        } else {
+            gathered
+        },
+    )
+}
+
 /// What one page read shares across its rows.
 struct PageRead<'a> {
     coach: Uuid,
@@ -440,7 +493,7 @@ async fn row(
         SharedPlan::default()
     };
 
-    let sources = snapshot.map(sources_of).unwrap_or_default();
+    let sources = snapshot.map_or_default(sources_of);
     let refusals = refused_since(repos, athlete, row.training.as_ref()).await?;
     let inputs = AttentionInputs {
         status: member.member.status,
@@ -661,8 +714,7 @@ async fn plan_thread(
         draft_phases: draft
             .as_ref()
             .and_then(|(_, plan)| plan.as_ref())
-            .map(|plan| roster_phases(&plan.phases))
-            .unwrap_or_default(),
+            .map_or_default(|plan| roster_phases(&plan.phases)),
     };
     let signals = draft.map(|(state, _)| DraftSignals {
         has_conflicts: !state.is_clear(),
@@ -724,7 +776,7 @@ impl WeekReplies {
 /// Read the reply review newest first, back to this week's Monday, through
 /// the same service and checker rules as `GET /api/coach/replies`.
 async fn replies_this_week(resources: &ServerContext, coach: Uuid) -> AppResult<WeekReplies> {
-    let since = coach_replies::week_start(Utc::now().date_naive())
+    let since = civil_time::monday_of(Utc::now().date_naive())
         .and_time(NaiveTime::MIN)
         .and_utc();
     let mut week = WeekReplies::default();

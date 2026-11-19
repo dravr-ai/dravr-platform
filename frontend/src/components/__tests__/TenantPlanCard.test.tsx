@@ -20,7 +20,7 @@ vi.mock('../../services/api', () => ({
   },
 }));
 
-// Card renders only for super_admin; pin the logged-in tenant it resolves
+// Pin the logged-in tenant the card resolves
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
     user: {
@@ -28,7 +28,7 @@ vi.mock('../../hooks/useAuth', () => ({
       email: 'admin@example.com',
       tenant_id: 'tenant-a',
       is_admin: true,
-      role: 'super_admin',
+      role: 'admin',
       tier: 'enterprise',
       created_at: '2026-01-01T00:00:00Z',
     },

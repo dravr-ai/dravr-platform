@@ -155,6 +155,7 @@ impl LlmProvider for CapturingProvider {
         };
         self.system_prompts.lock().unwrap().push(system);
         Ok(ChatResponse {
+            replay_blocks: None,
             content: tool_call.unwrap_or_else(|| self.reply.lock().unwrap().clone()),
             model: "mock-model".to_owned(),
             usage: Some(TokenUsage::new(25, 15, 40)),

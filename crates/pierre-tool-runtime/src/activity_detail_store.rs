@@ -1,5 +1,5 @@
 // ABOUTME: The one store of activity detail reads — what a detail read found, kept beside the cached row
-// ABOUTME: Stored once and served from then on; a read that found nothing is read again after a recheck
+// ABOUTME: Also the one read of a served list's cached rows, which yields their details and places
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,6 +15,10 @@
 //! through this module: the activity view (`pierre-server`'s activity detail
 //! service) and `get_activities`, which details the activities of the last
 //! fourteen days.
+//!
+//! `get_activities` reads every served list's cached rows once
+//! ([`stored_served_rows`]): the same read yields the stored details and each
+//! row's place, rendered by [`served_place`] (carnet#1484, slice 6).
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -23,13 +27,19 @@ use std::slice;
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, TenantId};
-use pierre_database::repositories::{ActivityDetail, CachedRowsQuery};
+use pierre_core::models::{Activity, PlaceRef, TenantId};
+use pierre_core::transport::TransportPolicy;
+use pierre_core::untrusted::display_line;
+use pierre_database::repositories::{
+    ActivityDetail, CachedActivityRow, CachedRowCursor, CachedRowsQuery,
+};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::mirror_backend_for;
-use pierre_services::live_activities::LiveActivityStore;
+use pierre_services::athlete_places::MAX_PLACE_NAME_CHARS;
+use pierre_services::live_activities::{LiveActivityStore, WriteOrigin};
 use pierre_services::training_history_read::history_store_keys;
+use serde_json::{Map, Value};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -43,8 +53,9 @@ use uuid::Uuid;
 /// does not hide the detail for the day.
 pub const EMPTY_DETAIL_RECHECK_MINUTES: i64 = 30;
 
-/// Most cached rows one stored-detail lookup reads.
-const STORED_DETAIL_LOOKUP_LIMIT: i64 = 500;
+/// Cached rows one read of a served list takes per served activity before it
+/// pages: a session's, a grant's, an export's and a mirror's copy.
+const COPIES_PER_SERVED_ACTIVITY: usize = 4;
 
 /// When a stored detail is read again: [`EMPTY_DETAIL_RECHECK_MINUTES`] out
 /// for one that carried no detail-only field, never for one that carried any.
@@ -101,9 +112,10 @@ pub fn listed_key<'a>(serving: &'a str, listed_by: &str) -> &'a str {
 /// stores nothing (`false`). A grant's answer for an activity the grant
 /// never listed is first written as the grant's own copy of it
 /// ([`copy_under_grant`]), so the view that merges a workout's copies serves
-/// it and the grant's revocation purges it. A store that fails is logged and
-/// answers `false`: the caller has the detail in hand and answers from it
-/// either way.
+/// it and the grant's revocation purges it. A session's answer kept under a
+/// grant's key keeps everything but its segment efforts ([`Efforts`]). A
+/// store that fails is logged and answers `false`: the caller has the detail
+/// in hand and answers from it either way.
 pub async fn store_detail(
     repos: &RepositoryRegistry,
     store: &dyn LiveActivityStore,
@@ -114,12 +126,49 @@ pub async fn store_detail(
 ) -> bool {
     let answered = answered_key(provider, detailed);
     let copy = copy_under_grant(repos, store, tenant_id, user_id, answered, detailed);
-    store_detail_from_live_grant(repos, tenant_id, user_id, provider, detailed, copy).await
+    // A session's answer (named `sciotte` by the activity it returns, never
+    // the grant's `strava`) kept under the grant's key must not stamp that
+    // row's segments as read: scraped efforts never hide the row from the
+    // session-first detail walk, which files them under the session
+    // (carnet#1603). The rest of the detail is kept.
+    let session_answer_on_grant_row =
+        mirror_backend_for(answered).is_some() && detailed.provider() != answered;
+    let efforts = if session_answer_on_grant_row {
+        Efforts::Withheld
+    } else {
+        Efforts::Kept
+    };
+    let keep = Keep {
+        listed: provider,
+        answered,
+        efforts,
+    };
+    store_detail_answered_by(repos, tenant_id, user_id, keep, detailed, copy).await
         == DetailKept::Stored
 }
 
-/// What keeping a detail read came to
-/// ([`store_detail_from_live_grant`]).
+/// Where and how a detail read is kept.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Keep<'a> {
+    /// The key of the row the activity was listed under.
+    pub listed: &'a str,
+    /// The key of the backend that answered, under which it is kept.
+    pub answered: &'a str,
+    /// Whether the read's segment efforts are kept.
+    pub efforts: Efforts,
+}
+
+/// Whether a stored detail carries the segment efforts of the read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Efforts {
+    /// The efforts are stored, stamping the row's segments as read.
+    Kept,
+    /// The efforts are left out, so the row stays a candidate of the detail
+    /// walk.
+    Withheld,
+}
+
+/// What keeping a detail read came to ([`store_detail_answered_by`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DetailKept {
     /// The detail is stored beside its row.
@@ -131,37 +180,41 @@ pub(crate) enum DetailKept {
     Failed,
 }
 
-/// [`store_detail`] for a caller that has just read `detailed` through a
-/// live grant itself.
+/// Keep a detail beside its row under `answered`, the backend that answered:
+/// a detail walk reads through one backend, so what it read is kept under that
+/// backend's key and never another's. `copy` writes `answered`'s own copy of
+/// an activity only the other half of the pair listed, and answers how many
+/// rows it wrote; it runs only when `answered` holds no row of the activity.
 ///
-/// The grant's copy of an activity only its session listed is written by
-/// `copy`, which answers how many rows it wrote, and not only while the
-/// grant shows a last sync, as [`store_detail`]'s is.
-///
-/// A detail walk reads through the athlete's live grant and writes the copy
-/// through its owed-write guard, so a purge of the grant landing between its
-/// read and its write takes the copy back (`activity_backfill::detail_walk`).
-/// `copy` runs only when the grant answered for a row it holds no copy of;
-/// what the grant answered for a row it holds is stored beside that row.
-pub(crate) async fn store_detail_from_live_grant(
+/// The session's answer for a ride only the grant listed is the session's
+/// own copy (`copy` writes it), never a change to the grant's row, so
+/// disconnecting the session takes the scraped data and leaves the grant's
+/// rows as the API wrote them (carnet#1603).
+pub(crate) async fn store_detail_answered_by(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
     user_id: Uuid,
-    provider: &str,
+    keep: Keep<'_>,
     detailed: &Activity,
     copy: impl Future<Output = AppResult<u64>>,
 ) -> DetailKept {
-    let answered = answered_key(provider, detailed);
-    match keep_detail(repos, tenant_id, user_id, answered, detailed).await {
+    let Keep {
+        listed: provider,
+        answered,
+        efforts,
+    } = keep;
+    match keep_detail(repos, tenant_id, user_id, answered, detailed, efforts).await {
         Ok(false) if answered != provider => match copy.await {
             Ok(0) => DetailKept::NotCached,
-            Ok(_) => kept(keep_detail(repos, tenant_id, user_id, answered, detailed).await),
+            Ok(_) => {
+                kept(keep_detail(repos, tenant_id, user_id, answered, detailed, efforts).await)
+            }
             Err(e) => {
                 warn!(
                     activity_id = detailed.id(),
                     provider = answered,
                     error = %e,
-                    "writing the grant's copy of an activity it answered failed; its detail is not kept"
+                    "writing the copy of an activity it answered failed; its detail is not kept"
                 );
                 DetailKept::Failed
             }
@@ -209,6 +262,7 @@ async fn copy_under_grant(
             grant,
             slice::from_ref(detailed),
             head_synced,
+            WriteOrigin::Walk,
         )
         .await?
         .stored)
@@ -223,8 +277,12 @@ async fn keep_detail(
     user_id: Uuid,
     provider: &str,
     detailed: &Activity,
+    efforts: Efforts,
 ) -> Result<bool, ()> {
-    let detail = ActivityDetail::from_activity(detailed);
+    let mut detail = ActivityDetail::from_activity(detailed);
+    if efforts == Efforts::Withheld {
+        detail.segment_efforts = None;
+    }
     let recheck_at = detail_recheck_at(&detail, Utc::now());
     let activity_id = detailed.id();
     match repos
@@ -254,50 +312,211 @@ async fn keep_detail(
     }
 }
 
-/// The cached activities started at or after `since` whose stored detail
-/// still answers them, each with its detail filled in.
+/// What the cached rows of a served list hold beside the activities served:
+/// the stored detail of each one a detail read stored, and each one's place.
 ///
-/// Keyed by the activity's provider and id: an id is unique only within its
-/// provider.
+/// Both are keyed by the activity's provider and id, as the activity a served
+/// row decodes to names them: an id is unique only within its provider.
+#[derive(Debug, Default)]
+pub struct ServedRows {
+    /// Each served activity whose stored detail still answers it, with its
+    /// detail filled in, withheld as a live read withholds it.
+    pub details: HashMap<(String, String), Activity>,
+    /// Each served activity's place, from the row it was served from.
+    pub places: HashMap<(String, String), PlaceRef>,
+}
+
+impl ServedRows {
+    /// Keep each place on the activity a detail read put in its summary's
+    /// stead, position for position.
+    ///
+    /// A read of a session's row that its grant answered returns the grant's
+    /// activity, named for the grant's provider ([`answered_key`]); the row
+    /// it details, and so its place, is the summary's.
+    pub fn follow_details(&mut self, summaries: &[Activity], detailed: &[Activity]) {
+        for (summary, detail) in summaries.iter().zip(detailed) {
+            if summary.provider() == detail.provider() || summary.id() != detail.id() {
+                continue;
+            }
+            let listed = (summary.provider().to_owned(), summary.id().to_owned());
+            if let Some(place) = self.places.get(&listed).cloned() {
+                self.places
+                    .entry((detail.provider().to_owned(), detail.id().to_owned()))
+                    .or_insert(place);
+            }
+        }
+    }
+}
+
+/// Read the cached rows of `served`, a list `serving` served, in one read:
+/// every copy of each served activity and no other row.
 ///
-/// A lookup that fails is logged and answers empty: every activity is then
-/// read from its provider, as if nothing were stored.
-pub async fn stored_details(
+/// The read is narrowed to the served ids and to their starts a day either
+/// side, the slack covering copies whose recorded starts differ. It takes
+/// four rows per served activity and reads one more page only while a page
+/// comes back full, so a long span costs its served rows, not the span.
+///
+/// When two rows decode to the same activity under different keys, the row
+/// under [`listed_key`] gives the place, else the first read. A read that
+/// fails is logged and answers nothing stored: every activity is then read
+/// from its provider and served with no place, as if nothing were stored.
+pub async fn stored_served_rows(
     repos: &RepositoryRegistry,
     policies: &dyn ProviderTerms,
     tenant_id: TenantId,
     user_id: Uuid,
-    since: DateTime<Utc>,
-) -> HashMap<(String, String), Activity> {
-    let rows = match repos
-        .activity_cache
-        .get_cached_activity_rows(
-            user_id,
-            &tenant_id,
-            &CachedRowsQuery::window(since, Utc::now(), STORED_DETAIL_LOOKUP_LIMIT),
-        )
-        .await
-    {
-        Ok(rows) => rows
-            .into_iter()
-            .filter(|row| row.detail_read)
-            .map(|row| row.activity)
-            .collect::<Vec<_>>(),
+    serving: &str,
+    served: &[Activity],
+) -> ServedRows {
+    let rows = match served_rows(repos, tenant_id, user_id, served).await {
+        Ok(rows) => rows,
         Err(e) => {
-            warn!(error = %e, "reading stored activity details failed; reading from the provider");
-            return HashMap::new();
+            warn!(error = %e, "reading the served rows' stored details failed; reading from the provider");
+            return ServedRows::default();
         }
     };
+    // Per activity, the row whose place it is served with: the one under the
+    // key the list read it from, else the one stored first.
+    let mut ranked: HashMap<(String, String), (PlaceRank, PlaceRef)> = HashMap::new();
+    let mut detailed = Vec::new();
+    for row in rows {
+        if let Some(place) = row.place.clone() {
+            let key = (
+                row.activity.provider().to_owned(),
+                row.activity.id().to_owned(),
+            );
+            let rank = PlaceRank {
+                listed: row.provider == listed_key(serving, row.activity.provider()),
+                stored_at: row.stored_at,
+            };
+            match ranked.get(&key) {
+                Some((held, _)) if !rank.outranks(held) => {}
+                _ => {
+                    ranked.insert(key, (rank, place));
+                }
+            }
+        }
+        if row.detail_read {
+            detailed.push(row.activity);
+        }
+    }
+    let places = ranked
+        .into_iter()
+        .map(|(key, (_, place))| (key, place))
+        .collect();
     // The cache keeps every row whole; what the provider terms withhold from
     // a model is withheld from a stored detail as from a live read. The list
     // read already tallied those items, so this filter tallies apart.
-    let (kept, _) = ai_scope::tallied(async { ai_scope::filter_activities(policies, rows) }).await;
-    kept.into_iter()
+    let (kept, _) =
+        ai_scope::tallied(async { ai_scope::filter_activities(policies, detailed) }).await;
+    let details = kept
+        .into_iter()
         .map(|activity| {
             let key = (activity.provider().to_owned(), activity.id().to_owned());
             (key, activity)
         })
-        .collect()
+        .collect();
+    ServedRows { details, places }
+}
+
+/// Which of two rows of one activity gives its place.
+struct PlaceRank {
+    /// The row is under the key the served list read it from.
+    listed: bool,
+    /// When the row was first stored.
+    stored_at: Option<DateTime<Utc>>,
+}
+
+impl PlaceRank {
+    /// Whether this row gives the place over `held`: the listed row first,
+    /// then the one stored first; a row with no store stamp comes last.
+    fn outranks(&self, held: &Self) -> bool {
+        match (self.listed, held.listed) {
+            (true, false) => true,
+            (false, true) => false,
+            _ => match (self.stored_at, held.stored_at) {
+                (Some(mine), Some(theirs)) => mine < theirs,
+                (Some(_), None) => true,
+                _ => false,
+            },
+        }
+    }
+}
+
+/// Every cached copy of the served activities, newest first.
+async fn served_rows(
+    repos: &RepositoryRegistry,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    served: &[Activity],
+) -> AppResult<Vec<CachedActivityRow>> {
+    let (Some(oldest), Some(newest)) = (
+        served.iter().map(Activity::start_date).min(),
+        served.iter().map(Activity::start_date).max(),
+    ) else {
+        return Ok(Vec::new());
+    };
+    let mut ids: Vec<&str> = served.iter().map(Activity::id).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    let page_rows =
+        i64::try_from(ids.len().saturating_mul(COPIES_PER_SERVED_ACTIVITY)).unwrap_or(i64::MAX);
+    let query = CachedRowsQuery::window(
+        oldest - Duration::days(1),
+        newest + Duration::days(1),
+        page_rows,
+    )
+    .with_ids(&ids);
+    let mut rows = repos
+        .activity_cache
+        .get_cached_activity_rows(user_id, &tenant_id, &query)
+        .await?;
+    let mut page_len = rows.len();
+    // Only an activity held in more than four copies fills a page; the next
+    // page reads on below the last row, and the copies bound how many follow.
+    while i64::try_from(page_len).unwrap_or(i64::MAX) >= page_rows {
+        let Some(last) = rows.last() else { break };
+        let page = repos
+            .activity_cache
+            .get_cached_activity_rows(
+                user_id,
+                &tenant_id,
+                &query.clone().below(CachedRowCursor::after(last)),
+            )
+            .await?;
+        page_len = page.len();
+        rows.extend(page);
+    }
+    Ok(rows)
+}
+
+/// A served row's place as a client reads it: `{id, name}`, the name only
+/// where it may be shown.
+///
+/// A name the athlete gave is shown on every transport; an automatic one (a
+/// city, a segment) only on Dravr's own surfaces, through the transport check
+/// stored derived content takes. A place without a name is `{id}`. Never a
+/// centroid, radius or point.
+#[must_use]
+pub fn served_place(place: &PlaceRef) -> Value {
+    let mut served = Map::new();
+    served.insert("id".to_owned(), Value::String(place.id.clone()));
+    if let Some(name) = served_place_name(place) {
+        served.insert("name".to_owned(), Value::String(name));
+    }
+    Value::Object(served)
+}
+
+/// The name [`served_place`] shows, through [`display_line`]; `None` when
+/// the place has none, or has only an automatic one and the reader is not
+/// first-party.
+#[must_use]
+pub fn served_place_name(place: &PlaceRef) -> Option<String> {
+    let name = place.name.as_deref()?;
+    // Asked only of a name there is: an admitted first-party-only name marks
+    // the reply as built on first-party-only content.
+    ai_scope::admit_derived(TransportPolicy::from_first_party_only(!place.athlete_named))
+        .then(|| display_line(name, MAX_PLACE_NAME_CHARS))
 }
 
 #[cfg(test)]
@@ -354,6 +573,28 @@ mod tests {
             answered_key("strava", &read_by("sciotte")),
             "strava",
             "bug: the session's detail of a row the grant listed left that row"
+        );
+    }
+
+    #[test]
+    fn a_detail_the_grant_answered_keeps_the_session_rows_place() {
+        let place = PlaceRef {
+            id: "place-1".to_owned(),
+            name: None,
+            athlete_named: false,
+        };
+        let mut served = ServedRows::default();
+        served.places.insert(
+            ("sciotte".to_owned(), "15550001111".to_owned()),
+            place.clone(),
+        );
+        served.follow_details(&[read_by("sciotte")], &[read_by("strava")]);
+        assert_eq!(
+            served
+                .places
+                .get(&("strava".to_owned(), "15550001111".to_owned())),
+            Some(&place),
+            "bug: the row lost its place when the grant answered its detail"
         );
     }
 

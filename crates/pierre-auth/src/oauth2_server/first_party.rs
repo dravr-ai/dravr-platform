@@ -67,10 +67,28 @@ pub const MOBILE_CALLBACK_URI: &str = "dravr://auth/callback";
 /// in Expo Go returns to `exp://<host>:<port>/--/auth/callback`.
 const EXPO_GO_CALLBACK_SUFFIX: &str = "/--/auth/callback";
 
+/// Where the mobile app takes back the provider's code for a Slack or
+/// Discord link it started (carnet#1580): its registered `dravr` scheme.
+pub const MOBILE_CHANNEL_LINK_URI: &str = "dravr://messaging/link-callback";
+
+/// The same return under Expo Go, after its `exp://<host>:<port>` authority.
+const EXPO_GO_CHANNEL_LINK_SUFFIX: &str = "/--/messaging/link-callback";
+
 /// Whether `client_id` names one of Dravr's own apps.
 #[must_use]
 pub fn is_first_party(client_id: &str) -> bool {
     client_id == WEB_CLIENT_ID || client_id == MOBILE_CLIENT_ID
+}
+
+/// Whether a token naming `client_id` is a third party's: it names a client,
+/// and not one of Dravr's own apps.
+///
+/// This is what makes a token a delegation, before the width of its grant.
+/// Every token the authorization server mints for an application names that
+/// application; a session names the Dravr app that signed in, or no client.
+#[must_use]
+pub fn names_third_party(client_id: Option<&str>) -> bool {
+    client_id.is_some_and(|client_id| !is_first_party(client_id))
 }
 
 /// Where this deployment lets the first-party clients receive a code.
@@ -106,14 +124,30 @@ impl FirstPartyRedirects {
             _ => false,
         }
     }
+
+    /// Whether the mobile app may take back a channel link's provider code
+    /// at `uri`. The callback hands the code there when no signed-in browser
+    /// can vouch for the account that started the link, so it must reach only
+    /// Dravr's own app: an address the starter chose would let them collect
+    /// the code of anyone they forwarded the link to (carnet#1580). Exact
+    /// match, but for the opt-in Expo Go host.
+    #[must_use]
+    pub fn accepts_channel_link_return(&self, uri: &str) -> bool {
+        uri == MOBILE_CHANNEL_LINK_URI
+            || (self.allow_expo_go && is_expo_go_uri(uri, EXPO_GO_CHANNEL_LINK_SUFFIX))
+    }
 }
 
-/// `exp://<authority>/--/auth/callback`, with nothing in the authority that
-/// could smuggle a path, query, fragment or user-info.
+/// The sign-in callback under Expo Go: `exp://<authority>/--/auth/callback`.
 fn is_expo_go_callback(redirect_uri: &str) -> bool {
-    redirect_uri
-        .strip_prefix("exp://")
-        .and_then(|rest| rest.strip_suffix(EXPO_GO_CALLBACK_SUFFIX))
+    is_expo_go_uri(redirect_uri, EXPO_GO_CALLBACK_SUFFIX)
+}
+
+/// `exp://<authority><suffix>`, with nothing in the authority that could
+/// smuggle a path, query, fragment or user-info.
+fn is_expo_go_uri(uri: &str, suffix: &str) -> bool {
+    uri.strip_prefix("exp://")
+        .and_then(|rest| rest.strip_suffix(suffix))
         .is_some_and(|authority| {
             !authority.is_empty()
                 && authority
@@ -198,6 +232,23 @@ mod tests {
     }
 
     #[test]
+    fn channel_link_return_is_only_the_app() {
+        let policy = redirects(false);
+        assert!(policy.accepts_channel_link_return(MOBILE_CHANNEL_LINK_URI));
+        assert!(!policy.accepts_channel_link_return("https://evil.io/messaging/link-callback"));
+        assert!(!policy.accepts_channel_link_return("https://app.dravr.ai/auth/callback"));
+        assert!(!policy.accepts_channel_link_return(MOBILE_CALLBACK_URI));
+        assert!(!policy.accepts_channel_link_return("dravr://messaging/link-callback?x=1"));
+        assert!(!policy.accepts_channel_link_return("dravr://messaging/link-callback/x"));
+
+        let expo = "exp://192.168.1.20:8082/--/messaging/link-callback";
+        assert!(!policy.accepts_channel_link_return(expo));
+        assert!(redirects(true).accepts_channel_link_return(expo));
+        assert!(!redirects(true)
+            .accepts_channel_link_return("exp://evil.io/x?/--/messaging/link-callback"));
+    }
+
+    #[test]
     fn expo_go_authority_cannot_smuggle_a_path_or_user_info() {
         let policy = redirects(true);
         for uri in [
@@ -215,6 +266,24 @@ mod tests {
     fn other_clients_are_never_first_party() {
         assert!(!is_first_party("mcp_client_123"));
         assert!(!redirects(true).accepts("mcp_client_123", MOBILE_CALLBACK_URI));
+    }
+
+    #[test]
+    fn only_a_token_naming_another_client_is_a_third_partys() {
+        assert!(
+            names_third_party(Some("mcp_client_123")),
+            "a registered client is a third party"
+        );
+        assert!(names_third_party(Some("")), "an empty name is no Dravr app");
+        assert!(
+            !names_third_party(Some(WEB_CLIENT_ID)),
+            "the web app is Dravr's own"
+        );
+        assert!(
+            !names_third_party(Some(MOBILE_CLIENT_ID)),
+            "the mobile app is Dravr's own"
+        );
+        assert!(!names_third_party(None), "a session no client signed in to");
     }
 
     #[test]

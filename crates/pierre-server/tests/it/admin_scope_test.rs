@@ -1,8 +1,14 @@
-// ABOUTME: Every admin screen scoped by carnet#1440, through its real route: a plain admin stays home, a super admin reads the platform
+// ABOUTME: Every admin screen scoped by carnet#1440, through its real route: an admin reads the platform, a tenant owner who is not one stays home
 // ABOUTME: Seeds two tenants' rows and pins the refusals, the content each role reads, and the audit row a cross-tenant read writes
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
+
+// The role boundary these tests hold sat between a plain admin and a super
+// admin. There is one admin role now (carnet#1567), so it sits between a user
+// and an admin: an admin reads every tenant; a tenant owner who is not an
+// admin is refused the console outright and stays on their own tenant on the
+// analytics routes that admit them.
 
 #![allow(clippy::unwrap_used)]
 #![allow(missing_docs)]
@@ -44,6 +50,16 @@ struct Endpoint {
     path: &'static str,
     read: fn(&Value) -> i64,
 }
+
+/// The scoped endpoints that admit a tenant's owner, or a member holding that
+/// tenant's own admin membership, without the admin role: they keep user
+/// auth, and bind such a caller to the tenant they act in. Every other scoped
+/// endpoint is the console's, for admins only.
+const OWNER_ENDPOINTS: [&str; 3] = [
+    "/admin/usage/llm-consumption",
+    "/admin/tool-usage",
+    "/api/dashboard/analytics",
+];
 
 fn endpoints() -> Vec<Endpoint> {
     let mut all = vec![
@@ -123,12 +139,12 @@ fn endpoints() -> Vec<Endpoint> {
 struct Fixture {
     resources: Arc<ServerContext>,
     router: Router,
-    /// A platform `Admin`, owner of `home`.
-    plain_admin: User,
-    plain_auth: String,
-    /// A platform `SuperAdmin`, owner of a third tenant with no rows at all.
-    super_auth: String,
-    super_home: TenantId,
+    /// The owner of `home`, who is not an admin.
+    owner: User,
+    owner_auth: String,
+    /// An admin, owner of a third tenant with no rows at all.
+    admin_auth: String,
+    admin_home: TenantId,
     /// A plain `User`, owner of a fourth tenant with no rows at all.
     athlete_auth: String,
     home: TenantId,
@@ -139,7 +155,6 @@ async fn operator(resources: &Arc<ServerContext>, role: UserRole) -> (User, Tena
     let email = format!("scope-{}@example.com", Uuid::new_v4());
     let password_hash = bcrypt::hash("password123", 4).unwrap();
     let mut user = User::new(email.clone(), password_hash, Some("Operator".to_owned()));
-    user.is_admin = role != UserRole::User;
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
@@ -225,7 +240,6 @@ async fn member_of(
     let email = format!("member-{}@example.com", Uuid::new_v4());
     let password_hash = bcrypt::hash("password123", 4).unwrap();
     let mut user = User::new(email, password_hash, Some("Member".to_owned()));
-    user.is_admin = role != UserRole::User;
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
@@ -354,12 +368,12 @@ const FOREIGN_SENTENCE: &str = "Foreign tenant says water is optional on a long 
 async fn fixture() -> Fixture {
     common::init_server_config();
     let resources = create_test_server_resources().await.unwrap();
-    let (plain_admin, home, plain_auth) = operator(&resources, UserRole::Admin).await;
-    let (foreign_admin, foreign, _) = operator(&resources, UserRole::Admin).await;
-    let (_, super_home, super_auth) = operator(&resources, UserRole::SuperAdmin).await;
+    let (owner, home, owner_auth) = operator(&resources, UserRole::User).await;
+    let (foreign_owner, foreign, _) = operator(&resources, UserRole::User).await;
+    let (_, admin_home, admin_auth) = operator(&resources, UserRole::Admin).await;
     let (_, _, athlete_auth) = operator(&resources, UserRole::User).await;
-    seed_rows(&resources, home, plain_admin.id, HOME_SENTENCE).await;
-    seed_rows(&resources, foreign, foreign_admin.id, FOREIGN_SENTENCE).await;
+    seed_rows(&resources, home, owner.id, HOME_SENTENCE).await;
+    seed_rows(&resources, foreign, foreign_owner.id, FOREIGN_SENTENCE).await;
 
     let router = cookie_routes(&resources)
         .merge(LlmConsumptionRoutes::routes(resources.clone()))
@@ -368,10 +382,10 @@ async fn fixture() -> Fixture {
     Fixture {
         resources,
         router,
-        plain_admin,
-        plain_auth,
-        super_auth,
-        super_home,
+        owner,
+        owner_auth,
+        admin_auth,
+        admin_home,
         athlete_auth,
         home,
         foreign,
@@ -421,44 +435,63 @@ fn tenant_scope(tenant: TenantId) -> Value {
 
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_asking_for_another_tenant_is_refused_on_every_screen() {
+async fn a_tenant_owner_asking_for_another_tenant_is_refused_where_owners_are_admitted() {
     let fx = fixture().await;
     let foreign = fx.foreign.to_string();
-    for endpoint in endpoints() {
-        let (status, _) = fx.get(endpoint.path, &fx.plain_auth, Some(&foreign)).await;
+    // Only the endpoints that admit an owner say anything about the tenant
+    // asked for; the console refuses an owner whatever it asks
+    // (`a_tenant_owner_reads_exactly_their_own_tenant_and_only_off_the_console`).
+    for path in OWNER_ENDPOINTS {
+        let (admitted, _) = fx.get(path, &fx.owner_auth, None).await;
+        assert_eq!(
+            admitted, 200,
+            "{path} admits a tenant owner on its own tenant"
+        );
+        let (status, _) = fx.get(path, &fx.owner_auth, Some(&foreign)).await;
         assert_eq!(
             status, 403,
-            "bug: {} let a plain admin read another tenant",
-            endpoint.path
+            "bug: {path} let a tenant owner who is not an admin read another tenant"
         );
     }
 }
 
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_asking_for_all_tenants_is_refused_on_every_screen() {
+async fn a_tenant_owner_asking_for_all_tenants_is_refused_where_owners_are_admitted() {
     let fx = fixture().await;
-    for endpoint in endpoints() {
-        let (status, _) = fx.get(endpoint.path, &fx.plain_auth, Some("all")).await;
+    for path in OWNER_ENDPOINTS {
+        let (admitted, _) = fx.get(path, &fx.owner_auth, None).await;
+        assert_eq!(
+            admitted, 200,
+            "{path} admits a tenant owner on its own tenant"
+        );
+        let (status, _) = fx.get(path, &fx.owner_auth, Some("all")).await;
         assert_eq!(
             status, 403,
-            "bug: {} let a plain admin read every tenant",
-            endpoint.path
+            "bug: {path} let a tenant owner who is not an admin read every tenant"
         );
     }
 }
 
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_reads_exactly_their_own_tenant_on_every_screen() {
+async fn a_tenant_owner_reads_exactly_their_own_tenant_and_only_off_the_console() {
     let fx = fixture().await;
     let home = fx.home.to_string();
     for requested in [None, Some(home.as_str())] {
         for endpoint in endpoints() {
-            let (status, body) = fx.get(endpoint.path, &fx.plain_auth, requested).await;
+            let (status, body) = fx.get(endpoint.path, &fx.owner_auth, requested).await;
+            if !OWNER_ENDPOINTS.contains(&endpoint.path) {
+                assert_eq!(
+                    status, 403,
+                    "bug: {} is the console's, and the console is for admins",
+                    endpoint.path
+                );
+                continue;
+            }
             assert_eq!(
                 status, 200,
-                "bug: {} refused the admin's own tenant",
+                "bug: {} refused the owner's own tenant",
                 endpoint.path
             );
             assert_eq!(
@@ -479,12 +512,12 @@ async fn a_plain_admin_reads_exactly_their_own_tenant_on_every_screen() {
 
 #[tokio::test]
 #[serial]
-async fn a_super_admin_reads_the_whole_platform_by_default_and_by_name() {
+async fn an_admin_reads_the_whole_platform_by_default_and_by_name() {
     let fx = fixture().await;
     for requested in [None, Some("all")] {
         for endpoint in endpoints() {
-            let (status, body) = fx.get(endpoint.path, &fx.super_auth, requested).await;
-            assert_eq!(status, 200, "bug: {} refused a super admin", endpoint.path);
+            let (status, body) = fx.get(endpoint.path, &fx.admin_auth, requested).await;
+            assert_eq!(status, 200, "bug: {} refused an admin", endpoint.path);
             assert_eq!(
                 (endpoint.read)(&body),
                 2,
@@ -503,12 +536,12 @@ async fn a_super_admin_reads_the_whole_platform_by_default_and_by_name() {
 
 #[tokio::test]
 #[serial]
-async fn a_super_admin_picking_one_tenant_reads_that_tenant_alone() {
+async fn an_admin_picking_one_tenant_reads_that_tenant_alone() {
     let fx = fixture().await;
     let foreign = fx.foreign.to_string();
     for endpoint in endpoints() {
-        let (status, body) = fx.get(endpoint.path, &fx.super_auth, Some(&foreign)).await;
-        assert_eq!(status, 200, "bug: {} refused a super admin", endpoint.path);
+        let (status, body) = fx.get(endpoint.path, &fx.admin_auth, Some(&foreign)).await;
+        assert_eq!(status, 200, "bug: {} refused an admin", endpoint.path);
         assert_eq!(
             (endpoint.read)(&body),
             1,
@@ -526,23 +559,46 @@ async fn a_super_admin_picking_one_tenant_reads_that_tenant_alone() {
 
 #[tokio::test]
 #[serial]
-async fn reply_sentences_never_cross_to_a_plain_admin() {
+async fn reply_sentences_reach_an_admin_and_never_a_tenant_owner() {
     let fx = fixture().await;
+    // The sentences screen is the console's: a tenant owner who is not an
+    // admin reads no sentence, not even their own tenant's.
+    for requested in [None, Some("all")] {
+        let response = AxumTestRequest::get(&format!(
+            "/api/admin/claim-verdicts{}",
+            requested.map_or_else(String::new, |t| format!("?tenant_id={t}"))
+        ))
+        .header("authorization", &fx.owner_auth)
+        .send(fx.router.clone())
+        .await;
+        assert_eq!(response.status(), 403, "bug: the console is for admins");
+        let refused = response.text();
+        assert!(
+            !refused.contains(HOME_SENTENCE) && !refused.contains(FOREIGN_SENTENCE),
+            "bug: a refusal quoted a reply sentence: {refused}"
+        );
+    }
+
+    // An admin picking one tenant reads that tenant's sentences alone.
     let (_, own) = fx
-        .get("/api/admin/claim-verdicts", &fx.plain_auth, None)
+        .get(
+            "/api/admin/claim-verdicts",
+            &fx.admin_auth,
+            Some(&fx.home.to_string()),
+        )
         .await;
     let quoted = own["verdicts"].to_string();
     assert!(
         quoted.contains(HOME_SENTENCE),
-        "bug: own sentence missing: {quoted}"
+        "bug: the picked tenant's sentence missing: {quoted}"
     );
     assert!(
         !quoted.contains(FOREIGN_SENTENCE),
-        "bug: another tenant's sentence reached a plain admin: {quoted}"
+        "bug: another tenant's sentence crossed into a one-tenant read: {quoted}"
     );
 
     let (_, platform) = fx
-        .get("/api/admin/claim-verdicts", &fx.super_auth, None)
+        .get("/api/admin/claim-verdicts", &fx.admin_auth, None)
         .await;
     let quoted = platform["verdicts"].to_string();
     assert!(
@@ -551,57 +607,78 @@ async fn reply_sentences_never_cross_to_a_plain_admin() {
     );
 }
 
+/// A signed session outlives a membership. The endpoints that admit a tenant
+/// owner bind the caller to the tenant the session names only after reading
+/// the membership table, so a session naming a tenant its user is not in is
+/// refused there, while the same owner's session naming their own tenant
+/// reads it. The console's endpoints refuse the owner whatever it names.
 #[tokio::test]
 #[serial]
 async fn a_session_claiming_a_tenant_its_user_left_reads_nothing() {
     let fx = fixture().await;
-    // A signed token outlives a membership: this one names a tenant the admin
-    // does not belong to, as a token issued before a removal would.
-    let stale = fx
-        .resources
-        .auth
-        .auth_manager
-        .generate_token_with_tenant(
-            &fx.plain_admin,
-            &fx.resources.auth.jwks_manager,
-            Some(fx.foreign.to_string()),
-        )
-        .unwrap();
-    let auth = format!("Bearer {stale}");
+    let session_naming = |tenant: TenantId| {
+        let token = fx
+            .resources
+            .auth
+            .auth_manager
+            .generate_token_with_tenant(
+                &fx.owner,
+                &fx.resources.auth.jwks_manager,
+                Some(tenant.to_string()),
+            )
+            .unwrap();
+        format!("Bearer {token}")
+    };
+    // This one names a tenant the owner does not belong to, as a session
+    // issued before a removal would; the other names the owner's own.
+    let stale = session_naming(fx.foreign);
+    let current = session_naming(fx.home);
     for endpoint in endpoints() {
-        let (status, _) = fx.get(endpoint.path, &auth, None).await;
-        assert!(
-            status == 401 || status == 403,
-            "bug: {} served {status} on a stale tenant claim",
-            endpoint.path
-        );
+        let (stale_status, _) = fx.get(endpoint.path, &stale, None).await;
+        let (current_status, _) = fx.get(endpoint.path, &current, None).await;
+        if OWNER_ENDPOINTS.contains(&endpoint.path) {
+            assert_eq!(
+                current_status, 200,
+                "bug: {} refused an owner whose session names their own tenant",
+                endpoint.path
+            );
+            assert_eq!(
+                stale_status, 401,
+                "bug: {} served a session naming a tenant its user is not in",
+                endpoint.path
+            );
+        } else {
+            assert_eq!(
+                (stale_status, current_status),
+                (403, 403),
+                "bug: {} is the console's, and the console is for admins",
+                endpoint.path
+            );
+        }
     }
 }
 
 #[tokio::test]
 #[serial]
-async fn only_a_super_admin_lists_the_tenants_to_pick_from() {
+async fn only_an_admin_lists_the_tenants_to_pick_from() {
     let fx = fixture().await;
-    let (status, _) = fx.get("/api/admin/tenants", &fx.plain_auth, None).await;
+    let (status, _) = fx.get("/api/admin/tenants", &fx.owner_auth, None).await;
     assert_eq!(
         status, 403,
-        "bug: a plain admin must not learn other tenants' names"
+        "bug: a tenant owner must not learn other tenants' names"
     );
     let (status, _) = fx.get("/api/admin/tenants", &fx.athlete_auth, None).await;
     assert_eq!(status, 403, "bug: a plain user must not reach the list");
 
-    let (status, body) = fx.get("/api/admin/tenants", &fx.super_auth, None).await;
-    assert_eq!(
-        status, 200,
-        "bug: a super admin needs the list to pick from"
-    );
+    let (status, body) = fx.get("/api/admin/tenants", &fx.admin_auth, None).await;
+    assert_eq!(status, 200, "bug: an admin needs the list to pick from");
     let ids: Vec<&str> = body["tenants"]
         .as_array()
         .unwrap()
         .iter()
         .map(|tenant| tenant["id"].as_str().unwrap())
         .collect();
-    for tenant in [fx.home, fx.foreign, fx.super_home] {
+    for tenant in [fx.home, fx.foreign, fx.admin_home] {
         assert!(
             ids.contains(&tenant.to_string().as_str()),
             "bug: {tenant} missing from {ids:?}"
@@ -639,16 +716,27 @@ async fn a_tenant_member_is_refused_the_tenants_llm_series() {
 
 #[tokio::test]
 #[serial]
-async fn a_promoted_member_reads_their_tenants_llm_series() {
+async fn a_member_promoted_to_admin_reads_the_llm_series_of_every_tenant() {
     let fx = fixture().await;
+    // The same plain member the test above sees refused, once promoted: the
+    // admin role, not a tenant role, is what admits them, and it reaches the
+    // platform.
     let (_, admin_auth) = member_of(&fx.resources, fx.home, UserRole::Admin).await;
     for path in ["/api/dashboard/analytics", "/admin/usage/llm-consumption"] {
         let (status, body) = fx.get(path, &admin_auth, None).await;
-        assert_eq!(status, 200, "bug: a platform admin must keep {path}");
+        assert_eq!(status, 200, "bug: an admin must keep {path}");
+        assert_eq!(
+            body["scope"],
+            serde_json::json!({ "kind": "all_tenants" }),
+            "bug: {path} reads every tenant for an admin"
+        );
+        let home = fx.home.to_string();
+        let (status, body) = fx.get(path, &admin_auth, Some(&home)).await;
+        assert_eq!(status, 200);
         assert_eq!(
             body["scope"],
             tenant_scope(fx.home),
-            "bug: {path} stays on their tenant"
+            "bug: {path} narrows to the tenant an admin picks"
         );
     }
 }
@@ -672,82 +760,93 @@ fn usage_totals(body: &Value) -> (i64, i64, f64) {
 
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_reads_a_shared_users_usage_in_their_own_tenant_alone() {
+async fn an_admin_reads_a_shared_users_usage_in_every_tenant_and_a_tenant_owner_none() {
     let fx = fixture().await;
     let (shared, _) = member_of(&fx.resources, fx.home, UserRole::User).await;
+    let (single, _) = member_of(&fx.resources, fx.home, UserRole::User).await;
     let repos = &fx.resources.common.repos;
     repos
         .users
         .update_tenant_id(shared.id, fx.foreign)
         .await
         .unwrap();
-    // A model priced call by call, so the cost read goes through the scope too.
+    // A model priced call by call, so the cost read covers what the tokens do.
     let (provider, model) = ("anthropic", "claude-haiku-5-5");
-    insert_llm_call(
-        &fx.resources,
-        fx.home,
-        shared.id,
-        provider,
-        model,
-        1_000,
-        1_000,
-    )
-    .await;
-    insert_llm_call(
-        &fx.resources,
-        fx.foreign,
-        shared.id,
-        provider,
-        model,
-        3_000,
-        3_000,
-    )
-    .await;
+    for (tenant, user, tokens) in [
+        (fx.home, shared.id, 1_000),
+        (fx.foreign, shared.id, 3_000),
+        (fx.home, single.id, 1_000),
+    ] {
+        insert_llm_call(&fx.resources, tenant, user, provider, model, tokens, tokens).await;
+    }
     let path = format!("/api/admin/users/{}/usage", shared.id);
 
-    let (status, body) = fx.get(&path, &fx.plain_auth, None).await;
-    assert_eq!(status, 200, "bug: the user shares the admin's tenant");
-    let (by_model, daily, plain_cost) = usage_totals(&body);
-    assert_eq!(by_model, 1_000, "bug: another tenant's tokens by model");
-    assert_eq!(daily, 1_000, "bug: another tenant's tokens by day");
+    // The owner of a tenant the user belongs to is not an admin: per-user
+    // financial data is not theirs to read, in their tenant or any other.
+    let (status, _) = fx.get(&path, &fx.owner_auth, None).await;
+    assert_eq!(status, 403, "bug: a tenant owner read a user's usage");
 
-    let (status, body) = fx.get(&path, &fx.super_auth, None).await;
+    let (status, body) = fx.get(&path, &fx.admin_auth, None).await;
     assert_eq!(status, 200);
     let (by_model, daily, all_cost) = usage_totals(&body);
-    assert_eq!(by_model, 4_000, "bug: a super admin reads every tenant");
-    assert_eq!(daily, 4_000, "bug: a super admin reads every tenant");
+    assert_eq!(by_model, 4_000, "bug: an admin reads every tenant");
+    assert_eq!(daily, 4_000, "bug: an admin reads every tenant");
+
+    // The cost prices the same calls the tokens count: four times the user
+    // whose one call is a quarter of them.
+    let (status, body) = fx
+        .get(
+            &format!("/api/admin/users/{}/usage", single.id),
+            &fx.admin_auth,
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    let (by_model, _, single_cost) = usage_totals(&body);
+    assert_eq!(by_model, 1_000);
     assert!(
-        plain_cost > 0.0 && (all_cost / plain_cost - 4.0).abs() < 1e-9,
-        "bug: the plain admin's cost must price their tenant's calls alone: \
-         {plain_cost} of {all_cost}"
+        single_cost > 0.0 && (all_cost / single_cost - 4.0).abs() < 1e-9,
+        "bug: the cost must price every tenant's calls: {single_cost} of {all_cost}"
     );
 }
 
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_is_refused_a_user_outside_the_tenant_they_act_in() {
+async fn a_user_outside_every_tenant_of_the_reader_is_an_admins_to_read_and_no_one_elses() {
     let fx = fixture().await;
-    // An admin acting in `home` who also belongs to another workspace, whose
-    // owner is in no tenant the admin acts in.
-    let (target, other, _) = operator(&fx.resources, UserRole::Admin).await;
-    let (admin, admin_auth) = member_of(&fx.resources, fx.home, UserRole::Admin).await;
-    fx.resources
-        .common
-        .repos
-        .users
-        .update_tenant_id(admin.id, other)
-        .await
-        .unwrap();
+    // A reader acting in `home` who also belongs to another workspace, and a
+    // target who is in no tenant the reader belongs to.
+    let (target, _, _) = operator(&fx.resources, UserRole::User).await;
+    let (_, other, _) = operator(&fx.resources, UserRole::User).await;
     let target = target.id;
+    let path = format!("/api/admin/users/{target}/usage");
 
+    for role in [UserRole::User, UserRole::Admin] {
+        let (reader, reader_auth) = member_of(&fx.resources, fx.home, role).await;
+        fx.resources
+            .common
+            .repos
+            .users
+            .update_tenant_id(reader.id, other)
+            .await
+            .unwrap();
+        let (status, _) = fx.get(&path, &reader_auth, None).await;
+        if role.is_admin() {
+            assert_eq!(status, 200, "bug: an admin reaches every user");
+        } else {
+            assert_eq!(status, 403, "bug: a user read another user's usage");
+        }
+    }
+
+    // A user who does not exist is a 404 for the admin, never empty rows.
     let (status, _) = fx
         .get(
-            &format!("/api/admin/users/{target}/usage"),
-            &admin_auth,
+            &format!("/api/admin/users/{}/usage", Uuid::new_v4()),
+            &fx.admin_auth,
             None,
         )
         .await;
-    assert_eq!(status, 403, "bug: the read would come back as empty rows");
+    assert_eq!(status, 404, "bug: a missing user read as empty rows");
 }
 
 #[tokio::test]
@@ -756,26 +855,26 @@ async fn reading_another_tenants_sentences_writes_one_audit_row() {
     let fx = fixture().await;
     let path = "/api/admin/claim-verdicts";
 
-    fx.get(path, &fx.plain_auth, None).await;
+    fx.get(path, &fx.owner_auth, None).await;
     assert!(
         fx.audit_rows().await.is_empty(),
-        "bug: reading one's own tenant is not a cross-tenant access"
+        "bug: a read refused to a tenant owner reached no sentence"
     );
-    fx.get(path, &fx.super_auth, Some(&fx.super_home.to_string()))
+    fx.get(path, &fx.admin_auth, Some(&fx.admin_home.to_string()))
         .await;
     assert!(
         fx.audit_rows().await.is_empty(),
-        "bug: a super admin reading their own tenant is not a cross-tenant access"
+        "bug: an admin reading their own tenant is not a cross-tenant access"
     );
 
-    fx.get(path, &fx.super_auth, None).await;
+    fx.get(path, &fx.admin_auth, None).await;
     let rows = fx.audit_rows().await;
     assert_eq!(rows.len(), 1, "bug: the platform read must be on the trail");
     assert_eq!(rows[0].action, "claim_sentences.read_cross_tenant");
     assert_eq!(rows[0].outcome, "success");
     assert_eq!(
         rows[0].tenant_id, None,
-        "bug: a plain admin of the reader's tenant would read this row"
+        "bug: a token scoped to the reader's tenant would read this row"
     );
     assert_eq!(
         rows[0].metadata["target"]["scope"],
@@ -783,7 +882,7 @@ async fn reading_another_tenants_sentences_writes_one_audit_row() {
         "bug: the row must say what was read"
     );
 
-    fx.get(path, &fx.super_auth, Some(&fx.foreign.to_string()))
+    fx.get(path, &fx.admin_auth, Some(&fx.foreign.to_string()))
         .await;
     let rows = fx.audit_rows().await;
     assert_eq!(
@@ -808,13 +907,14 @@ async fn the_verdict_list_is_on_the_trail_when_it_reads_past_the_callers_tenant(
     let fx = fixture().await;
     let path = "/api/admin/claim-verdicts";
 
-    fx.get(path, &fx.plain_auth, None).await;
+    fx.get(path, &fx.admin_auth, Some(&fx.admin_home.to_string()))
+        .await;
     assert!(
         fx.audit_rows().await.is_empty(),
         "bug: reading one's own tenant is not a cross-tenant access"
     );
 
-    let (_, body) = fx.get(path, &fx.super_auth, None).await;
+    let (_, body) = fx.get(path, &fx.admin_auth, None).await;
     let quoted: Vec<&str> = body["verdicts"]
         .as_array()
         .unwrap()
@@ -837,7 +937,7 @@ async fn a_verdict_filter_narrows_the_platform_read_as_it_does_a_tenants() {
     let fx = fixture().await;
     for (filter, expected) in [("status=contradicted", 2), ("status=supported", 0)] {
         let response = AxumTestRequest::get(&format!("/api/admin/claim-verdicts?{filter}"))
-            .header("authorization", &fx.super_auth)
+            .header("authorization", &fx.admin_auth)
             .send(fx.router.clone())
             .await;
         assert_eq!(response.status(), 200);
@@ -850,8 +950,20 @@ async fn a_verdict_filter_narrows_the_platform_read_as_it_does_a_tenants() {
 #[serial]
 async fn a_refused_read_writes_no_cross_tenant_audit_row() {
     let fx = fixture().await;
-    fx.get("/api/admin/claim-verdicts", &fx.plain_auth, Some("all"))
+    // The admin passes the console's session check, so this refusal is the
+    // handler's own: the scope it was asked for names no tenant. An account
+    // the session check stops never reaches the code that writes the row.
+    let (status, _) = fx
+        .get(
+            "/api/admin/claim-verdicts",
+            &fx.admin_auth,
+            Some("not-a-tenant-id"),
+        )
         .await;
+    assert_eq!(
+        status, 400,
+        "bug: a scope that names no tenant is refused by the handler"
+    );
     assert!(
         fx.audit_rows().await.is_empty(),
         "bug: a refused read reached no sentence"
@@ -957,8 +1069,8 @@ async fn a_repeated_cross_tenant_read_within_the_hour_writes_one_audit_row() {
     let fx = fixture().await;
     let list = "/api/admin/claim-verdicts";
 
-    fx.get(list, &fx.super_auth, None).await;
-    fx.get(list, &fx.super_auth, None).await;
+    fx.get(list, &fx.admin_auth, None).await;
+    fx.get(list, &fx.admin_auth, None).await;
     let rows = fx.audit_rows().await;
     assert_eq!(
         rows.len(),
@@ -966,9 +1078,9 @@ async fn a_repeated_cross_tenant_read_within_the_hour_writes_one_audit_row() {
         "bug: a refetch of the same read within the hour flooded the trail"
     );
 
-    fx.get(list, &fx.super_auth, Some(&fx.foreign.to_string()))
+    fx.get(list, &fx.admin_auth, Some(&fx.foreign.to_string()))
         .await;
-    fx.get(list, &fx.super_auth, Some(&fx.foreign.to_string()))
+    fx.get(list, &fx.admin_auth, Some(&fx.foreign.to_string()))
         .await;
     let rows = fx.audit_rows().await;
     assert_eq!(rows.len(), 2, "bug: another scope is another access");
@@ -979,7 +1091,7 @@ async fn a_repeated_cross_tenant_read_within_the_hour_writes_one_audit_row() {
 
     fx.get(
         "/api/admin/claim-verdicts/messages/no-such-message",
-        &fx.super_auth,
+        &fx.admin_auth,
         None,
     )
     .await;
@@ -991,10 +1103,10 @@ async fn a_repeated_cross_tenant_read_within_the_hour_writes_one_audit_row() {
     );
 }
 
-/// Every Engagement figure follows one scope: a plain admin's users, agents
-/// and uses are their tenant's, a super admin's picked tenant is that tenant's,
-/// and the platform read covers every user. The screen used to count every
-/// tenant's users beside one tenant's agents.
+/// Every Engagement figure follows one scope: an admin's picked tenant is
+/// that tenant's users, agents and uses, and the platform read covers every
+/// user. The screen used to count every tenant's users beside one tenant's
+/// agents. A tenant owner who is not an admin reads none of it.
 #[tokio::test]
 #[serial]
 async fn every_engagement_figure_follows_the_one_scope() {
@@ -1004,7 +1116,7 @@ async fn every_engagement_figure_follows_the_one_scope() {
     let agent = repos
         .agents
         .create_system_agent(
-            fx.plain_admin.id,
+            fx.owner.id,
             fx.home,
             &CreateSystemAgentRequest {
                 title: "Home agent".to_owned(),
@@ -1024,8 +1136,14 @@ async fn every_engagement_figure_follows_the_one_scope() {
         .await
         .unwrap());
 
-    let (status, home) = fx.get("/api/admin/engagement", &fx.plain_auth, None).await;
-    assert_eq!(status, 200, "bug: the plain admin reads their own tenant");
+    let (status, home) = fx
+        .get(
+            "/api/admin/engagement",
+            &fx.admin_auth,
+            Some(&fx.home.to_string()),
+        )
+        .await;
+    assert_eq!(status, 200, "bug: an admin reads the tenant it picks");
     assert_eq!(home["scope"], tenant_scope(fx.home));
     assert_eq!(
         home["users"]["total"], 2,
@@ -1038,14 +1156,14 @@ async fn every_engagement_figure_follows_the_one_scope() {
 
     let foreign = fx.foreign.to_string();
     let (status, picked) = fx
-        .get("/api/admin/engagement", &fx.super_auth, Some(&foreign))
+        .get("/api/admin/engagement", &fx.admin_auth, Some(&foreign))
         .await;
     assert_eq!(status, 200);
     assert_eq!(picked["scope"], tenant_scope(fx.foreign));
     assert_eq!(picked["users"]["total"], 1, "{picked}");
     assert_eq!(picked["total_agents"], 0, "{picked}");
 
-    let (status, platform) = fx.get("/api/admin/engagement", &fx.super_auth, None).await;
+    let (status, platform) = fx.get("/api/admin/engagement", &fx.admin_auth, None).await;
     assert_eq!(status, 200);
     assert_eq!(
         platform["scope"],
@@ -1056,8 +1174,13 @@ async fn every_engagement_figure_follows_the_one_scope() {
         "every user: the four operators and the member: {platform}"
     );
 
-    let (status, _) = fx
-        .get("/api/admin/engagement", &fx.plain_auth, Some(&foreign))
-        .await;
-    assert_eq!(status, 403, "bug: a plain admin never reads another tenant");
+    for requested in [None, Some(foreign.as_str())] {
+        let (status, _) = fx
+            .get("/api/admin/engagement", &fx.owner_auth, requested)
+            .await;
+        assert_eq!(
+            status, 403,
+            "bug: a tenant owner who is not an admin never reads the screen"
+        );
+    }
 }

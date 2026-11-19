@@ -21,7 +21,7 @@ import {
 import { refusalProvider, refusalReason } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 import { useThemeColors } from '../../constants/theme';
-import { Button, Row } from '../../components/ui';
+import { ALERT_TONE, Button, Row, switchColors } from '../../components/ui';
 import { useSetCoachConsents } from '../../hooks/useGroups';
 import type { CoachConsentsResponse } from '../../types';
 
@@ -102,12 +102,12 @@ export function CoachConsentsSection({ groupId, consents, coach }: CoachConsents
       <Text className="text-sm text-text-secondary pb-2">{t(COACH_CONSENTS_KEYS.hint, { coach })}</Text>
       {consents.wellness_notice_due && (
         <View
-          className="mb-3 gap-2 rounded-xl border border-info/30 bg-info/10 p-3"
+          className={`mb-3 gap-2 rounded-xl border ${ALERT_TONE.info.edge} ${ALERT_TONE.info.fill} p-3`}
           accessibilityRole="summary"
           testID="coach-consent-wellness-notice"
         >
-          <Text className="text-sm font-semibold text-on-info-container">{t(WELLNESS_WIDENED_NOTICE_KEYS.title)}</Text>
-          <Text className="text-sm text-on-info-container">
+          <Text className={`text-sm font-semibold ${ALERT_TONE.info.ink}`}>{t(WELLNESS_WIDENED_NOTICE_KEYS.title)}</Text>
+          <Text className={`text-sm ${ALERT_TONE.info.ink}`}>
             {t(WELLNESS_WIDENED_NOTICE_KEYS.body, { coach, platform: consentPlatformName('wellness_read') })}
           </Text>
           <View className="flex-row flex-wrap gap-2">
@@ -149,7 +149,7 @@ export function CoachConsentsSection({ groupId, consents, coach }: CoachConsents
                   value={changing[consent] ?? consents[consent]}
                   onValueChange={(granted) => askThenChange(consent, granted)}
                   disabled={isPending}
-                  trackColor={{ false: colors.border.default, true: colors.tokens.primary }}
+                  {...switchColors(colors.tokens, changing[consent] ?? consents[consent])}
                   accessibilityLabel={label}
                   testID={`coach-consent-${consent}`}
                 />

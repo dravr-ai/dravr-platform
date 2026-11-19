@@ -6,7 +6,6 @@
 
 use std::sync::Arc;
 
-use pierre_services::channel_adapters::ConfigChannelAdapters;
 use pierre_services::messaging_outbound::start_outbound_worker;
 use tracing::info;
 
@@ -20,13 +19,14 @@ use crate::mcp::resources::ServerContext;
 /// exist only because the athlete's next message arrived, then one a minute
 /// for a sibling that outlived the drained instance (registre#126). A resumed
 /// turn's adapter comes from the same stored channel config the webhook
-/// ingress builds from.
+/// ingress builds from, through the context's one adapter factory.
 pub fn start_background_workers(resources: Arc<ServerContext>) {
+    let adapters = Arc::clone(&resources.mcp.channel_adapters);
     start_outbound_worker(
         Arc::clone(&resources.common.repos.messaging),
         Arc::clone(&resources.common.repos.provider_connections),
-        Arc::new(ConfigChannelAdapters),
+        Arc::clone(&adapters),
     );
     info!("Messaging outbound retry worker started");
-    resume::start_turn_resume_sweeper(resources, Arc::new(ConfigChannelAdapters));
+    resume::start_turn_resume_sweeper(resources, adapters);
 }

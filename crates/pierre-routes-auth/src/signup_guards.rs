@@ -62,6 +62,11 @@ pub(crate) struct PublicRegisterRequest {
     /// without a form field for it are unchanged.
     #[serde(default)]
     pub signup_code: Option<SecretString>,
+    /// The code a `/groups/join/<code>` link carried (carnet#1648). It never
+    /// refuses the sign-up: a live member invite is held against the new
+    /// account, which joins the group once it is active.
+    #[serde(default)]
+    pub group_invite_code: Option<SecretString>,
     /// What the app needs to be signed straight in when the account comes
     /// out active (carnet#1147). Absent, the registration answers as it
     /// always has.
