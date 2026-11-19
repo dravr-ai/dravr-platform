@@ -208,10 +208,11 @@ fn offers_athlete(capabilities: ToolCapabilities, caller: &Caller<'_>) -> bool {
         || (caller.role.coach && !capabilities.contains(ToolCapabilities::WRITES_DATA))
 }
 
-/// Narrow a built listing to what `caller` is offered: every tool
-/// [`withheld`] withholds goes, and so does the `athlete` property of every
-/// tool left that does not offer it: externally a human coach alone is
-/// offered it, and never on a tool that writes.
+/// Narrow a built listing to what `caller` is offered.
+///
+/// Every tool [`withheld`] withholds goes, and so does the `athlete`
+/// property of every tool left that does not offer it: externally a human
+/// coach alone is offered it, and never on a tool that writes.
 pub fn retain_offered(registry: &ToolRegistry, schemas: &mut Vec<ToolSchema>, caller: &Caller<'_>) {
     schemas.retain(|schema| {
         registry
