@@ -72,7 +72,7 @@ env:
 jobs:
   capture-staleness:
     name: Live connections are still reaching their provider
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The refresh is bounded server-side at 480s and walks every live connection,
     # several of which drive a headless browser. 20 minutes covers it plus the read.
     timeout-minutes: 20

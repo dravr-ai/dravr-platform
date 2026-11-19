@@ -122,7 +122,7 @@ jobs:
   # ---------------------------------------------------------------------------
   resolve-sha:
     name: Resolve Commit SHA
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # picker, rollback guard and label reads, ~30 s
     # Build only for a CI run that a real push started AND that went green. A
     # schedule- or dispatch-triggered CI run rebuilds a commit main already has,
@@ -714,7 +714,7 @@ jobs:
   # ---------------------------------------------------------------------------
   publish-frontend:
     name: Publish Frontend Image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20  # ~2 min
     needs: resolve-sha
     if: >-
@@ -903,7 +903,7 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy-dev:
     name: Deploy to Development
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 100  # two 15-min quiesce and two 10-min settle waits around the rollouts, and the API canary's up to 32 min: 82 min of waits plus two deploys
     # resolve-sha is already an ancestor through the publish jobs; it is named
     # here because `needs.<job>.outputs` reaches direct dependencies only. The
@@ -1051,7 +1051,7 @@ jobs:
   # ---------------------------------------------------------------------------
   tag-deployed-dev:
     name: Tag Deployed Digests (dev)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # ~30 s
     needs: [publish-server, publish-frontend, deploy-dev]
     # A skipped publish-frontend (frontend unchanged) must not skip the server's
@@ -1125,7 +1125,7 @@ jobs:
   # ---------------------------------------------------------------------------
   sdk-smoke-dev:
     name: MCP SDK Smoke (dev)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # ~30 s
     needs: [deploy-dev]
     # Without it the implicit success() also counts deploy-dev's skipped
@@ -1186,7 +1186,7 @@ jobs:
   # ---------------------------------------------------------------------------
   sign-in-smoke-dev:
     name: First-Party Sign-In Smoke (dev)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # ~20 s
     needs: [deploy-dev]
     # As sdk-smoke-dev: a skipped publish-frontend must not skip the probe.
@@ -1223,7 +1223,7 @@ jobs:
   # ---------------------------------------------------------------------------
   seed-dev:
     name: Run Seed Jobs (dev)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30  # waits on the seed jobs, ~1 min
     needs: [deploy-dev, publish-server]
     # As sdk-smoke-dev: a skipped publish-frontend must not skip the seeds.
@@ -1354,7 +1354,7 @@ jobs:
   # (JF, 2026-11-19).
   notify-failure:
     name: Notify Slack of a failed deploy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5  # one Slack post, ~15 s
     needs: [resolve-sha, publish-server, publish-frontend, deploy-dev, tag-deployed-dev, sdk-smoke-dev, sign-in-smoke-dev, seed-dev, verify-dev]
     if: ${{ failure() }}
@@ -1398,7 +1398,7 @@ jobs:
 
   deploy-prod:
     name: Deploy to Production
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30  # disabled (if: false); two rollouts, no waits
     needs: [publish-server, publish-frontend]
     # Production deployment is disabled. A tag does not trigger this workflow,

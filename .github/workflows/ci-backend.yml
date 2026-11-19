@@ -260,7 +260,7 @@ jobs:
   detect-changes:
     name: Detect Changes
     timeout-minutes: 5  # path filtering only; no toolchain, no compile
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       rust: ${{ steps.changes.outputs.rust }}
       proven: ${{ steps.changes.outputs.proven }}
@@ -320,7 +320,7 @@ jobs:
   fast-gate:
     name: Fast Gate (fmt + architecture + secrets + surfaces)
     timeout-minutes: 15  # ~30s of compile-free gates plus rustfmt and an apt install
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout code
@@ -624,7 +624,7 @@ jobs:
     # lints ~40 crates one at a time (~1.5 min each); 25 min cut one off after
     # 27 and hid a compile error full-workspace clippy cannot see.
     timeout-minutes: 75
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # No `needs` — fires immediately in parallel with fast-gate / clippy.
     # Per-crate clippy on the leaf crates this push changed (pre-push-validate.sh
     # leaves per-crate clippy to CI), skipping pierre-server (whose
@@ -762,7 +762,7 @@ jobs:
   clippy:
     name: Clippy Linting (full workspace)
     timeout-minutes: 45  # full-workspace clippy, ~10-12 min
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # No `needs` — fires immediately in parallel with fast-gate / preflight-clippy
     # and release-binary. A red clippy still keeps its binaries from shipping:
     # publish-images takes server-binaries-<sha> only from a Backend run that
@@ -832,7 +832,7 @@ jobs:
   security-audit:
     name: Security Audit
     timeout-minutes: 20  # cargo-deny / advisory database, minutes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The jobs that wait on fast-gate also wait on detect-changes, which
     # finishes long before fast-gate does, so the gate costs them no time. A
     # push no Rust input touches skips them (the list is in
@@ -896,7 +896,7 @@ jobs:
   dev-tests:
     name: Dev Tests (doctests, coupling, this push's files)
     timeout-minutes: 60  # the 45-min changed-files step plus build; the step bound cannot catch a hang before it
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [fast-gate, detect-changes]
     # Not skipped on main on a branch's proof: on a branch it runs the test
     # files of that push alone, on main those of the whole squash, so the
@@ -1101,7 +1101,7 @@ jobs:
   feature-profiles:
     name: Feature Profile Check (${{ matrix.name }})
     timeout-minutes: 40  # cargo check per feature profile
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [fast-gate, detect-changes]
     # Skips on main when a full-lane branch passed both profiles on this exact
     # tree (proven in .github/actions/ci-backend-changes, carnet#1258). A job
@@ -1190,7 +1190,7 @@ jobs:
   backend-test-binaries:
     name: Build Test Binaries (SQLite)
     timeout-minutes: 60  # a cold build takes 6-7 minutes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: fast-gate
     # SQLite shards run on the daily cron (08:11 UTC), never on a push.
     # Per-push coverage comes from PostgreSQL via ci-postgres.yml, which is
@@ -1264,7 +1264,7 @@ jobs:
   backend-tests:
     name: Backend Tests (SQLite ${{ matrix.shard }}/4)
     timeout-minutes: 45  # one SQLite shard of the full suite, from prebuilt binaries
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: backend-test-binaries
     strategy:
       fail-fast: false
@@ -1353,7 +1353,7 @@ jobs:
   leaf-crate-tests:
     name: Leaf-Crate Tests (every crate but pierre-server)
     timeout-minutes: 80  # the 45-min test step, the 20-min mint-session step, plus build; the step bounds cannot catch a hang before them
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [fast-gate, detect-changes]
     # Skips on main when a full-lane branch tested every leaf crate green on
     # this exact tree (proven in .github/actions/ci-backend-changes,

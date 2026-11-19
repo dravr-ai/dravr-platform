@@ -90,7 +90,7 @@ jobs:
   # which quiesce lets through at once, and the plan reds on it straight away.
   settle:
     name: Settle dev Cloud Run
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35  # one 30-min quiesce wait, plus checkout and auth
 
     steps:
@@ -124,7 +124,7 @@ jobs:
 
   drift:
     name: Drift (${{ matrix.label }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25  # init + plan (~40 s), plus on dev one 15-min re-plan wait and a second plan
     # After settle, whatever its result: a settle that failed (auth, a runner
     # fault) must not skip the plan, which is the verdict.
@@ -317,7 +317,7 @@ jobs:
   # run stays the base alert).
   notify:
     name: Notify Slack
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # one Slack post, ~15 s
     needs: [settle, drift]
     if: ${{ !cancelled() && (needs.drift.result == 'failure' || needs.settle.result == 'failure' || github.event.inputs.test_alert == 'true') }}

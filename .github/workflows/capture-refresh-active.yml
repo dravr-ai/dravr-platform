@@ -52,7 +52,7 @@ permissions:
 jobs:
   refresh-active:
     name: Active athletes' captures are refreshed
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The sweep is bounded server-side at 480 s; the request at 540 s.
     timeout-minutes: 12
 

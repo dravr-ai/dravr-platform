@@ -20,7 +20,7 @@ permissions:
 jobs:
   check-copilot-cli:
     name: Check Copilot CLI Version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # two registry reads and the issue, ~15 s
     steps:
       - name: Checkout code

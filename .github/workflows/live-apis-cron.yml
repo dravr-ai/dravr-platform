@@ -46,7 +46,7 @@ env:
 jobs:
   live-apis:
     name: Live third-party API tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
 
     steps:

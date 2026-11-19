@@ -37,7 +37,7 @@ env:
 jobs:
   bump:
     name: Bump dravr-contremaitre rev to latest main
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45  # a no-op ~20 s, a real bump up to 17 min
     steps:
       - name: Checkout dravr-platform main

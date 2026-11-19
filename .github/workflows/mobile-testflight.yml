@@ -52,7 +52,7 @@ permissions:
 jobs:
   test:
     name: Pre-flight Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30  # type check, lint and unit tests, ~9 min
     defaults:
       run:
@@ -89,7 +89,7 @@ jobs:
   build:
     name: Build ${{ inputs.platform }} (${{ inputs.profile }})
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # EAS free-tier builds queue before they start; 120 minutes covers the wait
     # plus the build rather than reclaiming the runner mid-queue.
     timeout-minutes: 120
@@ -161,7 +161,7 @@ jobs:
     name: Submit to Store
     needs: build
     if: ${{ inputs.submit == true && inputs.profile == 'production' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60  # two eas submit calls that wait on the store uploads
     defaults:
       run:

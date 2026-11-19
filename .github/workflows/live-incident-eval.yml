@@ -133,7 +133,7 @@ concurrency:
 jobs:
   corpus:
     name: Incident corpus (dev's chain, production transport)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A healthy night is the build plus fifteen hosted-model turns, about an
     # hour. The ceiling is sized for the night nothing answers: the build
     # (~30 min) plus fifteen turns each waited out to the server's turn
