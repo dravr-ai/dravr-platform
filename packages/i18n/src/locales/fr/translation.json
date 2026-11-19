@@ -1582,7 +1582,6 @@
       "providers": "Ces fournisseurs seront déconnectés : {0}",
       "email_mismatch": "Ce courriel ne correspond pas à ton compte. Envoie `/deleteaccount` pour voir quoi saisir.",
       "dm_only": "Envoie-moi `/deleteaccount` en message privé, pour que ton courriel ne soit pas publié ici.",
-      "operator": "Un compte d’opérateur est supprimé par un autre opérateur.",
       "blocked": "Ton compte ne peut pas encore être supprimé. D’autres personnes dépendent de ceci :\n{0}\n\nTransfère-les ou supprime-les, puis réessaie.",
       "done": "Ton compte et toutes ses données ont été supprimés. Merci de t’être entraîné avec Dravr.",
       "failed": "Ton compte n’a pas pu être supprimé. Réessaie dans un instant.",
