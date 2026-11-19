@@ -12,9 +12,11 @@
 //! Each tool is called through `UniversalToolExecutor::execute_tool` and every
 //! date in its payload is compared with a literal table.
 //!
-//! `recorded_at` on a recovery day and on a body reading is read back from
-//! the row's `created_at`, set when the row is written, whatever the caller
-//! handed in: the row is moved to a chosen instant and compared as a literal.
+//! A recovery day, a body reading and a day's activity totals answer no
+//! `recorded_at` (carnet#1629): the store keeps no reading time for a day,
+//! only the row's first write (`created_at`). The row is moved to a chosen
+//! instant and the field's absence pinned, so that write time is never
+//! answered as a reading time.
 //!
 //! The three tools read `start` and `end` by hand (`parse_date_range`): text
 //! that is not an RFC 3339 instant is not refused, it is ignored, and the
@@ -28,8 +30,8 @@ use std::sync::Arc;
 
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::models::{
-    ConnectionType, DataSource, DeviceType, StoredHealthMetrics, StoredRecoveryMetrics,
-    StoredSleepSession,
+    ConnectionType, DataSource, DeviceType, StoredDailyActivity, StoredHealthMetrics,
+    StoredRecoveryMetrics, StoredSleepSession,
 };
 use pierre_database::repositories::{SyncCursorRow, WellnessWriteMode};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -53,8 +55,9 @@ fn august() -> Value {
 }
 
 /// An athlete in Toronto with WHOOP connected and its notice accepted, a
-/// night from 02:59:03.500 to 10:14:00 UTC on the 28th, that day's recovery
-/// and body reading, and each kind last synced at 11:00:00.250125.
+/// night from 02:59:03.500 to 10:14:00 UTC on the 28th, that day's recovery,
+/// body reading and activity totals, and each kind last synced at
+/// 11:00:00.250125.
 async fn athlete_with_a_stored_day(resources: &Arc<ServerContext>, label: &str) -> Athlete {
     let athlete = seed_athlete(resources, label, Some("America/Toronto"), "en").await;
     let repos = &resources.common.repos;
@@ -163,7 +166,7 @@ async fn athlete_with_a_stored_day(resources: &Arc<ServerContext>, label: &str) 
             &StoredHealthMetrics {
                 id: String::new(),
                 user_id: user.clone(),
-                data_source_id: source,
+                data_source_id: source.clone(),
                 date: day("2026-08-28"),
                 weight_kg: Some(68.2),
                 body_fat_pct: None,
@@ -177,6 +180,27 @@ async fn athlete_with_a_stored_day(resources: &Arc<ServerContext>, label: &str) 
                 vo2_max: None,
                 source_name: "whoop".to_owned(),
                 recorded_at: instant("2026-08-28T06:45:10"),
+            },
+            WellnessWriteMode::FullDay,
+            synced_at,
+        )
+        .await
+        .unwrap();
+    repos
+        .daily_activity
+        .upsert_daily_activity(
+            &athlete.tenant,
+            &StoredDailyActivity {
+                id: String::new(),
+                user_id: user.clone(),
+                data_source_id: source,
+                date: day("2026-08-28"),
+                steps: Some(11_284),
+                active_kcal: None,
+                total_kcal: None,
+                intensity_minutes: None,
+                source_name: "whoop".to_owned(),
+                recorded_at: instant("2026-08-28T23:59:00"),
             },
             WellnessWriteMode::FullDay,
             synced_at,
@@ -232,8 +256,8 @@ async fn a_stored_recovery_day_answers_its_day_its_reading_and_the_last_sync() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = athlete_with_a_stored_day(&resources, "golden-recovery").await;
 
-    // `recorded_at` is answered from the row's own write time, not from the
-    // reading the caller stored (10:30:00.125): the row is moved to tell.
+    // The row's write time is moved off the wall clock: were it answered as
+    // `recorded_at`, it would show as this instant.
     restamp(
         &resources.agent.database,
         "UPDATE recovery_metrics SET created_at = $1 WHERE user_id = $2 AND CAST(tenant_id AS TEXT) = $3",
@@ -251,11 +275,15 @@ async fn a_stored_recovery_day_answers_its_day_its_reading_and_the_last_sync() {
         table(&[
             ("/last_synced_at/whoop", "2026-08-28T11:00:00.250125+00:00"),
             ("/metrics/0/date", "2026-08-28"),
-            ("/metrics/0/recorded_at", "2026-08-28T10:31:07.125375Z"),
             ("/range/end", "2026-08-31T00:00:00+00:00"),
             ("/range/start", "2026-08-01T00:00:00+00:00"),
         ]),
         "{payload}"
+    );
+    assert_eq!(
+        payload["metrics"][0].get("recorded_at"),
+        None,
+        "a recovery day answers no reading time: {payload}"
     );
 }
 
@@ -264,7 +292,7 @@ async fn a_stored_body_reading_answers_its_day_its_reading_and_the_last_sync() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = athlete_with_a_stored_day(&resources, "golden-health").await;
 
-    // As for a recovery day: the row's write time, not the stored 06:45:10.
+    // As for a recovery day: the write time is moved, and never answered.
     restamp(
         &resources.agent.database,
         "UPDATE health_snapshots SET created_at = $1 WHERE user_id = $2 AND CAST(tenant_id AS TEXT) = $3",
@@ -280,13 +308,21 @@ async fn a_stored_body_reading_answers_its_day_its_reading_and_the_last_sync() {
     assert_eq!(
         dates_in(&payload),
         table(&[
+            ("/daily_activity/0/date", "2026-08-28"),
             ("/last_synced_at/whoop", "2026-08-28T11:00:00.250125+00:00"),
             ("/range/end", "2026-08-31T00:00:00+00:00"),
             ("/range/start", "2026-08-01T00:00:00+00:00"),
             ("/snapshots/0/date", "2026-08-28"),
-            ("/snapshots/0/recorded_at", "2026-08-28T06:46:00Z"),
         ]),
         "{payload}"
+    );
+    assert_eq!(
+        (
+            payload["snapshots"][0].get("recorded_at"),
+            payload["daily_activity"][0].get("recorded_at"),
+        ),
+        (None, None),
+        "a body reading and a day's totals answer no reading time: {payload}"
     );
 }
 

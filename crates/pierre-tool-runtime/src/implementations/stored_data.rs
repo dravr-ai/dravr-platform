@@ -26,6 +26,15 @@
 //! (`read_subject::readable_wellness`): no blood pressure, glucose, body
 //! composition or daily activity totals, nor a source that recorded only
 //! those.
+//!
+//! A recovery day, a body reading and a day's activity totals are answered
+//! as [`DayReading`]s, without `recorded_at`: the store keeps no reading time
+//! for a day, only when it first wrote the row (carnet#1629). The day is the
+//! row's `date`; how fresh it is, `last_synced_at`.
+
+mod day_reading;
+
+pub use day_reading::DayReading;
 
 use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
@@ -222,7 +231,8 @@ pub struct RecoveryMetricsResult {
     /// How many days the window held, after merging sources.
     pub count: usize,
     /// One reading per day, merged across sources.
-    pub metrics: Vec<Merged<StoredRecoveryMetrics>>,
+    // Answered without `recorded_at` (`DayReading`, carnet#1629).
+    pub metrics: Vec<DayReading<Merged<StoredRecoveryMetrics>>>,
     /// The attribution these readings must be shown and quoted with: the
     /// athlete's Garmin device (`Garmin Forerunner 965`) when intervals.icu
     /// wellness is among them and the athlete's intervals.icu activities were
@@ -248,10 +258,12 @@ pub struct HealthSnapshotsResult {
     /// How many days the window held, after merging sources.
     pub count: usize,
     /// One snapshot per day, merged across sources.
-    pub snapshots: Vec<Merged<StoredHealthMetrics>>,
+    // Answered without `recorded_at` (`DayReading`, carnet#1629).
+    pub snapshots: Vec<DayReading<Merged<StoredHealthMetrics>>>,
     /// Each day's steps, energy and intensity minutes, merged across
     /// sources.
-    pub daily_activity: Vec<Merged<StoredDailyActivity>>,
+    // Answered without `recorded_at` (`DayReading`, carnet#1629).
+    pub daily_activity: Vec<DayReading<Merged<StoredDailyActivity>>>,
     /// The attribution these readings must be shown and quoted with: the
     /// athlete's Garmin device (`Garmin Forerunner 965`) when intervals.icu
     /// wellness is among them and the athlete's intervals.icu activities were
@@ -439,7 +451,10 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
             .await
             {
                 Ok(read) => {
-                    let metrics = fence_athlete_notes(read.records);
+                    let metrics: Vec<_> = fence_athlete_notes(read.records)
+                        .into_iter()
+                        .map(DayReading)
+                        .collect();
                     let last_synced_at = last_synced(&context, &tenant_id, "recovery").await;
                     let payload = RecoveryMetricsResult {
                         count: metrics.len(),
@@ -533,12 +548,12 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
             };
             match read.await {
                 Ok((body, activity)) => {
-                    let snapshots = body.records;
+                    let snapshots: Vec<_> = body.records.into_iter().map(DayReading).collect();
                     let last_synced_at = last_synced(&context, &tenant_id, "health").await;
                     let payload = HealthSnapshotsResult {
                         count: snapshots.len(),
                         snapshots,
-                        daily_activity: activity.records,
+                        daily_activity: activity.records.into_iter().map(DayReading).collect(),
                         attribution: body.attribution.or(activity.attribution),
                         last_synced_at,
                         not_shared: read_subject::unnamed_wellness_note(),

@@ -218,7 +218,7 @@ use pierre_tool_runtime::implementations::store::{
     InstallAgentFromStoreTool, SearchAgentStoreResult, SearchAgentStoreTool, StoreAgentEntry,
 };
 use pierre_tool_runtime::implementations::stored_data::{
-    DataSourcesResult, DateRange, GetHealthSnapshotsTool, GetRecoveryMetricsTool,
+    DataSourcesResult, DateRange, DayReading, GetHealthSnapshotsTool, GetRecoveryMetricsTool,
     GetSleepSessionsTool, HealthSnapshotsResult, ListDataSourcesTool, RecoveryMetricsResult,
     SleepSessionsResult,
 };
@@ -1246,12 +1246,12 @@ fn get_health_snapshots_declares_a_schema_that_accepts_its_payload() {
     let sample = Formatted::Json(HealthSnapshotsResult {
         count: 0,
         snapshots: vec![],
-        daily_activity: vec![Merged {
+        daily_activity: vec![DayReading(Merged {
             primary: wellness_source(&day.source_name, None),
             record: day,
             sources: vec!["garmin_archive".to_owned()],
             filled: vec![],
-        }],
+        })],
         attribution: None,
         // One source synced, one never: both shapes the schema must accept.
         last_synced_at: BTreeMap::from([

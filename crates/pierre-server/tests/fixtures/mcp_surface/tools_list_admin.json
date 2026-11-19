@@ -12537,11 +12537,6 @@
                   "null"
                 ]
               },
-              "recorded_at": {
-                "description": "Timestamp when these metrics were recorded.",
-                "format": "date-time",
-                "type": "string"
-              },
               "source_name": {
                 "description": "Provider-specific source name.",
                 "type": "string"
@@ -12608,7 +12603,6 @@
               "blood_glucose",
               "vo2_max",
               "source_name",
-              "recorded_at",
               "sources",
               "filled"
             ],
@@ -12654,11 +12648,6 @@
                   "null"
                 ]
               },
-              "recorded_at": {
-                "description": "Timestamp when these totals were recorded.",
-                "format": "date-time",
-                "type": "string"
-              },
               "source_name": {
                 "description": "Provider-specific source name.",
                 "type": "string"
@@ -12702,7 +12691,6 @@
               "total_kcal",
               "intensity_minutes",
               "source_name",
-              "recorded_at",
               "sources",
               "filled"
             ],
@@ -14353,11 +14341,6 @@
                   "null"
                 ]
               },
-              "recorded_at": {
-                "description": "Timestamp when these metrics were recorded.",
-                "format": "date-time",
-                "type": "string"
-              },
               "recovery_score": {
                 "description": "Composite recovery score (provider-specific, 0-100).",
                 "format": "uint32",
@@ -14443,7 +14426,6 @@
               "daily_strain",
               "athlete_note",
               "source_name",
-              "recorded_at",
               "sources",
               "filled"
             ],
