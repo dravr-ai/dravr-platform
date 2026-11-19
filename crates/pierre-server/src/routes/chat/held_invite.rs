@@ -15,9 +15,11 @@
 //! join's reply into it, so an athlete reads what joining shares with the
 //! coach where the coach will talk to them.
 //!
-//! The hold is dropped once the join is decided either way. A failure before
-//! that keeps it, and the app asks again on its next load: an interrupted
-//! request, a reload or a closed tab never loses the invite.
+//! The hold is dropped once the join is decided, except when a full group
+//! refused it: that hold is stamped and kept, so the athlete can retry once a
+//! seat opens (carnet#1650). A failure before the decision keeps it too, and
+//! the app asks again on its next load: an interrupted request, a reload or a
+//! closed tab never loses the invite.
 
 use std::sync::Arc;
 
@@ -29,7 +31,7 @@ use axum::{
 };
 use chrono::Utc;
 use pierre_auth::auth::AuthResult;
-use pierre_commands::group_membership::{GroupJoinHandler, HeldInviteJoin};
+use pierre_commands::group_membership::{GroupJoinHandler, HeldInviteJoin, HeldInviteRefusal};
 use pierre_commands::{ConversationRotation, PlatformCommandContext};
 use pierre_contremaitre::messaging_strings::KEY_GROUP_JOIN_INVALID_CODE;
 use pierre_core::errors::AppError;
@@ -84,11 +86,23 @@ pub(super) enum JoinHeldInviteResponse {
         kind: GroupInviteKind,
     },
     /// The invite could not be used; `message` says why, in the caller's
-    /// language. The hold is dropped.
+    /// language. The hold is dropped, unless the group is full.
     Refused {
+        /// Whether a retry can succeed once a seat opens
+        reason: RefusalReason,
         /// The refusal `/group join` would have given
         message: String,
     },
+}
+
+/// Why a held invite was refused, as the app reads it.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum RefusalReason {
+    /// The group is full; the hold is kept for a retry
+    GroupFull,
+    /// Anything else; the hold is dropped
+    Invalid,
 }
 
 /// `POST /api/chat/groups/join` — join the group of the invite the server
@@ -125,6 +139,7 @@ pub(super) async fn join_held_invite(
     let outcome = if group_invite_hold::lapsed(&hold, Utc::now()) {
         info!(user_id = %auth.user_id, invite_id = %hold.invite_id, "A held group invite lapsed before its account joined");
         HeldInviteJoin::Refused {
+            reason: HeldInviteRefusal::Invalid,
             reply: resources.mcp.messaging_strings_registry.render(
                 KEY_GROUP_JOIN_INVALID_CODE,
                 &ctx.locale,
@@ -135,12 +150,26 @@ pub(super) async fn join_held_invite(
         GroupJoinHandler::join_held_invite(&ctx, hold.invite_id).await?
     };
 
-    // Decided: the hold has done its work. A hold the account took on another
-    // invite meanwhile is kept, for the next call.
-    repos
-        .signup_codes
-        .release_group_invite_hold(auth.user_id, hold.invite_id)
-        .await?;
+    // Decided: the hold has done its work, except one a full group refused,
+    // which waits for a seat. A hold the account took on another invite
+    // meanwhile is kept either way, for the next call.
+    if matches!(
+        outcome,
+        HeldInviteJoin::Refused {
+            reason: HeldInviteRefusal::GroupFull,
+            ..
+        }
+    ) {
+        repos
+            .signup_codes
+            .mark_group_invite_hold_full(auth.user_id, hold.invite_id, Utc::now())
+            .await?;
+    } else {
+        repos
+            .signup_codes
+            .release_group_invite_hold(auth.user_id, hold.invite_id)
+            .await?;
+    }
 
     let body = match outcome {
         HeldInviteJoin::Joined { group, kind, reply } => {
@@ -158,7 +187,13 @@ pub(super) async fn join_held_invite(
             group_name: group.name,
             kind,
         },
-        HeldInviteJoin::Refused { reply } => JoinHeldInviteResponse::Refused { message: reply },
+        HeldInviteJoin::Refused { reason, reply } => JoinHeldInviteResponse::Refused {
+            reason: match reason {
+                HeldInviteRefusal::GroupFull => RefusalReason::GroupFull,
+                HeldInviteRefusal::Invalid => RefusalReason::Invalid,
+            },
+            message: reply,
+        },
     };
     Ok(answer(body))
 }

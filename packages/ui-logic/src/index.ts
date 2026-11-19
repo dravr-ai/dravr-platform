@@ -88,6 +88,8 @@ export {
   refusalReason,
   INVALID_SIGNUP_CODE_REASON,
   isInvalidSignupCode,
+  COACH_INVITE_NOT_FOR_ACCOUNT_REASON,
+  isCoachInviteNotForAccount,
   refusalProvider,
   providerAuthRefusalKey,
   apiErrorStatus,
@@ -451,6 +453,26 @@ export {
 } from './coachAccessHooks';
 // Coach Home's invited-but-not-joined rows (carnet#1524).
 export { COACH_PENDING_INVITE_KEYS, groupsAwaitingAthlete, usableMemberInvite } from './coachPendingInvites';
+export {
+  inviteCardNamesGroupBelow,
+  inviteCardTitle,
+  inviteDeadLink,
+  inviteJourneyLine,
+  inviteJourneyPromise,
+  inviteShares,
+  joinStripFull,
+  joinStripJoin,
+  joinStripTitle,
+  type InviteCopyLine,
+  type InvitePeople,
+} from './inviteCopy';
+export {
+  INVITE_FUNNEL_KEYS,
+  inviteFunnelSteps,
+  type InviteFunnelStep,
+  type InviteFunnelStepKey,
+  type InviteFunnelStepState,
+} from './inviteFunnel';
 export {
   ALL_COACHED_ATHLETES,
   coachedAthleteOptions,

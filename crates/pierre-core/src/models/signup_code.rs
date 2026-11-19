@@ -91,4 +91,28 @@ pub struct GroupInviteHold {
     pub invite_id: Uuid,
     /// When the server took it
     pub held_at: DateTime<Utc>,
+    /// When a join was refused because the group was full: the hold is kept
+    /// for a retry once a seat opens (carnet#1650); `None` until then
+    pub refused_full_at: Option<DateTime<Utc>>,
+}
+
+/// How far one group invite got, read from the invite's open counter and the
+/// holds that name it (carnet#1650): the numbers behind the coach's pending
+/// row. No reader is kept, only counts and times.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupInviteFunnelRow {
+    /// The invite
+    pub invite_id: Uuid,
+    /// Times its public card was opened, by anyone but the people running
+    /// the group
+    pub open_count: i64,
+    /// When the card was last opened
+    pub last_opened_at: Option<DateTime<Utc>>,
+    /// Live holds naming the invite: accounts that came from the link and
+    /// have not joined
+    pub held_count: i64,
+    /// When the latest of those holds was taken
+    pub last_held_at: Option<DateTime<Utc>>,
+    /// Of those holds, how many a full group refused
+    pub full_count: i64,
 }

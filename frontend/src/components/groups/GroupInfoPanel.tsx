@@ -38,6 +38,7 @@ import AthletePlanModal from './AthletePlanModal';
 import AthletePhysiologyModal from './AthletePhysiologyModal';
 import { AgentRow, CoachRow } from './GroupLeads';
 import CoachAccessRequest from '../CoachAccessRequest';
+import ClaimCoachBlock from './ClaimCoachBlock';
 import InviteManager from './InviteManager';
 import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
@@ -389,6 +390,12 @@ export default function GroupInfoPanel({
           is blocked, the drawer's one filled request, the coaching platforms;
           once asked, the dated timeline (carnet#1520). */}
       {viewer === 'seat' && <CoachAccessRequest groupId={groupId} variant="block" />}
+
+      {/* An owner who already holds coach access, on a group nobody coaches:
+          the one way to take the seat (carnet#1650). */}
+      {viewer === 'member' && isOwner && !group.coach_user_id && auth.user?.manages_roster === true && (
+        <ClaimCoachBlock groupId={groupId} />
+      )}
 
       {viewer === 'coach' && (
         <Section

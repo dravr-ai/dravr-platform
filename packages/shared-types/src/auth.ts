@@ -124,6 +124,14 @@ export interface User {
   /** True when the user has access to the Coach-tier roster UI. */
   manages_roster?: boolean;
   /**
+   * What a pending account waits on, as its sign-up was told: `confirm_email`
+   * activates once the address is confirmed, `review` waits on an
+   * administrator even after that. `active` for an active account. Sent with
+   * the session so the waiting screen words it on any tab or device
+   * (carnet#1650); absent for a suspended account, which waits on nothing.
+   */
+  activation?: 'active' | 'confirm_email' | 'review';
+  /**
    * BCP-47 short locale the athlete is answered in (`fr`, `en`, `es`, `de`,
    * `pt`). Sent by `/oauth/token`, `/api/auth/session` and the Firebase login
    * as `UserInfo.locale`; absent on the surfaces that build a `User` without

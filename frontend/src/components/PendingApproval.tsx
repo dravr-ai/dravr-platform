@@ -7,8 +7,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { authApi, userApi } from '../services/api';
-import { describeApiError, describeEmailTombstone, isInvalidSignupCode } from '@pierre/ui-logic';
+import { describeApiError, describeEmailTombstone, inviteJourneyPromise, isInvalidSignupCode } from '@pierre/ui-logic';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useInviteJourney } from '../hooks/useInviteJourney';
 import { Button, Card, Badge, Input } from './ui';
 
 // Clock icon for pending status
@@ -99,6 +100,10 @@ export default function PendingApproval() {
   }, [userStatus, emailVerified, updateUser]);
 
   const needsEmailConfirmation = user?.email_verified === false;
+  // The invite this account joins once it is in, and whether an administrator
+  // reviews it first, as the session says (carnet#1649, #1650).
+  const invite = useInviteJourney();
+  const reviewed = user?.activation === 'review';
   const tombstone = user?.email_tombstone;
   // A tombstoned address the athlete has proven: theirs to start fresh with.
   const offersClear = tombstone !== undefined && !needsEmailConfirmation;
@@ -195,6 +200,20 @@ export default function PendingApproval() {
                   </>
                 )}
               </p>
+              {invite !== null && !tombstone && (
+                <p
+                  className="mt-3 text-sm font-medium text-on-surface max-w-sm"
+                  data-testid="pending-invite-promise"
+                >
+                  {(() => {
+                    const promise = inviteJourneyPromise(
+                      { inviter_name: invite.inviterName, group_name: invite.groupName },
+                      reviewed,
+                    );
+                    return t(promise.key, promise.values);
+                  })()}
+                </p>
+              )}
               {needsEmailConfirmation && tombstone && (
                 <p
                   className="mt-2 text-sm text-on-surface-variant max-w-sm"
@@ -263,7 +282,9 @@ export default function PendingApproval() {
                     <p>
                       {redeemed.inviteHeld && !needsEmailConfirmation
                         ? t('auth.pendingApprovalMessage')
-                        : t('auth.signupCodeAcceptedConfirmEmail')}
+                        : redeemed.inviteHeld && reviewed
+                          ? t('auth.signupCodeAcceptedConfirmEmailReview')
+                          : t('auth.signupCodeAcceptedConfirmEmail')}
                     </p>
                     {redeemed.groupJoined && <p>{t('auth.signupCodeJoinedGroup')}</p>}
                   </div>
@@ -361,7 +382,8 @@ export default function PendingApproval() {
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-0.5">•</span>
-                      <span>{t('auth.activatesOnConfirm')}</span>
+                      {/* Under review, confirming is not what activates the account. */}
+                      <span>{t(reviewed ? 'auth.adminWillReview' : 'auth.activatesOnConfirm')}</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-primary mt-0.5">•</span>

@@ -66,8 +66,8 @@ export { coachAccessAdminApi } from './coachAccessAdmin';
 export { coachSeatInvitationsApi } from './coachSeatInvitations';
 // Accepting a mailed invitation: its link opens the web app only.
 export { invitationsApi } from './invitations';
-// The group invite a /groups/join link carried, which opens the web app only (carnet#1648).
-export { groupInviteApi } from './groupInvite';
+// The invite card's public read of a group invite code (carnet#1649).
+export { invitePreviewApi } from './invitePreview';
 // Confirming an address from its mailed link, which opens the web app only.
 export { emailConfirmationApi } from './emailConfirmation';
 export { adminUsageApi } from './usage';

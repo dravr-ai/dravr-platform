@@ -24,10 +24,11 @@
 //! `HOLD_LAPSES_AFTER_DAYS`. Nothing here logs a code.
 
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::groups::GroupInvite;
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::models::groups::{GroupInvite, GroupInviteKind};
 use pierre_core::models::{GroupInviteHold, TenantId};
 use pierre_database::RepositoryRegistry;
+use pierre_groups::creation_policy::may_coach_group;
 use pierre_groups::{GroupService, SIGNUP_INVITE_MAX_DAYS};
 use tracing::info;
 use uuid::Uuid;
@@ -37,6 +38,13 @@ use crate::signup_codes;
 /// Days a held invite waits for its account to become active before it
 /// lapses: the longest a coach's signup code stays redeemable.
 const HOLD_LAPSES_AFTER_DAYS: i64 = SIGNUP_INVITE_MAX_DAYS;
+
+/// `details.reason` of the refusal a coach invite gets from an account that
+/// may not coach.
+///
+/// It is not a dead code, so the client can say the link is not for this
+/// account instead of "check the code".
+pub const COACH_INVITE_NOT_FOR_ACCOUNT_REASON: &str = "coach_invite_not_for_account";
 
 /// The live group invite `raw` names (active, not expired, under its use
 /// limit), its group still open; `None` for a code no one could hold.
@@ -79,18 +87,64 @@ pub async fn names_plain_group_invite(repos: &RepositoryRegistry, raw: &str) -> 
         .is_some_and(|invite| !invite.approves_signup))
 }
 
+/// Whether `user_id` could be attached as the human coach of `invite`'s
+/// group: the rule `/group join` applies to a coach invite
+/// ([`may_coach_group`]), read against the tenants the account belongs to,
+/// since an account that has not signed in yet has no active tenant to name.
+async fn may_coach_invite_group(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    invite: &GroupInvite,
+) -> AppResult<bool> {
+    let group_tenant = TenantId::parse_str(&invite.tenant_id)
+        .map_err(|e| AppError::internal(format!("Invite tenant id is not a uuid: {e}")))?;
+    let Some(user) = repos.users.get_global(user_id).await? else {
+        return Ok(false);
+    };
+    Ok(repos
+        .tenants
+        .list_for_user(user_id)
+        .await?
+        .iter()
+        .any(|tenant| may_coach_group(&user, tenant.id, group_tenant)))
+}
+
+/// The refusal a coach invite gets from an account that may not coach.
+fn coach_invite_not_for_account() -> AppError {
+    let mut refusal = AppError::new(
+        ErrorCode::PermissionDenied,
+        "This coach link is not for your account.",
+    );
+    refusal.details = Some(Box::new(
+        serde_json::json!({ "reason": COACH_INVITE_NOT_FOR_ACCOUNT_REASON }),
+    ));
+    refusal
+}
+
 /// Hold the group invite `raw` names for `user_id`, replacing the one it
 /// held. Returns the invite.
+///
+/// A coach invite is held only for an account that may coach the group (the
+/// rule the join applies), checked before anything is replaced: a coach link
+/// opened by an account that cannot coach leaves the member invite it already
+/// holds in place.
 ///
 /// # Errors
 ///
 /// Returns the uniform invalid-code error for a code no one could hold
-/// (unknown, deactivated, expired, used up, or its group archived), and the
-/// repository's error when a write fails.
+/// (unknown, deactivated, expired, used up, or its group archived), a
+/// permission error with reason [`COACH_INVITE_NOT_FOR_ACCOUNT_REASON`] for a
+/// coach invite the account may not redeem, and the repository's error when a
+/// write fails.
 pub async fn hold(repos: &RepositoryRegistry, user_id: Uuid, raw: &str) -> AppResult<GroupInvite> {
     let invite = live_group_invite(repos, raw)
         .await?
         .ok_or_else(signup_codes::invalid_signup_code)?;
+    if invite.kind == GroupInviteKind::Coach
+        && !may_coach_invite_group(repos, user_id, &invite).await?
+    {
+        return Err(coach_invite_not_for_account());
+    }
     repos
         .signup_codes
         .hold_group_invite(user_id, invite.id, Utc::now())
@@ -99,10 +153,16 @@ pub async fn hold(repos: &RepositoryRegistry, user_id: Uuid, raw: &str) -> AppRe
     Ok(invite)
 }
 
+/// The instant before which a hold taken has lapsed at `now`.
+#[must_use]
+pub fn lapse_cutoff(now: DateTime<Utc>) -> DateTime<Utc> {
+    now - Duration::days(HOLD_LAPSES_AFTER_DAYS)
+}
+
 /// Whether `hold` was taken longer ago than a hold waits.
 #[must_use]
 pub fn lapsed(hold: &GroupInviteHold, now: DateTime<Utc>) -> bool {
-    now - hold.held_at > Duration::days(HOLD_LAPSES_AFTER_DAYS)
+    hold.held_at < lapse_cutoff(now)
 }
 
 #[cfg(test)]
@@ -116,6 +176,7 @@ mod tests {
             user_id: Uuid::new_v4(),
             invite_id: Uuid::new_v4(),
             held_at: now - Duration::days(days),
+            refused_full_at: None,
         };
         assert!(
             !lapsed(&hold(HOLD_LAPSES_AFTER_DAYS), now),

@@ -330,6 +330,17 @@ export const QUERY_KEYS = {
   },
 
   // ==================== GROUPS ====================
+  /**
+   * The group invite card and the held invite (carnet#1649, #1650). Kept
+   * apart from `groups`: every group invalidation refetches that prefix, and
+   * a refetched preview counts as another "opened" for the coach.
+   */
+  groupInvite: {
+    /** The public card a link opens on: read once per page load. */
+    preview: (code: string) => ['group-invite', 'preview', code] as const,
+    /** The invite the server holds for the signed-in account. */
+    held: () => ['group-invite', 'held'] as const,
+  },
   groups: {
     all: ['groups'] as const,
     detail: (groupId: string) => ['groups', groupId] as const,

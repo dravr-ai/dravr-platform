@@ -236,6 +236,19 @@ export async function applyTestStubs(page: Page) {
       body: JSON.stringify({ outcome: 'none' }),
     });
   });
+  // What the server holds for the account (carnet#1650): nothing, unless a
+  // spec says so. Only the read; a spec's own route answers the hold (PUT).
+  await page.route('**/api/user/group-invite', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ held: null }),
+    });
+  });
   // The athlete Home page, where a regular user lands after sign-in — so
   // every spec that signs one in reaches it, including the spec-local login
   // helpers that skip `setupDashboardMocks`. The defaults are an athlete with

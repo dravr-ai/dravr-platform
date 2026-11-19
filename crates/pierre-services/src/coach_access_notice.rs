@@ -94,18 +94,7 @@ impl CoachAccessNotices {
         let Some(coach) = requester(repos, request).await else {
             return;
         };
-        let mut room_lines = 0;
-        for group in attached {
-            match self.post_room_line(repos, &coach, group).await {
-                Ok(delivered) => room_lines += delivered,
-                Err(e) => warn!(
-                    request_id = %request.id,
-                    group_id = %group.id,
-                    error = %e,
-                    "Coach access grant: the room line could not be posted"
-                ),
-            }
-        }
+        let room_lines = self.post_room_lines(repos, &coach, attached).await;
         let notified = match (&self.notifications, feed_tenant(repos, coach.id).await) {
             (Some(service), Some(tenant)) => {
                 trigger_coach_access_granted(service, coach.id, tenant);
@@ -124,6 +113,33 @@ impl CoachAccessNotices {
             emailed,
             "Coach access grant told to its coach"
         );
+    }
+
+    /// Write the line that says `coach` now coaches each of `attached` into
+    /// every copy of that group's chat: the coach's own and each live member's,
+    /// in each reader's language. Best-effort: a group whose line cannot be
+    /// posted is logged and the rest go on. Returns how many copies received a
+    /// line. The one telling a coach's grant and a coach's own claim of a
+    /// coachless group share.
+    pub async fn post_room_lines(
+        &self,
+        repos: &RepositoryRegistry,
+        coach: &User,
+        attached: &[CoachingGroup],
+    ) -> usize {
+        let mut room_lines = 0;
+        for group in attached {
+            match self.post_room_line(repos, coach, group).await {
+                Ok(delivered) => room_lines += delivered,
+                Err(e) => warn!(
+                    coach_user_id = %coach.id,
+                    group_id = %group.id,
+                    error = %e,
+                    "Coach attached: the room line could not be posted"
+                ),
+            }
+        }
+        room_lines
     }
 
     /// Tell the coach behind the declined `request` that the team said no,

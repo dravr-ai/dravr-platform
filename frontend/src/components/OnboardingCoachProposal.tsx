@@ -10,6 +10,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import type { TeamStepChoice } from '../hooks/useOnboardingState';
 import { chatApi, coachesApi } from '../services/api';
 import { Button } from './ui';
+import { useMyCoach } from '../hooks/useMyCoach';
 import OnboardingShell from './OnboardingShell';
 import { homeConversationRoute } from './home/homeRoute';
 import { TeamPicker, type TeamChoice } from './onboarding/TeamPicker';
@@ -46,6 +47,9 @@ export default function OnboardingCoachProposal({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useTeamProposal();
+  // An athlete a coach invited already has their coach: the step says so
+  // (carnet#1649) and picks only the agents.
+  const coach = useMyCoach();
 
   const handleSubmit = async (choice: TeamChoice) => {
     await onSave(choice);
@@ -123,6 +127,14 @@ export default function OnboardingCoachProposal({
         <p className="mt-2 text-center font-serif text-lg italic text-on-surface-variant">
           {t(withoutProvider ? 'onboarding.team.sublineNoProvider' : 'onboarding.team.sublineTraining')}
         </p>
+        {coach !== null && (
+          <p
+            className="mt-3 text-center text-sm font-medium text-on-surface"
+            data-testid="onboarding-team-coach-chosen"
+          >
+            {t('humanCoach.inviteJourney.teamChosen', { name: coach.name })}
+          </p>
+        )}
         <div className="mt-7">
           <TeamPicker proposal={data} withoutProvider={withoutProvider} onSubmit={handleSubmit} />
         </div>

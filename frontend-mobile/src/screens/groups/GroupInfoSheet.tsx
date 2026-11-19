@@ -44,6 +44,7 @@ import {
 } from '../../hooks/useGroups';
 import { useOpenAthleteThread } from '../../hooks/useCoachPlan';
 import { GroupInsightsSection } from './GroupInsightsSection';
+import { ClaimCoachBlock } from './ClaimCoachBlock';
 import { GroupLeadRows } from './GroupLeadRows';
 import { GroupTranscriptSection } from './GroupTranscriptSection';
 import { MemberRow } from './MemberRow';
@@ -490,6 +491,11 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           asked, the dated timeline (carnet#1520). */}
       {seat.offered && (
         <CoachAccessRequest groupId={groupId} variant="block" onOpenConnections={openConnections} />
+      )}
+
+      {/* The owner who holds coach access and has no coach yet can be it (carnet#1650). */}
+      {!!group && !group.coach_user_id && isOwner && mayApproveSignups && !seat.offered && (
+        <ClaimCoachBlock groupId={groupId} />
       )}
 
       <View className="mt-4">

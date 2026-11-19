@@ -7,6 +7,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   captureGroupInviteLink,
+  dismissInviteCard,
+  inviteCardIsOpen,
   dropCarriedGroupInvite,
   groupInviteCodeFromPath,
   readCarriedGroupInvite,
@@ -77,5 +79,26 @@ describe('group invite carry', () => {
     expect(readCarriedGroupInvite()).toBe('MRT2026X');
     dropCarriedGroupInvite('MRT2026X');
     expect(readCarriedGroupInvite()).toBeNull();
+  });
+
+  it('opens the invite card for a load that opened on a link, until the person answers it (carnet#1649)', () => {
+    dismissInviteCard();
+    expect(inviteCardIsOpen()).toBe(false);
+
+    window.history.replaceState(null, '', '/groups/join/MRT2026X');
+    captureGroupInviteLink();
+    expect(inviteCardIsOpen()).toBe(true);
+
+    dismissInviteCard();
+    expect(inviteCardIsOpen()).toBe(false);
+  });
+
+  it('opens no card for a load without a link, even with a code carried from an earlier one', () => {
+    dismissInviteCard();
+    sessionStorage.setItem('dravr.pending_invite_code', 'MRT2026X');
+
+    captureGroupInviteLink();
+
+    expect(inviteCardIsOpen()).toBe(false);
   });
 });

@@ -5,11 +5,15 @@
 // ABOUTME: Pins carnet#1648 — the carry outlives a failed hold and a reload, and an active account joins once per page load
 
 import { StrictMode, type ReactNode } from 'react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { HoldGroupInviteResponse, JoinHeldInviteResponse } from '@pierre/shared-types';
-import { readCarriedGroupInvite } from '../../utils/groupInvite';
+import {
+  captureGroupInviteLink,
+  dismissInviteCard,
+  readCarriedGroupInvite,
+} from '../../utils/groupInvite';
 
 const holdGroupInvite = vi.fn<(code: string) => Promise<HoldGroupInviteResponse>>();
 const joinHeldInvite = vi.fn<() => Promise<JoinHeldInviteResponse>>();
@@ -25,8 +29,8 @@ let auth: AuthState;
 
 vi.mock('../useAuth', () => ({ useAuth: () => auth }));
 vi.mock('../../services/api', () => ({
-  groupInviteApi: {
-    holdGroupInvite: (code: string) => holdGroupInvite(code),
+  groupsApi: {
+    holdInvite: (code: string) => holdGroupInvite(code),
     joinHeldInvite: () => joinHeldInvite(),
   },
 }));
@@ -329,7 +333,7 @@ describe('useHeldGroupInvite — the join of what the server holds (carnet#1648)
 
   it("says the server's refusal once, in its own words", async () => {
     auth = signedIn('active');
-    joinHeldInvite.mockResolvedValue({ outcome: 'refused', message: 'Ce groupe est complet.' });
+    joinHeldInvite.mockResolvedValue({ outcome: 'refused', reason: 'invalid', message: 'Ce groupe est complet.' });
 
     const { result, rerender } = renderHeldInvite();
 
@@ -339,6 +343,17 @@ describe('useHeldGroupInvite — the join of what the server holds (carnet#1648)
     expect(addToast).toHaveBeenCalledTimes(1);
     expect(addToast).toHaveBeenCalledWith({ type: 'error', title: 'Ce groupe est complet.' });
     expect(result.current.joinedRoom).toBeNull();
+  });
+
+  it('toasts nothing for a full group: Home\'s strip says it and offers the retry (carnet#1650)', async () => {
+    auth = signedIn('active');
+    joinHeldInvite.mockResolvedValue({ outcome: 'refused', reason: 'group_full', message: 'Ce groupe est complet.' });
+
+    renderHeldInvite();
+
+    await waitFor(() => expect(joinHeldInvite).toHaveBeenCalledTimes(1));
+    await settle();
+    expect(addToast).not.toHaveBeenCalled();
   });
 
   it('leaves a failed join for the next page load, without retrying in a loop', async () => {
@@ -353,5 +368,137 @@ describe('useHeldGroupInvite — the join of what the server holds (carnet#1648)
     expect(joinHeldInvite).toHaveBeenCalledTimes(1);
     expect(result.current.joinedRoom).toBeNull();
     expect(addToast).not.toHaveBeenCalled();
+  });
+});
+
+describe('useHeldGroupInvite — the invite card answers first (carnet#1649)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    joinHeldInvite.mockResolvedValue({ outcome: 'none' });
+    window.history.replaceState(null, '', '/groups/join/MRT2026X');
+    captureGroupInviteLink();
+  });
+
+  afterEach(() => {
+    dismissInviteCard();
+  });
+
+  it('holds and joins nothing while the card is up, then carries on once it is dismissed', async () => {
+    auth = signedIn('active');
+    holdGroupInvite.mockResolvedValue({ held: true, kind: 'member' });
+
+    renderHeldInvite();
+    await settle();
+    expect(holdGroupInvite).not.toHaveBeenCalled();
+    expect(joinHeldInvite).not.toHaveBeenCalled();
+
+    act(() => dismissInviteCard());
+    await waitFor(() => expect(holdGroupInvite).toHaveBeenCalledWith('MRT2026X'));
+    await waitFor(() => expect(joinHeldInvite).toHaveBeenCalledTimes(1));
+  });
+
+  it('joins from the card once: hold, then join, and the page does not join again', async () => {
+    auth = signedIn('active');
+    holdGroupInvite.mockResolvedValue({ held: true, kind: 'member' });
+    joinHeldInvite.mockResolvedValue({
+      outcome: 'joined',
+      kind: 'member',
+      group_id: 'group-1',
+      group_name: 'Morning Riders',
+      conversation_id: 'conv-1',
+    });
+
+    const { result } = renderHeldInvite();
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.joinFromCard();
+    });
+    expect(outcome).toBe('joined');
+    expect(result.current.joinedRoom).toEqual({ conversationId: 'conv-1' });
+
+    act(() => dismissInviteCard());
+    await settle();
+    expect(holdGroupInvite).toHaveBeenCalledTimes(1);
+    expect(joinHeldInvite).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds only, for an account that is not active yet', async () => {
+    auth = signedIn('pending');
+    holdGroupInvite.mockResolvedValue({ held: true, kind: 'member' });
+
+    const { result } = renderHeldInvite();
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.joinFromCard();
+    });
+    expect(outcome).toBe('held');
+    expect(joinHeldInvite).not.toHaveBeenCalled();
+  });
+
+  it('answers full for a full group, and keeps the hold for Home', async () => {
+    auth = signedIn('active');
+    holdGroupInvite.mockResolvedValue({ held: true, kind: 'member' });
+    joinHeldInvite.mockResolvedValue({ outcome: 'refused', reason: 'group_full', message: 'Complet.' });
+
+    const { result } = renderHeldInvite();
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.joinFromCard();
+    });
+    expect(outcome).toBe('full');
+    expect(addToast).not.toHaveBeenCalled();
+  });
+
+  it('answers dead for a code the server calls dead, and drops it', async () => {
+    auth = signedIn('active');
+    holdGroupInvite.mockRejectedValue(refusal(404));
+
+    const { result } = renderHeldInvite();
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.joinFromCard();
+    });
+    expect(outcome).toBe('dead');
+    expect(readCarriedGroupInvite()).toBeNull();
+    expect(joinHeldInvite).not.toHaveBeenCalled();
+  });
+
+  it('answers not_for_account for a coach link the account may not redeem, drops it, and joins nothing else (carnet#1650)', async () => {
+    auth = signedIn('active');
+    holdGroupInvite.mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 403, data: { details: { reason: 'coach_invite_not_for_account' } } },
+    });
+
+    const { result } = renderHeldInvite();
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.joinFromCard();
+    });
+    expect(outcome).toBe('not_for_account');
+    expect(readCarriedGroupInvite()).toBeNull();
+    expect(joinHeldInvite).not.toHaveBeenCalled();
+  });
+
+  it('answers failed when the hold did not answer, keeps the code, and a second press sends it again', async () => {
+    auth = signedIn('active');
+    holdGroupInvite.mockRejectedValueOnce(refusal(503));
+
+    const { result } = renderHeldInvite();
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.joinFromCard();
+    });
+    expect(outcome).toBe('failed');
+    expect(readCarriedGroupInvite()).toBe('MRT2026X');
+
+    holdGroupInvite.mockResolvedValueOnce({ held: true, kind: 'member' });
+    await act(async () => {
+      outcome = await result.current.joinFromCard();
+    });
+    expect(holdGroupInvite).toHaveBeenCalledTimes(2);
+    expect(outcome).toBe('joined');
   });
 });

@@ -545,6 +545,7 @@ pub(crate) async fn handle_session(
     Span::current().record("success", true);
     info!("Session restored for user: {}", user_id);
 
+    let activation = resources.account_service().activation_of(&user).await;
     let session_response = SessionResponse {
         user: UserInfo {
             id: user.id.to_string(),
@@ -568,6 +569,7 @@ pub(crate) async fn handle_session(
             // restores no session for a Pending account: it reads it off the
             // sign-in that landed it on the pending screen.
             email_tombstone: None,
+            activation,
             created_at: user.created_at.to_rfc3339(),
             locale: user.locale,
             coaching_persona: user.coaching_persona.as_str().to_owned(),
@@ -621,6 +623,10 @@ pub(crate) async fn handle_update_profile(
         .await?;
 
     // Build response
+    let activation = resources
+        .account_service()
+        .activation_of(&updated_user)
+        .await;
     let response = UpdateProfileResponse {
         message: "Profile updated successfully".to_owned(),
         user: UserInfo {
@@ -638,6 +644,7 @@ pub(crate) async fn handle_update_profile(
             email_verified: None,
             // Neither is a pending screen's reason to resolve it.
             email_tombstone: None,
+            activation,
             created_at: updated_user.created_at.to_rfc3339(),
             locale: updated_user.locale,
             coaching_persona: updated_user.coaching_persona.as_str().to_owned(),

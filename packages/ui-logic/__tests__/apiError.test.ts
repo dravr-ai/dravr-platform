@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isInvalidSignupCode,
+  isCoachInviteNotForAccount,
   apiErrorStatus,
   classifyApiError,
   describeApiError,
@@ -285,6 +286,22 @@ describe('isInvalidSignupCode', () => {
     expect(isInvalidSignupCode(responded(400, { message: "This code isn't valid." }))).toBe(false);
     expect(isInvalidSignupCode(responded(400, { details: { reason: 'own_connection' } }))).toBe(false);
     expect(isInvalidSignupCode(new Error('Network Error'))).toBe(false);
+  });
+});
+
+describe('isCoachInviteNotForAccount', () => {
+  it('reads the coach-link reason, not the English message', () => {
+    const err = responded(403, {
+      message: 'This coach link is not for your account.',
+      details: { reason: 'coach_invite_not_for_account' },
+    });
+    expect(isCoachInviteNotForAccount(err)).toBe(true);
+  });
+
+  it('is false for every other refusal, a bare 403 included', () => {
+    expect(isCoachInviteNotForAccount(responded(403, { message: 'Forbidden' }))).toBe(false);
+    expect(isCoachInviteNotForAccount(responded(400, { details: { reason: 'invalid_signup_code' } }))).toBe(false);
+    expect(isCoachInviteNotForAccount(new Error('Network Error'))).toBe(false);
   });
 });
 

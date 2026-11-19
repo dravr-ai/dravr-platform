@@ -84,6 +84,7 @@ vi.mock('../../../services/api', () => ({
     leaveGroup: vi.fn(),
     deleteGroup: vi.fn(),
     removeCoach: vi.fn(),
+    claimCoach: vi.fn(),
     listInvites: vi.fn(),
     createInvite: vi.fn(),
     deactivateInvite: vi.fn(),
@@ -621,6 +622,64 @@ describe('GroupInfoPanel', () => {
       await screen.findByTestId('group-info-no-coach');
       expect(screen.queryByTestId('coach-seat-block')).toBeNull();
       expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
+    });
+
+    it('offers the owner who holds coach access the one way to coach their coachless group (carnet#1650)', async () => {
+      authUser.manages_roster = true;
+      offerSeat();
+      vi.mocked(groupsApi.claimCoach).mockResolvedValue({
+        group: sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach' }),
+      });
+      renderPanel();
+
+      const block = await screen.findByTestId('group-info-claim-coach');
+      expect(block).toHaveTextContent('This group has no coach yet');
+      expect(block).toHaveTextContent("You'll see the training of the athletes who share it with you.");
+      expect(screen.queryByTestId('coach-seat-block')).toBeNull();
+
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(
+        sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach' }),
+      );
+      await userEvent.click(within(block).getByTestId('group-info-claim-coach-action'));
+
+      await waitFor(() => expect(groupsApi.claimCoach).toHaveBeenCalledExactlyOnceWith(GROUP_ID));
+      // The group is re-read, and the offer gives way to the coach row.
+      await waitFor(() => expect(screen.queryByTestId('group-info-claim-coach')).toBeNull());
+      expect(await screen.findByText("You're now this group's coach.")).toBeInTheDocument();
+    });
+
+    it('says the claim failed and keeps the offer', async () => {
+      authUser.manages_roster = true;
+      offerSeat();
+      vi.mocked(groupsApi.claimCoach).mockRejectedValue({ response: { status: 500, data: {} } });
+      renderPanel();
+
+      const block = await screen.findByTestId('group-info-claim-coach');
+      await userEvent.click(within(block).getByTestId('group-info-claim-coach-action'));
+
+      expect(await within(block).findByTestId('group-info-claim-coach-failed')).toHaveTextContent(
+        "Couldn't make you the coach. Try again.",
+      );
+      expect(within(block).getByTestId('group-info-claim-coach-action')).toBeEnabled();
+    });
+
+    it('offers no claim to an owner without coach access: the seat request stays theirs', async () => {
+      offerSeat();
+      renderPanel();
+
+      await screen.findByTestId('coach-seat-block');
+      expect(screen.queryByTestId('group-info-claim-coach')).toBeNull();
+    });
+
+    it('offers no claim to a group that already has a coach', async () => {
+      authUser.manages_roster = true;
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(
+        sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+      );
+      renderPanel();
+
+      await screen.findByTestId('group-info-coach-row');
+      expect(screen.queryByTestId('group-info-claim-coach')).toBeNull();
     });
 
     it('offers nothing to a plain member of a coachless group', async () => {

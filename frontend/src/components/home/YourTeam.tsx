@@ -21,6 +21,7 @@ import { Sheet } from '../ui/Sheet';
 import { TeamPicker, type TeamChoice } from '../onboarding/TeamPicker';
 import { useTeamProposal } from '../onboarding/useTeamProposal';
 import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
+import { useMyCoach } from '../../hooks/useMyCoach';
 import { conversationCapOf } from '../chat/conversationCap';
 import { openChatWithAgent } from './openNewChat';
 import type { TodayActions } from './personalToday';
@@ -79,6 +80,9 @@ export function YourTeam({ actions, onNavigate, onPickTeam }: YourTeamProps) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const personal = usePersonalConversation();
+  // The athlete's human coach, when a coach invited them: Your team ends on
+  // them (carnet#1649). A person, so a line of its own beside the agents.
+  const coach = useMyCoach();
   // What a refused row says: the active-conversation cap, or that the chat
   // could not be opened.
   const [openError, setOpenError] = useState<string | null>(null);
@@ -232,6 +236,11 @@ export function YourTeam({ actions, onNavigate, onPickTeam }: YourTeamProps) {
         </ul>
         <div className="mt-1">{findMore}</div>
         </div>
+      )}
+      {coach !== null && (
+        <p className="mt-2 text-xs text-on-surface-variant" data-testid="home-team-coach">
+          {t('humanCoach.inviteJourney.yourCoach', { name: coach.name })}
+        </p>
       )}
       {openError && (
         <p role="alert" className="mt-2 text-sm text-error">

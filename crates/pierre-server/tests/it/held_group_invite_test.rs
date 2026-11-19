@@ -75,7 +75,7 @@ const INSERT_TENANT_MEMBER: &str =
 
 /// The auth routes behind a fresh client address per call, so the
 /// per-address sign-up and code windows never decide a test.
-fn auth_routes(resources: &ServerContext) -> Router {
+pub(crate) fn auth_routes(resources: &ServerContext) -> Router {
     static NEXT: AtomicU16 = AtomicU16::new(1);
     let [hi, lo] = NEXT.fetch_add(1, Ordering::Relaxed).to_be_bytes();
     AuthRoutes::routes(resources.auth_routes_context()).layer(MockConnectInfo(SocketAddr::new(
@@ -84,7 +84,7 @@ fn auth_routes(resources: &ServerContext) -> Router {
     )))
 }
 
-fn body_of(text: &str) -> Value {
+pub(crate) fn body_of(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or(Value::Null)
 }
 
@@ -101,13 +101,17 @@ async fn register(resources: &ServerContext, email: &str, link_code: Option<&str
     (response.status(), body_of(&response.body_text()))
 }
 
-async fn bearer(resources: &Arc<ServerContext>, user: &User) -> String {
+pub(crate) async fn bearer(resources: &Arc<ServerContext>, user: &User) -> String {
     format!("Bearer {}", generate_test_token(resources, user).await)
 }
 
 /// `PUT /api/user/group-invite` — the call right after a sign-in that
 /// started from a group link.
-async fn hold_link(resources: &Arc<ServerContext>, user: &User, code: &str) -> (u16, Value) {
+pub(crate) async fn hold_link(
+    resources: &Arc<ServerContext>,
+    user: &User,
+    code: &str,
+) -> (u16, Value) {
     let response = AxumTestRequest::put("/api/user/group-invite")
         .header("authorization", &bearer(resources, user).await)
         .json(&json!({ "code": code }))
@@ -127,7 +131,7 @@ async fn redeem(resources: &Arc<ServerContext>, user: &User, code: &str) -> (u16
 }
 
 /// `POST /api/chat/groups/join` — the app redeeming the held invite.
-async fn join_held(resources: &Arc<ServerContext>, user: &User) -> (u16, Value) {
+pub(crate) async fn join_held(resources: &Arc<ServerContext>, user: &User) -> (u16, Value) {
     let response = AxumTestRequest::post("/api/chat/groups/join")
         .header("authorization", &bearer(resources, user).await)
         .send(ChatRoutes::routes(Arc::clone(resources)))
@@ -147,7 +151,7 @@ async fn account(resources: &ServerContext, email: &str) -> User {
 }
 
 /// An active account with its own tenant, as an already-approved athlete.
-async fn athlete(resources: &Arc<ServerContext>, label: &str) -> (User, TenantId) {
+pub(crate) async fn athlete(resources: &Arc<ServerContext>, label: &str) -> (User, TenantId) {
     let (_, user, tenant) = create_test_user_with_plan(
         &resources.agent.database,
         &format!("{label}-{}@held-invite.test", Uuid::new_v4()),
@@ -203,15 +207,15 @@ async fn open_to_verified_addresses(resources: &ServerContext) {
 }
 
 /// A roster-managing Professional owner of one group named [`GROUP_NAME`].
-struct Coach {
-    id: Uuid,
-    tenant: TenantId,
-    group_id: Uuid,
-    auth: String,
+pub(crate) struct Coach {
+    pub(crate) id: Uuid,
+    pub(crate) tenant: TenantId,
+    pub(crate) group_id: Uuid,
+    pub(crate) auth: String,
 }
 
 impl Coach {
-    async fn new(resources: &Arc<ServerContext>, max_members: i32) -> Self {
+    pub(crate) async fn new(resources: &Arc<ServerContext>, max_members: i32) -> Self {
         let (id, owner, _) = create_test_user_with_plan(
             &resources.agent.database,
             &format!("coach-{}@held-invite.test", Uuid::new_v4()),
@@ -258,13 +262,17 @@ impl Coach {
     }
 
     /// A plain member invite, live for two weeks.
-    async fn invite(&self, resources: &ServerContext, max_uses: Option<i32>) -> GroupInvite {
+    pub(crate) async fn invite(
+        &self,
+        resources: &ServerContext,
+        max_uses: Option<i32>,
+    ) -> GroupInvite {
         self.invite_of(resources, GroupInviteKind::Member, max_uses)
             .await
     }
 
     /// A plain invite of `kind`, live for two weeks.
-    async fn invite_of(
+    pub(crate) async fn invite_of(
         &self,
         resources: &ServerContext,
         kind: GroupInviteKind,
@@ -287,7 +295,7 @@ impl Coach {
     /// An active account with coach access that belongs to the owner's
     /// tenant only, as an invited staff coach does: the account a coach
     /// invite is meant for.
-    async fn staff_coach(&self, resources: &ServerContext) -> User {
+    pub(crate) async fn staff_coach(&self, resources: &ServerContext) -> User {
         let mut user = User::new(
             format!("staff-coach-{}@held-invite.test", Uuid::new_v4()),
             "hash_not_verified_in_tests".to_owned(),
@@ -338,7 +346,7 @@ impl Coach {
         user
     }
 
-    async fn coach_user_id(&self, resources: &ServerContext) -> Option<Uuid> {
+    pub(crate) async fn coach_user_id(&self, resources: &ServerContext) -> Option<Uuid> {
         resources
             .common
             .repos
@@ -389,7 +397,12 @@ impl Coach {
     }
 
     /// How many assistant rows in the coach's conversation `chat` read `text`.
-    async fn rows_reading(&self, resources: &ServerContext, chat: &str, text: &str) -> usize {
+    pub(crate) async fn rows_reading(
+        &self,
+        resources: &ServerContext,
+        chat: &str,
+        text: &str,
+    ) -> usize {
         resources
             .common
             .repos
@@ -413,7 +426,7 @@ impl Coach {
     }
 }
 
-async fn held(resources: &ServerContext, user_id: Uuid) -> Option<GroupInviteHold> {
+pub(crate) async fn held(resources: &ServerContext, user_id: Uuid) -> Option<GroupInviteHold> {
     resources
         .common
         .repos
@@ -437,7 +450,7 @@ async fn use_count(resources: &ServerContext, invite_id: Uuid) -> i32 {
 
 /// Move an invite of `tenant`'s group to expire at `at`, as the passage of
 /// time would.
-async fn expire_invite(
+pub(crate) async fn expire_invite(
     resources: &ServerContext,
     tenant: TenantId,
     invite_id: Uuid,
@@ -467,7 +480,7 @@ async fn expire_invite(
 }
 
 /// The text a test user reads: every account here keeps the default locale.
-fn rendered(resources: &ServerContext, key: &str, args: &[&str]) -> String {
+pub(crate) fn rendered(resources: &ServerContext, key: &str, args: &[&str]) -> String {
     resources
         .mcp
         .messaging_strings_registry
@@ -806,6 +819,7 @@ async fn a_held_invite_its_coach_withdrew_is_refused_and_the_hold_dropped() {
         body,
         json!({
             "outcome": "refused",
+            "reason": "invalid",
             "message": rendered(&resources, KEY_GROUP_JOIN_INVALID_CODE, &[]),
         }),
         "a withdrawn invite is refused as an unusable code"
@@ -846,6 +860,7 @@ async fn a_hold_older_than_its_window_lapses_and_is_dropped() {
         body,
         json!({
             "outcome": "refused",
+            "reason": "invalid",
             "message": rendered(&resources, KEY_GROUP_JOIN_INVALID_CODE, &[]),
         }),
         "a lapsed hold is refused as an unusable code"
@@ -939,21 +954,36 @@ async fn a_held_coach_invite_attaches_an_eligible_coach_and_refuses_anyone_else(
         .invite_of(&resources, GroupInviteKind::Coach, None)
         .await;
 
-    // An athlete with no coach access, acting in their own tenant.
+    // An athlete with no coach access, acting in their own tenant: the
+    // coach link is refused at hold time, not as a dead code.
     let (outsider, _) = athlete(&resources, "not-a-coach").await;
     let (status, body) = hold_link(&resources, &outsider, &invite.code).await;
-    assert_eq!(status, 200, "{body}");
+    assert_eq!(status, 403, "{body}");
     assert_eq!(
-        body,
-        json!({ "held": true, "kind": "coach" }),
-        "the hold names the group's coach seat"
+        body["details"]["reason"], "coach_invite_not_for_account",
+        "the refusal says the link is not for this account: {body}"
     );
+    assert!(
+        held(&resources, outsider.id).await.is_none(),
+        "a refused coach link holds nothing"
+    );
+
+    // An account that lost its eligibility between hold and join is still
+    // refused at join time as an unusable code, and the hold is dropped.
+    resources
+        .common
+        .repos
+        .signup_codes
+        .hold_group_invite(outsider.id, invite.id, Utc::now())
+        .await
+        .unwrap();
     let (status, body) = join_held(&resources, &outsider).await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(
         body,
         json!({
             "outcome": "refused",
+            "reason": "invalid",
             "message": rendered(&resources, KEY_GROUP_JOIN_INVALID_CODE, &[]),
         }),
         "an ineligible account is refused as an unusable code"
@@ -1121,6 +1151,7 @@ async fn a_held_coach_invite_that_expired_since_is_refused() {
         body,
         json!({
             "outcome": "refused",
+            "reason": "invalid",
             "message": rendered(&resources, KEY_GROUP_JOIN_INVALID_CODE, &[]),
         }),
         "an expired coach invite is refused as an unusable code"
@@ -1195,6 +1226,7 @@ async fn an_invite_used_up_between_hold_and_join_is_refused() {
         body,
         json!({
             "outcome": "refused",
+            "reason": "invalid",
             "message": rendered(&resources, KEY_GROUP_JOIN_INVALID_CODE, &[]),
         }),
         "a used-up invite is refused as an unusable code"
@@ -1215,7 +1247,7 @@ async fn an_invite_used_up_between_hold_and_join_is_refused() {
 }
 
 #[tokio::test]
-async fn a_group_full_at_join_time_is_refused_by_name() {
+async fn a_group_full_at_join_time_is_refused_by_name_and_keeps_the_hold_for_a_retry() {
     let resources = create_test_server_resources().await.unwrap();
     // The owner's own membership plus one athlete fills it.
     let coach = Coach::new(&resources, 2).await;
@@ -1237,6 +1269,7 @@ async fn a_group_full_at_join_time_is_refused_by_name() {
     let (status, body) = join_held(&resources, &holder).await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["outcome"], "refused", "{body}");
+    assert_eq!(body["reason"], "group_full", "{body}");
     let message = body["message"].as_str().unwrap();
     assert_eq!(
         message,
@@ -1244,13 +1277,244 @@ async fn a_group_full_at_join_time_is_refused_by_name() {
         "a full group is refused by name"
     );
     assert!(message.contains(GROUP_NAME), "{message}");
+    let kept = held(&resources, holder.id)
+        .await
+        .expect("a full group keeps the hold");
+    assert_eq!(kept.invite_id, invite.id, "the same invite is kept");
     assert!(
-        held(&resources, holder.id).await.is_none(),
-        "the refusal drops the hold"
+        kept.refused_full_at.is_some(),
+        "the kept hold is stamped as refused by a full group"
     );
     assert!(
         !coach.is_member(&resources, holder.id).await,
         "a full group admits no one"
+    );
+
+    // The athlete's own read of the hold says so.
+    let (status, read) = read_hold(&resources, &holder).await;
+    assert_eq!(status, 200, "{read}");
+    assert_eq!(read["held"]["state"], "group_full", "{read}");
+
+    // A seat opens: the retry joins, and the hold is released.
+    resources
+        .common
+        .repos
+        .groups
+        .remove_member(&coach.group_id.to_string(), quicker.id)
+        .await
+        .unwrap();
+    let (status, body) = join_held(&resources, &holder).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["outcome"], "joined", "{body}");
+    assert!(coach.is_member(&resources, holder.id).await);
+    assert!(
+        held(&resources, holder.id).await.is_none(),
+        "a successful join releases the hold"
+    );
+}
+
+/// A fresh link replaces a kept full-group hold, and the stamp goes with it.
+#[tokio::test]
+async fn a_new_hold_replaces_a_full_group_stamp() {
+    let resources = create_test_server_resources().await.unwrap();
+    // The owner's membership plus one athlete fills it.
+    let full = Coach::new(&resources, 2).await;
+    let open = Coach::new(&resources, 10).await;
+    let full_invite = full.invite(&resources, None).await;
+    let (filler, _) = athlete(&resources, "fills-the-group").await;
+    resources
+        .group_service()
+        .join_group(&full_invite.code, filler.id, full.tenant)
+        .await
+        .unwrap();
+    let open_invite = open.invite(&resources, None).await;
+    let (holder, _) = athlete(&resources, "redirected").await;
+    hold_link(&resources, &holder, &full_invite.code).await;
+    let (_, body) = join_held(&resources, &holder).await;
+    assert_eq!(body["reason"], "group_full", "{body}");
+    assert!(held(&resources, holder.id)
+        .await
+        .unwrap()
+        .refused_full_at
+        .is_some());
+
+    assert_eq!(
+        hold_link(&resources, &holder, &open_invite.code).await.0,
+        200
+    );
+    let replaced = held(&resources, holder.id).await.unwrap();
+    assert_eq!(replaced.invite_id, open_invite.id);
+    assert!(
+        replaced.refused_full_at.is_none(),
+        "the new hold starts with no full-group stamp"
+    );
+    // Holding the full group's link again starts over too.
+    hold_link(&resources, &holder, &full_invite.code).await;
+    let (_, body) = join_held(&resources, &holder).await;
+    assert_eq!(body["reason"], "group_full", "{body}");
+    hold_link(&resources, &holder, &full_invite.code).await;
+    assert!(
+        held(&resources, holder.id)
+            .await
+            .unwrap()
+            .refused_full_at
+            .is_none(),
+        "holding the same link again clears the stamp"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 3b. The holder reads their hold (carnet#1650)
+// ---------------------------------------------------------------------------
+
+/// `GET /api/user/group-invite`.
+async fn read_hold(resources: &Arc<ServerContext>, user: &User) -> (u16, Value) {
+    let response = AxumTestRequest::get("/api/user/group-invite")
+        .header("authorization", &bearer(resources, user).await)
+        .send(auth_routes(resources))
+        .await;
+    (response.status(), body_of(&response.body_text()))
+}
+
+#[tokio::test]
+async fn the_holder_reads_the_group_and_inviter_of_their_hold_and_never_the_code() {
+    let resources = create_test_server_resources().await.unwrap();
+    let coach = Coach::new(&resources, 10).await;
+    resources
+        .common
+        .repos
+        .users
+        .update_display_name(coach.id, "Jeremy Bonneau")
+        .await
+        .unwrap();
+    let invite = coach.invite(&resources, None).await;
+    let (user, _) = athlete(&resources, "reader").await;
+
+    let (status, none) = read_hold(&resources, &user).await;
+    assert_eq!(status, 200, "{none}");
+    assert_eq!(none, json!({ "held": null }), "nothing held reads null");
+
+    hold_link(&resources, &user, &invite.code).await;
+    let (status, read) = read_hold(&resources, &user).await;
+    assert_eq!(status, 200, "{read}");
+    let held_at = read["held"]["held_at"]
+        .as_str()
+        .expect("a held_at")
+        .to_owned();
+    assert_eq!(
+        read,
+        json!({ "held": {
+            "kind": "member",
+            "group_name": GROUP_NAME,
+            "inviter_name": "Jeremy B.",
+            "inviter_initials": "JB",
+            "has_coach": false,
+            "coach_name": null,
+            "held_at": held_at,
+            "state": "pending",
+        }}),
+        "exactly the card's fields"
+    );
+    assert!(
+        !read.to_string().contains(&invite.code),
+        "the code never comes back"
+    );
+
+    // A lapsed hold reads as none.
+    resources
+        .common
+        .repos
+        .signup_codes
+        .hold_group_invite(
+            user.id,
+            invite.id,
+            Utc::now() - Duration::days(SIGNUP_INVITE_MAX_DAYS + 1),
+        )
+        .await
+        .unwrap();
+    let (_, lapsed) = read_hold(&resources, &user).await;
+    assert_eq!(lapsed, json!({ "held": null }), "a lapsed hold reads null");
+
+    // The read needs a session.
+    let response = AxumTestRequest::get("/api/user/group-invite")
+        .send(auth_routes(&resources))
+        .await;
+    assert_eq!(response.status(), 401);
+}
+
+// ---------------------------------------------------------------------------
+// 3c. A coach link never displaces a member hold (carnet#1650)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_coach_link_does_not_replace_the_member_hold_of_an_account_that_cannot_coach() {
+    let resources = create_test_server_resources().await.unwrap();
+    let coach = Coach::new(&resources, 10).await;
+    let member_invite = coach.invite(&resources, None).await;
+    let coach_invite = coach
+        .invite_of(&resources, GroupInviteKind::Coach, None)
+        .await;
+    let (user, _) = athlete(&resources, "member-opens-coach-link").await;
+    assert_eq!(
+        hold_link(&resources, &user, &member_invite.code).await.0,
+        200
+    );
+
+    let (status, body) = hold_link(&resources, &user, &coach_invite.code).await;
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(
+        body["details"]["reason"], "coach_invite_not_for_account",
+        "{body}"
+    );
+    assert!(
+        !body.to_string().contains("isn't valid"),
+        "not worded as a dead code: {body}"
+    );
+    assert_eq!(
+        held(&resources, user.id).await.unwrap().invite_id,
+        member_invite.id,
+        "the member hold stays in place"
+    );
+
+    // Through the waiting screen's field the same rule holds.
+    let (status, _) = redeem(&resources, &user, &coach_invite.code).await;
+    assert_ne!(status, 200, "the waiting screen does not hold it either");
+    assert_eq!(
+        held(&resources, user.id).await.unwrap().invite_id,
+        member_invite.id,
+        "still the member hold"
+    );
+
+    // An eligible coach does hold it.
+    let staff = coach.staff_coach(&resources).await;
+    assert_eq!(
+        hold_link(&resources, &staff, &coach_invite.code).await.0,
+        200
+    );
+    assert_eq!(
+        held(&resources, staff.id).await.unwrap().invite_id,
+        coach_invite.id
+    );
+}
+
+/// An ineligible coach code at sign-up leaves the account created.
+#[tokio::test]
+async fn an_ineligible_coach_link_at_sign_up_does_not_fail_the_sign_up() {
+    let resources = create_test_server_resources().await.unwrap();
+    let coach = Coach::new(&resources, 10).await;
+    let coach_invite = coach
+        .invite_of(&resources, GroupInviteKind::Coach, None)
+        .await;
+    let email = format!("fresh-{}@held-invite.test", Uuid::new_v4());
+    let (status, body) = register(&resources, &email, Some(&coach_invite.code)).await;
+    assert!(
+        (200..300).contains(&status),
+        "the sign-up goes through: {status} {body}"
+    );
+    let created = account(&resources, &email).await;
+    assert!(
+        held(&resources, created.id).await.is_none(),
+        "the coach link is not held for an account that cannot coach"
     );
 }
 

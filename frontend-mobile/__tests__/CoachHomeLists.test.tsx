@@ -153,6 +153,73 @@ describe('the roster read', () => {
     await waitFor(() => expect(mockPush).toHaveBeenCalled());
   });
 
+  it('shows the invite funnel: opened, an account created, not in the group yet, and no one named', async () => {
+    const group = { id: 'g-lea', name: 'Léa · Marathon de Montréal', athlete_count: 0 };
+    mockGetRoster.mockResolvedValue({ ...ROSTER, groups: [group], athletes: [], scope: { visible_members: 0, roster_members: 0 } });
+    mockListInvites.mockResolvedValue({
+      invites: [
+        {
+          id: 'inv-1',
+          group_id: 'g-lea',
+          tenant_id: 't-1',
+          code: 'ABCD2345',
+          kind: 'member',
+          created_by: 'coach-1',
+          expires_at: '2099-12-13T14:40:00Z',
+          max_uses: null,
+          use_count: 0,
+          is_active: true,
+          approves_signup: false,
+          created_at: '2026-11-13T14:40:00Z',
+          funnel: {
+            open_count: 3,
+            last_opened_at: '2026-11-14T10:00:00Z',
+            held_count: 1,
+            last_held_at: '2026-11-15T10:00:00Z',
+            full_count: 0,
+          },
+        },
+      ],
+    });
+    const screen = renderCoachHome();
+
+    const funnel = within(await screen.findByTestId('coach-pending-invite-funnel'));
+    expect(funnel.getByText('Invite progress')).toBeTruthy();
+    expect(funnel.getByText('Link sent')).toBeTruthy();
+    expect(funnel.getByText('Opened · 3 times')).toBeTruthy();
+    expect(funnel.getByText(/^Account created · /)).toBeTruthy();
+    expect(funnel.getByText('Not in the group yet')).toBeTruthy();
+    expect(funnel.queryByText(/Group full/)).toBeNull();
+  });
+
+  it('says the group is full when every account holding the invite was refused', async () => {
+    const group = { id: 'g-lea', name: 'Léa', athlete_count: 0 };
+    mockGetRoster.mockResolvedValue({ ...ROSTER, groups: [group], athletes: [], scope: { visible_members: 0, roster_members: 0 } });
+    mockListInvites.mockResolvedValue({
+      invites: [
+        {
+          id: 'inv-1',
+          group_id: 'g-lea',
+          tenant_id: 't-1',
+          code: 'ABCD2345',
+          kind: 'member',
+          created_by: 'coach-1',
+          expires_at: null,
+          max_uses: null,
+          use_count: 0,
+          is_active: true,
+          approves_signup: false,
+          created_at: '2026-11-13T14:40:00Z',
+          funnel: { open_count: 1, last_opened_at: null, held_count: 1, last_held_at: '2026-11-15T10:00:00Z', full_count: 1 },
+        },
+      ],
+    });
+    const screen = renderCoachHome();
+
+    const funnel = within(await screen.findByTestId('coach-pending-invite-funnel'));
+    expect(funnel.getByText('Group full · a seat needs to open')).toBeTruthy();
+  });
+
   it('follows next_offset until the last page and merges them', async () => {
     mockGetRoster
       .mockResolvedValueOnce({ ...ROSTER, athletes: [FELIX], next_offset: 1 })

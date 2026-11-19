@@ -7,14 +7,22 @@
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
 import { useQueries } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import type { CoachRosterGroup, GroupInvite } from '@pierre/shared-types';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { formatDate, formatMessageTime, GROUP_ROOM_KEYS } from '@pierre/chat-utils';
-import { COACH_PENDING_INVITE_KEYS, groupsAwaitingAthlete, usableMemberInvite } from '@pierre/ui-logic';
-import { Button, EmptyState } from '../../components/ui';
+import {
+  COACH_PENDING_INVITE_KEYS,
+  INVITE_FUNNEL_KEYS,
+  groupsAwaitingAthlete,
+  inviteFunnelSteps,
+  usableMemberInvite,
+  type InviteFunnelStep,
+} from '@pierre/ui-logic';
+import { BADGE_TONE, Button, EmptyState } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { inviteLink } from '../../constants/inviteLink';
 import { useOpenGroupRoom } from '../../hooks/useCoachPlan';
@@ -117,6 +125,7 @@ function PendingInviteRow({ entry }: { entry: PendingInvite }) {
             ? t(COACH_PENDING_INVITE_KEYS.why, { date: formatDate(invite.expires_at, language) })
             : t(COACH_PENDING_INVITE_KEYS.whyNoExpiry)}
         </Text>
+        <InviteFunnel invite={invite} />
         <View className="mt-3 gap-2">
           <Button
             title={copied ? t(COACH_PENDING_INVITE_KEYS.copied) : t(COACH_PENDING_INVITE_KEYS.copyAgain)}
@@ -134,6 +143,62 @@ function PendingInviteRow({ entry }: { entry: PendingInvite }) {
           />
         </View>
       </View>
+    </View>
+  );
+}
+
+const STEP_ICON: Record<InviteFunnelStep['state'], 'check-circle' | 'arrow-right-circle' | 'circle'> = {
+  done: 'check-circle',
+  current: 'arrow-right-circle',
+  todo: 'circle',
+};
+
+/**
+ * The four steps one invite went through, from the server's funnel counts:
+ * link sent, opened, account created, in the group. Only counts appear here,
+ * never who: an account that has not joined is not named to the coach.
+ */
+function InviteFunnel({ invite }: { invite: GroupInvite }) {
+  const { t, language } = useTranslation();
+  const colors = useThemeColors();
+  const steps = inviteFunnelSteps(invite.funnel);
+
+  return (
+    <View
+      className="mt-3"
+      accessibilityRole="list"
+      accessibilityLabel={t(INVITE_FUNNEL_KEYS.label)}
+      testID="coach-pending-invite-funnel"
+    >
+      <Text className="text-xs font-medium text-text-secondary">{t(INVITE_FUNNEL_KEYS.label)}</Text>
+      {steps.map((step) => {
+        const warn = step.tone === 'warn';
+        const label = t(step.labelKey, {
+          ...step.values,
+          ...(step.values.date ? { date: formatDate(step.values.date, language) } : {}),
+        });
+        return (
+          <View
+            key={step.key}
+            className={`mt-1 flex-row items-center gap-2 ${warn ? `rounded ${BADGE_TONE.warning.fill} px-2 py-1` : ''}`}
+            accessibilityLabel={label}
+            testID={`coach-pending-invite-step-${step.key}`}
+          >
+            <Feather
+              name={STEP_ICON[step.state]}
+              size={16}
+              color={warn ? colors.ink.warning : step.state === 'todo' ? colors.text.tertiary : colors.text.primary}
+            />
+            <Text
+              className={`flex-1 text-sm ${
+                warn ? BADGE_TONE.warning.ink : step.state === 'todo' ? 'text-text-secondary' : 'text-text-primary'
+              }${step.state === 'current' ? ' font-semibold' : ''}`}
+            >
+              {label}
+            </Text>
+          </View>
+        );
+      })}
     </View>
   );
 }

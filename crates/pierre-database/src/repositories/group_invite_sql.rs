@@ -38,6 +38,13 @@ pub(crate) const GET_INVITE_BY_CODE_SQL: &str = concat!(
               WHERE code = $1 AND is_active = TRUE"
 );
 
+/// An invite by code, active or not.
+pub(crate) const FIND_INVITE_BY_CODE_SQL: &str = concat!(
+    "SELECT ",
+    invite_columns!(),
+    " FROM group_invites WHERE code = $1"
+);
+
 /// Count one more redemption of an invite, only while it is under its use
 /// limit: the check and the count are one statement, so two redemptions of
 /// the last use cannot both pass.

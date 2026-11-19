@@ -219,6 +219,18 @@ export function isInvalidSignupCode(err: unknown): boolean {
 }
 
 /**
+ * The `details.reason` of a coach invite link held by an account that may not
+ * coach its group (`pierre_services::group_invite_hold::COACH_INVITE_NOT_FOR_ACCOUNT_REASON`,
+ * carnet#1650). The link never works for that account, so nothing is retried.
+ */
+export const COACH_INVITE_NOT_FOR_ACCOUNT_REASON = 'coach_invite_not_for_account';
+
+/** Whether a refusal says a coach invite link is not for the signed-in account. */
+export function isCoachInviteNotForAccount(err: unknown): boolean {
+  return refusalReason(err) === COACH_INVITE_NOT_FOR_ACCOUNT_REASON;
+}
+
+/**
  * The provider a refusal is about, from `details.provider` — a delegated-link
  * refusal names the coaching platform it concerns, which the sentence names.
  */

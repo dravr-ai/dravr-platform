@@ -21,7 +21,9 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{GroupInviteHold, SignupCode, SignupCodeRedemption, SignupCodeSource};
+use pierre_core::models::{
+    GroupInviteFunnelRow, GroupInviteHold, SignupCode, SignupCodeRedemption, SignupCodeSource,
+};
 use uuid::Uuid;
 
 /// Admin signup codes and the accounts that redeemed one, and the group
@@ -78,6 +80,34 @@ pub trait SignupCodeRepository: Send + Sync {
     /// Drop the account's hold on `invite_id`. A hold the account took on
     /// another invite since is kept. Returns whether one was dropped.
     async fn release_group_invite_hold(&self, user_id: Uuid, invite_id: Uuid) -> AppResult<bool>;
+    /// Stamp the account's hold on `invite_id` as refused because the group
+    /// is full, keeping it for a retry (carnet#1650). A hold the account
+    /// took on another invite since is left alone. Returns whether one was
+    /// stamped.
+    async fn mark_group_invite_hold_full(
+        &self,
+        user_id: Uuid,
+        invite_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> AppResult<bool>;
+    /// Count one opening of the invite's public card: `open_count` up by one,
+    /// `first_opened_at` set once, `last_opened_at` at `now`. Scoped to the
+    /// invite's own tenant. Returns whether an invite was counted.
+    async fn record_group_invite_open(
+        &self,
+        invite_id: Uuid,
+        tenant_id: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<bool>;
+    /// The funnel of every invite of `group_id` in `tenant_id`, one row per
+    /// invite, in one query. Holds taken before `live_since` have lapsed and
+    /// are not counted.
+    async fn group_invite_funnels(
+        &self,
+        group_id: Uuid,
+        tenant_id: &str,
+        live_since: DateTime<Utc>,
+    ) -> AppResult<Vec<GroupInviteFunnelRow>>;
 }
 
 /// The columns every code read decodes.
@@ -167,16 +197,43 @@ pub(crate) const LIST_REDEMPTIONS_SQL: &str = concat!(
 pub(crate) const HOLD_GROUP_INVITE_SQL: &str = r"
             INSERT INTO group_invite_holds (user_id, invite_id, held_at)
             VALUES ($1, $2, $3)
-            ON CONFLICT (user_id) DO UPDATE SET invite_id = excluded.invite_id, held_at = excluded.held_at
+            ON CONFLICT (user_id) DO UPDATE SET invite_id = excluded.invite_id, held_at = excluded.held_at,
+                refused_full_at = NULL
             ";
 
 /// The invite an account holds.
 pub(crate) const GET_GROUP_INVITE_HOLD_SQL: &str =
-    "SELECT user_id, invite_id, held_at FROM group_invite_holds WHERE user_id = $1";
+    "SELECT user_id, invite_id, held_at, refused_full_at FROM group_invite_holds WHERE user_id = $1";
 
 /// Drop an account's hold, only while it still names the same invite.
 pub(crate) const RELEASE_GROUP_INVITE_HOLD_SQL: &str =
     "DELETE FROM group_invite_holds WHERE user_id = $1 AND invite_id = $2";
+
+/// Keep a hold a full group refused, stamped, while it still names the same
+/// invite.
+pub(crate) const MARK_GROUP_INVITE_HOLD_FULL_SQL: &str =
+    "UPDATE group_invite_holds SET refused_full_at = $1
+            WHERE user_id = $2 AND invite_id = $3";
+
+/// Count one opening of an invite's public card, under the invite's tenant.
+pub(crate) const RECORD_GROUP_INVITE_OPEN_SQL: &str = "UPDATE group_invites
+            SET open_count = open_count + 1,
+                first_opened_at = COALESCE(first_opened_at, $1),
+                last_opened_at = $1
+            WHERE id = $2 AND tenant_id = $3";
+
+/// One funnel row per invite of a group: the open counter, and the live holds
+/// (taken at or after `$3`) that name it.
+pub(crate) const GROUP_INVITE_FUNNELS_SQL: &str = r"
+            SELECT i.id AS invite_id, i.open_count, i.last_opened_at,
+                   COUNT(h.user_id) AS held_count,
+                   MAX(h.held_at) AS last_held_at,
+                   COUNT(h.refused_full_at) AS full_count
+            FROM group_invites i
+            LEFT JOIN group_invite_holds h ON h.invite_id = i.id AND h.held_at >= $3
+            WHERE i.group_id = $1 AND i.tenant_id = $2
+            GROUP BY i.id, i.open_count, i.last_opened_at
+            ";
 
 /// Read a `TEXT` id column as a uuid; `try_get` so a corrupt row is an error.
 pub(crate) fn text_uuid_opt<R>(row: &R, col: &str) -> AppResult<Option<Uuid>>
@@ -492,6 +549,11 @@ macro_rules! impl_signup_code_repository {
                             held_at: row.try_get("held_at").map_err(|e| {
                                 AppError::database(format!("group_invite_holds held_at: {e}"))
                             })?,
+                            refused_full_at: row.try_get("refused_full_at").map_err(|e| {
+                                AppError::database(format!(
+                                    "group_invite_holds refused_full_at: {e}"
+                                ))
+                            })?,
                         })
                     })
                     .transpose()
@@ -511,6 +573,88 @@ macro_rules! impl_signup_code_repository {
                         AppError::database(format!("Failed to release held group invite: {e}"))
                     })?;
                 Ok(result.rows_affected() > 0)
+            }
+
+            async fn mark_group_invite_hold_full(
+                &self,
+                user_id: Uuid,
+                invite_id: Uuid,
+                now: DateTime<Utc>,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(MARK_GROUP_INVITE_HOLD_FULL_SQL)
+                    .bind(now)
+                    .bind($ids::bind(user_id))
+                    .bind($ids::bind(invite_id))
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to mark held group invite full: {e}"))
+                    })?;
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn record_group_invite_open(
+                &self,
+                invite_id: Uuid,
+                tenant_id: &str,
+                now: DateTime<Utc>,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(RECORD_GROUP_INVITE_OPEN_SQL)
+                    .bind(now)
+                    .bind($ids::bind(invite_id))
+                    .bind(tenant_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to count a group invite opening: {e}"))
+                    })?;
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn group_invite_funnels(
+                &self,
+                group_id: Uuid,
+                tenant_id: &str,
+                live_since: DateTime<Utc>,
+            ) -> AppResult<Vec<GroupInviteFunnelRow>> {
+                use sqlx::Row;
+
+                let rows = sqlx::query(GROUP_INVITE_FUNNELS_SQL)
+                    .bind($ids::bind(group_id))
+                    .bind(tenant_id)
+                    .bind(live_since)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read group invite funnels: {e}"))
+                    })?;
+                rows.iter()
+                    .map(|row| {
+                        let column = |name: &'static str| {
+                            move |e: sqlx::Error| {
+                                AppError::database(format!("group invite funnel {name}: {e}"))
+                            }
+                        };
+                        Ok(GroupInviteFunnelRow {
+                            invite_id: $ids::read(row, "invite_id")?,
+                            // An `INTEGER` column: INT4 on PostgreSQL, which
+                            // decodes only as `i32`. The counts are `COUNT()`s,
+                            // INT8 on both backends.
+                            open_count: row
+                                .try_get::<i32, _>("open_count")
+                                .map(i64::from)
+                                .map_err(column("open_count"))?,
+                            last_opened_at: row
+                                .try_get("last_opened_at")
+                                .map_err(column("last_opened_at"))?,
+                            held_count: row.try_get("held_count").map_err(column("held_count"))?,
+                            last_held_at: row
+                                .try_get("last_held_at")
+                                .map_err(column("last_held_at"))?,
+                            full_count: row.try_get("full_count").map_err(column("full_count"))?,
+                        })
+                    })
+                    .collect()
             }
         }
     };

@@ -72,7 +72,24 @@ async function installServer(page: Page, start: { steps?: Step[]; coachesOthers?
 }
 
 async function signIn(page: Page, path = '/') {
+  const invite = path.startsWith('/groups/join/');
+  if (invite) {
+    // The link opens on the invite card (carnet#1649); the visitor has an account.
+    await page.route('**/api/invites/*', (route) =>
+      json(route, {
+        status: 'live',
+        kind: path.includes('COACH') ? 'coach' : 'member',
+        inviter_name: 'Jeremy B.',
+        inviter_initials: 'JB',
+        has_coach: true,
+        coach_name: 'Jeremy B.',
+        group_name: 'Morning Riders',
+        expires_at: null,
+      }),
+    );
+  }
   await page.goto(path);
+  if (invite) await page.getByTestId('invite-card-have-account').click();
   await signInThroughHostedPage(page);
 }
 
@@ -219,6 +236,7 @@ async function installHeldInvite(
 ) {
   const state = { holds: [] as string[], joins: [] as string[], held: heldAtStart };
   await page.route('**/api/user/group-invite', (route) => {
+    if (route.request().method() === 'GET') return route.fallback();
     state.holds.push((route.request().postDataJSON() as { code: string }).code);
     state.held = true;
     return json(route, { held: true, kind });

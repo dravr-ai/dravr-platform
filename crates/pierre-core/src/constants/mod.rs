@@ -701,6 +701,12 @@ pub mod oauth_rate_limiting {
     /// redeem) per client address per window (carnet#1128). A code is a
     /// bearer secret, so entering one is metered like a password guess.
     pub const SIGNUP_CODE_ATTEMPTS: u32 = 10;
+    /// Public invite-card reads per client address per window (carnet#1649).
+    ///
+    /// `GET /api/invites/<code>` answers without a session and tells a known
+    /// code from an unknown one, so it is metered like a code guess; a person
+    /// opening a few links stays far under it.
+    pub const INVITE_PREVIEW_ATTEMPTS: u32 = 30;
     /// The known-device window's length: one day
     pub const KNOWN_DEVICE_WINDOW_SECS: u64 = 24 * 60 * 60;
     /// Self-serve sign-ups and verification resends per client address per window.

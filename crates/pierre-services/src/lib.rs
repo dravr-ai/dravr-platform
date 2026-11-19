@@ -288,6 +288,12 @@ pub mod recent_load;
 
 pub mod about_you;
 pub mod email_verification;
+/// A group owner with coach access claims the coach seat of their coachless
+/// group (carnet#1650)
+pub mod group_coach_claim;
+/// The public invite card, the invite funnel and the held invite's card
+/// (carnet#1649, carnet#1650)
+pub mod group_invite_card;
 /// A group invite held for an account until it can join (carnet#1648)
 pub mod group_invite_hold;
 pub mod link_token;

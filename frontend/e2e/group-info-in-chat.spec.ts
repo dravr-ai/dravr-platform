@@ -207,6 +207,8 @@ interface GroupMockOptions {
   userGroupRole?: 'owner' | 'admin' | 'member';
   /** The tenant tier flag gating the weekly report + health flags panel. */
   weeklyDigest?: boolean;
+  /** The signed-in account holds coach access (carnet#1650's claim needs it). */
+  managesRoster?: boolean;
 }
 
 /** Every turn the chat surface sent, in order. */
@@ -509,7 +511,7 @@ async function openGroupInfo(
   options: GroupMockOptions = {},
   extraRoutes?: (page: Page) => Promise<void>,
 ) {
-  await setupDashboardMocks(page, { role: 'user' });
+  await setupDashboardMocks(page, { role: 'user', managesRoster: options.managesRoster ?? false });
   const sent = await setupGroupMocks(page, options);
   if (extraRoutes) await extraRoutes(page);
   await loginToDashboard(page);
@@ -595,6 +597,48 @@ test.describe('Group info — roster', () => {
     await expect(page.getByTestId('group-info-agent')).toContainText('Marathon Coach');
     await expect(page.getByTestId('group-info-no-coach')).toHaveText('No human coach in this group yet.');
     await expect(page.getByTestId('group-info-coach-row')).toHaveCount(0);
+  });
+
+  // carnet#1650: an owner who holds coach access takes the coachless group's seat in one tap.
+  test('an owner with coach access claims the coachless group and becomes its coach', async ({ page }) => {
+    let coached = false;
+    const claims: string[] = [];
+    await openGroupInfo(page, { userGroupRole: 'owner', managesRoster: true }, async (p) => {
+      await p.route('**/api/groups/group-1', async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...mockGroupDetail,
+            owner_id: 'user-123',
+            coach_user_id: coached ? 'user-123' : null,
+            coach_display_name: coached ? 'Test Admin' : null,
+          }),
+        });
+      });
+      await p.route('**/api/groups/group-1/coach', async (route) => {
+        if (route.request().method() !== 'PUT') return route.fallback();
+        claims.push('PUT');
+        coached = true;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            group: { ...mockGroupDetail, owner_id: 'user-123', coach_user_id: 'user-123', coach_display_name: 'Test Admin' },
+          }),
+        });
+      });
+    });
+
+    const block = page.getByTestId('group-info-claim-coach');
+    await expect(block).toContainText('This group has no coach yet');
+    await expect(page.getByTestId('coach-seat-block')).toHaveCount(0);
+    await block.getByTestId('group-info-claim-coach-action').click();
+
+    await expect(page.getByText("You're now this group's coach.")).toBeVisible();
+    await expect(page.getByTestId('group-info-claim-coach')).toHaveCount(0);
+    expect(claims).toEqual(['PUT']);
   });
 
   test('an owner can promote and remove a member', async ({ page }) => {
@@ -1210,7 +1254,47 @@ async function installInviteServer(page: Page, holdStatuses: number[] = []) {
     joins: [] as JoinHeldInviteResponse['outcome'][],
     held: null as string | null,
   };
+  // The card a link opens on reads the code once, before anything is held (carnet#1649).
+  await page.route('**/api/invites/*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'live',
+        kind: 'member',
+        inviter_name: 'Jeremy B.',
+        inviter_initials: 'JB',
+        has_coach: true,
+        coach_name: 'Jeremy B.',
+        group_name: mockGroupDetail.name,
+        expires_at: null,
+      }),
+    }),
+  );
   await page.route('**/api/user/group-invite', async (route) => {
+    if (route.request().method() === 'GET') {
+      // What the server holds, as the journey line and Home's strip read it.
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          held:
+            state.held === null
+              ? null
+              : {
+                  kind: 'member',
+                  group_name: mockGroupDetail.name,
+                  inviter_name: 'Jeremy B.',
+                  inviter_initials: 'JB',
+                  has_coach: true,
+                  coach_name: 'Jeremy B.',
+                  held_at: '2026-03-20T15:00:00Z',
+                  state: 'pending',
+                },
+        }),
+      });
+      return;
+    }
     const { code } = route.request().postDataJSON() as { code: string };
     state.holds.push(code);
     const status = holdStatuses[state.holds.length - 1] ?? 200;
@@ -1254,7 +1338,15 @@ test.describe('Group invite link', () => {
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
 
+    // The session's own load asked once what the server holds; the link adds nothing before its click.
+    const joinsBeforeLink = [...server.joins];
     await page.goto('/groups/join/MRT2026X');
+
+    // The card comes first, signed in or not: nothing is held or joined before the click.
+    await expect(page.getByTestId('invite-card-title')).toHaveText('Jeremy B. invites you');
+    expect(server.holds).toEqual([]);
+    expect(server.joins).toEqual(joinsBeforeLink);
+    await page.getByTestId('invite-card-join').click();
     await page.waitForSelector('aside', { timeout: 10000 });
 
     // The server joined: the room's conversation opens, where its notice waits.
@@ -1275,9 +1367,10 @@ test.describe('Group invite link', () => {
     await page.waitForSelector('aside', { timeout: 10000 });
 
     await page.goto('/groups/join/MRT2026X');
-    await page.waitForSelector('aside', { timeout: 10000 });
+    await page.getByTestId('invite-card-join').click();
     await expect.poll(() => server.holds.length, { timeout: 10000 }).toBe(1);
-    // The server did not take it: the tab keeps the code, and nothing joined.
+    // The server did not take it: the card says so and stays, the tab keeps the code, and nothing joined.
+    await expect(page.getByTestId('invite-card-join-failed')).toBeVisible();
     await expect.poll(() => carriedInvite(page)).toBe('MRT2026X');
     expect(server.joins).not.toContain('joined');
 

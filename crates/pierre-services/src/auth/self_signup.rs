@@ -11,7 +11,7 @@
 
 use tracing::{info, warn};
 
-use pierre_auth::dto::auth::{RegisterRequest, RegisterResponse};
+use pierre_auth::dto::auth::{RegisterRequest, RegisterResponse, RegistrationActivation};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{User, UserStatus};
 
@@ -187,6 +187,27 @@ impl AuthService {
                 warn!(user_id = %user.id, error = %e, "Could not read the account's signup code; reporting the account as in review");
                 false
             }
+        }
+    }
+
+    /// What `user` waits on, as a registration would have answered: `Active`
+    /// for an active account; for a Pending one `ConfirmEmail` while it waits
+    /// only on proving its address ([`Self::awaits_email_proof`]), else
+    /// `Review`. `None` for a suspended account, which waits on nothing.
+    ///
+    /// Nothing about self-activation is stored on the account, so this
+    /// re-derives it from the inputs registration used: the sign-up policy,
+    /// the address's tombstone, a signup code waiting on the proof, and
+    /// whether the address is already proven.
+    pub async fn activation_of(&self, user: &User) -> Option<RegistrationActivation> {
+        match user.user_status {
+            UserStatus::Active => Some(RegistrationActivation::Active),
+            UserStatus::Pending => Some(if self.awaits_email_proof(user).await {
+                RegistrationActivation::ConfirmEmail
+            } else {
+                RegistrationActivation::Review
+            }),
+            UserStatus::Suspended => None,
         }
     }
 

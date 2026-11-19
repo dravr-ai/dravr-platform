@@ -394,9 +394,21 @@ pub enum HeldInviteJoin {
     /// The invite could not be used: gone, withdrawn, used up, or its group
     /// archived or full. `reply` says so in the caller's language.
     Refused {
+        /// Why: a full group is kept for a retry, anything else is final
+        reason: HeldInviteRefusal,
         /// The refusal `/group join` would have given
         reply: String,
     },
+}
+
+/// Why a held invite's join was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeldInviteRefusal {
+    /// The group holds as many members as it may: a seat may open, so the
+    /// hold is kept (carnet#1650)
+    GroupFull,
+    /// The invite is unusable for this account, now or ever
+    Invalid,
 }
 
 /// Handler for `/group join <invite-code>`.
@@ -590,7 +602,10 @@ impl GroupJoinHandler {
             }
             Some(JoinRefusal::Full) => {
                 let reply = Self::refusal_text(ctx, &group, JoinRefusal::Full);
-                return Ok(HeldInviteJoin::Refused { reply });
+                return Ok(HeldInviteJoin::Refused {
+                    reason: HeldInviteRefusal::GroupFull,
+                    reply,
+                });
             }
             None => {}
         }
@@ -625,6 +640,7 @@ impl GroupJoinHandler {
     /// language: the same fixed reply `/group join` gives an unusable code.
     fn held_invalid(ctx: &PlatformCommandContext) -> HeldInviteJoin {
         HeldInviteJoin::Refused {
+            reason: HeldInviteRefusal::Invalid,
             reply: ctx.ctx.messaging_strings_registry().render(
                 KEY_GROUP_JOIN_INVALID_CODE,
                 ctx.locale.as_str(),

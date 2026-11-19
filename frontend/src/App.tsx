@@ -38,12 +38,15 @@ import { hasAdminRole } from '@pierre/shared-types';
 import { importTombstoneFromReturn } from '@pierre/ui-logic';
 import { returnToConnectStart, settleOAuthReturn, type OAuthCallbackParams } from './utils/oauthReturn';
 import { queryClient } from './services/queryClient';
+import { dismissInviteCard, readCarriedGroupInvite, useInviteCardOpen } from './utils/groupInvite';
 import './App.css';
 
 /** The login takeover page (ADR-034), split out of the entry bundle. */
 const SignInCheck = lazy(() => import('./components/SignInCheck'));
 // Only an admin ever meets the mode picker, so it stays out of the entry bundle.
 const ViewModePicker = lazy(() => import('./components/ViewModePicker'));
+// Only a load that opened on an invite link shows the invite card (carnet#1649).
+const InviteCard = lazy(() => import('./components/InviteCard'));
 
 /**
  * Check if the current URL has OAuth callback parameters
@@ -173,6 +176,17 @@ function AppContent() {
   // mounts only after onboarding: the server holds it from the first session,
   // and the join runs as soon as the account is active (carnet#1648).
   const heldInvite = useHeldGroupInvite();
+  // A page load that opened on a /groups/join/<code> link starts on the
+  // invite card, signed in or not; the code it names is read once (carnet#1649).
+  const inviteCardOpen = useInviteCardOpen();
+  const [inviteCardCode] = useState<string | null>(readCarriedGroupInvite);
+  // A session the card cannot serve skips it: an operator impersonating (that
+  // session is the target's), a suspended account, or no code left to read.
+  const cardUnservable =
+    impersonation.isImpersonating || user?.user_status === 'suspended' || inviteCardCode === null;
+  useEffect(() => {
+    if (inviteCardOpen && !isLoading && cardUnservable) dismissInviteCard();
+  }, [inviteCardOpen, isLoading, cardUnservable]);
   const onboarding = useOnboardingState({ invitedAsAthlete: heldInvite.invitedAsAthlete });
 
   // Boot/teardown PostHog analytics in lockstep with the user's
@@ -307,6 +321,36 @@ function AppContent() {
           <p className="mt-4 text-on-surface-variant">{t('common.loading')}</p>
         </div>
       </div>
+    );
+  }
+
+  // The invite card: before any form, before any hold or join. Its buttons are
+  // the person's answer — a form opens, or the join runs — and only then does
+  // the page carry on as every other load does.
+  if (inviteCardOpen && !cardUnservable && inviteCardCode !== null) {
+    return (
+      <Suspense
+        fallback={
+          <div className="min-h-dvh flex items-center justify-center bg-surface" role="status" aria-live="polite">
+            <div aria-hidden="true" className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
+          </div>
+        }
+      >
+        <InviteCard
+          code={inviteCardCode}
+          signedIn={isAuthenticated}
+          onCreateAccount={() => {
+            setAuthView('register');
+            dismissInviteCard();
+          }}
+          onSignIn={() => {
+            setAuthView('login');
+            dismissInviteCard();
+          }}
+          onJoin={heldInvite.joinFromCard}
+          onDone={dismissInviteCard}
+        />
+      </Suspense>
     );
   }
 

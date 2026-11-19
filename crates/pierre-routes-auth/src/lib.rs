@@ -101,6 +101,7 @@ mod hosted_page;
 mod import_tombstones;
 mod intervals_icu;
 mod invitation;
+mod invite_preview;
 mod login;
 mod oauth;
 /// What a provider's OAuth callback starts once its grant is stored.
@@ -412,7 +413,14 @@ impl AuthRoutes {
             // an account Pending or active (carnet#1648).
             .route(
                 "/api/user/group-invite",
-                put(signup_code::handle_hold_group_invite),
+                put(signup_code::handle_hold_group_invite)
+                    .get(signup_code::handle_get_held_group_invite),
+            )
+            // The card a group invite link shows before any form: public,
+            // metered per address, signed in or out (carnet#1649).
+            .route(
+                "/api/invites/{code}",
+                get(invite_preview::handle_invite_preview),
             )
             // The athlete's own data as one downloadable JSON file (Law 25 s.27).
             .route("/api/user/export", get(data_export::handle_user_export))

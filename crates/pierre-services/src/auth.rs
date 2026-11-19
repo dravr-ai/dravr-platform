@@ -1076,6 +1076,7 @@ impl AuthService {
                 user,
             )
             .await,
+            activation: self.activation_of(user).await,
             created_at: user.created_at.to_rfc3339(),
             locale: user.locale.clone(),
             coaching_persona: user.coaching_persona.as_str().to_owned(),

@@ -284,7 +284,9 @@ pub use coach_review::{
 
 // Signup codes — a shareable code that approves whoever enters it (carnet#1128)
 mod signup_code;
-pub use signup_code::{GroupInviteHold, SignupCode, SignupCodeRedemption, SignupCodeSource};
+pub use signup_code::{
+    GroupInviteFunnelRow, GroupInviteHold, SignupCode, SignupCodeRedemption, SignupCodeSource,
+};
 
 // iOS App Attest keys — the installs of Dravr's iOS app that Apple attested
 mod app_attest_key;

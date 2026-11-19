@@ -2,7 +2,10 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Carries the code a /groups/join/<code> link opened in this tab until the server holds it (carnet#1648)
-// ABOUTME: Kept in sessionStorage across sign-in redirects and reloads; dropped only on a 2xx, or a 400/404 saying it is dead
+// ABOUTME: Kept in sessionStorage across sign-in redirects and reloads; dropped only on a 2xx, a 400/404 saying it is dead, or a coach link refused for this account
+// ABOUTME: Also what this page load did with the link: the invite card it opened on, and the join in flight (carnet#1649)
+
+import { useSyncExternalStore } from 'react';
 
 /** The sessionStorage key the carried code survives the tab's reloads under. */
 const GROUP_INVITE_CARRY_KEY = 'dravr.pending_invite_code';
@@ -15,6 +18,60 @@ const INVITE_PATH = /^\/groups\/join\/([^/]+)$/;
  * throws, so a working storage is the one record.
  */
 let pageCarry: string | null = null;
+
+/**
+ * What this page load did with the link. `cardOpen` is true from the moment
+ * the load opened on a `/groups/join/<code>` link until the person answers
+ * the invite card: nothing is held or joined before that answer. `settling`
+ * counts the hold and join calls in flight, so Home does not offer a join the
+ * page is already making.
+ */
+interface InviteLoadState {
+  cardOpen: boolean;
+  settling: number;
+}
+
+let loadState: InviteLoadState = { cardOpen: false, settling: 0 };
+const listeners = new Set<() => void>();
+
+function setLoadState(next: InviteLoadState): void {
+  loadState = next;
+  listeners.forEach((listener) => listener());
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** Whether the invite card is up: this load opened on an invite link nobody has answered yet. */
+export function useInviteCardOpen(): boolean {
+  return useSyncExternalStore(subscribe, () => loadState.cardOpen);
+}
+
+/** Whether a hold or a join of the carried invite is in flight. */
+export function useInviteSettling(): boolean {
+  return useSyncExternalStore(subscribe, () => loadState.settling > 0);
+}
+
+/** Whether the invite card is up, outside React. */
+export function inviteCardIsOpen(): boolean {
+  return loadState.cardOpen;
+}
+
+/** The card was answered (joined, or carried on to a form, or the link was dead): the page carries on. */
+export function dismissInviteCard(): void {
+  if (loadState.cardOpen) setLoadState({ ...loadState, cardOpen: false });
+}
+
+/** Mark the hold and join calls the page makes, so Home waits on them. */
+export function trackInviteSettling<T>(work: Promise<T>): Promise<T> {
+  setLoadState({ ...loadState, settling: loadState.settling + 1 });
+  const done = () => setLoadState({ ...loadState, settling: Math.max(0, loadState.settling - 1) });
+  return work.finally(done);
+}
 
 /** The invite code a `/groups/join/<code>` path names, or null for any other path. */
 export function groupInviteCodeFromPath(pathname: string): string | null {
@@ -63,6 +120,7 @@ export function captureGroupInviteLink(): void {
   const code = groupInviteCodeFromPath(window.location.pathname);
   if (code === null) return;
   pageCarry = code;
+  setLoadState({ ...loadState, cardOpen: true });
   try {
     window.sessionStorage.setItem(GROUP_INVITE_CARRY_KEY, code);
   } catch {

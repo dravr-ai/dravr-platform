@@ -229,8 +229,16 @@ export const ENDPOINTS = {
     INVITES: (id: string) => `/api/groups/${id}/invites`,
     /** Specific invite */
     INVITE: (groupId: string, inviteId: string) => `/api/groups/${groupId}/invites/${inviteId}`,
-    /** Detach the human coach (admin/owner only) */
+    /**
+     * The group's human coach: DELETE detaches them (admin/owner only), PUT
+     * makes the caller, its owner holding coach access, the coach of their
+     * coachless group
+     */
     COACH: (id: string) => `/api/groups/${id}/coach`,
+    /** The invite the server holds for the caller: PUT holds a code, GET reads it */
+    HELD_INVITE: '/api/user/group-invite',
+    /** Join the group of the invite the server holds for the caller */
+    JOIN_HELD_INVITE: '/api/chat/groups/join',
     /** Check group creation permissions */
     PERMISSIONS: '/api/groups/permissions',
     /** Leave a group */

@@ -527,6 +527,11 @@ pub trait CoachingGroupRepository: Send + Sync {
     /// Look up an invite by its code (cross-tenant for join flow)
     async fn get_invite_by_code(&self, code: &str) -> AppResult<Option<GroupInvite>>;
 
+    /// Look up an invite by its code whether or not it is still active, for
+    /// the public invite card that says a withdrawn link no longer works
+    /// (cross-tenant, like [`Self::get_invite_by_code`]).
+    async fn find_invite_by_code(&self, code: &str) -> AppResult<Option<GroupInvite>>;
+
     /// Count one more use of an invite while it is under its use limit.
     /// Returns `false` when the invite is missing or already used up.
     async fn increment_invite_use_count(&self, invite_id: &str) -> AppResult<bool>;

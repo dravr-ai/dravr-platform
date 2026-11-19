@@ -20,6 +20,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use chrono::Utc;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use serde_json::json;
@@ -31,9 +32,9 @@ use pierre_auth::rate_limiting::OAuth2Endpoint;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_middleware::PeerAddress;
 use pierre_services::auth::RedeemedSignupCode;
-use pierre_services::group_invite_hold;
+use pierre_services::{group_invite_card, group_invite_hold};
 
-use crate::pending_session::session_account;
+use crate::pending_session::{session_account, session_reader};
 use crate::signup_guards::client_address;
 use crate::AuthRoutesContext;
 
@@ -58,20 +59,40 @@ pub(crate) async fn meter_signup_code(
     limiter: &OAuth2RateLimiter,
     client: Option<IpAddr>,
 ) -> AppResult<()> {
+    meter_code_attempt(limiter, OAuth2Endpoint::SignupCode, client).await
+}
+
+/// Count one attempt at `endpoint` (a door that tells a known code from an
+/// unknown one) from `client` in its address's window.
+///
+/// # Errors
+///
+/// Returns a rate-limit error past the window's allowance, and a
+/// resource-unavailable error when the limiter cannot count the attempt.
+pub(crate) async fn meter_code_attempt(
+    limiter: &OAuth2RateLimiter,
+    endpoint: OAuth2Endpoint,
+    client: Option<IpAddr>,
+) -> AppResult<()> {
     let Some(client) = client else {
         return Ok(());
     };
     let status = limiter
-        .check_rate_limit(OAuth2Endpoint::SignupCode, client)
+        .check_rate_limit(endpoint, client)
         .await
         .map_err(|failure| {
-            error!(error = %failure, "Signup-code limiter could not count the attempt");
+            error!(
+                endpoint = endpoint.as_str(),
+                error = %failure,
+                "Code limiter could not count the attempt"
+            );
             AppError::resource_unavailable("Codes cannot be checked right now; retry later")
         })?;
     if status.is_limited {
         warn!(
+            endpoint = endpoint.as_str(),
             limit = status.limit,
-            "Signup code refused: too many from one address"
+            "Code attempt refused: too many from one address"
         );
         return Err(AppError::new(ErrorCode::RateLimitExceeded, TOO_MANY_CODES)
             .with_retry_after(u64::from(status.retry_after_seconds.unwrap_or(1))));
@@ -150,6 +171,28 @@ pub(crate) async fn handle_hold_group_invite(
     let invite =
         group_invite_hold::hold(&resources.repos, user.id, body.code.expose_secret()).await?;
     Ok(Json(json!({ "held": true, "kind": invite.kind })).into_response())
+}
+
+/// `GET /api/user/group-invite` — the group invite the server holds for the
+/// signed-in account, or `held: null` (carnet#1650).
+///
+/// Home reads it to offer the account the group it came for: the invite's
+/// group, who sent the link, and whether a full group refused it (a retry
+/// then waits for a seat). A hold that lapsed, or whose invite or group is
+/// gone or withdrawn, reads as none. Like the `PUT` it is open to a Pending
+/// account, and the code itself never comes back.
+///
+/// # Errors
+///
+/// Returns an authentication error without a valid first-party session, and
+/// the repository's error when the hold cannot be read.
+pub(crate) async fn handle_get_held_group_invite(
+    State(resources): State<AuthRoutesContext>,
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    let user = session_reader(&resources, &headers).await?;
+    let held = group_invite_card::held_invite_card(&resources.repos, user.id, Utc::now()).await?;
+    Ok(Json(json!({ "held": held })).into_response())
 }
 
 /// `POST /api/user/signup-code/redeem` — redeem a signup code for the

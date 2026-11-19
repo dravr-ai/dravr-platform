@@ -625,18 +625,32 @@ async fn apply_grant(
         groups.sort_by_key(|g| g.id != named);
     }
     for group in groups {
-        if repos
-            .groups
-            .set_group_coach_user(&group.id.to_string(), Some(request.user_id), tenant)
-            .await?
-        {
-            attached.push(CoachingGroup {
-                coach_user_id: Some(request.user_id),
-                ..group
-            });
+        if let Some(coached) = attach_coach(repos, group, request.user_id, tenant).await? {
+            attached.push(coached);
         }
     }
     Ok(())
+}
+
+/// Make `coach` the human coach of the coachless `group` in `tenant`: the one
+/// write a coach-access grant and a coach claiming their own coachless group
+/// both make, with no connection to end since a coachless group has none.
+/// Returns the group as it now stands, or `None` when the group is no longer
+/// there to attach.
+pub(crate) async fn attach_coach(
+    repos: &RepositoryRegistry,
+    group: CoachingGroup,
+    coach: Uuid,
+    tenant: TenantId,
+) -> AppResult<Option<CoachingGroup>> {
+    let attached = repos
+        .groups
+        .set_group_coach_user(&group.id.to_string(), Some(coach), tenant)
+        .await?;
+    Ok(attached.then_some(CoachingGroup {
+        coach_user_id: Some(coach),
+        ..group
+    }))
 }
 
 /// Undo a grant whose effects failed after it claimed the request: detach

@@ -23,8 +23,7 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -32,8 +31,7 @@ use uuid::Uuid;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{
-    CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupHealthFlag, GroupInvite,
-    GroupInviteKind, GroupMember, GroupRole, GroupWeeklyReport, UpdateGroupRequest,
+    CoachingGroup, CreateGroupRequest, GroupInviteKind, GroupMember, GroupRole, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_groups::creation_policy::{
@@ -44,7 +42,9 @@ use pierre_groups::group_agent::require_athlete_facing;
 use pierre_groups::strategies::tier::{tier_enables_digest, tier_strategy_for};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
-use pierre_services::coach_access::name_requested_group;
+use pierre_services::coach_access::{name_requested_group, CoachAccessNotices};
+use pierre_services::group_coach_claim::claim_group_coach;
+use pierre_services::group_invite_card;
 use pierre_services::locale::resolve_user_locale;
 
 use crate::group_response::GroupResponse;
@@ -56,203 +56,12 @@ pub use bodies::{
     UpdateRoleBody,
 };
 
-// ============================================================================
-// Response Types
-// ============================================================================
-
-/// Response for a group member
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MemberResponse {
-    /// Membership record ID
-    pub id: String,
-    /// Group ID
-    pub group_id: String,
-    /// User ID
-    pub user_id: String,
-    /// Role within the group
-    pub role: String,
-    /// Whether peer sharing consent is given
-    pub peer_sharing_consent: bool,
-    /// When consent was given
-    pub consent_given_at: String,
-    /// When the member joined
-    pub joined_at: String,
-    /// Display name (if available)
-    pub display_name: Option<String>,
-}
-
-impl From<GroupMember> for MemberResponse {
-    fn from(m: GroupMember) -> Self {
-        Self {
-            id: m.id.to_string(),
-            group_id: m.group_id.to_string(),
-            user_id: m.user_id.to_string(),
-            role: m.role.as_str().to_owned(),
-            peer_sharing_consent: m.peer_sharing_consent,
-            consent_given_at: m.consent_given_at.to_rfc3339(),
-            joined_at: m.joined_at.to_rfc3339(),
-            display_name: m.display_name,
-        }
-    }
-}
-
-/// Response for listing members
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ListMembersResponse {
-    /// Active members
-    pub members: Vec<MemberResponse>,
-    /// Total count
-    pub total: usize,
-    /// Response metadata
-    pub metadata: GroupMetadata,
-}
-
-/// Response for a group invite
-#[derive(Serialize, Deserialize)]
-pub struct InviteResponse {
-    /// Invite ID
-    pub id: String,
-    /// Group ID
-    pub group_id: String,
-    /// The invite code
-    pub code: String,
-    /// What redeeming this invite grants ("member" or "coach")
-    pub kind: String,
-    /// User who created the invite
-    pub created_by: String,
-    /// When the invite expires (if ever)
-    pub expires_at: Option<String>,
-    /// Maximum uses (if limited)
-    pub max_uses: Option<i32>,
-    /// Current use count
-    pub use_count: i32,
-    /// Whether the invite is active
-    pub is_active: bool,
-    /// Whether redeeming it also approves a pending account
-    pub approves_signup: bool,
-    /// When the invite was created
-    pub created_at: String,
-}
-
-impl fmt::Debug for InviteResponse {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("InviteResponse")
-            .field("id", &self.id)
-            .field("group_id", &self.group_id)
-            .field("code", &"[REDACTED]")
-            .field("kind", &self.kind)
-            .field("created_by", &self.created_by)
-            .field("expires_at", &self.expires_at)
-            .field("max_uses", &self.max_uses)
-            .field("use_count", &self.use_count)
-            .field("is_active", &self.is_active)
-            .field("approves_signup", &self.approves_signup)
-            .field("created_at", &self.created_at)
-            .finish()
-    }
-}
-
-impl From<GroupInvite> for InviteResponse {
-    fn from(inv: GroupInvite) -> Self {
-        Self {
-            id: inv.id.to_string(),
-            group_id: inv.group_id.to_string(),
-            code: inv.code,
-            kind: inv.kind.as_str().to_owned(),
-            created_by: inv.created_by.to_string(),
-            expires_at: inv.expires_at.map(|dt| dt.to_rfc3339()),
-            max_uses: inv.max_uses,
-            use_count: inv.use_count,
-            is_active: inv.is_active,
-            approves_signup: inv.approves_signup,
-            created_at: inv.created_at.to_rfc3339(),
-        }
-    }
-}
-
-/// Response for listing invites
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ListInvitesResponse {
-    /// Invites for this group
-    pub invites: Vec<InviteResponse>,
-    /// Total count
-    pub total: usize,
-    /// Response metadata
-    pub metadata: GroupMetadata,
-}
-
-/// Metadata for group API responses
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GroupMetadata {
-    /// Response timestamp
-    pub timestamp: String,
-    /// API version
-    pub api_version: String,
-}
-
-/// Which members a group analytics response was computed over.
-///
-/// Every number, name and flag in `/stats`, `/report` and `/health` comes
-/// from the members whose training the caller may see — those who share it
-/// with them, plus the caller — so a client can say when that is fewer than
-/// the group holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AnalyticsScope {
-    /// Members the response covers.
-    pub visible_members: usize,
-    /// Members the group holds.
-    pub roster_members: usize,
-}
-
-/// Response wrapper for group aggregate stats
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StatsResponse {
-    /// Aggregate statistics
-    pub stats: GroupAggregateStats,
-    /// The members the stats cover
-    pub scope: AnalyticsScope,
-    /// Response metadata
-    pub metadata: GroupMetadata,
-}
-
-/// Response wrapper for weekly report
-#[derive(Debug, Serialize, Deserialize)]
-pub struct WeeklyReportResponse {
-    /// Weekly report data
-    pub report: GroupWeeklyReport,
-    /// The members the report covers
-    pub scope: AnalyticsScope,
-    /// Response metadata
-    pub metadata: GroupMetadata,
-}
-
-/// Response wrapper for health flags
-#[derive(Debug, Serialize, Deserialize)]
-pub struct HealthFlagsResponse {
-    /// Health flags for group members
-    pub flags: Vec<GroupHealthFlag>,
-    /// Total count
-    pub total: usize,
-    /// The members the flags were computed over
-    pub scope: AnalyticsScope,
-    /// Response metadata
-    pub metadata: GroupMetadata,
-}
-
-/// Response for group creation permissions check
-#[derive(Debug, Serialize)]
-pub struct GroupPermissionsResponse {
-    /// Whether the current user can create groups
-    pub can_create: bool,
-    /// Current group creation policy for the tenant
-    pub policy: String,
-    /// Whether the tenant's plan tier enables the weekly digest — the same
-    /// [`GroupFeatureFlags::weekly_digest`](pierre_groups::strategies::tier::GroupFeatureFlags::weekly_digest)
-    /// read that decides which tenants the digest scheduler sweeps. The group
-    /// detail surfaces render the weekly report and health flags off this
-    /// flag instead of deriving a tier of their own.
-    pub weekly_digest: bool,
-}
+mod responses;
+pub use responses::{
+    AnalyticsScope, ClaimGroupCoachResponse, GroupMetadata, GroupPermissionsResponse,
+    HealthFlagsResponse, InviteResponse, InviteWithFunnelResponse, ListInvitesResponse,
+    ListMembersResponse, MemberResponse, StatsResponse, WeeklyReportResponse,
+};
 
 // ============================================================================
 // Routes
@@ -306,6 +115,11 @@ impl GroupRoutes {
             .route(
                 "/api/groups/{group_id}/coach",
                 delete(Self::handle_remove_coach::<C>),
+            )
+            // The owner with coach access becomes the coach of a coachless group
+            .route(
+                "/api/groups/{group_id}/coach",
+                put(Self::handle_claim_coach::<C>),
             )
             // Invites
             .route(
@@ -1064,8 +878,27 @@ impl GroupRoutes {
 
         let invites = resources.group_service().list_invites(&group_id).await?;
 
-        let invite_responses: Vec<InviteResponse> =
-            invites.into_iter().map(InviteResponse::from).collect();
+        // One aggregate read for the whole list, under the invites' own
+        // tenant (every invite of a group carries its group's).
+        let funnels = match invites.first() {
+            Some(first) => {
+                group_invite_card::invite_funnels(
+                    resources.repos(),
+                    first.group_id,
+                    &first.tenant_id,
+                    Utc::now(),
+                )
+                .await?
+            }
+            None => HashMap::new(),
+        };
+        let invite_responses: Vec<InviteWithFunnelResponse> = invites
+            .into_iter()
+            .map(|invite| InviteWithFunnelResponse {
+                funnel: funnels.get(&invite.id).copied().unwrap_or_default(),
+                invite: InviteResponse::from(invite),
+            })
+            .collect();
 
         let response = ListInvitesResponse {
             total: invite_responses.len(),
@@ -1141,6 +974,38 @@ impl GroupRoutes {
     // ========================================================================
     // Human coach handlers
     // ========================================================================
+
+    /// PUT `/api/groups/:group_id/coach` — The caller, the group's owner
+    /// holding coach access, becomes the coach of their coachless group
+    /// (carnet#1650). 403 for a caller who is not the owner or lacks coach
+    /// access, 409 for a group that has a coach, 404 for an unknown group,
+    /// another tenant's or an archived one.
+    async fn handle_claim_coach<C: GroupsCtx + MiddlewareCtx>(
+        State(resources): State<Arc<C>>,
+        auth: AuthenticatedUser,
+        Path(group_id): Path<String>,
+    ) -> Result<Response, AppError> {
+        let auth = auth.into_inner();
+        let tenant_id = Self::get_tenant_id(&auth)?;
+        // Only the room line is wanted: the owner asked for this themselves,
+        // so no notice or mail goes out.
+        let notices = CoachAccessNotices {
+            notifications: None,
+            email: None,
+            strings: Arc::clone(resources.messaging_strings_registry()),
+            frontend_url: None,
+        };
+        let group = claim_group_coach(
+            resources.repos(),
+            &notices,
+            auth.user_id,
+            &group_id,
+            tenant_id,
+        )
+        .await?;
+        let group = Self::group_response(&resources, group, auth.user_id).await?;
+        Ok((StatusCode::OK, Json(ClaimGroupCoachResponse { group })).into_response())
+    }
 
     /// DELETE `/api/groups/:group_id/coach` — Detach the human coach (admin/owner only)
     async fn handle_remove_coach<C: GroupsCtx + MiddlewareCtx>(
