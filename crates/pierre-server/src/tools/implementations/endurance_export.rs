@@ -185,7 +185,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
                 .await?
                 // A profile written from first-party-only data is withheld from an
                 // external caller (carnet#769).
-                .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
+                .filter(ai_scope::admit_profile);
             let ftp_watts = physiology.as_ref().and_then(|p| p.ftp_watts);
             let hr_zones = athlete_hr_zones(physiology.as_ref());
             let snapshot = build_latest_snapshot(&activities, window, ftp_watts, hr_zones.as_ref());
@@ -261,7 +261,18 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
                     &ai_scope::admit_derived,
                 )
                 .await?;
-            let dossier = dossier;
+            // The durable facts are what the agent remembered, as
+            // `recall_user_memory` serves them, and the result's trust label
+            // says so.
+            if !(dossier.pillars.values().all(Vec::is_empty)
+                && dossier.north_star.is_empty()
+                && dossier.medical.is_empty())
+            {
+                ai_scope::note_agent_written();
+            }
+            // The per-sport anchors it carries beside the profile are served
+            // too, and the label names who stated each.
+            ai_scope::note_sport_anchors(&dossier.sport_anchors);
 
             // Surface the lactate threshold anchors (LT1/LT2 heart rate, power and
             // pace) read off the athlete's physiological profile through cageux's
@@ -276,7 +287,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
                 .user_physiological_profile
                 .get_user_physiological_profile(tenant_id, user_id)
                 .await?
-                .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
+                .filter(ai_scope::admit_profile);
             let estimate = ThresholdEstimate::from_profile(physiology.as_ref());
 
             ok_typed(

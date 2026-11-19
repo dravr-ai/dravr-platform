@@ -36,7 +36,7 @@ use pierre_core::models::TenantId;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_evals::claim_extractor::{ClaimSource, ExtractedClaim};
 use pierre_evals::{PersonalizedConfig, PersonalizedContext};
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength};
+use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
@@ -222,7 +222,9 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
             // provider terms and transport, so a verdict rests only on data
             // this caller may be served. They judge the claim and serve
             // nothing: a scope of their own keeps them from marking this call
-            // as one that served the athlete's data (carnet#828).
+            // as one that served the athlete's data (carnet#828), and where
+            // what they read came from is kept apart (`judging`) until the
+            // verdict says whether it rests on it.
             let sources = AthleteSources {
                 repos: context.resources.repos().as_ref(),
                 policies: context.resources.provider_registry().as_ref(),
@@ -230,7 +232,8 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
                 user_id: context.user_id,
             };
             let cageux = context.resources.cageux_config();
-            let ((personalized_inputs, athlete_record), _) = ai_scope::serving_items(async {
+            // Boxed: the context builders' future would otherwise ride inline.
+            let judged = Box::pin(ai_scope::judging(ai_scope::serving_items(async {
                 let personalized_inputs = build_personalized_inputs(
                     &sources,
                     &cageux.algorithms,
@@ -242,8 +245,9 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
                 // own account locale.
                 let athlete_record = build_athlete_record(&sources, None).await;
                 (personalized_inputs, athlete_record)
-            })
+            })))
             .await;
+            let (((personalized_inputs, athlete_record), _), read_from) = judged;
             let personalized =
                 personalized_inputs
                     .as_ref()
@@ -258,6 +262,16 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
                 personalized.as_ref(),
                 athlete_record.as_ref(),
             );
+            // A verdict checked against the athlete's own physiology or record
+            // explains itself with what it read, and the result's trust label
+            // names where that came from; one decided by rhetoric, bounds or the
+            // literature serves none of it, and carries no label.
+            if matches!(
+                outcome.layer_fired,
+                VerdictLayer::Personalized | VerdictLayer::AthleteData
+            ) {
+                ai_scope::note_source_classes(read_from);
+            }
 
             // Outside Dravr's own surfaces the claim is the caller's
             // assistant's sentence, and no copy of it is kept (carnet#1565).

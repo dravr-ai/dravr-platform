@@ -178,6 +178,9 @@ pub(super) async fn draft_section(
     let Some(mut view) = draft_over(repos, &target, live_weeks).await? else {
         return Ok(None);
     };
+    // The draft is a plan an agent wrote with the coach, and a result serving
+    // it is labelled so.
+    ai_scope::note_agent_written();
     let fueling_withheld = fueling.redact_weeks(&mut view.weeks);
     Ok(Some(DraftSection {
         plan: view.plan,

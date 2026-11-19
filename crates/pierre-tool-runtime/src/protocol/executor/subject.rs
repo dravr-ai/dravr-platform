@@ -314,8 +314,26 @@ fn take_athlete_argument(args: &mut JsonValue) -> Option<String> {
     }
 }
 
-/// The tronc context a dispatch hands its tool: the caller's identity, admin
-/// flag and tenant as the request names them.
+/// Build the per-call [`ToolContext`] handed to `McpTool::execute` from a
+/// [`UniversalRequest`], with the admin flag it resolved.
+///
+/// Enforces that `user_id` parses as a UUID (fail fast), and that a present
+/// `tenant_id` parses as a UUID. A missing `tenant_id` passes through as
+/// absent — tenant presence is enforced per-tool, not at this boundary, because
+/// some tools legitimately run pre-onboarding (e.g. provider listing). Identity
+/// fields are carried as strings on the host-agnostic context and rebuilt into
+/// the typed [`crate::context::ToolExecutionContext`] inside each tool via
+/// `ToolExecutionContext::from_tronc`.
+///
+/// Resolves the caller's admin flag from the global admin role (`User.role`) and
+/// records it via [`ToolContext::as_admin`]. The flag is then read back as the
+/// cached admin status inside each tool, so admin-gated tools see the same
+/// decision regardless of which dispatch path surfaced the request.
+///
+/// System-admin tools (e.g. system-agent management) gate on the global
+/// admin role, not the per-tenant role: being a tenant owner makes a user
+/// admin *of their tenant*, which must not grant system-wide admin powers. A
+/// global-lookup failure defaults to non-admin (deny-by-default).
 pub(super) async fn build_tool_context(
     resources: &Arc<dyn ToolRuntime>,
     request: &UniversalRequest,

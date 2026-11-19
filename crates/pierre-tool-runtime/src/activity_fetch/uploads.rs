@@ -20,6 +20,7 @@
 
 use pierre_core::constants::oauth_providers::{self, USER_PROVIDED_PROVIDERS};
 use pierre_core::models::{Activity, TenantId};
+use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
 use pierre_providers::core::{ActivityQueryParams, OwnerStores};
 use pierre_providers::upload_provider::UserProvidedProvider;
@@ -61,6 +62,10 @@ pub async fn held_user_provided(context: &ToolExecutionContext) -> Vec<&'static 
 ///
 /// Best effort, like every other source folded into a read: a failed read is
 /// logged and contributes nothing.
+///
+/// Served through the provider-terms filter like a connection's read: each
+/// key's terms apply, and the call records what it served — its grounding,
+/// its attribution, the source class its trust label names.
 pub async fn user_provided_window(
     context: &ToolExecutionContext,
     keys: &[&'static str],
@@ -78,7 +83,10 @@ pub async fn user_provided_window(
             Arc::clone(context.resources.originals()),
         );
         match reader.get_activities_with_params(params).await {
-            Ok(rows) => activities.extend(rows),
+            Ok(rows) => activities.extend(ai_scope::filter_activities(
+                context.resources.provider_registry().as_ref(),
+                rows,
+            )),
             Err(e) => warn!(
                 user_id = %context.user_id,
                 provider = key,

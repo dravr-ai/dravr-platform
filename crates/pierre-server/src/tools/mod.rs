@@ -72,6 +72,9 @@
 /// inherent methods on `ToolRegistry`.
 pub mod registry_builtin;
 
+/// What every built-in tool reads, declared once on the registry.
+mod tool_data;
+
 /// Upcast `Arc<ServerContext>` to `Arc<dyn ToolRuntime>`.
 pub mod runtime_adapter;
 

@@ -167,7 +167,7 @@ impl McpTool<dyn ToolRuntime> for ExportIntervalsTool {
                 .await?
                 // A profile written from first-party-only data is withheld from an
                 // external caller (carnet#769).
-                .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
+                .filter(ai_scope::admit_profile);
             let ftp_watts = physiology.as_ref().and_then(|p| p.ftp_watts);
             let intervals = build_intervals(&activity, ftp_watts);
             let payload = serde_json::to_value(&intervals)

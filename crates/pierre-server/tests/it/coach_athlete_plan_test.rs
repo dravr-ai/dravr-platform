@@ -21,7 +21,7 @@
 use crate::common;
 use crate::helpers;
 use pierre_core::transport::Transport;
-use pierre_providers::ai_scope;
+use pierre_providers::ai_scope::{self, Provenance};
 
 use std::sync::Arc;
 
@@ -32,6 +32,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_commands::plan::PlanShowHandler;
 use pierre_commands::{ConversationRotation, PlatformCommandContext};
+use pierre_core::ai_policy::SourceClass;
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
@@ -662,6 +663,47 @@ async fn the_room_reads_the_plan_status_and_never_a_week() {
         "an athlete with no plan reads unpublished: {none}"
     );
     assert!(none["goal_race"].is_null(), "no plan, no goal race: {none}");
+}
+
+/// owl phase 1 (carnet#1539): the plan status describes what an agent wrote
+/// with the athlete, and the read records it; an athlete with no plan serves
+/// none.
+#[tokio::test]
+async fn the_plan_status_records_the_agents_writing_it_describes() {
+    let fx = Fixture::new().await;
+    let room = fx.room(&fx.group).await;
+    let read = Provenance::new();
+    let status = ai_scope::tracking(
+        read.clone(),
+        call(
+            &fx.res,
+            &fx.coach,
+            &GetGroupMemberPlanStatusTool,
+            Some(&room),
+            json!({ "member": "Mira" }),
+        ),
+    )
+    .await;
+    assert_eq!(status["published"], true, "{status}");
+    assert!(
+        read.source_classes().contains(&SourceClass::AgentWritten),
+        "the athlete's plan is an agent's writing"
+    );
+
+    let none = Provenance::new();
+    let status = ai_scope::tracking(
+        none.clone(),
+        call(
+            &fx.res,
+            &fx.coach,
+            &GetGroupMemberPlanStatusTool,
+            Some(&room),
+            json!({ "member": "Bruno" }),
+        ),
+    )
+    .await;
+    assert_eq!(status["published"], false, "{status}");
+    assert!(none.source_classes().is_empty(), "no plan, nothing served");
 }
 
 #[tokio::test]

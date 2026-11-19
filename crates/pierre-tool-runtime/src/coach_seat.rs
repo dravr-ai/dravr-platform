@@ -339,6 +339,7 @@ mod tests {
         use crate::implementations::memory::create_memory_tools;
         use crate::implementations::training_plans::create_training_plan_tools;
         use crate::read_subject::DataClass;
+        use crate::tool_data::ToolData;
 
         fn registry() -> ToolRegistry {
             let mut registry = ToolRegistry::new();
@@ -397,7 +398,10 @@ mod tests {
         fn a_declared_data_class_keeps_a_read_in_the_athlete_thread() {
             let mut registry = registry();
             assert!(
-                registry.declare_data_class("recall_user_memory", DataClass::NoSubject),
+                registry.declare_data(
+                    "recall_user_memory",
+                    ToolData::of(DataClass::NoSubject, &[])
+                ),
                 "the tool is registered"
             );
             assert!(

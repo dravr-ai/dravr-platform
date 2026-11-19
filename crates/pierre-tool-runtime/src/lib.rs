@@ -152,6 +152,8 @@ pub mod scopes;
 pub mod security;
 /// Cooperative cancel flag for tool calls running behind an MCP task handle.
 pub mod task_cancellation;
+/// What each registered tool reads: its data class, streams and written text.
+pub mod tool_data;
 pub mod tool_progress;
 /// Daily CTL/ATL/TSB rollup, sourced from the durable activity cache.
 pub mod training_history_compute;

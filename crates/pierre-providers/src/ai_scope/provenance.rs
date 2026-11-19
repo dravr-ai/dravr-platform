@@ -15,6 +15,7 @@ use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use pierre_core::ai_policy::SourceClass;
 use pierre_core::transport::TransportPolicy;
 use uuid::Uuid;
 
@@ -65,6 +66,12 @@ pub struct Provenance {
     /// (carnet#1174): what a row derived from it is about. Shared the same
     /// way as the flag.
     members_read: Arc<Mutex<BTreeSet<Uuid>>>,
+    /// Where what was served came from (owl T02 §3.1): the class of every
+    /// provider whose items a filter point served, and
+    /// [`SourceClass::AgentWritten`] once the agent's own memory or plan was.
+    /// Read by the trust label on a result whose caller writes its own reply.
+    /// Shared the same way as the flag.
+    source_classes: Arc<Mutex<BTreeSet<SourceClass>>>,
 }
 
 impl Provenance {
@@ -125,6 +132,42 @@ impl Provenance {
         for (owner, attribution) in self.owed() {
             enclosing.attribute(owner, attribution);
         }
+    }
+
+    /// Hand this derivation's first-party-only and grounding marks, its
+    /// attributions and the members it read to `enclosing`, the one it ran
+    /// inside.
+    ///
+    /// Content derived inside derived content taints both, and a tool call's
+    /// grounding mark reaches the call that enclosed it. Where what it served
+    /// came from (its source classes) is not handed on here: the caller hands
+    /// it on or keeps it ([`super::tracking`], [`super::judging`]).
+    pub(super) fn pass_to(&self, enclosing: &Self) {
+        if self.policy().is_first_party_only() {
+            enclosing.mark();
+        }
+        if self.served_provider_data() {
+            enclosing.mark_provider_data();
+        }
+        self.attribute_to(enclosing);
+        for member in self.members_read() {
+            enclosing.note_member(member);
+        }
+    }
+
+    /// Record that an item of `class` was served.
+    pub fn note_source_class(&self, class: SourceClass) {
+        if let Ok(mut classes) = self.source_classes.lock() {
+            classes.insert(class);
+        }
+    }
+
+    /// The class of everything served so far.
+    #[must_use]
+    pub fn source_classes(&self) -> BTreeSet<SourceClass> {
+        self.source_classes
+            .lock()
+            .map_or_default(|classes| classes.clone())
     }
 
     /// The policy a row derived from what was served so far is stamped with.
