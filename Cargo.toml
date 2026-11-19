@@ -41,7 +41,7 @@ dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "
 
 # Coach catalogue, locale strings and notify-event catalogue. Pinned by rev
 # rather than tag; contremaitre-bump.yml advances it.
-dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "ebbec542f39c2f9abce0629ff21f4aa265a590ac" }
+dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "5ebfce1b99e3fbd245682b72b4620902b34f0b6a" }
 
 # Health provider sync. default-features off so each consumer's own
 # provider-* features select the backends.

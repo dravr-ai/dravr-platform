@@ -3467,9 +3467,9 @@
       "otp_prompt": "Tape le code à 6 chiffres envoyé par e-mail, ou tape « cancel » pour arrêter.",
       "otp_sent": "J'ai envoyé un code à 6 chiffres à {0}. Tape-le ici dans les 10 prochaines minutes.\nTape « cancel » pour arrêter.",
       "session_expired": "Ta session de liaison a expiré. Envoie un message pour recommencer.",
-      "signup_created": "Compte cree. Je t'envoie un code par e-mail pour confirmer que l'adresse est bien a toi.",
-      "signup_failed": "Je n'ai pas pu creer le compte. Reessaie dans un instant, ou tape « cancel » pour arreter.",
-      "signup_offer": "Aucun compte Dravr avec {0}. Je peux t'en creer un tout de suite - reponds « oui » pour continuer, ou « cancel » pour arreter.",
+      "signup_created": "Compte créé. Je t'envoie un code par e-mail pour confirmer que l'adresse est bien à toi.",
+      "signup_failed": "Je n'ai pas pu créer le compte. Réessaie dans un instant, ou tape « cancel » pour arrêter.",
+      "signup_offer": "Aucun compte Dravr avec {0}. Je peux t'en créer un tout de suite — réponds « oui » pour continuer, ou « cancel » pour arrêter.",
       "success": "Ton compte est maintenant lié ! Tu peux discuter avec Dravr depuis ce canal.\n\nTape « logout » à tout moment pour te déconnecter.",
       "too_many_attempts": "Trop de tentatives incorrectes. La session de liaison est annulée. Envoie un message pour recommencer.",
       "verification_error": "Une erreur est survenue lors de la vérification de ton compte. Réessaie."
