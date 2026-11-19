@@ -1124,7 +1124,10 @@ mod tests {
     #[test]
     fn a_fatigue_athlete_stays_in_deep_fatigue_through_the_seed_day() {
         // Seeded mid-afternoon in Montreal; the coach walks the queue into
-        // the evening, past midnight UTC, when the roster's day turns over.
+        // the evening, past midnight UTC. The roster reads each athlete's
+        // load on their own calendar day, and seeded athletes have no
+        // timezone on file, so they resolve to UTC: their day turns over at
+        // midnight UTC, and the band must hold on both sides of it.
         let seed = DateTime::parse_from_rfc3339("2026-11-02T15:19:28Z")
             .unwrap()
             .with_timezone(&Utc);

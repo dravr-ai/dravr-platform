@@ -37,8 +37,8 @@
 //!
 //! The suites name no chrono type and call no chrono method; this file does
 //! all of it. [`instant`], [`day`] and [`epoch`] build the seeded values;
-//! [`utc_days_before_today`], [`whole_days_since`], [`Today`], [`Instant`]
-//! and [`CLOCK_DIGITS`] read the clock; [`noon_in`] places a session on an
+//! [`utc_days_before_today`], [`Today`], [`Instant`] and [`CLOCK_DIGITS`]
+//! read the clock; [`noon_in`] places a session on an
 //! athlete's own day; [`lies_days_after`] parses an answered instant;
 //! [`shifted`], [`days_between`], [`monday_of`], [`sunday_of`] and
 //! [`first_of_next_month`] do the calendar arithmetic; [`seed_account`]
@@ -331,12 +331,6 @@ pub(crate) fn noon_in(date: NaiveDate, zone: &str) -> String {
     let at =
         date.and_hms_micro_opt(12, 0, 0, 500_250).unwrap().and_utc() - Duration::hours(hours_ahead);
     at.format("%Y-%m-%dT%H:%M:%S%.6f").to_string()
-}
-
-/// The whole days from `since` (`2026-11-16T11:30:00`, UTC) to now: what a
-/// handler that subtracts instants counts, whatever the athlete's zone.
-pub(crate) fn whole_days_since(since: &str) -> i64 {
-    (Utc::now() - instant(since)).num_days()
 }
 
 /// `date` moved by `days`, as `2026-11-16`.

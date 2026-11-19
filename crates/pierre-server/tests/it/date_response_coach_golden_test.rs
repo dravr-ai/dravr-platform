@@ -63,7 +63,7 @@ use crate::helpers::coach_roster_fixtures::{
 use crate::helpers::date_golden::{
     dates_in, dates_in_stamped, day, days_between, epoch, get, instant, mcp_call, mcp_refusal,
     monday_of, noon_in, on_the_clock, restamp_seconds, send, shifted, table, tool_payload,
-    weekday_name, whole_days_since, with_values, Athlete, Today, KIRITIMATI, WEST_OF_THE_DATE_LINE,
+    weekday_name, with_values, Athlete, Today, KIRITIMATI, WEST_OF_THE_DATE_LINE,
 };
 
 const ZONES: [&str; 2] = [KIRITIMATI, WEST_OF_THE_DATE_LINE];
@@ -71,17 +71,11 @@ const STRAVA: &str = "strava";
 /// The mornings of deep fatigue the roster counts for Ada, whose six hard
 /// runs sit at noon on her own calendar and end on her yesterday.
 ///
-/// The roster computes her form as of the UTC day of now
-/// (`build_snapshot_from_activities` passes `now.date_naive()`), while it
-/// dates each morning back from her own today. So the count is the UTC days
-/// from the UTC day her first hard run fell on to today's UTC day: six or
-/// seven in Kiritimati, where her noon is 22:00 UTC the day before, and five
-/// or six west of the line, where it is midnight UTC the day after.
-/// `get_training_history` answers six for the same runs at any hour.
-fn deep_fatigue_mornings(today: &Today, zone: &str) -> i64 {
-    let first_hard = noon_in(day(&shifted(today.in_zone(zone), -6)), zone);
-    days_between(day(&first_hard[..10]), today.utc)
-}
+/// The roster computes her form as of her own today, each session on the day
+/// it started where she lives, as `get_training_history` does: six mornings,
+/// from the day after her first hard run to her today, in either zone at any
+/// hour. Read on UTC's day it would be five, six or seven (carnet#1640).
+const DEEP_FATIGUE_MORNINGS: i64 = 6;
 
 struct Roster {
     coach: Person,
@@ -317,29 +311,23 @@ async fn the_roster_dates_each_athlete_on_their_own_calendar() {
     on_the_clock(|| async {
         let res = common::create_test_server_resources().await.unwrap();
         for zone in ZONES {
-            // The days since a session are counted between instants, so they
-            // turn at 11:30 UTC, not at a midnight: read before and after too.
-            let elapsed = |today: &Today| {
-                // Each from its own seeded start: Ada's last run, Bo's ride.
-                [
-                    noon_in(day(&shifted(today.in_zone(zone), -1)), zone),
-                    format!("{}T11:30:00.750375", shifted(today.utc, -20)),
-                ]
-                .map(|at| whole_days_since(&at))
-            };
-            let (today, roster, page, [since_run, since_ride]) = loop {
+            let (today, roster, page) = loop {
                 let today = Today::read();
-                let before = elapsed(&today);
                 let roster = roster_in(&res, zone, &today).await;
                 let (status, page) =
                     roster_get(&router(&res), "/api/coach/roster", &roster.coach.auth).await;
                 assert_eq!(status, 200, "{page}");
-                if today.holds() && before == elapsed(&today) {
-                    break (today, roster, page, before);
+                if today.holds() {
+                    break (today, roster, page);
                 }
             };
             let here = today.in_zone(zone);
             let monday = monday_of(here);
+            // The days since a session are days of the athlete's calendar,
+            // from the one it started on to her today: they turn at her
+            // midnight, never at the hour it started (carnet#1640).
+            let since_run = 1;
+            let since_ride = days_between(day(&started_on(&today, zone, 20)), here);
 
             // Ada: the form is as of her today, her last session the day it
             // started on where she lives, and she is in the build that opens
@@ -349,7 +337,7 @@ async fn the_roster_dates_each_athlete_on_their_own_calendar() {
             let last_run = shifted(here, -1);
             // The six hard runs end on her yesterday, so the streak that
             // ends on her today has a known length at any hour.
-            let mornings = deep_fatigue_mornings(&today, zone);
+            let mornings = DEEP_FATIGUE_MORNINGS;
             let mut expected = owned(&[
                 ("/training/form/as_of", shifted(here, 0)),
                 ("/training/last_session/date", last_run.clone()),
@@ -357,8 +345,7 @@ async fn the_roster_dates_each_athlete_on_their_own_calendar() {
                     "/training/last_activity_per_source/strava",
                     last_run.clone(),
                 ),
-                // Whole days between instants: one after 11:30 UTC, none before,
-                // in either zone.
+                // Her yesterday: one day, in either zone at any hour.
                 ("/training/days_since_last_activity", since_run.to_string()),
                 ("/plan/goal_race/date", shifted(monday, 61)),
                 ("/plan/ends", shifted(monday, 62)),
@@ -542,7 +529,7 @@ async fn the_roster_tool_names_each_recent_session_by_its_day_and_weekday() {
         let ada = athlete("Ada");
         let days = [1, 2, 3].map(|back| shifted(today.in_zone(zone), -back));
         let mut expected = owned(&[("/training/last_activity_per_source/strava", days[0].clone())]);
-        let mut weekdays = Vec::new();
+        let mut pointers = Vec::new();
         for (index, date) in days.iter().enumerate() {
             expected.push((
                 format!("/training/recent_activities/{index}/date"),
@@ -552,11 +539,23 @@ async fn the_roster_tool_names_each_recent_session_by_its_day_and_weekday() {
                 format!("/training/recent_activities/{index}/weekday"),
                 format!("\"{}\"", weekday_name(date)),
             ));
-            weekdays.push(format!("/training/recent_activities/{index}/weekday"));
+            pointers.push(format!("/training/recent_activities/{index}/weekday"));
         }
-        let weekdays: Vec<&str> = weekdays.iter().map(String::as_str).collect();
+        // Her weeks are her calendar days too: this week is her today and the
+        // six days before it, six 6 km runs; the week before, seven. Counted
+        // as 24-hour spans back from now, the run seven days back would join
+        // this week whenever it is before noon where she lives.
+        for (pointer, value) in [
+            ("/training/sessions_this_week", "6"),
+            ("/training/km_this_week", "36.0"),
+            ("/training/km_previous_week", "42.0"),
+        ] {
+            expected.push((pointer.to_owned(), value.to_owned()));
+            pointers.push(pointer.to_owned());
+        }
+        let pinned: Vec<&str> = pointers.iter().map(String::as_str).collect();
         assert_eq!(
-            with_values(dates_in(ada), ada, &weekdays),
+            with_values(dates_in(ada), ada, &pinned),
             rows(expected),
             "{zone}: {ada}"
         );

@@ -4,11 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::civil_time::{clock_date, resolve_zone};
 use crate::transport::TransportPolicy;
 use std::collections::HashMap;
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use dravr_cageux::algorithms::training_load::DailyTrainingLoad;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -780,7 +781,7 @@ pub struct MemberFitnessSnapshot {
 }
 
 /// One morning of a run of form readings, counted back from the snapshot's
-/// own day.
+/// own day on the member's calendar ([`MemberFitnessSnapshot::computed_on`]).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct FormMorning {
     /// Days before the snapshot's own day: `0` is that day.
@@ -791,13 +792,22 @@ pub struct FormMorning {
 }
 
 impl MemberFitnessSnapshot {
+    /// The member's own civil day the snapshot was computed on: `computed_at`
+    /// read on their clock, in [`Self::timezone`] (UTC when unset). The day
+    /// the training load, its form reading and the deep-fatigue mornings
+    /// describe (carnet#1640).
+    #[must_use]
+    pub fn computed_on(&self) -> NaiveDate {
+        clock_date(self.computed_at, resolve_zone(self.timezone.as_deref()))
+    }
+
     /// The member's form reading, banded by cageux from the `tsb`/`form_ctl`
-    /// pair of the day the snapshot was computed. `None` when the training
-    /// load could not be computed.
+    /// pair of the day the snapshot was computed ([`Self::computed_on`]).
+    /// `None` when the training load could not be computed.
     #[must_use]
     pub fn form_reading(&self) -> Option<FormReading> {
         Some(FormReading::from_daily_load(&DailyTrainingLoad {
-            date: self.computed_at.date_naive(),
+            date: self.computed_on(),
             ctl: self.ctl?,
             atl: self.atl?,
             tsb: self.tsb?,

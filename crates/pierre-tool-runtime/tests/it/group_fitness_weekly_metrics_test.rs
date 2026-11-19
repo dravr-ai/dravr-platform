@@ -17,6 +17,7 @@
 //! these tests pin the canonical builder's behavior.
 
 use chrono::{Duration, TimeZone, Utc};
+use chrono_tz::Tz;
 use pierre_core::models::{ActivityBuilder, SportType};
 use pierre_tool_runtime::group_fitness::compute_weekly_metrics;
 
@@ -52,7 +53,7 @@ fn previous_week_volume_is_some_when_prior_week_has_activity() {
         .build(),
     ];
 
-    let metrics = compute_weekly_metrics(&activities, now);
+    let metrics = compute_weekly_metrics(&activities, now, Tz::UTC);
 
     assert!((metrics.volume_km - 10.0).abs() < 1e-6, "current week km");
     assert_eq!(
@@ -80,7 +81,7 @@ fn previous_week_volume_is_none_when_no_prior_week_activity() {
     .distance_meters(5000.0)
     .build()];
 
-    let metrics = compute_weekly_metrics(&activities, now);
+    let metrics = compute_weekly_metrics(&activities, now, Tz::UTC);
 
     assert_eq!(
         metrics.previous_week_volume_km, None,
@@ -102,7 +103,7 @@ fn activity_older_than_two_weeks_is_excluded_from_both_windows() {
     .distance_meters(8000.0)
     .build()];
 
-    let metrics = compute_weekly_metrics(&activities, now);
+    let metrics = compute_weekly_metrics(&activities, now, Tz::UTC);
 
     assert!(
         (metrics.volume_km - 0.0).abs() < 1e-6,
