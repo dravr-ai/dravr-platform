@@ -711,6 +711,14 @@ pub const KEY_PROVIDER_REAUTH_SERVED_NO_LINK: &str = "messaging.provider.reauth_
 /// taps instead of copying. `{0}` = provider display name.
 pub const KEY_PROVIDER_RECONNECT_BUTTON: &str = "messaging.provider.reconnect_button";
 
+/// Key: provider-free button label on the reconnect Card.
+///
+/// [`KEY_PROVIDER_RECONNECT_BUTTON`] interpolates the provider name, which
+/// overflows `WhatsApp`'s 20-character `cta_url` label for `Intervals.icu` and
+/// in Spanish. The Card's title already names the provider, so this label is
+/// the bare verb and takes no placeholder. Every locale fits 20 characters.
+pub const KEY_PROVIDER_RECONNECT_CTA: &str = "messaging.provider.reconnect_cta";
+
 // ── /status command keys ──────────────────────────────────────────────────
 
 /// Key: `/status` opening line.

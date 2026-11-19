@@ -120,7 +120,11 @@ async fn mint_connect_url(
 /// renders as a native button wherever the surface lays actions out as
 /// controls. Where the surface has no `action_buttons` capability,
 /// [`super::card_or_rich_text`] shapes the reply at build time as rich text
-/// with the link as an autolinked `label: url` line.
+/// with the link as an autolinked `label: url` line. `WhatsApp` has the
+/// capability, so it receives a `Card`; canot renders a card whose only action
+/// is one short `url` as a `cta_url` link button, and that is what the prompt's
+/// "tap the button" wording relies on. Before canot ships that renderer, the
+/// card arrives as text with the link under it.
 ///
 /// LIMITATION(registre#1671): `build_connect_card_direct` on `WhatsApp` reaches canot as a `Card`, whose renderer prints a `url` action as text under a body that promises a button.
 #[allow(clippy::too_many_arguments)]
