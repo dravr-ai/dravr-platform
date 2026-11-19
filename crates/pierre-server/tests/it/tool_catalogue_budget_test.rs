@@ -103,7 +103,13 @@ use crate::common;
 /// daylight (carnet#1486): two sentences on omitting the location and on the
 /// sunrise and sunset in the answer, cut by 13 bytes before measuring.
 /// Measured 97,857 against 97,684 without them (~173 bytes).
-const CATALOGUE_BUDGET_BYTES: usize = 97_900;
+///
+/// 2026-11-19: 97,900 → 98,250 for the athlete's own loops (carnet#1665):
+/// `discover_routes`' `effort` argument and the sentences on the loops, on
+/// `osm_unavailable` and on reading the forecast, plus the forecast's own
+/// nudge to be read for every planned outdoor session; the route description
+/// was cut by about 200 bytes before measuring. Measured 98,183.
+const CATALOGUE_BUDGET_BYTES: usize = 98_250;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

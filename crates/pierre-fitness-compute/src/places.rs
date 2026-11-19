@@ -23,14 +23,14 @@
 //! about [`DEFAULT_PRIVACY_RADIUS_METERS`] around the spot it left from, so
 //! a loop that leaves one way and comes back another has its two trimmed
 //! ends up to a ring's diameter apart. The home candidate is therefore
-//! found by clustering endpoints at `HOME_REACH_METERS`, a diameter plus
+//! found by clustering endpoints at `ONE_SPOT_REACH_METERS`, a diameter plus
 //! a polyline sample's slack, not at `eps`: every loop from one door counts
 //! toward one cluster whichever way it left and came back, so a door ridden
 //! in loops is not split per direction and outranked by a trailhead ridden
 //! out and back. Three rules keep an athlete's name above the guess:
 //! - a start inside an athlete-named place's radius is never excluded, so
 //!   naming a spot always brings its starts back;
-//! - an endpoint cluster whose centroid lies within `HOME_REACH_METERS`
+//! - an endpoint cluster whose centroid lies within `ONE_SPOT_REACH_METERS`
 //!   of an athlete-named place is that place's rides, both ends of them,
 //!   and is never the home candidate;
 //! - of the clusters left, the one with the most endpoints is home.
@@ -82,9 +82,14 @@ const MIN_RADIUS_METERS: f64 = 300.0;
 const RADIUS_PERCENTILE: f64 = 0.9;
 
 /// How far apart, in metres, two trimmed endpoints of rides from one spot
-/// can lie: the trim ring's diameter, plus the spacing a polyline's first
-/// sample past the trim may add on each side.
-const HOME_REACH_METERS: f64 = 2.0f64.mul_add(DEFAULT_PRIVACY_RADIUS_METERS, POLYLINE_SLACK_METERS);
+/// can lie.
+///
+/// The trim ring's diameter, plus the spacing a polyline's first sample past
+/// the trim may add on each side. Home's endpoints are clustered at it, and
+/// a ride whose own two trimmed ends lie within it started and ended at one
+/// spot: a loop.
+pub const ONE_SPOT_REACH_METERS: f64 =
+    2.0f64.mul_add(DEFAULT_PRIVACY_RADIUS_METERS, POLYLINE_SLACK_METERS);
 
 /// How far past the trim radius, in metres, the first kept point of a
 /// sparsely sampled polyline may sit, summed over a track's two ends.
@@ -456,7 +461,7 @@ fn exclusion<'anchors>(
 }
 
 /// The home candidate: of the clusters of trimmed endpoints at
-/// [`HOME_REACH_METERS`], the one with the most endpoints whose centroid is
+/// [`ONE_SPOT_REACH_METERS`], the one with the most endpoints whose centroid is
 /// not within that reach of an athlete-named place.
 fn home_candidate(
     endpoints: &[(f64, f64)],
@@ -466,7 +471,7 @@ fn home_candidate(
     let mut sorted: Vec<(f64, f64)> = endpoints.to_vec();
     sorted.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
     let reach = PlaceParams {
-        eps_m: params.eps_m.max(HOME_REACH_METERS),
+        eps_m: params.eps_m.max(ONE_SPOT_REACH_METERS),
         ..*params
     };
     let (clusters, _) = dbscan(&sorted, &reach);

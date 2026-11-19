@@ -1,4 +1,4 @@
-// ABOUTME: Shared store for the drawable line of a discovered or composed route, keyed by its route_ref
+// ABOUTME: Shared store for the drawable line of a discovered, composed or own route, keyed by its route_ref
 // ABOUTME: The tool that computes a line stores it; a later tool call or the chat map reads it back by ref
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,7 +6,8 @@
 
 //! # Route store
 //!
-//! A discovered trail or a composed itinerary runs to thousands of
+//! A discovered trail, a composed itinerary or one of the athlete's own
+//! loops (its privacy-trimmed recorded line) runs to hundreds or thousands of
 //! coordinates, which a model must never be asked to carry: it would spend
 //! its output on them and could not be trusted to copy them faithfully. The
 //! tool that computes a line stores it here and hands the model the line's
@@ -26,15 +27,16 @@ use pierre_fitness_compute::route_compose;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// The provider slot route lines are keyed under: the geometry is
-/// OpenStreetMap's, whichever provider the athlete trains with.
+/// The provider slot route lines are keyed under: the slot every proposed
+/// route shares, OpenStreetMap's trails and the athlete's own loops alike,
+/// whichever provider the athlete trains with.
 const ROUTE_PROVIDER: &str = "osm";
 
 /// The drawable line of a discovered or composed route, as it is stored.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct StoredRoute {
-    /// What the route is called: the trail's own name, or how the composition
-    /// names its stretches.
+    /// What the route is called: the trail's own name, how the composition
+    /// names its stretches, or an own loop's ride name.
     pub name: String,
     /// `(latitude, longitude)` in degrees, in walking order, the way back
     /// included for an out-and-back.

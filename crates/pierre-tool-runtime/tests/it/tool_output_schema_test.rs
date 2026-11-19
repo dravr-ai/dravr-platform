@@ -39,6 +39,7 @@ use pierre_fitness_compute::weather::WeatherDifficulty;
 use pierre_providers::field_support::FieldMode;
 use pierre_providers::precedence::wellness_source;
 use pierre_providers::ProviderRegistry;
+use pierre_services::athlete_loops::Effort;
 use pierre_services::athlete_places::HomeState;
 use pierre_services::coach_roster::RosterAthleteStatus;
 use pierre_services::continuous_series::SourceSeries;
@@ -4203,7 +4204,14 @@ fn a_route_with_almost_no_osm_tags_still_validates() {
             distance_from_center_meters: 3_400.0,
             route_ref: None,
             connects_to: Vec::new(),
+            activity_id: None,
+            date: None,
+            place_name: None,
+            elevation_gain_meters: None,
+            relative_effort: None,
         }],
+        osm_unavailable: None,
+        next_step: "call get_weather_forecast".to_owned(),
     })
     .expect("serializes");
 
@@ -4247,7 +4255,14 @@ fn a_route_ranked_against_a_target_says_how_it_covers_it() {
             distance_from_center_meters: 3_400.0,
             route_ref: Some("rt_3f9a0c41d27b8e65".to_owned()),
             connects_to: vec!["rt_c07e5d2a9b146f38".to_owned()],
+            activity_id: None,
+            date: None,
+            place_name: None,
+            elevation_gain_meters: None,
+            relative_effort: None,
         }],
+        osm_unavailable: None,
+        next_step: "call get_weather_forecast".to_owned(),
     })
     .expect("serializes");
 
@@ -4258,6 +4273,73 @@ fn a_route_ranked_against_a_target_says_how_it_covers_it() {
     assert_eq!(value["routes"][0]["distance_source"], "mapped_geometry");
     assert_eq!(value["routes"][0]["route_ref"], "rt_3f9a0c41d27b8e65");
     assert_eq!(value["routes"][0]["connects_to"][0], "rt_c07e5d2a9b146f38");
+}
+
+// carnet#1665: the athlete's own loop answers when OpenStreetMap does not,
+// and its answer validates with the fields only a loop carries.
+#[test]
+fn an_own_loop_answering_alone_validates_and_names_its_ride() {
+    let validator =
+        jsonschema::validator_for(&output_schema_for::<DiscoverRoutesResult>()).expect("compiles");
+    let value = serde_json::to_value(DiscoverRoutesResult {
+        sport_type: "mountain_bike".to_owned(),
+        center: RouteSearchCenter {
+            latitude: 45.87,
+            longitude: -74.05,
+            display_name: Some("Prévost, Quebec, Canada".to_owned()),
+        },
+        radius_meters: 10_000,
+        target_distance_meters: None,
+        count: 1,
+        routes: vec![DiscoveredRouteEntry {
+            name: "VTT Gai-Luron".to_owned(),
+            route_type: "cycling".to_owned(),
+            distance_meters: Some(8_700.0),
+            distance_source: Some("recorded".to_owned()),
+            target_fit: None,
+            passes_for_target: None,
+            difficulty: None,
+            source: "your_rides".to_owned(),
+            latitude: 45.871,
+            longitude: -74.052,
+            distance_from_center_meters: 260.0,
+            route_ref: Some("rt_9d0e1f2a3b4c5d6e".to_owned()),
+            connects_to: Vec::new(),
+            activity_id: Some("19876543210".to_owned()),
+            date: Some("2026-11-13".to_owned()),
+            place_name: Some("Gai-Luron".to_owned()),
+            elevation_gain_meters: Some(191.0),
+            relative_effort: Some(Effort::Easy),
+        }],
+        osm_unavailable: Some("no public OpenStreetMap (Overpass) server answered".to_owned()),
+        next_step: "call get_weather_forecast".to_owned(),
+    })
+    .expect("serializes");
+
+    assert!(
+        validator.is_valid(&value),
+        "bug: an own loop answering alone must validate:\n{value:#}"
+    );
+    let entry = &value["routes"][0];
+    assert_eq!(
+        (
+            entry["source"].as_str(),
+            entry["relative_effort"].as_str(),
+            entry["activity_id"].as_str(),
+            entry["elevation_gain_meters"].as_f64(),
+        ),
+        (
+            Some("your_rides"),
+            Some("easy"),
+            Some("19876543210"),
+            Some(191.0)
+        ),
+        "bug: an own loop names its source, effort, ride and climb: {value:#}"
+    );
+    assert!(
+        value["osm_unavailable"].is_string(),
+        "bug: the reason OpenStreetMap listed nothing is carried: {value:#}"
+    );
 }
 
 #[test]

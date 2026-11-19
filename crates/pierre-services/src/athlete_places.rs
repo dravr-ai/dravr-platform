@@ -472,8 +472,8 @@ async fn recompute_after_change(
 }
 
 /// One workout: the indices of its rows, its canonical copy's rows first.
-struct Workout {
-    rows: Vec<usize>,
+pub(crate) struct Workout {
+    pub(crate) rows: Vec<usize>,
 }
 
 /// Recompute one athlete's places from every cached row they hold and store
@@ -574,7 +574,7 @@ async fn recompute(
 }
 
 /// Every cached row the athlete holds in the tenant, newest first.
-async fn all_rows(
+pub(crate) async fn all_rows(
     repos: &RepositoryRegistry,
     tenant_id: &TenantId,
     user_id: Uuid,
@@ -608,7 +608,7 @@ async fn all_rows(
 /// its first row's stored key, never by a bare activity id, which is unique
 /// only within a provider. A group the merge leaves out is a workout of its
 /// own: every row takes exactly one workout.
-fn workout_rows(rows: &[CachedActivityRow]) -> Vec<Workout> {
+pub(crate) fn workout_rows(rows: &[CachedActivityRow]) -> Vec<Workout> {
     let mut copies: Vec<Vec<usize>> = Vec::new();
     let mut by_key: HashMap<(String, String), usize> = HashMap::new();
     for (index, row) in rows.iter().enumerate() {

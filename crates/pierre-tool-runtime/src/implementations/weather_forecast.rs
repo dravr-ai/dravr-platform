@@ -262,7 +262,8 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
         answers_with::<WeatherForecastResult>(tool_definition(
             "get_weather_forecast",
             "Forecast weather (temperature, humidity, wind, conditions) for the hour of a \
-             timestamp up to about 16 days ahead, e.g. a planned session. Give the location as \
+             timestamp up to about 16 days ahead. Call it for every outdoor session you plan, \
+             a route included, at the session's hour. Give the location as \
              latitude and longitude, or as a place name (optionally narrowed by country_code). \
              For a place, the output names the town used and says when an ambiguous name took \
              the top-ranked match. Omit the location for the athlete's most frequent training \
@@ -315,7 +316,7 @@ async fn default_for(
         .iter()
         .any(|name| given(args, name));
     if located
-        || !may_default(
+        || !may_use_athlete_places(
             ai_scope::withholds_athlete_only_fields(),
             context.turn_direct_message,
         )
@@ -333,14 +334,18 @@ async fn default_for(
     .await
 }
 
-/// Whether a forecast with no location may default to the athlete's place.
+/// Whether a read may use the athlete's places: a forecast with no location
+/// defaults to their place, and a route search offers their own loops.
 ///
 /// Not on an external transport nor a coach's read (`withholds_athlete_only`
 /// — the centroid is derived from provider data, the same reason automatic
 /// place names are first-party only), and not on a turn other people read
 /// (`turn_direct_message == Some(false)`), where whose place is meant is
 /// ambiguous.
-const fn may_default(withholds_athlete_only: bool, turn_direct_message: Option<bool>) -> bool {
+pub(super) const fn may_use_athlete_places(
+    withholds_athlete_only: bool,
+    turn_direct_message: Option<bool>,
+) -> bool {
     !withholds_athlete_only && !matches!(turn_direct_message, Some(false))
 }
 
@@ -746,19 +751,19 @@ mod tests {
     #[test]
     fn only_dravrs_own_one_to_one_surfaces_default_to_the_place() {
         assert!(
-            may_default(false, Some(true)),
+            may_use_athlete_places(false, Some(true)),
             "bug: a direct chat turn defaults"
         );
         assert!(
-            may_default(false, None),
+            may_use_athlete_places(false, None),
             "bug: an app call outside a turn defaults"
         );
         assert!(
-            !may_default(false, Some(false)),
+            !may_use_athlete_places(false, Some(false)),
             "bug: a turn other people read must not default"
         );
         assert!(
-            !may_default(true, Some(true)),
+            !may_use_athlete_places(true, Some(true)),
             "bug: an external transport or a coach's read must not default"
         );
     }

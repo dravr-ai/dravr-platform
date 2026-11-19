@@ -337,9 +337,12 @@ export interface DisconnectProviderParams {
 
 
 /**
- * Find real named running, cycling, hiking or ski routes from OpenStreetMap around a `place` (preferred) or `latitude`/`longitude`. Call it whenever asked to propose or find a route, trail or outdoor session in an area. Never invent street or trail names or terrain not verified here. Returns up to 20 routes, nearest first: quote `distance_from_center_meters`, never a distance estimated from coordinates. `distance_source` qualifies `distance_meters`: `mapped_geometry` is a lower bound; `osm_tag` is the whole route's declared length, of which only part may lie inside the radius. When the session has a distance, pass `target_distance_meters` and tell the athlete plainly when a route's `target_fit` is `out_and_back` or `repeats`. Elevation and surface are NOT returned: never describe a route as flat, hilly or suited to intervals on the strength of this tool. An empty list means OSM has no named route in that radius: widen `radius_meters` or say so plainly, never substitute a name you did not read here. A mapped route carries a `route_ref`: to show it, name it in a `dravr-viz` route block with `source_tool` "discover_routes" — never write coordinates. For an itinerary over several stretches, pass their refs in running order to `compose_route`, each meeting the next (as `connects_to` lists), and quote the distance it returns.
+ * Find routes around a `place` (preferred) or `latitude`/`longitude`: first the athlete's own loops (`source` `your_rides`, past rides that started and ended at a place they ride from), then named OpenStreetMap routes, nearest first. Call it whenever asked to propose or find a route, loop, trail or outdoor session. Pass the session's `effort`, and `target_distance_meters` when it has a distance; say plainly when `target_fit` is `out_and_back` or `repeats`. Never invent street or trail names or terrain not read here; quote `distance_from_center_meters`, never a distance from coordinates. `distance_source`: `mapped_geometry` is a lower bound, `osm_tag` the whole route's declared length. OpenStreetMap routes carry no elevation or surface: never call one flat or hilly. `osm_unavailable` means OpenStreetMap did not answer; an empty list means nothing in that radius: widen `radius_meters` or say so. To show a route, name its `route_ref` in a `dravr-viz` route block with `source_tool` "discover_routes" — never coordinates or an activity id. For an itinerary over several stretches, pass their refs in running order to `compose_route`, each meeting the next (as `connects_to` lists). For a planned session, also call `get_weather_forecast` for the place and hour, and give its conditions and sunset.
  */
 export interface DiscoverRoutesParams {
+
+  /** The session's effort: 'easy', 'moderate' or 'hard'. Orders the athlete's own loops by where their distance and climb fall among their rides there. */
+  effort?: string;
 
   /** Search center latitude, decimal degrees. */
   latitude?: number;
@@ -347,7 +350,7 @@ export interface DiscoverRoutesParams {
   /** Search center longitude, decimal degrees. */
   longitude?: number;
 
-  /** Place to search around; latitude/longitude are ignored when it is set. Give its own name, optionally followed by region and country to choose among same-named places: 'Prévost, Quebec, Canada'. Write the region out: an abbreviation such as 'QC' chooses nothing. */
+  /** Place to search around; latitude/longitude are ignored when it is set. Give its own name, optionally followed by region and country to choose among same-named places: 'Prévost, Quebec, Canada'. Write the region out: an abbreviation such as 'QC' chooses nothing. Omit it and the coordinates for the athlete's most frequent training place (Dravr's own app and chats only). */
   place?: string;
 
   /** Search radius in meters, clamped to 500-50000; default 10000. */
@@ -780,7 +783,7 @@ export interface GetTrainingPlanParams {
 
 
 /**
- * Forecast weather (temperature, humidity, wind, conditions) for the hour of a timestamp up to about 16 days ahead, e.g. a planned session. Give the location as latitude and longitude, or as a place name (optionally narrowed by country_code). For a place, the output names the town used and says when an ambiguous name took the top-ranked match. Omit the location for the athlete's most frequent training place (Dravr's own app and chats only). The output carries that day's sunrise and sunset, on the athlete's clock.
+ * Forecast weather (temperature, humidity, wind, conditions) for the hour of a timestamp up to about 16 days ahead. Call it for every outdoor session you plan, a route included, at the session's hour. Give the location as latitude and longitude, or as a place name (optionally narrowed by country_code). For a place, the output names the town used and says when an ambiguous name took the top-ranked match. Omit the location for the athlete's most frequent training place (Dravr's own app and chats only). The output carries that day's sunrise and sunset, on the athlete's clock.
  */
 export interface GetWeatherForecastParams {
 

@@ -213,6 +213,9 @@ pub mod activity_track;
 /// Athlete places: the places worker's recompute, and naming a place (carnet#1484)
 pub mod athlete_places;
 
+/// The athlete's own loops near a point, ranked for an asked effort (carnet#1665)
+pub mod athlete_loops;
+
 /// A deleted activity's gear released, and the workout merge the gear ledger reads (carnet#711)
 pub mod gear_release;
 

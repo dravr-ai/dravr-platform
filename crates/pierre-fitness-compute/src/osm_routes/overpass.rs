@@ -47,23 +47,24 @@ const OVERPASS_ENDPOINTS: &[&str] = &[
 /// Overpass admits a query only when a slot can hold its declared run time,
 /// so a smaller figure is admitted sooner on a loaded server, and it frees
 /// the slot once the client has given up anyway. Three-clause queries answer
-/// in 2-10s on a healthy instance (see the query-construction notes).
-pub(super) const OVERPASS_SERVER_TIMEOUT_SECS: u64 = 20;
+/// in 2-10s on a healthy instance (see the query-construction notes); the
+/// server is told to stop just before the client's attempt ends.
+pub(super) const OVERPASS_SERVER_TIMEOUT_SECS: u64 = 4;
 
 /// How long one request to one instance may take, end to end.
 ///
 /// The server's `[timeout:N]` caps only the query's run time. A loaded
 /// instance first holds the request in its queue, and that wait counts here.
-/// On 2026-10-21, with every public instance saturated (carnet#1121),
-/// overpass-api.de answered the Prevost running query in 33s; an attempt cut
-/// near the server's own 20s gives up on an answer that is on its way. 38s
-/// leaves room for that wait plus the body (~560 kB for 300 elements with
-/// geometry).
+/// Short on purpose (carnet#1665): on 2026-11-19 every public instance hung,
+/// and 38 s attempts (carnet#1121) cost the turn 78 s and its forecast. A
+/// saturated day now gets fewer Overpass answers, and the athlete's own loops
+/// answer instead. Shorter than the walk's budget, so a hung first instance
+/// leaves the next one an attempt.
 ///
 /// The per-request timeout set in `attempt` replaces, for this request, the
 /// shared client's timeout configured at startup (`API_CLIENT_TIMEOUT_SECS`):
 /// reqwest reads a request's own timeout before the client's.
-const OVERPASS_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(38);
+const OVERPASS_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Wall-clock budget for the whole walk over every instance.
 ///
@@ -71,13 +72,11 @@ const OVERPASS_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(38);
 /// tool call fails within this budget whatever the instances do, and the
 /// agent can tell the athlete instead of leaving the turn hanging.
 ///
-/// 78s holds two full attempts, so a slow first instance still leaves a
-/// whole attempt for the next one. It also stays under the chat loopback's
-/// 90s per-tool ceiling (`LOOPBACK_TOOL_TIMEOUT` in pierre-server), leaving
-/// about 12s for the place geocode that runs before the walk. If the walk
-/// outlasted that ceiling, the agent would get a bare timeout instead of
-/// this walk's per-instance reasons.
-const OVERPASS_TOTAL_BUDGET: Duration = Duration::from_secs(78);
+/// A few seconds (carnet#1665): the route search must leave the turn the
+/// time to read the forecast and sunset of the session it plans. The first
+/// instance gets a whole attempt and the next what remains; an instance that
+/// timed out is cooled down, so the next call starts with another one.
+const OVERPASS_TOTAL_BUDGET: Duration = Duration::from_secs(8);
 
 /// Pause before the one retry an instance gets after a gateway error.
 const OVERPASS_RETRY_PAUSE: Duration = Duration::from_secs(1);
@@ -458,6 +457,7 @@ mod tests {
     use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
+    use tokio::time;
 
     /// A well-formed Overpass answer.
     const VALID_BODY: &str = r#"{"elements":[{"type":"way","id":1}]}"#;
@@ -598,18 +598,19 @@ mod tests {
     }
 
     #[test]
-    fn production_attempts_fit_the_budget_and_the_tool_ceiling() {
-        // The server is told to stop before the client gives up. Two full
-        // attempts fit the budget, so one slow instance cannot use up the
-        // whole walk. The walk ends before the chat loopback's 90s per-tool
-        // ceiling, with room for the geocode that runs before it. This crate
-        // cannot import either figure, so both are written here by name:
-        // 90s is `LOOPBACK_TOOL_TIMEOUT` (pierre-server,
-        // src/mcp/resources/tool_surface.rs) and 10s is dravr-meteo's
-        // `REQUEST_TIMEOUT` for the Open-Meteo geocode.
-        assert!(Duration::from_secs(OVERPASS_SERVER_TIMEOUT_SECS) < OVERPASS_ATTEMPT_TIMEOUT);
-        assert!(OVERPASS_ATTEMPT_TIMEOUT * 2 + OVERPASS_RETRY_PAUSE <= OVERPASS_TOTAL_BUDGET);
-        assert!(OVERPASS_TOTAL_BUDGET + Duration::from_secs(10) <= Duration::from_secs(90));
+    fn production_attempts_leave_the_next_instance_a_turn() {
+        // The server is told to stop before the client gives up, and one
+        // attempt is shorter than the walk, so a hung first instance never
+        // spends the whole budget (carnet#1665 reversed carnet#1121's two
+        // full attempts: the walk is now bounded by a few seconds).
+        assert!(
+            Duration::from_secs(OVERPASS_SERVER_TIMEOUT_SECS) < OVERPASS_ATTEMPT_TIMEOUT,
+            "bug: the server must be told to stop before the client gives up"
+        );
+        assert!(
+            OVERPASS_ATTEMPT_TIMEOUT + OVERPASS_RETRY_PAUSE < OVERPASS_TOTAL_BUDGET,
+            "bug: one attempt must leave the next instance part of the budget"
+        );
     }
 
     #[test]
@@ -743,5 +744,71 @@ mod tests {
             "{message}"
         );
         assert!(!message.contains("<html>"), "raw HTML leaked: {message}");
+    }
+
+    /// The bound carnet#1665 sets on the whole Overpass phase of one
+    /// `discover_routes` call: "a few seconds, about 8 s". Production timing
+    /// has to fit it, with room for a loaded runner's scheduling.
+    const FAIL_FAST_CEILING: Duration = Duration::from_secs(10);
+
+    /// The walk under production timing, cut at the ceiling so a walk that
+    /// overruns it fails the test instead of holding it for a minute.
+    async fn production_walk(endpoints: &[&StubInstance]) -> (Option<AppResult<usize>>, Duration) {
+        let client = service(endpoints, OverpassTiming::PRODUCTION);
+        let started = Instant::now();
+        let outcome = time::timeout(FAIL_FAST_CEILING, fetch(&client)).await.ok();
+        (outcome, started.elapsed())
+    }
+
+    // carnet#1665: on 2026-11-19 a hung main instance held the walk for 38 s
+    // before the next was asked. A hung first instance must leave the next
+    // one its attempt inside the ceiling.
+    #[tokio::test]
+    async fn a_hung_instance_leaves_the_next_its_attempt_within_the_fail_fast_ceiling() {
+        let hung = StubInstance::start(vec![Reply::Hang]).await;
+        let healthy = StubInstance::start(vec![Reply::Respond(200, VALID_BODY)]).await;
+
+        let (outcome, elapsed) = production_walk(&[&hung, &healthy]).await;
+
+        let elements = outcome
+            .unwrap_or_else(|| panic!("bug: the walk overran {FAIL_FAST_CEILING:?}"))
+            .expect("bug: the healthy second instance answers once the hung one is abandoned");
+        assert_eq!(
+            elements, 1,
+            "bug: the healthy instance's answer is the one used"
+        );
+        assert!(
+            elapsed < FAIL_FAST_CEILING,
+            "bug: a hung instance held the walk for {elapsed:?}"
+        );
+        assert_eq!(healthy.hits(), 1, "bug: the second instance is asked once");
+    }
+
+    // carnet#1665: every instance hung cost 78 s on 2026-11-19. The walk
+    // gives up within the ceiling, with the reason the agent reads.
+    #[tokio::test]
+    async fn every_instance_hung_fails_within_the_fail_fast_ceiling() {
+        let first = StubInstance::start(vec![Reply::Hang]).await;
+        let second = StubInstance::start(vec![Reply::Hang]).await;
+        let third = StubInstance::start(vec![Reply::Hang]).await;
+
+        let (outcome, elapsed) = production_walk(&[&first, &second, &third]).await;
+
+        let err = outcome
+            .unwrap_or_else(|| panic!("bug: the walk overran {FAIL_FAST_CEILING:?}"))
+            .expect_err("bug: no instance answered, so the walk fails");
+        assert_eq!(
+            err.code,
+            ErrorCode::ExternalServiceUnavailable,
+            "bug: an unanswered walk is the unavailable error"
+        );
+        assert!(
+            elapsed < FAIL_FAST_CEILING,
+            "bug: the walk took {elapsed:?}"
+        );
+        assert!(
+            err.to_string().contains("no answer within"),
+            "bug: the error names the timeout: {err}"
+        );
     }
 }

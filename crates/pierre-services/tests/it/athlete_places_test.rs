@@ -40,7 +40,7 @@ const STEP_LON: f64 = 0.001_27;
 
 /// A loop of four 1 km legs that starts and ends at `origin`, its first leg
 /// heading the way `turn` names (0 north, 1 east, 2 south, 3 west).
-fn loop_from(origin: (f64, f64), turn: usize) -> Vec<(f64, f64)> {
+pub(crate) fn loop_from(origin: (f64, f64), turn: usize) -> Vec<(f64, f64)> {
     const HEADINGS: [(f64, f64); 4] = [(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)];
     let mut points = vec![origin];
     let mut at = origin;
@@ -105,7 +105,7 @@ impl World {
     }
 
     /// Another athlete, in `tenant`, sharing this world's database.
-    async fn beside(&self, tenant: &str) -> Self {
+    pub(crate) async fn beside(&self, tenant: &str) -> Self {
         Self::in_db(self.db.clone(), TenantId::parse_str(tenant).unwrap()).await
     }
 
@@ -149,7 +149,7 @@ impl World {
         self.ride_with(origin, turn, |b| b).await
     }
 
-    async fn ride_with(
+    pub(crate) async fn ride_with(
         &self,
         origin: (f64, f64),
         turn: usize,

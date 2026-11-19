@@ -493,32 +493,35 @@ fn rank_class(element_type: &str, tags: &HashMap<String, String>) -> u8 {
 /// way is explicitly shared between feet and wheels — a runner should know a
 /// "trail" is also a bike path before showing up on it.
 fn classify(sport: &SportType, tags: &HashMap<String, String>) -> RouteType {
+    let ski = matches!(sport_route_type(sport), RouteType::CrossCountrySki);
+    if ski && tags.get("piste:type").map(String::as_str) == Some("downhill") {
+        return RouteType::DownhillSki;
+    }
+    let shared = tags.get("foot").map(String::as_str) == Some("designated")
+        && tags.get("bicycle").map(String::as_str) == Some("designated");
+    if !ski && shared {
+        return RouteType::MultiUse;
+    }
+    sport_route_type(sport)
+}
+
+/// The route type a sport's routes are pictured as before any tag narrows it.
+///
+/// A ride's are cycling routes, a hike's or walk's hiking trails, a snow
+/// sport's cross-country ski trails, and every other sport's running paths.
+#[must_use]
+pub const fn sport_route_type(sport: &SportType) -> RouteType {
     match sport {
         SportType::CrossCountrySkiing
         | SportType::AlpineSkiing
         | SportType::BackcountrySkiing
-        | SportType::Snowshoe => {
-            if tags.get("piste:type").map(String::as_str) == Some("downhill") {
-                RouteType::DownhillSki
-            } else {
-                RouteType::CrossCountrySki
-            }
-        }
-        _ => {
-            let shared = tags.get("foot").map(String::as_str) == Some("designated")
-                && tags.get("bicycle").map(String::as_str) == Some("designated");
-            if shared {
-                return RouteType::MultiUse;
-            }
-            match sport {
-                SportType::Ride
-                | SportType::EbikeRide
-                | SportType::GravelRide
-                | SportType::MountainBike => RouteType::Cycling,
-                SportType::Hike | SportType::Walk => RouteType::Hiking,
-                _ => RouteType::Running,
-            }
-        }
+        | SportType::Snowshoe => RouteType::CrossCountrySki,
+        SportType::Ride
+        | SportType::EbikeRide
+        | SportType::GravelRide
+        | SportType::MountainBike => RouteType::Cycling,
+        SportType::Hike | SportType::Walk => RouteType::Hiking,
+        _ => RouteType::Running,
     }
 }
 

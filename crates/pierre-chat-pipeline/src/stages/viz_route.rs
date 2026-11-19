@@ -20,7 +20,8 @@
 //!   `discover_routes` or `compose_route` stored for this athlete
 //!   ([`route_store`]) and which is drawn end to end
 //!   ([`RouteTrack::from_public_path`]): a trailhead is where the coach sends
-//!   the athlete, not an address to hide.
+//!   the athlete, not an address to hide. An athlete's own loop is stored
+//!   already privacy-trimmed, so its line never shows where the ride left.
 //!
 //! Every series carried alongside the coordinates is either absent or exactly
 //! as long as them. A padded elevation array would put a climb marker on the
@@ -100,8 +101,9 @@ impl RouteSubject {
     /// cannot check is the citation behind each: only a tool that stores a
     /// proposed route's line can have handed the model a `route_ref`, so a
     /// block citing any other tool did not copy its ref from a result — and
-    /// those tools return no activity, so an `activity_id` citing one did not
-    /// come from them either. Holding both ways is what lets a client tell a
+    /// those tools' routes are drawn only by the ref they return, so an
+    /// `activity_id` citing one is refused, even an own loop's ride that
+    /// `discover_routes` names. Holding both ways is what lets a client tell a
     /// proposed map from a recorded one by its `source_tool` alone.
     fn of_block(fields: &Map<String, Value>) -> Result<Self, String> {
         let source_tool = fields
@@ -126,9 +128,9 @@ impl RouteSubject {
         };
         if proposed_tool {
             return Err(format!(
-                "activity_id \"{activity_id}\" names a recorded activity, which \"{source_tool}\" \
-                 never returns; cite the tool that reported the activity, or name the route_ref \
-                 \"{source_tool}\" returned"
+                "activity_id \"{activity_id}\" cites \"{source_tool}\", whose routes are drawn \
+                 only by the route_ref it returned: name that route_ref, or cite the tool that \
+                 reported the activity"
             ));
         }
         Ok(Self::Activity(activity_id.to_owned()))
@@ -677,7 +679,7 @@ mod tests {
         let reason =
             hydrate_route(&mut activity.clone(), &tracks).expect_err("a miscited activity");
         assert!(
-            reason.contains("names a recorded activity, which \"discover_routes\" never returns"),
+            reason.contains("whose routes are drawn only by the route_ref it returned"),
             "{reason}"
         );
 
