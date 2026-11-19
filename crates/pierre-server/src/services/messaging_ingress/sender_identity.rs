@@ -29,10 +29,29 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 
+/// Settle the channel identity `message` is routed on, before anything reads
+/// its sender id as one: `false` when the sender id is a placeholder that is
+/// never linked or routed; otherwise a `WhatsApp` athlete linked by phone
+/// number is first moved onto the BSUID this message names them by, so the
+/// lookups after it find them.
+pub(super) async fn admit(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel: &str,
+    channel_type: ChannelType,
+    message: &IncomingMessage,
+) -> bool {
+    if !is_routable(channel, message) {
+        return false;
+    }
+    adopt_business_scoped_id(resources, tenant_id, channel, channel_type, message).await;
+    true
+}
+
 /// Whether `message` may be routed: its sender id names one real sender.
 ///
 /// Logs the refusal, naming the channel and message id but not the sender id.
-pub(super) fn is_routable(channel: &str, message: &IncomingMessage) -> bool {
+fn is_routable(channel: &str, message: &IncomingMessage) -> bool {
     if is_routable_sender_id(&message.sender_id) {
         return true;
     }
@@ -52,7 +71,7 @@ pub(super) fn is_routable(channel: &str, message: &IncomingMessage) -> bool {
 /// number holds one. Best effort: a failure is logged and the message goes on
 /// under its BSUID, where the athlete is offered linking again rather than
 /// routed anywhere else.
-pub(super) async fn adopt_business_scoped_id(
+async fn adopt_business_scoped_id(
     resources: &ServerContext,
     tenant_id: TenantId,
     channel: &str,

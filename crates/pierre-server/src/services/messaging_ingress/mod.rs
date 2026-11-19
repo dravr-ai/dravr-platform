@@ -595,16 +595,9 @@ async fn persist_single_message(
     message: &IncomingMessage,
     status_api_base: Option<&str>,
 ) -> Result<PersistOutcome, ()> {
-    // Before anything reads the sender id as a channel identity: a placeholder
-    // every author-less event shares is never linked or routed, and a WhatsApp
-    // athlete linked by phone number is moved onto the BSUID this message
-    // names them by, so the lookups below find them.
-    if !sender_identity::is_routable(channel, message) {
+    if !sender_identity::admit(resources, tenant_id, channel, channel_type, message).await {
         return Ok(PersistOutcome::HandledNotStored);
     }
-    sender_identity::adopt_business_scoped_id(resources, tenant_id, channel, channel_type, message)
-        .await;
-
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let thread_id = extract_thread_id(&message.metadata);
 
