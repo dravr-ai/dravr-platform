@@ -10,9 +10,9 @@ use pierre_core::models::{locale_from_language_tag, whatsapp_sender_locale};
 use serde_json::Value;
 
 /// Metadata key under which dravr-canot puts a `WhatsApp` sender's phone number
-/// (Meta's `wa_id`) when the sender id is their business-scoped user id. canot
-/// writes it from 8f2bd6c on, the commit that keys senders on their BSUID
-/// (carnet#1668); the release the platform pins still keys them on the number.
+/// (Meta's `wa_id`) whenever the webhook carried one. canot writes it from
+/// 8f2bd6c on, the commit that keys senders on their business-scoped user id
+/// (carnet#1668); v0.11.0 keys them on the number and sends no metadata.
 const WHATSAPP_PHONE_NUMBER_KEY: &str = "wa_id";
 
 /// The language a sender who has not linked an account reads, from what the
@@ -112,8 +112,8 @@ mod tests {
 
     /// The message dravr-canot builds from 8f2bd6c on (carnet#1668): the sender
     /// id is the business-scoped user id and the number, when Meta sent one,
-    /// rides in the metadata. The pinned release cannot produce it from a
-    /// webhook, so it is built here.
+    /// rides in the metadata. canot v0.11.0 cannot produce it from a webhook,
+    /// so it is built here.
     #[test]
     fn a_whatsapp_sender_keyed_on_their_bsuid_is_still_placed() {
         for (sender_id, metadata, expected) in [
@@ -128,6 +128,12 @@ mod tests {
                 "de",
             ),
             ("CA.ENT.11815799212886844830", Value::Null, "en"),
+            // A wa_id that is not a string is no number: the BSUID's country decides.
+            (
+                "FR.13491208655302741918",
+                json!({ "wa_id": 15_145_550_123_u64 }),
+                "fr",
+            ),
         ] {
             let mut message = inbound(ChannelType::WhatsApp, sender_id, json!({}));
             message.metadata = metadata;

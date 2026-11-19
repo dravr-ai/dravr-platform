@@ -275,8 +275,8 @@ fn locale_from_business_scoped_user_id(id: &str) -> Option<&'static str> {
 /// The locale a `WhatsApp` sender's identifiers suggest, the most precise
 /// first, or `None` when none of them places the sender.
 ///
-/// 1. `phone_number`, the number Meta sent in `from` when the sender id is
-///    something else: down to the area code.
+/// 1. `phone_number`, the number Meta sent in `from`, when the channel passed
+///    it beside the sender id: down to the area code.
 /// 2. `sender_id` when it is itself a phone number, as every sender id was
 ///    before Meta's business-scoped user ids.
 /// 3. The country of `sender_id` when it is a business-scoped user id.
@@ -426,6 +426,12 @@ mod tests {
                 "bug: {bsuid} does not read {expected}"
             );
         }
+        let longest = format!("FR.{}", "1".repeat(MAX_BSUID_IDENTIFIER));
+        assert_eq!(
+            locale_from_business_scoped_user_id(&longest),
+            Some("fr"),
+            "bug: a BSUID with the longest identifier Meta allows was not read"
+        );
     }
 
     #[test]
@@ -440,6 +446,8 @@ mod tests {
             "US.",
             "US.ENT.",
             "US.1349-1208",
+            "US.1349.1208",
+            ".13491208655302741918",
             too_long.as_str(),
         ] {
             assert_eq!(
@@ -457,6 +465,8 @@ mod tests {
             ("US.13491208655302741918", Some("15145550123"), Some("fr")),
             // A BSUID naming Canada and a number in Toronto.
             ("CA.13491208655302741918", Some("14165550123"), Some("en")),
+            // The metadata number is read before a sender id that is a number too.
+            ("34612345678", Some("15145550123"), Some("fr")),
             // Before BSUIDs the sender id was the number itself.
             ("15145550123", None, Some("fr")),
             // A BSUID with no number names only its country.
