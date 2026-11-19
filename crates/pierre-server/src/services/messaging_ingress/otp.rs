@@ -818,6 +818,7 @@ async fn offer_signup(
         );
     }
 
+    // LIMITATION(registre#1673): `KEY_LINK_SIGNUP_OFFER` (and the signup created / failed keys) read in French without their accents.
     let template = resources
         .mcp
         .messaging_strings_registry

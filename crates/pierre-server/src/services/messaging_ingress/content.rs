@@ -18,6 +18,8 @@ pub(super) fn content_type_label(content: &MessageContent) -> &'static str {
 }
 
 /// Extract the text body from the message content (if applicable)
+///
+/// LIMITATION(registre#1670): `content_body_text` reads only a `Media` caption, so a voice note or an uncaptioned photo gets no reply.
 pub(super) fn content_body_text(content: &MessageContent) -> Option<String> {
     match content {
         MessageContent::Text { body }
