@@ -1333,6 +1333,19 @@ jobs:
   # ---------------------------------------------------------------------------
   # Deploy to production (a dispatch on a v*.*.* tag)
   # ---------------------------------------------------------------------------
+  # The deployed revision is healthy, checked after a deploy that rolled, and
+  # only then (post-deploy-verify.yml, also runnable by hand). It used to be its
+  # own workflow_run of every Deploy run, skipped ones included.
+  verify-dev:
+    name: Post-Deploy Verification (dev)
+    needs: [deploy-dev]
+    if: ${{ needs.deploy-dev.result == 'success' }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/post-deploy-verify.yml
+    secrets: inherit
+
   # A red deploy reaches a person: nothing else watches this workflow, and a
   # red "Deploy: Build & Ship" once sat unnoticed for twelve hours. Posts to
   # #dev-dravr-errors (by ID: a #name breaks when a room is renamed) with the
@@ -1343,7 +1356,7 @@ jobs:
     name: Notify Slack of a failed deploy
     runs-on: ubuntu-latest
     timeout-minutes: 5  # one Slack post, ~15 s
-    needs: [resolve-sha, publish-server, publish-frontend, deploy-dev, tag-deployed-dev, sdk-smoke-dev, sign-in-smoke-dev, seed-dev]
+    needs: [resolve-sha, publish-server, publish-frontend, deploy-dev, tag-deployed-dev, sdk-smoke-dev, sign-in-smoke-dev, seed-dev, verify-dev]
     if: ${{ failure() }}
 
     steps:
