@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use super::{A2AResources, A2AServer, A2ATask};
 use crate::protocol_types::{rate_limit_details, A2ASpecError, Message, A2A_VERSION};
-use crate::{A2AErrorResponse, A2ARequest, A2AResponse};
+use crate::{A2ARequest, A2AResponse};
 
 /// The authenticated caller of a protocol method.
 ///
@@ -461,15 +461,11 @@ impl A2AServer {
         retry_after_secs: u64,
         request_id: Option<Value>,
     ) -> A2AResponse {
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(A2AErrorResponse {
-                code: -32000,
-                message: message.into(),
-                data: Some(rate_limit_details(retry_after_secs)),
-            }),
-            id: request_id,
-        }
+        A2AResponse::error_with_data(
+            request_id,
+            -32000,
+            message,
+            rate_limit_details(retry_after_secs),
+        )
     }
 }

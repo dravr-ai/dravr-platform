@@ -25,7 +25,7 @@ use crate::protocol_types::{
     error_info, A2ASpecError, Artifact, Message, Part, PartContent, SendMessageRequest,
     StreamResponse, Task, TaskState, WireTaskStatus,
 };
-use crate::{A2AErrorResponse, A2ARequest, A2AResponse};
+use crate::{A2ARequest, A2AResponse, JSONRPC_VERSION};
 use chrono::SecondsFormat;
 use pierre_core::models::a2a::user_task_key;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
@@ -289,23 +289,14 @@ impl A2AServer {
 
     /// Create a standard A2A JSON-RPC error response
     fn a2a_error(code: i32, message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(A2AErrorResponse {
-                code,
-                message: message.into(),
-                data: None,
-            }),
-            id: request_id,
-        }
+        A2AResponse::error(request_id, code, message)
     }
 
     /// Create an A2A-spec error response (`-32001..-32009`) with the
     /// mandatory `google.rpc.ErrorInfo` detail.
     fn spec_error(err: A2ASpecError, request_id: Option<Value>) -> A2AResponse {
         A2AResponse {
-            jsonrpc: "2.0".into(),
+            jsonrpc: JSONRPC_VERSION.to_owned(),
             result: None,
             error: Some(err.into()),
             id: request_id,
@@ -320,16 +311,7 @@ impl A2AServer {
         message: impl Into<String>,
         request_id: Option<Value>,
     ) -> A2AResponse {
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(A2AErrorResponse {
-                code: err.code(),
-                message: message.into(),
-                data: Some(error_info(err.reason())),
-            }),
-            id: request_id,
-        }
+        A2AResponse::error_with_data(request_id, err.code(), message, error_info(err.reason()))
     }
 
     /// Create an invalid-params (`-32602`) error response.
@@ -340,16 +322,12 @@ impl A2AServer {
     /// Create an authentication-failure response. Carries the
     /// `AUTHENTICATION_REQUIRED` reason so HTTP bindings can map it to 401.
     fn auth_error(message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(A2AErrorResponse {
-                code: -32000,
-                message: message.into(),
-                data: Some(error_info("AUTHENTICATION_REQUIRED")),
-            }),
-            id: request_id,
-        }
+        A2AResponse::error_with_data(
+            request_id,
+            -32000,
+            message,
+            error_info("AUTHENTICATION_REQUIRED"),
+        )
     }
 
     /// Create a standard server-not-configured error response
@@ -359,12 +337,7 @@ impl A2AServer {
 
     /// Successful JSON-RPC response wrapper.
     fn ok(result: Value, request_id: Option<Value>) -> A2AResponse {
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: Some(result),
-            error: None,
-            id: request_id,
-        }
+        A2AResponse::success(request_id, result)
     }
 
     /// Current instant in the spec's ISO-8601 UTC millisecond format.

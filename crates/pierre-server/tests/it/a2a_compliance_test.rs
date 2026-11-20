@@ -20,21 +20,12 @@ use pierre_mcp_server::a2a::protocol_types::{
 };
 use pierre_mcp_server::a2a::A2ARequest;
 use serde_json::json;
-use std::collections::HashMap;
 
 /// JSON-RPC implementation-defined server error (config/auth failures)
 const SERVER_ERROR_CODE: i32 = -32000;
 
 fn request(method: &str, params: Option<serde_json::Value>) -> A2ARequest {
-    A2ARequest {
-        jsonrpc: "2.0".to_owned(),
-        method: method.to_owned(),
-        params,
-        id: Some(json!(1)),
-        auth_token: None,
-        headers: None,
-        metadata: HashMap::new(),
-    }
+    A2ARequest::with_id(method, params, json!(1))
 }
 
 #[test]

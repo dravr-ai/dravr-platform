@@ -18,7 +18,6 @@ use pierre_a2a::protocol::A2AServer;
 use pierre_a2a::protocol_types::{Message, Part, Role};
 use pierre_a2a::A2ARequest;
 use serde_json::json;
-use std::collections::HashMap;
 
 fn user_message(parts: Vec<Part>) -> Message {
     Message {
@@ -66,21 +65,17 @@ async fn test_send_message_requires_auth() {
     let server = A2AServer::new();
 
     // Without resources/auth the server must reject SendMessage.
-    let request = A2ARequest {
-        jsonrpc: "2.0".to_owned(),
-        method: "SendMessage".to_owned(),
-        params: Some(json!({
+    let request = A2ARequest::with_id(
+        "SendMessage",
+        Some(json!({
             "message": {
                 "messageId": "m-1",
                 "role": "ROLE_USER",
                 "parts": [{ "text": "hi" }]
             }
         })),
-        id: Some(json!(7)),
-        auth_token: None,
-        headers: None,
-        metadata: HashMap::new(),
-    };
+        json!(7),
+    );
 
     let response = server.handle_request(request).await;
     assert!(response.result.is_none());
