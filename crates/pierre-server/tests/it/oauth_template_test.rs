@@ -1103,6 +1103,10 @@ fn a_french_consent_page_says_every_line_in_french() {
     let keys: Vec<&str> = consent_flow_keys()
         .into_iter()
         .filter(|key| key.starts_with("oauth.consent."))
+        // The role lines show on a coach's or an admin's page only, and this
+        // page renders neither role yet; carnet#1511 renders them and checks
+        // them in French through a coach-and-admin page.
+        .filter(|key| !key.starts_with("oauth.consent.role"))
         .collect();
     let french = every_consent_line_in("fr");
     let bodies = [page_body(&french[0]), page_body(&french[1])];
