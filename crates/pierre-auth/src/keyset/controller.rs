@@ -241,9 +241,11 @@ pub async fn stage_key(
     Ok(version)
 }
 
-/// Count what is still sealed under data `version`: the stored rows, the
-/// unreadable ones, and each external holder's values sealed before
-/// `demoted_at` + the fleet window. Holder counts are written into `state`.
+/// Count what is still sealed under data `version`.
+///
+/// The stored rows, the unreadable ones, and each external holder's values
+/// sealed before `demoted_at` + the fleet window. Holder counts are written
+/// into `state`.
 ///
 /// # Errors
 ///
