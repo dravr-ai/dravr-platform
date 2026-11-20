@@ -85,7 +85,7 @@ pub(super) fn needs_text_only_reply(
 /// A blank caption and canot's unsupported-type placeholder read as no text, so neither
 /// reaches the agent, the intake or a slash-command parse.
 ///
-/// LIMITATION(registre#1670): media content is never read — a voice note, photo, video or document is not downloaded, transcribed or analysed, so it only draws the text-only reply, and a caption is all the agent sees.
+/// LIMITATION(registre#1695): media content is never read — a voice note, photo, video or document is not downloaded, transcribed or analysed, so it only draws the text-only reply, and a caption is all the agent sees.
 pub(super) fn content_body_text(content: &MessageContent) -> Option<String> {
     match content {
         MessageContent::Text { .. } if is_unsupported_placeholder(content) => None,

@@ -307,10 +307,7 @@ pub(super) async fn link_time_reply(
     }
 }
 
-/// Emit the post-link notify pair: `messaging.identity_alias` (pairs the
-/// linked Pierre user with the hashed `{channel}:{sender_id}` pre-link
-/// identity, in Cloud Logging only: the analytics sink strips
-/// `channel_identity`) and `messaging.linking_completed`. `link_method` is
+/// Emit the `messaging.linking_completed` notify event. `link_method` is
 /// `deep_link` or `otp`.
 ///
 /// `user_id` is the raw (un-hashed) Pierre user id. Shared by the deep-link
@@ -319,18 +316,8 @@ pub(super) fn emit_linking_success(
     user_id: &str,
     tenant_id: TenantId,
     channel: &str,
-    sender_id: &str,
     link_method: &str,
 ) {
-    let channel_identity = super::pre_link_identity(channel, sender_id);
-    info!(
-        target: "notify",
-        event = "messaging.identity_alias",
-        user_id = %user_id,
-        tenant_id = %tenant_id,
-        channel_identity = %channel_identity,
-        "channel identity aliased to linked user"
-    );
     info!(
         target: "notify",
         event = "messaging.linking_completed",
@@ -458,7 +445,7 @@ pub(super) async fn confirm_held_link(
         match execute_link_code(db, tenant_id, channel, sender_id, code).await {
             Ok(user_id) => {
                 info!(channel = %channel, user_id = %user_id, "Channel linked via deep link");
-                emit_linking_success(&user_id, tenant_id, channel, sender_id, "deep_link");
+                emit_linking_success(&user_id, tenant_id, channel, "deep_link");
                 // Run the unified channel-auth path on the freshly-minted link so
                 // the immediate reply reflects approval state exactly as every
                 // subsequent inbound message will.

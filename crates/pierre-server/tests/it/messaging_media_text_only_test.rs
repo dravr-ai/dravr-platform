@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! Nothing downloads, transcribes or analyses inbound media (carnet#1670), so a
+//! Nothing downloads, transcribes or analyses inbound media (carnet#1695), so a
 //! message with nothing but media sent to the agent gets one short localized
 //! reply saying the agent reads text, and it never reaches the model. A
 //! captioned photo is answered from its caption. A photo posted into a room

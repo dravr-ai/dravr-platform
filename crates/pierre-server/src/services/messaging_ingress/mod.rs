@@ -339,9 +339,7 @@ pub(crate) async fn persist_inbound(
 /// on Telegram. The hash correlates one sender's events in Cloud Logging; it is
 /// unkeyed, so it is reversible over the phone-number space and must not leave
 /// the logs. Consent is keyed on a Pierre user and the analytics sink hashes
-/// `user_id` again, so a pre-link event is never captured in `PostHog`, and
-/// `messaging.identity_alias` carries it as `channel_identity`, a key the sink
-/// strips (carnet#1680).
+/// `user_id` again, so a pre-link event is never captured in `PostHog`.
 pub(super) fn pre_link_identity(channel: &str, sender_id: &str) -> String {
     hash_id(&format!("{channel}:{sender_id}"))
 }
