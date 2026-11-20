@@ -394,7 +394,7 @@ impl KeysetController {
                     false
                 }
             };
-            if let Some(transition) = doc.record_drain(family, version, drained, now) {
+            if let Some(transition) = doc.record_drain(version, drained, now) {
                 disabled.push(transition);
             }
         }

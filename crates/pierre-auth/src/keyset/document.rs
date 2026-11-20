@@ -439,16 +439,16 @@ impl KeysetDocument {
             .collect()
     }
 
-    /// Record a drain count for a `decrypt_only` version: a zero after an
-    /// earlier zero disables it; a first zero marks it drained; anything
+    /// Record a drain count for a data `decrypt_only` version: a zero after
+    /// an earlier zero disables it; a first zero marks it drained; anything
     /// else clears the mark. The transition, when it was disabled.
     pub fn record_drain(
         &mut self,
-        family: KeyFamily,
         version: u32,
         drained: bool,
         now: DateTime<Utc>,
     ) -> Option<Transition> {
+        let family = KeyFamily::Data;
         let key = self.families.get_mut(&family)?.get_mut(&version)?;
         if key.state != KeyState::DecryptOnly {
             return None;
@@ -484,20 +484,14 @@ impl KeysetDocument {
     ///
     /// # Errors
     ///
-    /// When the version is not disabled, or it is an index key while the
-    /// index family already holds two loaded keys: a lookup binds at most
-    /// two, so a third would fail every process's keyring build.
+    /// When the version is not disabled. An index key never is: a used index
+    /// key is never retired.
     pub fn enable(
         &mut self,
         family: KeyFamily,
         version: u32,
         now: DateTime<Utc>,
     ) -> AppResult<Transition> {
-        if family == KeyFamily::Index && self.loaded(KeyFamily::Index).len() >= 2 {
-            return Err(AppError::invalid_input(format!(
-                "index v{version} cannot be enabled while two index keys are loaded; a lookup binds at most two, so let the rotation in progress finish first"
-            )));
-        }
         let key = self.key_mut(family, version)?;
         if key.state != KeyState::Disabled {
             return Err(AppError::invalid_input(format!(
@@ -789,22 +783,22 @@ mod tests {
         );
 
         assert_eq!(
-            doc.record_drain(KeyFamily::Data, 1, true, at(40)),
+            doc.record_drain(1, true, at(40)),
             None,
             "a first zero only marks the key drained"
         );
         // A row reappeared: the mark is cleared, and the count starts over.
         assert_eq!(
-            doc.record_drain(KeyFamily::Data, 1, false, at(45)),
+            doc.record_drain(1, false, at(45)),
             None,
             "a non-zero count clears the mark"
         );
         assert_eq!(
-            doc.record_drain(KeyFamily::Data, 1, true, at(50)),
+            doc.record_drain(1, true, at(50)),
             None,
             "the count starts over after a non-zero"
         );
-        let disabled = doc.record_drain(KeyFamily::Data, 1, true, at(55)).unwrap();
+        let disabled = doc.record_drain(1, true, at(55)).unwrap();
         assert_eq!(
             disabled.message(),
             "data v1 disabled",
@@ -826,8 +820,8 @@ mod tests {
         let mut doc = KeysetDocument::fresh(at(0));
         doc.stage(KeyFamily::Data, 2, at(0)).unwrap();
         doc.promote_due(at(15));
-        doc.record_drain(KeyFamily::Data, 1, true, at(40));
-        doc.record_drain(KeyFamily::Data, 1, true, at(45));
+        doc.record_drain(1, true, at(40));
+        doc.record_drain(1, true, at(45));
 
         assert!(
             doc.check_destroyable(KeyFamily::Data, 1, at(45 + 60 * 24 * 13))
@@ -859,52 +853,16 @@ mod tests {
     }
 
     #[test]
-    fn an_index_key_is_not_enabled_while_two_index_keys_are_loaded() {
-        let mut doc = KeysetDocument::fresh(at(0));
-        doc.stage(KeyFamily::Index, 2, at(0)).unwrap();
-        doc.promote_due(at(15));
-        doc.record_drain(KeyFamily::Index, 1, true, at(40));
-        doc.record_drain(KeyFamily::Index, 1, true, at(45));
-        doc.stage(KeyFamily::Index, 3, at(50)).unwrap();
-        assert_eq!(
-            doc.loaded(KeyFamily::Index),
-            vec![2, 3],
-            "the test setup leaves k2 primary and k3 staged"
-        );
-        assert!(
-            doc.enable(KeyFamily::Index, 1, at(51)).is_err(),
-            "a third loaded index key is refused"
-        );
-        assert_eq!(
-            doc.versions(KeyFamily::Index)[&1].state,
-            KeyState::Disabled,
-            "a refused enable leaves the key disabled"
-        );
-        doc.promote_due(at(65));
-        doc.record_drain(KeyFamily::Index, 2, true, at(90));
-        doc.record_drain(KeyFamily::Index, 2, true, at(95));
-        assert!(
-            doc.enable(KeyFamily::Index, 1, at(96)).is_ok(),
-            "with one index key loaded, enabling a second is allowed"
-        );
-        assert_eq!(
-            doc.loaded(KeyFamily::Index),
-            vec![1, 3],
-            "the enabled key and the primary are loaded"
-        );
-    }
-
-    #[test]
     fn version_two_is_destroyed_once_disabled_long_enough() {
         let mut doc = KeysetDocument::fresh(at(0));
         doc.stage(KeyFamily::Data, 2, at(0)).unwrap();
         doc.promote_due(at(15));
-        doc.record_drain(KeyFamily::Data, 1, true, at(40));
-        doc.record_drain(KeyFamily::Data, 1, true, at(45));
+        doc.record_drain(1, true, at(40));
+        doc.record_drain(1, true, at(45));
         doc.stage(KeyFamily::Data, 3, at(50)).unwrap();
         doc.promote_due(at(65));
-        doc.record_drain(KeyFamily::Data, 2, true, at(90));
-        doc.record_drain(KeyFamily::Data, 2, true, at(95));
+        doc.record_drain(2, true, at(90));
+        doc.record_drain(2, true, at(95));
         let later = at(95 + 60 * 24 * 14);
         let destroyed = doc.destroy(KeyFamily::Data, 2, later).unwrap();
         assert_eq!(destroyed.to, KeyState::Destroyed, "v2 is destroyed");

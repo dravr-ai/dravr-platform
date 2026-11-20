@@ -624,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn the_shared_v1_row_is_rewrapped_once_and_while_either_family_needs_it() {
+    fn the_shared_v1_row_is_rewrapped_once_and_kept_while_index_v1_is() {
         let mut doc = KeysetDocument::fresh(at(0));
         assert_eq!(
             document_key_slots(&doc),
@@ -635,27 +635,25 @@ mod tests {
         doc.stage(KeyFamily::Data, 2, at(0)).unwrap();
         doc.stage(KeyFamily::Index, 2, at(0)).unwrap();
         doc.promote_due(at(15));
-        for family in KeyFamily::ALL {
-            doc.record_drain(family, 1, true, at(40));
-            doc.record_drain(family, 1, true, at(45));
-        }
+        doc.record_drain(1, true, at(40));
+        doc.record_drain(1, true, at(45));
         let later = at(45 + 60 * 24 * 15);
-        doc.destroy(KeyFamily::Data, 1, later).unwrap();
+        assert!(
+            doc.destroy(KeyFamily::Data, 1, later).is_err(),
+            "bug: data v1 is destroyed while index v1, the same row, is kept"
+        );
+        assert!(
+            doc.destroy(KeyFamily::Index, 1, later).is_err(),
+            "bug: a used index key is destroyed"
+        );
         assert_eq!(
             document_key_slots(&doc),
             vec![
+                (KeyFamily::Data, 1),
                 (KeyFamily::Data, 2),
-                (KeyFamily::Index, 1),
                 (KeyFamily::Index, 2)
             ],
-            "index v1 is disabled, not destroyed, so the shared row is still re-wrapped"
-        );
-
-        doc.destroy(KeyFamily::Index, 1, later).unwrap();
-        assert_eq!(
-            document_key_slots(&doc),
-            vec![(KeyFamily::Data, 2), (KeyFamily::Index, 2)],
-            "once both families destroyed v1 its row is gone"
+            "the shared v1 row is still re-wrapped, once"
         );
     }
 }
