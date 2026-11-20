@@ -544,15 +544,29 @@ impl CommandE2e {
         latitude: f64,
         longitude: f64,
     ) -> WebhookOutcome {
+        self.send_dm_content(
+            m,
+            json!({ "location": { "latitude": latitude, "longitude": longitude } }),
+        )
+        .await
+    }
+
+    /// A signed Telegram DM from `m` whose message carries `content` — the
+    /// non-text fields Telegram sends for a photo, a voice note or a sticker
+    /// (`{"voice": {...}}`, `{"photo": [...], "caption": "..."}`) — in place
+    /// of a `text`.
+    pub(crate) async fn send_dm_content(&self, m: &Member, content: Value) -> WebhookOutcome {
         let message_id = self.update_id.fetch_add(1, Ordering::SeqCst);
         let sender: i64 = m.channel_user_id.parse().unwrap();
-        self.post_update(json!({
-            "message_id": message_id,
-            "from": { "id": sender, "first_name": "Member" },
-            "chat": { "id": sender, "type": "private" },
-            "location": { "latitude": latitude, "longitude": longitude }
-        }))
-        .await
+        let update = with_fields(
+            json!({
+                "message_id": message_id,
+                "from": { "id": sender, "first_name": "Member" },
+                "chat": { "id": sender, "type": "private" }
+            }),
+            &content,
+        );
+        self.post_update(update).await
     }
 
     /// The member's messaging session id under `tenant` for `chat_id`
@@ -894,6 +908,17 @@ fn group_message(sender: i64, chat_id: i64, message_id: i64, text: &str) -> Valu
     })
 }
 
+/// `message` with every field of `content` set on it: the non-text fields
+/// Telegram sends for a photo, a voice note, a sticker or a location, laid onto
+/// an update.
+fn with_fields(mut message: Value, content: &Value) -> Value {
+    let fields = content.as_object().expect("content is a JSON object");
+    for (key, value) in fields {
+        message[key] = value.clone();
+    }
+    message
+}
+
 impl RoomE2e {
     /// Bind a fresh supergroup: a system agent + a `CoachingGroup` pre-bound
     /// to `chat_id` under the bot tenant in `mode`, with `owner` enrolled.
@@ -999,6 +1024,20 @@ impl RoomE2e {
             "text": "Solid week so far."
         });
         self.base.post_update(message).await
+    }
+
+    /// A room message from `m` carrying `content` in place of a `text`, as
+    /// [`CommandE2e::send_dm_content`] does for a DM. Unaddressed unless
+    /// `content` addresses the bot itself, with a `reply_to_message` from it.
+    pub(crate) async fn send_room_content(&self, m: &Member, content: Value) -> WebhookOutcome {
+        let sender: i64 = m.channel_user_id.parse().unwrap();
+        let message_id = self.base.update_id.fetch_add(1, Ordering::SeqCst);
+        let mut message = group_message(sender, self.chat_id, message_id, "");
+        message
+            .as_object_mut()
+            .expect("a group message is a JSON object")
+            .remove("text");
+        self.base.post_update(with_fields(message, &content)).await
     }
 
     /// A slash command in the room. Slash commands bypass the ambient gate by

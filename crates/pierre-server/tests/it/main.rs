@@ -550,6 +550,7 @@ mod messaging_link_binding_test;
 mod messaging_link_oauth_origin_test;
 mod messaging_linking_test;
 mod messaging_locale_test;
+mod messaging_media_text_only_test;
 mod messaging_onboarding_replies_test;
 mod messaging_otp_linking_test;
 mod messaging_pairing_confirm_test;

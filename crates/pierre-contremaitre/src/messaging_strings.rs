@@ -270,6 +270,12 @@ pub const KEY_AGENT_SCOPE_CARVE_OUT_RECIPES: &str = "messaging.scope.carve_out.r
 /// Key: short placeholder shown in-channel (Telegram/Slack/Discord) while
 /// the LLM is still generating the reply — e.g. "thinking…" / "réflexion…".
 pub const KEY_THINKING_PLACEHOLDER: &str = "messaging.thinking_placeholder";
+/// Key: reply to a voice note, a photo without a caption, or another media
+/// message the agent cannot read yet.
+///
+/// Sent instead of silence and never forwarded to the model: the platform
+/// downloads no media, so the only thing it can say is that it reads text.
+pub const KEY_MEDIA_TEXT_ONLY: &str = "messaging.media_text_only";
 /// Key: reply for unmatched slash commands.
 ///
 /// Fires when the user types a `/something` prefix that doesn't match any

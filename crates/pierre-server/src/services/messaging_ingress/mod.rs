@@ -70,9 +70,15 @@ use outbound_send::{
 mod content;
 /// The tapped button's label, echoed where a Telegram inline tap posts nothing.
 mod tap_echo;
-use content::{content_body_text, content_type_label};
+use content::{content_body_text, content_type_label, is_ignorable_placeholder};
+/// The group respond-mode gate: ambient room chatter the agent stays out of.
+mod respond_mode;
+use respond_mode::is_ambient_group_message;
+/// The "text only for now" reply to a voice note or a photo without a caption.
+mod text_only_reply;
 /// Ambient room-chatter capture into the shared group transcript read model.
 mod transcript;
+use text_only_reply::{send_text_only_reply, TextOnlyReply};
 
 /// Lays an assistant turn's blocks out as ordered channel messages, splitting
 /// prose past the channel's per-message ceiling.
@@ -103,7 +109,6 @@ use slash::{try_handle_slash_command, SlashCommandContext};
 
 use dravr_canot::channel::MessagingChannel;
 use pierre_auth::auth::AuthResult;
-use pierre_core::models::groups::GroupRespondMode;
 use pierre_core::models::messaging::{ChannelType, IncomingMessage};
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
@@ -288,6 +293,13 @@ pub(crate) async fn persist_inbound(
     let mut pending_dispatches = Vec::new();
 
     for message in messages {
+        // canot's stand-in for a type it does not parse is, on WhatsApp, mostly a
+        // reaction or a sticker: nothing to read and nothing to answer, so it is
+        // dropped here, ahead of any link prompt, session or ledger row.
+        if is_ignorable_placeholder(&message.content, channel_type) {
+            debug!(channel = %channel, "unsupported message type dropped without a reply");
+            continue;
+        }
         match persist_single_message(
             resources,
             channel,
@@ -822,122 +834,56 @@ async fn persist_single_message(
     // sanitization scanner. Verbatim user text is preserved in the stored
     // message above for audit/compliance; only the LLM-bound copy gets the
     // redaction so injection patterns never reach prompt assembly.
-    content_body_text(&message.content).map_or_else(
-        || {
-            info!("Skipping non-text message for LLM dispatch");
-            Ok(PersistOutcome::StoredNoDispatch)
-        },
-        |text_content| {
-            let sanitized = sanitize_for_dispatch(channel, &session.user_id, text_content);
-            Ok(PersistOutcome::StoredWithDispatch(Box::new(
-                PendingDispatch {
-                    resources: Arc::clone(resources),
-                    adapter: Arc::clone(adapter),
-                    auth_result,
-                    session,
-                    channel_tenant_id: tenant_id,
-                    user_tenant_id,
-                    session_tenant_id,
-                    channel_type,
-                    channel: channel.to_owned(),
-                    sender_id: message.sender_id.clone(),
-                    conversation_id: message.conversation_id.clone(),
-                    text_content: sanitized,
-                    channel_message_id: message.channel_message_id.clone(),
-                    thread_id,
-                    is_group_chat: !message.is_direct_message,
-                    locale,
-                    // Canot generates the turn id at the webhook boundary
-                    // (see canot's IncomingMessage::turn_id); adopt it so
-                    // canot-emitted log spans and the platform's
-                    // /internal/conversation-turn row share one key.
-                    turn_id: message.turn_id.into(),
-                    status_api_base: status_api_base.map(str::to_owned),
-                    // Recorded by `start_turn`, which hands the row on.
-                    record: None,
-                },
-            )))
-        },
-    )
-}
-
-/// Resolve the respond mode of the coaching group bound to a channel chat.
-///
-/// No chat id, no group binding, or a lookup failure all resolve to
-/// [`GroupRespondMode::All`] — the pre-feature behavior — so a transient DB
-/// error can only ever make the agent chattier, never mute it.
-async fn channel_group_respond_mode(
-    resources: &ServerContext,
-    tenant_id: TenantId,
-    channel: &str,
-    conversation_id: Option<&str>,
-) -> GroupRespondMode {
-    let Some(chat_id) = conversation_id.filter(|c| !c.is_empty()) else {
-        return GroupRespondMode::All;
+    let Some(text_content) = content_body_text(&message.content) else {
+        // Nothing the agent can read: a voice note or a bare photo sent to the agent
+        // draws the text-only reply, a pin draws nothing (`needs_text_only_reply`).
+        send_text_only_reply(
+            resources,
+            &TextOnlyReply {
+                tenant_id,
+                session_tenant_id,
+                channel,
+                channel_type,
+                adapter,
+                message,
+                session: &session,
+                thread_id,
+                locale: &locale,
+            },
+        )
+        .await;
+        info!("Skipping non-text message for LLM dispatch");
+        return Ok(PersistOutcome::StoredNoDispatch);
     };
-    match resources
-        .common
-        .repos
-        .groups
-        .get_group_by_channel(tenant_id, channel, chat_id)
-        .await
-    {
-        Ok(Some(group)) => group.respond_mode,
-        Ok(None) => GroupRespondMode::All,
-        Err(e) => {
-            warn!(
-                error = %e,
-                channel = %channel,
-                "respond-mode lookup failed; answering (fail-open to pre-feature behavior)"
-            );
-            GroupRespondMode::All
-        }
-    }
-}
-
-/// `true` when this inbound is ambient room conversation the agent must not
-/// answer: a group-chat message in a mentions-mode group that neither
-/// addresses the bot nor invokes a slash command.
-async fn is_ambient_group_message(
-    resources: &ServerContext,
-    tenant_id: TenantId,
-    channel: &str,
-    message: &IncomingMessage,
-) -> bool {
-    if message.is_direct_message || message.addressed_to_bot {
-        return false;
-    }
-    // Slash commands stay live unaddressed — `/group respond all` must work
-    // without a mention, or the owner could never leave mentions mode from
-    // inside the chat. Their replies are already delivered privately in
-    // shared rooms, so honoring them adds no room noise.
-    if content_body_text(&message.content).is_some_and(|t| t.trim_start().starts_with('/')) {
-        return false;
-    }
-    if channel_group_respond_mode(
-        resources,
-        tenant_id,
-        channel,
-        message.conversation_id.as_deref(),
-    )
-    .await
-        != GroupRespondMode::Mentions
-    {
-        return false;
-    }
-    // A member mid guided walk answers the agent's question unaddressed — an
-    // interview that demanded an @-mention per answer would shed its athlete
-    // by question two. Only the walker is exempted: the lookup resolves the
-    // SENDER's own room session (rooms are per-member), so everyone else's
-    // unaddressed chatter stays silently captured.
-    !session::sender_room_walk_is_active(
-        resources,
-        tenant_id,
-        channel,
-        &message.sender_id,
-        message.conversation_id.as_deref(),
-    )
-    .await
+    let sanitized = sanitize_for_dispatch(channel, &session.user_id, text_content);
+    Ok(PersistOutcome::StoredWithDispatch(Box::new(
+        PendingDispatch {
+            resources: Arc::clone(resources),
+            adapter: Arc::clone(adapter),
+            auth_result,
+            session,
+            channel_tenant_id: tenant_id,
+            user_tenant_id,
+            session_tenant_id,
+            channel_type,
+            channel: channel.to_owned(),
+            sender_id: message.sender_id.clone(),
+            conversation_id: message.conversation_id.clone(),
+            text_content: sanitized,
+            channel_message_id: message.channel_message_id.clone(),
+            thread_id,
+            is_group_chat: !message.is_direct_message,
+            locale,
+            // Canot generates the turn id at the webhook boundary
+            // (see canot's IncomingMessage::turn_id); adopt it so
+            // canot-emitted log spans and the platform's
+            // /internal/conversation-turn row share one key.
+            turn_id: message.turn_id.into(),
+            status_api_base: status_api_base.map(str::to_owned),
+            // Recorded by `start_turn`, which hands the row on.
+            record: None,
+        },
+    )))
 }
 
 /// Silently capture an ambient group message for the room transcript.
