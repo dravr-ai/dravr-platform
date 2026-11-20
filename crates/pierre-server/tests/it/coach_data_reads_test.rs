@@ -1390,7 +1390,7 @@ async fn a_read_in_a_support_session_is_recorded_and_listed_as_supports() {
     );
     assert!(
         support_lines[0].contains("get_training_history")
-            && !support_lines[0].contains("an AI tool your coach connects"),
+            && !support_lines[0].contains("an AI tool your coach connects"), // humanCoach.reads_served_to_assistant
         "bug: the support read names support alone: {listed}"
     );
     assert!(
