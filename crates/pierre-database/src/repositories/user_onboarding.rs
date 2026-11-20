@@ -85,7 +85,7 @@ pub trait UserOnboardingRepository: Send + Sync {
     ) -> AppResult<OnboardingReset>;
 }
 
-/// How much an onboarding reset clears, chosen by the operator per call.
+/// How much an onboarding reset clears, chosen by the admin per call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OnboardingResetScope {
     /// The step records, what onboarding captured, and the profile document.
@@ -95,7 +95,7 @@ pub enum OnboardingResetScope {
     WithMemory,
 }
 
-/// What an onboarding reset changed, by label, for the operator's report.
+/// What an onboarding reset changed, by label, for the admin's report.
 /// Labels with no affected row are absent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OnboardingReset {
@@ -171,7 +171,7 @@ pub const ONBOARDING_RESET_STATEMENTS: &[(&str, &str)] = &[
 /// The memory half of a reset.
 ///
 /// Run after [`ONBOARDING_RESET_STATEMENTS`] when
-/// the operator asks for it: every remaining fact and agent note about the
+/// the admin asks for it: every remaining fact and agent note about the
 /// user, and their own in-app conversations (messages, verdicts and feedback
 /// cascade with them). Room threads, threads shared with anyone else and a
 /// coach's threads about the athletes they coach stay.

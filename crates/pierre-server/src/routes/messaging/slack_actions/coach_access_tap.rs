@@ -45,20 +45,20 @@ pub(super) async fn answer_coach_access_tap(
 ) -> AppResult<(StatusCode, Json<Value>)> {
     let decider = format!("@{}", action.slack_username);
 
-    let operator =
+    let admin =
         match authorize_admin(resources, &action.slack_user_id, AdminDecision::CoachAccess).await {
-            Ok(operator) => operator,
+            Ok(admin) => admin,
             Err(refused) => {
                 keep_card_with_reason(resources, action, &refused.room_line(&decider));
                 return Err(refused.error);
             }
         };
 
-    match decide_coach_access(resources, decision, request_id, operator, &decider).await {
+    match decide_coach_access(resources, decision, request_id, admin, &decider).await {
         Ok(outcome) => {
             info!(
                 request_id = %request_id,
-                operator_user_id = %operator,
+                admin_user_id = %admin,
                 slack_user = %action.slack_user_id,
                 "Coach access request decided via Slack action"
             );
@@ -93,13 +93,13 @@ pub(super) async fn answer_coach_access_tap(
     }
 }
 
-/// Take `decision` on the request for `operator`, returning the outcome line
+/// Take `decision` on the request for `admin`, returning the outcome line
 /// the card shows.
 async fn decide_coach_access(
     resources: &ServerContext,
     decision: CoachAccessDecision,
     request_id: Uuid,
-    operator: Uuid,
+    admin: Uuid,
     decider: &str,
 ) -> AppResult<String> {
     let repos = &resources.common.repos;
@@ -107,7 +107,7 @@ async fn decide_coach_access(
     match decision {
         CoachAccessDecision::Grant => {
             let outcome =
-                coach_access::grant(repos, request_id, Some(operator), Some(&notices)).await?;
+                coach_access::grant(repos, request_id, Some(admin), Some(&notices)).await?;
             Ok(match outcome.attached_groups.len() {
                 0 => format!("Coach access granted by {decider}"),
                 1 => format!("Coach access granted by {decider}; they now coach their group"),
@@ -115,7 +115,7 @@ async fn decide_coach_access(
             })
         }
         CoachAccessDecision::Decline => {
-            coach_access::decline(repos, request_id, Some(operator), None, Some(&notices)).await?;
+            coach_access::decline(repos, request_id, Some(admin), None, Some(&notices)).await?;
             Ok(format!("Coach access declined by {decider}"))
         }
     }

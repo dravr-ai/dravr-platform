@@ -1,5 +1,5 @@
 // ABOUTME: `pierre-cli audit list` — the admin audit trail of a remote server, newest first
-// ABOUTME: What operators did through the console and pierre-cli: who, what, which target, the outcome
+// ABOUTME: What admins did through the console and pierre-cli: who, what, which target, the outcome
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,7 +17,7 @@ use crate::commands::auth::admin_client;
 #[non_exhaustive]
 #[derive(Subcommand)]
 pub(crate) enum AuditCommand {
-    /// List what operators did, newest first
+    /// List what admins did, newest first
     List {
         /// At most this many rows (the server caps it at 200)
         #[arg(long, default_value_t = 50)]

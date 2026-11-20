@@ -10,7 +10,7 @@ import { axios } from './client';
 export interface CoachSeatInvitation {
   email: string;
   invited_by: string | null;
-  /** The inviting operator's address, while their account exists. */
+  /** The inviting admin's address, while their account exists. */
   invited_by_email: string | null;
   created_at: string;
   expires_at: string;

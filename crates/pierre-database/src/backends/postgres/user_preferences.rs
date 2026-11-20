@@ -12,15 +12,15 @@
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{CoachingPersona, OperatorRosterGrant};
+use pierre_core::models::{AdminRosterGrant, CoachingPersona};
 use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
 
 use crate::repositories::user_preferences::{
     impl_user_preferences, GET_COACHES_OTHERS_SQL, GET_PROVIDER_TERMS_SQL,
-    GET_ROSTER_OPERATOR_GRANT_SQL, REVOKE_EARNED_ROSTER_SQL, SET_ANALYTICS_CONSENT_SQL,
+    GET_ROSTER_ADMIN_GRANT_SQL, REVOKE_EARNED_ROSTER_SQL, SET_ANALYTICS_CONSENT_SQL,
     SET_COACHES_OTHERS_SQL, SET_COACHING_PERSONA_SQL, SET_LOCALE_SQL, SET_MANAGES_ROSTER_SQL,
-    SET_PROVIDER_TERMS_SQL, SET_ROSTER_BY_OPERATOR_SQL, SET_THEME_SQL, SET_TIMEZONE_SQL,
+    SET_PROVIDER_TERMS_SQL, SET_ROSTER_BY_ADMIN_SQL, SET_THEME_SQL, SET_TIMEZONE_SQL,
     WITHDRAW_PROVIDER_TERMS_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;

@@ -698,7 +698,7 @@ pub struct StravaPoolApp {
     pub seat_cap: u32,
     /// Whether this app is eligible for new connections.
     pub enabled: bool,
-    /// Optional operator label (e.g. "dravr-app-2").
+    /// Optional admin label (e.g. "dravr-app-2").
     pub label: Option<String>,
     /// Row creation time, Unix epoch seconds.
     pub created_at: i64,

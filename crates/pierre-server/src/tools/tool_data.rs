@@ -323,7 +323,7 @@ const TOOL_DATA: &[(&str, ToolData)] = &[
     ("show_agent", ToolData::own(&[])),
     ("toggle_agent_favorite", ToolData::own(&[])),
     ("install_agent_from_store", ToolData::own(&[])),
-    // Operator tools over the system agents.
+    // Admin tools over the system agents.
     ("admin_list_system_agents", ToolData::own(&[])),
     ("admin_get_system_agent", ToolData::own(&[])),
     ("admin_create_system_agent", ToolData::own(&[])),

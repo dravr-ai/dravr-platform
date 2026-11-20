@@ -12,7 +12,7 @@
 //! This observer contributes the two things embacle cannot know: the
 //! process-wide [`ChainGuard`] (GitHub budget headroom written by a probe in
 //! pierre-services, plus the circuit breaker on the primary), and the three
-//! `notify` events operators page on. Every callback runs on the calling task,
+//! `notify` events admins page on. Every callback runs on the calling task,
 //! so `user_id` / `tenant_id` reach the events from the enclosing span.
 //!
 //! The two guards measure different things, so they veto different tiers.

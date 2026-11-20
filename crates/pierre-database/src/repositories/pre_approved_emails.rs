@@ -6,7 +6,7 @@
 
 //! Pre-approved emails, written once.
 //!
-//! An operator "allow" recorded before the person has an account. Emails
+//! An admin "allow" recorded before the person has an account. Emails
 //! are stored normalized (trimmed, lowercase) and compared lower-cased on both
 //! sides, so every lookup is case-insensitive and a case variant can never be
 //! stored beside its address (`idx_pre_approved_emails_email_lower`); `allow`
@@ -32,7 +32,7 @@ use pierre_core::models::PreApprovedEmail;
 use uuid::Uuid;
 
 /// The columns every read decodes, with `$text` appended to `allowed_by` so
-/// the operator's uuid arrives as text on both backends.
+/// the admin's uuid arrives as text on both backends.
 macro_rules! pre_approved_email_columns {
     ($text:literal) => {
         concat!(

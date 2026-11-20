@@ -77,7 +77,7 @@ const DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT: usize = 2_000;
 /// Fetch limit a background backfill requests.
 ///
 /// Read from `PIERRE_HISTORICAL_BACKFILL_FETCH_LIMIT`, falling back to
-/// [`DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT`]. Operators raise this for
+/// [`DEFAULT_HISTORICAL_BACKFILL_FETCH_LIMIT`]. Admins raise this for
 /// athletes with very deep histories; zero or unparseable values fall back to
 /// the default.
 #[must_use]

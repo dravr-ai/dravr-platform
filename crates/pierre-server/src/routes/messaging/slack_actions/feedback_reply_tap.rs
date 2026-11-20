@@ -60,7 +60,7 @@ const SLACK_INPUT_MAX_CHARS: usize = 3000;
 /// The most sections the athlete's words take in a modal. Slack refuses a
 /// view of more than 100 blocks with `invalid_arguments`, and a rating's
 /// reason has no length bound, so a longer text is cut, and says so, rather
-/// than costing the operator the window.
+/// than costing the admin the window.
 const MAX_TEXT_SECTIONS: usize = 90;
 
 /// The most characters Slack keeps in a view's `private_metadata`.
@@ -795,7 +795,7 @@ mod tests {
     }
 
     /// Every limit Slack enforces on a modal, so a view it would refuse with
-    /// `invalid_arguments` fails here instead of on the operator's tap.
+    /// `invalid_arguments` fails here instead of on the admin's tap.
     ///
     /// The limits are Slack's Block Kit wire values, pinned as literals rather
     /// than read from this module's constants: a constant raised past Slack's

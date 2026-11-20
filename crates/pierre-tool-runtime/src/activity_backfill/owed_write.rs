@@ -27,7 +27,7 @@
 //! athlete in between ([`KeyPurge`]):
 //!
 //! - **Every activity of the key went** (a disconnect, a revocation, an
-//!   ended link, the operator's termination): every activity of the page
+//!   ended link, the admin's termination): every activity of the page
 //!   goes back, those the store held before the step included. The purge
 //!   deleted them, with their samples and gear; what stands of them now the
 //!   step's write put back.
@@ -48,7 +48,7 @@
 //!   that key's purge deletes the row. A step of a session's API phase,
 //!   writing under its grant's key while the row stays filed under the
 //!   session's, was purged when the grant's purge left the row owed a
-//!   reopen, or the operator's termination settled it as its session walked
+//!   reopen, or the admin's termination settled it as its session walked
 //!   alone.
 //! - A row that is gone says nothing by itself: the session's own purge
 //!   removes it, and so does the reaper of a row whose lease lapsed. Only the

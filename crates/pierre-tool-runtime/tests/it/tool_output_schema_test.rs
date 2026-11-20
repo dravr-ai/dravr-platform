@@ -3074,9 +3074,9 @@ fn each_admin_schema_is_attached_to_the_tool_it_names() {
 }
 
 #[test]
-fn every_admin_projection_declares_the_visibility_an_operator_decides() {
-    // The operator-facing twins differ from the athlete-facing agent tools in
-    // exactly this: who a system agent is visible to is the operator's call,
+fn every_admin_projection_declares_the_visibility_an_admin_decides() {
+    // The admin-facing twins differ from the athlete-facing agent tools in
+    // exactly this: who a system agent is visible to is the admin's call,
     // so every admin projection reports it. An admin schema that dropped it
     // would be describing the athlete's view by mistake.
     for (name, schema) in [
@@ -3099,7 +3099,7 @@ fn every_admin_projection_declares_the_visibility_an_operator_decides() {
                 .as_object()
                 .unwrap_or_else(|| panic!("{name} is an object schema"))
                 .contains_key("visibility"),
-            "{name} must declare visibility: it is what makes this the operator's view"
+            "{name} must declare visibility: it is what makes this the admin's view"
         );
     }
 }
@@ -3138,7 +3138,7 @@ fn admin_list_system_agents_declares_a_schema_that_accepts_its_payload() {
 fn an_assignment_row_validates_without_an_email_or_an_assigner() {
     // Both are Option on the wire and the compiler caught it: a deleted
     // account leaves the assignment row behind with no email to join to, and
-    // rows predating the assigned_by column have no operator to name. A
+    // rows predating the assigned_by column have no admin to name. A
     // schema demanding either would reject a listing the tool really sends.
     let sample = AdminListAgentAssignmentsResult {
         agent_id: "b21f0f4e-0000-4000-8000-000000000002".to_owned(),
@@ -3172,7 +3172,7 @@ fn an_assignment_row_validates_without_an_email_or_an_assigner() {
     assert!(
         value["truncated"].as_bool() == Some(true)
             && value["total"].as_u64() > value["count"].as_u64(),
-        "a truncated listing must say so, or an operator reads a short list as a complete one"
+        "a truncated listing must say so, or an admin reads a short list as a complete one"
     );
 }
 

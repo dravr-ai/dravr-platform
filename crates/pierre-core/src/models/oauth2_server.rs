@@ -66,7 +66,7 @@ pub struct OAuth2ClientSweep {
 pub struct DeviceAuthorization {
     /// SHA-256 hex of the raw `device_code` (the raw code is never persisted).
     pub device_code_hash: String,
-    /// Short human-typeable code the operator enters at the approval page.
+    /// Short human-typeable code the admin enters at the approval page.
     pub user_code: String,
     /// Lifecycle status: `pending`, `approved`, or `denied`.
     pub status: String,

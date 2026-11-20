@@ -82,7 +82,7 @@ pub(crate) fn millis_elapsed(start: Instant) -> i64 {
 ///
 /// Deliberately NOT a `notify` event: this is diagnostic telemetry read from
 /// Cloud Logging, and routing it through the notify pipeline would couple it to
-/// the `dravr-contremaitre` event catalogue for no operator benefit.
+/// the `dravr-contremaitre` event catalogue for no admin benefit.
 pub(crate) fn log_wire_shape(dispatch_path: &'static str, llm_messages: &[ChatMessage]) {
     let mut system_message_count = 0_usize;
     let mut user_message_count = 0_usize;
@@ -120,7 +120,7 @@ pub(crate) fn log_wire_shape(dispatch_path: &'static str, llm_messages: &[ChatMe
 /// Emit a structured log marking the start of one tool-loop iteration.
 ///
 /// Records the iteration index, the call's sequence number within the turn
-/// and the provider/model the call asks, so an operator can tie the call to
+/// and the provider/model the call asks, so an admin can tie the call to
 /// its eventual `llm_usage` row by `turn_id` + `call_sequence`. An iteration
 /// re-asked on the turn's model is two calls, so the two numbers diverge.
 pub(crate) fn log_iteration_start(

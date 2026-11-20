@@ -44,7 +44,7 @@ async fn upsert_then_get_round_trips_every_column() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let user_id = fresh_user(repos).await;
-    let operator_id = fresh_user(repos).await;
+    let admin_id = fresh_user(repos).await;
 
     assert_eq!(
         repos.user_tier_overrides.get(user_id).await.unwrap(),
@@ -60,7 +60,7 @@ async fn upsert_then_get_round_trips_every_column() {
             user_id,
             tier: UserTier::Professional,
             note: Some("comp account for the launch demo".to_owned()),
-            set_by: Some(operator_id),
+            set_by: Some(admin_id),
             set_at: now,
             updated_at: now,
         })
@@ -79,7 +79,7 @@ async fn upsert_then_get_round_trips_every_column() {
         stored.note.as_deref(),
         Some("comp account for the launch demo")
     );
-    assert_eq!(stored.set_by, Some(operator_id));
+    assert_eq!(stored.set_by, Some(admin_id));
     assert!(
         stored.set_at >= before && stored.set_at <= Utc::now(),
         "set_at is the write time, not the caller's field"
@@ -95,7 +95,7 @@ async fn second_upsert_keeps_set_at_and_replaces_the_rest() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let user_id = fresh_user(repos).await;
-    let first_operator = fresh_user(repos).await;
+    let first_admin = fresh_user(repos).await;
 
     let now = Utc::now();
     repos
@@ -104,7 +104,7 @@ async fn second_upsert_keeps_set_at_and_replaces_the_rest() {
             user_id,
             tier: UserTier::Starter,
             note: Some("first".to_owned()),
-            set_by: Some(first_operator),
+            set_by: Some(first_admin),
             set_at: now,
             updated_at: now,
         })

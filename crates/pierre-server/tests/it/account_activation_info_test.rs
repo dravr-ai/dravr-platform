@@ -9,7 +9,7 @@
 
 //! `UserInfo.activation` carries the value registration answered with:
 //! `active`, `confirm_email` (a proven address activates the account) or
-//! `review` (an operator decides). Nothing is stored about it, so it is
+//! `review` (an admin decides). Nothing is stored about it, so it is
 //! re-derived from the sign-up policy and the account's state, and a sign-in
 //! on another device reads the same thing the sign-up tab was told.
 

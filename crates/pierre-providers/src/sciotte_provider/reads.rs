@@ -53,7 +53,7 @@ impl SciotteReads {
     /// its next export answers.
     ///
     /// With more than one service it logs the one picked (`sciotte_service`),
-    /// which is how an operator sees a session stay on its service.
+    /// which is how an admin sees a session stay on its service.
     #[must_use]
     pub fn for_session(&self, session_id: &str) -> &SciotteClient {
         let index = self.index_for(session_id);

@@ -1,5 +1,5 @@
 // ABOUTME: API-key repository contract against the REAL configured backend — the prefix lookup, the tier and
-// ABOUTME: limits a key reads back with, the operator listing's filters, and same-day expiry cleanup
+// ABOUTME: limits a key reads back with, the admin listing's filters, and same-day expiry cleanup
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -27,7 +27,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
-/// A distinct active user per call, returned with the email the operator
+/// A distinct active user per call, returned with the email the admin
 /// listing filters on.
 async fn fresh_user(repos: &RepositoryRegistry) -> (Uuid, String) {
     let uuid = Uuid::new_v4();
@@ -225,11 +225,11 @@ async fn created_at_round_trips_on_the_configured_backend() {
     );
 }
 
-/// The operator listing honours every filter on both backends. `SQLite`
+/// The admin listing honours every filter on both backends. `SQLite`
 /// used to ignore the email, treat `active_only = false` as "inactive only",
 /// and cap the listing at ten rows when no limit was given.
 #[tokio::test]
-async fn the_operator_listing_filters_by_email_and_activity_on_the_configured_backend() {
+async fn the_admin_listing_filters_by_email_and_activity_on_the_configured_backend() {
     let db = backend_under_test().await;
     let repos = db.repositories();
     let (owner, owner_email) = fresh_user(repos).await;

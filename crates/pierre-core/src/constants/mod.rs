@@ -428,7 +428,7 @@ pub mod rate_limits {
 /// Distinct from request rate limits: this is the number of distinct athletes
 /// an OAuth application may have connected at once, enforced by the upstream
 /// provider (Strava) and not exposed via any API response header. The value
-/// here is the default the platform assumes; an operator overrides it via the
+/// here is the default the platform assumes; an admin overrides it via the
 /// `STRAVA_OAUTH_SEAT_CAP` environment variable after self-upgrading the app's
 /// tier in the Strava API settings dashboard.
 pub mod provider_seats {
@@ -709,7 +709,7 @@ pub mod oauth2_client_retention {
     /// How long an expired registration is kept before the sweep deletes it: 30 days.
     ///
     /// `authenticate_client` already refuses it the moment it expires; the grace
-    /// keeps the row readable to an operator asking why a client stopped
+    /// keeps the row readable to an admin asking why a client stopped
     /// working, without holding it for another year.
     pub const EXPIRED_GRACE_SECS: u64 = 30 * 24 * 60 * 60;
     /// Age at which a registration no user has authorized is deleted: 24 hours.

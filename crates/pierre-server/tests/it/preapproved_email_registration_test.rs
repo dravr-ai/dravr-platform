@@ -1,13 +1,13 @@
 // ABOUTME: E2e coverage for the per-email pre-approval allow-list (pierre-cli user allow)
-// ABOUTME: Register lands Active with operator attribution; disallow and pending-login paths covered
+// ABOUTME: Register lands Active with admin attribution; disallow and pending-login paths covered
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The per-email allow-list closes half of registre#43: an operator records an
+//! The per-email allow-list closes half of registre#43: an admin records an
 //! allow for an address *before* the person has an account (`pierre-cli user
 //! allow --email X`), and the registration approval decision consumes it —
-//! the account lands `Active` with `approved_by` attributed to the operator,
+//! the account lands `Active` with `approved_by` attributed to the admin,
 //! skipping the pending queue.
 //!
 //! These tests drive the real `/api/auth/register` handler and the apps'
@@ -108,11 +108,11 @@ async fn setup() -> anyhow::Result<Arc<ServerContext>> {
     Ok(resources)
 }
 
-/// Register a real account to act as the allow-listing operator:
+/// Register a real account to act as the allow-listing admin:
 /// `users.approved_by` references `users.id`, so attribution needs a row.
-async fn register_operator(resources: &Arc<ServerContext>, email: &str) -> Uuid {
-    let (status, body) = register(resources, email, "operatorPassword123").await;
-    assert_eq!(status, 201, "operator registration must succeed: {body}");
+async fn register_admin(resources: &Arc<ServerContext>, email: &str) -> Uuid {
+    let (status, body) = register(resources, email, "adminPassword123").await;
+    assert_eq!(status, 201, "admin registration must succeed: {body}");
     Uuid::parse_str(body["user_id"].as_str().expect("user_id")).expect("user_id must be a UUID")
 }
 
@@ -134,14 +134,14 @@ async fn register(resources: &Arc<ServerContext>, email: &str, password: &str) -
 #[tokio::test]
 async fn preapproved_email_registers_active_with_attribution() {
     let resources = setup().await.expect("server context setup failed");
-    let operator = register_operator(&resources, "allow-operator-1@example.com").await;
+    let admin = register_admin(&resources, "allow-admin-1@example.com").await;
     let email = "alpha-cohort-1@example.com";
 
     let added = resources
         .common
         .repos
         .pre_approved_emails
-        .allow(email, Some(operator), Some("alpha cohort"))
+        .allow(email, Some(admin), Some("alpha cohort"))
         .await
         .expect("recording the allow must succeed");
     assert!(added, "first allow of a new address must report insertion");
@@ -170,8 +170,8 @@ async fn preapproved_email_registers_active_with_attribution() {
         .expect("registered user must exist");
     assert_eq!(
         user.approved_by,
-        Some(operator),
-        "approved_by must attribute the allow-listing operator"
+        Some(admin),
+        "approved_by must attribute the allow-listing admin"
     );
     assert!(
         user.approved_at.is_some(),
@@ -180,20 +180,20 @@ async fn preapproved_email_registers_active_with_attribution() {
 }
 
 #[tokio::test]
-async fn an_allow_outliving_its_operator_still_registers_active_unattributed() {
+async fn an_allow_outliving_its_admin_still_registers_active_unattributed() {
     let resources = setup().await.expect("server context setup failed");
     let repos = &resources.common.repos;
-    let operator = register_operator(&resources, "departed-allow-operator@example.com").await;
+    let admin = register_admin(&resources, "departed-allow-admin@example.com").await;
     let email = "outlived-allow@example.com";
     repos
         .pre_approved_emails
-        .allow(email, Some(operator), Some("alpha cohort"))
+        .allow(email, Some(admin), Some("alpha cohort"))
         .await
         .expect("recording the allow must succeed");
 
-    delete_account(repos, operator, None)
+    delete_account(repos, admin, None)
         .await
-        .expect("an operator whose only trace is an allow can be deleted");
+        .expect("an admin whose only trace is an allow can be deleted");
 
     let (status, body) = register(&resources, email, "securePassword123").await;
     assert_eq!(
@@ -209,7 +209,7 @@ async fn an_allow_outliving_its_operator_still_registers_active_unattributed() {
         .expect("registered user must exist");
     assert_eq!(
         user.approved_by, None,
-        "a deleted operator cannot be the account's approver"
+        "a deleted admin cannot be the account's approver"
     );
     assert!(
         user.approved_at.is_some(),
@@ -334,17 +334,17 @@ async fn disallow_removes_standing_entry() {
 async fn allow_is_idempotent_and_listable() {
     let resources = setup().await.expect("server context setup failed");
     let repos = &resources.common.repos;
-    let operator = Uuid::new_v4();
+    let admin = Uuid::new_v4();
 
     assert!(repos
         .pre_approved_emails
-        .allow("dupe@example.com", Some(operator), Some("first"))
+        .allow("dupe@example.com", Some(admin), Some("first"))
         .await
         .expect("first allow must succeed"));
     assert!(
         !repos
             .pre_approved_emails
-            .allow("dupe@example.com", Some(operator), Some("second"))
+            .allow("dupe@example.com", Some(admin), Some("second"))
             .await
             .expect("second allow must succeed"),
         "re-allowing must be a no-op, not an error or a second row"
@@ -362,14 +362,14 @@ async fn allow_is_idempotent_and_listable() {
         Some("first"),
         "the original allow's note must survive a duplicate allow"
     );
-    assert_eq!(entries[0].allowed_by, Some(operator));
+    assert_eq!(entries[0].allowed_by, Some(admin));
 }
 
 #[tokio::test]
 async fn pending_user_promoted_on_next_login_with_attribution() {
     let resources = setup().await.expect("server context setup failed");
     let repos = &resources.common.repos;
-    let operator = register_operator(&resources, "late-allow-operator@example.com").await;
+    let admin = register_admin(&resources, "late-allow-admin@example.com").await;
     let email = "late-allow@example.com";
     let password = "securePassword123";
 
@@ -378,10 +378,10 @@ async fn pending_user_promoted_on_next_login_with_attribution() {
     assert_eq!(status, 201, "registration must succeed: {body}");
     assert_eq!(body["user_status"].as_str(), Some("pending"));
 
-    // The operator allows the exact address afterwards.
+    // The admin allows the exact address afterwards.
     repos
         .pre_approved_emails
-        .allow(email, Some(operator), None)
+        .allow(email, Some(admin), None)
         .await
         .expect("recording the allow must succeed");
 
@@ -407,8 +407,8 @@ async fn pending_user_promoted_on_next_login_with_attribution() {
         .expect("user must exist");
     assert_eq!(
         user.approved_by,
-        Some(operator),
-        "retroactive promotion must attribute the allow-listing operator"
+        Some(admin),
+        "retroactive promotion must attribute the allow-listing admin"
     );
 }
 
@@ -422,7 +422,7 @@ async fn pending_user_promoted_on_next_login_with_attribution() {
 async fn a_pending_admin_stays_pending_on_login_whatever_allows_its_address() {
     let resources = setup().await.expect("server context setup failed");
     let repos = &resources.common.repos;
-    let allowed_by = register_operator(&resources, "allowing-admin@example.com").await;
+    let allowed_by = register_admin(&resources, "allowing-admin@example.com").await;
     let email = "pending-admin@example.com";
     let password = "securePassword123";
 
@@ -478,13 +478,13 @@ async fn a_pending_admin_stays_pending_on_login_whatever_allows_its_address() {
 #[tokio::test]
 async fn a_registration_in_another_casing_matches_the_allow() {
     let resources = setup().await.expect("server context setup failed");
-    let operator = register_operator(&resources, "casing-operator-1@example.com").await;
+    let admin = register_admin(&resources, "casing-admin-1@example.com").await;
 
     resources
         .common
         .repos
         .pre_approved_emails
-        .allow("cohort.two@example.com", Some(operator), None)
+        .allow("cohort.two@example.com", Some(admin), None)
         .await
         .expect("recording the allow must succeed");
 
@@ -505,7 +505,7 @@ async fn a_registration_in_another_casing_matches_the_allow() {
         .expect("user lookup must succeed")
         .expect("registered user must exist");
     assert_eq!(user.email, "cohort.two@example.com");
-    assert_eq!(user.approved_by, Some(operator));
+    assert_eq!(user.approved_by, Some(admin));
 }
 
 /// An allow recorded after the person registered in another casing finds
@@ -515,13 +515,13 @@ async fn a_registration_in_another_casing_matches_the_allow() {
 async fn an_allow_approves_a_pending_account_registered_in_another_casing() {
     let resources = setup().await.expect("server context setup failed");
     let repos = &resources.common.repos;
-    let operator = register_operator(&resources, "casing-operator-2@example.com").await;
+    let admin = register_admin(&resources, "casing-admin-2@example.com").await;
 
     let (status, body) = register(&resources, "Late.Cohort@Example.COM", "securePassword123").await;
     assert_eq!(status, 201, "registration must succeed: {body}");
     assert_eq!(body["user_status"].as_str(), Some("pending"));
 
-    let host = AccountCaller::host_cli(Some(operator));
+    let host = AccountCaller::host_cli(Some(admin));
     let result = pre_approval::allow(repos, &host, "late.cohort@example.com", None)
         .await
         .expect("the allow must succeed");
@@ -538,7 +538,7 @@ async fn an_allow_approves_a_pending_account_registered_in_another_casing() {
         .expect("user lookup must succeed")
         .expect("user must exist");
     assert_eq!(user.user_status, UserStatus::Active);
-    assert_eq!(user.approved_by, Some(operator));
+    assert_eq!(user.approved_by, Some(admin));
     assert!(
         repos
             .pre_approved_emails

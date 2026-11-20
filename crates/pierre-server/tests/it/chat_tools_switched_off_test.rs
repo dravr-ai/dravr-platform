@@ -1,4 +1,4 @@
-// ABOUTME: A tool an operator switched off for a user is offered on no chat surface, as tools/list hides it
+// ABOUTME: A tool an admin switched off for a user is offered on no chat surface, as tools/list hides it
 // ABOUTME: Declarations and loopback leave it out together, a call by name is refused; another user keeps it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,7 +6,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! carnet#406. `tools/list` left out what an operator switched off, but a chat
+//! carnet#406. `tools/list` left out what an admin switched off, but a chat
 //! turn published the whole chat-callable set, so the agent was offered a tool
 //! the deployment did not offer. Every chat surface now reads
 //! `chat_catalogue::offered_schemas` with the turn's `SwitchedOff`, resolved

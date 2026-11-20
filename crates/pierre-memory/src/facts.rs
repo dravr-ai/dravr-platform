@@ -444,10 +444,10 @@ pub struct UserFactMetrics {
     /// Total number of facts stored for the tenant across all users/agents.
     pub total_facts: u64,
     /// Facts inserted or updated in the last 24 hours — the "recent activity"
-    /// signal that tells operators the worker is still extracting.
+    /// signal that tells admins the worker is still extracting.
     pub facts_last_24h: u64,
     /// Facts inserted or updated in the last 7 days — the "healthy baseline"
-    /// signal that tells operators the worker produced anything this week.
+    /// signal that tells admins the worker produced anything this week.
     pub facts_last_7d: u64,
     /// Distinct users the tenant has facts for. Useful when comparing with the
     /// tenant's active-user count to spot extraction gaps.

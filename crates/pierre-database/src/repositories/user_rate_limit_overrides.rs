@@ -23,7 +23,7 @@ pub struct UserRateLimitOverride {
     pub user_id: Uuid,
     /// Custom monthly request cap. `None` = unlimited monthly.
     pub monthly_limit: Option<u32>,
-    /// Operator-facing note explaining why the override exists.
+    /// Admin-facing note explaining why the override exists.
     pub note: Option<String>,
     /// Admin user who set the override (audit trail).
     pub set_by: Option<Uuid>,

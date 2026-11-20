@@ -21,7 +21,7 @@
 //!    the spawned task, and the athlete would get silence — no reply, no
 //!    error, nothing to report. [`run_guarded`] catches it, turns it into a
 //!    structured failure for *this* turn, and lets the caller answer with a
-//!    correlation id an operator can grep.
+//!    correlation id an admin can grep.
 //!
 //! 3. **Termination.** A turn runs detached from the request that started it,
 //!    so nothing else ever ends it: not the HTTP layer, which answered 200
@@ -53,7 +53,7 @@ use uuid::Uuid;
 /// Three outcomes, because they get three different replies: the athlete's
 /// answer, the localized "your plan says no" denial, and the apology with a
 /// correlation id. Collapsing the middle one into the last is what teaches an
-/// operator to ignore alerts — a budget refusing a turn is the plan working.
+/// admin to ignore alerts — a budget refusing a turn is the plan working.
 pub enum TurnOutcome {
     /// The turn service served the turn. Its own large payload — the
     /// envelope's persisted rows — is already boxed inside [`ServedTurn`], so
@@ -86,7 +86,7 @@ impl fmt::Debug for TurnOutcome {
 /// notice — re-running it is not a fix. A drained turn is a healthy turn on
 /// an instance that is going away, so it is handed to the next instance and
 /// answered there; the athlete only reads a notice once the hand-off has been
-/// drained too. An operator reading the log needs to tell them apart for the
+/// drained too. An admin reading the log needs to tell them apart for the
 /// same reason: only the first is a bug.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TurnInterruption {
@@ -186,7 +186,7 @@ where
 /// A fresh correlation id and the short form that goes in the athlete's reply.
 ///
 /// The id is surfaced in the user-facing reply and the log record so an
-/// operator receiving a Slack alert can grep Cloud Logging for the full error
+/// admin receiving a Slack alert can grep Cloud Logging for the full error
 /// chain without access to conversation ids (which are PII-adjacent). Eight
 /// hex characters is enough to find one turn and short enough to read back
 /// over the phone.

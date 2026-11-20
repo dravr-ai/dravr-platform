@@ -22,7 +22,7 @@
 //!    instead);
 //! 3. it retires the device logins the account approved as an admin
 //!    (`RETIRE_DEVICE_LOGINS_SQL`): each row is kept, inactive, under a name
-//!    that names no one and an operator that is no account, so its request
+//!    that names no one and an admin that is no account, so its request
 //!    log and its record of the keys it provisioned stay while a deleted
 //!    admin's tokens end in this transaction and never after it. The log
 //!    keeps each request's action, target and time; the IP address and
@@ -56,13 +56,13 @@
 //! hashed, so [`verify_receipt_chain`] recomputes each link from the stored
 //! columns alone. A chain proves no receipt was altered or removed from the
 //! middle; removing the newest receipts leaves a shorter chain that still
-//! verifies, so an operator who needs that guarantee records the head
+//! verifies, so an admin who needs that guarantee records the head
 //! ([`ChainVerification::head`]) somewhere the database cannot reach.
 //!
 //! ISOLATION EXEMPTION: `deletion_receipts` carries neither `tenant_id` nor
 //! `user_id`: it outlives the account and must not point at it, and an
 //! account deletion spans every tenant. It is read only by the admin
-//! route an operator verifies the chain through.
+//! route an admin verifies the chain through.
 
 use std::collections::BTreeMap;
 
@@ -84,8 +84,12 @@ pub const GENESIS_HASH: &str = "000000000000000000000000000000000000000000000000
 pub enum DeletionActor {
     /// The athlete, from the app.
     Athlete,
-    /// An operator, from an admin surface.
-    Operator,
+    /// An admin, from an admin surface. Stored and hashed as `operator`, the
+    /// word receipts were sealed with before admins were called admins: the
+    /// `deletion_receipts.actor` CHECK constraint and every sealed hash hold
+    /// that value, so it never changes.
+    #[serde(rename = "operator")]
+    Admin,
     /// The athlete, from a messaging channel (`/deleteaccount`).
     Messaging,
 }
@@ -97,7 +101,7 @@ impl DeletionActor {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Athlete => "athlete",
-            Self::Operator => "operator",
+            Self::Admin => "operator",
             Self::Messaging => "messaging",
         }
     }
@@ -229,7 +233,7 @@ pub struct ChainVerification {
     /// Receipts that verified before the first break (all of them when
     /// there is none).
     pub verified: usize,
-    /// The newest receipt's `(seq, hash)`, for an operator to record
+    /// The newest receipt's `(seq, hash)`, for an admin to record
     /// outside the database.
     pub head: Option<(i64, String)>,
     /// The first broken link, `None` when the whole chain verifies.
@@ -604,7 +608,7 @@ macro_rules! impl_account_deletion_repository {
                     .map(|row| row.try_get("id").map_err(admin_token))
                     .collect::<AppResult<Vec<String>>>()?;
                 let retired_logins = sqlx::query(RETIRE_DEVICE_LOGINS_SQL)
-                    .bind(DELETED_ACCOUNT_OPERATOR.to_string())
+                    .bind(DELETED_ACCOUNT_ADMIN.to_string())
                     .bind(DEVICE_CLI_DELETED_ACCOUNT_SERVICE)
                     .bind(&owner)
                     .fetch_all(guard.executor()?)
@@ -883,7 +887,7 @@ mod tests {
     #[test]
     fn an_altered_field_breaks_the_link_it_is_in() {
         let mut receipts = chain(3);
-        receipts[1].actor = DeletionActor::Operator.as_str().to_owned();
+        receipts[1].actor = DeletionActor::Admin.as_str().to_owned();
         let verification = verify_receipt_chain(&receipts);
         assert_eq!(verification.verified, 1);
         let fault = verification.first_break.unwrap();

@@ -1,17 +1,17 @@
-// ABOUTME: Single-use invitations an operator mails to an address with no account — issue, revoke, list, build the link
+// ABOUTME: Single-use invitations an admin mails to an address with no account — issue, revoke, list, build the link
 // ABOUTME: A coach-seat invitation also grants coach access and records the coach role when it is redeemed (carnet#1524)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The operator side of an invitation.
+//! The admin side of an invitation.
 //!
 //! An invitation goes with a standing pre-approval ([`crate::pre_approval`]):
-//! the operator allows an address and asks for it to be told, and the mail
+//! the admin allows an address and asks for it to be told, and the mail
 //! carries a single-use link to the web app's accept page, where the invitee
 //! chooses their own password and the account is created
 //! [`UserStatus::Active`](pierre_core::models::UserStatus::Active) with
-//! `approved_by` set to the inviting operator while their account exists. No
+//! `approved_by` set to the inviting admin while their account exists. No
 //! password ever crosses a side channel, and the link opens nothing for anyone
 //! who is not reading that inbox.
 //!
@@ -19,7 +19,7 @@
 //! ([`InvitationKind::CoachSeat`], carnet#1524). It is the same link, locked
 //! to the same address; redeeming it also settles what a coach otherwise
 //! meets on the way in ([`settle_coach_seat`]): coach access
-//! (`manages_roster`, an operator grant by the inviter — the decision ADR-018
+//! (`manages_roster`, an admin grant by the inviter — the decision ADR-018
 //! leaves to an admin, taken before sign-up rather than after a
 //! request) and the coach role, so the coach meets neither the role question
 //! nor the coach-access request.
@@ -49,11 +49,11 @@ use crate::link_token::generate_link_token;
 use crate::pre_approval::valid_email;
 
 /// How long an invitation link stays redeemable. Long enough for a person who
-/// reads mail weekly; an operator re-sends past it.
+/// reads mail weekly; an admin re-sends past it.
 pub const INVITATION_TTL_DAYS: i64 = 7;
 
 /// Invitations one address may be sent in a rolling hour, counted from the
-/// invitation table. An operator re-sending is normal; re-sending in a loop is
+/// invitation table. An admin re-sending is normal; re-sending in a loop is
 /// mail an inbox did not ask for.
 pub const INVITATIONS_PER_ADDRESS_PER_HOUR: i64 = 5;
 
@@ -230,15 +230,15 @@ pub async fn revoke_coach_seat(repos: &RepositoryRegistry, email: &str) -> AppRe
 pub struct CoachSeatInvitationView {
     /// The invited address.
     pub email: String,
-    /// The operator who sent it, when attributable.
+    /// The admin who sent it, when attributable.
     pub invited_by: Option<Uuid>,
-    /// That operator's address, while their account exists.
+    /// That admin's address, while their account exists.
     pub invited_by_email: Option<String>,
     /// When it was sent.
     pub created_at: DateTime<Utc>,
     /// When its link stops (or stopped) working.
     pub expires_at: DateTime<Utc>,
-    /// Its link no longer works: the operator sends it again.
+    /// Its link no longer works: the admin sends it again.
     pub expired: bool,
 }
 
@@ -277,8 +277,8 @@ pub async fn list_coach_seat_invitations(
 /// Settle what a coach-seat invitation decided for the account just created
 /// from it, so the coach meets none of it on the way in:
 ///
-/// - coach access: `manages_roster` as an operator grant by `operator`, the
-///   inviter (`None` when their account is gone), through the one operator
+/// - coach access: `manages_roster` as an admin grant by `admin`, the
+///   inviter (`None` when their account is gone), through the one admin
 ///   path ([`set_user_manages_roster`]);
 /// - the coach role (`users.coaches_others`), and the role question answered
 ///   as a coach who does not train: the athlete steps are recorded
@@ -296,9 +296,9 @@ pub async fn settle_coach_seat(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: TenantId,
-    operator: Option<Uuid>,
+    admin: Option<Uuid>,
 ) -> AppResult<()> {
-    set_user_manages_roster(repos, user_id, true, operator).await?;
+    set_user_manages_roster(repos, user_id, true, admin).await?;
     repos.users.set_coaches_others(user_id, true).await?;
 
     let user_key = user_id.to_string();
@@ -325,7 +325,7 @@ pub async fn settle_coach_seat(
 
     info!(
         user_id = %user_id,
-        operator_user_id = ?operator,
+        admin_user_id = ?admin,
         "Coach-seat invitation settled: coach access granted and the coach role recorded"
     );
     Ok(())

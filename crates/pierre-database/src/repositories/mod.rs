@@ -26,7 +26,7 @@ pub mod activity_route_tracks;
 pub mod activity_streams;
 /// Repository traits for admin tokens and admin overrides.
 pub mod admin;
-/// The admin audit trail: one row per operator write (carnet#1391).
+/// The admin audit trail: one row per admin write (carnet#1391).
 pub mod admin_audit;
 /// What a user write does, in its own transaction, to the credentials an account holds as an admin.
 pub(crate) mod admin_standing;

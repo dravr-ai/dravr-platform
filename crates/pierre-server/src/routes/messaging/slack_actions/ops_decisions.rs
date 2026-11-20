@@ -1,4 +1,4 @@
-// ABOUTME: The decisions an operator takes from a notify card: their buttons, their action ids and the room each is honoured in
+// ABOUTME: The decisions an admin takes from a notify card: their buttons, their action ids and the room each is honoured in
 // ABOUTME: Approve or reject a sign-up, grant or decline coach access, raise a capped athlete, answer feedback — never from another room
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -135,7 +135,7 @@ const COACH_ACCESS_REQUESTED_EVENT: &str = "coach_access.requested";
 /// rule names the room it is honoured in.
 const QUOTA_LIMIT_REACHED_EVENT: &str = "quota.limit_reached";
 
-/// Posts the buttons an operator decides from in Slack.
+/// Posts the buttons an admin decides from in Slack.
 ///
 /// Approve and Reject under `user.pending_approval`, Grant and Decline under
 /// `coach_access.requested`, Raise to Enterprise under `quota.limit_reached`,
@@ -616,7 +616,7 @@ mod tests {
         SlackAction {
             action_id: "approve_user:00000000-0000-0000-0000-000000000001".to_owned(),
             slack_user_id: "U1".to_owned(),
-            slack_username: "operator".to_owned(),
+            slack_username: "admin".to_owned(),
             channel_id: channel_id.to_owned(),
             channel_name: channel_name.to_owned(),
             message_ts: "1.0".to_owned(),

@@ -15,7 +15,7 @@
 //!   readiness gate) still logs at `ERROR` — the downgrade is precise, not a
 //!   blanket silencing of every 503.
 //! * **Fix B** — every logged failure carries the `http_method` + `http_path`
-//!   of the request that produced it, so the operator alert names the endpoint.
+//!   of the request that produced it, so the admin alert names the endpoint.
 //!   The endpoint is the redacted request line `redaction_middleware` attaches,
 //!   so a failing `OAuth` callback is named without its authorization code.
 

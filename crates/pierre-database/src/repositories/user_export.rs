@@ -52,11 +52,11 @@
 //!   its samples land in `activity_streams`, so nothing is kept to hand out.
 //! - **Operational state with no meaning outside the service**: sync cursors,
 //!   backfill jobs and leases, queues, delivery receipts, rate-limit and tier
-//!   overrides an operator set, worker bookkeeping.
+//!   overrides an admin set, worker bookkeeping.
 //! - **Other people's records**: what a human coach wrote about the athlete
 //!   (their thread, flags and dismissals), shared groups and their invites, an
-//!   operator's own audit trail. Law 25 s.27 covers information collected
-//!   from the person; these are the coach's and the operator's records.
+//!   admin's own audit trail. Law 25 s.27 covers information collected
+//!   from the person; these are the coach's and the admin's records.
 //! - **Security and request logs** (`audit_events`, `jwt_usage`,
 //!   `request_logs`): retained for abuse investigation; whether an access
 //!   request must include them is a counsel question, not decided here.
@@ -575,19 +575,19 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
     ),
     (
         "user_feature_overrides",
-        "operator configuration, not collected from the athlete",
+        "admin configuration, not collected from the athlete",
     ),
     (
         "user_rate_limit_overrides",
-        "operator configuration, not collected from the athlete",
+        "admin configuration, not collected from the athlete",
     ),
     (
         "user_tier_overrides",
-        "operator configuration, not collected from the athlete",
+        "admin configuration, not collected from the athlete",
     ),
     (
         "user_tool_overrides",
-        "operator configuration, not collected from the athlete",
+        "admin configuration, not collected from the athlete",
     ),
     // Logs.
     (
@@ -602,9 +602,9 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
         "request_logs",
         "request log: counsel decides whether access requests include it",
     ),
-    // Operator records.
-    ("admin_config_audit", "operator audit trail"),
-    ("admin_config_overrides", "operator configuration"),
+    // Admin records.
+    ("admin_config_audit", "admin audit trail"),
+    ("admin_config_overrides", "admin configuration"),
     // Other people's records.
     (
         "coach_reply_reviews",
@@ -626,11 +626,8 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
         "agents_orphaned",
         "PostgreSQL only: agents quarantined for naming no tenant",
     ),
-    ("admin_tokens", "credential: operator service tokens"),
-    (
-        "tenant_tool_overrides",
-        "operator configuration of a tenant",
-    ),
+    ("admin_tokens", "credential: admin service tokens"),
+    ("tenant_tool_overrides", "admin configuration of a tenant"),
 ];
 
 /// Column-name fragments that mark a likely credential. The catalog test fails

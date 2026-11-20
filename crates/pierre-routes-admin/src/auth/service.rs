@@ -160,11 +160,10 @@ impl AdminAuthService {
             }
         }
 
-        // The operator the token acts as lives on its row, written only by the
+        // The admin the token acts as lives on its row, written only by the
         // device grant; the signed claims carry no identity of their own.
-        if let Some(operator) = stored_token.operator_user_id {
-            self.require_active_admin(operator, &stored_token.id)
-                .await?;
+        if let Some(admin) = stored_token.operator_user_id {
+            self.require_active_admin(admin, &stored_token.id).await?;
         }
         validated_token.operator_user_id = stored_token.operator_user_id;
         // So does its name. The claims hold the name the token was minted
@@ -194,21 +193,21 @@ impl AdminAuthService {
         Ok(validated_token)
     }
 
-    /// Refuse a token whose `operator` is no longer an admin in good standing.
+    /// Refuse a token whose `admin` is no longer an admin in good standing.
     ///
     /// A device login mints a token on one admin's authority, and the token
     /// carries that authority for as long as its row is active. The row is
     /// deactivated when the admin is demoted or suspended, and when the
-    /// admin's account is deleted it is left acting as an operator that is
-    /// no account (`DELETED_ACCOUNT_OPERATOR`), but this read is what holds
+    /// admin's account is deleted it is left acting as an admin that is
+    /// no account (`DELETED_ACCOUNT_ADMIN`), but this read is what holds
     /// whichever writer changed the account, or the row: the token's power
-    /// is the admin's, read where it lives, and a token whose operator is no
+    /// is the admin's, read where it lives, and a token whose admin is no
     /// user has none, reactivated or rotated.
-    async fn require_active_admin(&self, operator: Uuid, token_id: &str) -> AppResult<()> {
+    async fn require_active_admin(&self, admin: Uuid, token_id: &str) -> AppResult<()> {
         // SECURITY: Global lookup — an admin token is checked before any tenant context exists
         let standing = self
             .users
-            .get_global(operator)
+            .get_global(admin)
             .await?
             .is_some_and(|user| user.is_active_admin());
         if standing {
@@ -216,7 +215,7 @@ impl AdminAuthService {
         }
         warn!(
             token_id = %token_id,
-            operator_user_id = %operator,
+            admin_user_id = %admin,
             "Admin token refused: the admin it acts as is no longer an active admin"
         );
         Err(AppError::auth_invalid(

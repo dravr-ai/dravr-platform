@@ -340,6 +340,26 @@ if [[ -x "$PROJECT_ROOT/scripts/ci/check-backend-name-exposure.sh" ]]; then
 fi
 
 # ============================================================================
+# TIER 1b-admin: Admin vocabulary (compile-free, ~1s)
+# ============================================================================
+# carnet#1644: "Please use admin and stop using operator" (ChefFamille,
+# 2026-11-13). About 2,000 occurrences were renamed at once; this fails when
+# "operator" comes back anywhere under crates/, frontend/, frontend-mobile/ or
+# packages/ outside the script's allowlist (a column name, a stored value, a
+# shipped wire field, a meaning that is not an admin). Every push, like the
+# vocabulary fence: the catalogue copy moves only in the bump lane.
+if [[ -x "$PROJECT_ROOT/scripts/ci/check-admin-vocabulary.sh" ]]; then
+    echo "Tier 1b-admin: Admin vocabulary"
+    echo "-------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-admin-vocabulary.sh"; then
+        echo ""
+        echo "FAIL: \"operator\" names an admin again!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# ============================================================================
 # TIER 1c: Phantom Surface Detection (compile-free)
 # ============================================================================
 # The dual rule says a capability nothing implements or calls is a phantom

@@ -504,7 +504,7 @@ async fn a_panicking_pipeline_stage_becomes_a_reportable_failure() {
             assert_eq!(err.code, ErrorCode::InternalError);
             assert!(
                 err.to_string().contains("tool loop indexed past the end"),
-                "the panic payload must survive into the operator's log: {err}"
+                "the panic payload must survive into the admin's log: {err}"
             );
             assert!(
                 err.to_string().contains("chat pipeline panicked"),
@@ -591,7 +591,7 @@ async fn a_clean_turn_is_delivered_unchanged() {
 }
 
 /// The correlation id the athlete is given is a real prefix of the one an
-/// operator greps for.
+/// admin greps for.
 #[test]
 fn the_correlation_id_the_athlete_sees_finds_the_log_line() {
     let (full, short) = new_correlation_id();

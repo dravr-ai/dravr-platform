@@ -10,7 +10,7 @@
 // without the features.
 //
 // The Garmin card works as the Strava card does: a new connection signs in
-// with usr/pwd by default, and under the operator's OAuth-first order goes
+// with usr/pwd by default, and under the admin's OAuth-first order goes
 // through Garmin's OAuth while the Developer Program client has a seat, and
 // through the connection using usr/pwd from Dravr once the pool is full, the
 // count fails or no Garmin client is configured. Which card is listed, its
@@ -190,7 +190,7 @@ fn config_with_garmin_cap(cap: u32) -> ServerConfig {
     config
 }
 
-/// Put Garmin's OAuth first, the operator's kill switch (carnet#1494).
+/// Put Garmin's OAuth first, the admin's kill switch (carnet#1494).
 async fn garmin_oauth_first(resources: &Arc<ServerContext>) {
     set_connect_order(
         resources.common.repos.system_settings.as_ref(),

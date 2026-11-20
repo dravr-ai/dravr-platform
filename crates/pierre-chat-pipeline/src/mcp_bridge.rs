@@ -49,7 +49,7 @@ use pierre_tool_runtime::coach_seat::TurnSeat;
 /// every tool that would write the coach's own data is withheld and refused
 /// (carnet#1070).
 ///
-/// `switched_off` is what an operator switched off for the caller, resolved
+/// `switched_off` is what an admin switched off for the caller, resolved
 /// once for the turn: the session's listing leaves it out, exactly as the
 /// turn's declarations and its prompt index do.
 #[derive(Debug, Clone, Copy)]
@@ -68,7 +68,7 @@ pub struct ToolSessionTurn<'a> {
     pub budget: usize,
     /// Whose data the turn's tools run against.
     pub seat: TurnSeat,
-    /// The tools an operator switched off for the caller: the session's
+    /// The tools an admin switched off for the caller: the session's
     /// listing leaves them out, as the turn's declarations do.
     pub switched_off: &'a SwitchedOff,
     /// The grant the turn runs under: its executor's, and what the session's

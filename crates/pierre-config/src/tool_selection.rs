@@ -9,7 +9,7 @@ use std::env;
 
 /// Configuration for global tool selection from environment variables
 ///
-/// This configuration allows operators to globally disable specific MCP tools
+/// This configuration allows admins to globally disable specific MCP tools
 /// via the `PIERRE_DISABLED_TOOLS` environment variable. Disabled tools will
 /// not be exposed to any tenant regardless of their plan or overrides.
 ///

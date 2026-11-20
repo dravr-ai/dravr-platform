@@ -273,7 +273,7 @@ describe('PendingApproval', () => {
     })
   })
 
-  // Found by the 2026-10-23 onboarding e2e on dev: an operator approved the
+  // Found by the 2026-10-23 onboarding e2e on dev: an admin approved the
   // account, and the page kept saying it was waiting until a manual reload.
   it('moves on by itself once the server says the account is active', async () => {
     vi.useFakeTimers()

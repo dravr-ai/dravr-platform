@@ -68,7 +68,7 @@ interface ConnectPlan {
  * A reconnect signs in, whichever backend the card is connected through: a
  * dead OAuth grant reconnects only through the hosted sign-in, as a dead
  * session does (carnet#1494). A new connection follows the server's
- * recommendation: its authorization only while the operator puts the OAuth
+ * recommendation: its authorization only while the admin puts the OAuth
  * first and a seat is free, its sign-in otherwise.
  */
 function dualBackendPrimary(card: ConnectPlanCard, target: SciotteTarget): ConnectPrimary {

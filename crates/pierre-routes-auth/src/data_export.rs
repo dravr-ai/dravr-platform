@@ -31,7 +31,7 @@
 //! the service recorded in their name) and what is excluded with the reason:
 //! credentials (password hash, OAuth and API tokens, key and session hashes,
 //! one-time codes, push tokens, the athlete's own LLM and OAuth-app secrets),
-//! operational queues and cursors, operator
+//! operational queues and cursors, admin
 //! configuration, other people's records (a coach's notes about the athlete, a
 //! shared room), and security logs. The document's own `withheld` list repeats
 //! the excluded tables, so the athlete sees what was left out. A catalog test
@@ -58,7 +58,7 @@
 //! reachable from this route. A credential that is not the athlete's own
 //! session is refused: an API key, a messaging channel link, a token an
 //! integration holds on the athlete's behalf (a marketplace client can read
-//! what its scopes allow, never carry the whole file away), and an operator's
+//! what its scopes allow, never carry the whole file away), and an admin's
 //! impersonation token (support may see what it needs to help, never carry the
 //! whole file away either).
 //!

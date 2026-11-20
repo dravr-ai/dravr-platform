@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Admin console audit trail — what operators did, newest first, from the console, pierre-cli or a service token
+// ABOUTME: Admin console audit trail — what admins did, newest first, from the console, pierre-cli or a service token
 // ABOUTME: Filters by outcome and action prefix, pages older events by the server's cursor; a row opens before → after and the raw metadata
 
 import { useState } from 'react';
@@ -154,7 +154,7 @@ function EventRow({ event }: { event: AuditEvent }) {
 }
 
 /**
- * Every change an operator made — through this console, pierre-cli, or a
+ * Every change an admin made — through this console, pierre-cli, or a
  * service token — and every one the server refused, so "who deleted that
  * account?" has an answer that is not someone's memory.
  */
@@ -210,7 +210,7 @@ export default function AuditTrail() {
       return (
         <EmptyState data-testid="audit-empty">
           {outcome === 'all' && !action
-            ? 'No operator actions recorded yet. Each change made from this console, pierre-cli or a service token — deleting a user, changing a setting, removing a pre-approval — will appear here, along with every attempt the server refused.'
+            ? 'No admin actions recorded yet. Each change made from this console, pierre-cli or a service token — deleting a user, changing a setting, removing a pre-approval — will appear here, along with every attempt the server refused.'
             : 'No recorded actions match these filters.'}
         </EmptyState>
       );
@@ -242,7 +242,7 @@ export default function AuditTrail() {
   return (
     <Section
       title="Audit"
-      description="What operators did, newest first — from this console, pierre-cli and service tokens, including what the server refused."
+      description="What admins did, newest first — from this console, pierre-cli and service tokens, including what the server refused."
       data-testid="audit-trail"
     >
       <form onSubmit={applyAction} className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end">

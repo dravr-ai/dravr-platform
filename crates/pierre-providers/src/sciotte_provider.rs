@@ -382,7 +382,7 @@ impl SciotteProvider {
             to_app_error_as(error, brand)
         } else {
             // The agent-facing words leave out the service and request id;
-            // an operator reads them here.
+            // an admin reads them here.
             if matches!(
                 error,
                 ClientError::AthleteNotAccessible { .. } | ClientError::Unexpected { .. }

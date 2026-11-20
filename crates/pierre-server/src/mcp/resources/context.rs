@@ -40,7 +40,7 @@ use super::tool_surface::HostedToolBridge;
 use dravr_canot::ChannelRegistry;
 use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::AgentsRepository;
-use pierre_services::operator_mail::PendingSignupMail;
+use pierre_services::admin_mail::PendingSignupMail;
 #[cfg(feature = "health-sync")]
 use pierre_services::personal_bests::PersonalBests;
 #[cfg(feature = "health-sync")]

@@ -182,6 +182,15 @@ jobs:
         if: steps.bump.outputs.changed == 'true'
         run: scripts/ci/check-backend-name-exposure.sh
 
+      - name: Refuse to push a string copy that calls an admin an operator
+        # carnet#1644: say admin, never operator. The copy moves only in this
+        # lane (Check 8), so a contremaitre value saying operator would land on
+        # main and fail every session's pre-push gate on a file none of them may
+        # touch. Failing HERE keeps main green until the string is fixed
+        # upstream and the next poll retries.
+        if: steps.bump.outputs.changed == 'true'
+        run: scripts/ci/check-admin-vocabulary.sh packages/i18n/src/locales
+
       - name: Commit and push bump
         if: steps.bump.outputs.changed == 'true'
         run: |

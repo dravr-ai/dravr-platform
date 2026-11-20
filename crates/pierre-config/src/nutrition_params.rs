@@ -11,7 +11,7 @@
 //! `MacronutrientConfig::protein_athlete_g_per_kg` per kilogram of body mass;
 //! the endurance and muscle-gain goals and the lower activity levels read
 //! their own factors.
-//! [`PROTEIN_ATHLETE_G_PER_KG_KEY`] lets an operator move that value
+//! [`PROTEIN_ATHLETE_G_PER_KG_KEY`] lets an admin move that value
 //! system-wide, for one tenant or for one user, inside the 1.2-2.0 g/kg/day
 //! the joint ACSM / Academy of Nutrition and Dietetics / Dietitians of Canada
 //! position statement gives for athletes (Thomas, Erdman & Burke 2016).
@@ -84,7 +84,7 @@ pub fn register_nutrition<S: BuildHasher>(defs: &mut HashMap<String, ParameterDe
 ///
 /// Every write path bounds the value to the catalogue's range, so a stored
 /// override outside it is a row edited in the database. It is refused rather
-/// than clamped: prescribing an amount the operator did not choose is worse
+/// than clamped: prescribing an amount the admin did not choose is worse
 /// than an error that names the key.
 ///
 /// # Errors

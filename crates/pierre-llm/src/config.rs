@@ -423,7 +423,7 @@ fn split_account_name(name: &str) -> Option<(&str, Option<usize>)> {
 ///
 /// The server reads it once, at boot, into its config; every consumer after
 /// that is handed the chain rather than reading the environment again. It
-/// serializes as the value an operator would write — `None` for the platform
+/// serializes as the value an admin would write — `None` for the platform
 /// default — so a round trip keeps whether it was configured.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LlmChain {
@@ -445,7 +445,7 @@ impl LlmChain {
         non_empty_env(Self::ENV_VAR).map_or_else(Self::default, |raw| Self::parse(&raw))
     }
 
-    /// Whether the operator chose this chain — `PIERRE_LLM_CHAIN` was set to
+    /// Whether the admin chose this chain — `PIERRE_LLM_CHAIN` was set to
     /// a non-blank value — rather than the platform default applying.
     #[must_use]
     pub const fn is_configured(&self) -> bool {
@@ -726,7 +726,7 @@ mod tests {
         for live in [LlmChain::ENV_VAR, LlmModelConfig::DEFAULT_MODEL_ENV_VAR] {
             assert!(
                 !RETIRED_CHAIN_ENV_VARS.contains(&live),
-                "{live} is still read; reporting it as retired would tell an operator to remove it"
+                "{live} is still read; reporting it as retired would tell an admin to remove it"
             );
         }
     }

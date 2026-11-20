@@ -1100,7 +1100,7 @@ async fn disconnecting_whoop_deletes_that_athletes_whoop_rows_through_the_chokep
     assert_removed(&whoop_left, 3, 2);
 }
 
-/// The admin context the operator route runs under, purging through the
+/// The admin context the admin route runs under, purging through the
 /// server's provider data purge as the composition root wires it.
 fn admin_context(resources: &Arc<ServerContext>) -> Arc<AdminApiContext> {
     let mut context = AdminApiContext::new(AdminApiContextInit {
@@ -1168,7 +1168,7 @@ async fn body_json(response: Response) -> Value {
 }
 
 #[tokio::test]
-async fn the_operator_purge_refuses_a_token_that_is_not_super_admin() {
+async fn the_admin_purge_refuses_a_token_that_is_not_super_admin() {
     let world = world().await;
     let token = admin_token(&world, false).await;
 
@@ -1199,7 +1199,7 @@ async fn the_operator_purge_refuses_a_token_that_is_not_super_admin() {
 }
 
 #[tokio::test]
-async fn the_operator_purge_refuses_a_name_no_provider_column_can_hold() {
+async fn the_admin_purge_refuses_a_name_no_provider_column_can_hold() {
     let world = world().await;
     let token = admin_token(&world, true).await;
 
@@ -1231,7 +1231,7 @@ async fn the_operator_purge_refuses_a_name_no_provider_column_can_hold() {
 }
 
 #[tokio::test]
-async fn the_operator_purge_deletes_whoop_in_every_tenant_and_audits_it() {
+async fn the_admin_purge_deletes_whoop_in_every_tenant_and_audits_it() {
     let world = world().await;
     let repos = world.repos();
     let (teammate, tenant) = world.teammate;
@@ -1506,7 +1506,7 @@ async fn a_copy_re_synced_inside_the_window_stays() {
 }
 
 #[tokio::test]
-async fn every_purge_leaves_an_attestation_row_the_operator_can_read() {
+async fn every_purge_leaves_an_attestation_row_the_admin_can_read() {
     let world = world().await;
     let repos = world.repos();
     let (athlete, tenant) = world.athlete;
@@ -1806,7 +1806,7 @@ fn walked_alone() -> HistoryWalkRowState {
     }
 }
 
-/// The operator's whole-provider purge takes every athlete's rows of the
+/// The admin's whole-provider purge takes every athlete's rows of the
 /// provider, in every tenant: every walk whose API phase read it is
 /// released as a session walked alone — never owed a reopen through a
 /// terminated provider, which would ask every athlete to reconnect it — and
@@ -1846,7 +1846,7 @@ async fn the_whole_provider_purge_releases_every_walk_through_it_and_no_other() 
     );
 }
 
-/// A grant's purge left the walk owed a reopen, and the operator terminates
+/// A grant's purge left the walk owed a reopen, and the admin terminates
 /// the provider before anything resolved it. The termination settles that
 /// walk too, as a session walked alone: the resume sweep no longer lists it,
 /// and the purged walk's resolution reopens nothing through the terminated
@@ -2329,11 +2329,11 @@ async fn reasons_since(
 }
 
 /// The purges that reached an athlete since a moment are theirs, in that
-/// tenant, of that provider, and the operator's whole-provider purge, which
+/// tenant, of that provider, and the admin's whole-provider purge, which
 /// names no athlete: never a teammate's, the athlete's own in another
 /// tenant, another provider's, or one that committed before the moment.
 #[tokio::test]
-async fn the_purges_since_a_moment_are_the_athletes_own_and_the_operators() {
+async fn the_purges_since_a_moment_are_the_athletes_own_and_the_admins() {
     let world = world().await;
     let repos = world.repos();
     let (athlete, tenant) = world.athlete;
@@ -2361,12 +2361,7 @@ async fn the_purges_since_a_moment_are_the_athletes_own_and_the_operators() {
         .unwrap();
     repos
         .provider_data
-        .purge_user_provider_data(
-            athlete,
-            &elsewhere,
-            "whoop",
-            PurgeReason::OperatorDisconnect,
-        )
+        .purge_user_provider_data(athlete, &elsewhere, "whoop", PurgeReason::AdminDisconnect)
         .await
         .unwrap();
     repos
@@ -2393,7 +2388,7 @@ async fn the_purges_since_a_moment_are_the_athletes_own_and_the_operators() {
     assert_eq!(
         reasons_since(&world, world.athlete, "whoop", since).await,
         ["cache_expired", "termination"],
-        "bug: the athlete's own purge or the operator's termination is not read"
+        "bug: the athlete's own purge or the admin's termination is not read"
     );
     assert_eq!(
         reasons_since(&world, world.teammate, "whoop", since).await,

@@ -14,7 +14,7 @@
 //! not an absence of one, and a write that quietly kept the old scheme would
 //! have read as success.
 //!
-//! The operator `manages_roster` grant records who made it and when, and the
+//! The admin `manages_roster` grant records who made it and when, and the
 //! reconciler's revoke must leave such a grant alone while taking back one a
 //! `TrainingPeaks` coach connection earned.
 //!
@@ -167,35 +167,31 @@ async fn a_preference_write_for_an_unknown_user_is_not_found() {
 }
 
 #[tokio::test]
-async fn an_operator_grant_records_who_and_when_and_survives_an_earned_revoke() {
+async fn an_admin_grant_records_who_and_when_and_survives_an_earned_revoke() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let operator = repos.users.create(&fresh_user()).await.unwrap();
+    let admin = repos.users.create(&fresh_user()).await.unwrap();
     let coach = repos.users.create(&fresh_user()).await.unwrap();
 
     assert_eq!(
-        repos
-            .users
-            .manages_roster_operator_grant(coach)
-            .await
-            .unwrap(),
+        repos.users.manages_roster_admin_grant(coach).await.unwrap(),
         None,
-        "a new user holds no operator grant"
+        "a new user holds no admin grant"
     );
 
     let before = Utc::now() - Duration::seconds(1);
     repos
         .users
-        .set_manages_roster_by_operator(coach, true, Some(operator))
+        .set_manages_roster_by_admin(coach, true, Some(admin))
         .await
         .unwrap();
     let grant = repos
         .users
-        .manages_roster_operator_grant(coach)
+        .manages_roster_admin_grant(coach)
         .await
         .unwrap()
         .expect("the grant is recorded");
-    assert_eq!(grant.granted_by, Some(operator));
+    assert_eq!(grant.granted_by, Some(admin));
     assert!(grant.granted_at >= before, "{grant:?}");
 
     assert!(
@@ -204,24 +200,20 @@ async fn an_operator_grant_records_who_and_when_and_survives_an_earned_revoke() 
             .revoke_earned_manages_roster(coach)
             .await
             .unwrap(),
-        "the reconciler's revoke leaves an operator grant alone"
+        "the reconciler's revoke leaves an admin grant alone"
     );
     let read = repos.users.get_global(coach).await.unwrap().unwrap();
     assert!(read.manages_roster);
 
     repos
         .users
-        .set_manages_roster_by_operator(coach, false, Some(operator))
+        .set_manages_roster_by_admin(coach, false, Some(admin))
         .await
         .unwrap();
     let read = repos.users.get_global(coach).await.unwrap().unwrap();
-    assert!(!read.manages_roster, "an operator revoke clears the grant");
+    assert!(!read.manages_roster, "an admin revoke clears the grant");
     assert_eq!(
-        repos
-            .users
-            .manages_roster_operator_grant(coach)
-            .await
-            .unwrap(),
+        repos.users.manages_roster_admin_grant(coach).await.unwrap(),
         None,
         "and its record"
     );
@@ -248,7 +240,7 @@ async fn an_earned_grant_is_revoked_and_a_service_token_grant_names_no_one() {
             .unwrap()
             .unwrap()
             .manages_roster,
-        "a grant no operator made is the reconciler's to take back"
+        "a grant no admin made is the reconciler's to take back"
     );
     assert!(
         !repos
@@ -261,26 +253,26 @@ async fn an_earned_grant_is_revoked_and_a_service_token_grant_names_no_one() {
 
     repos
         .users
-        .set_manages_roster_by_operator(granted, true, None)
+        .set_manages_roster_by_admin(granted, true, None)
         .await
         .unwrap();
     let grant = repos
         .users
-        .manages_roster_operator_grant(granted)
+        .manages_roster_admin_grant(granted)
         .await
         .unwrap()
-        .expect("a service token's grant is still an operator grant");
+        .expect("a service token's grant is still an admin grant");
     assert_eq!(grant.granted_by, None);
 
     let absent = Uuid::new_v4();
     assert!(repos
         .users
-        .set_manages_roster_by_operator(absent, true, None)
+        .set_manages_roster_by_admin(absent, true, None)
         .await
         .is_err());
     assert!(repos
         .users
-        .manages_roster_operator_grant(absent)
+        .manages_roster_admin_grant(absent)
         .await
         .is_err());
     assert!(!repos

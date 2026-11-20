@@ -164,7 +164,7 @@ pub use sciotte::{
 // that a continuation without a live flow of the caller's own is refused, that
 // the entry is reachable from any pod sharing the cache, that it is scoped to
 // the tenant that parked it, and that a scraper load-shed answers with a
-// retryable 503 instead of an operator alert. Doc-hidden — internal-only.
+// retryable 503 instead of an admin alert. Doc-hidden — internal-only.
 #[cfg(feature = "provider-sciotte")]
 #[doc(hidden)]
 pub use sciotte::{
@@ -188,9 +188,9 @@ pub use pierre_auth::dto::auth::{
 
 pub use first_sync::{FirstSyncHook, FirstSyncSlot, CONNECT_RECENT_DAYS};
 pub use pierre_mcp_transport::OAuthCallbackResponse;
+use pierre_services::admin_mail::PendingSignupMail;
 pub use pierre_services::auth::AuthService;
 pub use pierre_services::oauth_flow::OAuthService;
-use pierre_services::operator_mail::PendingSignupMail;
 
 /// Shared state for every auth route handler in this crate.
 ///

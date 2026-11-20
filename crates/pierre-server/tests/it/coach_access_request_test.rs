@@ -271,9 +271,9 @@ async fn an_admin_grant_makes_the_requester_the_coach_of_their_group() -> Result
     assert_eq!(requested.field("group_name"), "Tuesday Rides");
     assert_eq!(requested.field("origin"), "asked");
 
-    let operator = session(&resources, "grant-super@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "grant-super@example.com", UserRole::Admin).await?;
     let queue: Value = AxumTestRequest::get("/api/admin/coach-access-requests")
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .send(console(&resources))
         .await
         .json();
@@ -288,7 +288,7 @@ async fn an_admin_grant_makes_the_requester_the_coach_of_their_group() -> Result
     let granted = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{request_id}/grant"
     ))
-    .header("Authorization", &operator.auth)
+    .header("Authorization", &admin.auth)
     .send(console(&resources))
     .await;
     assert_eq!(granted.status(), 200);
@@ -307,10 +307,10 @@ async fn an_admin_grant_makes_the_requester_the_coach_of_their_group() -> Result
     assert!(user.manages_roster, "the grant gives coach access");
     let grant = repos
         .users
-        .manages_roster_operator_grant(coach.user_id)
+        .manages_roster_admin_grant(coach.user_id)
         .await?
-        .expect("an operator grant, which a TrainingPeaks disconnect never takes back");
-    assert_eq!(grant.granted_by, Some(operator.user_id));
+        .expect("an admin grant, which a TrainingPeaks disconnect never takes back");
+    assert_eq!(grant.granted_by, Some(admin.user_id));
 
     let attached = repos
         .groups
@@ -329,13 +329,13 @@ async fn an_admin_grant_makes_the_requester_the_coach_of_their_group() -> Result
         .await
         .json();
     assert_eq!(mine["request"]["status"], "granted");
-    assert_eq!(mine["request"]["decided_by"], operator.user_id.to_string());
+    assert_eq!(mine["request"]["decided_by"], admin.user_id.to_string());
 
     // Decided once is decided.
     let again = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{request_id}/decline"
     ))
-    .header("Authorization", &operator.auth)
+    .header("Authorization", &admin.auth)
     .send(console(&resources))
     .await;
     assert_eq!(again.status(), 409);
@@ -360,7 +360,7 @@ async fn only_an_admin_decides_and_a_decline_lets_the_coach_ask_again() -> Resul
 
     // An account that is not an admin, a tenant owner included, decides no
     // request and reads no queue.
-    let admin = session(&resources, "not-an-admin@example.com", UserRole::User).await?;
+    let not_admin = session(&resources, "not-an-admin@example.com", UserRole::User).await?;
     for path in [
         "/api/admin/coach-access-requests".to_owned(),
         format!("/api/admin/coach-access-requests/{request_id}/grant"),
@@ -371,7 +371,7 @@ async fn only_an_admin_decides_and_a_decline_lets_the_coach_ask_again() -> Resul
             AxumTestRequest::get(&path)
         };
         let refused = request
-            .header("Authorization", &admin.auth)
+            .header("Authorization", &not_admin.auth)
             .send(console(&resources))
             .await;
         assert_eq!(refused.status(), 403, "{path} is for admins only");
@@ -430,12 +430,12 @@ async fn only_an_admin_decides_and_a_decline_lets_the_coach_ask_again() -> Resul
         "a refused decision leaves the request open"
     );
 
-    let operator = session(&resources, "decline-super@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "decline-super@example.com", UserRole::Admin).await?;
     let (events, _guard) = capture_notify();
     let declined: Value = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{request_id}/decline"
     ))
-    .header("Authorization", &operator.auth)
+    .header("Authorization", &admin.auth)
     .send(console(&resources))
     .await
     .json();
@@ -448,7 +448,7 @@ async fn only_an_admin_decides_and_a_decline_lets_the_coach_ask_again() -> Resul
     assert_eq!(decided.field("user_id"), coach.user_id.to_string());
 
     let history: Value = AxumTestRequest::get("/api/admin/coach-access-requests?status=declined")
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .send(console(&resources))
         .await
         .json();
@@ -469,7 +469,7 @@ async fn only_an_admin_decides_and_a_decline_lets_the_coach_ask_again() -> Resul
 async fn a_decision_names_a_requester_this_pod_never_saw() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let repos = &resources.common.repos;
-    let operator = session(&resources, "unseen-super@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "unseen-super@example.com", UserRole::Admin).await?;
 
     for (email, decision) in [
         ("unseen-granted@example.com", "grant"),
@@ -486,7 +486,7 @@ async fn a_decision_names_a_requester_this_pod_never_saw() -> Result<()> {
             "/api/admin/coach-access-requests/{}/{decision}",
             request.id
         ))
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .send(console(&resources))
         .await;
         assert_eq!(decided.status(), 200, "{decision}");
@@ -542,11 +542,11 @@ async fn a_grant_leaves_a_group_that_found_a_coach_meanwhile_alone() -> Result<(
         .set_group_coach_user(&group.to_string(), Some(other.user_id), coach.tenant_id)
         .await?;
 
-    let operator = session(&resources, "late-super@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "late-super@example.com", UserRole::Admin).await?;
     let granted: Value = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{request_id}/grant"
     ))
-    .header("Authorization", &operator.auth)
+    .header("Authorization", &admin.auth)
     .send(console(&resources))
     .await
     .json();
@@ -586,7 +586,7 @@ async fn deleting_the_requester_takes_their_requests_along() -> Result<()> {
     Ok(())
 }
 
-/// A grant racing a decline on the same request (two operators, or one
+/// A grant racing a decline on the same request (two admins, or one
 /// double-submit): whichever claims the decision first decides it, and the
 /// access state follows the row — never a `declined` row over a user who
 /// holds coach access and coaches the group (carnet#902).
@@ -595,7 +595,7 @@ async fn deleting_the_requester_takes_their_requests_along() -> Result<()> {
 async fn a_grant_racing_a_decline_leaves_the_row_and_the_access_in_agreement() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let repos = &resources.common.repos;
-    let operator = session(&resources, "race-super@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "race-super@example.com", UserRole::Admin).await?;
 
     for round in 0..30 {
         let coach = session(
@@ -610,8 +610,8 @@ async fn a_grant_racing_a_decline_leaves_the_row_and_the_access_in_agreement() -
         let request_id: Uuid = opened["request"]["id"].as_str().unwrap().parse()?;
 
         let (granted, declined) = tokio::join!(
-            coach_access::grant(repos, request_id, Some(operator.user_id), None),
-            coach_access::decline(repos, request_id, Some(operator.user_id), None, None),
+            coach_access::grant(repos, request_id, Some(admin.user_id), None),
+            coach_access::decline(repos, request_id, Some(admin.user_id), None, None),
         );
         assert!(
             granted.is_ok() != declined.is_ok(),
@@ -655,10 +655,10 @@ async fn a_grant_after_a_decline_is_refused_and_gives_nothing() -> Result<()> {
     let group = coachless_group(&resources, &coach).await?;
     let (_, opened) = ask(&resources, &coach.auth, json!({ "group_id": group })).await;
     let request_id: Uuid = opened["request"]["id"].as_str().unwrap().parse()?;
-    let operator = session(&resources, "late-grant-super@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "late-grant-super@example.com", UserRole::Admin).await?;
 
-    coach_access::decline(repos, request_id, Some(operator.user_id), None, None).await?;
-    let error = coach_access::grant(repos, request_id, Some(operator.user_id), None)
+    coach_access::decline(repos, request_id, Some(admin.user_id), None, None).await?;
+    let error = coach_access::grant(repos, request_id, Some(admin.user_id), None)
         .await
         .expect_err("a decided request cannot be granted");
     assert_eq!(error.code, ErrorCode::ResourceAlreadyExists);
@@ -710,14 +710,14 @@ async fn refuse_group_writes(resources: &ServerContext) {
 
 /// carnet#902: a grant that fails at the group attachment is undone, but the
 /// undo puts coach access back to what it was before the grant. A requester
-/// with no access before loses the access the grant gave; one an operator
+/// with no access before loses the access the grant gave; one an admin
 /// granted by hand meanwhile keeps it. Either way the request is pending again.
 #[tokio::test]
 #[serial]
 async fn a_failed_grant_restores_the_coach_access_it_found() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let repos = &resources.common.repos;
-    let operator = session(&resources, "undo-super@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "undo-super@example.com", UserRole::Admin).await?;
 
     let fresh = session(&resources, "undo-fresh@example.com", UserRole::User).await?;
     let fresh_group = coachless_group(&resources, &fresh).await?;
@@ -735,12 +735,12 @@ async fn a_failed_grant_restores_the_coach_access_it_found() -> Result<()> {
     let hand_request: Uuid = opened["request"]["id"].as_str().unwrap().parse()?;
     repos
         .users
-        .set_manages_roster_by_operator(granted_by_hand.user_id, true, Some(operator.user_id))
+        .set_manages_roster_by_admin(granted_by_hand.user_id, true, Some(admin.user_id))
         .await?;
 
     refuse_group_writes(&resources).await;
     for request in [fresh_request, hand_request] {
-        coach_access::grant(repos, request, Some(operator.user_id), None)
+        coach_access::grant(repos, request, Some(admin.user_id), None)
             .await
             .expect_err("the group attachment is refused");
         let reopened = repos
@@ -763,7 +763,7 @@ async fn a_failed_grant_restores_the_coach_access_it_found() -> Result<()> {
         .expect("user");
     assert!(
         hand_user.manages_roster,
-        "an operator's earlier grant survives the undo"
+        "an admin's earlier grant survives the undo"
     );
     Ok(())
 }
@@ -914,12 +914,12 @@ async fn one_grant_coaches_every_coachless_group_the_coach_owns_and_says_so_in_e
     assert_eq!(status, 201, "{opened}");
     let request_id = opened["request"]["id"].as_str().unwrap().to_owned();
 
-    let operator = session(&resources, "every-group-super@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "every-group-super@example.com", UserRole::Admin).await?;
     let (events, _guard) = capture_notify();
     let granted = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{request_id}/grant"
     ))
-    .header("Authorization", &operator.auth)
+    .header("Authorization", &admin.auth)
     .send(console_telling_the_coach(&resources))
     .await;
     assert_eq!(granted.status(), 200);
@@ -1007,14 +1007,14 @@ async fn one_grant_coaches_every_coachless_group_the_coach_owns_and_says_so_in_e
 async fn a_decline_carries_its_reason_to_the_request_the_notice_and_the_queue() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let coach = session(&resources, "reason-coach@example.com", UserRole::User).await?;
-    let operator = session(&resources, "reason-super@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "reason-super@example.com", UserRole::Admin).await?;
 
     let (_, opened) = ask(&resources, &coach.auth, json!({})).await;
     let request_id = opened["request"]["id"].as_str().unwrap().to_owned();
     let declined: Value = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{request_id}/decline"
     ))
-    .header("Authorization", &operator.auth)
+    .header("Authorization", &admin.auth)
     .json(&json!({ "reason": "  No coaching account we could verify.  " }))
     .send(console_telling_the_coach(&resources))
     .await
@@ -1034,7 +1034,7 @@ async fn a_decline_carries_its_reason_to_the_request_the_notice_and_the_queue() 
     assert_eq!(mine["request"]["status"], "declined");
     assert_eq!(mine["request"]["decline_reason"], reason);
     let history: Value = AxumTestRequest::get("/api/admin/coach-access-requests?status=declined")
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .send(console(&resources))
         .await
         .json();
@@ -1073,7 +1073,7 @@ async fn a_decline_carries_its_reason_to_the_request_the_notice_and_the_queue() 
     let plain: Value = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{again_id}/decline"
     ))
-    .header("Authorization", &operator.auth)
+    .header("Authorization", &admin.auth)
     .json(&json!({ "reason": "   " }))
     .send(console_telling_the_coach(&resources))
     .await
@@ -1125,11 +1125,11 @@ async fn a_coach_withdraws_a_waiting_request_and_may_ask_again_at_once() -> Resu
     let (status, reopened) = ask(&resources, &coach.auth, json!({})).await;
     assert_eq!(status, 201, "{reopened}");
     assert_ne!(reopened["request"]["id"], first_id.as_str());
-    let operator = session(&resources, "withdraw-super@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "withdraw-super@example.com", UserRole::Admin).await?;
     let gone = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{first_id}/grant"
     ))
-    .header("Authorization", &operator.auth)
+    .header("Authorization", &admin.auth)
     .send(console(&resources))
     .await;
     assert_eq!(gone.status(), 404);
@@ -1170,14 +1170,14 @@ async fn asking_again_replaces_a_decline_so_a_withdrawn_ask_reads_the_plain_ask(
     let resources = create_test_server_resources().await?;
     let repos = &resources.common.repos;
     let coach = session(&resources, "replaced-coach@example.com", UserRole::User).await?;
-    let operator = session(&resources, "replaced-super@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "replaced-super@example.com", UserRole::Admin).await?;
 
     let (_, first) = ask(&resources, &coach.auth, json!({})).await;
     let first_id = first["request"]["id"].as_str().unwrap().to_owned();
     let declined = AxumTestRequest::post(&format!(
         "/api/admin/coach-access-requests/{first_id}/decline"
     ))
-    .header("Authorization", &operator.auth)
+    .header("Authorization", &admin.auth)
     .json(&json!({ "reason": "No coaching account we could verify." }))
     .send(console(&resources))
     .await;
@@ -1209,7 +1209,7 @@ async fn asking_again_replaces_a_decline_so_a_withdrawn_ask_reads_the_plain_ask(
 
     // The console keeps the decline and its reason; the row says what replaced it.
     let history: Value = AxumTestRequest::get("/api/admin/coach-access-requests?status=declined")
-        .header("Authorization", &operator.auth)
+        .header("Authorization", &admin.auth)
         .send(console(&resources))
         .await
         .json();
@@ -1281,7 +1281,7 @@ async fn coach_of(resources: &Arc<ServerContext>, group: Uuid, tenant: TenantId)
 async fn a_grant_attaches_only_the_coachless_groups_in_the_coachs_own_tenant() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let repos = &resources.common.repos;
-    let operator = session(
+    let admin = session(
         &resources,
         "tenant-scope-super@example.com",
         UserRole::Admin,
@@ -1297,7 +1297,7 @@ async fn a_grant_attaches_only_the_coachless_groups_in_the_coachs_own_tenant() -
         create_coachless_group(repos, coach.user_id, elsewhere, &other_agent, "Elsewhere").await?;
     let (_, opened) = ask(&resources, &coach.auth, json!({})).await;
     let request: Uuid = opened["request"]["id"].as_str().unwrap().parse()?;
-    let outcome = coach_access::grant(repos, request, Some(operator.user_id), None).await?;
+    let outcome = coach_access::grant(repos, request, Some(admin.user_id), None).await?;
     assert_eq!(
         outcome.attached_groups,
         vec![home_group],
@@ -1331,7 +1331,7 @@ async fn a_grant_attaches_only_the_coachless_groups_in_the_coachs_own_tenant() -
     else {
         panic!("a new request opens");
     };
-    let outcome = coach_access::grant(repos, opened.id, Some(operator.user_id), None).await?;
+    let outcome = coach_access::grant(repos, opened.id, Some(admin.user_id), None).await?;
     assert_eq!(
         outcome.attached_groups,
         vec![asked_from],

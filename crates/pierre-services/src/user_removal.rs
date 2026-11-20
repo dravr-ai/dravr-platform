@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Removing a user completely, from an operator surface.
+//! Removing a user completely, from an admin surface.
 //!
 //! A user delete used to be `DELETE FROM users` and whatever the foreign keys
 //! did with it. The token rows cascaded, so our own seat count dropped, but the
@@ -13,10 +13,10 @@
 //! user referenced by a row that does not cascade — a group they own, an invite
 //! they created — failed the delete outright, surfaced as a 500.
 //!
-//! This is the operator half of the disconnect chokepoint
+//! This is the admin half of the disconnect chokepoint
 //! (`OAuthService::disconnect_provider`), and it never re-implements a
 //! disconnect. The admin routes reach the chokepoint through
-//! [`ProviderDisconnector`], which [`OAuthService`] implements, so an operator's
+//! [`ProviderDisconnector`], which [`OAuthService`] implements, so an admin's
 //! disconnect revokes upstream, deletes the token and connection rows, purges
 //! every row the provider contributed and raises `provider.disconnected`
 //! exactly as the athlete's own does. What the provider answered is reported
@@ -69,7 +69,7 @@ use crate::provider_revocation::{self, DisconnectReason, RevocationOutcome};
 /// How many blocking references a refusal names before summarising the rest.
 const BLOCKERS_NAMED: usize = 10;
 
-/// The disconnect chokepoint, as an operator surface reaches it.
+/// The disconnect chokepoint, as an admin surface reaches it.
 ///
 /// The admin route crate holds neither the `DataContext` nor the server config
 /// the chokepoint needs, so the composition root injects this seam instead —
@@ -79,7 +79,7 @@ pub trait ProviderDisconnector: Send + Sync {
     /// Disconnect `provider` for `user_id` within `tenant_id` through the
     /// user's own disconnect chokepoint: the grant is revoked at the provider,
     /// the token and connection rows are deleted (both halves of a coalesced
-    /// pair for an athlete or an operator, the named grant alone for a seat
+    /// pair for an athlete or an admin, the named grant alone for a seat
     /// reclaim or a revocation), every row they contributed is purged, and
     /// success is refused while any of them survives. `reason` names who asked on the
     /// `provider.disconnected` event. Returns what the provider said about
@@ -149,7 +149,7 @@ pub struct HeldProvider {
 }
 
 impl HeldProvider {
-    /// `strava (tenant …)`, as an operator reads it.
+    /// `strava (tenant …)`, as an admin reads it.
     #[must_use]
     pub fn describe(&self) -> String {
         format!("{} (tenant {})", self.provider, self.tenant_id)
@@ -165,13 +165,13 @@ pub struct DisconnectedProvider {
     /// User-facing provider name.
     pub provider: String,
     /// Whether the provider confirmed the revocation. Anything but `revoked`
-    /// means the grant may still be authorized there, which an operator
+    /// means the grant may still be authorized there, which an admin
     /// freeing a seat needs to know.
     pub revocation: RevocationOutcome,
 }
 
 impl DisconnectedProvider {
-    /// The provider and tenant with the revocation's outcome, as an operator
+    /// The provider and tenant with the revocation's outcome, as an admin
     /// reads it.
     #[must_use]
     pub fn describe(&self) -> String {
@@ -186,7 +186,7 @@ impl DisconnectedProvider {
     }
 }
 
-/// Everything a user delete did, for the operator's response.
+/// Everything a user delete did, for the admin's response.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct RemovalReport {
     /// Providers disconnected through the chokepoint, each with what the
@@ -257,7 +257,7 @@ pub struct Interruption {
 }
 
 impl Interruption {
-    /// What already happened and what did not, as an operator reads it;
+    /// What already happened and what did not, as an admin reads it;
     /// `cause` is the failure as the caller may show it.
     #[must_use]
     pub fn describe(&self, cause: &str) -> String {
@@ -277,8 +277,8 @@ impl Interruption {
         )
     }
 
-    /// The providers disconnected before the failure, as an operator reads
-    /// them; the sentence every interrupted operator action opens its account
+    /// The providers disconnected before the failure, as an admin reads
+    /// them; the sentence every interrupted admin action opens its account
     /// of what was already done with.
     #[must_use]
     pub fn describe_disconnected(&self) -> String {
@@ -303,7 +303,7 @@ impl Interruption {
 #[derive(Debug, Clone)]
 pub enum UserRemoval {
     /// Nothing was touched: these rows reference the user without cascading
-    /// and an operator must reassign them first.
+    /// and an admin must reassign them first.
     Blocked(Vec<UserReference>),
     /// The user is gone, every supported grant withdrawn first.
     Removed(RemovalReport),
@@ -441,7 +441,7 @@ pub async fn disconnect_user_provider(
     {
         return ProviderDisconnection::NotRevocable(targets);
     }
-    match disconnect_each(disconnector, user_id, targets, DisconnectReason::Operator).await {
+    match disconnect_each(disconnector, user_id, targets, DisconnectReason::Admin).await {
         Ok(disconnected) => ProviderDisconnection::Disconnected(disconnected),
         Err(interruption) => ProviderDisconnection::Interrupted(*interruption),
     }
@@ -649,7 +649,7 @@ async fn withdraw_held(
 /// carries: an athlete deleting from the app or a channel is the athlete's.
 const fn disconnect_reason(actor: DeletionActor) -> DisconnectReason {
     match actor {
-        DeletionActor::Operator => DisconnectReason::Operator,
+        DeletionActor::Admin => DisconnectReason::Admin,
         DeletionActor::Athlete | DeletionActor::Messaging => DisconnectReason::Athlete,
     }
 }
@@ -850,7 +850,7 @@ async fn delete_firebase_identity(
     removal
 }
 
-/// The operator-facing refusal naming each blocking reference, capped at
+/// The admin-facing refusal naming each blocking reference, capped at
 /// [`BLOCKERS_NAMED`] with a count of the rest.
 #[must_use]
 pub fn blockers_message(blockers: &[UserReference]) -> String {
@@ -860,7 +860,7 @@ pub fn blockers_message(blockers: &[UserReference]) -> String {
     )
 }
 
-/// Each blocking reference as an operator reads it, capped at
+/// Each blocking reference as an admin reads it, capped at
 /// [`BLOCKERS_NAMED`] with a count of the rest, joined by `; `.
 pub(crate) fn name_blockers(blockers: &[UserReference]) -> String {
     let mut named: Vec<String> = blockers

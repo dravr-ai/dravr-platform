@@ -50,7 +50,7 @@ pub struct SetRateLimitOverrideRequest {
     /// required even when its value is null.
     #[serde(deserialize_with = "Option::deserialize")]
     pub monthly_limit: Option<u32>,
-    /// Operator-facing note explaining why the override exists.
+    /// Admin-facing note explaining why the override exists.
     pub note: Option<String>,
 }
 

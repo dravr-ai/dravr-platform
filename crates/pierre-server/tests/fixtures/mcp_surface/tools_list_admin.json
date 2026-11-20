@@ -4991,7 +4991,7 @@
             ]
           },
           "message": {
-            "description": "What to tell the operator, already written.",
+            "description": "What to tell the admin, already written.",
             "type": "string"
           },
           "success": {
@@ -12275,7 +12275,7 @@
           },
           "sync_metrics": {
             "$ref": "#/$defs/SyncMetrics",
-            "description": "Process-wide sync counters, for an operator reading a trace. They\ncount since process start, so a restart resets them."
+            "description": "Process-wide sync counters, for an admin reading a trace. They\ncount since process start, so a restart resets them."
           }
         },
         "required": [
@@ -33951,7 +33951,7 @@
             "type": "string"
           },
           "message": {
-            "description": "What to tell the operator, already written.",
+            "description": "What to tell the admin, already written.",
             "type": "string"
           },
           "saved_at": {

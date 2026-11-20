@@ -8,7 +8,7 @@
 //!
 //! Strava caps how many athletes a single OAuth app may connect and does not
 //! expose that cap via the API. To grow capacity beyond the env-default
-//! `STRAVA_CLIENT_ID` app, operators register additional apps in the
+//! `STRAVA_CLIENT_ID` app, admins register additional apps in the
 //! `strava_oauth_app_pool` table. This module decides which app an
 //! authorization uses (the pool app that issued the athlete's token while it
 //! has room, otherwise the env app first, then pool apps in order). A token

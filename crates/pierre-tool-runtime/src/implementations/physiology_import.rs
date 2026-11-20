@@ -136,7 +136,7 @@ pub enum ThresholdImport<T> {
 }
 
 impl<T> ThresholdImport<T> {
-    /// The outcome's name, the only part the operator log carries: the
+    /// The outcome's name, the only part the admin log carries: the
     /// values are health data.
     const fn label(&self) -> &'static str {
         match self {
@@ -804,7 +804,7 @@ mod tests {
 
     #[test]
     fn the_log_names_each_outcome_as_the_result_does() {
-        // The operator log carries the label alone, never the values; it must
+        // The admin log carries the label alone, never the values; it must
         // be the outcome name the agent reads, so the two can be joined.
         for outcome in [
             ThresholdImport::Imported { value: 285_u32 },

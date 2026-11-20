@@ -139,7 +139,7 @@ async fn verify_credentials(
 ///
 /// The account is created by
 /// [`pierre_services::auth::AuthService::self_register`], the same rules every
-/// other self-serve signup follows — the operator's sign-up bounds, email and
+/// other self-serve signup follows — the admin's sign-up bounds, email and
 /// password validation, the approval posture (pre-approved address,
 /// auto-approved domain, or pending admin approval) and the personal tenant —
 /// so a code the bot handed out is not a way around them. It is counted in

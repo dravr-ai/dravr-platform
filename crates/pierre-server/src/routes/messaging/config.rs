@@ -63,7 +63,7 @@ async fn resolve_tenant_id(
 /// Gate tenant messaging-credential access to the tenant owner or an admin.
 ///
 /// Channel configs hold per-tenant secrets (bot tokens, API secrets, webhook /
-/// verify tokens). Reading, writing, or deleting them is an operator action, so
+/// verify tokens). Reading, writing, or deleting them is an admin action, so
 /// a plain tenant member must be denied. Mirrors the tenant-scoped owner/admin
 /// gate on LLM credential writes (`routes-admin/llm_settings.rs`) and the
 /// `require_admin` gate on fitness tenant-config save/delete
@@ -172,7 +172,7 @@ pub(crate) async fn connectable_channels(
         // disabled. The config JSON carries the stored flag as `is_active` (the
         // write side maps the request's `enabled` onto it); we read ONLY that
         // scalar flag — never any secret field. A tenant's own disabled config
-        // withholds the channel: its operator turned it off.
+        // withholds the channel: its admin turned it off.
         let Some(config) = db.resolve_channel_config(tenant_id, &channel_str).await? else {
             continue;
         };

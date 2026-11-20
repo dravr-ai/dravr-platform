@@ -111,7 +111,7 @@ fn set_body(provider: OrderProvider, first: FirstWay) -> Value {
     json!({ "provider": provider.wire(), "order": first.order().as_str() })
 }
 
-/// The operator's words for a stored order; a form this build does not know
+/// The admin's words for a stored order; a form this build does not know
 /// is shown as it came.
 fn first_label(order: &str) -> &str {
     match ConnectOrder::parse(order) {

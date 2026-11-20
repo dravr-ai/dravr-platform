@@ -1,5 +1,5 @@
 // ABOUTME: SQLite-backed AdminAuditRepository, emitted from the shared implementation
-// ABOUTME: The admin audit trail: one row per operator write, read newest first
+// ABOUTME: The admin audit trail: one row per admin write, read newest first
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

@@ -12,7 +12,7 @@
 //! is best-effort — failures are logged, never propagated, so a notification
 //! can't fail the approval. Every outcome — sent, skipped, failed — is logged
 //! at INFO or WARN with the masked recipient, since the deployed server runs
-//! at INFO and an operator needs to tell "sent" from "skipped" there.
+//! at INFO and an admin needs to tell "sent" from "skipped" there.
 
 use std::sync::Arc;
 

@@ -1,4 +1,4 @@
-// ABOUTME: The startup readers that capture operator settings from the environment into ServerConfig
+// ABOUTME: The startup readers that capture admin settings from the environment into ServerConfig
 // ABOUTME: Service addresses, time bounds, tool deferral and webhook secrets, read once
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -32,7 +32,7 @@ const TIMEOUT_VARS: [&str; 6] = [
 ];
 
 #[test]
-fn startup_captures_the_sciotte_service_and_operator_settings() {
+fn startup_captures_the_sciotte_service_and_admin_settings() {
     env::remove_var("DRAVR_SCIOTTE_REMOTE_URL");
     env::remove_var("DRAVR_SCIOTTE_AUDIENCE");
     env::remove_var("DRAVR_SCIOTTE_LOGIN_URL");
@@ -153,7 +153,7 @@ fn startup_captures_the_sciotte_service_and_operator_settings() {
         Some(45)
     );
 
-    // Deferred tool loading is on unless the operator writes an off value,
+    // Deferred tool loading is on unless the admin writes an off value,
     // so a typo never turns it off.
     env::remove_var(DEFER_TOOLS_VAR);
     assert!(

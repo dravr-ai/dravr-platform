@@ -431,7 +431,7 @@ impl AuthService {
     }
 
     /// Create a new account for `identity`, under the registration approval
-    /// posture and the operator's sign-up bounds, with its personal workspace.
+    /// posture and the admin's sign-up bounds, with its personal workspace.
     /// A first Google sign-in is a self-serve door like the register form, so
     /// a closed kill switch or a reached ceiling refuses it.
     async fn create_federated_user(&self, identity: &FederatedIdentity<'_>) -> AppResult<User> {

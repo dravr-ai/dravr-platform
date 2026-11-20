@@ -90,7 +90,7 @@ pub(crate) async fn await_contremaitre_overlay(resources: &Arc<ServerContext>) {
 /// How long a lane waits for one turn before recording it as an infra error.
 ///
 /// Above the server's own ceiling on a turn ([`turn_watchdog`],
-/// `MESSAGING_TURN_WATCHDOG_SECS`), read live so an operator who moves the
+/// `MESSAGING_TURN_WATCHDOG_SECS`), read live so an admin who moves the
 /// ceiling moves this with it. Every turn has therefore ended — with its
 /// reply, or with the watchdog's notice — before the lane posts the next one.
 /// A wait below it lets a slow turn keep running past the point the lane
@@ -113,7 +113,7 @@ pub(crate) fn turn_timeout_under(timeouts: &ServerTimeouts) -> Duration {
     turn_watchdog(timeouts).saturating_add(TURN_WAIT_MARGIN)
 }
 
-/// The time bounds a lane's servers run under: the operator's, read from the
+/// The time bounds a lane's servers run under: the admin's, read from the
 /// environment as a deployed server reads them at startup, so the lane waits
 /// out the same watchdog its servers apply.
 pub(crate) fn lane_timeouts() -> ServerTimeouts {

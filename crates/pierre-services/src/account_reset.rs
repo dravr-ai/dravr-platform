@@ -1,15 +1,15 @@
-// ABOUTME: Operator reset of a whole account: every provider disconnected through the chokepoint, every owned row wiped
-// ABOUTME: The account, its sign-in, role, tier and operator overrides stay; no tombstone, no receipt, no Firebase deletion
+// ABOUTME: Admin reset of a whole account: every provider disconnected through the chokepoint, every owned row wiped
+// ABOUTME: The account, its sign-in, role, tier and admin overrides stay; no tombstone, no receipt, no Firebase deletion
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Starting an account over, from an operator surface (carnet#1463).
+//! Starting an account over, from an admin surface (carnet#1463).
 //!
 //! A delete ([`crate::user_removal`]) ends the account; an onboarding reset
 //! ([`crate::onboarding_reset`]) only sends it back through the wizard. This
 //! is between the two: the account stays — its id, email, role, tier, sign-in
-//! and every operator override — and everything it owns goes, so the next
+//! and every admin override — and everything it owns goes, so the next
 //! sign-in finds an account with no history, no provider and no memory.
 //!
 //! In order:
@@ -30,7 +30,7 @@
 //!    it does for the owner's delete; the wipe then takes the account's own
 //!    part of it. The archive runs before any provider is disconnected and,
 //!    like a disconnect, stands if a later step fails. The actor is the
-//!    account itself, since the operator acts on its behalf.
+//!    account itself, since the admin acts on its behalf.
 //! 2. Disconnect every held provider through the disconnect chokepoint
 //!    ([`ProviderDisconnector::disconnect`]), coaching platforms included —
 //!    unlike an onboarding reset, which keeps them for the groups riding on
@@ -40,7 +40,7 @@
 //!    own. A coaching platform's disconnect also ends the delegated links on
 //!    both sides of it and, for a `TrainingPeaks` coach connection, revokes
 //!    the `manages_roster` it earned: the one write a reset makes to the
-//!    `users` row, through the chokepoint's own invariant (an operator-made
+//!    `users` row, through the chokepoint's own invariant (an admin-made
 //!    grant is kept). A provider this build cannot revoke is kept and
 //!    reported, as an onboarding reset keeps it, since only the chokepoint
 //!    may clear a provider's rows.
@@ -140,7 +140,7 @@ pub struct ArchivedGroup {
     pub name: String,
 }
 
-/// Everything an account reset did, for the operator's response.
+/// Everything an account reset did, for the admin's response.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AccountResetReport {
     /// Active groups the account owned, archived before anything else ran.
@@ -204,7 +204,7 @@ pub enum AccountResetOutcome {
     Interrupted(AccountResetInterruption),
 }
 
-/// The operator-facing refusal naming each reference that blocks a reset,
+/// The admin-facing refusal naming each reference that blocks a reset,
 /// and what was already done when the second read refused it.
 #[must_use]
 pub fn blockers_message(refusal: &AccountResetRefusal) -> String {
@@ -243,7 +243,7 @@ pub fn blockers_message(refusal: &AccountResetRefusal) -> String {
     message
 }
 
-/// The groups already archived, as an operator reads it; `None` when none
+/// The groups already archived, as an admin reads it; `None` when none
 /// were.
 fn describe_archived(groups: &[ArchivedGroup]) -> Option<String> {
     if groups.is_empty() {
@@ -253,7 +253,7 @@ fn describe_archived(groups: &[ArchivedGroup]) -> Option<String> {
     Some(format!("already archived the groups {}", names.join(", ")))
 }
 
-/// What an interrupted reset already did and what it did not, as an operator
+/// What an interrupted reset already did and what it did not, as an admin
 /// reads it; `cause` is the failure as the caller may show it.
 #[must_use]
 pub fn describe_interruption(interrupted: &AccountResetInterruption, cause: &str) -> String {
@@ -357,7 +357,7 @@ pub async fn reset_account(
             disconnector,
             user_id,
             revocable,
-            DisconnectReason::Operator,
+            DisconnectReason::Admin,
         )
         .await
         {
@@ -421,7 +421,7 @@ pub async fn reset_account(
         tables_changed = report.rows_changed.len(),
         archive_records_erased = report.archive_erased.records,
         archive_blobs_erased = report.archive_erased.blobs,
-        "Account reset by operator"
+        "Account reset by admin"
     );
     Ok(AccountResetOutcome::Reset(report))
 }
@@ -479,7 +479,7 @@ mod tests {
     }
 
     /// The second read refuses after the disconnects and the erasure ran: the
-    /// operator is told both stand, so the retry is not a surprise.
+    /// admin is told both stand, so the retry is not a surprise.
     #[test]
     fn a_refusal_inside_the_wipe_says_what_already_ran() {
         let tenant_id = TenantId::generate();

@@ -4,12 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Operator management of the `pre_approved_emails` allow-list.
+//! Admin management of the `pre_approved_emails` allow-list.
 //!
 //! An allow is standing: registration consults the list
 //! ([`crate::auth::AuthService`]) so an allowed address lands
 //! [`UserStatus::Active`] in one step with `approved_by` attributed to the
-//! operator who recorded it, instead of queueing for approval.
+//! admin who recorded it, instead of queueing for approval.
 //!
 //! The three verbs live here rather than in a route handler because two
 //! surfaces drive them — the bearer-token admin routes behind
@@ -17,7 +17,7 @@
 //! admin web app — and an allow must mean the same thing on both. In
 //! particular, allowing an address that already has a *pending* account
 //! approves it now (default MCP token included), which is the case an
-//! operator hits whenever the person registered before being told not to.
+//! admin hits whenever the person registered before being told not to.
 
 use std::collections::HashMap;
 
@@ -40,7 +40,7 @@ use crate::invitation;
 ///
 /// The table is keyed on that form, so normalizing at the edge is what makes
 /// `Allow` then `Disallow` of the same address with different capitalization
-/// refer to one row, and what the result reports back to the operator.
+/// refer to one row, and what the result reports back to the admin.
 ///
 /// # Errors
 ///
@@ -88,7 +88,7 @@ pub struct ApprovedUser {
     pub display_name: Option<String>,
 }
 
-/// Outcome of [`allow`], carrying what the operator needs to be told and what
+/// Outcome of [`allow`], carrying what the admin needs to be told and what
 /// the caller needs in order to notify a just-approved user.
 #[derive(Debug, Clone)]
 pub struct AllowResult {
@@ -102,7 +102,7 @@ pub struct AllowResult {
 }
 
 impl AllowResult {
-    /// Operator-facing sentence describing the outcome.
+    /// Admin-facing sentence describing the outcome.
     ///
     /// One wording, produced server-side, so the CLI and the admin web app
     /// cannot describe the same result differently.
@@ -138,13 +138,13 @@ pub struct DisallowResult {
     /// Whether a live invitation to the address was revoked with it.
     pub invitation_revoked: bool,
     /// Status of an account that exists for this address, if any. Removing a
-    /// pre-approval never changes it, and an operator who expects otherwise
+    /// pre-approval never changes it, and an admin who expects otherwise
     /// needs to see that it did not.
     pub account_status: Option<String>,
 }
 
 impl DisallowResult {
-    /// Operator-facing sentence describing the outcome.
+    /// Admin-facing sentence describing the outcome.
     #[must_use]
     pub fn message(&self) -> String {
         let email = &self.email;
@@ -171,18 +171,18 @@ impl DisallowResult {
     }
 }
 
-/// One pre-approved address with the state an operator reads it for.
+/// One pre-approved address with the state an admin reads it for.
 #[derive(Debug, Clone, Serialize)]
 pub struct AllowedEmail {
     /// The allowed address, lower-case.
     pub email: String,
-    /// Operator note recorded with the allow (cohort, reason).
+    /// Admin note recorded with the allow (cohort, reason).
     pub note: Option<String>,
     /// When the allow was recorded.
     pub created_at: DateTime<Utc>,
-    /// The operator who recorded it, when attributable.
+    /// The admin who recorded it, when attributable.
     pub allowed_by: Option<Uuid>,
-    /// That operator's email, resolved for display.
+    /// That admin's email, resolved for display.
     pub allowed_by_email: Option<String>,
     /// Status of the account registered against this address, or `None` when
     /// nobody has registered yet — the whole point of a standing allow is that
@@ -199,7 +199,7 @@ pub struct AllowedEmail {
 /// no account yet records the allow; a pending account is approved now,
 /// exactly as `user approve` would, default MCP token included; an active
 /// account is a no-op; a suspended account is left untouched, because
-/// suspension is a deliberate operator act reversed explicitly, never as a
+/// suspension is a deliberate admin act reversed explicitly, never as a
 /// side effect of allowing an address. That holds for an account suspended
 /// while the allow is being recorded too ([`approve_pending`]).
 ///
@@ -317,7 +317,7 @@ async fn approve_pending(
 /// Never touches an existing account's status.
 ///
 /// The invitation goes with the allow: redeeming one creates an active account,
-/// which is exactly what an operator who withdraws the allow means to stop.
+/// which is exactly what an admin who withdraws the allow means to stop.
 ///
 /// # Errors
 ///
@@ -345,27 +345,27 @@ pub async fn disallow(repos: &RepositoryRegistry, email: &str) -> AppResult<Disa
     })
 }
 
-/// List every standing pre-approval with its operator, registration state and
+/// List every standing pre-approval with its admin, registration state and
 /// outstanding invitation.
 ///
 /// # Errors
 ///
 /// Returns the repository's error when the listing fails. A failed lookup of
-/// one row's operator or account degrades that field to `None` rather than
-/// failing the listing — an unreadable operator record is not a reason to
+/// one row's admin or account degrades that field to `None` rather than
+/// failing the listing — an unreadable admin record is not a reason to
 /// refuse to show the allow-list.
 pub async fn list(repos: &RepositoryRegistry) -> AppResult<Vec<AllowedEmail>> {
     let entries = repos.pre_approved_emails.list().await?;
     let invitations = invitation::live_by_email(repos).await?;
 
-    // One lookup per distinct operator, not per row: a cohort allowed in one
-    // sitting shares an operator, and the listing is read often enough that
+    // One lookup per distinct admin, not per row: a cohort allowed in one
+    // sitting shares an admin, and the listing is read often enough that
     // re-reading the same user row per entry is pure waste.
-    let mut operator_emails: HashMap<Uuid, Option<String>> = HashMap::new();
+    let mut admin_emails: HashMap<Uuid, Option<String>> = HashMap::new();
     let mut out = Vec::with_capacity(entries.len());
 
     for entry in entries {
-        let allowed_by_email = operator_email(repos, &mut operator_emails, entry.allowed_by).await;
+        let allowed_by_email = admin_email(repos, &mut admin_emails, entry.allowed_by).await;
 
         let account_status = match repos.users.get_by_email(&entry.email).await {
             Ok(user) => user.map(|u| u.user_status.to_string()),
@@ -392,12 +392,12 @@ pub async fn list(repos: &RepositoryRegistry) -> AppResult<Vec<AllowedEmail>> {
     Ok(out)
 }
 
-/// Resolve one allow's operator email through a per-listing cache.
+/// Resolve one allow's admin email through a per-listing cache.
 ///
 /// A failed lookup degrades to `None` rather than failing the listing: an
-/// unreadable operator record is not a reason to refuse to show the
+/// unreadable admin record is not a reason to refuse to show the
 /// allow-list.
-async fn operator_email(
+async fn admin_email(
     repos: &RepositoryRegistry,
     cache: &mut HashMap<Uuid, Option<String>>,
     allowed_by: Option<Uuid>,
@@ -409,7 +409,7 @@ async fn operator_email(
     let resolved = match repos.users.get_global(id).await {
         Ok(user) => user.map(|u| u.email),
         Err(e) => {
-            warn!(error = %e, "Operator lookup failed for a pre-approval");
+            warn!(error = %e, "Admin lookup failed for a pre-approval");
             None
         }
     };

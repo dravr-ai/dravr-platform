@@ -359,7 +359,7 @@ async fn connect_prefetch_answer(
 /// ([`covers_list_head`]). A closed window or a later page that failed says
 /// nothing about whether the head is current, so it records nothing.
 ///
-/// A failed head read is also the one event here an operator must hear
+/// A failed head read is also the one event here an admin must hear
 /// about, so it is logged at `error`, the level the Slack error layer
 /// forwards: every caller that reads a head — a chat turn, its live-read
 /// job, Home, the capture sweep — passes through here, and each
@@ -370,7 +370,7 @@ async fn connect_prefetch_answer(
 /// stays out of it: the reconnect notice is that failure's page. So does the
 /// refusal of a coach account's own calendar ([`is_coach_account_refusal`]):
 /// the account keeps no calendar, every read of it is refused the same way,
-/// and no operator can change that — the athlete is told in the refusal's own
+/// and no admin can change that — the athlete is told in the refusal's own
 /// words, and the connect-time role probe already reported it. It is still
 /// recorded, so the backoff spaces the reads it would otherwise repeat, and
 /// logged at `info` with the same fields.

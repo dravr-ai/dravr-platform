@@ -1122,7 +1122,7 @@ async fn test_user_tier_operations() {
 /// Every listing hands back the whole account. The Postgres admin listing,
 /// the untenanted status listing and both backends' cursor page used to
 /// select a narrower column set and fill the persona, roster flag, timezone
-/// and theme with their defaults, so an operator screen showed every admin
+/// and theme with their defaults, so an admin screen showed every admin
 /// as a casual coach in no timezone.
 #[tokio::test]
 async fn listings_return_the_columns_the_row_holds() {

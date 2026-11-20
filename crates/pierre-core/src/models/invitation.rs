@@ -1,4 +1,4 @@
-// ABOUTME: Pre-approved emails and mailed invitations — the two ways an operator lets an address in before it has an account
+// ABOUTME: Pre-approved emails and mailed invitations — the two ways an admin lets an address in before it has an account
 // ABOUTME: InvitationKind says what redeeming an invitation gives besides the account (a coach seat, carnet#1524)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::errors::AppError;
 
-/// A standing per-email pre-approval recorded by an operator before the person
+/// A standing per-email pre-approval recorded by an admin before the person
 /// has an account.
 ///
 /// The registration approval decision consults this allow-list so an allowed
@@ -21,26 +21,26 @@ use crate::errors::AppError;
 pub struct PreApprovedEmail {
     /// The allowed address, stored lowercase.
     pub email: String,
-    /// The operator who recorded the allow, when known (`None` pre-bootstrap).
+    /// The admin who recorded the allow, when known (`None` pre-bootstrap).
     pub allowed_by: Option<Uuid>,
-    /// Operator note (cohort, reason).
+    /// Admin note (cohort, reason).
     pub note: Option<String>,
     /// When the allow was recorded.
     pub created_at: DateTime<Utc>,
 }
 
-/// A single-use invitation an operator mailed to an address with no account.
+/// A single-use invitation an admin mailed to an address with no account.
 ///
 /// The token behind it is never part of this record: only its selector and
 /// the SHA-256 of its verifier are stored, and both stay inside the
 /// repository. Redeeming the invitation creates the account
 /// [`UserStatus::Active`](crate::models::UserStatus::Active), with the invitee's own password and `approved_by`
-/// set to `invited_by` while that operator's account still exists.
+/// set to `invited_by` while that admin's account still exists.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserInvitation {
     /// The invited address, stored lowercase.
     pub email: String,
-    /// The operator who sent it, when attributable (`None` for a service token).
+    /// The admin who sent it, when attributable (`None` for a service token).
     pub invited_by: Option<Uuid>,
     /// When the link stops working.
     pub expires_at: DateTime<Utc>,
@@ -60,7 +60,7 @@ pub enum InvitationKind {
     /// An account, and nothing else.
     #[default]
     Account,
-    /// An account with coach access (`manages_roster`, granted as an operator
+    /// An account with coach access (`manages_roster`, granted as an admin
     /// grant by the inviter) and the coach role recorded (carnet#1524): the
     /// admin decision ADR-018 asks for, taken before sign-up rather
     /// than after a request.
@@ -92,7 +92,7 @@ impl InvitationKind {
         }
     }
 
-    /// The name the operators' notices and the link use for it.
+    /// The name the admins' notices and the link use for it.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {

@@ -237,7 +237,7 @@ async fn average_response_time_is_call_weighted() -> Result<()> {
 }
 
 /// Widening the range adds only idle days, so the reported latency must not
-/// move. This is the operator-visible symptom: the same calls read 1012.75 ms
+/// move. This is the admin-visible symptom: the same calls read 1012.75 ms
 /// at 30 days and 337.58 ms at 90 days when idle days are averaged in.
 #[tokio::test]
 async fn average_response_time_is_independent_of_range_width() -> Result<()> {

@@ -46,7 +46,7 @@ pub(crate) struct SigningClient {
     pub(crate) client_id: String,
     /// The client's secret, which a refresh presents.
     pub(crate) client_secret: SecretString,
-    /// The daily request budget the app's operator registered (a tenant's own
+    /// The daily request budget the app's admin registered (a tenant's own
     /// app); `None` takes the provider's.
     pub(crate) daily_limit: Option<u32>,
 }
@@ -778,7 +778,7 @@ impl AuthService {
                     }
                     // The model reads the tool-facing message, which names the
                     // provider the athlete knows and never the backend; the
-                    // whole error is the operator's.
+                    // whole error is the admin's.
                     Err(e) => {
                         warn!(provider = provider_name, error = %e, "provider credentials were refused");
                         Err(Box::new(UniversalResponse {
@@ -834,7 +834,7 @@ impl AuthService {
         )
         .await
         .map_err(|e| e.to_string())?;
-        // A tenant's own app carries the daily budget its operator registered.
+        // A tenant's own app carries the daily budget its admin registered.
         let daily_limit = match &client {
             IssuingClient::Tenant(credentials) => Some(credentials.rate_limit_per_day),
             _ => None,

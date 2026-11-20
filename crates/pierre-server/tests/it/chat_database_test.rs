@@ -2466,7 +2466,7 @@ async fn the_capped_create_and_the_archive_read_follow_the_active_count() {
 
 #[tokio::test]
 async fn admin_listing_renders_a_conversation_as_its_own_read_does() {
-    // The operator console lists the newest conversations across every
+    // The admin console lists the newest conversations across every
     // tenant. Each row it returns is the same row `get_conversation` returns
     // to the athlete, rendered the same way on both engines: the timestamps
     // are RFC 3339 with an offset, as every other conversation read gives

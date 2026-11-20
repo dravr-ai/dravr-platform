@@ -508,7 +508,7 @@ impl AuthManager {
     }
 
     /// Re-mint the impersonation token `grant` names for `target_user`, with
-    /// another active tenant: the same operator and session, and an expiry no
+    /// another active tenant: the same admin and session, and an expiry no
     /// later than the token it replaces, so a tenant switch never stretches an
     /// impersonation past its hour or out of its session's revocation.
     ///
@@ -559,7 +559,7 @@ impl AuthManager {
             active_tenant_id,
             impersonator_id: Some(impersonator_id.to_string()),
             impersonation_session_id: Some(session_id.to_owned()),
-            // An operator acting as the athlete, through no client.
+            // An admin acting as the athlete, through no client.
             client_id: None,
         };
 

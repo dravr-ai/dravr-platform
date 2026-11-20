@@ -442,7 +442,7 @@ async fn send_quota_denial_reply(
     // `increment_messaging_usage_counters` records — under the requester's own
     // tenant, so that is where the `usage_counters` row that tripped lives. In
     // a group the bot's tenant owns the channel and differs, and naming it here
-    // (as the neighbouring dispatch-failure event does) sends an operator
+    // (as the neighbouring dispatch-failure event does) sends an admin
     // resetting a dev counter to a tenant whose budget was never touched.
     warn!(
         error = %err,
@@ -468,7 +468,7 @@ async fn send_quota_denial_reply(
 ///
 /// The `#[instrument]` span pins `turn_id`, `channel`, and `conversation_id`
 /// onto every downstream log line (chat pipeline stages, embacle HTTP call)
-/// so an operator can grep a single `turn_id=...` across the whole flow.
+/// so an admin can grep a single `turn_id=...` across the whole flow.
 ///
 /// A run holds the lease on its recorded row (`dispatch.record`) and renews
 /// it while it works. Whatever end the turn reaches, the row is finished
@@ -644,7 +644,7 @@ async fn run_turn(dispatch: &PendingDispatch) -> TurnClose {
     TurnClose::Finished
 }
 
-/// The operator-facing record of a served turn: the `messaging.response_sent`
+/// The admin-facing record of a served turn: the `messaging.response_sent`
 /// notify event and the identity-leak signal.
 ///
 /// The security signal matters because the athlete received the canned
@@ -678,7 +678,7 @@ fn announce_served_turn(
 
 /// Log the inbound user message at debug.
 ///
-/// The full body is dumped at trace level so an operator can run
+/// The full body is dumped at trace level so an admin can run
 /// `RUST_LOG=...=trace` to follow a typed message all the way to the LLM
 /// call without needing to enable payload events at the ingress layer in
 /// prod.
@@ -1032,7 +1032,7 @@ async fn send_plain_reply(dispatch: &PendingDispatch, channel_config: &ChannelCo
         // Error replies emit a fresh turn id — the chat pipeline never
         // reached the point where a turn would have been recorded, so
         // there's no upstream id to thread. The platform records a
-        // terminal failed turn under this id so operators can correlate.
+        // terminal failed turn under this id so admins can correlate.
         turn_id: CanotTurnId::new(),
         reply_to: answer_reply_to(
             dispatch.channel_type,

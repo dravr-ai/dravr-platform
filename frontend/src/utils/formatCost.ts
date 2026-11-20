@@ -29,7 +29,7 @@
  * 0.0 and this branch was unreachable.
  */
 export function formatCost(usd: number): string {
-  // Guard non-finite input rather than rendering "$NaN" into an operator's
+  // Guard non-finite input rather than rendering "$NaN" into an admin's
   // cost dashboard.
   if (!Number.isFinite(usd)) {
     return '$0.00';

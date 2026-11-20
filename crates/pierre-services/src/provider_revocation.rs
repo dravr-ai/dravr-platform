@@ -55,14 +55,14 @@ use crate::trainingpeaks_accounts::revoke_roster_for_coach_connection;
 /// notify event reports it.
 ///
 /// The event used to read the same whoever acted, so an athlete leaving, an
-/// operator cleaning up and the seat-reclaim sweeper freeing a seat were one
+/// admin cleaning up and the seat-reclaim sweeper freeing a seat were one
 /// indistinguishable count.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisconnectReason {
     /// The athlete disconnected, from the app, the chat tool loop or `/mcp`.
     Athlete,
-    /// An operator disconnected them, or removed their account.
-    Operator,
+    /// An admin disconnected them, or removed their account.
+    Admin,
     /// The seat-reclaim sweeper freed the Strava seat of an idle athlete.
     SeatReclaim,
     /// The provider told us the athlete withdrew the grant on its side (a
@@ -77,7 +77,7 @@ impl DisconnectReason {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Athlete => "athlete",
-            Self::Operator => "operator",
+            Self::Admin => "admin",
             Self::SeatReclaim => "seat_reclaim",
             Self::ProviderRevoked => "provider_revoked",
         }
@@ -89,7 +89,7 @@ impl DisconnectReason {
     pub const fn purge_reason(self) -> PurgeReason {
         match self {
             Self::Athlete => PurgeReason::AthleteDisconnect,
-            Self::Operator => PurgeReason::OperatorDisconnect,
+            Self::Admin => PurgeReason::AdminDisconnect,
             Self::SeatReclaim => PurgeReason::SeatReclaim,
             Self::ProviderRevoked => PurgeReason::ProviderRevoked,
         }
@@ -99,7 +99,7 @@ impl DisconnectReason {
 /// What happened to a backend's grant at the provider when it was withdrawn.
 ///
 /// Local deletion never waits on this, so it is reported rather than enforced:
-/// an operator who asked for a seat to be freed needs to know whether the
+/// an admin who asked for a seat to be freed needs to know whether the
 /// provider confirmed it, and "the rows are gone" is not that.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "status", content = "reason", rename_all = "snake_case")]
@@ -922,7 +922,7 @@ pub async fn clear_backend(
 /// through, so the provider card's generic Disconnect is also how a member
 /// unlinks. A coach who disconnects ends every link their session served,
 /// since nothing is left to read those athletes through. Every disconnect
-/// surface (the app, the chat tool loop, `/mcp`, an operator removing the
+/// surface (the app, the chat tool loop, `/mcp`, an admin removing the
 /// user) funnels through [`clear_backend`], so none of them can leave a link
 /// pointing at a session that is gone.
 async fn end_delegated_connections(

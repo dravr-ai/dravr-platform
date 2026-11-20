@@ -135,12 +135,12 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// training read reads the thread's athlete, and a wellness read too under
     /// their wellness grant.
     pub seat: TurnSeat,
-    /// The tools an operator switched off for the sender, resolved once per
+    /// The tools an admin switched off for the sender, resolved once per
     /// turn. Left out of the declarations and the loopback listing, as
     /// `tools/list` leaves them out.
     pub switched_off: &'a SwitchedOff,
     /// Whether the tools beyond the loaded core go out deferred: the
-    /// operator's `ChatToolSettings::defer_tools` and a model
+    /// admin's `ChatToolSettings::defer_tools` and a model
     /// `chat_catalogue::defers_on` names. The tail re-loads them for a tier
     /// whose model does not defer.
     pub defer_tools: bool,
@@ -412,7 +412,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     // It leaves out what the seat withholds — on the coach's seat every tool
     // that would read or write the coach's own data (carnet#742), in their
     // athlete thread every tool that would write it (carnet#1070) — and what
-    // an operator switched off for the sender. The executor refuses the
+    // an admin switched off for the sender. The executor refuses the
     // seat's withholds as well.
     let mut tools = chat_catalogue::declarations(chat_catalogue::offered_schemas(
         &ctx.tool_registry,
@@ -526,7 +526,7 @@ pub(crate) async fn dispatch_llm_with_tools(
 
     // Copilot CLI sometimes surfaces auth/entitlement failures as streamed
     // assistant content instead of JSON-RPC errors, which bypasses embacle's
-    // error path and leaks the raw operator-facing message to end users.
+    // error path and leaks the raw admin-facing message to end users.
     // Convert a known-signature match into an external-service error so the
     // channel adapter's failure-reply path fires with a user-facing message.
     if let Some(signature) = detect_leaked_provider_error(&result.content) {

@@ -14,7 +14,7 @@
 //! its own transaction, with the one that ends the impersonations the
 //! account opened; the write that gives an account the admin role ends the
 //! impersonations open on it. The account deletion keeps the rows, in its
-//! own transaction: inactive, under a name that names no one and an operator
+//! own transaction: inactive, under a name that names no one and an admin
 //! that is no account, with their request log and their record of the keys
 //! they provisioned. It renames a token that carries the id only in its
 //! name: no `admin_tokens` row names a deleted account.
@@ -36,7 +36,7 @@ use chrono::{TimeDelta, Utc};
 use pierre_core::admin::jwt::JwtSigner;
 use pierre_core::admin::models::{
     AdminAction, AdminPermission, AdminPermissions, AdminToken, AdminTokenUsage,
-    CreateAdminTokenRequest, DELETED_ACCOUNT_LABEL, DELETED_ACCOUNT_OPERATOR,
+    CreateAdminTokenRequest, DELETED_ACCOUNT_ADMIN, DELETED_ACCOUNT_LABEL,
     DEVICE_CLI_DELETED_ACCOUNT_SERVICE, DEVICE_CLI_SERVICE_PREFIX,
 };
 use pierre_core::errors::{AppResult, ErrorCode};
@@ -68,11 +68,11 @@ impl JwtSigner for Unsigned {
     }
 }
 
-/// Mint a super-admin token as the device grant does, acting as `operator`,
+/// Mint a super-admin token as the device grant does, acting as `admin`,
 /// or as `pierre-cli token generate` does when there is none; its id.
-pub(crate) async fn mint(repos: &RepositoryRegistry, name: &str, operator: Option<Uuid>) -> String {
+pub(crate) async fn mint(repos: &RepositoryRegistry, name: &str, admin: Option<Uuid>) -> String {
     let mut request = CreateAdminTokenRequest::super_admin(name.to_owned());
-    request.operator_user_id = operator;
+    request.operator_user_id = admin;
     repos
         .admin
         .create_token(&request, JWT_SECRET, &Unsigned)
@@ -576,7 +576,7 @@ async fn deleting_an_account_takes_the_caller_out_of_its_kept_request_log() {
         .account_deletion
         .delete_account(&AccountDeletionPlan {
             user_id: leaving.id,
-            actor: DeletionActor::Operator,
+            actor: DeletionActor::Admin,
             firebase_project: None,
             backends: Vec::new(),
             revocations: "[]".to_owned(),
@@ -693,7 +693,7 @@ async fn deleting_an_account_removes_the_device_logins_it_approved_and_no_one_el
         .account_deletion
         .delete_account(&AccountDeletionPlan {
             user_id: leaving.id,
-            actor: DeletionActor::Operator,
+            actor: DeletionActor::Admin,
             firebase_project: None,
             backends: Vec::new(),
             revocations: "[]".to_owned(),
@@ -719,8 +719,8 @@ async fn deleting_an_account_removes_the_device_logins_it_approved_and_no_one_el
 /// Deleting an account ends its device logins, in the deletion's own
 /// transaction, and keeps their record: the live one and the one already
 /// withdrawn both stay as rows, inactive, under the name that names no one
-/// and an operator that is no account, never `NULL` (a token without an
-/// operator is a service credential). The record of the keys they
+/// and an admin that is no account, never `NULL` (a token without an
+/// admin is a service credential). The record of the keys they
 /// provisioned and the log of the requests they made, a provider-data purge
 /// among them, stay under those rows. A token that carries the id only in
 /// its name (a replacement someone else rotated one into) is another
@@ -788,7 +788,7 @@ async fn deleting_an_account_leaves_no_token_row_that_names_it() {
         .account_deletion
         .delete_account(&AccountDeletionPlan {
             user_id: leaving.id,
-            actor: DeletionActor::Operator,
+            actor: DeletionActor::Admin,
             firebase_project: None,
             backends: Vec::new(),
             revocations: "[]".to_owned(),
@@ -820,8 +820,8 @@ async fn deleting_an_account_leaves_no_token_row_that_names_it() {
         assert_eq!(row.service_name, DEVICE_CLI_DELETED_ACCOUNT_SERVICE);
         assert_eq!(
             row.operator_user_id,
-            Some(DELETED_ACCOUNT_OPERATOR),
-            "an operator that is no account, never none: {retired}"
+            Some(DELETED_ACCOUNT_ADMIN),
+            "an admin that is no account, never none: {retired}"
         );
         assert_eq!(
             row.last_used_ip, None,
@@ -841,11 +841,11 @@ async fn deleting_an_account_leaves_no_token_row_that_names_it() {
     assert!(
         repos
             .users
-            .get_global(DELETED_ACCOUNT_OPERATOR)
+            .get_global(DELETED_ACCOUNT_ADMIN)
             .await
             .unwrap()
             .is_none(),
-        "the operator they are left with is no account"
+        "the admin they are left with is no account"
     );
 
     // The replacements someone else holds: renamed, otherwise as they were.
@@ -875,7 +875,7 @@ async fn deleting_an_account_leaves_no_token_row_that_names_it() {
     assert_eq!(live(repos).await, live_tokens);
 }
 
-/// The operator a deleted account's logins are left with is no account, and
+/// The admin a deleted account's logins are left with is no account, and
 /// stays none: neither statement that inserts a `users` row takes the nil
 /// id, the repository's create or the seeder's upsert. A token acting as it
 /// is refused because no account answers to it; a row with that id would be
@@ -886,7 +886,7 @@ async fn no_account_is_given_the_id_that_stands_for_a_deleted_one() {
     let repos = db.repositories();
 
     let mut created = create_test_admin_user("nil-created@example.com", None);
-    created.id = DELETED_ACCOUNT_OPERATOR;
+    created.id = DELETED_ACCOUNT_ADMIN;
     let refused = repos
         .users
         .create(&created)
@@ -897,7 +897,7 @@ async fn no_account_is_given_the_id_that_stands_for_a_deleted_one() {
     let refused = repos
         .seeder
         .seed_insert_demo_user(&SeedDemoUser {
-            id: DELETED_ACCOUNT_OPERATOR,
+            id: DELETED_ACCOUNT_ADMIN,
             email: "nil-seeded@example.com".to_owned(),
             display_name: "Seeded".to_owned(),
             password_hash: "not-a-hash".to_owned(),
@@ -919,7 +919,7 @@ async fn no_account_is_given_the_id_that_stands_for_a_deleted_one() {
     }
     assert!(repos
         .users
-        .get_global(DELETED_ACCOUNT_OPERATOR)
+        .get_global(DELETED_ACCOUNT_ADMIN)
         .await
         .unwrap()
         .is_none());
@@ -966,7 +966,7 @@ async fn a_token_named_with_an_accounts_id_loses_the_id_and_blocks_no_deletion()
         .account_deletion
         .delete_account(&AccountDeletionPlan {
             user_id: leaving.id,
-            actor: DeletionActor::Operator,
+            actor: DeletionActor::Admin,
             firebase_project: None,
             backends: Vec::new(),
             revocations: "[]".to_owned(),
@@ -1019,7 +1019,7 @@ async fn a_refused_deletion_touches_no_token() {
         .account_deletion
         .delete_account(&AccountDeletionPlan {
             user_id: last.id,
-            actor: DeletionActor::Operator,
+            actor: DeletionActor::Admin,
             firebase_project: None,
             backends: Vec::new(),
             revocations: "[]".to_owned(),
@@ -1490,7 +1490,7 @@ async fn a_rotation_racing_its_admins_deletion_leaves_no_token_naming_the_accoun
         );
         assert_eq!(
             retired.operator_user_id,
-            Some(DELETED_ACCOUNT_OPERATOR),
+            Some(DELETED_ACCOUNT_ADMIN),
             "round {round}"
         );
 
@@ -1525,7 +1525,7 @@ async fn a_rotation_racing_its_admins_deletion_leaves_no_token_naming_the_accoun
                     );
                     assert_eq!(
                         row.operator_user_id,
-                        Some(DELETED_ACCOUNT_OPERATOR),
+                        Some(DELETED_ACCOUNT_ADMIN),
                         "round {round}"
                     );
                 } else {

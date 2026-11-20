@@ -480,7 +480,7 @@ impl ClientRegistrationManager {
     /// An unknown `client_id` is the caller's mistake, anyone can send one, so
     /// it is a warning. Anything else is the server failing to answer (the
     /// database, or a stored row that no longer decodes) and is an error,
-    /// which is what pages the operators.
+    /// which is what pages the admins.
     pub fn log_lookup_failure(client_id: &str, error: &AppError) {
         if error.code == ErrorCode::ResourceNotFound {
             warn!(client_id = ?client_id, "OAuth2 client refused: unknown client_id");

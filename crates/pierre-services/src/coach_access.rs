@@ -19,10 +19,10 @@
 //!    ([`email_admins`]). A request that names no group takes the one
 //!    its coach later makes to coach ([`name_requested_group`]).
 //! 2. While it waits, the coach may [`withdraw`] it: the row is deleted, so
-//!    they can ask again at once, and the operators hear it on the notify
+//!    they can ask again at once, and the admins hear it on the notify
 //!    channel (`coach_access.cancelled`).
 //! 3. An admin reads the queue ([`list_requests`]) and either
-//!    [`grant`]s — `manages_roster` as an operator grant, and the requester
+//!    [`grant`]s — `manages_roster` as an admin grant, and the requester
 //!    attached as coach of every active group they own that has no coach
 //!    (carnet#1521), the named one first — or [`decline`]s, optionally saying
 //!    why. The decision is announced on the notify channel too, so the room
@@ -48,10 +48,10 @@ use serde::Serialize;
 use tracing::{field, info, warn};
 use uuid::Uuid;
 
+use crate::admin_mail::{admin_emails, console_users_url};
 use crate::admin_ops::set_user_manages_roster;
 use crate::analytics::cache_user_email;
 pub use crate::coach_access_notice::CoachAccessNotices;
-use crate::operator_mail::{admin_emails, console_users_url};
 
 /// What [`request_access`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -250,7 +250,7 @@ async fn name_group(
 /// reads, warmed here because the requester may never have signed in on this
 /// pod; the enricher adds the console link. Neither is a field of this event,
 /// so neither reaches the log line, and their display name stays off it too:
-/// the operator email and the console queue carry it. The `PostHog` sink
+/// the admin email and the console queue carry it. The `PostHog` sink
 /// keeps the email, the group name and the link off the event.
 async fn announce_opened(
     repos: &RepositoryRegistry,
@@ -378,7 +378,7 @@ async fn requested_group_name(
         .map(|g| g.name)
 }
 
-/// Log one operator email's outcome against the masked recipient.
+/// Log one admin email's outcome against the masked recipient.
 fn log_email_outcome(to: &str, request_id: Uuid, sent: AppResult<()>) {
     let recipient = mask_email(to);
     match sent {
@@ -459,7 +459,7 @@ impl GrantOutcome {
 /// Grant a pending request, and attach the requester to every coachless
 /// group they own.
 ///
-/// The requester gets `manages_roster` as an operator grant (which a
+/// The requester gets `manages_roster` as an admin grant (which a
 /// `TrainingPeaks` disconnect never takes back) and becomes the coach of every
 /// active group they own in their own tenant that still has no coach, the one
 /// the request names first, so no coach invite is needed (carnet#1521). Their
@@ -488,11 +488,11 @@ impl GrantOutcome {
 pub async fn grant(
     repos: &RepositoryRegistry,
     request_id: Uuid,
-    operator: Option<Uuid>,
+    admin: Option<Uuid>,
     notices: Option<&CoachAccessNotices>,
 ) -> AppResult<GrantOutcome> {
     let request = pending_request(repos, request_id).await?;
-    // Read before the claim: an undo restores this, so a grant an operator
+    // Read before the claim: an undo restores this, so a grant an admin
     // made by hand meanwhile is never taken back by a failed attachment.
     let requester = repos.users.get_global(request.user_id).await?;
     let had_coach_access = requester.as_ref().is_some_and(|user| user.manages_roster);
@@ -504,7 +504,7 @@ pub async fn grant(
         .decide(
             request_id,
             CoachAccessStatus::Granted,
-            operator,
+            admin,
             decided_at,
             None,
         )
@@ -514,23 +514,15 @@ pub async fn grant(
     }
 
     let mut attached: Vec<CoachingGroup> = Vec::new();
-    if let Err(error) = apply_grant(repos, &request, operator, tenant, &mut attached).await {
-        undo_grant_claim(
-            repos,
-            &request,
-            operator,
-            had_coach_access,
-            tenant,
-            &attached,
-        )
-        .await;
+    if let Err(error) = apply_grant(repos, &request, admin, tenant, &mut attached).await {
+        undo_grant_claim(repos, &request, admin, had_coach_access, tenant, &attached).await;
         return Err(error);
     }
     let attached_groups: Vec<Uuid> = attached.iter().map(|g| g.id).collect();
     info!(
         request_id = %request_id,
         target_user_id = %request.user_id,
-        operator_user_id = ?operator,
+        admin_user_id = ?admin,
         attached_groups = ?attached_groups,
         "Coach access request granted"
     );
@@ -550,7 +542,7 @@ pub async fn grant(
     let granted = CoachAccessRequest {
         status: CoachAccessStatus::Granted,
         decided_at: Some(decided_at),
-        decided_by: operator,
+        decided_by: admin,
         decline_reason: None,
         ..request
     };
@@ -606,11 +598,11 @@ pub(crate) async fn home_tenant(repos: &RepositoryRegistry, user_id: Uuid) -> Op
 async fn apply_grant(
     repos: &RepositoryRegistry,
     request: &CoachAccessRequest,
-    operator: Option<Uuid>,
+    admin: Option<Uuid>,
     tenant: Option<TenantId>,
     attached: &mut Vec<CoachingGroup>,
 ) -> AppResult<()> {
-    set_user_manages_roster(repos, request.user_id, true, operator).await?;
+    set_user_manages_roster(repos, request.user_id, true, admin).await?;
 
     let Some(tenant) = tenant else {
         return Ok(());
@@ -661,7 +653,7 @@ pub(crate) async fn attach_coach(
 async fn undo_grant_claim(
     repos: &RepositoryRegistry,
     request: &CoachAccessRequest,
-    operator: Option<Uuid>,
+    admin: Option<Uuid>,
     had_coach_access: bool,
     tenant: Option<TenantId>,
     attached: &[CoachingGroup],
@@ -690,7 +682,7 @@ async fn undo_grant_claim(
     } else {
         repos
             .users
-            .set_manages_roster_by_operator(request.user_id, false, operator)
+            .set_manages_roster_by_admin(request.user_id, false, admin)
             .await
     };
     let reopened = repos.coach_access_requests.reopen(request.id).await;
@@ -720,7 +712,7 @@ async fn undo_grant_claim(
 pub async fn decline(
     repos: &RepositoryRegistry,
     request_id: Uuid,
-    operator: Option<Uuid>,
+    admin: Option<Uuid>,
     reason: Option<&str>,
     notices: Option<&CoachAccessNotices>,
 ) -> AppResult<CoachAccessRequest> {
@@ -732,7 +724,7 @@ pub async fn decline(
         .decide(
             request_id,
             CoachAccessStatus::Declined,
-            operator,
+            admin,
             decided_at,
             reason.as_deref(),
         )
@@ -743,7 +735,7 @@ pub async fn decline(
     info!(
         request_id = %request_id,
         target_user_id = %request.user_id,
-        operator_user_id = ?operator,
+        admin_user_id = ?admin,
         "Coach access request declined"
     );
     cache_requester_email(repos, request.user_id).await;
@@ -757,7 +749,7 @@ pub async fn decline(
     let declined = CoachAccessRequest {
         status: CoachAccessStatus::Declined,
         decided_at: Some(decided_at),
-        decided_by: operator,
+        decided_by: admin,
         decline_reason: reason,
         ..request
     };
@@ -769,7 +761,7 @@ pub async fn decline(
 
 /// Withdraw `user_id`'s waiting request, so the coach may ask again at once.
 ///
-/// The row is deleted, and the operators hear it on the notify channel
+/// The row is deleted, and the admins hear it on the notify channel
 /// (`coach_access.cancelled`), so the card they were about to decide is known
 /// to be gone. Returns the request the coach reads from now on
 /// ([`CoachAccessRequestRepository::current_for_user`]): an earlier grant,

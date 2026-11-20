@@ -143,7 +143,7 @@ impl ConversationTurnId {
     /// Sentinel value used for rows that pre-date turn threading.
     ///
     /// Stored as the nil UUID. Documented in the migration history
-    /// so operators can distinguish "unknown" from "genuine turn".
+    /// so admins can distinguish "unknown" from "genuine turn".
     #[must_use]
     pub const fn nil() -> Self {
         Self(Uuid::nil())

@@ -262,7 +262,7 @@ describe('surface parity — web', () => {
   it.each(webSurfaces.map((s) => [s.id, s.web as string, s.webNav]))(
     'implements %s at %s',
     async (_id, route, webNav) => {
-      // A surface with no rail label is the operator's; the rest are the
+      // A surface with no rail label is the admin's; the rest are the
       // athlete's. Each is opened the way a deep link opens it — by its hash.
       await renderDashboardAt(route as string, webNav === null ? 'admin' : 'user');
 

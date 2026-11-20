@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The operator clone of a provider connection.
+//! The admin clone of a provider connection.
 //!
 //! End-to-end testing onboarding on a deployed environment needs fresh
 //! accounts with a working Garmin connection, and a Garmin login per account
@@ -19,7 +19,7 @@
 //! provider data, and that credential may act across tenants: the session lands
 //! in the target's own default tenant (the first active one, the same
 //! resolution the tenant middleware uses), wherever the source's row lives.
-//! No `provider.connected` event is raised (an operator copy is not an
+//! No `provider.connected` event is raised (an admin copy is not an
 //! athlete connecting); an `admin_token_usage` row names the token, both
 //! accounts and the backend before anything is written. Logs carry ids only,
 //! never the session.
@@ -47,7 +47,7 @@ use super::types::{AdminResponse, CloneProviderRequest};
 use super::user_removal::{load_user, refusal};
 use crate::context::AdminApiContext;
 
-/// The longest operator reason an audit row keeps, in characters.
+/// The longest admin reason an audit row keeps, in characters.
 const MAX_AUDIT_REASON_CHARS: usize = 200;
 
 /// One clone attempt, as its audit row names it.
@@ -69,7 +69,7 @@ async fn record_clone(
         "user:{}:provider:{}:from:{}",
         audit.to_user, audit.backend, audit.from_user
     );
-    // The reason is operator free text, so it comes last (the ids before it
+    // The reason is admin free text, so it comes last (the ids before it
     // stay parseable whatever it holds) and is capped.
     if let Some(reason) = audit.reason {
         target.push_str(":reason:");
@@ -188,7 +188,7 @@ pub async fn handle_clone_user_provider(
         source_tenant = %source.tenant_id,
         target_tenant = %tenant_id,
         token_id = %admin_token.token_id,
-        "Operator cloned a scrape-session provider connection"
+        "Admin cloned a scrape-session provider connection"
     );
 
     Ok(json_response(

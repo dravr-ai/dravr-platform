@@ -15,7 +15,7 @@
 //! the `TrainingPeaks` and COROS notices are asked of the accounts the
 //! `provider_exposure_notice` feature flag arms — off by default, so a demo
 //! account connects without them, and armed per tenant or per user for the
-//! athletes an operator onboards.
+//! athletes an admin onboards.
 //!
 //! [`require_notice_accepted`] is the one precondition: the sciotte credential
 //! login and every path that begins a WHOOP OAuth flow call it before anything

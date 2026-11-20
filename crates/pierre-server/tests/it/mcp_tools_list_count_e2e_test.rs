@@ -487,7 +487,7 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
     // `/mcp` is an external transport: what it lists is the registry less the
-    // operator tools and the tools kept on Dravr's own surfaces.
+    // admin tools and the tools kept on Dravr's own surfaces.
     let mut schemas = registry.user_visible_schemas();
     first_party_tools::retain_served_over(&registry, &mut schemas, Transport::McpHttp);
     // The admin coaches no group, so the coach-only tools are not listed to them.

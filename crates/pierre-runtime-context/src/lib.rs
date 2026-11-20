@@ -134,7 +134,7 @@ pub trait MiddlewareCtx: Send + Sync + 'static {
 
     /// The tronc `allowlist` fetch policy a user-supplied LLM `base_url` (the
     /// `local`/OpenAI-compatible provider) must pass: the host must be on the
-    /// operator's list, and an empty list denies every custom `base_url`, closing the
+    /// admin's list, and an empty list denies every custom `base_url`, closing the
     /// SSRF where a tenant points the server's outbound LLM call at an internal host
     /// (T3MP3ST F2 / CWE-918). Sourced from `pierre_config::security::llm_base_url_policy`;
     /// typed by tronc so this crate stays free of a `pierre-config` dependency.

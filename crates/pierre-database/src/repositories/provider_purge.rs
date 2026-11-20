@@ -112,7 +112,7 @@ pub trait ProviderPurge: Send + Sync + fmt::Debug {
     ) -> AppResult<ProviderDataPurge>;
 
     /// Delete every row `provider` contributed, for every user in every
-    /// tenant, and every activity store record of it: the operator's
+    /// tenant, and every activity store record of it: the admin's
     /// termination purge.
     ///
     /// # Errors

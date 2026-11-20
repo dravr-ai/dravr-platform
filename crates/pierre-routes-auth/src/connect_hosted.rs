@@ -182,7 +182,7 @@ struct ConnectProviderCard {
     /// Sciotte cards only.
     login_identifier: &'static str,
     /// The card's account sign-in goes first while an OAuth seat is free (the
-    /// operator's sign-in-first connect order): a sign-in that cannot complete
+    /// admin's sign-in-first connect order): a sign-in that cannot complete
     /// or meets a challenge starts the provider's OAuth for `target` instead
     /// of showing the failure (carnet#1477). Wrong credentials never do.
     oauth_fallback: bool,
@@ -190,7 +190,7 @@ struct ConnectProviderCard {
 
 /// Whether a not-yet-connected card's sign-in falls back to its provider's
 /// OAuth: it recommends the sign-in (`mirror`) with seats still free, which
-/// only the operator's sign-in-first connect order produces.
+/// only the admin's sign-in-first connect order produces.
 fn oauth_fallback(p: &ProviderStatus) -> bool {
     !p.connected
         && p.recommended_backend.as_deref() == Some("mirror")
@@ -240,7 +240,7 @@ async fn build_connect_providers(
         }
         match provider_name.as_str() {
             // Strava card: the account sign-in, or its OAuth while shared-app
-            // seats remain under the operator's OAuth-first order
+            // seats remain under the admin's OAuth-first order
             // (`recommended_backend`). Mirrors ProviderConnectionCards /
             // OnboardingConnectScreen.
             "sciotte" => {

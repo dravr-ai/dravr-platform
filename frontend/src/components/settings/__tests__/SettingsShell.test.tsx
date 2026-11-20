@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: What each viewer's settings list holds: an operator's profile and account, never an athlete's own panes
-// ABOUTME: The two token panes follow one flag together, in the athlete menu and the operator strip alike
+// ABOUTME: What each viewer's settings list holds: an admin's profile and account, never an athlete's own panes
+// ABOUTME: The two token panes follow one flag together, in the athlete menu and the admin strip alike
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -39,7 +39,7 @@ describe('settings an athlete is offered', () => {
     flags.api_tokens = true;
   });
 
-  it('lists the token panes and the panes hidden from operators', () => {
+  it('lists the token panes and the panes hidden from admins', () => {
     expect(menuRows()).toEqual(
       expect.arrayContaining(['tokens', 'api-keys', 'coaching', 'notifications', 'memory', 'privacy']),
     );
@@ -54,7 +54,7 @@ describe('settings an athlete is offered', () => {
   });
 });
 
-describe('settings an operator is offered', () => {
+describe('settings an admin is offered', () => {
   const ids = (apiTokens: boolean) =>
     visibleSettingsTabs(true, apiTokens)
       .map((tab) => tab.id)

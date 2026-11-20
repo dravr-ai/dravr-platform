@@ -1,5 +1,5 @@
 // ABOUTME: Scores blind grades against the key — silent-miss and false-positive rates with Wilson intervals, Cohen's kappa
-// ABOUTME: Joins graders' CSV sheets to the operator's key; a disagreement waits for adjudication instead of being guessed
+// ABOUTME: Joins graders' CSV sheets to the admin's key; a disagreement waits for adjudication instead of being guessed
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -84,7 +84,7 @@ impl Grade {
 /// One grader's grades, by item id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraderGrades {
-    /// The grader's name, as the operator gave it.
+    /// The grader's name, as the admin gave it.
     pub grader: String,
     /// Their grade per item id; an item left blank is absent.
     pub grades: BTreeMap<String, Grade>,

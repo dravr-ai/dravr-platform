@@ -252,7 +252,7 @@ fn refuse_if_at_limit(
 /// a warning to the athlete read `burst_zone` / `warning` off the returned
 /// check to pick a severity.
 ///
-/// A refusal is also reported to operators as the `quota.limit_reached`
+/// A refusal is also reported to admins as the `quota.limit_reached`
 /// notify event, whose Slack card carries the button that raises the athlete
 /// to Enterprise. A bypassed user and a counter that cannot be read report
 /// nothing.
@@ -286,7 +286,7 @@ pub async fn check_quotas(
     }
 }
 
-/// Tell operators an athlete hit a hard cap, as the `quota.limit_reached`
+/// Tell admins an athlete hit a hard cap, as the `quota.limit_reached`
 /// notify event.
 ///
 /// Repeats are not filtered here: every refused request reports. Collapsing
@@ -457,7 +457,7 @@ fn select_usage_warning(
 /// Log that the athlete is near `limit_type`, the counter the warning they
 /// will be shown is about. Once per checked request while they stay over the
 /// threshold: the notice itself is shown once per window, but which limit an
-/// athlete was working against is what an operator needs to read back.
+/// athlete was working against is what an admin needs to read back.
 fn report_warning(
     tenant_id: TenantId,
     user_id: Uuid,

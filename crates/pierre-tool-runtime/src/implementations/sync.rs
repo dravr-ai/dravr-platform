@@ -91,7 +91,7 @@ pub struct AllProvidersRefresh {
 pub struct DataFreshnessResult {
     /// How current each connected provider's data is.
     pub providers: Vec<ProviderFreshness>,
-    /// Process-wide sync counters, for an operator reading a trace. They
+    /// Process-wide sync counters, for an admin reading a trace. They
     /// count since process start, so a restart resets them.
     pub sync_metrics: SyncMetrics,
 }

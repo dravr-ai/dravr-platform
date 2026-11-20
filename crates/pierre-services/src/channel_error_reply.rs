@@ -72,7 +72,7 @@ impl ChannelErrorReply for AppError {
         // Severity follows the error category so dravr-tronc's Slack/email
         // notifier only alerts on ERROR-level events. Validation and quota
         // errors are user mistakes (stay at warn); everything else (DB,
-        // internal, external-service, auth) is an operator concern and
+        // internal, external-service, auth) is an admin concern and
         // must reach the on-call channel via the ERROR subscriber.
         if is_user_facing_category(self.code) {
             warn!(
@@ -86,7 +86,7 @@ impl ChannelErrorReply for AppError {
                 scope = scope,
                 error = %self,
                 correlation_id = %correlation_id,
-                "channel reply surfaced an operator-category error"
+                "channel reply surfaced an admin-category error"
             );
         }
 
@@ -113,7 +113,7 @@ impl ChannelErrorReply for AppError {
 
 /// Whether the error category describes a user mistake that's safe to
 /// display verbatim. The complementary categories (database, internal,
-/// external-service, auth failures) are operator concerns that must reach
+/// external-service, auth failures) are admin concerns that must reach
 /// the ERROR subscriber so on-call sees them in Slack.
 const fn is_user_facing_category(code: ErrorCode) -> bool {
     matches!(

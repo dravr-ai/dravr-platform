@@ -57,9 +57,9 @@ const ROOTS = [
  * browser's own "Loading chunk" text to detect a stale bundle), and proper
  * nouns, which live in `constants/brands.ts` as data.
  *
- * Operator chrome is deliberately out of scope and ships in English: user
+ * Admin chrome is deliberately out of scope and ships in English: user
  * management, tool and harness config, claim verdicts.
- * Operators are internal and nobody needs Harness Config in Portuguese. The
+ * Admins are internal and nobody needs Harness Config in Portuguese. The
  * count is still reported below so the decision stays visible.
  */
 /**
@@ -83,13 +83,13 @@ const CEILING = 0;
 describe('untranslated string ratchet', () => {
   it('carries no more hardcoded user-facing strings than the ceiling', () => {
     const hits = scanUntranslated(ROOTS);
-    const { athlete: count, operator } = countsByScope(hits);
+    const { athlete: count, admin } = countsByScope(hits);
     // Printed on success too: a ratchet nobody can read the current value of
     // is just a test, and the number is the only honest progress report. The
-    // operator figure rides along so the English-by-decision half stays
+    // admin figure rides along so the English-by-decision half stays
     // visible rather than quietly forgotten.
     console.log(
-      `untranslated: athlete ${count} (ceiling ${CEILING}), operator ${operator} (English by decision)`,
+      `untranslated: athlete ${count} (ceiling ${CEILING}), admin ${admin} (English by decision)`,
     );
 
     if (count > CEILING) {
@@ -122,7 +122,7 @@ describe('untranslated string ratchet', () => {
     // vacuously and read as a finished migration. It reports zero only when
     // the job is genuinely done, and at that point this expectation is the
     // one that should be rewritten.
-    const { athlete, operator } = countsByScope(scanUntranslated(ROOTS));
-    expect(athlete + operator).toBeGreaterThan(0);
+    const { athlete, admin } = countsByScope(scanUntranslated(ROOTS));
+    expect(athlete + admin).toBeGreaterThan(0);
   });
 });

@@ -15,7 +15,7 @@
 //!
 //! A row that has failed [`ALERT_AFTER_ATTEMPTS`] times is logged once at
 //! ERROR with `event = "firebase_identity.delete_stalled"`, which the platform
-//! forwards to the operators' Slack channel like every ERROR; the sweep keeps
+//! forwards to the admins' Slack channel like every ERROR; the sweep keeps
 //! retrying it after that, at the capped backoff.
 
 use std::sync::Arc;
@@ -45,7 +45,7 @@ const FIRST_RETRY: TimeDelta = TimeDelta::minutes(15);
 /// The longest wait between two attempts.
 const MAX_RETRY: TimeDelta = TimeDelta::hours(24);
 
-/// Failed attempts after which a stuck identity is raised to the operators.
+/// Failed attempts after which a stuck identity is raised to the admins.
 pub const ALERT_AFTER_ATTEMPTS: i64 = 5;
 
 /// When to try again after `attempts` failed attempts (`attempts >= 1`):

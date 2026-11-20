@@ -1,4 +1,4 @@
-// ABOUTME: Authorization tests for /api/admin/config — the global operator model, pinned
+// ABOUTME: Authorization tests for /api/admin/config — the global admin model, pinned
 // ABOUTME: An admin reads and writes every scope and the audit row names the client; non-admins are refused
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! # `/api/admin/config/*` is the operator's surface
+//! # `/api/admin/config/*` is the admin's surface
 //!
 //! The admin console is a global model and there is one admin role
 //! (carnet#1567). So `require_admin` — the global role — is the whole gate:
@@ -18,7 +18,7 @@
 //! read back from `admin_config_audit` itself.
 //!
 //! Every assertion pins a status AND the written value or the refusal
-//! text, so a gate that refuses an operator (or admits an athlete) fails
+//! text, so a gate that refuses an admin (or admits an athlete) fails
 //! the test rather than reading as "still 200".
 
 use crate::common;
@@ -168,14 +168,14 @@ async fn audit_row(resources: &Arc<ServerContext>) -> (Option<String>, Option<St
 }
 
 // ============================================================================
-// The operator writes and reads every scope
+// The admin writes and reads every scope
 // ============================================================================
 
 #[tokio::test]
 async fn an_admin_writes_a_system_wide_override_and_the_audit_row_names_the_client() {
     let resources = create_test_server_resources().await.unwrap();
     let (_, _, auth) =
-        create_user_with_role(&resources, "config-operator@authz.test", UserRole::Admin).await;
+        create_user_with_role(&resources, "config-admin@authz.test", UserRole::Admin).await;
 
     let response = AxumTestRequest::put("/api/admin/config")
         .header("authorization", &auth)
@@ -260,11 +260,7 @@ async fn an_admin_reads_and_writes_another_tenants_scope() {
             .header("authorization", &admin_auth)
             .send(router(&resources))
             .await;
-        assert_eq!(
-            response.status(),
-            200,
-            "{path}: the operator reads any tenant"
-        );
+        assert_eq!(response.status(), 200, "{path}: the admin reads any tenant");
     }
 
     let response = AxumTestRequest::put(&format!("/api/admin/config{query}"))
@@ -272,7 +268,7 @@ async fn an_admin_reads_and_writes_another_tenants_scope() {
         .json(&update_body(9))
         .send(router(&resources))
         .await;
-    assert_eq!(response.status(), 200, "the operator writes any tenant");
+    assert_eq!(response.status(), 200, "the admin writes any tenant");
     let body: Value = response.json();
     assert_eq!(body["data"]["updated_count"], 1, "{body}");
 

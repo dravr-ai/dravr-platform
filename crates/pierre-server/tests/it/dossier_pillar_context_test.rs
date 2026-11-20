@@ -236,7 +236,7 @@ async fn failing_fact_reads_warn_with_the_error_and_still_render() -> Result<()>
     // the surviving data, but each failed read leaves a WARN naming the error
     // and the user, the same way the neighbouring `get_profile` degrade does.
     // Silently returning an empty vec strips medical flags and every
-    // interview answer from the agent's context with no operator signal.
+    // interview answer from the agent's context with no admin signal.
     let db = open_test_db().await?;
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let user = Uuid::new_v4();

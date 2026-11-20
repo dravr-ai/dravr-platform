@@ -23,7 +23,7 @@ import { ENDPOINTS } from '../core/endpoints';
 // answers HTTP 503 + `Retry-After` when the dedicated sciotte scraper
 // service sheds load; clients retry with jittered exponential backoff so a
 // thundering herd at t+Retry-After doesn't re-saturate the service on every
-// synchronized tick. Values are fixed per-release — operators tune the
+// synchronized tick. Values are fixed per-release — admins tune the
 // limit on the scraper service (DRAVR_SCIOTTE_MAX_CONCURRENT and friends),
 // not the client.
 const SCIOTTE_RETRY_MAX_ATTEMPTS = 3;

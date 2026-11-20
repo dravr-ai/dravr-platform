@@ -1,4 +1,4 @@
-// ABOUTME: An admin-token creator cannot choose the device-login name, and a rotation keeps the operator only for them
+// ABOUTME: An admin-token creator cannot choose the device-login name, and a rotation keeps the admin only for them
 // ABOUTME: Pins CreateAdminTokenRequest::for_creator, ::rotation_of and ::granted_permissions, the one builder both token surfaces use
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,16 +9,16 @@
 
 use chrono::Utc;
 use pierre_core::admin::models::{
-    AdminPermission, AdminPermissions, AdminToken, CreateAdminTokenRequest, DELETED_ACCOUNT_LABEL,
-    DELETED_ACCOUNT_OPERATOR, DEVICE_CLI_DELETED_ACCOUNT_SERVICE, DEVICE_CLI_SERVICE_PREFIX,
+    AdminPermission, AdminPermissions, AdminToken, CreateAdminTokenRequest, DELETED_ACCOUNT_ADMIN,
+    DELETED_ACCOUNT_LABEL, DEVICE_CLI_DELETED_ACCOUNT_SERVICE, DEVICE_CLI_SERVICE_PREFIX,
 };
 use pierre_core::errors::ErrorCode;
 use uuid::Uuid;
 
-fn device_token(operator: Uuid) -> AdminToken {
+fn device_token(admin: Uuid) -> AdminToken {
     AdminToken {
         id: Uuid::new_v4().to_string(),
-        service_name: format!("device-cli:{operator}"),
+        service_name: format!("device-cli:{admin}"),
         service_description: None,
         token_hash: "hash".to_owned(),
         token_prefix: "prefix".to_owned(),
@@ -27,7 +27,7 @@ fn device_token(operator: Uuid) -> AdminToken {
         is_super_admin: true,
         is_active: true,
         tenant_id: None,
-        operator_user_id: Some(operator),
+        operator_user_id: Some(admin),
         rotated_to_token_id: None,
         created_at: Utc::now(),
         expires_at: None,
@@ -51,43 +51,42 @@ fn a_creator_cannot_name_a_token_like_a_device_login() {
 }
 
 #[test]
-fn a_rotation_keeps_the_operator_only_for_that_operator() {
-    let operator = Uuid::new_v4();
+fn a_rotation_keeps_the_admin_only_for_that_admin() {
+    let admin = Uuid::new_v4();
 
-    let own = CreateAdminTokenRequest::rotation_of(device_token(operator), 30, Some(operator))
+    let own = CreateAdminTokenRequest::rotation_of(device_token(admin), 30, Some(admin))
         .expect("a live token rotates");
-    assert_eq!(own.operator_user_id, Some(operator));
+    assert_eq!(own.operator_user_id, Some(admin));
     assert_eq!(own.expires_in_days, Some(30));
     assert!(own.is_super_admin);
 
-    let other =
-        CreateAdminTokenRequest::rotation_of(device_token(operator), 30, Some(Uuid::new_v4()))
-            .expect("a live token rotates");
+    let other = CreateAdminTokenRequest::rotation_of(device_token(admin), 30, Some(Uuid::new_v4()))
+        .expect("a live token rotates");
     assert_eq!(
         other.operator_user_id, None,
-        "another operator's rotation mints a token that acts as no one"
+        "another admin's rotation mints a token that acts as no one"
     );
 
-    let service = CreateAdminTokenRequest::rotation_of(device_token(operator), 30, None)
+    let service = CreateAdminTokenRequest::rotation_of(device_token(admin), 30, None)
         .expect("a live token rotates");
     assert_eq!(service.operator_user_id, None);
 }
 
-/// The operator a deleted account's device login is left with carries over
+/// The admin a deleted account's device login is left with carries over
 /// whoever rotates it: dropped, the replacement would be a service
 /// credential minted from that login.
 #[test]
-fn a_rotation_keeps_the_operator_that_is_no_account() {
-    for rotated_by in [Some(Uuid::new_v4()), Some(DELETED_ACCOUNT_OPERATOR), None] {
+fn a_rotation_keeps_the_admin_that_is_no_account() {
+    for rotated_by in [Some(Uuid::new_v4()), Some(DELETED_ACCOUNT_ADMIN), None] {
         let rotated = CreateAdminTokenRequest::rotation_of(
-            device_token(DELETED_ACCOUNT_OPERATOR),
+            device_token(DELETED_ACCOUNT_ADMIN),
             30,
             rotated_by,
         )
         .expect("a live token rotates");
         assert_eq!(
             rotated.operator_user_id,
-            Some(DELETED_ACCOUNT_OPERATOR),
+            Some(DELETED_ACCOUNT_ADMIN),
             "{rotated_by:?}"
         );
     }
@@ -177,9 +176,9 @@ fn a_lifetime_is_days_from_now_and_one_past_any_date_is_refused() {
 /// credential at the scope that was taken away, whoever asks.
 #[test]
 fn a_revoked_token_is_not_rotated() {
-    let operator = Uuid::new_v4();
-    for rotated_by in [Some(operator), Some(Uuid::new_v4()), None] {
-        let mut revoked = device_token(operator);
+    let admin = Uuid::new_v4();
+    for rotated_by in [Some(admin), Some(Uuid::new_v4()), None] {
+        let mut revoked = device_token(admin);
         revoked.is_active = false;
         let refused = CreateAdminTokenRequest::rotation_of(revoked, 30, rotated_by)
             .expect_err("a revoked token must not rotate");

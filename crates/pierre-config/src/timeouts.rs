@@ -1,4 +1,4 @@
-// ABOUTME: Operator-tunable time bounds on request paths, read from the environment once at startup
+// ABOUTME: Admin-tunable time bounds on request paths, read from the environment once at startup
 // ABOUTME: MCP task fast path, messaging turn watchdog, Home route reads, background revalidation, settings poll
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

@@ -267,7 +267,7 @@ describe('the scanner does NOT flag things that are not copy', () => {
  * the number looked like evidence and was not. So the classification is
  * asserted for files whose answer we know, in both directions: a walk that
  * under-includes fails here, and so does one that over-includes until the
- * operator console vanishes into athlete scope and stops being anybody's
+ * admin console vanishes into athlete scope and stops being anybody's
  * decision.
  *
  * Not an exception list. Those excuse files from a rule and accumulate; this
@@ -299,9 +299,9 @@ describe('athlete scope is derived, and pinned where we know the answer', () => 
     // athlete by its name during the audit and it is not — the walk was right
     // and the reading was wrong.
     ['components/UnifiedConnections.tsx', "'connections' is an ADMIN_ONLY_TAB"],
-    ['components/VerdictCalibrationPanel.tsx', 'the verdict calibration panel is operator chrome'],
+    ['components/VerdictCalibrationPanel.tsx', 'the verdict calibration panel is admin chrome'],
     ['components/UserDetailDrawer.tsx', 'user administration'],
-  ])('%s is operator — %s', (relative) => {
+  ])('%s is admin — %s', (relative) => {
     expect(isAthleteSurface(path.join(web, relative))).toBe(false);
   });
 
@@ -317,8 +317,8 @@ describe('athlete scope is derived, and pinned where we know the answer', () => 
   });
 
   it('every file in the mobile app is athlete, including outside screens/', () => {
-    // There is no operator console in the mobile app, so no file in it can be
-    // operator chrome. Fifteen `screens/*` fragments used to stand in for that
+    // There is no admin console in the mobile app, so no file in it can be
+    // admin chrome. Fifteen `screens/*` fragments used to stand in for that
     // rule and anything outside them fell through — which is how the offline
     // banner shipped in English to an app whose default locale is French.
     expect(isAthleteSurface(path.join(mobile, 'components/ServerStatusBanner.tsx'))).toBe(true);
@@ -331,8 +331,8 @@ describe('athlete scope is derived, and pinned where we know the answer', () => 
     // ceiling of 0 pass vacuously and dissolves the 663 English-by-decision
     // strings into a number nobody has to answer for.
     const hits = scanUntranslated([path.join(web, 'components')]);
-    const operator = hits.filter((h) => h.scope === 'operator');
-    expect(operator.length).toBeGreaterThan(0);
+    const admin = hits.filter((h) => h.scope === 'admin');
+    expect(admin.length).toBeGreaterThan(0);
   });
 
   it('no import specifier is computed, because the walk could not follow one', () => {

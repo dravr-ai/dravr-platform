@@ -74,9 +74,9 @@ pub(crate) const GET_COACHES_OTHERS_SQL: &str = "SELECT coaches_others FROM user
 pub(crate) const SET_MANAGES_ROSTER_SQL: &str =
     "UPDATE users SET manages_roster = $1 WHERE id = $2";
 
-/// Set `manages_roster` as an operator decision, with who made it and when:
+/// Set `manages_roster` as an admin decision, with who made it and when:
 /// a grant stamps both, a revoke clears both.
-pub(crate) const SET_ROSTER_BY_OPERATOR_SQL: &str = r"
+pub(crate) const SET_ROSTER_BY_ADMIN_SQL: &str = r"
         UPDATE users SET
             manages_roster = $1,
             manages_roster_granted_at = $2,
@@ -84,7 +84,7 @@ pub(crate) const SET_ROSTER_BY_OPERATOR_SQL: &str = r"
         WHERE id = $4
         ";
 
-/// Take back a `manages_roster` grant only when no operator made it. The flag
+/// Take back a `manages_roster` grant only when no admin made it. The flag
 /// values are bound rather than written as literals: `SQLite` stores them as
 /// integers and Postgres as booleans, and a bound `bool` is either.
 pub(crate) const REVOKE_EARNED_ROSTER_SQL: &str = r"
@@ -92,8 +92,8 @@ pub(crate) const REVOKE_EARNED_ROSTER_SQL: &str = r"
         WHERE id = $2 AND manages_roster = $3 AND manages_roster_granted_at IS NULL
         ";
 
-/// Read who granted the user's `manages_roster` as an operator, and when.
-pub(crate) const GET_ROSTER_OPERATOR_GRANT_SQL: &str =
+/// Read who granted the user's `manages_roster` as an admin, and when.
+pub(crate) const GET_ROSTER_ADMIN_GRANT_SQL: &str =
     "SELECT manages_roster_granted_at, manages_roster_granted_by FROM users WHERE id = $1";
 
 /// Set the user's IANA timezone.
@@ -329,23 +329,23 @@ macro_rules! impl_user_preferences {
             ensure_updated(result.rows_affected(), user_id)
         }
 
-        /// Grant or revoke `manages_roster` as an operator. A grant records
-        /// `operator` and the time, which the `TrainingPeaks` reconciler reads
+        /// Grant or revoke `manages_roster` as an admin. A grant records
+        /// `admin` and the time, which the `TrainingPeaks` reconciler reads
         /// as a grant it must leave alone; a revoke clears both.
         ///
         /// # Errors
         ///
         /// Returns an error if the user is not found or the database update
         /// fails.
-        pub async fn set_manages_roster_by_operator(
+        pub async fn set_manages_roster_by_admin(
             pool: &Pool<$db>,
             user_id: Uuid,
             manages_roster: bool,
-            operator: Option<Uuid>,
+            admin: Option<Uuid>,
         ) -> AppResult<()> {
             let granted_at = manages_roster.then(Utc::now);
-            let granted_by = operator.filter(|_| manages_roster);
-            let result = sqlx::query(SET_ROSTER_BY_OPERATOR_SQL)
+            let granted_by = admin.filter(|_| manages_roster);
+            let result = sqlx::query(SET_ROSTER_BY_ADMIN_SQL)
                 .bind(manages_roster)
                 .bind(granted_at)
                 .bind($ids::bind_opt(granted_by))
@@ -353,15 +353,15 @@ macro_rules! impl_user_preferences {
                 .execute(pool)
                 .await
                 .map_err(|e| {
-                    AppError::database(format!("Failed to set manages_roster by operator: {e}"))
+                    AppError::database(format!("Failed to set manages_roster by admin: {e}"))
                 })?;
 
             ensure_updated(result.rows_affected(), user_id)
         }
 
-        /// Take back a `manages_roster` grant no operator made. Returns whether
+        /// Take back a `manages_roster` grant no admin made. Returns whether
         /// a grant was taken back: `false` for a user without one, one an
-        /// operator made, or no user at all.
+        /// admin made, or no user at all.
         ///
         /// # Errors
         ///
@@ -380,18 +380,18 @@ macro_rules! impl_user_preferences {
             Ok(result.rows_affected() > 0)
         }
 
-        /// The operator grant behind the user's `manages_roster`, `None` when
-        /// no operator made one.
+        /// The admin grant behind the user's `manages_roster`, `None` when
+        /// no admin made one.
         ///
         /// # Errors
         ///
         /// Returns an error if the user is not found or the database query
         /// fails.
-        pub async fn manages_roster_operator_grant(
+        pub async fn manages_roster_admin_grant(
             pool: &Pool<$db>,
             user_id: Uuid,
-        ) -> AppResult<Option<OperatorRosterGrant>> {
-            let row = sqlx::query(GET_ROSTER_OPERATOR_GRANT_SQL)
+        ) -> AppResult<Option<AdminRosterGrant>> {
+            let row = sqlx::query(GET_ROSTER_ADMIN_GRANT_SQL)
                 .bind($ids::bind(user_id))
                 .fetch_optional(pool)
                 .await
@@ -402,7 +402,7 @@ macro_rules! impl_user_preferences {
                     AppError::database(format!("Failed to read manages_roster_granted_at: {e}"))
                 })?;
             let granted_by = $ids::read_opt(&row, "manages_roster_granted_by")?;
-            Ok(granted_at.map(|granted_at| OperatorRosterGrant {
+            Ok(granted_at.map(|granted_at| AdminRosterGrant {
                 granted_at,
                 granted_by,
             }))

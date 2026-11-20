@@ -1134,7 +1134,7 @@ async fn connect_provider_allows_oauth_for_strava_when_mirror_active() {
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    // A sciotte-Strava user authorizing OAuth: with the operator's order on
+    // A sciotte-Strava user authorizing OAuth: with the admin's order on
     // OAuth first (the kill switch), the connector mints an OAuth URL instead
     // of steering them back to the mirror flow, and the grant it mints stands
     // behind the session as its fallback (carnet#1494).

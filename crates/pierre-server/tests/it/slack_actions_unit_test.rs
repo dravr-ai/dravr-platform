@@ -37,7 +37,7 @@ fn matches_configured_channel_by_name_without_hash() {
 
 #[test]
 fn matches_configured_channel_by_id() {
-    // Operators may configure a raw channel ID instead of a name.
+    // Admins may configure a raw channel ID instead of a name.
     assert!(channel_matches("", "C0ABC123", "C0ABC123"));
 }
 

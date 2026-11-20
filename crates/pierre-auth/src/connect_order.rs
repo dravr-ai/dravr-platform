@@ -1,4 +1,4 @@
-// ABOUTME: The operator's per-provider connect order: the account sign-in first (the default), or the provider's OAuth first
+// ABOUTME: The admin's per-provider connect order: the account sign-in first (the default), or the provider's OAuth first
 // ABOUTME: Read from system_settings on every decision, so `pierre-cli settings connect-order` flips it with no deploy
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -11,7 +11,7 @@
 //! order. By default a new connection signs in with the account, whatever
 //! the seats, and the provider's OAuth, where it has one, stays open to
 //! anyone who starts it and is the fallback of a sign-in that fails
-//! unexpectedly ([`ConnectOrder::SignInFirst`]). The order is the operator's
+//! unexpectedly ([`ConnectOrder::SignInFirst`]). The order is the admin's
 //! kill switch: flipped to [`ConnectOrder::OAuthFirst`], a new connection
 //! goes through the provider's OAuth while a seat is free and signs in once
 //! the seats are gone. A provider with no OAuth Pierre can call
@@ -64,14 +64,14 @@ impl ConnectOrder {
     }
 }
 
-/// The providers whose connect order the operator sets.
+/// The providers whose connect order the admin sets.
 ///
 /// Every provider with an account sign-in, by the name the athlete knows it
 /// under: the user-facing half of the one mirror table
 /// ([`oauth_providers::MIRROR_PAIRS`]).
 pub const CONNECT_ORDER_PROVIDERS: [&str; 4] = oauth_providers::MIRRORED_PROVIDERS;
 
-/// The order in force when the operator stored none, or none that reads.
+/// The order in force when the admin stored none, or none that reads.
 const DEFAULT_ORDER: ConnectOrder = ConnectOrder::SignInFirst;
 
 /// The `system_settings` key holding `provider`'s order, or `None` for a
@@ -105,7 +105,7 @@ pub async fn connect_order(
 /// An absent row and one holding neither form read as
 /// [`ConnectOrder::SignInFirst`], which is what is in force then, and so
 /// does any provider outside [`CONNECT_ORDER_PROVIDERS`], which has no
-/// account sign-in to put first or last. For the operator's read, where a
+/// account sign-in to put first or last. For the admin's read, where a
 /// failed read must not be shown as the default.
 ///
 /// # Errors
@@ -162,7 +162,7 @@ pub fn new_connection_through_oauth(order: ConnectOrder, seats_left: u32) -> boo
 
 /// Whether a NEW connection's failed account sign-in falls back to the OAuth.
 ///
-/// The sign-in goes first by the operator's order while a seat is still free.
+/// The sign-in goes first by the admin's order while a seat is still free.
 /// With the pool full there is no OAuth to fall back to.
 #[must_use]
 pub fn sign_in_falls_back_to_oauth(order: ConnectOrder, seats_left: u32) -> bool {
@@ -231,13 +231,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_read_is_an_error_to_the_operator_and_sign_in_first_to_a_connection() {
+    async fn a_failed_read_is_an_error_to_the_admin_and_sign_in_first_to_a_connection() {
         let down = OneRowStore(Err(()));
         assert!(
             read_connect_order(&down, oauth_providers::STRAVA)
                 .await
                 .is_err(),
-            "bug: a failed read is shown to the operator as an order"
+            "bug: a failed read is shown to the admin as an order"
         );
         assert_eq!(
             connect_order(&down, oauth_providers::STRAVA).await,

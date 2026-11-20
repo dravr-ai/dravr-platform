@@ -22,7 +22,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use pierre_core::admin::models::DELETED_ACCOUNT_OPERATOR;
+use pierre_core::admin::models::DELETED_ACCOUNT_ADMIN;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::UserRole;
 
@@ -30,7 +30,7 @@ use crate::backends::shared::enums::str_to_user_status;
 use pierre_core::models::default_locale;
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    CoachingPersona, OperatorRosterGrant, User, UserReference, UserStatus, UserTier,
+    AdminRosterGrant, CoachingPersona, User, UserReference, UserStatus, UserTier,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use std::collections::HashMap;
@@ -57,7 +57,7 @@ pub trait UserRepository: Send + Sync {
     /// (20261114113701); no statement here names that column.
     ///
     /// The nil UUID is `invalid_input`: it stands for a deleted account
-    /// (`DELETED_ACCOUNT_OPERATOR`) and is no account's id.
+    /// (`DELETED_ACCOUNT_ADMIN`) and is no account's id.
     async fn create(&self, user: &User) -> AppResult<Uuid>;
     /// Write a whole `User` onto its existing row, matched by id.
     ///
@@ -191,7 +191,7 @@ pub trait UserRepository: Send + Sync {
     /// The rows that reference this user without cascading, each of which would
     /// fail the account deletion (`AccountDeletionRepository::delete_account`):
     /// groups they own or coach, invites they created,
-    /// and operator or audit attribution. Empty when the account can go.
+    /// and admin or audit attribution. Empty when the account can go.
     async fn deletion_blockers(&self, user_id: Uuid) -> AppResult<Vec<UserReference>>;
     /// Get the first admin user by creation date
     async fn get_first_admin_user(&self) -> AppResult<Option<User>>;
@@ -243,26 +243,26 @@ pub trait UserRepository: Send + Sync {
     /// Independent from `coaching_persona` — see
     /// `Coaching Persona Architecture.md` §8 for the rationale.
     async fn set_manages_roster(&self, user_id: Uuid, manages_roster: bool) -> AppResult<()>;
-    /// Grant or revoke `manages_roster` as an operator (the admin roster
+    /// Grant or revoke `manages_roster` as an admin (the admin roster
     /// route, `pierre-cli user set --manages-roster`). A grant records
-    /// `operator` and the time as an [`OperatorRosterGrant`], which
+    /// `admin` and the time as an [`AdminRosterGrant`], which
     /// [`Self::revoke_earned_manages_roster`] never takes back; a revoke
     /// clears the grant and its record together.
-    async fn set_manages_roster_by_operator(
+    async fn set_manages_roster_by_admin(
         &self,
         user_id: Uuid,
         manages_roster: bool,
-        operator: Option<Uuid>,
+        admin: Option<Uuid>,
     ) -> AppResult<()>;
-    /// Take back a `manages_roster` grant no operator made, as the
+    /// Take back a `manages_roster` grant no admin made, as the
     /// `TrainingPeaks` reconciler does when the coach connection that earned it
     /// stops earning it. Returns whether a grant was taken back.
     async fn revoke_earned_manages_roster(&self, user_id: Uuid) -> AppResult<bool>;
-    /// The operator grant behind the user's `manages_roster`, if one holds.
-    async fn manages_roster_operator_grant(
+    /// The admin grant behind the user's `manages_roster`, if one holds.
+    async fn manages_roster_admin_grant(
         &self,
         user_id: Uuid,
-    ) -> AppResult<Option<OperatorRosterGrant>>;
+    ) -> AppResult<Option<AdminRosterGrant>>;
     /// Persist the user's IANA timezone (e.g. `"America/Toronto"`).
     ///
     /// Captured client-side via `Intl.DateTimeFormat().resolvedOptions().timeZone`
@@ -357,13 +357,13 @@ pub(crate) use user_columns;
 /// Refuse to give an account the id that stands for none.
 ///
 /// A deleted account's device logins are kept acting as
-/// [`DELETED_ACCOUNT_OPERATOR`], the nil UUID, and the admin gate refuses
+/// [`DELETED_ACCOUNT_ADMIN`], the nil UUID, and the admin gate refuses
 /// them because no account answers to that id. Every id assigned here is a
 /// random version-4 UUID, so none does; this makes it a rule of the two
 /// statements that insert a `users` row (the repository's create and the
 /// seeder's upsert) instead of a habit of their callers.
 pub(crate) fn refuse_the_id_of_no_account(id: Uuid) -> AppResult<()> {
-    if id == DELETED_ACCOUNT_OPERATOR {
+    if id == DELETED_ACCOUNT_ADMIN {
         return Err(AppError::invalid_input(
             "The nil UUID stands for a deleted account and is no account's id",
         ));
@@ -1139,17 +1139,17 @@ macro_rules! impl_user_repository {
                 preferences::set_manages_roster(self.pool(), user_id, manages_roster).await
             }
 
-            async fn set_manages_roster_by_operator(
+            async fn set_manages_roster_by_admin(
                 &self,
                 user_id: Uuid,
                 manages_roster: bool,
-                operator: Option<Uuid>,
+                admin: Option<Uuid>,
             ) -> AppResult<()> {
-                preferences::set_manages_roster_by_operator(
+                preferences::set_manages_roster_by_admin(
                     self.pool(),
                     user_id,
                     manages_roster,
-                    operator,
+                    admin,
                 )
                 .await
             }
@@ -1158,11 +1158,11 @@ macro_rules! impl_user_repository {
                 preferences::revoke_earned_manages_roster(self.pool(), user_id).await
             }
 
-            async fn manages_roster_operator_grant(
+            async fn manages_roster_admin_grant(
                 &self,
                 user_id: Uuid,
-            ) -> AppResult<Option<OperatorRosterGrant>> {
-                preferences::manages_roster_operator_grant(self.pool(), user_id).await
+            ) -> AppResult<Option<AdminRosterGrant>> {
+                preferences::manages_roster_admin_grant(self.pool(), user_id).await
             }
 
             async fn set_timezone(&self, user_id: Uuid, timezone: &str) -> AppResult<()> {

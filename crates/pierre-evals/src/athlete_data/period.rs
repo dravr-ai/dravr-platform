@@ -126,7 +126,7 @@ enum Period {
 }
 
 impl Period {
-    /// How an operator reads the period in an explanation.
+    /// How an admin reads the period in an explanation.
     fn label(self) -> String {
         match self {
             Self::ThisWeek => "this week".to_owned(),

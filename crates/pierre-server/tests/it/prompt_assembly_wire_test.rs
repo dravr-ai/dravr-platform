@@ -759,7 +759,7 @@ async fn the_tool_index_names_exactly_what_the_chat_surface_serves() {
 
     let conv = fx.conversation(None).await;
     let prompt = fx.turn(&conv, OPENER, "fr").await;
-    // The pipeline's own decision: the operator's switch and the turn's model.
+    // The pipeline's own decision: the admin's switch and the turn's model.
     let on_demand = fx.ctx.config.chat_tools.defer_tools
         && chat_catalogue::defers_on(&fx.ctx.config.llm_chain.head_model().unwrap_or_default());
 

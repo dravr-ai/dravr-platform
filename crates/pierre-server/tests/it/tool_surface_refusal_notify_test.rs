@@ -27,7 +27,7 @@
 //! enforcement registre#103 shipped. The assertion that matters is not that a
 //! refusal was logged — it is that the refusal fired its own event while
 //! `messaging.tool_executed` did NOT, because the two together are what tell an
-//! operator a budget is set too low rather than that nobody asked for anything.
+//! admin a budget is set too low rather than that nobody asked for anything.
 
 use crate::common;
 use crate::helpers;
@@ -133,7 +133,7 @@ async fn a_spent_tool_budget_fires_its_own_catalogued_event() {
     assert_eq!(
         refusal.field("budget"),
         "1",
-        "the bound that was hit, so an operator can tell a budget set too low \
+        "the bound that was hit, so an admin can tell a budget set too low \
          from a turn that genuinely needed more tools than anyone would grant"
     );
 

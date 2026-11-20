@@ -183,7 +183,7 @@ async fn an_override_round_trips_and_reverts_to_the_default() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let repo = &repos.tool_selection;
-    let (tenant_id, operator) = fresh_tenant(repos, "starter").await;
+    let (tenant_id, admin) = fresh_tenant(repos, "starter").await;
 
     let on_by_default = entry(ToolCategory::Goals, TenantPlan::Starter, true);
     let off_by_default = entry(ToolCategory::Goals, TenantPlan::Starter, false);
@@ -203,7 +203,7 @@ async fn an_override_round_trips_and_reverts_to_the_default() {
             tenant_id,
             &off_by_default.tool_name,
             true,
-            Some(operator),
+            Some(admin),
             Some("switched on for the pilot".to_owned()),
         )
         .await
@@ -211,7 +211,7 @@ async fn an_override_round_trips_and_reverts_to_the_default() {
     assert_eq!(stored.tenant_id, tenant_id);
     assert_eq!(stored.tool_name, off_by_default.tool_name);
     assert!(stored.is_enabled);
-    assert_eq!(stored.enabled_by_user_id, Some(operator));
+    assert_eq!(stored.enabled_by_user_id, Some(admin));
     assert_eq!(stored.reason.as_deref(), Some("switched on for the pilot"));
 
     let again = repo

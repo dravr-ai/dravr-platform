@@ -48,7 +48,7 @@ const SIGNUP_CHANGE: AuditEvent = {
   metadata: { before: { daily_limit: 100 }, after: { daily_limit: 1000 } },
 };
 
-const FAILED_BY_GONE_OPERATOR: AuditEvent = {
+const FAILED_BY_GONE_ADMIN: AuditEvent = {
   id: 'ev-3',
   occurred_at: '2026-11-03T08:00:00.000Z',
   action: 'user.delete',
@@ -90,7 +90,7 @@ describe('AuditTrail', () => {
 
   it('lists each event with its time, outcome pill, actor, source, summary and target', async () => {
     vi.mocked(adminApi.getAuditEvents).mockResolvedValue({
-      events: [DELETE_PRE_APPROVAL, SIGNUP_CHANGE, FAILED_BY_GONE_OPERATOR],
+      events: [DELETE_PRE_APPROVAL, SIGNUP_CHANGE, FAILED_BY_GONE_ADMIN],
       next_before: null,
       next_before_id: null,
     });
@@ -206,7 +206,7 @@ describe('AuditTrail', () => {
         next_before: '2026-11-04T20:31:45.123Z',
         next_before_id: 'ev-1',
       })
-      .mockResolvedValueOnce({ events: [FAILED_BY_GONE_OPERATOR], next_before: null, next_before_id: null });
+      .mockResolvedValueOnce({ events: [FAILED_BY_GONE_ADMIN], next_before: null, next_before_id: null });
 
     renderView();
 
@@ -231,7 +231,7 @@ describe('AuditTrail', () => {
     renderView();
 
     expect((await screen.findByTestId('audit-empty')).textContent).toMatch(
-      /No operator actions recorded yet.*removing a pre-approval.*refused/,
+      /No admin actions recorded yet.*removing a pre-approval.*refused/,
     );
   });
 });

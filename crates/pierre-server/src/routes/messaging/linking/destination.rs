@@ -24,7 +24,7 @@ use tracing::info;
 const TELEGRAM_API: &str = "https://api.telegram.org";
 
 /// Cache of bot token -> username, so `getMe` is called once per token rather
-/// than once per link request. A bot's username changes only when an operator
+/// than once per link request. A bot's username changes only when an admin
 /// renames it in `BotFather`, and a stale entry would send codes to a handle that
 /// no longer resolves, so the process lifetime is the right bound: a redeploy
 /// re-reads it.
@@ -35,7 +35,7 @@ static TELEGRAM_BOT_USERNAMES: LazyLock<RwLock<HashMap<String, String>>> =
 ///
 /// Asked of Telegram, not configured. `getMe` returns the username belonging to
 /// the bot token we already store, which makes the answer correct by
-/// construction — there is no value for an operator to set, mistype, or leave
+/// construction — there is no value for an admin to set, mistype, or leave
 /// stale, and no second place for it to drift from.
 ///
 /// That matters more here than it usually would. This URL is where the athlete
@@ -135,7 +135,7 @@ fn username_in_get_me(body: &serde_json::Value) -> Result<String, AppError> {
 const DEFAULT_GRAPH_API_BASE: &str = "https://graph.facebook.com/v22.0";
 
 /// Cache of `WhatsApp` phone-number id -> the digits `wa.me` dials. A business
-/// number changes only when an operator moves the `WhatsApp` account, so the
+/// number changes only when an admin moves the `WhatsApp` account, so the
 /// process lifetime is the bound, as for the Telegram username above.
 static WHATSAPP_DISPLAY_NUMBERS: LazyLock<RwLock<HashMap<String, String>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
@@ -147,7 +147,7 @@ static WHATSAPP_DISPLAY_NUMBERS: LazyLock<RwLock<HashMap<String, String>>> =
 /// anyone can dial. `wa.me/1323997520799051` is what every athlete was sent,
 /// and `WhatsApp` answered "not a valid phone number" (carnet#871). So the number
 /// is asked of Meta, for the id we already store, with the access token we
-/// already store: correct by construction, nothing for an operator to type,
+/// already store: correct by construction, nothing for an admin to type,
 /// the same reasoning as [`telegram_bot_username`].
 ///
 /// A missing id or token, an unreachable Graph API, and an answer with no

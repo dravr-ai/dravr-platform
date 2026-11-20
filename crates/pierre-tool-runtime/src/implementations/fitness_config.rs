@@ -68,7 +68,7 @@ pub struct SetFitnessConfigResult {
     pub configuration_name: String,
     /// Whether it was saved for one athlete or for the whole tenant.
     pub user_level: bool,
-    /// What to tell the operator, already written.
+    /// What to tell the admin, already written.
     pub message: String,
     /// RFC 3339 timestamp of the write.
     pub saved_at: String,
@@ -104,7 +104,7 @@ pub struct DeleteFitnessConfigResult {
     pub configuration_name: String,
     /// Whether the delete was scoped to one athlete or the whole tenant.
     pub user_level: bool,
-    /// What to tell the operator, already written.
+    /// What to tell the admin, already written.
     pub message: String,
     /// RFC 3339 timestamp of the delete. Absent when nothing was deleted.
     #[serde(skip_serializing_if = "Option::is_none")]

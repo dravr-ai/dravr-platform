@@ -8,7 +8,7 @@
 //! (dravr-barrage), projected into `cached_activities`. A disconnect that
 //! deleted only the cache rows would leave the athlete's data held after it,
 //! for a later projection to serve again. These tests drive the disconnect
-//! chokepoint's purge and the operator's termination purge over a server
+//! chokepoint's purge and the admin's termination purge over a server
 //! whose record store they can read, and check that the live source's
 //! records go, an imported Strava archive's records and cache rows stay, the
 //! purge attests once with the caller's reason, and a reconnect's read is

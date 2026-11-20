@@ -24,7 +24,7 @@
 //!
 //! The decision is an admin's, made in the admin console
 //! (`pierre_routes_admin` coach-access handlers). Logic lives in
-//! [`pierre_services::coach_access`], the operator email included; this
+//! [`pierre_services::coach_access`], the admin email included; this
 //! module is the HTTP boundary, handing that email the server's email
 //! service.
 

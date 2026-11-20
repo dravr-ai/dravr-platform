@@ -58,7 +58,7 @@ const LAST_ACTIVE_REFRESH_MINUTES: i64 = 5;
 /// Accepted there, a `fitness:read` consent would become everything the
 /// athlete can do: minting a full-grant API key that outlives the grant,
 /// driving a chat turn that runs under the self grant, reaching the admin
-/// console when the athlete is an operator.
+/// console when the athlete is an admin.
 ///
 /// The path that takes a delegated grant is a protected resource with an
 /// identifier, and an OAuth access token can be audience-bound to one (RFC
@@ -775,7 +775,7 @@ impl McpAuthMiddleware {
         // A breach is a rate-limit error, not an external-service fault: the
         // messaging denial arm matches `ErrorCode::RateLimitExceeded` to send
         // the localized "slow down" reply, and the old `ExternalServiceError`
-        // shape fell through to the operator-error catch-all instead — the
+        // shape fell through to the admin-error catch-all instead — the
         // rate-limited user got silence and on-call got paged (registre#8).
         let now = Utc::now();
         let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;

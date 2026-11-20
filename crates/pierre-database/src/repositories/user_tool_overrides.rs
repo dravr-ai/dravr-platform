@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 /// Per-user admin tool override.
 ///
-/// Records that an operator explicitly enabled or disabled a single MCP tool
+/// Records that an admin explicitly enabled or disabled a single MCP tool
 /// for one user, independent of the user's tenant plan or any tenant-level
 /// tool override. `ToolSelectionService` consults it as a per-request overlay
 /// above the (cached) tenant computation: a user override wins over plan
@@ -31,7 +31,7 @@ pub struct UserToolOverride {
     /// Admin user who set the override (audit trail). `None` for service
     /// tokens that do not map to a user UUID.
     pub set_by: Option<Uuid>,
-    /// Operator-facing note explaining why the override exists.
+    /// Admin-facing note explaining why the override exists.
     pub reason: Option<String>,
     /// First-set timestamp.
     pub created_at: DateTime<Utc>,

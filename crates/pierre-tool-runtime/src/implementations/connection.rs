@@ -150,7 +150,7 @@ fn oauth_error_result(provider: &str, error: &str) -> ToolResult {
 
 /// Whether a chat connect of `provider` hands off to its account sign-in.
 ///
-/// It does for every provider with a mirror unless the operator's order puts
+/// It does for every provider with a mirror unless the admin's order puts
 /// its OAuth first and a seat is free there ([`new_connection_through_oauth`],
 /// the rule the provider card reads), and always for a provider whose grant
 /// the athlete holds dead: a dead grant reconnects only through the hosted
@@ -499,7 +499,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
         let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
         // A provider with a mirror is connected through the hosted sign-in
-        // by default, never through an OAuth URL minted here: the operator's
+        // by default, never through an OAuth URL minted here: the admin's
         // connect order (directive 5, every provider) puts the sign-in first
         // unless it was flipped to the OAuth with a seat free, and a dead
         // grant reconnects only through the sign-in (carnet#1494). Raise the

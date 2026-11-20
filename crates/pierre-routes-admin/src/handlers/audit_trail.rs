@@ -6,7 +6,7 @@
 
 //! Reading the admin audit trail (carnet#1391).
 //!
-//! What operators did through the console and `pierre-cli`, as the recorder
+//! What admins did through the console and `pierre-cli`, as the recorder
 //! in [`crate::audit`] wrote it. The console's Audit page and
 //! `pierre-cli audit list` read it here.
 
@@ -50,7 +50,7 @@ pub struct AuditTrailQuery {
     /// Only `success`, `refused`, `failed` or `started` (an admin-only tool
     /// call whose outcome could not be written after it ran).
     pub outcome: Option<String>,
-    /// Only this operator's actions.
+    /// Only this admin's actions.
     pub actor_user_id: Option<Uuid>,
 }
 

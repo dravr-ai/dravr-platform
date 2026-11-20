@@ -80,7 +80,7 @@ macro_rules! impl_admin_standing_writes {
                 let failed = |e: sqlx::Error| {
                     AppError::database(format!("Failed to withdraw an admin's credentials: {e}"))
                 };
-                let device_tokens = sqlx::query(DEACTIVATE_OPERATOR_TOKENS_SQL)
+                let device_tokens = sqlx::query(DEACTIVATE_ADMIN_TOKENS_SQL)
                     .bind(user_id.to_string())
                     .fetch_all(&mut *conn)
                     .await

@@ -1,4 +1,4 @@
-// ABOUTME: Repository trait for the admin audit trail (audit_events): one row per operator write, read newest first
+// ABOUTME: Repository trait for the admin audit trail (audit_events): one row per admin write, read newest first
 // ABOUTME: Shared body for both backends; the actor is the only id column, a target lives in the metadata
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,13 +6,13 @@
 
 //! The admin audit trail.
 //!
-//! Every write an operator makes through the admin API — the console, or
+//! Every write an admin makes through the admin API — the console, or
 //! `pierre-cli` over the same routes — and every database write `pierre-cli`
 //! makes without the API is one row of `audit_events` (carnet#1391). The table
 //! predates its writer; both schemas carry it with the same columns.
 //!
-//! `user_id` is the **actor**, the operator who acted, and it is
-//! `ON DELETE SET NULL`: deleting an operator account keeps the trail of what
+//! `user_id` is the **actor**, the admin who acted, and it is
+//! `ON DELETE SET NULL`: deleting an admin account keeps the trail of what
 //! was done and drops who did it. The target of an action (a user, an email, a
 //! token) lives in `metadata`. A deleted account's rows in that metadata are
 //! removed by the account deletion itself (`user_references`), so the trail
@@ -103,19 +103,19 @@ impl AuditSource {
     }
 }
 
-/// One audited operator action, as written.
+/// One audited admin action, as written.
 #[derive(Debug, Clone)]
 pub struct NewAuditEvent {
     /// What was done: a handler's action key (`user.delete`), or the method
     /// and route template when the handler named none (`DELETE /admin/...`).
     pub action: String,
-    /// One line an operator reads in the trail.
+    /// One line an admin reads in the trail.
     pub summary: String,
     /// How it ended.
     pub outcome: AuditOutcome,
     /// Where it came from.
     pub source: AuditSource,
-    /// The operator who acted, when the credential names one.
+    /// The admin who acted, when the credential names one.
     pub actor_user_id: Option<Uuid>,
     /// The tenant the credential acted in; `None` for a platform-wide one.
     pub tenant_id: Option<String>,
@@ -127,7 +127,7 @@ pub struct NewAuditEvent {
     pub metadata: serde_json::Value,
 }
 
-/// One row of the trail, as read back for an operator.
+/// One row of the trail, as read back for an admin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEventRecord {
     /// Row id.
@@ -136,16 +136,16 @@ pub struct AuditEventRecord {
     pub occurred_at: DateTime<Utc>,
     /// What was done (see [`NewAuditEvent::action`]).
     pub action: String,
-    /// The line an operator reads.
+    /// The line an admin reads.
     pub summary: String,
     /// `success`, `refused` or `failed`.
     pub outcome: String,
     /// `console`, `cli`, `cli_database`, `service` or `slack`.
     pub source: String,
-    /// The operator who acted; `None` once that account is deleted, or for a
+    /// The admin who acted; `None` once that account is deleted, or for a
     /// service token.
     pub actor_user_id: Option<String>,
-    /// The acting operator's email, while the account exists.
+    /// The acting admin's email, while the account exists.
     pub actor_email: Option<String>,
     /// The tenant the credential acted in.
     pub tenant_id: Option<String>,
@@ -169,7 +169,7 @@ pub struct AuditEventFilter {
     pub action_prefix: Option<String>,
     /// Only this outcome.
     pub outcome: Option<AuditOutcome>,
-    /// Only this operator's actions.
+    /// Only this admin's actions.
     pub actor_user_id: Option<Uuid>,
 }
 
@@ -228,7 +228,7 @@ pub struct SettledAuditEvent<'row> {
 /// [`AdminAuditRepository::has_recent_read`].
 #[derive(Debug, Clone, Copy)]
 pub struct RecentReadKey<'read> {
-    /// The operator who read.
+    /// The admin who read.
     pub actor_user_id: Uuid,
     /// The action key the row carries.
     pub action: &'read str,
@@ -268,7 +268,7 @@ pub(crate) const LIST_AUDIT_EVENTS_SQL: &str = r"
             LIMIT $6
             ";
 
-/// One row of the same read by the same operator since `$5`, if there is one.
+/// One row of the same read by the same admin since `$5`, if there is one.
 /// `->>` reads the route out of the metadata the same way on both engines
 /// (`JSONB` on Postgres, JSON text on `SQLite`).
 pub(crate) const HAS_RECENT_READ_SQL: &str = r"

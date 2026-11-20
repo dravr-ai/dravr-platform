@@ -9,7 +9,7 @@
 //! The compliance rail places every percent-of-threshold or RPE band in the
 //! three-zone model against a [`TidCuts`]. Each of its five slots is a pair
 //! of inclusive ceilings, and each ceiling is one integer parameter here, so
-//! an operator can move a single cut system-wide or for one tenant.
+//! an admin can move a single cut system-wide or for one tenant.
 //!
 //! The defaults are never retyped: [`register_tid_cuts`] reads them from
 //! [`TidCuts::default`], the researched values dravr-cageux ships. The

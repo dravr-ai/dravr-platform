@@ -177,9 +177,9 @@ fn env_var_or(key: &str, default: &str) -> String {
 ///
 /// Deny-by-default: an empty allowlist rejects every custom `base_url`, closing the
 /// SSRF where a tenant points the server's outbound LLM call at an internal host
-/// (T3MP3ST F2 / CWE-918). The host must be one the operator listed, compared exactly
+/// (T3MP3ST F2 / CWE-918). The host must be one the admin listed, compared exactly
 /// and case-insensitively; http(s) only, no credentials in the URL. The address deny
-/// list is deliberately not applied: the operator's list is the trust decision and
+/// list is deliberately not applied: the admin's list is the trust decision and
 /// legitimately names `localhost` for a model served beside the server. Providers with
 /// fixed endpoints (gemini/groq/cohere) send no `base_url` and are unaffected.
 /// Configured via `PIERRE_LLM_BASE_URL_ALLOWLIST` (comma-separated hostnames or IPs,

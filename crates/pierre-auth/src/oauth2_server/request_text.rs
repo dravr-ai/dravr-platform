@@ -15,7 +15,7 @@ use super::models::OAuth2Error;
 /// `state` and `code` as visible ASCII, RFC 7636 the PKCE values as unreserved
 /// characters. `PostgreSQL` rejects a NUL byte in a text parameter, so one let
 /// through to a query would report the caller's malformed request as a
-/// database failure, and page the operators for it.
+/// database failure, and page the admins for it.
 pub(super) fn refuse_control_characters(values: &[Option<&str>]) -> Result<(), OAuth2Error> {
     if values
         .iter()

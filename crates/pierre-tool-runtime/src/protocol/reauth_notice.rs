@@ -237,7 +237,7 @@ fn send_claimed_notice<'a>(
 /// provider's OAuth.
 ///
 /// True for a mirror `backend` when the athlete holds neither half of its
-/// pair in `tenant_id` (no token row, no connection row) and the operator's
+/// pair in `tenant_id` (no token row, no connection row) and the admin's
 /// order for its provider puts the
 /// sign-in first while a seat is free on the provider's OAuth
 /// ([`sign_in_falls_back_to_oauth`], carnet#1477). Its link is then the

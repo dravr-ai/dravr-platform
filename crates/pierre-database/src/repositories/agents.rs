@@ -83,7 +83,7 @@ pub trait AgentsRepository: Send + Sync {
     /// Fast-path: `locale == "en"` returns immediately without touching the
     /// database. English lives on the canonical `agents` row itself; a
     /// `agent_translations` row with `locale = "en"` is only interesting when
-    /// an operator wants to override the canonical, which is out of scope for
+    /// an admin wants to override the canonical, which is out of scope for
     /// Phase 1.
     async fn apply_translations(&self, agents: &mut [AgentListItem], locale: &str)
         -> AppResult<()>;

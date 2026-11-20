@@ -46,7 +46,7 @@ pub(crate) struct TargetGroup {
     /// `list_groups_for_user` path (which reports no tenant), the row's own
     /// when the command named the group by id.
     pub(crate) tenant_id: TenantId,
-    /// How the group was resolved, for the operator log line:
+    /// How the group was resolved, for the admin log line:
     /// `"conversation_group_id"`, `"list_groups_for_user_first"`,
     /// `"list_groups_for_user_all"` for a `/group consent` from a direct
     /// message, or `"named_group_id"` for a group a command named by id.

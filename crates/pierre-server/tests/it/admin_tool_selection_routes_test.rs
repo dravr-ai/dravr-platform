@@ -1,5 +1,5 @@
 // ABOUTME: Per-tenant tool selection through one handler set, over the console and admin-token mounts
-// ABOUTME: An admin reaches every tenant, a scoped token its own only, and an override is attributed to its operator
+// ABOUTME: An admin reaches every tenant, a scoped token its own only, and an override is attributed to its admin
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -91,11 +91,11 @@ async fn session(resources: &Arc<ServerContext>, email: &str, role: UserRole) ->
     })
 }
 
-/// Mint a super-admin token; `operator` makes it the shape a device login mints.
+/// Mint a super-admin token; `admin` makes it the shape a device login mints.
 async fn super_token(
     resources: &Arc<ServerContext>,
     service: &str,
-    operator: Option<Uuid>,
+    admin: Option<Uuid>,
 ) -> Result<GeneratedAdminToken> {
     let request = CreateAdminTokenRequest {
         service_name: service.to_owned(),
@@ -104,7 +104,7 @@ async fn super_token(
         expires_in_days: Some(1),
         is_super_admin: true,
         tenant_id: None,
-        operator_user_id: operator,
+        operator_user_id: admin,
     };
     Ok(resources
         .common
@@ -288,15 +288,15 @@ async fn another_tenants_tools_are_an_admins_and_no_one_elses() -> Result<()> {
 }
 
 /// The token API parsed the token id as the override's author, so a device
-/// login could not set an override at all. The operator behind the token is
+/// login could not set an override at all. The admin behind the token is
 /// the author now, and a token that acts for no one is told so.
 #[tokio::test]
 #[serial]
-async fn the_token_api_attributes_an_override_to_its_operator() -> Result<()> {
+async fn the_token_api_attributes_an_override_to_its_admin() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let owner = session(&resources, "tenant-owner@example.com", UserRole::User).await?;
-    let operator = session(&resources, "device-operator@example.com", UserRole::Admin).await?;
-    let device = super_token(&resources, "device-login-shaped", Some(operator.user_id)).await?;
+    let admin = session(&resources, "device-admin@example.com", UserRole::Admin).await?;
+    let device = super_token(&resources, "device-login-shaped", Some(admin.user_id)).await?;
     let service = super_token(&resources, "service-token", None).await?;
     let tenant = owner.tenant_id;
 
@@ -315,8 +315,8 @@ async fn the_token_api_attributes_an_override_to_its_operator() -> Result<()> {
     );
     assert_eq!(
         stored_override(&resources, tenant).await?,
-        Some((false, Some(operator.user_id))),
-        "attributed to the approving operator"
+        Some((false, Some(admin.user_id))),
+        "attributed to the approving admin"
     );
 
     let response = AxumTestRequest::post(&format!("/admin/tools/tenant/{tenant}/override"))
@@ -334,7 +334,7 @@ async fn the_token_api_attributes_an_override_to_its_operator() -> Result<()> {
     );
     assert_eq!(
         stored_override(&resources, tenant).await?,
-        Some((false, Some(operator.user_id))),
+        Some((false, Some(admin.user_id))),
         "the refused write changed nothing"
     );
     Ok(())

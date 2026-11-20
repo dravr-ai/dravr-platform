@@ -363,7 +363,7 @@ pub(crate) const GET_DEVICE_AUTHORIZATION_BY_CODE_HASH_SQL: &str = r"
             WHERE device_code_hash = $1
             ";
 
-/// A device authorization by its user code (the operator side).
+/// A device authorization by its user code (the admin side).
 pub(crate) const GET_DEVICE_AUTHORIZATION_BY_USER_CODE_SQL: &str = r"
             SELECT device_code_hash, user_code, status, approved_by, created_at, expires_at
             FROM device_authorization

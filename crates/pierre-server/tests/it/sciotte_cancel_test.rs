@@ -576,7 +576,7 @@ async fn a_step_the_cancel_ended_is_a_quiet_409() {
     assert!(noted, "the capture saw the handler's cancel note");
     assert_eq!(status, 409, "{body}");
     assert_eq!(body["details"]["reason"], LOGIN_CANCELLED_REASON, "{body}");
-    assert_eq!(errors, 0, "a cancelled login is no operator alert");
+    assert_eq!(errors, 0, "a cancelled login is no admin alert");
     assert_eq!(sync_failed, 0, "a cancelled login is not a sync.failed");
     assert!(
         !athlete.holds_a_flow().await,

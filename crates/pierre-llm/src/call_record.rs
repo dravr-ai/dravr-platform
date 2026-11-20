@@ -216,7 +216,7 @@ impl fmt::Debug for CallRecordInputs<'_> {
 /// loop, such as the turn's language classification.
 ///
 /// The `embacle.call_completed` event is emitted whether or not a recorder is
-/// installed: a one-shot run with no row to write is still a call an operator
+/// installed: a one-shot run with no row to write is still a call an admin
 /// counts.
 pub fn emit_call_record_with_text(
     inputs: CallRecordInputs<'_>,

@@ -19,13 +19,15 @@
 
 #![warn(missing_docs)]
 
-/// Operator reset of a whole account: every provider disconnected, every owned row wiped, the account kept.
+/// Admin reset of a whole account: every provider disconnected, every owned row wiped, the account kept.
 pub mod account_reset;
 /// The activity-sport vocabulary shared with the clients, for server-rendered text.
 pub mod activity_sports;
+/// Email to the admins: who receives it, and the pending sign-up alert (carnet#1056)
+pub mod admin_mail;
 /// Admin operations: user lifecycle, token management, settings, and analytics
 pub mod admin_ops;
-/// System-wide operator settings — auto-approval and its env shadow
+/// System-wide admin settings — auto-approval and its env shadow
 pub mod admin_settings;
 /// Advice capture: turn an agent recommendation into a PendingAdvice (playbook memory)
 pub mod advice_capture;
@@ -51,8 +53,6 @@ pub mod coach_replies;
 pub mod coach_roster;
 /// The new-user cohort report the admin console and the daily digest read
 pub mod new_user_cohort;
-/// Email to the admins: who receives it, and the pending sign-up alert (carnet#1056)
-pub mod operator_mail;
 
 /// Authentication service: registration, login, password management, token refresh
 pub mod auth;
@@ -306,7 +306,7 @@ pub mod group_invite_hold;
 pub mod link_token;
 /// Signup codes: mint, list, revoke, resolve and claim (carnet#1128)
 pub mod signup_codes;
-/// The operator's bounds on self-serve sign-up (carnet#1063)
+/// The admin's bounds on self-serve sign-up (carnet#1063)
 pub mod signup_policy;
 
 /// Platform-initiated outbound messaging: send a localized text on every
@@ -397,7 +397,7 @@ pub mod effective_physiology;
 /// Onboarding gate: requires at least one connected fitness provider before
 /// the user can reach chat/agent/MCP tools.
 pub mod onboarding_gate;
-/// Operator reset of one user's onboarding, leaving every group row in place.
+/// Admin reset of one user's onboarding, leaving every group row in place.
 pub mod onboarding_reset;
 /// Outcome evaluator: label due advice from real data + reinforce playbooks
 pub mod outcome_evaluator;
@@ -505,10 +505,10 @@ pub mod user_status_gate;
 /// User-approval notification seam (email + linked-channel messages).
 pub mod user_approval;
 
-/// Operator removal of a user and of one provider grant, through the disconnect chokepoint.
+/// Admin removal of a user and of one provider grant, through the disconnect chokepoint.
 pub mod user_removal;
 
-/// Sciotte scrape-session persistence, and the operator clone of one account's session onto another.
+/// Sciotte scrape-session persistence, and the admin clone of one account's session onto another.
 pub mod scrape_session;
 
 /// The doors a deleted account's identities are refused at, and the explicit clear that reopens them.

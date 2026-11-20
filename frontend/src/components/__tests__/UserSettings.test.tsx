@@ -452,7 +452,7 @@ describe('UserSettings Component', () => {
       });
     });
 
-    it('names no model in About: which one answers is an operator reading (carnet#1147)', async () => {
+    it('names no model in About: which one answers is an admin reading (carnet#1147)', async () => {
       const user = userEvent.setup();
 
       await act(async () => {

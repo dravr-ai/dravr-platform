@@ -311,7 +311,7 @@ describe('API Service - Admin Functionality', () => {
           email: 'alpha@example.com',
           note: 'alpha cohort',
           created_at: '2026-08-26T12:00:00Z',
-          allowed_by: 'operator-1',
+          allowed_by: 'admin-1',
           allowed_by_email: 'admin@example.com',
           account_status: null,
         },

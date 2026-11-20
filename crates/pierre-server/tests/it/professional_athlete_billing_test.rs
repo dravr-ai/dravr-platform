@@ -465,7 +465,7 @@ async fn a_refused_charge_leaves_the_athlete_added_and_is_logged_as_an_error() {
         "the provider was asked for the athlete above 15"
     );
     let failures = named(&lines, "failed to apply the per-athlete charge");
-    assert_eq!(failures.len(), 1, "the refusal reaches an operator once");
+    assert_eq!(failures.len(), 1, "the refusal reaches an admin once");
     assert_eq!(failures[0].level, Level::ERROR);
     assert_eq!(failures[0].field("owner_id"), coach.user_id.to_string());
     assert!(

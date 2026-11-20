@@ -73,7 +73,7 @@ pub(crate) struct ExposureNotice {
 /// Read from the catalogue entry the web and mobile modals show: the one
 /// text, never a copy of it. The catalogue is compiled in and the hosted-page
 /// route tests pin its entries, so a miss cannot reach a build that passed
-/// them; if one does, the operator is paged and the page still serves — the
+/// them; if one does, the admin is paged and the page still serves — the
 /// login handler refuses a login without the acceptance either way.
 #[must_use]
 pub(crate) fn exposure_notice(strings: &PageStrings<'_>, target: &str) -> Option<ExposureNotice> {

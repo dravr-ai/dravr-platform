@@ -405,7 +405,7 @@ fn email_regex() -> Option<&'static Regex> {
 
 /// Redact secret and PII values out of a URL query string.
 ///
-/// Parameter *names* survive — an operator needs to know a callback carried a
+/// Parameter *names* survive — an admin needs to know a callback carried a
 /// `code` — while the value of any name in [`SENSITIVE_QUERY_PARAMS`] becomes
 /// the configured placeholder. A name is compared percent-decoded, so
 /// `access%5Ftoken` is the `access_token` the server reads. Every other value
@@ -484,7 +484,7 @@ pub fn redacted_path(path: &str) -> String {
 
 /// Build the log-safe request line for a URI: path plus redacted query.
 ///
-/// The path is the route, and routes are what an operator reads an alert
+/// The path is the route, and routes are what an admin reads an alert
 /// for, so it is kept verbatim except for a segment that is a credential
 /// ([`redacted_path`]).
 #[must_use]

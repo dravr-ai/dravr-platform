@@ -44,7 +44,7 @@ pub struct SetOverrideParams<'a> {
 pub struct LogChangeParams<'a> {
     /// Admin user performing the change.
     pub admin_user_id: &'a str,
-    /// Admin email (operator-visible attribution).
+    /// Admin email (admin-visible attribution).
     pub admin_email: &'a str,
     /// Top-level config category.
     pub category: &'a str,

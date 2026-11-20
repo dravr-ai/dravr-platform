@@ -166,7 +166,7 @@ async fn harness_show() -> AppResult<()> {
         println!("  Degraded: {reason}. A save replaces the stored row.");
     }
     let config = response.get("config").cloned().unwrap_or(Value::Null);
-    // The harness document is nested and operator-edited as a whole; pretty
+    // The harness document is nested and admin-edited as a whole; pretty
     // JSON is the faithful view (and pipes cleanly into `settings harness set -`).
     println!(
         "{}",

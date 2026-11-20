@@ -582,7 +582,7 @@ async fn insert_member(
     }
 }
 
-/// Remove `user_id` from `tenant_id`, the way an operator's removal leaves it.
+/// Remove `user_id` from `tenant_id`, the way an admin's removal leaves it.
 async fn delete_member(setup: &AuthTestSetup, user_id: Uuid, tenant_id: TenantId) {
     match setup.resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => {

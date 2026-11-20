@@ -78,7 +78,7 @@ pub struct CompiledLocaleGuardrails {
 pub struct TextGuardrails {
     /// Substrings (case-insensitive) that must not appear in any
     /// response. Matched as plain substrings — blocked topics are
-    /// authored as fragments operators want to wholesale ban, not
+    /// authored as fragments admins want to wholesale ban, not
     /// per-locale wordlists.
     pub blocked_topics: Vec<String>,
     /// Per-locale guardrails. Key is a BCP-47 short code (`en`, `fr`,

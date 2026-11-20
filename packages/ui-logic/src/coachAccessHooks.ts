@@ -133,7 +133,7 @@ export function seatLineDay(iso: string, language: string): string {
  *   user still held without coach access, re-reads the session once and
  *   patches the user: coach Home appears on the next navigation, and every
  *   group read is refreshed. A user who holds coach access reads nothing; an
- *   access an operator later took back does not loop.
+ *   access an admin later took back does not loop.
  * - `useGroupSeatLines`: while the viewer's seat moves, a room they own reads
  *   « Accès coach en attente · demandé le 12 nov. » while the request waits,
  *   and « Tu es le coach · depuis 11:10 » once a grant attached it, until the

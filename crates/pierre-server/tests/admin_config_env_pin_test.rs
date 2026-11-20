@@ -25,7 +25,7 @@
 //! way. A rule that only held for the keys it was written against would be a
 //! coincidence, not a design.
 //!
-//! Shadowing is also asserted to be *reported*, at both moments an operator is
+//! Shadowing is also asserted to be *reported*, at both moments an admin is
 //! watching: `update_config` names the outranked keys in its response, and the
 //! boot path warns once per key. A pin that silently swallows a saved override
 //! is the same class of failure as a variable nothing reads.

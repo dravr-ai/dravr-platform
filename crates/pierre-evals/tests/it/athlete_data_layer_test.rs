@@ -391,7 +391,7 @@ fn ordinary_replies_to_a_connected_athlete_are_never_actionable() {
 ///
 /// The scanner used to stop at the comma, drop `21`, re-enter at `4`, and record
 /// a **4 km** figure the athlete never said — matched against the wrong
-/// activity and printed back in the operator explanation. The platform's default
+/// activity and printed back in the admin explanation. The platform's default
 /// locale is French, so this is the common spelling, not an edge case.
 #[test]
 fn a_comma_decimal_is_one_figure() {
@@ -414,7 +414,7 @@ fn a_comma_decimal_is_one_figure() {
     );
     assert!(
         outcome.explanation.contains("21.4"),
-        "the operator explanation must name the figure actually asserted, got: {}",
+        "the admin explanation must name the figure actually asserted, got: {}",
         outcome.explanation
     );
     assert!(
@@ -428,7 +428,7 @@ fn a_comma_decimal_is_one_figure() {
 ///
 /// "5:00 min/km" used to parse the seconds half as its own `0 min` figure, which
 /// can never match anything, so it broke the all-figures-must-match rule and
-/// surfaced as "0 min" in operator-facing text.
+/// surfaced as "0 min" in admin-facing text.
 #[test]
 fn a_pace_expression_injects_no_phantom_figure() {
     let record = AthleteRecord {

@@ -9,7 +9,7 @@
 //! Strava caps how many athletes one OAuth application may connect, and an
 //! athlete who stops using Dravr keeps their seat until they disconnect. Once
 //! the seats run out, the next athlete is sent to the Sciotte mirror instead of
-//! OAuth. This sweeper gives idle seats back, under a policy an operator sets
+//! OAuth. This sweeper gives idle seats back, under a policy an admin sets
 //! with `pierre-cli config set strava_seat_reclaim.<key> <value>` (keys, defaults
 //! and bounds in [`pierre_config::constants::strava_seat_reclaim`]). The policy
 //! is read from the system-wide scope at the start of every pass, so a change

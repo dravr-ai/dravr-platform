@@ -16,7 +16,7 @@ mod account_reset_test;
 mod activity_cache_place_test;
 mod activity_cache_samples_test;
 mod admin_audit_test;
-mod admin_operator_tokens_test;
+mod admin_tokens_test;
 mod agents_repository_test;
 mod athlete_declared_home_test;
 mod athlete_gear_test;

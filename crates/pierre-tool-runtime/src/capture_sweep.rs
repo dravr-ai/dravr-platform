@@ -169,7 +169,7 @@ impl SweepSelection {
     /// An activity window of zero hours would select nobody, so it is clamped
     /// to one. A skip window of zero passes over nothing: every connection of
     /// an active athlete is due, a head their own turn read minutes ago
-    /// included, which is what an operator asking the lane to skip nothing
+    /// included, which is what an admin asking the lane to skip nothing
     /// expects (carnet#1692).
     #[must_use]
     pub fn from_hours(
@@ -282,7 +282,7 @@ pub enum RefreshOutcome {
     /// session a reconnect replaced while the fetch ran. Recorded, never
     /// flagged: a flake is not a disconnect.
     Failed {
-        /// Error text, for the operator reading the report.
+        /// Error text, for the admin reading the report.
         error: String,
     },
     /// The sweep's background share of the provider's request budget was
@@ -293,7 +293,7 @@ pub enum RefreshOutcome {
     /// the staleness monitor's to judge. A `429` the provider itself answered
     /// was sent, and is [`RefreshOutcome::Failed`].
     Deferred {
-        /// The refusal, for the operator reading the report.
+        /// The refusal, for the admin reading the report.
         error: String,
     },
     /// The scraper refused the read because the account is a coach's, which

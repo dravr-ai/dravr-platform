@@ -416,13 +416,13 @@ impl OAuth2Routes {
     }
 
     /// The page for a sign-in that failed: a server fault is logged at
-    /// ERROR and shown as such; a first sign-in the operator's sign-up bounds
+    /// ERROR and shown as such; a first sign-in the admin's sign-up bounds
     /// refused (kill switch closed, 24-hour ceiling reached) is told sign-up
     /// is paused, since nothing about the account is wrong; anything else is
     /// a refusal of this account, logged at WARN. No page carries the reason.
     fn google_refusal(error: &AppError, text: &ConsentText<'_>) -> Response {
         if signup_policy::is_signup_paused(error) {
-            warn!("Google sign-up refused: the operator's sign-up bounds admit no new account");
+            warn!("Google sign-up refused: the admin's sign-up bounds admit no new account");
             return Self::render_oauth_error_response(
                 &OAuth2Error::too_many_requests(SIGNUP_PAUSED),
                 text,

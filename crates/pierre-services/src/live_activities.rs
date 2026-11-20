@@ -261,7 +261,7 @@ pub trait LiveActivityStore: Send + Sync {
     fn keeps(&self, provider: &str) -> bool;
 
     /// Delete everything the store holds of `provider`, for every athlete in
-    /// every tenant, as [`Self::delete_source`] does for one: the operator's
+    /// every tenant, as [`Self::delete_source`] does for one: the admin's
     /// termination purge. Returns how many athletes' records were deleted.
     ///
     /// # Errors

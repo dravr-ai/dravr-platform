@@ -12,7 +12,7 @@
 //! 1. A token is issued and stored hashed, never whole
 //! 2. Consuming it stamps `users.email_verified_at` and applies the approval decision
 //! 3. The token is single-use, and a wrong verifier costs an attempt without consuming it
-//! 4. Operator settings are read from `system_settings` and clamped to a sane range
+//! 4. Admin settings are read from `system_settings` and clamped to a sane range
 
 use crate::common;
 
@@ -144,7 +144,7 @@ async fn consuming_a_valid_token_marks_the_address_verified() {
     );
 
     // A second proof of the same inbox keeps the first and says so: the
-    // operator email for a pending account goes out on the first proof only
+    // admin email for a pending account goes out on the first proof only
     // (carnet#1056).
     assert!(
         !repo
@@ -309,9 +309,9 @@ async fn settings_fall_back_to_the_compiled_defaults() {
     );
 }
 
-/// An operator-set value inside the allowed range is honoured verbatim.
+/// An admin-set value inside the allowed range is honoured verbatim.
 #[tokio::test]
-async fn operator_settings_are_honoured_when_in_range() {
+async fn admin_settings_are_honoured_when_in_range() {
     let setup = VerificationTestSetup::new().await.expect("setup failed");
     let db = setup.resources.agent.database.as_ref();
 

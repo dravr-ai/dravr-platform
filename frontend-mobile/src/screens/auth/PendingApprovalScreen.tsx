@@ -49,7 +49,7 @@ const stepBadgeStyle: ViewStyle = {
  *   leads with that and offers a resend. Telling someone to wait for an
  *   administrator when the real blocker is an unopened email is how people give
  *   up on a product.
- * - **Confirmed, awaiting review** — the ball is with an operator, so the screen
+ * - **Confirmed, awaiting review** — the ball is with an admin, so the screen
  *   says so and confirms the address is done.
  *
  * `email_verified` is optional deliberately: absent means the server did not

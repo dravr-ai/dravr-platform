@@ -152,7 +152,7 @@ fn a_weekly_total_is_extracted_and_checked_in_every_shipped_locale() {
         );
         assert!(
             contradicted.explanation.contains("22 km"),
-            "the operator sees the total on record: {}",
+            "the admin sees the total on record: {}",
             contradicted.explanation
         );
     }

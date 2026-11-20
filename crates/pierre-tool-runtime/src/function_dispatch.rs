@@ -246,7 +246,7 @@ async fn run_function_calls(
         log_tool_response_size(&func_response);
 
         // A failed call's error payload travels only to the model, which may
-        // silently retry around it — without this line operators see four
+        // silently retry around it — without this line admins see four
         // `success=false` events and an 88-byte response size but never the
         // reason (the 2026-08-22 Cohere `parameters`-envelope outage took a
         // log-archaeology session to diagnose for exactly this gap). Tool
@@ -261,7 +261,7 @@ async fn run_function_calls(
         }
 
         // Beside the notify event reporting the same flag, so evidence and
-        // operator log cannot disagree about what ran.
+        // admin log cannot disagree about what ran.
         if tool_response.success {
             executed.push(function_call.name.clone());
         }

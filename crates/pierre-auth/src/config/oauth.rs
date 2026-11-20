@@ -127,7 +127,7 @@ impl OAuthConfig {
     /// Strava enforces a per-application athlete limit ("Number of athletes
     /// allowed to connect" in the API settings dashboard) and does **not**
     /// expose it via any API response header, so the platform cannot read it
-    /// at runtime. This is the operator-configured cap, else
+    /// at runtime. This is the admin-configured cap, else
     /// [`STRAVA_OAUTH_SEAT_CAP_DEFAULT`] (the Standard Tier entry-level cap).
     /// A zero cap reads as the default: it would wedge every athlete onto the
     /// scraper fallback, which is never the intent.
@@ -141,7 +141,7 @@ impl OAuthConfig {
     /// User capacity of the server's own Garmin client.
     ///
     /// Garmin's Developer Program caps how many users one client id may
-    /// connect (1,000 on the Starter tier). This is the operator-configured
+    /// connect (1,000 on the Starter tier). This is the admin-configured
     /// cap, else [`GARMIN_SEAT_CAPACITY_DEFAULT`]. A zero cap reads as the
     /// default, as Strava's does.
     #[must_use]
@@ -719,7 +719,7 @@ pub fn default_provider() -> Option<String> {
     Some(provider)
 }
 
-/// The operator-configured athlete-seat cap of the server's own Strava app
+/// The admin-configured athlete-seat cap of the server's own Strava app
 /// (`STRAVA_OAUTH_SEAT_CAP`), `None` when unset or not a number;
 /// [`OAuthConfig::strava_seat_cap`] resolves it. Bump the variable after
 /// self-upgrading the app's tier on Strava.
@@ -735,7 +735,7 @@ fn strava_seat_cap_from_env() -> Option<u32> {
         .and_then(|s| s.parse::<u32>().ok())
 }
 
-/// The operator-configured user capacity of the server's own Garmin client
+/// The admin-configured user capacity of the server's own Garmin client
 /// (`GARMIN_SEAT_CAPACITY`), `None` when unset or not a number;
 /// [`OAuthConfig::garmin_seat_cap`] resolves it.
 ///

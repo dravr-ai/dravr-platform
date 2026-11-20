@@ -97,7 +97,7 @@ function totalRuns(counts: ExtractionRunCounts): number {
  * The worker's state, read from its own run ledger. The bands are engineering
  * heuristics: an empty run is healthy (nothing worth keeping was said), and a
  * week with no run at all means no eligible turn happened or the worker is not
- * being reached, which only the operator can tell apart.
+ * being reached, which only the admin can tell apart.
  */
 export function healthStatus(runs: ExtractionRunStats): {
   label: string;

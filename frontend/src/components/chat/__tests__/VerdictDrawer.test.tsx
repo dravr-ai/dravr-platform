@@ -130,7 +130,7 @@ describe('VerdictDrawer triage slot', () => {
     // read the row's own disposition and knob.
     expect(renderTriage).toHaveBeenCalledWith(expect.objectContaining({ id: 'v1' }));
     expect(renderTriage).toHaveBeenCalledWith(expect.objectContaining({ id: 'v2' }));
-    // The operator's category chip reads the same corpus word as the athlete's meta line.
+    // The admin's category chip reads the same corpus word as the athlete's meta line.
     expect(screen.getAllByText('supplements')).toHaveLength(2);
     expect(screen.queryByText('Supplement')).not.toBeInTheDocument();
   });
@@ -327,7 +327,7 @@ describe('VerdictDrawer athlete card', () => {
   });
 });
 
-describe('VerdictDrawer operator card', () => {
+describe('VerdictDrawer admin card', () => {
   it('keeps the raw ids and the layer, with each reference linked by its id', () => {
     render(
       <VerdictDrawer

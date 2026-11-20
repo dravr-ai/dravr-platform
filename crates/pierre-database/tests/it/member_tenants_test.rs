@@ -1,5 +1,5 @@
 // ABOUTME: The one definition of an athlete's tenants: every membership row, and the tenant their user row names
-// ABOUTME: Holds TenantRepository::list_membership_tenant_ids to it, the set the export and the operator tools read
+// ABOUTME: Holds TenantRepository::list_membership_tenant_ids to it, the set the export and the admin tools read
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

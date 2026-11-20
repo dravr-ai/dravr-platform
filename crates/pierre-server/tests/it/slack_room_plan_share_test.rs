@@ -25,8 +25,8 @@
 //! The context's offline adapter takes the send and returns no Slack message
 //! id, so the observable outbound rows are the `sent-…`-keyed deliveries —
 //! which is the point: the wire stays observable from the database. The
-//! ledger is an operator surface with no member-readable reader (only the
-//! emoji-reaction resolver joins through it), so a durable operator copy of a
+//! ledger is an admin surface with no member-readable reader (only the
+//! emoji-reaction resolver joins through it), so a durable admin copy of a
 //! privately-answered `/plan` is deliberate; the member-readable surfaces
 //! (chat rows, group transcript) keep their deliberate absences, asserted
 //! below. The delivery halves are still asserted against the REAL canot
@@ -627,7 +627,7 @@ mod slack_room {
         // rows once the spawned send resolves. `messaging_messages` has no
         // member-readable surface — only the emoji-reaction resolver joins
         // through it, and a private reply carries no chat row to resolve to —
-        // so the operator copy is deliberate, not a leak of the room policy.
+        // so the admin copy is deliberate, not a leak of the room policy.
         let inbound: Vec<_> = ledger_rows_carrying(&room.resources, "/plan")
             .await
             .into_iter()

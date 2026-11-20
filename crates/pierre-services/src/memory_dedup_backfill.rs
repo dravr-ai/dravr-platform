@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Folds the duplicate facts already stored for one athlete into their anchors
-// ABOUTME: Operator-run, dry by default; the same decision the extraction path uses, applied to history
+// ABOUTME: Admin-run, dry by default; the same decision the extraction path uses, applied to history
 
 //! One-off de-duplication of facts written before merging existed.
 //!
@@ -12,7 +12,7 @@
 //! row that was folded.
 //!
 //! Two properties make it safe to run against real accounts: it is
-//! **dry by default**, so an operator sees every merge before any row moves,
+//! **dry by default**, so an admin sees every merge before any row moves,
 //! and a merge never rewrites the anchor's words — the athlete's own phrasing
 //! is what survives, exactly as on the live path.
 //!
@@ -74,7 +74,7 @@ pub struct BackfillStats {
 /// Fold one athlete's duplicate facts into their anchors.
 ///
 /// Returns what happened. A dry run returns the same counts with
-/// `facts_deleted` at zero, so an operator can compare the two.
+/// `facts_deleted` at zero, so an admin can compare the two.
 ///
 /// # Errors
 ///

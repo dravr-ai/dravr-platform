@@ -316,7 +316,7 @@ async fn stamp_connected_at(f: &Fixture, provider: &str, at: DateTime<Utc>) {
 
 /// A reconnect that lands while the sweep's fetch is in flight is newer than
 /// the failure that fetch reports, so the connection stays active. The sweep
-/// must then not report it flagged: the operator reading the report would count
+/// must then not report it flagged: the admin reading the report would count
 /// a disconnect the athlete never had.
 ///
 /// The reconnect is stamped ahead of the sweep's start, which is exactly what
@@ -1064,7 +1064,7 @@ async fn the_sweep_walks_the_session_and_passes_over_the_grant_beside_it() {
 
 /// carnet#1692: an active athlete's live session whose head their own turn
 /// read minutes ago is refreshed by an active sweep that skips nothing, as
-/// an operator asks with `skip_fetched_within_hours=0`. The 2026-11-20 run
+/// an admin asks with `skip_fetched_within_hours=0`. The 2026-11-20 run
 /// asked exactly that and passed the session over, the zero read as an hour.
 #[tokio::test]
 async fn an_active_sweep_skipping_nothing_refreshes_a_session_a_turn_just_read() {

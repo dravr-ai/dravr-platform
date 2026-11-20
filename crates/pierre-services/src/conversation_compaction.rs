@@ -56,7 +56,7 @@ pub const COMPACTION_MARKER: &str = "[pierre:compaction]\n";
 /// Which bound sent the thread to the sliding-window drop.
 ///
 /// Only the log distinguishes these, and that is the point: one shared message
-/// reporting `tokens`/`window` on all three sent operators looking at the token
+/// reporting `tokens`/`window` on all three sent admins looking at the token
 /// cliff while the message cap was what actually breached (registre#198).
 #[derive(Debug, Clone, Copy)]
 enum SlideReason {
@@ -253,7 +253,7 @@ impl ConversationCompactor {
     ) -> CompactionOutcome {
         // The bound that actually breached, named. This warned "above emergency
         // threshold" with `tokens` and `window` on every path, including the
-        // message-cap backstop — so an operator reading `tokens=25118,
+        // message-cap backstop — so an admin reading `tokens=25118,
         // window=1000000` on a jammed thread saw compaction misfiring on a
         // prompt at 2.5% of its window and had no way to reach the real cause
         // (registre#198).

@@ -397,7 +397,7 @@ fn history_and_training_load_agree_after_rest_days() {
     assert!(last.atl < rows[9].atl, "{} vs {}", last.atl, rows[9].atl);
 }
 
-/// The operator's training-load selection reaches the history series.
+/// The admin's training-load selection reaches the history series.
 ///
 /// Under a simple moving average one session's TSS counts as `tss / window`
 /// on every day of the window; the EMA the platform used to hard-code would

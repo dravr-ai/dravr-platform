@@ -6,10 +6,10 @@
 
 //! Result types for the eight admin agent tools.
 //!
-//! These are the operator-facing twins of the athlete-facing agent tools, and
+//! These are the admin-facing twins of the athlete-facing agent tools, and
 //! the shapes differ in one telling way: every projection here carries
 //! `visibility`, because deciding what a system agent is visible to is the
-//! operator's job and nobody else's.
+//! admin's job and nobody else's.
 
 use serde::Serialize;
 
@@ -31,7 +31,7 @@ pub struct SystemAgentEntry {
     pub tags: Vec<String>,
     /// Estimated size of the system prompt, in tokens.
     pub token_count: u32,
-    /// Who can see it — the operator's decision, which is why every admin
+    /// Who can see it — the admin's decision, which is why every admin
     /// projection carries it and no athlete-facing one does.
     pub visibility: String,
     /// RFC 3339 creation timestamp.
@@ -142,7 +142,7 @@ pub struct AdminDeleteSystemAgentResult {
 
 /// What `admin_assign_agent` answers with.
 ///
-/// Echoes both the operator and the athlete, so an audit reader has the whole
+/// Echoes both the admin and the athlete, so an audit reader has the whole
 /// act from the reply alone.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct AdminAssignAgentResult {
@@ -154,7 +154,7 @@ pub struct AdminAssignAgentResult {
     pub agent_title: String,
     /// The athlete it was assigned to.
     pub user_id: String,
-    /// The operator who assigned it.
+    /// The admin who assigned it.
     pub assigned_by: String,
 }
 
@@ -162,7 +162,7 @@ pub struct AdminAssignAgentResult {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct AdminUnassignAgentResult {
     /// Always true: an assignment that was not there is an error, not a
-    /// quiet success, because the operator asked to remove something.
+    /// quiet success, because the admin asked to remove something.
     pub unassigned: bool,
     /// The agent that was unassigned.
     pub agent_id: String,
@@ -175,13 +175,13 @@ pub struct AdminUnassignAgentResult {
 pub struct AgentAssignmentEntry {
     /// The athlete the agent is assigned to.
     pub user_id: String,
-    /// Their email, so the operator can recognise them. Absent when the
+    /// Their email, so the admin can recognise them. Absent when the
     /// join could not resolve the account — a deleted user leaves the
     /// assignment row behind.
     pub user_email: Option<String>,
     /// RFC 3339 timestamp of the assignment.
     pub assigned_at: String,
-    /// The operator who made it. Absent for assignments made before the
+    /// The admin who made it. Absent for assignments made before the
     /// column existed, and for any the system made on nobody's behalf.
     pub assigned_by: Option<String>,
 }
@@ -190,7 +190,7 @@ pub struct AgentAssignmentEntry {
 ///
 /// The listing is capped: a popular system agent in a large tenant can carry
 /// an assignment per athlete. `truncated` states that in the payload rather
-/// than letting the operator read a short list as a complete one.
+/// than letting the admin read a short list as a complete one.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct AdminListAgentAssignmentsResult {
     /// The agent whose assignments these are.

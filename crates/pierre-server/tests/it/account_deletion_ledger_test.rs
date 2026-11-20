@@ -61,7 +61,7 @@ use pierre_routes_auth::AuthRoutes;
 use pierre_services::admin_ops::AccountCaller;
 use pierre_services::analytics::{cache_user_email, resolve_user_email};
 use pierre_services::barrage_keys::{memory_records, LocalSigner};
-use pierre_services::import_tombstones::clear_by_operator;
+use pierre_services::import_tombstones::clear_by_admin;
 use pierre_services::provider_revocation::{DisconnectReason, RevocationOutcome};
 use pierre_services::record_log_worker::{KeyedNamesPage, RecordLogWorker};
 use pierre_services::user_removal::{
@@ -328,7 +328,7 @@ async fn receipts(repos: &RepositoryRegistry) -> Vec<DeletionReceipt> {
 }
 
 /// SHA-256 of an account id, computed here rather than through the
-/// production helper, as an operator holding the id would.
+/// production helper, as an admin holding the id would.
 fn sha256_of(user_id: Uuid) -> String {
     format!("{:x}", Sha256::digest(user_id.to_string().as_bytes()))
 }
@@ -351,7 +351,7 @@ async fn a_deletion_failing_part_way_leaves_the_account_and_its_provider_data() 
         .account_deletion
         .delete_account(&AccountDeletionPlan {
             user_id,
-            actor: DeletionActor::Operator,
+            actor: DeletionActor::Admin,
             firebase_project: None,
             backends: vec![PlannedBackend {
                 tenant_id,
@@ -527,7 +527,7 @@ async fn a_deletion_appends_a_receipt_chained_to_the_one_before() {
 
 /// A receipt altered in the database is named as the first broken link by
 /// the verifier `pierre-cli deletion verify-receipts` runs, over the receipts
-/// the operator route serves; a token below super-admin reads none.
+/// the admin route serves; a token below super-admin reads none.
 #[tokio::test]
 async fn a_tampered_receipt_is_named_as_the_first_broken_link() {
     let resources = create_test_server_resources().await.unwrap();
@@ -625,7 +625,7 @@ async fn cache_entries_and_the_cached_email_are_gone_after_the_deletion() {
 
 /// A push event naming a deleted account's Strava id is refused by its
 /// tombstone, even once another account holds that id; cleared by an
-/// operator, the same event reaches the account that holds it now.
+/// admin, the same event reaches the account that holds it now.
 #[tokio::test]
 async fn a_webhook_for_a_tombstoned_provider_account_is_dropped_until_cleared() {
     let resources = create_test_server_resources().await.unwrap();
@@ -654,7 +654,7 @@ async fn a_webhook_for_a_tombstoned_provider_account_is_dropped_until_cleared() 
     };
     assert!(report.ledger.tombstone_ids.contains(&tombstone_id));
 
-    clear_by_operator(
+    clear_by_admin(
         repos.import_tombstones.as_ref(),
         &tombstone_id,
         "test-token",
@@ -828,7 +828,7 @@ fn admin_context(resources: &Arc<ServerContext>) -> Arc<AdminApiContext> {
     }))
 }
 
-/// A super-admin admin token, or one with no permission at all.
+/// A super-admin token, or one with no permission at all.
 fn admin_token(super_admin: bool) -> ValidatedAdminToken {
     ValidatedAdminToken {
         token_id: format!("test:{}", Uuid::new_v4()),

@@ -115,7 +115,7 @@ const DEFAULT_LLM_PROBE_INTERVAL_SECS: u64 = 1800;
 /// * On `Healthy -> Unhealthy` (or `Unknown -> Unhealthy`) transitions,
 ///   emits an `error!` line — the [`pierre_logging::ErrorNotificationLayer`]
 ///   wired in `init_from_env` auto-routes that line to the
-///   `SLACK_ERROR_CHANNEL` so an operator pages without extra plumbing.
+///   `SLACK_ERROR_CHANNEL` so an admin pages without extra plumbing.
 /// * On `Unhealthy -> Healthy` transitions, emits an `info!` recovery line.
 ///
 /// The task is fire-and-forget; failures only surface via the dedicated
@@ -252,7 +252,7 @@ async fn refresh_health_from_real_traffic(provider_name: &str, health_state: &Ll
 /// for Copilot's next session refresh; a tier on another credential is
 /// never passed over for it. The endpoint itself does NOT count
 /// against the core budget. Emits notify events in `#dravr-signal` on
-/// threshold transitions so operators see the degradation before users do.
+/// threshold transitions so admins see the degradation before users do.
 ///
 /// Fail-closed: a read that fails is recorded as a low budget, so the chain
 /// skips the Copilot tiers until a read succeeds. Each skip already raises
@@ -348,7 +348,7 @@ async fn probe_chain_tiers_at_startup(chat_provider: Option<&Arc<ChatProvider>>)
 /// A healthy tier is an `info!` naming who answered. A dead one is a `warn!`
 /// plus the `llm.tier_unhealthy` notify event: the chain still serves, so this
 /// is not the pageable `llm.provider_unhealthy`, but it is shallower than
-/// configured and an operator should know before the primary has a bad day.
+/// configured and an admin should know before the primary has a bad day.
 fn log_tier_probe(probe: &TierProbe) {
     match &probe.outcome {
         Ok(served_by) => info!(
@@ -380,7 +380,7 @@ fn log_tier_probe(probe: &TierProbe) {
 ///
 /// Splits the logging policy by probe kind:
 ///
-/// * Startup probes don't escalate: the readiness route is the operator
+/// * Startup probes don't escalate: the readiness route is the admin
 ///   signal — a boot-time failure is expected to be transient if the
 ///   fallback chain is configured, and we don't want to page on every
 ///   container start.
@@ -571,7 +571,7 @@ fn log_startup_failure(provider: &str, kind: ProbeKind, error: &str) {
 
 /// `served_by` names the tier that answered. The first probe of a process is
 /// always a transition (`Unknown -> Healthy`), so this is the line an
-/// operator reads at every instance start.
+/// admin reads at every instance start.
 fn log_recovery_transition(
     provider: &str,
     kind: ProbeKind,
@@ -585,7 +585,7 @@ fn log_recovery_transition(
             served_by,
             "LLM probe Unhealthy -> Healthy; chat traffic recovered"
         );
-        // Pair with llm.provider_unhealthy so operators can close the
+        // Pair with llm.provider_unhealthy so admins can close the
         // incident loop in #dravr-signal without reading logs.
         info!(
             target: "notify",

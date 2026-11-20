@@ -54,7 +54,7 @@ pub(crate) struct ReplySample {
     pub user_message: String,
     /// PII-redacted agent reply verbatim.
     pub agent_reply: String,
-    /// Operator-set tag for triage (`flagged_by_user`,
+    /// Admin-set tag for triage (`flagged_by_user`,
     /// `random_sample`, `vocabulary_contract_miss`, …).
     pub triage_tag: String,
 }

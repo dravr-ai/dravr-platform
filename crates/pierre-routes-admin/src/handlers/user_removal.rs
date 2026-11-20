@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Operator removal over the admin API.
+//! Admin removal over the admin API.
 //!
 //! `DELETE /admin/users/{user_id}` used to delete the row and lean on the
 //! cascade: the token rows went, the grant at Strava did not, so the athlete
@@ -12,7 +12,7 @@
 //! the work to [`pierre_services::user_removal`], which reaches the same
 //! disconnect chokepoint the athlete's own disconnect uses.
 //!
-//! Emails appear in response bodies (the operator asked about that account)
+//! Emails appear in response bodies (the admin asked about that account)
 //! and never in logs, which carry the user id.
 //!
 //! Both routes reach every tenant that holds the user, so a token scoped to
@@ -86,7 +86,7 @@ pub(super) fn refusal(status: StatusCode, message: String, data: Option<Value>) 
 }
 
 /// The answer to a removal that failed part-way: the failing step's status,
-/// and a message and body naming what was done, so an operator never reads a
+/// and a message and body naming what was done, so an admin never reads a
 /// partial removal as "nothing happened".
 fn interrupted(user_id: Uuid, interruption: &Interruption) -> Response {
     interrupted_as(user_id, interruption, Interruption::describe)
@@ -106,7 +106,7 @@ fn interrupted_as(
         disconnected = interruption.disconnected.len(),
         failed_provider = interruption.failed.as_ref().map(|f| f.provider.as_str()),
         error = %error.internal_details(),
-        "Operator removal interrupted"
+        "Admin removal interrupted"
     );
     let cause = if error.code == ErrorCode::ResourceLocked {
         RESIDUAL_REFERENCE.to_owned()
@@ -288,7 +288,7 @@ pub async fn handle_disconnect_user_provider(
         provider = %provider,
         tenants = disconnected.len(),
         token_id = %admin_token.token_id,
-        "Operator disconnected a provider for a user"
+        "Admin disconnected a provider for a user"
     );
 
     Ok(json_response(
@@ -310,7 +310,7 @@ pub async fn handle_disconnect_user_provider(
 /// `DELETE /admin/users/{user_id}` — remove a user completely.
 ///
 /// Refuses with 409, naming each row, while the user owns or coaches a group,
-/// created an invite, holds operator or audit attribution, is the only owner
+/// created an invite, holds admin or audit attribution, is the only owner
 /// of a tenant others belong to, authored an agent others rely on, or holds a
 /// subscription the billing provider may still charge; nothing is touched
 /// then. Otherwise every provider's grant is withdrawn upstream before one
@@ -382,7 +382,7 @@ pub async fn handle_delete_user(
         user_id = %user_uuid,
         token_id = %admin_token.token_id,
         reason = %reason,
-        "User deleted by operator"
+        "User deleted by admin"
     );
     // A deleted admin's device logins are revoked with it; the row names no
     // account, as the deletion's own row below.
@@ -397,7 +397,7 @@ pub async fn handle_delete_user(
 
     // The trail keeps that an account was deleted, which receipt proves it and
     // the subject hash the tombstones carry, never which account: no id, no
-    // email, and not the operator's free-text reason, which can name the
+    // email, and not the admin's free-text reason, which can name the
     // person (the deletion policy).
     let audit = AuditDetail::new(
         "user.delete",
@@ -507,7 +507,7 @@ pub async fn handle_reset_user_onboarding(
         token_id = %admin_token.token_id,
         reason = %reason,
         with_memory = request.with_memory,
-        "Onboarding reset by operator"
+        "Onboarding reset by admin"
     );
 
     Ok(json_response(
@@ -544,7 +544,7 @@ pub async fn handle_reset_user_onboarding(
 /// platforms included — is disconnected through the chokepoint (revoked at
 /// the provider), its imported history and uploaded files are erased, and
 /// one transaction wipes every row the account owns. The account row, its sign-in,
-/// role, tier, tenant memberships and operator overrides stay; no tombstone,
+/// role, tier, tenant memberships and admin overrides stay; no tombstone,
 /// no deletion receipt and no Firebase deletion is written. A provider this
 /// build cannot revoke is kept and named. A reset that fails part-way is
 /// answered with the failing step's status and names what was already
@@ -625,11 +625,11 @@ pub async fn handle_reset_user(
         user_id = %user_uuid,
         token_id = %admin_token.token_id,
         reason = %reason,
-        "Account reset by operator"
+        "Account reset by admin"
     );
 
     // The account stays, so the trail names it by id (the route parameter);
-    // the operator's free-text reason stays out of it, as for a delete.
+    // the admin's free-text reason stays out of it, as for a delete.
     let audit = AuditDetail::new(
         "user.reset",
         format!(

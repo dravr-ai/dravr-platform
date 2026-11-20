@@ -333,10 +333,10 @@ fn the_pending_verb_is_gone() {
     );
 }
 
-/// carnet#1418: a harness save names the version the operator read, verbatim,
+/// carnet#1418: a harness save names the version the admin read, verbatim,
 /// and reads no newer one that would let it overwrite a save made since.
 #[test]
-fn a_harness_save_carries_the_version_the_operator_read() {
+fn a_harness_save_carries_the_version_the_admin_read() {
     let server = ServerStandIn::serve(vec![(
         200,
         json!({"config": {"schema_version": 2}, "source": "persisted", "updated_at": STAMP}),
@@ -377,7 +377,7 @@ fn a_harness_save_over_no_row_sends_null_and_a_refusal_exits_non_zero() {
     assert_ne!(output.status.code(), Some(0), "{output:?}");
     assert!(
         format!("{output:?}").contains("It changed."),
-        "the server's sentence reaches the operator: {output:?}"
+        "the server's sentence reaches the admin: {output:?}"
     );
     let sent = server.sent();
     let body = sent[0].body.as_ref().unwrap();

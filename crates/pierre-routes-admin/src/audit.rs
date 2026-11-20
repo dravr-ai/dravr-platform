@@ -1,4 +1,4 @@
-// ABOUTME: The admin audit recorder: one audit_events row for every write an operator makes through the admin API
+// ABOUTME: The admin audit recorder: one audit_events row for every write an admin makes through the admin API
 // ABOUTME: A layer over every admin router; handlers add the target and before/after through an AuditDetail
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -19,11 +19,11 @@
 //! outside them. A route that authenticates inside its handler instead (the
 //! web-admin user tools, the config API) is resolved here from the request
 //! headers, the way the cookie layer would. A request no credential admits is
-//! not an operator's action and writes nothing.
+//! not an admin's action and writes nothing.
 //!
 //! **What was done** is the route template (never the raw URL) and its path
 //! parameters, the status and its outcome — refusals included, since a 409 on
-//! a delete is exactly what an operator asks about later. A handler that
+//! a delete is exactly what an admin asks about later. A handler that
 //! knows more puts an [`AuditDetail`] on its response: an action key, a
 //! sentence, the target, the values before and after. A request body is
 //! never read: it carries passwords and client secrets.
@@ -53,7 +53,7 @@ use tracing::{debug, error};
 
 use crate::auth::service::AdminAuthService;
 
-/// Route prefixes whose writes are not operator actions on the platform: the
+/// Route prefixes whose writes are not admin actions on the platform: the
 /// device-login handshake (a sign-in), first-run setup, the website's magic
 /// link, the scheduled canaries.
 const UNAUDITED_PREFIXES: &[&str] = &[
@@ -71,7 +71,7 @@ const UNAUDITED_PREFIXES: &[&str] = &[
 pub struct AuditDetail {
     /// A stable action key (`user.delete`, `signup.settings.update`).
     pub action: Option<String>,
-    /// One line an operator reads in the trail.
+    /// One line an admin reads in the trail.
     pub summary: Option<String>,
     /// What the action was applied to.
     pub target: Option<Value>,

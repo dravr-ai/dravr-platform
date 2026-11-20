@@ -55,7 +55,7 @@ pub struct NewUserCohort {
 pub struct CohortFunnel {
     /// Accounts created in the window.
     pub signed_up: usize,
-    /// Active, or approved by an operator.
+    /// Active, or approved by an admin.
     pub approved_or_active: usize,
     /// Proved their address.
     pub email_verified: usize,

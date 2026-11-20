@@ -9,7 +9,7 @@
 //! One policy, two runtime parameters read system-wide
 //! ([`pierre_config::activity_retention`]): a default every provider takes
 //! and a per-provider override. Nothing in code declares a retention, and
-//! both start unset, so nothing expires until an operator sets one with
+//! both start unset, so nothing expires until an admin sets one with
 //! `pierre-cli config set`.
 //!
 //! The retention sweep resolves the policy once per pass and hands it to
@@ -33,7 +33,7 @@ use tracing::warn;
 const DAY_SECS: u64 = 86_400;
 
 /// How long each provider's data is kept after it was last read from the
-/// provider, as the operator set it.
+/// provider, as the admin set it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProviderRetention {
     /// Days every provider the overrides do not name keeps; `None` keeps

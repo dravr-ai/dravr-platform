@@ -160,13 +160,13 @@ enum Command {
         action: commands::key::KeyCommand,
     },
 
-    /// Physiological zone operator commands (re-cut stored zones)
+    /// Physiological zone admin commands (re-cut stored zones)
     Zones {
         #[command(subcommand)]
         action: commands::zones::ZonesCommand,
     },
 
-    /// Coaching harness operator commands (claim verdict backfill, etc.)
+    /// Coaching harness admin commands (claim verdict backfill, etc.)
     #[cfg(feature = "tools-verification")]
     Harness {
         #[command(subcommand)]
@@ -240,7 +240,7 @@ enum Command {
         action: commands::deletion::DeletionCommand,
     },
 
-    /// The admin audit trail on a remote server: what operators did, newest first
+    /// The admin audit trail on a remote server: what admins did, newest first
     Audit {
         #[command(subcommand)]
         action: commands::audit::AuditCommand,
@@ -273,7 +273,7 @@ enum AuthCommand {
 
     /// Approve a pending device login (super-admin)
     Approve {
-        /// The user code shown by the operator's `auth login`
+        /// The user code shown by the admin's `auth login`
         user_code: String,
 
         /// Server override (defaults to the cached login's server)
@@ -287,7 +287,7 @@ enum AuthCommand {
 
     /// Deny a pending device login (super-admin)
     Deny {
-        /// The user code shown by the operator's `auth login`
+        /// The user code shown by the admin's `auth login`
         user_code: String,
 
         /// Server override (defaults to the cached login's server)
@@ -460,7 +460,7 @@ enum UserCommand {
         #[arg(long, value_name = "admin|user")]
         role: Option<String>,
 
-        /// Operator note recorded on the tier override marker
+        /// Admin note recorded on the tier override marker
         #[arg(long)]
         note: Option<String>,
 
@@ -483,7 +483,7 @@ enum UserCommand {
         #[arg(long)]
         tier: String,
 
-        /// Operator note recorded on the override marker
+        /// Admin note recorded on the override marker
         #[arg(long)]
         note: Option<String>,
     },
@@ -515,7 +515,7 @@ enum UserCommand {
         #[arg(long)]
         email: String,
 
-        /// Operator note recorded on the allow (cohort, reason)
+        /// Admin note recorded on the allow (cohort, reason)
         #[arg(long)]
         note: Option<String>,
 
@@ -531,7 +531,7 @@ enum UserCommand {
 
         /// Print the invitation link instead of mailing it (super-admin only)
         ///
-        /// For operator-driven end-to-end testing on a deployed environment,
+        /// For admin-driven end-to-end testing on a deployed environment,
         /// where the test addresses have no mailbox anyone reads. The link is
         /// printed alone on its own line; nothing is mailed.
         #[arg(long, requires = "send_invite")]
@@ -639,7 +639,7 @@ enum UserCommand {
         #[arg(long)]
         monthly: Option<u32>,
 
-        /// Operator note recorded on the override
+        /// Admin note recorded on the override
         #[arg(long)]
         note: Option<String>,
     },
@@ -724,7 +724,7 @@ enum ToolCommand {
         #[arg(long)]
         tool: String,
 
-        /// Operator note recorded on the override
+        /// Admin note recorded on the override
         #[arg(long)]
         reason: Option<String>,
     },
@@ -739,7 +739,7 @@ enum ToolCommand {
         #[arg(long)]
         tool: String,
 
-        /// Operator note recorded on the override
+        /// Admin note recorded on the override
         #[arg(long)]
         reason: Option<String>,
     },

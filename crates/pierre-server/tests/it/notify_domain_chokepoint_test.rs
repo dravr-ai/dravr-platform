@@ -9,7 +9,7 @@
 //! `group.created`, `group.joined` and `agent.selected` were emitted from the
 //! HTTP route handlers, so the messaging paths — which carry effectively all
 //! real traffic — emitted nothing. The events had never fired once in
-//! `PostHog`, which read as "nobody uses groups" while the operator was
+//! `PostHog`, which read as "nobody uses groups" while the admin was
 //! creating groups over Telegram daily.
 //!
 //! These tests drive the *chat* entry points, not the routes, and assert on

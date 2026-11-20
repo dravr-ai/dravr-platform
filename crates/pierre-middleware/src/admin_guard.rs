@@ -149,7 +149,7 @@ pub fn cookie_admin_token(user: &User, active_tenant_id: Option<Uuid>) -> Valida
         is_super_admin: true,
         tenant_id: active_tenant_id.map(|t| t.to_string()),
         user_info: None,
-        // The signed-in admin is the operator every write is attributed to.
+        // The signed-in admin is the admin every write is attributed to.
         operator_user_id: Some(user.id),
     }
 }

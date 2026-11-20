@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! `POST /admin/users/{id}/providers/{provider}/clone` gives an e2e test
-//! account a working Garmin connection by copying an operator's scrape
+//! account a working Garmin connection by copying an admin's scrape
 //! session. Every test drives the real handler, with the session installer the
 //! composition root wires (the auth route context), against a real database,
 //! and asserts on rows: a refusal that answered the right status while writing
@@ -229,7 +229,7 @@ async fn a_super_admin_clones_a_garmin_session_onto_another_account() {
     let context = admin_context(resources);
     let source = user(resources, "source").await;
     let target = user(resources, "target").await;
-    let material = session_json("sess-garmin-operator");
+    let material = session_json("sess-garmin-admin");
     store_token(repos, source, SCIOTTE_GARMIN, TOKEN_TYPE_SESSION, &material).await;
     let token = admin_token(resources, true).await;
     let token_id = token.token_id.clone();

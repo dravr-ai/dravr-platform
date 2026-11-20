@@ -123,7 +123,7 @@ pub fn is_consented(hashed_user_id: &str) -> bool {
 /// not the hashed id the consent cache uses — because the enricher resolves
 /// straight from an event's `user_id` field.
 ///
-/// Distinct from the consent cache: email is internal operator/identity
+/// Distinct from the consent cache: email is internal admin/identity
 /// context for the private monitoring channel, not consent-gated `PostHog`
 /// state. A cold pod that has not yet seen a user simply renders no email for
 /// that event until the next authentication warms the entry.

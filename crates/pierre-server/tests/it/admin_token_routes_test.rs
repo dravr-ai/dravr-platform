@@ -213,7 +213,7 @@ async fn an_admin_lists_every_token_and_a_scoped_token_only_non_super_ones() -> 
         false,
     )
     .await?;
-    let operator = mint(
+    let super_token = mint(
         &resources,
         "svc-super",
         vec![AdminPermission::ListKeys],
@@ -232,7 +232,7 @@ async fn an_admin_lists_every_token_and_a_scoped_token_only_non_super_ones() -> 
         "a token without the flag sees service tokens"
     );
     assert!(
-        !ids.contains(&operator.token_id),
+        !ids.contains(&super_token.token_id),
         "a super-admin token is not shown to a token without the flag"
     );
     let entry = &body["data"]["tokens"][0];
@@ -254,7 +254,7 @@ async fn an_admin_lists_every_token_and_a_scoped_token_only_non_super_ones() -> 
         .json();
     let ids = listed_ids(&body);
     assert!(
-        ids.contains(&service.token_id) && ids.contains(&operator.token_id),
+        ids.contains(&service.token_id) && ids.contains(&super_token.token_id),
         "an admin sees every token"
     );
     Ok(())
@@ -355,24 +355,26 @@ async fn a_super_token_stays_active_until_an_admin_revokes_it() -> Result<()> {
         false,
     )
     .await?;
-    let operator = mint(
+    let super_token = mint(
         &resources,
-        "svc-operator",
+        "svc-admin",
         vec![AdminPermission::ListKeys],
         true,
     )
     .await?;
 
     for action in ["revoke", "rotate"] {
-        let response =
-            AxumTestRequest::post(&format!("/api/admin/tokens/{}/{action}", operator.token_id))
-                .header("authorization", &athlete)
-                .json(&json!({}))
-                .send(console(&resources))
-                .await;
+        let response = AxumTestRequest::post(&format!(
+            "/api/admin/tokens/{}/{action}",
+            super_token.token_id
+        ))
+        .header("authorization", &athlete)
+        .json(&json!({}))
+        .send(console(&resources))
+        .await;
         assert_eq!(response.status(), 403, "a user must not {action} a token");
         let response =
-            AxumTestRequest::post(&format!("/admin/tokens/{}/{action}", operator.token_id))
+            AxumTestRequest::post(&format!("/admin/tokens/{}/{action}", super_token.token_id))
                 .header("authorization", &bearer(&delegate))
                 .json(&json!({}))
                 .send(token_api(&resources))
@@ -385,20 +387,22 @@ async fn a_super_token_stays_active_until_an_admin_revokes_it() -> Result<()> {
     }
 
     // A guard that ran after the deactivation would still 403 while having
-    // destroyed the operator's credential; the row is what matters.
-    assert!(is_active(&resources, &operator.token_id).await?);
+    // destroyed the admin's credential; the row is what matters.
+    assert!(is_active(&resources, &super_token.token_id).await?);
 
-    let response =
-        AxumTestRequest::post(&format!("/api/admin/tokens/{}/revoke", operator.token_id))
-            .header("authorization", &admin)
-            .send(console(&resources))
-            .await;
+    let response = AxumTestRequest::post(&format!(
+        "/api/admin/tokens/{}/revoke",
+        super_token.token_id
+    ))
+    .header("authorization", &admin)
+    .send(console(&resources))
+    .await;
     assert_eq!(
         response.status(),
         200,
         "an admin revokes a super-admin token"
     );
-    assert!(!is_active(&resources, &operator.token_id).await?);
+    assert!(!is_active(&resources, &super_token.token_id).await?);
     Ok(())
 }
 
@@ -527,7 +531,7 @@ async fn an_admin_rotates_a_service_token_and_the_old_one_retires() -> Result<()
 async fn a_revoked_token_is_not_rotated_back_to_life() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let admin = session(&resources, "admin-revoked@example.com", UserRole::Admin).await?;
-    let cli = mint(&resources, "cli-operator", vec![], true).await?;
+    let cli = mint(&resources, "cli-admin", vec![], true).await?;
     let revoked = mint(&resources, "svc-revoked", vec![], true).await?;
     resources
         .common
@@ -577,7 +581,7 @@ async fn a_revoked_token_is_not_rotated_back_to_life() -> Result<()> {
 async fn include_inactive_lists_revoked_tokens_on_both_mounts() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let admin = session(&resources, "super-inactive@example.com", UserRole::Admin).await?;
-    let cli = mint(&resources, "cli-operator", vec![], true).await?;
+    let cli = mint(&resources, "cli-admin", vec![], true).await?;
     let live = mint(
         &resources,
         "svc-live",
@@ -683,16 +687,16 @@ async fn a_non_super_token_cannot_revoke_a_super_token() -> Result<()> {
         false,
     )
     .await?;
-    let operator = mint(&resources, "operator", vec![], true).await?;
+    let admin = mint(&resources, "admin", vec![], true).await?;
 
-    let response = AxumTestRequest::post(&format!("/admin/tokens/{}/revoke", operator.token_id))
+    let response = AxumTestRequest::post(&format!("/admin/tokens/{}/revoke", admin.token_id))
         .header("authorization", &bearer(&delegate))
         .send(token_api(&resources))
         .await;
     assert_eq!(response.status(), 404);
     assert!(
-        is_active(&resources, &operator.token_id).await?,
-        "the operator token still works"
+        is_active(&resources, &admin.token_id).await?,
+        "the admin token still works"
     );
     Ok(())
 }

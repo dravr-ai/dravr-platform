@@ -170,7 +170,7 @@ const DEFAULT_ACTIVE_WITHIN_HOURS: i64 = 48;
 /// "has capture stopped" and becomes "is this connection abandoned".
 const MAX_THRESHOLD_HOURS: i64 = 720;
 
-/// Cap on connections read in one snapshot, so an operator's curl can never
+/// Cap on connections read in one snapshot, so an admin's curl can never
 /// become an unbounded scan of every connection on the platform.
 const SNAPSHOT_LIMIT: i64 = 5_000;
 
@@ -451,7 +451,7 @@ mod tests {
         );
     }
 
-    /// The operator's "skip nothing" reaches the sweep as no skip window
+    /// The admin's "skip nothing" reaches the sweep as no skip window
     /// (carnet#1692): dispatched with `0`, the lane passed over a head the
     /// athlete's own turn had read 26 minutes before.
     #[test]

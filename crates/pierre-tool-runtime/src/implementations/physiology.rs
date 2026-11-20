@@ -424,7 +424,7 @@ impl PhysiologyUpdate {
     /// Names of the fields this call sets, for the response and the log line.
     ///
     /// Only names travel — the measurements themselves are health data and
-    /// stay out of the operator log.
+    /// stay out of the admin log.
     fn field_names(&self) -> Vec<&'static str> {
         let mut names = Vec::new();
         if self.ftp_watts.is_some() {

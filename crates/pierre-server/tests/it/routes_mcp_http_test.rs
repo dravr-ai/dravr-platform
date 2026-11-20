@@ -864,7 +864,7 @@ async fn test_tools_list_accepts_every_issued_api_key_format() {
 async fn test_tools_list_global_admin_holds_the_public_profile() {
     // `/mcp` is an external transport whoever calls it: a genuine global admin
     // (`User.role`), which the default tenant-owner test user is not, is
-    // offered no operator tool here.
+    // offered no admin tool here.
     let (resources, jwt) = setup_with_admin_flag("tools_list_global_admin@example.com", true)
         .await
         .expect("Setup failed");
@@ -892,7 +892,7 @@ async fn test_tools_list_global_admin_holds_the_public_profile() {
 
     let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
 
-    // The operator tools stay on Dravr's own surfaces
+    // The admin tools stay on Dravr's own surfaces
     assert!(
         !tool_names.iter().any(|n| n.starts_with("admin_")),
         "A global admin must not be offered admin tools on /mcp, got: {:?}",

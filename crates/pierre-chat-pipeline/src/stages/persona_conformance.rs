@@ -53,7 +53,7 @@
 //!
 //! Every rule-bearing field on [`PersonaContract`] has a check here. That is a
 //! standing invariant, not a coincidence: a contract field with no check is a
-//! rule an operator can set in contremaitre and watch do nothing, which is
+//! rule an admin can set in contremaitre and watch do nothing, which is
 //! worse than an absent field because the YAML implies enforcement. The
 //! 2026-06-03 due-diligence review caught eight such fields; they are
 //! implemented here and the pre-push phantom-surface scan now fails on any new

@@ -1,12 +1,12 @@
 // ABOUTME: Configurable allowlist of AG-UI event kinds forwarded by an emitter
-// ABOUTME: Default allows every kind; operators narrow via with/without/only to reduce noise
+// ABOUTME: Default allows every kind; admins narrow via with/without/only to reduce noise
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! AG-UI event filter configuration.
 //!
-//! Emission is configurable so operators can opt out of high-volume streams
+//! Emission is configurable so admins can opt out of high-volume streams
 //! (e.g. `TEXT_MESSAGE_CONTENT` token deltas on a Telegram channel where
 //! per-token updates cost more than they inform) without changing the
 //! producer code. Each [`super::emitter::AgUiSink`] carries an

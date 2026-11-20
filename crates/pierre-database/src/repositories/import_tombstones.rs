@@ -128,8 +128,8 @@ pub struct ImportTombstone {
     pub created_at: DateTime<Utc>,
     /// When it was cleared; `None` while it is live.
     pub cleared_at: Option<DateTime<Utc>>,
-    /// Who cleared it: an [`athlete_marker`] or `operator:` and the
-    /// operator's token id.
+    /// Who cleared it: an [`athlete_marker`] or `admin:` and the
+    /// admin's token id.
     pub cleared_by: Option<String>,
     /// The [`athlete_marker`] of the last account that proved it holds the
     /// provider account and was refused.

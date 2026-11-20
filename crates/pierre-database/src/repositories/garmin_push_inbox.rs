@@ -132,7 +132,7 @@ pub trait GarminPushInboxRepository: Send + Sync {
     /// Returns how many went.
     async fn delete_processed_pushes(&self, cutoff_ms: i64) -> AppResult<u64>;
 
-    /// One row by id, for the operator and the tests.
+    /// One row by id, for the admin and the tests.
     async fn get_push(&self, id: &str) -> AppResult<Option<GarminPushInboxRow>>;
 }
 

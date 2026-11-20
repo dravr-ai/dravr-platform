@@ -1387,7 +1387,7 @@ Authorization: Bearer <your-token-here>`}
                       </div>
                   );
                 case 'usage':
-                  // Usage quotas are user-facing; an operator has none of their own.
+                  // Usage quotas are user-facing; an admin has none of their own.
                   return isAdminUser ? null : (
                       <div key={section} data-testid="account-section-usage">
                         <Section title={t('settingsUi.usage')} description={t('account.quotaHint')}>

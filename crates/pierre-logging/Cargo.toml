@@ -1,5 +1,5 @@
 # ABOUTME: Structured logging — GCP Cloud Logging formatter + tenant-aware tracing layer + notify routing
-# ABOUTME: Wires tracing-subscriber with dravr-tronc notify layer for operator alerts via Slack/PagerDuty
+# ABOUTME: Wires tracing-subscriber with dravr-tronc notify layer for admin alerts via Slack/PagerDuty
 
 [package]
 name = "pierre-logging"

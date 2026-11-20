@@ -731,7 +731,7 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
             (None, _) | (_, None) => Vec::new(),
             // A global admin is listed the same public profile: this dispatcher
             // only ever serves external transports. `ADMIN_ONLY` still gates a
-            // call that names an operator tool.
+            // call that names an admin tool.
             (Some(tenant_id), Some(user_id)) => {
                 self.tenant_filtered_schemas(tenant_id, Some(user_id)).await
             }

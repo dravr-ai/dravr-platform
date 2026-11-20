@@ -587,7 +587,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
         .await
         .unwrap(),
     );
-    // The workflow connects Strava through its authorization: the operator's
+    // The workflow connects Strava through its authorization: the admin's
     // kill switch puts the OAuth first (the default signs in, carnet#1494).
     set_connect_order(
         resources.common.repos.system_settings.as_ref(),

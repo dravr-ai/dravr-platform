@@ -95,7 +95,7 @@ where
     })
 }
 
-/// The operator's key/value settings, reached through the registry.
+/// The admin's key/value settings, reached through the registry.
 ///
 /// The `dyn` seam for code that takes repository traits rather than the
 /// concrete backend: `pierre_auth`'s connect order (carnet#1472), read beside

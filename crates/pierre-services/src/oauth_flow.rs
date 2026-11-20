@@ -65,7 +65,7 @@ struct ClientSettings {
     /// The scopes it asks for, joined by the provider's separator; empty when
     /// the provider takes none.
     scope: String,
-    /// The daily request budget its operator registered (a tenant's own app);
+    /// The daily request budget its admin registered (a tenant's own app);
     /// `None` takes the provider's.
     daily_limit: Option<u32>,
 }
@@ -84,7 +84,7 @@ pub struct OAuthService {
 
 /// The backends a disconnect of `provider` for `reason` clears.
 ///
-/// The athlete's own disconnect and an operator's clear the whole coalesced
+/// The athlete's own disconnect and an admin's clear the whole coalesced
 /// pair, not just the resolved backend: the card the user acted on may be
 /// served by either half, and the clients name it differently, so the
 /// pairing belongs here rather than in each of them (see `backend_pair_for`
@@ -97,7 +97,7 @@ pub struct OAuthService {
 /// grant contributed, as the provider's terms require.
 fn disconnected_backends(provider: &str, reason: DisconnectReason) -> Vec<String> {
     match reason {
-        DisconnectReason::Athlete | DisconnectReason::Operator => {
+        DisconnectReason::Athlete | DisconnectReason::Admin => {
             backend_resolver::backend_pair_for(provider)
         }
         DisconnectReason::SeatReclaim | DisconnectReason::ProviderRevoked => {
@@ -1067,8 +1067,8 @@ mod tests {
     /// The athlete's disconnect clears the pair; a reclaim or a revocation
     /// withdraws the grant it names and keeps the session (carnet#1494).
     #[test]
-    fn only_the_athlete_or_an_operator_clears_the_whole_pair() {
-        for reason in [DisconnectReason::Athlete, DisconnectReason::Operator] {
+    fn only_the_athlete_or_an_admin_clears_the_whole_pair() {
+        for reason in [DisconnectReason::Athlete, DisconnectReason::Admin] {
             assert_eq!(
                 disconnected_backends(oauth_providers::STRAVA, reason),
                 [oauth_providers::STRAVA, oauth_providers::SCIOTTE],

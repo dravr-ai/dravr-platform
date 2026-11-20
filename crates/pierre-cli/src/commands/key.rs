@@ -1,4 +1,4 @@
-// ABOUTME: Encryption-key operator commands for pierre-cli — rotate the DEK, re-wrap under a new KEK
+// ABOUTME: Encryption-key admin commands for pierre-cli — rotate the DEK, re-wrap under a new KEK
 // ABOUTME: Wires KeyManager::rotate_dek and rewrap_deks to the CLI (ADR-017 Phase 6)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

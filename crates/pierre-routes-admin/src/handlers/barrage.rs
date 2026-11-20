@@ -57,7 +57,7 @@ pub struct AdoptCacheRequest {
 ///
 /// Super-admin only (403 otherwise, before anything is read). Answers 200
 /// with the report whatever it found: a difference is in `data.failures`,
-/// for the operator to act on.
+/// for the admin to act on.
 ///
 /// # Errors
 ///

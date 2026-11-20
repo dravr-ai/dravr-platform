@@ -263,7 +263,7 @@ async fn an_invalid_code_fails_the_registration_and_creates_nothing() {
 }
 
 // ---------------------------------------------------------------------------
-// 2. The operator's bounds
+// 2. The admin's bounds
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -857,7 +857,7 @@ async fn a_coachs_code_approves_the_account_and_joins_the_coachs_group() {
     assert_eq!(coach_code.redeemed_by.len(), 1);
 }
 
-/// An address an operator already allowed registers active on its own; the
+/// An address an admin already allowed registers active on its own; the
 /// coach's code it also carries must still join the coach's group, and count
 /// as used, rather than being refused as "already active" and dropped.
 #[tokio::test]

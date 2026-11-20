@@ -562,7 +562,7 @@ fn log_publish_result(slug: &str, result: AppResult<bool>, stats: &mut SeedStats
 /// absorbed it. Without a successor the conversations are detached and drop
 /// to the default prompt; a group still bound to such an agent blocks the
 /// delete, the error is counted, and the seed job exits non-zero so an
-/// operator picks an agent for it.
+/// admin picks an agent for it.
 ///
 /// The pass is skipped when any agent file failed to parse: an agent that is
 /// still in the checkout would otherwise read as retired.

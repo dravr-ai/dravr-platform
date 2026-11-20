@@ -63,7 +63,7 @@ pub enum OAuthScope {
     /// Change who the athlete is — profile fields, configuration, provider links.
     #[serde(rename = "profile:write")]
     ProfileWrite,
-    /// Operate the server. Held by operators, never delegated to an integration.
+    /// Operate the server. Held by admins, never delegated to an integration.
     #[serde(rename = "admin")]
     Admin,
 }
@@ -135,7 +135,7 @@ impl OAuthScope {
 
     /// Whether a third party may be granted this scope.
     ///
-    /// Everything but `admin`. Operating the server stays on the operator's
+    /// Everything but `admin`. Operating the server stays on the admin's
     /// own credential and is never delegated to an integration, so the
     /// authorization server refuses it in a registration or an authorization
     /// request, leaves it out of every token it mints, and does not publish it.

@@ -173,7 +173,7 @@ const fn on_off(enabled: bool) -> &'static str {
     }
 }
 
-/// The three operator-set sign-up values, as the trail stores them.
+/// The three admin-set sign-up values, as the trail stores them.
 fn signup_policy_json(settings: &SignupSettingsResponse) -> Value {
     json!({
         "open": settings.open,

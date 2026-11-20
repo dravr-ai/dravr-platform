@@ -118,7 +118,7 @@ describe('UserDetailDrawer tier control', () => {
       coaching_persona: 'supportive_coach',
       default_coach_id: null,
       manages_roster: false,
-      manages_roster_operator_grant: null,
+      manages_roster_admin_grant: null,
       installed_agents: [],
       joined_groups: [],
     });
@@ -270,7 +270,7 @@ describe('UserDetailDrawer suspend offer', () => {
       coaching_persona: 'supportive_coach',
       default_coach_id: null,
       manages_roster: false,
-      manages_roster_operator_grant: null,
+      manages_roster_admin_grant: null,
       installed_agents: [],
       joined_groups: [],
     });
@@ -469,17 +469,17 @@ describe('UserDetailDrawer group coach grant', () => {
       user_id: 'user-42',
       email: 'athlete@example.com',
       manages_roster: true,
-      manages_roster_operator_grant: { granted_at: '2026-09-29T14:00:00Z', granted_by: 'admin-1' },
+      manages_roster_admin_grant: { granted_at: '2026-09-29T14:00:00Z', granted_by: 'admin-1' },
     });
   });
 
-  function profile(managesRoster: boolean, byOperator: boolean) {
+  function profile(managesRoster: boolean, byAdmin: boolean) {
     getUserAdminProfile.mockResolvedValue({
       user_id: 'user-42',
       coaching_persona: 'supportive_coach',
       default_coach_id: null,
       manages_roster: managesRoster,
-      manages_roster_operator_grant: byOperator
+      manages_roster_admin_grant: byAdmin
         ? { granted_at: '2026-09-29T14:00:00Z', granted_by: 'admin-1' }
         : null,
       installed_agents: [],
@@ -501,11 +501,11 @@ describe('UserDetailDrawer group coach grant', () => {
     });
   });
 
-  it('revokes an operator grant and names where it came from', async () => {
+  it('revokes an admin grant and names where it came from', async () => {
     profile(true, true);
     renderDrawer();
     expect(await screen.findByTestId('roster-grant-status')).toHaveTextContent(
-      /^Can coach a group \(granted by an operator .*2026.*\)$/,
+      /^Can coach a group \(granted by an admin .*2026.*\)$/,
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));

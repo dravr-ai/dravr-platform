@@ -446,7 +446,7 @@ pub(crate) const INSTALLED_AGENT_SQL: &str = concat!(
 );
 
 /// The caller's agent with its origin, for an uninstall. A system agent is
-/// never "theirs" here even when they authored it: an operator who has it on
+/// never "theirs" here even when they authored it: an admin who has it on
 /// their team leaves the membership like any athlete.
 pub(crate) const OWNED_AGENT_ORIGIN_SQL: &str = "SELECT id, forked_from FROM agents \
      WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND is_system = FALSE";

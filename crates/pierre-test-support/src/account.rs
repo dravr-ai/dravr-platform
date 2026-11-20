@@ -28,7 +28,7 @@ pub async fn delete_account(
         .account_deletion
         .delete_account(&AccountDeletionPlan {
             user_id,
-            actor: DeletionActor::Operator,
+            actor: DeletionActor::Admin,
             firebase_project: firebase_project.map(str::to_owned),
             backends: Vec::new(),
             revocations: "[]".to_owned(),

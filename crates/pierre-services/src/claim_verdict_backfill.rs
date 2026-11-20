@@ -47,7 +47,7 @@ use pierre_core::errors::{AppError, AppResult};
 
 /// Maximum number of messages scanned per backfill call.
 ///
-/// Ship the call with `--limit` below this to honor operator wishes;
+/// Ship the call with `--limit` below this to honor admin wishes;
 /// the hard cap is a defensive guard against a runaway wall-clock on
 /// very large tenants.
 pub const MAX_MESSAGES_SCANNED: u64 = 100_000;

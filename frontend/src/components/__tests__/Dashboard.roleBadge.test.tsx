@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Pins the sidebar's operator role badge to the catalogue label, in the catalogue's own casing
+// ABOUTME: Pins the sidebar's admin role badge to the catalogue label, in the catalogue's own casing
 // ABOUTME: A CSS capitalize on the translated label would re-case a language that writes it otherwise
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -37,7 +37,7 @@ vi.mock('../ConnectProviderBanner', () => ({
 
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
-    user: { id: 'op-1', email: 'op@acme.com', display_name: 'Operator', role: auth.role },
+    user: { id: 'op-1', email: 'op@acme.com', display_name: 'Admin', role: auth.role },
     logout: vi.fn(),
     isAuthenticated: true,
     isLoading: false,

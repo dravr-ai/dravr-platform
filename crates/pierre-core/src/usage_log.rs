@@ -6,7 +6,7 @@
 
 //! Usage-limit log lines.
 //!
-//! The account ladder's refusals already reach operators as the
+//! The account ladder's refusals already reach admins as the
 //! `quota.limit_reached` notify event (`pierre_services::quota_policy`). Every
 //! other limit an athlete can hit — the conversation cap, the agent cap, a
 //! group's athlete allowance or member cap, a request budget, the activity-mode

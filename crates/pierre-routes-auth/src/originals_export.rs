@@ -27,7 +27,7 @@
 //!
 //! As for the export itself, only the athlete's own first-party session is
 //! let in: an API key, an MCP or integration token, a messaging link and an
-//! operator's impersonation are refused. A signed URL is a bearer link to the
+//! admin's impersonation are refused. A signed URL is a bearer link to the
 //! file, so it lives [`DOWNLOAD_TTL`] and is handed only to that session.
 
 use std::io;

@@ -186,7 +186,7 @@ export interface PersonalConversation {
  * whatever the client has loaded. A look forges nothing: an athlete with no
  * thread yet gets `null`, and Home opens on its empty pane until "+" or a
  * starter opens one — or the coach's own post does, which the next read finds.
- * `enabled` is the athlete check: an operator has no Home conversation, and
+ * `enabled` is the athlete check: an admin has no Home conversation, and
  * the server is never asked for one.
  */
 export function usePersonalConversation(enabled = true): PersonalConversation {

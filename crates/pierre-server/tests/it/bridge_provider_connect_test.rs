@@ -487,7 +487,7 @@ async fn the_launch_route_refuses_another_athletes_identity() {
 async fn the_connect_provider_tool_mints_a_delegated_bridges_flow_for_its_athlete_only() {
     let strava = mock_strava().await;
     let (resources, service, executor) = dravr(&strava).await;
-    // An oauth-mode bridge connects through the authorization: the operator's
+    // An oauth-mode bridge connects through the authorization: the admin's
     // kill switch puts Strava's OAuth first (the default signs in,
     // carnet#1494).
     set_connect_order(

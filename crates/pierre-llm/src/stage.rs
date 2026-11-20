@@ -501,7 +501,7 @@ mod tests {
         }
     }
 
-    /// The boot log is the only place an operator learns a stage was held to
+    /// The boot log is the only place an admin learns a stage was held to
     /// the head: one warning per dropped stage, naming its variable and the
     /// model it stays on until the provider publishes the id.
     #[test]

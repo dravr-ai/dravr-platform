@@ -400,7 +400,7 @@ async fn a_server_without_imports_says_so_to_the_hosted_page() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["enabled"], false, "{body}");
 
-    // Starting one is refused, and the operator's configuration that disabled
+    // Starting one is refused, and the admin's configuration that disabled
     // imports stays in the boot log: the athlete reads no part of it.
     let (status, body) = call(&resources, "POST", START, &token, None).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");

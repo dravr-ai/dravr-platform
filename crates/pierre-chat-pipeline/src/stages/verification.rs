@@ -564,7 +564,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
     // `ctx.llm_provider` directly made the judge dead code in production,
     // where the binary wires `chat_provider` and leaves `llm_provider: None`
     // (the trap [`resolve_claim_judge`] documents). Gated by the
-    // hot-reloadable harness config so operators can drop back to
+    // hot-reloadable harness config so admins can drop back to
     // deterministic-only at runtime.
     let judge_provider = resolve_claim_judge(
         ctx.harness_config_registry

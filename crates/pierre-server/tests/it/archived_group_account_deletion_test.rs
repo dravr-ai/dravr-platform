@@ -7,7 +7,7 @@
 //! A coach who deleted their only group in the app (which archives it) could
 //! never delete their account: the blocker read named every group they owned
 //! and every invite they wrote, archived or not. These tests drive the blocker
-//! read and the one-transaction account deletion the operator and self-serve
+//! read and the one-transaction account deletion the admin and self-serve
 //! paths share, against a real database.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

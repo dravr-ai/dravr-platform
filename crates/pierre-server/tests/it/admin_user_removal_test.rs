@@ -1,4 +1,4 @@
-// ABOUTME: carnet#502 — an operator disconnects a user's provider, removes the user, or resets their onboarding
+// ABOUTME: carnet#502 — an admin disconnects a user's provider, removes the user, or resets their onboarding
 // ABOUTME: Grants revoked upstream under their own app, no row survives, partial failures named, groups left standing
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,7 +8,7 @@
 //! the tokens: our seat count dropped, the grant at Strava did not, and the
 //! athlete kept counting against Strava's athlete cap. A user who owned a
 //! coaching group could not be deleted at all — the foreign key failed the
-//! delete as a 500. And there was no way for an operator to disconnect one
+//! delete as a 500. And there was no way for an admin to disconnect one
 //! provider for someone else.
 //!
 //! Every test drives the real handlers against a real database and points the
@@ -980,7 +980,7 @@ async fn delete_of_a_plain_member_removes_the_membership_and_the_user() {
 }
 
 #[tokio::test]
-async fn an_operator_delete_removes_the_firebase_identity_and_reports_it() {
+async fn an_admin_delete_removes_the_firebase_identity_and_reports_it() {
     let stub = RevokeStub::start().await;
     let resources = resources_revoking_at(&stub.url).await;
     let repos = &resources.common.repos;
@@ -1782,7 +1782,7 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
             .is_none(),
         "a rolled-back deletion leaves no tombstone"
     );
-    for (token_id, operator) in [(&own_login, Some(user_id)), (&rotated_away, None)] {
+    for (token_id, admin) in [(&own_login, Some(user_id)), (&rotated_away, None)] {
         let row = repos
             .admin
             .get_token_by_id(token_id)
@@ -1790,7 +1790,7 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
             .unwrap()
             .expect("the token row is there");
         assert_eq!(row.service_name, label, "the rename rolled back");
-        assert_eq!(row.operator_user_id, operator, "and so did the retirement");
+        assert_eq!(row.operator_user_id, admin, "and so did the retirement");
         assert!(row.is_active, "the login is still live");
     }
 }
@@ -1800,10 +1800,10 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
 async fn device_login_row(
     resources: &Arc<ServerContext>,
     service_name: &str,
-    operator: Option<Uuid>,
+    admin: Option<Uuid>,
 ) -> String {
     let mut request = CreateAdminTokenRequest::super_admin(service_name.to_owned());
-    request.operator_user_id = operator;
+    request.operator_user_id = admin;
     resources
         .common
         .repos
@@ -3387,11 +3387,11 @@ async fn reset_keeps_intervals_icu_because_groups_ride_on_it() {
 }
 
 #[tokio::test]
-async fn a_manage_users_token_cannot_reset_an_operators_onboarding() {
+async fn a_manage_users_token_cannot_reset_an_admins_onboarding() {
     let mut stub = RevokeStub::start().await;
     let resources = resources_revoking_at(&stub.url).await;
     let repos = &resources.common.repos;
-    let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-operator").await;
+    let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-admin").await;
     promote(repos, user_id, UserRole::Admin).await;
 
     let refused = reset_onboarding(
@@ -3401,7 +3401,7 @@ async fn a_manage_users_token_cannot_reset_an_operators_onboarding() {
         true,
     )
     .await
-    .expect_err("a ManageUsers token must not reset an operator");
+    .expect_err("a ManageUsers token must not reset an admin");
     assert_eq!(refused.code, ErrorCode::PermissionDenied);
     assert_eq!(refused.message, RANK_REFUSAL);
     assert!(stub.received().is_empty(), "nothing may reach Strava");

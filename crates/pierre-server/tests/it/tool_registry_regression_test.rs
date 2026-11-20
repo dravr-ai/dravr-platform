@@ -139,7 +139,7 @@ fn test_chat_callable_surface_includes_group_peer_fetch() {
 #[test]
 fn test_chat_callable_surface_excludes_admin_and_management_tools() {
     // Tools that should NOT be callable from chat: agent create/delete/assign
-    // (UI actions), store install/uninstall (UI actions), admin_* (operator),
+    // (UI actions), store install/uninstall (UI actions), admin_* (admin),
     // config write/delete (admin-ish), verify_claim (debug). The LLM should
     // not fire these on natural-language input.
     let mut registry = ToolRegistry::new();

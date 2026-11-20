@@ -151,10 +151,10 @@ struct Fixture {
     foreign: TenantId,
 }
 
-async fn operator(resources: &Arc<ServerContext>, role: UserRole) -> (User, TenantId, String) {
+async fn admin(resources: &Arc<ServerContext>, role: UserRole) -> (User, TenantId, String) {
     let email = format!("scope-{}@example.com", Uuid::new_v4());
     let password_hash = bcrypt::hash("password123", 4).unwrap();
-    let mut user = User::new(email.clone(), password_hash, Some("Operator".to_owned()));
+    let mut user = User::new(email.clone(), password_hash, Some("Admin".to_owned()));
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
@@ -368,10 +368,10 @@ const FOREIGN_SENTENCE: &str = "Foreign tenant says water is optional on a long 
 async fn fixture() -> Fixture {
     common::init_server_config();
     let resources = create_test_server_resources().await.unwrap();
-    let (owner, home, owner_auth) = operator(&resources, UserRole::User).await;
-    let (foreign_owner, foreign, _) = operator(&resources, UserRole::User).await;
-    let (_, admin_home, admin_auth) = operator(&resources, UserRole::Admin).await;
-    let (_, _, athlete_auth) = operator(&resources, UserRole::User).await;
+    let (owner, home, owner_auth) = admin(&resources, UserRole::User).await;
+    let (foreign_owner, foreign, _) = admin(&resources, UserRole::User).await;
+    let (_, admin_home, admin_auth) = admin(&resources, UserRole::Admin).await;
+    let (_, _, athlete_auth) = admin(&resources, UserRole::User).await;
     seed_rows(&resources, home, owner.id, HOME_SENTENCE).await;
     seed_rows(&resources, foreign, foreign_owner.id, FOREIGN_SENTENCE).await;
 
@@ -816,8 +816,8 @@ async fn a_user_outside_every_tenant_of_the_reader_is_an_admins_to_read_and_no_o
     let fx = fixture().await;
     // A reader acting in `home` who also belongs to another workspace, and a
     // target who is in no tenant the reader belongs to.
-    let (target, _, _) = operator(&fx.resources, UserRole::User).await;
-    let (_, other, _) = operator(&fx.resources, UserRole::User).await;
+    let (target, _, _) = admin(&fx.resources, UserRole::User).await;
+    let (_, other, _) = admin(&fx.resources, UserRole::User).await;
     let target = target.id;
     let path = format!("/api/admin/users/{target}/usage");
 
@@ -1171,7 +1171,7 @@ async fn every_engagement_figure_follows_the_one_scope() {
     );
     assert_eq!(
         platform["users"]["total"], 5,
-        "every user: the four operators and the member: {platform}"
+        "every user: the four admins and the member: {platform}"
     );
 
     for requested in [None, Some(foreign.as_str())] {

@@ -1970,7 +1970,7 @@ impl Fixture {
         }
     }
 
-    /// The operator terminates Strava: every athlete's Strava data goes,
+    /// The admin terminates Strava: every athlete's Strava data goes,
     /// from the tables and the activity store. The grants stay: the purge
     /// deletes data, never tokens.
     async fn terminate_strava(&self) {
@@ -2021,7 +2021,7 @@ impl Fixture {
     }
 }
 
-/// The operator terminates Strava while a step of the walk's API phase is
+/// The admin terminates Strava while a step of the walk's API phase is
 /// reading its second year. The grant stays live — the purge deletes data,
 /// never tokens — yet the step that finds its phase gone asks nothing of it:
 /// the walk is left as its session walked alone, never reopened through the
@@ -2064,7 +2064,7 @@ async fn a_termination_under_a_running_step_starts_no_walk_of_the_grant() {
 }
 
 /// A grant's purge left the walk owed a reopen under a runner that died, the
-/// grant connected again, and the operator then terminates Strava before
+/// grant connected again, and the admin then terminates Strava before
 /// the dead runner's lease lapsed. The termination settles the walk as its
 /// session walked alone, so once the lease lapses the resume sweep reopens
 /// nothing through the terminated provider's live grant.
@@ -3193,7 +3193,7 @@ async fn a_purge_attestation_unread_through_every_retry_deletes_nothing() {
     );
 }
 
-/// The operator terminates Strava after a step of the walk's API phase
+/// The admin terminates Strava after a step of the walk's API phase
 /// found its row owed and before its write of the grant's second year
 /// landed: the write lands after the termination deleted the provider's
 /// rows. The step sees the walk settled as its session walked alone once it
@@ -3564,7 +3564,7 @@ async fn a_purge_attested_before_a_steps_check_takes_nothing_back() {
     assert!(warmed, "the step that kept its page warmed the rollup");
 }
 
-/// The operator terminates the session's own provider while the walk's
+/// The admin terminates the session's own provider while the walk's
 /// first session step writes its page, a ride an earlier read stored among
 /// it. The termination deleted the walk's row, filed under the terminated
 /// key, and attests a purge reaching every athlete, naming none. The step

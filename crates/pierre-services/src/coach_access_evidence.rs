@@ -19,7 +19,7 @@
 //!
 //! A request is filed once per account. A user who holds coach access gets
 //! none, and neither does one who ever had a request, whatever its outcome:
-//! a declined request, or a grant one led to and an operator later revoked,
+//! a declined request, or a grant one led to and an admin later revoked,
 //! is never asked again by a roster read.
 //!
 //! Two reads file it: every live read of the key's roster
@@ -68,7 +68,7 @@ pub struct FiledRequest {
 }
 
 impl FiledRequest {
-    /// How the operator email names where the request came from: filed from
+    /// How the admin email names where the request came from: filed from
     /// the roster, never asked for.
     #[must_use]
     pub const fn origin(&self) -> CoachAccessOrigin {

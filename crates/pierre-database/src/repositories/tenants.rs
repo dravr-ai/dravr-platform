@@ -66,7 +66,7 @@ pub trait TenantRepository: Send + Sync {
     ///
     /// [`Self::list_for_user`] names only active tenants that have an owner,
     /// which is what a session may act in. This is how far a user's rows
-    /// reach, which is what an operator acting on the whole user must be
+    /// reach, which is what an admin acting on the whole user must be
     /// allowed to touch, and what the athlete's own export reads: the one
     /// definition of "the athlete's tenants" ([`member_tenant_ids_sql`]).
     async fn list_membership_tenant_ids(&self, user_id: Uuid) -> AppResult<Vec<TenantId>>;

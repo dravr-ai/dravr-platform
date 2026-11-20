@@ -13,7 +13,7 @@
 //! counted for the app whose client signed the token it carries: the server's
 //! app, a Strava shared-pool app, a tenant's own app or an athlete's own app
 //! each have their own windows. A tenant's own app carries the daily budget
-//! its operator registered (`rate_limit_per_day`) in place of the provider's.
+//! its admin registered (`rate_limit_per_day`) in place of the provider's.
 //!
 //! Intervals.icu sizes an OAuth app's windows by the athletes who granted
 //! it: one daily pool for the whole app, 100 requests for each of them,
@@ -404,7 +404,7 @@ impl fmt::Debug for ProviderRateLimiter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Holder {
     /// The OAuth app whose client signs the credential, with the daily
-    /// budget its operator registered when it has one.
+    /// budget its admin registered when it has one.
     App {
         app: String,
         daily_limit: Option<u32>,
@@ -684,11 +684,11 @@ impl ProviderRateLimiter {
     /// The windows of an app at `provider`: sized by the athletes who
     /// granted the app where the provider pools them, else the provider's,
     /// and either way with the day's allowance replaced by `daily_limit`
-    /// when the app's operator registered one.
+    /// when the app's admin registered one.
     ///
     /// At a pooling provider an app with no registered limit is the
     /// server-level app, whose grants are the ones counted: a tenant's own
-    /// app always carries the limit its operator registered, the Strava pool
+    /// app always carries the limit its admin registered, the Strava pool
     /// apps are Strava's, and the `user_oauth_app_credentials` provider CHECK
     /// admits no user's own app for Intervals.icu.
     async fn app_budgets(&self, provider: &str, daily_limit: Option<u32>) -> Vec<Budget> {

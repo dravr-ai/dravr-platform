@@ -126,7 +126,7 @@ impl ParsedRequest {
 }
 
 /// Run `pierre-cli strava-webhook <args>` against the stand-in with the app
-/// credentials in env, the way an operator runs it.
+/// credentials in env, the way an admin runs it.
 fn run_strava_webhook(base_url: &str, args: &[&str]) -> (i32, String, String) {
     let output = Command::new(cli_binary())
         .arg("strava-webhook")

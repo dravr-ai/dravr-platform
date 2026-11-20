@@ -439,6 +439,13 @@ jobs:
       - name: Backend Name Exposure
         run: ./scripts/ci/check-backend-name-exposure.sh
 
+      # carnet#1644: say admin, never operator. Fails when "operator" names an
+      # admin anywhere under crates/, frontend/, frontend-mobile/ or packages/
+      # outside the script's justified allowlist. git grep and Python only. The
+      # pre-push Tier 1b-admin runs the same script.
+      - name: Admin Vocabulary
+        run: ./scripts/ci/check-admin-vocabulary.sh
+
       # pierre-database implements each repository trait twice, once per backend,
       # and every local gate runs SQLite — so an edit that lands on one side and
       # not the other is first seen here. Fails a newly duplicated pair; reports
@@ -566,6 +573,7 @@ jobs:
           ./scripts/ci/check-workflow-test-targets.test.sh
           ./scripts/ci/check-hosted-css.test.sh
           ./scripts/ci/check-backend-name-exposure.test.sh
+          ./scripts/ci/check-admin-vocabulary.test.sh
           ./scripts/ci/check-log-email-redaction.test.sh
           ./scripts/ci/check-secret-fields.test.sh
           ./scripts/ci/check-merge-risk.test.sh
