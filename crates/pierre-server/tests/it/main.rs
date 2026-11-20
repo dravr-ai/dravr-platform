@@ -396,6 +396,7 @@ mod get_activities_store_count_test;
 mod get_planned_workouts_tool_test;
 mod get_stats_view_test;
 mod google_id_token_test;
+mod group_chat_connect_test;
 mod group_chat_member_rows_test;
 mod group_coach_seat_test;
 mod group_coach_test;

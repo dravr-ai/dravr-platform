@@ -332,6 +332,17 @@ impl CommandE2e {
     /// itself: `helpers/` compiles into every test binary, and `common` only
     /// exists in the binaries that declare it.
     pub(crate) async fn start(resources: Arc<ServerContext>, llm: Arc<RouterLlm>) -> Arc<Self> {
+        Self::start_on(resources, llm, Arc::new(OfflineSendAdapters::default())).await
+    }
+
+    /// [`Self::start`] whose webhook route sends through `adapters` — pass the
+    /// factory `resources` was built on, and [`Self::adapters`] then also holds
+    /// what the platform posted into a chat on its own (the group chat poster).
+    pub(crate) async fn start_on(
+        resources: Arc<ServerContext>,
+        llm: Arc<RouterLlm>,
+        adapters: Arc<OfflineSendAdapters>,
+    ) -> Arc<Self> {
         name_fixture_bot(BOT_ID, BOT_USERNAME);
 
         let (bot_owner, bot_tenant) = create_user_with_own_tenant(
@@ -360,7 +371,7 @@ impl CommandE2e {
         Arc::new(Self {
             resources,
             llm,
-            adapters: Arc::new(OfflineSendAdapters::default()),
+            adapters,
             bot_owner,
             bot_tenant,
             update_id: AtomicI64::new(1_000),
@@ -949,6 +960,7 @@ impl RoomE2e {
             is_active: true,
             channel_type: Some("telegram".to_owned()),
             channel_chat_id: Some(chat_id.to_string()),
+            chat_connection: None,
             created_at: now,
             updated_at: now,
         };

@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: React Query hooks behind Group info on both clients — the group, members, invites, settings, links
+// ABOUTME: React Query hooks behind Group info on both clients — the group, members, invites, settings, links, chat app
 // ABOUTME: Bound to each client's groups API; creating and joining a group are commands, so no hook does either
 
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { QUERY_KEYS } from '@pierre/shared-constants';
+import { CHANNEL_LINK_POLL_INTERVAL_MS, QUERY_KEYS } from '@pierre/shared-constants';
 import type { GroupsApi } from '@pierre/api-client';
 import type {
   CoachPlatformProvider,
   ConfirmDelegatedConnectionRequest,
   CreateInviteRequest,
+  GroupChatChannel,
   GroupRole,
   ProposeDelegatedConnectionRequest,
   CoachConsentsResponse,
@@ -698,6 +699,61 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
     };
   }
 
+  /**
+   * Whether the group's room is connected to a chat app's group chat, and
+   * whether the caller may change it (carnet#1683). Every member reads it.
+   *
+   * While `awaitingBot` holds — a connect code is out and has not expired — the
+   * read is asked again every few seconds: the bot is added to the chat on the
+   * manager's phone, so the screen can only learn it happened by asking. The
+   * interval ends the moment the room reads connected.
+   */
+  function useGroupChatConnection(groupId: string, awaitingBot: boolean) {
+    const query = useQuery({
+      queryKey: QUERY_KEYS.groups.chatConnection(groupId),
+      queryFn: () => groupsApi.getChatConnection(groupId),
+      enabled: !!groupId,
+      refetchInterval: (current) =>
+        awaitingBot && current.state.data?.connected !== true ? CHANNEL_LINK_POLL_INTERVAL_MS : false,
+    });
+
+    return {
+      connection: query.data,
+      refetch: query.refetch,
+    };
+  }
+
+  /** Mint a one-time code that connects the room to a group chat (owner or human coach). */
+  function useCreateGroupChatConnection(groupId: string) {
+    const mutation = useMutation({
+      mutationFn: (channel: GroupChatChannel) => groupsApi.createChatConnection(groupId, { channel }),
+    });
+
+    return {
+      createCode: mutation.mutateAsync,
+      isPending: mutation.isPending,
+    };
+  }
+
+  /**
+   * Disconnect the room from its group chat (owner or human coach). Resolves
+   * once the connection has been read again, so the section shows the result.
+   * A 404 says it was already disconnected: the read is refreshed all the same.
+   */
+  function useDeleteGroupChatConnection(groupId: string) {
+    const queryClient = useQueryClient();
+
+    const mutation = useMutation({
+      mutationFn: () => groupsApi.deleteChatConnection(groupId),
+      onSettled: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.chatConnection(groupId) }),
+    });
+
+    return {
+      disconnect: mutation.mutateAsync,
+      isPending: mutation.isPending,
+    };
+  }
+
   return {
     useGroup,
     useGroupMembers,
@@ -727,5 +783,8 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
     useCoachConsents,
     useSetCoachConsents,
     useEndDelegatedConnection,
+    useGroupChatConnection,
+    useCreateGroupChatConnection,
+    useDeleteGroupChatConnection,
   };
 }

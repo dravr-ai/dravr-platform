@@ -47,6 +47,16 @@ pub(super) struct ChannelChatRef<'a> {
     pub chat_title: Option<&'a str>,
 }
 
+/// Where a session's turn arrived: the channel, the chat, and whether the
+/// chat is a direct message. Bundled because they travel together through
+/// [`resolve_session_conversation`].
+#[derive(Clone, Copy)]
+struct SessionScope<'a> {
+    channel_type: &'a str,
+    chat_id: Option<&'a str>,
+    is_direct_message: bool,
+}
+
 /// Resolve the conversation id a session should use for this turn.
 ///
 /// A direct message writes into the athlete's personal thread, the one Home
@@ -68,9 +78,13 @@ async fn resolve_session_conversation(
     session_id: &str,
     user_id: &str,
     tenant_id: TenantId,
-    channel_type: &str,
-    is_direct_message: bool,
+    scope: SessionScope<'_>,
 ) -> Result<String, AppError> {
+    let SessionScope {
+        channel_type,
+        chat_id,
+        is_direct_message,
+    } = scope;
     let stored = session["pierre_conversation_id"].as_str();
     if is_direct_message {
         return route_dm_into_personal_thread(
@@ -83,15 +97,24 @@ async fn resolve_session_conversation(
         .await;
     }
     if let Some(id) = stored {
-        if resources
+        if let Some(conversation) = resources
             .common
             .repos
             .chat
             .get_conversation(id, user_id, tenant_id)
             .await?
-            .is_some()
         {
-            return Ok(id.to_owned());
+            if conversation_follows_chat(
+                resources,
+                tenant_id,
+                channel_type,
+                chat_id,
+                conversation.group_id.as_deref(),
+            )
+            .await
+            {
+                return Ok(id.to_owned());
+            }
         }
     }
     forge_fresh_session_conversation(
@@ -152,6 +175,49 @@ async fn route_dm_into_personal_thread(
         );
     }
     Ok(thread_id)
+}
+
+/// Whether a room session's conversation still belongs to the group its chat
+/// is bound to now.
+///
+/// A conversation is grouped once, for life: its history was written with
+/// that group's context. When the chat has since moved to another group (its
+/// owner connected it to a web group, carnet#1683) or was disconnected from
+/// its group, the session is given a fresh conversation, which the group
+/// retrofit then binds to whatever group the chat admits the sender to now —
+/// or to none. An ungrouped conversation always follows, since the retrofit
+/// binds it in place; so does any conversation whose chat cannot be looked up
+/// right now, rather than lose the thread over a transient error.
+async fn conversation_follows_chat(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel_type: &str,
+    chat_id: Option<&str>,
+    conversation_group: Option<&str>,
+) -> bool {
+    let (Some(conversation_group), Some(chat_id)) = (conversation_group, chat_id) else {
+        return true;
+    };
+    match resources
+        .group_service()
+        .get_group_by_channel(tenant_id, channel_type, chat_id)
+        .await
+    {
+        Ok(Some(group)) if group.id.to_string() == conversation_group => true,
+        Ok(current) => {
+            info!(
+                conversation_group,
+                current_group = ?current.map(|g| g.id),
+                channel_type,
+                "Room session's conversation belongs to the chat's previous group; opening a fresh one"
+            );
+            false
+        }
+        Err(e) => {
+            warn!(error = %e, channel_type, "Could not check the room conversation's group; keeping it");
+            true
+        }
+    }
 }
 
 /// Create a fresh `chat_conversation` for a room session and repoint the
@@ -416,8 +482,11 @@ async fn resume_existing_session(
         &session_id,
         &user_id,
         tenant_id,
-        channel_type,
-        is_direct_message,
+        SessionScope {
+            channel_type,
+            chat_id: chat_ref.chat_id,
+            is_direct_message,
+        },
     )
     .await?;
 

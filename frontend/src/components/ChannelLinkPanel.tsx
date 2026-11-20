@@ -7,6 +7,7 @@
 import type { LinkInitResponse } from '@pierre/api-client';
 import { useTranslation } from '@pierre/i18n';
 import { Button } from './ui';
+import QrPlate from './QrPlate';
 
 /**
  * Render a started channel link.
@@ -39,14 +40,7 @@ export default function ChannelLinkPanel({
     <div className="flex flex-col items-center gap-5" data-testid="channel-link-panel">
       {isDeepLink && showQr && link.qr_svg ? (
         <>
-          {/* White plate so the black-on-white QR stays scannable in any theme. */}
-          <div className="rounded-xl bg-white p-3">
-            <img
-              src={`data:image/svg+xml;utf8,${encodeURIComponent(link.qr_svg)}`}
-              alt={t('frag.qrCodeFor', { app: displayName })}
-              className="h-44 w-44"
-            />
-          </div>
+          <QrPlate svg={link.qr_svg} alt={t('frag.qrCodeFor', { app: displayName })} />
           <p className="max-w-sm text-center text-sm text-on-surface-variant">
             {t('onboarding.messagingScanPrefix', { app: displayName })}
             <span className="font-semibold"> {finishAction}</span> {t('onboarding.messagingScanSuffix')}

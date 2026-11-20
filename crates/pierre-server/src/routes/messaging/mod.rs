@@ -11,6 +11,8 @@
 //! authentication. Webhook endpoints use channel-specific signature verification.
 
 mod config;
+/// Connecting a web coaching group to a group chat: status, connect code, disconnect (carnet#1683).
+mod group_connect;
 pub(crate) mod linking;
 /// The channels a tenant's people can link — Getting started's chat-app row reads it too.
 pub(crate) use config::connectable_channels;
@@ -123,6 +125,15 @@ impl MessagingRoutes {
             .route(
                 "/api/messaging/link/complete/{channel}",
                 post(linking::complete_app_link),
+            )
+            // Connecting a group to a chat (carnet#1683). With the messaging
+            // routes because every answer needs the channel side: the serving
+            // bot, its add-to-group link, the poster.
+            .route(
+                "/api/groups/{group_id}/chat-connection",
+                get(group_connect::get_chat_connection)
+                    .post(group_connect::create_chat_connection)
+                    .delete(group_connect::delete_chat_connection),
             )
             .route("/api/messaging/links", get(linking::list_channel_links))
             .route(

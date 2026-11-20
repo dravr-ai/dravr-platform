@@ -32,6 +32,7 @@ fn group(peer_data_sharing: bool) -> CoachingGroup {
         is_active: true,
         channel_type: Some("telegram".to_owned()),
         channel_chat_id: Some("12345".to_owned()),
+        chat_connection: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     }

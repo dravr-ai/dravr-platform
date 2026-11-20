@@ -123,6 +123,8 @@ pub mod first_run_progress;
 pub mod fitness_config;
 /// `GarminPushInboxRepository`: every batch Garmin pushes, written before the 200.
 pub mod garmin_push_inbox;
+/// Connecting a group to a messaging chat from the web app (carnet#1683): its repository trait and shared body.
+pub mod group_chat_connect;
 /// Shared statements for a group's weekly digest lease, run by the coaching-group repository body.
 pub(crate) mod group_digest_sql;
 /// Shared statements for group invites, run by the coaching-group repository body.
@@ -365,6 +367,7 @@ pub use firebase_identity_deletions::{
 pub use first_run_progress::{FirstRunDay, FirstRunProgressRepository};
 pub use fitness_config::*;
 pub use garmin_push_inbox::*;
+pub use group_chat_connect::GroupChatConnectRepository;
 pub use harness_memory::*;
 pub use health::*;
 pub use impersonation::*;

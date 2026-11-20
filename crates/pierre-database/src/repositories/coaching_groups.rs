@@ -57,6 +57,12 @@ macro_rules! group_columns {
             $p,
             "channel_chat_id, ",
             $p,
+            "channel_tenant_id, ",
+            $p,
+            "channel_chat_title, ",
+            $p,
+            "channel_connected_at, ",
+            $p,
             "respond_mode, ",
             $p,
             "digest_mode, ",
@@ -110,13 +116,18 @@ pub(crate) const GET_GROUP_SQL: &str = concat!(
               FROM coaching_groups WHERE id = $1"
 );
 
-/// The active group bound to one chat of one channel within a tenant.
+/// The active group bound to one chat of one channel, served by the bot of
+/// tenant `$1`: the tenant recorded when the chat was connected from the web
+/// app, else the group's own (a group the chat created lives under its bot's
+/// tenant). The served-chat unique index holds the same expression, so at
+/// most one row matches.
 pub(crate) const GET_GROUP_BY_CHANNEL_SQL: &str = concat!(
     "SELECT ",
     group_columns!(""),
     "
               FROM coaching_groups
-              WHERE tenant_id = $1 AND channel_type = $2 AND channel_chat_id = $3
+              WHERE COALESCE(channel_tenant_id, tenant_id) = $1
+                AND channel_type = $2 AND channel_chat_id = $3
                 AND is_active = TRUE"
 );
 
@@ -282,9 +293,30 @@ macro_rules! impl_coaching_group_repository {
                 is_active: column(r, "is_active")?,
                 channel_type: column(r, "channel_type")?,
                 channel_chat_id: column(r, "channel_chat_id")?,
+                chat_connection: chat_connection(r)?,
                 created_at: instant(r, "created_at")?,
                 updated_at: instant(r, "updated_at")?,
             })
+        }
+
+        /// The web-app connection a `coaching_groups` row records, when its
+        /// chat binding was made that way: `channel_connected_at` and the
+        /// serving tenant are both set. A row the chat created leaves both
+        /// NULL and reads as `None`.
+        fn chat_connection(r: &$row) -> AppResult<Option<GroupChatConnection>> {
+            let connected_at: Option<DateTime<Utc>> = column(r, "channel_connected_at")?;
+            let serving: Option<String> = column(r, "channel_tenant_id")?;
+            let (Some(connected_at), Some(serving)) = (connected_at, serving) else {
+                return Ok(None);
+            };
+            let channel_tenant_id = TenantId::parse_str(&serving).map_err(|e| {
+                AppError::database(format!("coaching_groups column `channel_tenant_id`: {e}"))
+            })?;
+            Ok(Some(GroupChatConnection {
+                channel_tenant_id,
+                chat_title: column(r, "channel_chat_title")?,
+                connected_at,
+            }))
         }
 
         /// Decode a `coaching_group_members` row joined to the member's name.

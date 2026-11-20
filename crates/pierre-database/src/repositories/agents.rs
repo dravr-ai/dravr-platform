@@ -19,6 +19,8 @@ use pierre_core::models::groups::{
     GroupTranscriptEntry, NewGroupTranscriptEntry, RoomTranscriptEntry, UpdateGroupRequest,
 };
 
+use super::group_chat_connect::GroupChatConnectRepository;
+
 use pierre_core::models::AgentRuntimeContext;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -321,8 +323,12 @@ pub trait AgentsRepository: Send + Sync {
 }
 
 /// Coaching group storage, membership management, and invite tracking
+///
+/// Connecting a group to a messaging chat from the web app (carnet#1683) is
+/// [`GroupChatConnectRepository`]'s, a supertrait, so the same repository
+/// object answers both.
 #[async_trait]
-pub trait CoachingGroupRepository: Send + Sync {
+pub trait CoachingGroupRepository: GroupChatConnectRepository + Send + Sync {
     // -- Group CRUD --
 
     /// Create a new coaching group
@@ -348,12 +354,17 @@ pub trait CoachingGroupRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<Option<CoachingGroup>>;
 
-    /// Look up the active group bound to a specific messaging chat.
+    /// Look up the active group bound to a specific messaging chat, served
+    /// by the bot of `tenant_id`.
     ///
-    /// Returns `Some(group)` if a `coaching_groups` row was created from
-    /// this chat (Telegram group, Slack channel, Discord channel) and is
-    /// still active. Returns `None` for unknown chats or REST-created
-    /// (web/mobile) groups that have no channel binding.
+    /// Returns `Some(group)` if a `coaching_groups` row is bound to this chat
+    /// (Telegram group, Slack channel, Discord channel) and is still active:
+    /// one the chat created, which lives under its bot's tenant, or one
+    /// connected to it from the web app, which records that tenant as
+    /// [`GroupChatConnection::channel_tenant_id`]. Returns `None` for unknown
+    /// chats.
+    ///
+    /// [`GroupChatConnection::channel_tenant_id`]: pierre_core::models::groups::GroupChatConnection::channel_tenant_id
     async fn get_group_by_channel(
         &self,
         tenant_id: TenantId,

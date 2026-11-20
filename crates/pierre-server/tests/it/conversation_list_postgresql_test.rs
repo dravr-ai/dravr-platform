@@ -219,6 +219,7 @@ async fn test_pg_list_rows_carry_kind_facts_preview_paging_and_unread() {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },

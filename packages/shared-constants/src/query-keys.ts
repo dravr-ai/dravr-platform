@@ -358,6 +358,8 @@ export const QUERY_KEYS = {
     coachConsents: (groupId: string) => ['groups', groupId, 'coach-consents'] as const,
     coachSharing: (groupId: string) => ['groups', groupId, 'coach-sharing'] as const,
     coachReads: (groupId: string) => ['groups', groupId, 'coach-reads'] as const,
+    /** The group chat in a chat app the group's room is connected to (carnet#1683). */
+    chatConnection: (groupId: string) => ['groups', groupId, 'chat-connection'] as const,
     permissions: () => ['groups', 'permissions'] as const,
   },
 

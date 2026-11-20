@@ -233,6 +233,7 @@ async fn seed_group(
                 is_active: true,
                 channel_type: Some("telegram".to_owned()),
                 channel_chat_id: Some("-100424242".to_owned()),
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },

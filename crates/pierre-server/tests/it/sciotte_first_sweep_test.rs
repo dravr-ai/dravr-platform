@@ -603,6 +603,7 @@ async fn a_group_member_read_scrapes_the_session_once_and_never_writes_it_under_
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },

@@ -9,8 +9,11 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use chrono_tz::Tz;
-use pierre_core::models::groups::{CoachingGroup, GroupDigestMode, GroupRespondMode};
+use pierre_core::models::groups::{
+    CoachingGroup, GroupChatConnection, GroupDigestMode, GroupRespondMode,
+};
 use pierre_core::models::messaging::ChannelType;
+use pierre_core::models::TenantId;
 use pierre_groups::strategies::tier::tier_enables_digest;
 use pierre_routes_groups::group_digest_scheduler::{digest_room, plurality_locale, DigestRoom};
 use pierre_routes_groups::group_digest_slot::{due_week, group_zone};
@@ -259,6 +262,7 @@ fn group_in_mode(
         is_active: true,
         channel_type: channel_type.map(str::to_owned),
         channel_chat_id: chat_id.map(str::to_owned),
+        chat_connection: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     }
@@ -271,7 +275,8 @@ fn only_a_chat_that_takes_a_proactive_message_is_posted_into() {
         digest_room(&telegram),
         Some(DigestRoom {
             channel: ChannelType::Telegram,
-            chat_id: "-5284201188"
+            chat_id: "-5284201188",
+            tenant_id: TenantId::parse_str(&telegram.tenant_id).expect("test tenant is a uuid"),
         })
     );
     let slack = group(Some("slack"), Some("C0123"));
@@ -292,6 +297,26 @@ fn only_a_chat_that_takes_a_proactive_message_is_posted_into() {
     assert_eq!(digest_room(&group(None, None)), None);
     assert_eq!(digest_room(&group(Some("telegram"), Some("  "))), None);
     assert_eq!(digest_room(&group(Some("carrier-pigeon"), Some("1"))), None);
+}
+
+/// A group connected to its chat from the web app lives under its creator's
+/// tenant while another tenant's bot serves the chat (carnet#1683): its
+/// digest goes through that bot, never through the group's own tenant, which
+/// has no channel configuration for the chat.
+#[test]
+fn a_connected_chat_is_posted_into_through_the_bot_that_serves_it() {
+    let bot_tenant = TenantId::generate();
+    let mut connected = group(Some("telegram"), Some("-1009001"));
+    connected.chat_connection = Some(GroupChatConnection {
+        channel_tenant_id: bot_tenant,
+        chat_title: Some("Les Rouleurs".to_owned()),
+        connected_at: Utc::now(),
+    });
+    assert_eq!(
+        digest_room(&connected).map(|room| room.tenant_id),
+        Some(bot_tenant),
+        "the post goes through the tenant whose bot serves the chat"
+    );
 }
 
 /// Only a group whose digest goes to its chat is posted into: a Telegram

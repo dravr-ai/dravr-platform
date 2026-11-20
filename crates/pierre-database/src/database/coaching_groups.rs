@@ -7,9 +7,10 @@
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{
-    CoachConsents, CoachingGroup, CorrectedReply, GroupDigestMode, GroupInvite, GroupInviteKind,
+    CoachConsents, CoachingGroup, ConnectGroupChat, CorrectedReply, GroupChatConnectCode,
+    GroupChatConnectOutcome, GroupChatConnection, GroupDigestMode, GroupInvite, GroupInviteKind,
     GroupMember, GroupRespondMode, GroupRole, GroupSetupTimeline, GroupSummary,
-    GroupTranscriptEntry, NewGroupTranscriptEntry, RoomCorrector, RoomEntryBody,
+    GroupTranscriptEntry, NewGroupTranscriptEntry, ReleasedGroupChat, RoomCorrector, RoomEntryBody,
     RoomTranscriptEntry, SharedRoomEntry, TranscriptSpeaker, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
@@ -25,6 +26,13 @@ use crate::repositories::coaching_groups::{
     LIST_ATHLETES_COACHED_BY_SQL, LIST_COACHLESS_GROUPS_OWNED_BY_SQL, LIST_GROUPS_COACHED_BY_SQL,
     LIST_GROUPS_FOR_USER_SQL, RELEASE_GROUP_MEMBERS_SQL, SET_GROUP_COACH_USER_SQL,
     UPDATE_GROUP_SQL,
+};
+use crate::repositories::group_chat_connect::{
+    impl_group_chat_connect_repository, GroupChatConnectRepository, CONNECT_GROUP_CHAT_SQL,
+    DISCONNECT_GROUP_CHAT_SQL, FORGET_GROUP_CHAT_RELEASE_SQL, GROUP_CHAT_BINDING_SQL,
+    GROUP_CHAT_RELEASED_SQL, INSERT_CHAT_CONNECT_CODE_SQL, LIVE_CHAT_CONNECT_CODE_SQL,
+    RECORD_CHAT_INVITE_PROMPT_SQL, RECORD_GROUP_CHAT_RELEASE_SQL, RELEASE_GROUP_CHAT_FOR_MOVE_SQL,
+    SPEND_CHAT_CONNECT_CODE_SQL,
 };
 use crate::repositories::group_digest_sql::{CLAIM_GROUP_DIGEST_SQL, FINISH_GROUP_DIGEST_SQL};
 use crate::repositories::group_invite_sql::{
@@ -46,3 +54,4 @@ use crate::repositories::uuid_columns::TextUuid;
 use crate::repositories::CoachingGroupRepository;
 
 impl_coaching_group_repository!(Database, SqliteRow, TextUuid);
+impl_group_chat_connect_repository!(Database, TextUuid);

@@ -16,6 +16,11 @@ use uuid::Uuid;
 
 use super::FormReading;
 
+pub use super::group_chat::{
+    ConnectGroupChat, GroupChatConnectCode, GroupChatConnectOutcome, GroupChatConnection,
+    ReleasedGroupChat,
+};
+
 /// Title every group context section in an agent's system prompt opens with
 /// (`--- Group Coaching Context ---`, the admin view qualifying it).
 pub const GROUP_CONTEXT_HEADER: &str = "Group Coaching Context";
@@ -268,6 +273,12 @@ pub struct CoachingGroup {
     /// chat (Telegram `chat_id`, Slack `channel_id`, Discord `channel_id`).
     /// `None` for REST-created groups.
     pub channel_chat_id: Option<String>,
+    /// Set when the chat binding above was made deliberately, from the web
+    /// app, rather than by the chat's first message (carnet#1683). Such a
+    /// chat is the group's room for its members only. Never serialized: it
+    /// names the bot tenant serving the chat, which no client needs.
+    #[serde(skip)]
+    pub chat_connection: Option<GroupChatConnection>,
     /// When the group was created
     pub created_at: DateTime<Utc>,
     /// When the group was last updated

@@ -482,6 +482,54 @@ export interface ClaimGroupCoachResponse {
   group: CoachingGroup;
 }
 
+// ========== CHAT APP CONNECTION (a group's room in a chat app's group chat) ==========
+
+/** A chat app whose group chat a coaching group's room can be connected to (carnet#1683). */
+export type GroupChatChannel = 'telegram' | 'whatsapp';
+
+/**
+ * Body of `GET /api/groups/:id/chat-connection`: whether the group's room is
+ * connected to a group chat in a chat app, and whether the caller may connect
+ * or disconnect it (the group's owner or its human coach). Every member reads
+ * it; only `can_manage` callers are offered the controls.
+ */
+export interface GroupChatConnection {
+  connected: boolean;
+  /** The chat app the room is connected to; null while it is not connected. */
+  channel: GroupChatChannel | null;
+  /** The group chat's title as the chat app names it; null when unknown or not connected. */
+  chat_title: string | null;
+  /** When the room was connected (RFC 3339); null while it is not connected. */
+  connected_at: string | null;
+  /** Whether the caller may connect or disconnect the room. */
+  can_manage: boolean;
+}
+
+/** Body of `POST /api/groups/:id/chat-connection`: which chat app to connect the room to. */
+export interface CreateGroupChatConnectionRequest {
+  channel: GroupChatChannel;
+}
+
+/**
+ * Answer to `POST /api/groups/:id/chat-connection`: a one-time code that
+ * connects the room to the group chat the agent's bot is added to. The deep
+ * link opens the chat app's "add to group" picker with the code attached; a
+ * bot already in the chat takes `command` typed there instead. The code stops
+ * working at `expires_at`. A 409 means the room is already connected.
+ */
+export interface GroupChatConnectCode {
+  channel: GroupChatChannel;
+  code: string;
+  /** Opens the chat app on the "add the bot to a group" picker, carrying the code. */
+  deep_link_url: string;
+  /** What to type in a group chat the bot is already in, e.g. `/group link ABC123`. */
+  command: string;
+  /** The deep link as a server-rendered SVG QR code; null when none was drawn. */
+  qr_svg: string | null;
+  /** When the code stops working (RFC 3339). */
+  expires_at: string;
+}
+
 /**
  * One roster row of the group transcript. Membership is never hidden --
  * an unconsented member appears here with `peer_sharing_consent: false`

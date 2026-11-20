@@ -619,6 +619,10 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
         "a shared room; its members are other people",
     ),
     (
+        "group_chat_invite_prompts",
+        "a chat sender told once how to join a connected group: its channel_user_id is the chat platform's sender id, not the athlete's data",
+    ),
+    (
         "agents_orphaned",
         "PostgreSQL only: agents quarantined for naming no tenant",
     ),

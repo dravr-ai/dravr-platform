@@ -1576,6 +1576,33 @@ struct ContextParts {
     channel_adapters: Option<Arc<dyn ChannelAdapterFactory>>,
 }
 
+/// [`create_test_server_resources_with_chat_provider`] over `adapters`, so a
+/// test reads back what the platform posts into a chat on its own — the group
+/// chat poster's relay of an app turn into a connected group chat
+/// (carnet#1683) — and not only what the webhook route it mounts sends.
+///
+/// # Errors
+/// Returns error if the database or the context cannot be built.
+#[cfg(feature = "client-messaging")]
+pub(crate) async fn create_test_server_resources_with_chat_provider_on_adapters(
+    provider: Arc<dyn LlmProvider + 'static>,
+    adapters: Arc<dyn ChannelAdapterFactory>,
+) -> Result<Arc<ServerContext>> {
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+    Box::pin(create_test_server_resources_over(
+        database,
+        None,
+        Vec::new(),
+        None,
+        Some(Arc::new(ChatProvider::Custom(provider))),
+        ContextParts {
+            channel_adapters: Some(adapters),
+            ..ContextParts::default()
+        },
+    ))
+    .await
+}
+
 /// [`create_test_server_resources`] on an offline adapter factory the test
 /// keeps, for a test that reads back what the context's own senders sent:
 /// the notification sink, the approval notice, the consent ask.

@@ -253,6 +253,7 @@ pub(crate) async fn create_group(resources: &Arc<ServerContext>, group: &NewGrou
                 is_active: true,
                 channel_type: group.channel.map(|(kind, _)| kind.to_owned()),
                 channel_chat_id: group.channel.map(|(_, chat)| chat.to_owned()),
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },

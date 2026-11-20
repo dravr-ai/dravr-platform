@@ -426,6 +426,7 @@ mod slack_room {
                     is_active: true,
                     channel_type: Some("slack".to_owned()),
                     channel_chat_id: Some(ROOM.to_owned()),
+                    chat_connection: None,
                     created_at: now,
                     updated_at: now,
                 },

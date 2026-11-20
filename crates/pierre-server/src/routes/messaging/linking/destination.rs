@@ -332,6 +332,25 @@ async fn telegram_linking_url(
     Ok(format!("https://t.me/{bot_username}?start={code}"))
 }
 
+/// The Telegram link that asks the person which group chat to add the bot to,
+/// then delivers `/start <code>` there (`?startgroup=`), for connecting a
+/// group to its chat (carnet#1683).
+///
+/// The bot is the one `config`'s token belongs to, asked of the Bot API at
+/// the origin `adapters` names for Telegram, else [`TELEGRAM_API`], exactly
+/// as [`build_linking_url`] asks it: an absent username fails loudly rather
+/// than point the code at someone else's bot.
+pub(crate) async fn telegram_add_to_group_url(
+    code: &str,
+    config: &serde_json::Value,
+    adapters: &dyn ChannelAdapterFactory,
+) -> Result<String, AppError> {
+    let factory_origin = adapters.destination_api_base(ChannelType::Telegram);
+    let telegram_api = factory_origin.as_deref().unwrap_or(TELEGRAM_API);
+    let bot_username = telegram_bot_username(config, telegram_api).await?;
+    Ok(format!("https://t.me/{bot_username}?startgroup={code}"))
+}
+
 /// Build the linking URL based on channel type and method.
 ///
 /// Reads the keys [`required_credential_keys`] names for this channel and errors

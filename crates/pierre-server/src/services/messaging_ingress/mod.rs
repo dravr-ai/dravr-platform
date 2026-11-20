@@ -31,6 +31,8 @@ pub use agent_choice::parse_choice;
 pub use viz_delivery::card_or_rich_text;
 /// LLM dispatch + outbound delivery + retry queue for messaging turns.
 mod dispatch;
+/// A group chat connected to a web coaching group: the connect code and the members-only room (carnet#1683).
+mod group_connect;
 /// Channel-linking commands (`/start <code>`, `LINK <code>`) + analytics-consent hydration.
 mod linking;
 /// In-chat OTP linking flow + logout + supporting helpers.
@@ -349,7 +351,8 @@ pub(super) fn pre_link_identity(channel: &str, sender_id: &str) -> String {
 ///
 /// `user_id` is the raw (un-hashed) Pierre user id, or, for pre-link intents
 /// that have no resolved user yet, the [`pre_link_identity`] hash.
-/// `intent_type` is one of `link_code`, `otp_flow`, `logout`, `normal_chat`.
+/// `intent_type` is one of `link_code`, `otp_flow`, `group_connect`, `logout`,
+/// `normal_chat`.
 fn emit_messaging_intent(user_id: &str, tenant_id: TenantId, channel: &str, intent_type: &str) {
     info!(
         target: "notify",
@@ -630,6 +633,22 @@ async fn persist_single_message(
     // `pre_link_identity`). It reaches Cloud Logging only.
     let pre_link_identity = pre_link_identity(channel, &message.sender_id);
 
+    // A connect code redeemed in a group chat (carnet#1683) is answered first,
+    // like a linking code: it may be what makes the chat a group's room.
+    if group_connect::answered_connect_code(
+        resources,
+        tenant_id,
+        channel,
+        channel_type,
+        adapter,
+        message,
+        &pre_link_identity,
+    )
+    .await
+    {
+        return Ok(PersistOutcome::HandledNotStored);
+    }
+
     if let Some(outcome) = handle_pre_session_commands(
         resources,
         channel,
@@ -642,6 +661,21 @@ async fn persist_single_message(
     .await
     {
         return Ok(outcome);
+    }
+
+    // A chat connected from the web app admits its group's members only,
+    // ahead of the ambient gate that would capture a stranger's chatter.
+    if group_connect::kept_out_of_connected_room(
+        resources,
+        tenant_id,
+        channel,
+        channel_type,
+        adapter,
+        message,
+    )
+    .await
+    {
+        return Ok(PersistOutcome::HandledNotStored);
     }
 
     // Group respond-mode gate. Placed BEFORE the logout keyword check so

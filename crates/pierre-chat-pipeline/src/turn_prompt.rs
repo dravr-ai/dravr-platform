@@ -13,6 +13,7 @@ use tracing::warn;
 
 use crate::context::ChatPipelineContext;
 use crate::hooks::PipelineHooks;
+use crate::room_relay;
 use crate::stages::persistence::resolve_turn_prompt;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::{TurnInput, UserMessageResult};
@@ -38,6 +39,19 @@ pub(crate) async fn store_turn_prompt(
     let (groups, channel) = (ctx.repos.groups.as_ref(), profile.surface.wire_channel());
     let msg_result = resolve_turn_prompt(ctx.repos.chat.as_ref(), groups, input, channel).await?;
     turn_stop::question_stored(hooks, &msg_result.message);
+    // A member's post in the app reaches the group's connected chat as soon
+    // as it is stored, ahead of the agent's reply (carnet#1683).
+    if input.origin.persists_user_row() {
+        room_relay::relay_to_connected_chat(
+            ctx,
+            profile.surface,
+            &msg_result.conversation,
+            &input.user_id,
+            room_relay::RelayedRow::MemberPost,
+            &msg_result.message.content,
+        )
+        .await;
+    }
     refuse_when_llm_unhealthy(ctx).await?;
     Ok(msg_result)
 }

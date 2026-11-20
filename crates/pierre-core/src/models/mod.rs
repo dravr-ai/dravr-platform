@@ -378,6 +378,8 @@ pub use recipes::{
 /// Multi-channel messaging gateway types
 pub mod messaging;
 
+/// A coaching group's chat connected from the web app (carnet#1683), re-exported from [`groups`].
+mod group_chat;
 /// Coaching group models for multi-person AI coaching
 pub mod groups;
 /// Notification screen vocabulary — the app-side destinations a push notification names

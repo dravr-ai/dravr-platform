@@ -52,6 +52,8 @@ pub mod next_steps;
 pub mod quota_policy;
 pub mod recorders;
 pub(crate) mod recovery;
+/// Relaying a web or mobile turn into its group's connected chat (carnet#1683, D2).
+mod room_relay;
 pub mod stages;
 pub mod suggestions;
 /// Detached work, spawned with a watcher that reports how it failed.
@@ -895,6 +897,17 @@ async fn answer_stored_turn(
         input.origin,
     )
     .await?;
+    // The reply to an app post in a group connected to a chat follows that
+    // post into the chat, when the room may read it (carnet#1683).
+    room_relay::relay_reply(
+        ctx,
+        profile.surface,
+        input.origin,
+        &updated_conversation,
+        &input.user_id,
+        &persisted_assistant_content,
+    )
+    .await;
 
     // Stage 19.5: Persist claim verdicts now that the assistant message is durable.
     #[cfg(feature = "tools-verification")]

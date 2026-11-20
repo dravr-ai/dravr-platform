@@ -456,6 +456,7 @@ mod tests {
             is_active,
             channel_type: None,
             channel_chat_id: None,
+            chat_connection: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

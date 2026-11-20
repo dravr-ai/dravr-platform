@@ -48,6 +48,7 @@ import CoachConsentsSection from './CoachConsentsSection';
 import CoachReadLog from './CoachReadLog';
 import CoachAthleteCard from './CoachAthleteCard';
 import GroupSettingsForm from './GroupSettingsForm';
+import GroupChatConnection from './GroupChatConnection';
 import WhoSeesWhat from './WhoSeesWhat';
 import { useMemberActions } from './useMemberActions';
 import { DisclosureRow, QuietExitRow, ROW_DIVIDER, RowBox, ValueRow } from './GroupInfoParts';
@@ -588,6 +589,10 @@ export default function GroupInfoPanel({
           <CoachConsentsSection groupId={groupId} consents={coachConsents} coach={coachName} />
         </Section>
       )}
+
+      {/* The group chat the room is connected to, for everyone once there is
+          one; connecting it is the owner's or the coach's (carnet#1683). */}
+      <GroupChatConnection groupId={groupId} />
 
       <RowBox data-testid="group-info-more">
         {showsThisWeek && (

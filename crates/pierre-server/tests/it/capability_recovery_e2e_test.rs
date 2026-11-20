@@ -1478,6 +1478,7 @@ mod capability_recovery {
                         is_active: true,
                         channel_type: Some("telegram".to_owned()),
                         channel_chat_id: Some(GROUP_CHAT_ID.to_string()),
+                        chat_connection: None,
                         created_at: now,
                         updated_at: now,
                     },
