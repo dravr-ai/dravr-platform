@@ -42,7 +42,7 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_auth::auth::ImpersonationGrant;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{TenantId, User};
-use pierre_core::permissions::impersonation::{ImpersonationSession, API_KEY_BINDING};
+use pierre_core::permissions::impersonation::{self, ImpersonationSession, API_KEY_BINDING};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::repositories::{AuditOutcome, AuditSource, NewAuditEvent};
@@ -78,9 +78,11 @@ tokio::task_local! {
     pub static SUPPORT_BINDING: Option<String>;
 }
 
-/// The binding of an external call: the OAuth application's client id the
-/// credential was issued to, or [`API_KEY_BINDING`] for an API key. `None`
-/// for any other credential (a personal MCP token never holds `admin`).
+/// The binding of an external call.
+///
+/// The OAuth application's client id the credential was issued to, or
+/// [`API_KEY_BINDING`] for an API key. `None` for any other credential (a
+/// personal MCP token never holds `admin`).
 #[must_use]
 pub fn binding_of(api_key: bool, client_id: Option<&str>) -> Option<String> {
     if api_key {
@@ -270,17 +272,7 @@ pub async fn start(
         None => repos.users.get_by_email(user.trim()).await?,
     }
     .ok_or_else(|| AppError::not_found("No Dravr account has that email or id"))?;
-    if target.id == admin {
-        return Err(AppError::invalid_input("Cannot impersonate yourself"));
-    }
-    // An admin is never impersonated: acting as one would lend its every
-    // power to a session the audit trail attributes to someone else.
-    if target.role.is_admin() {
-        return Err(AppError::new(
-            ErrorCode::PermissionDenied,
-            "Cannot impersonate another admin",
-        ));
-    }
+    impersonation::check_target(admin, &target)?;
     if repos.tenants.first_for_user(target.id).await?.is_none() {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
@@ -416,10 +408,15 @@ mod tests {
 
     #[test]
     fn an_api_key_binds_as_the_admins_keys_and_an_oauth_token_as_its_client() {
-        assert_eq!(binding_of(true, None).as_deref(), Some(API_KEY_BINDING));
+        assert_eq!(
+            binding_of(true, None).as_deref(),
+            Some(API_KEY_BINDING),
+            "bug: an API key binds as the admin's keys"
+        );
         assert_eq!(
             binding_of(false, Some("claude-ai")).as_deref(),
-            Some("claude-ai")
+            Some("claude-ai"),
+            "bug: an OAuth token binds as its client"
         );
         assert_eq!(binding_of(false, None), None, "nothing to bind to");
     }
@@ -427,7 +424,13 @@ mod tests {
     #[test]
     fn the_user_is_served_without_admin() {
         let served = grant_for_user(&OAuthScope::self_grant());
-        assert!(!served.contains(&OAuthScope::Admin));
-        assert!(served.contains(&OAuthScope::FitnessRead));
+        assert!(
+            !served.contains(&OAuthScope::Admin),
+            "bug: the user is never served admin"
+        );
+        assert!(
+            served.contains(&OAuthScope::FitnessRead),
+            "bug: the user keeps fitness read"
+        );
     }
 }

@@ -596,11 +596,11 @@ async fn last_consented_activity(
 }
 
 /// What a reader of the roster's order may not be shown of a session.
-struct Hidden<'a> {
+struct Hidden<'reader> {
     /// The providers whose AI use the athlete withheld.
-    withheld: &'a BTreeSet<String>,
+    withheld: &'reader BTreeSet<String>,
     /// The provider terms, when the reader is a client outside Dravr.
-    outside: Option<&'a dyn ProviderTerms>,
+    outside: Option<&'reader dyn ProviderTerms>,
 }
 
 impl Hidden<'_> {

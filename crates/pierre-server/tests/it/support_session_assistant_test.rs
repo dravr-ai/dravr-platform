@@ -311,15 +311,28 @@ mod support_session_assistant_tests {
         assert_eq!(in_session.len(), 1, "{calls:#?}");
         assert_eq!(
             in_session[0]["metadata"]["target"]["user_id"],
-            world.casey.id.to_string()
+            world.casey.id.to_string(),
+            "bug: the session's call names the coach as its target"
         );
-        assert_eq!(in_session[0]["actor_user_id"], world.admin.id.to_string());
-        assert_eq!(world.trail(STARTED_ACTION).await.len(), 1);
+        assert_eq!(
+            in_session[0]["actor_user_id"],
+            world.admin.id.to_string(),
+            "bug: the session's call names the admin as its actor"
+        );
+        assert_eq!(
+            world.trail(STARTED_ACTION).await.len(),
+            1,
+            "bug: the start is one audit row"
+        );
 
         let ended = world.call(&key, END_TOOL, json!({})).await;
         assert_eq!(ended["result"]["isError"], false, "{ended}");
         assert!(text(&ended).contains("\"ended\":true"), "{ended}");
-        assert_eq!(world.trail(ENDED_ACTION).await.len(), 1);
+        assert_eq!(
+            world.trail(ENDED_ACTION).await.len(),
+            1,
+            "bug: the end is one audit row"
+        );
         let back = world.listed(&key).await;
         assert!(back.contains(START_TOOL), "the admin again: {back:?}");
         let roster = world.call(&key, "get_roster_overview", json!({})).await;
@@ -395,7 +408,10 @@ mod support_session_assistant_tests {
             let refused = world.start(&key, user).await;
             assert_eq!(refused["result"]["isError"], true, "{user}: {refused}");
         }
-        assert!(world.trail(STARTED_ACTION).await.is_empty());
+        assert!(
+            world.trail(STARTED_ACTION).await.is_empty(),
+            "bug: a refused start writes no audit row"
+        );
     }
 
     /// A session the web console started never turns the admin's assistant
@@ -427,7 +443,11 @@ mod support_session_assistant_tests {
         assert!(listed.contains(START_TOOL), "the hour is over: {listed:?}");
         let row = sessions.get_session(&stale.id).await.unwrap().unwrap();
         assert!(!row.is_active, "ended by the lookup past its hour");
-        assert_eq!(world.trail(EXPIRED_ACTION).await.len(), 1);
+        assert_eq!(
+            world.trail(EXPIRED_ACTION).await.len(),
+            1,
+            "bug: the expiry is one audit row"
+        );
 
         // And a session bound to another connection of the admin's leaves
         // this one alone.
@@ -483,7 +503,10 @@ mod support_session_assistant_tests {
             .await
             .unwrap()
             .expect("bound to the agent's application");
-        assert_eq!(session.target_user_id, world.casey.id);
+        assert_eq!(
+            session.target_user_id, world.casey.id,
+            "bug: the A2A session acts as the coach it named"
+        );
 
         let roster = world.a2a(&grant, "get_roster_overview", json!({})).await;
         assert!(text(&roster).contains("Bea Bright"), "{roster}");

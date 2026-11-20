@@ -1302,7 +1302,10 @@ fn a_coach_and_an_admin_read_their_role_line_and_an_athlete_none() {
             .replace("{0}", "Claude")
             .replace('\'', "&#x27;")
     };
-    let (coach_line, admin_line) = (line("oauth.consent.roleCoach"), line("oauth.consent.roleAdmin"));
+    let (coach_line, admin_line) = (
+        line("oauth.consent.roleCoach"),
+        line("oauth.consent.roleAdmin"),
+    );
     let athlete = render(pierre_routes_identity::ConsentRole::default());
     let coach = render(pierre_routes_identity::ConsentRole {
         coach: true,
@@ -1315,8 +1318,16 @@ fn a_coach_and_an_admin_read_their_role_line_and_an_athlete_none() {
     for html in [&athlete, &coach, &admin] {
         assert!(!html.contains("oauth.consent.role"), "{html}");
     }
-    assert!(!athlete.contains(&coach_line) && !athlete.contains(&admin_line), "{athlete}");
-    assert!(coach.contains(&coach_line) && !coach.contains(&admin_line), "{coach}");
-    assert!(admin.contains(&admin_line) && !admin.contains(&coach_line), "{admin}");
+    assert!(
+        !athlete.contains(&coach_line) && !athlete.contains(&admin_line),
+        "{athlete}"
+    );
+    assert!(
+        coach.contains(&coach_line) && !coach.contains(&admin_line),
+        "{coach}"
+    );
+    assert!(
+        admin.contains(&admin_line) && !admin.contains(&coach_line),
+        "{admin}"
+    );
 }
-

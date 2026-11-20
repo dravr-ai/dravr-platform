@@ -83,10 +83,11 @@ pub fn not_included_message(query: &str) -> String {
 
 /// What an admin who leads no active group reads from a coach tool.
 ///
-/// Carnet#1511, Q24: there is no roster of theirs, and impersonating a
-/// coach, from Dravr's admin console (support sessions stay on the website,
-/// EFVP sign-off 2026-11-18), is how an admin sees a coach's roster as the
+/// Carnet#1511, Q24: there is no roster of theirs, and acting as the coach
+/// in a support session, started with
+/// [`START_TOOL`](crate::support_session::START_TOOL) on this connection or
+/// from Dravr's admin console, is how an admin sees a coach's roster as the
 /// coach does.
 pub const ADMIN_NO_GROUP_NOTE: &str = "You lead no active group in Dravr, so there is no roster \
-     to show. To see a coach's roster as they see it, impersonate that coach from Dravr's admin \
-     console.";
+     to show. To see a coach's roster as they see it, act as that coach in a support session: \
+     start one with admin_impersonate_start, or impersonate them from Dravr's admin console.";

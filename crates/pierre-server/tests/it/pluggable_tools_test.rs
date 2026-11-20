@@ -170,9 +170,20 @@ mod registry_tests {
         // An ADMIN_ONLY tool serves admins; who is offered it is the access
         // predicate's (`tool_access`), which reads this audience.
         let athlete_schemas = registry.athlete_audience_schemas();
-        assert_eq!(athlete_schemas.len(), 1);
-        assert_eq!(athlete_schemas[0].name, "user_tool");
-        assert_eq!(registry.all_schemas().len(), 2);
+        assert_eq!(
+            athlete_schemas.len(),
+            1,
+            "bug: the athlete audience leaves the admin tool out"
+        );
+        assert_eq!(
+            athlete_schemas[0].name, "user_tool",
+            "bug: the athlete audience's one schema is the user tool"
+        );
+        assert_eq!(
+            registry.all_schemas().len(),
+            2,
+            "bug: all_schemas lists every registered tool"
+        );
     }
 
     #[test]

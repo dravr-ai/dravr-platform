@@ -1209,7 +1209,7 @@ const fn counts_as_write(writes_data: bool, labels: SecurityLabels) -> bool {
 
 /// The refusal of an export in an admin's support session: support may see
 /// what it needs to help, never carry the whole record away (as the REST
-/// export refuses it, data_export.rs).
+/// export refuses it, `data_export.rs`).
 pub const SUPPORT_SESSION_EXPORT_REFUSED: &str =
     "An admin acting as this account cannot export its record; only the account's owner can";
 

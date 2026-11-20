@@ -121,11 +121,11 @@ pub async fn is_human_coach(repos: &RepositoryRegistry, user_id: Uuid) -> bool {
 
 /// The caller one listing or one call is decided for.
 #[derive(Debug, Clone, Copy)]
-pub struct Caller<'a> {
+pub struct Caller<'grant> {
     /// Who they are.
     pub role: CallerRole,
     /// What their credential was granted.
-    pub grant: &'a [OAuthScope],
+    pub grant: &'grant [OAuthScope],
     /// The transport the call is served over; `None` is external, as
     /// everywhere a transport is read.
     pub transport: Option<Transport>,
@@ -319,15 +319,18 @@ mod tests {
         let roster = tool(ToolReach::AnyTransport, Audience::Coach, READ);
         assert_eq!(
             decide(roster, &caller(ATHLETE, &READ_ONLY, Transport::McpHttp)),
-            Some(Withheld::Role(Audience::Coach))
+            Some(Withheld::Role(Audience::Coach)),
+            "bug: a coach tool reached an athlete over MCP"
         );
         assert_eq!(
             decide(roster, &caller(COACH, &READ_ONLY, Transport::McpHttp)),
-            None
+            None,
+            "bug: a coach is offered the coach tools over MCP"
         );
         assert_eq!(
             decide(roster, &caller(ADMIN, &READ_ONLY, Transport::A2a)),
-            None
+            None,
+            "bug: an admin is offered the coach tools over A2A"
         );
         assert_eq!(
             decide(roster, &caller(ATHLETE, &READ_ONLY, Transport::WebApp)),
@@ -347,15 +350,18 @@ mod tests {
         );
         assert_eq!(
             decide(agents, &caller(ADMIN, &with_admin, Transport::McpHttp)),
-            None
+            None,
+            "bug: an admin holding admin is offered a first-party tool externally (Q25)"
         );
         assert_eq!(
             decide(agents, &caller(COACH, &with_admin, Transport::ApiKey)),
-            Some(Withheld::Transport)
+            Some(Withheld::Transport),
+            "bug: a coach is never lifted past a first-party tool's transport"
         );
         assert_eq!(
             decide(agents, &caller(ATHLETE, &READ_ONLY, Transport::MobileApp)),
-            None
+            None,
+            "bug: Dravr's own app never withholds a tool by transport"
         );
     }
 
@@ -366,11 +372,13 @@ mod tests {
         for role in [ATHLETE, COACH, ADMIN] {
             assert_eq!(
                 decide(publish, &caller(role, &every, Transport::ApiKey)),
-                Some(Withheld::Transport)
+                Some(Withheld::Transport),
+                "bug: an app-only tool reached an external transport"
             );
             assert_eq!(
                 decide(publish, &caller(role, &every, Transport::WebApp)),
-                None
+                None,
+                "bug: Dravr's own app offers an app-only tool"
             );
         }
     }
@@ -384,42 +392,45 @@ mod tests {
         );
         assert_eq!(
             decide(admin_tool, &caller(ADMIN, &READ_ONLY, Transport::McpHttp)),
-            Some(Withheld::Scope(OAuthScope::Admin))
+            Some(Withheld::Scope(OAuthScope::Admin)),
+            "bug: scope is read first: a grant without admin is refused on scope"
         );
         let every = OAuthScope::self_grant();
         assert_eq!(
             decide(admin_tool, &caller(ADMIN, &every, Transport::McpHttp)),
-            None
+            None,
+            "bug: an admin holding admin is offered an admin tool"
         );
         assert_eq!(
             decide(admin_tool, &caller(COACH, &every, Transport::WebApp)),
-            Some(Withheld::Role(Audience::Admin))
+            Some(Withheld::Role(Audience::Admin)),
+            "bug: an admin tool reached a coach in the app"
         );
     }
 
     #[test]
     fn the_athlete_argument_goes_externally_to_a_coach_on_reads_alone() {
         let every = OAuthScope::self_grant();
-        assert!(offers_athlete(
-            READ,
-            &caller(COACH, &every, Transport::McpHttp)
-        ));
-        assert!(!offers_athlete(
-            WRITE,
-            &caller(COACH, &every, Transport::McpHttp)
-        ));
-        assert!(!offers_athlete(
-            READ,
-            &caller(ADMIN, &every, Transport::McpHttp)
-        ));
-        assert!(!offers_athlete(
-            READ,
-            &caller(ATHLETE, &every, Transport::A2a)
-        ));
-        assert!(offers_athlete(
-            WRITE,
-            &caller(ATHLETE, &every, Transport::WebApp)
-        ));
+        assert!(
+            offers_athlete(READ, &caller(COACH, &every, Transport::McpHttp)),
+            "bug: a coach's external read offers athlete="
+        );
+        assert!(
+            !offers_athlete(WRITE, &caller(COACH, &every, Transport::McpHttp)),
+            "bug: a write never offers athlete= externally"
+        );
+        assert!(
+            !offers_athlete(READ, &caller(ADMIN, &every, Transport::McpHttp)),
+            "bug: an admin who coaches no group is not offered athlete="
+        );
+        assert!(
+            !offers_athlete(READ, &caller(ATHLETE, &every, Transport::A2a)),
+            "bug: an athlete is not offered athlete= externally"
+        );
+        assert!(
+            offers_athlete(WRITE, &caller(ATHLETE, &every, Transport::WebApp)),
+            "bug: in the app the tool's own gates decide athlete="
+        );
     }
 
     #[test]
@@ -433,7 +444,8 @@ mod tests {
         };
         assert_eq!(
             decide(roster, &undeclared),
-            Some(Withheld::Role(Audience::Coach))
+            Some(Withheld::Role(Audience::Coach)),
+            "bug: an undeclared transport reads as external"
         );
     }
 
@@ -473,7 +485,11 @@ mod tests {
                         for transport in transports {
                             let answer = decide(declared, &caller(role, grant, transport));
                             if transport.is_first_party() {
-                                assert_ne!(answer, Some(Withheld::Transport));
+                                assert_ne!(
+                                    answer,
+                                    Some(Withheld::Transport),
+                                    "bug: Dravr's own surfaces withheld a tool by transport"
+                                );
                             }
                             if audience == Audience::Admin && !role.admin {
                                 assert!(answer.is_some(), "an admin tool reached a non-admin");
@@ -495,7 +511,11 @@ mod tests {
         let mut in_session = caller(ATHLETE, &every, Transport::McpHttp);
         assert_eq!(decide(export, &in_session), None, "the user's own call");
         in_session.support_session = true;
-        assert_eq!(decide(export, &in_session), Some(Withheld::SupportSession));
+        assert_eq!(
+            decide(export, &in_session),
+            Some(Withheld::SupportSession),
+            "bug: a support session is withheld the export"
+        );
         assert_eq!(
             decide(
                 tool(ToolReach::AnyTransport, Audience::Athlete, READ),

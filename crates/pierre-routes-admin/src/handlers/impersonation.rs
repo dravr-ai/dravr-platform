@@ -20,7 +20,7 @@ use chrono::{DateTime, Utc};
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::User;
-use pierre_core::permissions::impersonation::ImpersonationSession;
+use pierre_core::permissions::impersonation::{self, ImpersonationSession};
 use pierre_database::repositories::SessionCursor;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::MiddlewareCtx;
@@ -180,11 +180,6 @@ impl ImpersonationRoutes {
         let target_user_id = Uuid::parse_str(&request.target_user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid target user ID: {e}")))?;
 
-        // Cannot impersonate yourself
-        if target_user_id == auth.user_id {
-            return Err(AppError::invalid_input("Cannot impersonate yourself"));
-        }
-
         // Get target user
         let target_user = resources
             .repos()
@@ -195,14 +190,7 @@ impl ImpersonationRoutes {
             .map_err(|e| AppError::internal(format!("Failed to get target user: {e}")))?
             .ok_or_else(|| AppError::not_found("Target user not found"))?;
 
-        // An admin is never impersonated: acting as one would lend its every
-        // power to a session the audit trail attributes to someone else.
-        if target_user.role.is_admin() {
-            return Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Cannot impersonate another admin",
-            ));
-        }
+        impersonation::check_target(auth.user_id, &target_user)?;
 
         // End any existing active impersonation sessions for this impersonator
         resources

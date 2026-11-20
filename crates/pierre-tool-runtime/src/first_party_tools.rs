@@ -104,8 +104,14 @@ mod tests {
         let refused = refusal("get_provider_roster");
         assert!(!refused.success, "bug: a refusal must not report success");
         let result = refused.result.expect("the refusal carries its code");
-        assert_eq!(result["error_code"], FIRST_PARTY_SURFACE_ERROR_CODE);
-        assert_eq!(result["reason"], EXTERNAL_TRANSPORT_REASON);
+        assert_eq!(
+            result["error_code"], FIRST_PARTY_SURFACE_ERROR_CODE,
+            "bug: the refusal carries the first-party error code"
+        );
+        assert_eq!(
+            result["reason"], EXTERNAL_TRANSPORT_REASON,
+            "bug: the refusal says the transport is external"
+        );
     }
 
     #[cfg(all(feature = "tools-groups", feature = "tools-memory"))]
@@ -157,9 +163,14 @@ mod tests {
                     "get_group_member_activities",
                     "get_group_member_plan_status",
                     "get_roster_overview"
-                ]
+                ],
+                "bug: three group tools serve a human coach"
             );
-            assert_eq!(first_party, ["get_provider_roster", "propose_athlete_link"]);
+            assert_eq!(
+                first_party,
+                ["get_provider_roster", "propose_athlete_link"],
+                "bug: two group tools stay first-party"
+            );
         }
 
         #[test]
@@ -175,7 +186,11 @@ mod tests {
             let mut schemas = registry.all_schemas();
             retain_offered(&registry, &mut schemas, &athlete);
             let kept: Vec<&str> = schemas.iter().map(|schema| schema.name.as_str()).collect();
-            assert_eq!(kept, ["recall_user_memory"]);
+            assert_eq!(
+                kept,
+                ["recall_user_memory"],
+                "bug: an athlete's external listing keeps the memory tool alone"
+            );
 
             let coach = Caller {
                 role: CallerRole {

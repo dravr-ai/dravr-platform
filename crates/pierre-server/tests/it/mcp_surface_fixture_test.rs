@@ -298,9 +298,9 @@ async fn mcp_surface_matches_the_committed_fixtures() {
         non_coach_list["result"]["tools"],
         "a non-coach's list is the coach's without the coach tools and athlete="
     );
-    // The public profile's names: what every external client who coaches no
-    // group is offered, a global admin included, and so what the generated
-    // SDK types describe. The SDK drift check compares the types against it.
+    // The public profile's names: what an external client who coaches no
+    // group and is no admin is offered. The generated SDK types describe the
+    // coach's list instead (carnet#1511), which the admin fixture pins.
     let public_names: Vec<&str> = non_coach_list["result"]["tools"]
         .as_array()
         .unwrap()

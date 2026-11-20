@@ -249,7 +249,15 @@ mod tests {
 
     #[test]
     fn each_tool_is_named_as_the_doors_recognise_it() {
-        assert_eq!(AdminImpersonateStartTool.definition().name, START_TOOL);
-        assert_eq!(AdminImpersonateEndTool.definition().name, END_TOOL);
+        assert_eq!(
+            AdminImpersonateStartTool.definition().name,
+            START_TOOL,
+            "bug: the start tool's declared name is the one the doors recognise"
+        );
+        assert_eq!(
+            AdminImpersonateEndTool.definition().name,
+            END_TOOL,
+            "bug: the end tool's declared name is the one the doors recognise"
+        );
     }
 }

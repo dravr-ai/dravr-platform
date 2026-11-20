@@ -297,7 +297,6 @@ EXPECTED_FILE="crates/pierre-server/tests/it/contremaitre_test.rs"
 COUNT_FILE="crates/pierre-server/tests/it/configuration_mcp_integration_test.rs"
 TS_FILE="packages/mcp-types/src/tools.ts"
 SERVED_FIXTURE="crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
-PUBLIC_FIXTURE="crates/pierre-server/tests/fixtures/mcp_surface/tools_list_public_names.json"
 
 # Whether SRC_TOOLS below holds the complete registered set. Checks 5 and 7
 # compare against it and must not run on a truncated scan.
@@ -424,15 +423,6 @@ else
             fi
             TS_TOOLS="$(grep -oE '"[a-z0-9_]+"' "$TS_FILE" | tr -d '"' | sort -u || true)"
             TS_HEADER="$(grep -oE '^// Tool count: [0-9]+' "$TS_FILE" | grep -oE '[0-9]+' || true)"
-            if ! PUBLIC_SCAN="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))))' "$PUBLIC_FIXTURE")" \
-                || [[ -z "${PUBLIC_SCAN//[[:space:]]/}" ]]; then
-                # Fail closed, as for the served set above.
-                echo -e "${RED}❌ Could not read the public profile's tool names in ${PUBLIC_FIXTURE}.${NC}"
-                TOOL_DRIFT=true
-                PUBLIC_SCAN=""
-            fi
-            PUBLIC_TOOLS="$(printf '%s\n' "$PUBLIC_SCAN" | sort -u)"
-            PUBLIC_COUNT="$(printf '%s\n' "$PUBLIC_TOOLS" | grep -c . || true)"
             SERVED_COUNT="$(printf '%s\n' "$SERVED_TOOLS" | grep -c . || true)"
             TS_DIFF="$(comm -3 <(printf '%s\n' "$SERVED_TOOLS") <(printf '%s\n' "$TS_TOOLS") || true)"
             if [[ -n "$TS_DIFF" || "$TS_HEADER" != "$SERVED_COUNT" ]]; then

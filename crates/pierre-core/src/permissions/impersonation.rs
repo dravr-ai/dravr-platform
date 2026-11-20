@@ -8,6 +8,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::errors::{AppError, AppResult, ErrorCode};
+use crate::models::User;
+
 /// Impersonation session record for audit trail
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImpersonationSession {
@@ -38,6 +41,28 @@ pub struct ImpersonationSession {
 /// [`ImpersonationSession::bound_client`] of a session an admin started
 /// through one of their API keys.
 pub const API_KEY_BINDING: &str = "api_key";
+
+/// Whether `impersonator` may act as `target`, on every door a session
+/// starts from (the admin console and an admin's assistant).
+///
+/// # Errors
+///
+/// Returns an invalid-input error when `target` is the impersonator, and a
+/// permission-denied error when `target` is an admin: acting as one would
+/// lend its every power to a session the audit trail attributes to someone
+/// else.
+pub fn check_target(impersonator: Uuid, target: &User) -> AppResult<()> {
+    if target.id == impersonator {
+        return Err(AppError::invalid_input("Cannot impersonate yourself"));
+    }
+    if target.role.is_admin() {
+        return Err(AppError::new(
+            ErrorCode::PermissionDenied,
+            "Cannot impersonate another admin",
+        ));
+    }
+    Ok(())
+}
 
 impl ImpersonationSession {
     /// Create a new impersonation session

@@ -87,9 +87,10 @@ use crate::runtime::ToolRuntime;
 /// The tool's name, as a refusal words it.
 const TOOL_NAME: &str = "get_roster_overview";
 
-/// `not_read` of a sharer whose every connected service keeps its data in
-/// Dravr, served to an assistant outside Dravr (carnet#1511): present, their
-/// data withheld, and nothing said about whether they trained.
+/// `not_read` of a sharer whose every service keeps its data in Dravr.
+///
+/// Served to an assistant outside Dravr (carnet#1511): present, their data
+/// withheld, and nothing said about whether they trained.
 pub const KEPT_IN_DRAVR: &str = "Their training comes only from services whose data stays \
      inside Dravr, so none of it is shown to an assistant outside Dravr. This says nothing \
      about whether they trained; never infer it.";

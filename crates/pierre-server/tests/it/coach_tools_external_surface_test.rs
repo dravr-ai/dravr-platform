@@ -216,7 +216,11 @@ mod coach_tools_external_surface_tests {
             .filter(|name| registry.get(name).unwrap().audience() == Audience::Coach)
             .map(ToOwned::to_owned)
             .collect();
-        assert_eq!(coach, coach_tools());
+        assert_eq!(
+            coach,
+            coach_tools(),
+            "bug: the registry declares exactly the three coach tools"
+        );
         let first_party_only: BTreeSet<String> = registry
             .tool_names()
             .into_iter()
@@ -225,12 +229,16 @@ mod coach_tools_external_surface_tests {
             .collect();
         let mut declared = platform_tools();
         declared.extend(HIDDEN_TOOLS.map(str::to_owned));
-        assert_eq!(first_party_only, declared);
+        assert_eq!(
+            first_party_only, declared,
+            "bug: the first-party tools are the platform and hidden ones"
+        );
         assert_eq!(
             registry
                 .get("publish_training_plan")
                 .map(|tool| tool.reach()),
-            Some(ToolReach::AppOnly)
+            Some(ToolReach::AppOnly),
+            "bug: publishing a plan stays in Dravr's own app"
         );
     }
 
@@ -376,7 +384,11 @@ mod coach_tools_external_surface_tests {
         }
         let refused = call_over(&res, &squad.alex, "get_roster_overview", Transport::A2a).await;
         assert!(!refused.success, "{refused:?}");
-        assert_eq!(refused.result.unwrap()["error_code"], COACH_ROLE_REQUIRED);
+        assert_eq!(
+            refused.result.unwrap()["error_code"],
+            COACH_ROLE_REQUIRED,
+            "bug: an athlete is refused the roster as not a coach"
+        );
     }
 
     #[tokio::test]
@@ -617,7 +629,10 @@ mod coach_tools_external_surface_tests {
             place(&in_app, squad.lee.id) < place(&in_app, squad.mo.id),
             "in the app Mo's Strava ride yesterday makes Lee the quieter"
         );
-        assert!(in_app.iter().all(|m| !m.kept_in_dravr));
+        assert!(
+            in_app.iter().all(|m| !m.kept_in_dravr),
+            "bug: in the app no member reads as kept in Dravr"
+        );
 
         let registry = res.provider_registry();
         let terms: &dyn ProviderTerms = registry.as_ref();
@@ -637,7 +652,14 @@ mod coach_tools_external_surface_tests {
         );
         let kim = &outside[place(&outside, squad.kim.id)];
         assert!(kim.kept_in_dravr, "Kim syncs only from Strava");
-        assert_eq!(kim.last_cached_activity, None);
-        assert_eq!(place(&outside, squad.kim.id), outside.len() - 1);
+        assert_eq!(
+            kim.last_cached_activity, None,
+            "bug: outside, Kim's Strava-only sessions give no last day"
+        );
+        assert_eq!(
+            place(&outside, squad.kim.id),
+            outside.len() - 1,
+            "bug: outside, Kim, with nothing readable, is placed last"
+        );
     }
 }

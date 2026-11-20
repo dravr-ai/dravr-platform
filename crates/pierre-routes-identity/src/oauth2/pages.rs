@@ -481,8 +481,12 @@ fn role_lines(role: ConsentRole, client: &str, text: &ConsentText<'_>) -> String
     ]
     .into_iter()
     .filter(|(shown, _)| *shown)
-    .map(|(_, key)| format!(r#"<p class="disclosure">{}</p>"#, text.html(key, &[client])))
-    .collect()
+    .fold(String::new(), |mut lines, (_, key)| {
+        lines.push_str(r#"<p class="disclosure">"#);
+        lines.push_str(&text.html(key, &[client]));
+        lines.push_str("</p>");
+        lines
+    })
 }
 
 /// The consent screen's line naming the services whose data stays inside

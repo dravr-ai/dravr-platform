@@ -589,7 +589,11 @@ mod tests {
             opt_in.grants_any(),
             "an opt-in is a grant: it is held to the app"
         );
-        assert_eq!(opt_in.within(nothing), ConsentChange::default());
+        assert_eq!(
+            opt_in.within(nothing),
+            ConsentChange::default(),
+            "bug: an opt-in the offer does not hold is dropped"
+        );
         let revokes = ConsentChange {
             calendar_write: Some(false),
             wellness_read: Some(false),
