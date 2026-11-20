@@ -3020,6 +3020,10 @@
       "title": "Die KI-Tools deines Coaches",
       "body": "Solange du dein Training mit {{coach}} teilst, können KI-Tools, die {{coach}} mit Dravr verbindet, etwa Claude, dein Training und deinen Plan unter deinem Namen lesen. Das Unternehmen, das das jeweilige Tool betreibt, erhält, was es liest, und kann es außerhalb von Québec verarbeiten. Du kannst weiter teilen oder aufhören: Wenn du aufhörst, verlieren dein Coach und dessen Tools den Zugriff."
     },
+    "assistantOptIn": {
+      "label": "Den KI-Tools, die {{coach}} mit Dravr verbindet, erlauben, dich in der Gruppenübersicht zu sehen",
+      "hint": "Jedes KI-Tool wird von einem eigenen Unternehmen betrieben, etwa Anthropic bei Claude, das erhält, was das Tool liest, und es nach seinen eigenen Bedingungen außerhalb von Québec verarbeiten kann. {{coach}} wählt das Tool, nicht du. Wenn du das einschaltest, willigst du ausdrücklich ein, dass Dravr deinen Platz in der Gruppenübersicht, deinen Aktivitätsverlauf und ob du einen veröffentlichten Plan hast an dieses Unternehmen weitergibt. Daten, die Dravr von Diensten synchronisiert, die sie innerhalb von Dravr halten, werden nie gezeigt; Exportdateien, die du selbst importierst, können gezeigt werden. Lässt du das ausgeschaltet, hindert das die Tools von {{coach}} nicht daran, dich namentlich zu lesen, solange du dein Training mit deinem Coach teilst; schalte das aus, um sie zu stoppen. Du kannst das jederzeit ausschalten; was ein Tool bereits erhalten hat, kann nicht zurückgeholt werden."
+    },
     "seat": {
       "title": "Du bist noch nicht der Coach dieser Gruppe",
       "stripBody": "Um das Training deiner Athleten zu sehen und ihre Pläne zu erstellen, brauchst du Coach-Zugang. Das Dravr-Team schaltet ihn frei.",
@@ -3552,7 +3556,6 @@
       "reauth_oauth_served_no_link": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. {0} verbindet sich jetzt über die offizielle Anmeldung. Öffne Verbindungen in Dravr, wähle {0} verbinden und frag mich dann noch einmal.",
       "reauth_grant_writes": "Kurzer Hinweis: Deine {0}-Aktivitäten werden weiter synchronisiert, aber um Workouts und Kalendereinträge an {0} zu senden, brauchst du wieder deine Verbindung zu {0}. Verbinde {0} hier (Link 1 Stunde gültig):\n\n{1}",
       "reauth_grant_writes_no_link": "Kurzer Hinweis: Deine {0}-Aktivitäten werden weiter synchronisiert, aber um Workouts und Kalendereinträge an {0} zu senden, brauchst du wieder deine Verbindung zu {0}. Öffne Verbindungen in Dravr und wähle {0} verbinden.",
-      "reconnect_button": "{0} neu verbinden",
       "reconnect_cta": "Neu verbinden"
     },
     "quota_exceeded": "Du hast das Chat-Kontingent deines Tarifs vorerst erreicht. Es setzt sich automatisch zurück — schau etwas später wieder vorbei.",
@@ -3840,6 +3843,8 @@
       "privacyPolicy": "Datenschutzerklärung",
       "returnsTo": "Danach kehren Sie zu {0} zurück",
       "revokeAnytime": "Sie können diesen Zugriff jederzeit in Ihren Dravr-Einstellungen widerrufen.",
+      "roleAdmin": "Sie sind Dravr-Admin. {0} werden alle Dravr-Tools angeboten, die Admin-Tools eingeschlossen, und es kann in einer Support-Sitzung als ein Nutzer handeln: Bis zu einer Stunde lang sieht und tut es, was der eigene Assistent dieses Nutzers könnte. Jeder Aufruf wird unter Ihrem Namen protokolliert.",
+      "roleCoach": "Sie leiten Gruppen als menschlicher Coach. {0} sieht außerdem namentlich das Training der Mitglieder, die Ihre KI-Tools in Dravr zugelassen haben, und kann die Daten eines Mitglieds lesen, das Sie nennen, solange es sein Training mit Ihnen teilt.",
       "scope": {
         "fitnessRead": "Ihre Fitnessdaten lesen: Aktivitäten und ihre Orte, Statistiken, Schlaf, Analysen und was Sie Dravr über sich erzählt haben, einschließlich Verletzungen",
         "fitnessWrite": "Ihre Fitnessdaten erstellen oder ändern: Ziele, Pläne und erfasste Einheiten",
@@ -4307,9 +4312,10 @@
         "title": "Sensible Gesundheitsdaten",
         "blurb": "Deine Gesundheitsakten (Laborwerte, klinische Unterlagen, Blutzucker) und deine intimen Gesundheitsdaten (Zyklustracking, psychische und reproduktive Gesundheit) bleiben für deinen KI-Agenten und deinen menschlichen Coach gesperrt, bis du sie hier erlaubst. In der App siehst du sie weiterhin. Ein Widerruf beendet die KI-Nutzung sofort.",
         "t2Label": "Meinem KI-Agenten erlauben, meine Gesundheitsakten zu lesen (Laborwerte, klinische Unterlagen, Blutzucker)",
-        "t3Label": "Meinem KI-Agenten erlauben, meine intimen Gesundheitsdaten zu lesen (Zyklustracking, psychische und reproduktive Gesundheit)",
+        "t3Label": "KI erlauben, meine intimen Gesundheitsdaten zu lesen (Zyklustracking, psychische und reproduktive Gesundheit)",
         "allowed": "Erlaubt. Dein Agent liest diese Daten ab jetzt.",
-        "withdrawn": "Widerrufen. Dein Agent liest diese Daten nicht mehr."
+        "withdrawn": "Widerrufen. Dein Agent liest diese Daten nicht mehr.",
+        "t3Hint": "Erlaubt auch KI-Apps, die du mit Dravr verbindest, etwa Claude oder ChatGPT, deine Notizen und das Gedächtnis deines Agenten zu lesen. Dein Dravr-Agent und dein menschlicher Coach lesen diese in jedem Fall."
       }
     },
     "connectTombstoned": "Dieses {{provider}}-Konto gehörte zu einem Dravr-Konto, das am {{date}} gelöscht wurde. Seine Daten bleiben gelöscht, bis du dich entscheidest, damit neu anzufangen.",

@@ -3020,6 +3020,10 @@
       "title": "Las herramientas de IA de tu entrenador",
       "body": "Mientras compartas tu entrenamiento con {{coach}}, las herramientas de IA que {{coach}} conecta a Dravr, como Claude, pueden leer tu entrenamiento y tu plan con tu nombre. La empresa que opera cada herramienta recibe lo que esta lee y puede tratarlo fuera de Quebec. Puedes seguir compartiendo o dejar de hacerlo: dejar de compartir pone fin al acceso de tu entrenador y al de sus herramientas."
     },
+    "assistantOptIn": {
+      "label": "Permitir que las herramientas de IA que {{coach}} conecta a Dravr te vean en el resumen del grupo",
+      "hint": "Cada herramienta de IA la opera su propia empresa, como Anthropic en el caso de Claude, que recibe lo que la herramienta lee y puede tratarlo fuera de Quebec según sus propias condiciones. {{coach}} elige la herramienta, no tú. Activar esto es tu consentimiento expreso para que Dravr comparta con esa empresa tu lugar en el resumen del grupo, tu historial de actividades y si tienes un plan publicado. Los datos que Dravr sincroniza desde servicios que los mantienen dentro de Dravr nunca se muestran; los archivos de exportación que importas tú mismo sí pueden mostrarse. Dejar esto desactivado no impide que las herramientas de {{coach}} te lean por tu nombre mientras compartas tu entrenamiento con tu entrenador; desactiva eso para impedirlo. Puedes desactivar esto en cualquier momento; lo que una herramienta ya recibió no se puede recuperar."
+    },
     "seat": {
       "title": "Todavía no eres el coach de este grupo",
       "stripBody": "Para ver el entrenamiento de tus atletas y crear sus planes, necesitas el acceso de coach. Lo activa el equipo de Dravr.",
@@ -3552,7 +3556,6 @@
       "reauth_oauth_served_no_link": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. {0} ahora se conecta mediante su inicio de sesión oficial. Abre Conexiones en Dravr, elige Conectar {0} y vuelve a preguntarme.",
       "reauth_grant_writes": "Un apunte: tus actividades de {0} se siguen sincronizando, pero para enviar entrenamientos y entradas de calendario a {0} necesitas volver a conectar {0}. Conéctalo aquí (enlace válido durante 1 hora):\n\n{1}",
       "reauth_grant_writes_no_link": "Un apunte: tus actividades de {0} se siguen sincronizando, pero para enviar entrenamientos y entradas de calendario a {0} necesitas volver a conectar {0}. Abre Conexiones en Dravr y elige Conectar {0}.",
-      "reconnect_button": "Volver a conectar {0}",
       "reconnect_cta": "Volver a conectar"
     },
     "quota_exceeded": "Has alcanzado el límite de conversación de tu plan por ahora. Se reinicia automáticamente — vuelve un poco más tarde.",
@@ -3840,6 +3843,8 @@
       "privacyPolicy": "Política de privacidad",
       "returnsTo": "Después volverá a {0}",
       "revokeAnytime": "Puede revocar este acceso en cualquier momento en sus ajustes de Dravr.",
+      "roleAdmin": "Usted es admin de Dravr. A {0} se le ofrecerán todas las herramientas de Dravr, incluidas las de administración, y podrá actuar como un usuario en una sesión de soporte: durante una hora como máximo, ve y hace lo que podría el propio asistente de ese usuario. Cada llamada queda registrada a su nombre.",
+      "roleCoach": "Usted dirige grupos como entrenador humano. {0} también verá, por su nombre, el entrenamiento de los miembros que permitieron sus herramientas de IA en Dravr, y podrá consultar los datos de un miembro que usted nombre mientras este comparta su entrenamiento con usted.",
       "scope": {
         "fitnessRead": "leer sus datos de actividad física: actividades y sus lugares, estadísticas, sueño, análisis y lo que le contó a Dravr sobre usted, incluidas las lesiones",
         "fitnessWrite": "crear o modificar sus datos de actividad física: objetivos, planes y entrenamientos registrados",
@@ -4307,9 +4312,10 @@
         "title": "Registros de salud sensibles",
         "blurb": "Tus registros de salud (resultados de laboratorio, historias clínicas, glucosa) y tus registros de salud íntima (seguimiento del ciclo, salud mental y reproductiva) quedan cerrados para tu agente de IA y tu coach humano hasta que los permitas aquí. Los sigues viendo en la app. Retirar el permiso detiene el uso por la IA de inmediato.",
         "t2Label": "Permitir que mi agente de IA lea mis registros de salud (resultados de laboratorio, historias clínicas, glucosa)",
-        "t3Label": "Permitir que mi agente de IA lea mis registros de salud íntima (seguimiento del ciclo, salud mental y reproductiva)",
+        "t3Label": "Permitir que la IA lea mis registros de salud íntima (seguimiento del ciclo, salud mental y reproductiva)",
         "allowed": "Permitido. Tu agente lee estos registros desde ahora.",
-        "withdrawn": "Retirado. Tu agente ya no lee estos registros."
+        "withdrawn": "Retirado. Tu agente ya no lee estos registros.",
+        "t3Hint": "También permite que las apps de IA que conectas a Dravr, como Claude o ChatGPT, lean tus notas y la memoria de tu agente. Tu agente de Dravr y tu coach humano las leen en cualquier caso."
       }
     },
     "connectTombstoned": "Esta cuenta de {{provider}} pertenecía a una cuenta de Dravr eliminada el {{date}}. Sus datos siguen eliminados hasta que decidas empezar de cero con ella.",

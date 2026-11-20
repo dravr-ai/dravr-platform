@@ -3020,6 +3020,10 @@
       "title": "Your coach's AI tools",
       "body": "While you share your training with {{coach}}, AI tools {{coach}} connects to Dravr, such as Claude, can read your training and your plan by name. The company that runs each tool receives what it reads and may process it outside Québec. You can keep sharing, or stop: stopping ends both your coach's and their tools' access."
     },
+    "assistantOptIn": {
+      "label": "Let the AI tools {{coach}} connects to Dravr see you in the group overview",
+      "hint": "Each AI tool is run by its own company, such as Anthropic for Claude, which receives what the tool reads and may process it outside Québec under its own terms. {{coach}} chooses the tool, not you. Turning this on is your express consent to Dravr sharing your place in the group overview, your activity history and whether you have a published plan with that company. Data Dravr syncs from services that keep it inside Dravr is never shown; export files you import yourself can be. Leaving this off does not stop {{coach}}'s tools reading you by name while you share your training with your coach; turn that off to stop them. You can turn this off at any time; what a tool already received cannot be taken back."
+    },
     "seat": {
       "title": "You're not this group's coach yet",
       "stripBody": "To see your athletes' training and build their plans, you need coach access. The Dravr team turns it on.",
@@ -3552,7 +3556,6 @@
       "reauth_oauth_served_no_link": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. {0} now connects through its official sign-in. Open Connections in Dravr, choose Connect {0}, then ask me again.",
       "reauth_grant_writes": "One note: your {0} activities are still syncing, but sending workouts and calendar entries to {0} needs your {0} connection again. Connect it here (link valid for 1 hour):\n\n{1}",
       "reauth_grant_writes_no_link": "One note: your {0} activities are still syncing, but sending workouts and calendar entries to {0} needs your {0} connection again. Open Connections in Dravr and choose Connect {0}.",
-      "reconnect_button": "Reconnect {0}",
       "reconnect_cta": "Reconnect"
     },
     "quota_exceeded": "You've reached your plan's chat limit for now. It resets automatically — check back a bit later.",
@@ -3840,6 +3843,8 @@
       "privacyPolicy": "Privacy policy",
       "returnsTo": "It will return you to {0}",
       "revokeAnytime": "You can revoke this access at any time in your Dravr settings.",
+      "roleAdmin": "You are a Dravr admin. {0} will be offered every Dravr tool, the admin tools included, and can act as a user in a support session: for up to an hour it sees and does what that user's own assistant could. Every call is recorded under your name.",
+      "roleCoach": "You lead groups as a human coach. {0} will also see, by name, the training of the members who allowed your AI tools in Dravr, and can read a member you name while they share their training with you.",
       "scope": {
         "fitnessRead": "read your fitness data: activities and where they took place, stats, sleep, analytics, and what you told Dravr about yourself, including injuries",
         "fitnessWrite": "create or change your fitness data: goals, plans and logged work",
@@ -4307,9 +4312,10 @@
         "title": "Sensitive health records",
         "blurb": "Health records (lab results, clinical records, blood glucose) and intimate health records (cycle tracking, mental and reproductive health) stay off limits to your AI agent and your human coach until you allow them here. You still see them in the app. Withdrawing stops AI use at once.",
         "t2Label": "Let my AI agent read my health records (lab results, clinical records, blood glucose)",
-        "t3Label": "Let my AI agent read my intimate health records (cycle tracking, mental and reproductive health)",
+        "t3Label": "Let AI read my intimate health records (cycle tracking, mental and reproductive health)",
         "allowed": "Allowed. Your agent reads these records from now on.",
-        "withdrawn": "Withdrawn. Your agent no longer reads these records."
+        "withdrawn": "Withdrawn. Your agent no longer reads these records.",
+        "t3Hint": "Also lets AI apps you connect to Dravr, such as Claude or ChatGPT, read your notes and your agent's memory. Your Dravr agent and your human coach read those either way."
       }
     },
     "connectTombstoned": "This {{provider}} account belonged to a Dravr account deleted on {{date}}. Its data stays deleted until you choose to start fresh with it.",
