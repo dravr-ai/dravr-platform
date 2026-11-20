@@ -595,3 +595,115 @@ fn the_worked_example_bands_balanced_as_trainingpeaks_does() {
     assert!(close(evening.tsb, tsb), "evening tsb {}", evening.tsb);
     assert_eq!(evening.form_reading().band, FormBand::Balanced);
 }
+
+// =============================================================================
+// The load on the athlete's own day (carnet#1663): the history, the roster and
+// the current-load tools read one daily split, cageux's.
+// =============================================================================
+
+/// A ride worth `tss` at 02:30 UTC on the day after `date_idx`: 21:30 on
+/// `date_idx` in Toronto.
+fn toronto_evening_ride(date_idx: i64, tss: f32) -> Activity {
+    let start = Utc.with_ymd_and_hms(2026, 1, 2, 2, 30, 0).unwrap() + Duration::days(date_idx);
+    ActivityBuilder::new(
+        format!("evening{date_idx}"),
+        format!("evening ride {date_idx}"),
+        SportType::Ride,
+        start,
+        3_600,
+        "synthetic".to_owned(),
+    )
+    .training_stress_score(tss)
+    .build()
+}
+
+#[test]
+fn the_history_and_the_current_load_agree_on_the_athletes_day_near_midnight() {
+    // Sixty Toronto evenings of 80 TSS, then tonight's 21:30 ride of 150 on
+    // day 60. It is 22:00 in Toronto on day 60 (03:00 UTC on day 61).
+    let mut rides: Vec<Activity> = (0..60).map(|d| toronto_evening_ride(d, 80.0)).collect();
+    rides.push(toronto_evening_ride(60, 150.0));
+    let now = Utc.with_ymd_and_hms(2026, 1, 1, 3, 0, 0).unwrap() + Duration::days(61);
+    let toronto = "America/Toronto";
+
+    let rows = compute_training_history(
+        &rides,
+        AthleteInputs::default(),
+        day(50),
+        day(60),
+        &algos(),
+        Some(toronto),
+    )
+    .expect("training-load series");
+    let tonight = rows.last().expect("a row for the athlete's today");
+    assert_eq!(
+        tonight.date,
+        day(60),
+        "bug: the last history row is not the athlete's Toronto today"
+    );
+    assert!(
+        (tonight.daily_load - 150.0).abs() < 1e-9,
+        "{}",
+        tonight.daily_load
+    );
+
+    let current = TrainingLoadCalculator::as_of_today(algos(), toronto.parse().unwrap(), now)
+        .calculate_training_load(&rides, None, None, None, None, None)
+        .expect("training load");
+    assert!(
+        (tonight.ctl - current.ctl).abs() < 1e-9,
+        "ctl {} vs {}",
+        tonight.ctl,
+        current.ctl
+    );
+    assert!(
+        (tonight.atl - current.atl).abs() < 1e-9,
+        "atl {} vs {}",
+        tonight.atl,
+        current.atl
+    );
+    assert!(
+        (tonight.tsb - current.tsb).abs() < 1e-9,
+        "tsb {} vs {}",
+        tonight.tsb,
+        current.tsb
+    );
+
+    // Read on the UTC date instead, tonight's ride lands on tomorrow and day
+    // 60 reads as a rest day, a lower CTL than the athlete's own day.
+    let utc = TrainingLoadCalculator::from_config(algos(), day(60))
+        .calculate_training_load(&rides, None, None, None, None, None)
+        .expect("training load");
+    assert!(
+        utc.ctl < current.ctl - 1.0,
+        "utc {} vs local {}",
+        utc.ctl,
+        current.ctl
+    );
+}
+
+#[test]
+fn a_session_without_training_stress_opens_no_history_day() {
+    // A zero-TSS entry three weeks before the first ride would, counted,
+    // open the history there and seed the loads low with days that measured
+    // nothing. cageux leaves it out, as the roster and the tools do.
+    let rides: Vec<Activity> = (30..60).map(|d| ride_worth(d, 90.0)).collect();
+    let mut with_walk = rides.clone();
+    with_walk.push(ride_worth(9, 0.0));
+    let history = |activities: &[Activity]| {
+        compute_training_history(
+            activities,
+            AthleteInputs::default(),
+            day(55),
+            day(60),
+            &algos(),
+            None,
+        )
+        .expect("training-load series")
+    };
+    assert_eq!(
+        history(&rides),
+        history(&with_walk),
+        "bug: a zero-TSS session opened a history day and moved the load"
+    );
+}

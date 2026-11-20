@@ -9,6 +9,7 @@ use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
 use pierre_core::models::Activity;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_services::athlete_clock::athlete_zone;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -110,9 +111,12 @@ pub(super) async fn training_load_of(
                 "sleep_analyzer: reading the saved thresholds failed: {e}"
             ))
         })?;
-    let calculator = TrainingLoadCalculator::from_config(
+    // As of the athlete's today, each session on the day it started where
+    // they live: the days the training history and the roster count.
+    let calculator = TrainingLoadCalculator::as_of_today(
         executor.cageux_config().algorithms.clone(),
-        Utc::now().date_naive(),
+        athlete_zone(executor.resources.repos(), user_uuid).await,
+        Utc::now(),
     );
     physio.training_load(&calculator, activities).map_err(|e| {
         ProtocolError::InternalError(format!(

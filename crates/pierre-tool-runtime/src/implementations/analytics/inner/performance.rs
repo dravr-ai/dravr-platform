@@ -13,6 +13,7 @@ use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use chrono_tz::Tz;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::performance_prediction::PerformancePredictor;
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
@@ -21,6 +22,7 @@ use pierre_core::models::{resolve_sport_type, sport_matches_family, Activity, Sp
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_fitness_compute::AthleteInputs;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_services::athlete_clock::athlete_zone;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -32,6 +34,7 @@ fn predict_race_performance(
     target_sport: &str,
     athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
+    zone: Tz,
 ) -> RacePredictionResult {
     use PerformancePredictor;
 
@@ -86,6 +89,7 @@ fn predict_race_performance(
                 &best_activity.start_date(),
                 athlete,
                 algorithm_config,
+                zone,
             );
 
             // Convert predictions HashMap to JSON array format for consistency
@@ -152,7 +156,8 @@ fn predict_race_performance(
 /// Confidence factors per B6 roadmap:
 /// - Recency of best performance (< 30 days = high confidence)
 /// - Training volume (high CTL = more confidence), each run's stress scored
-///   against `athlete`, the thresholds saved with `set_physiology`
+///   against `athlete`, the thresholds saved with `set_physiology`, the load
+///   read as of the athlete's today in `zone`
 /// - Number of recent races and consistency
 #[allow(clippy::cast_precision_loss, clippy::bool_to_int_with_if)] // Multi-level threshold scoring, not simple boolean conversion
 fn calculate_prediction_confidence(
@@ -160,12 +165,14 @@ fn calculate_prediction_confidence(
     best_activity_date: &chrono::DateTime<chrono::Utc>,
     athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
+    zone: Tz,
 ) -> String {
     use chrono::Utc;
     use TrainingLoadCalculator;
 
+    let now = Utc::now();
     // Factor 1: Recency (< 30 days = high confidence)
-    let days_since_best = (Utc::now() - *best_activity_date).num_days();
+    let days_since_best = (now - *best_activity_date).num_days();
     let recency_score = if days_since_best < 30 {
         2 // Recent performance
     } else if days_since_best < 90 {
@@ -178,8 +185,7 @@ fn calculate_prediction_confidence(
     let mut owned_activities: Vec<_> = activities.iter().copied().cloned().collect();
     // Sort oldest-first — EMA calculation requires chronological order
     owned_activities.sort_by_key(Activity::start_date);
-    let calculator =
-        TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
+    let calculator = TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, now);
     let ctl_score = if let Ok(training_load) = athlete.training_load(&calculator, &owned_activities)
     {
         if training_load.ctl > 80.0 {
@@ -295,6 +301,7 @@ pub(crate) fn handle_predict_performance(
                             target_sport,
                             &athlete,
                             &executor.cageux_config().algorithms,
+                            athlete_zone(executor.resources.repos(), user_uuid).await,
                         );
 
                         with_caveat(

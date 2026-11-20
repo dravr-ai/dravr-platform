@@ -32,6 +32,7 @@
 use std::cmp::Reverse;
 
 use chrono::{Duration, Utc};
+use chrono_tz::Tz;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_fitness_compute::AthleteInputs;
@@ -92,6 +93,7 @@ fn an_improving_athlete_does_not_score_zero_for_performance() {
         "quarter",
         &AthleteInputs::default(),
         &AlgorithmConfig::default(),
+        Tz::UTC,
         providers(),
     );
 
@@ -120,8 +122,22 @@ fn the_scoring_window_does_not_truncate_chronic_load() {
     let config = AlgorithmConfig::default();
 
     let athlete = AthleteInputs::default();
-    let wide = calculate_fitness_metrics(&activities, "all_time", &athlete, &config, providers());
-    let narrow = calculate_fitness_metrics(&activities, "month", &athlete, &config, providers());
+    let wide = calculate_fitness_metrics(
+        &activities,
+        "all_time",
+        &athlete,
+        &config,
+        Tz::UTC,
+        providers(),
+    );
+    let narrow = calculate_fitness_metrics(
+        &activities,
+        "month",
+        &athlete,
+        &config,
+        Tz::UTC,
+        providers(),
+    );
 
     let (FitnessScoreResult::Scored(wide), FitnessScoreResult::Scored(narrow)) = (wide, narrow)
     else {
@@ -165,6 +181,7 @@ fn the_ctl_sentence_comes_from_config_not_a_hardcoded_42() {
         "quarter",
         &AthleteInputs::default(),
         &config,
+        Tz::UTC,
         providers(),
     );
     let FitnessScoreResult::Scored(detail) = result else {

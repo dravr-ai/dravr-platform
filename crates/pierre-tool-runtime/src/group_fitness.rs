@@ -258,69 +258,6 @@ pub async fn fetch_member_snapshots_in(
 // plan tools' `athlete=` resolution all render a member by that one function.
 use pierre_services::athlete_display_name::fetch_athlete_identity;
 
-/// Each of the athlete's own calendar days' summed TSS, every session
-/// scored against the member's saved thresholds and bucketed on the day it
-/// started where they live — the day the roster lists it on, and the day
-/// `get_training_history` counts it on ([`local_date`]).
-///
-/// cageux's own as-of reading sums on UTC days, which put a Kiritimati
-/// evening on the day before and a session just west of the date line on the
-/// day after (carnet#1640), so the platform buckets and cageux smooths
-/// ([`TrainingLoadAlgorithm::daily_series`]), as the history does.
-///
-/// Logs one line per session with its TSS plus an aggregate: diagnoses why
-/// an athlete with N workouts can land at an unexpectedly low CTL/ATL (e.g.
-/// WHOOP entries with no distance/HR falling through to the duration-only
-/// fallback).
-fn daily_tss(
-    activities: &[Activity],
-    athlete: &AthleteInputs,
-    algorithm_config: &AlgorithmConfig,
-    as_of: NaiveDate,
-    zone: Tz,
-) -> BTreeMap<NaiveDate, f64> {
-    // Scores sessions only: the day this calculator reports is never read.
-    let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone(), as_of);
-    let mut totals: BTreeMap<NaiveDate, f64> = BTreeMap::new();
-    let mut tss_skipped = 0_usize;
-    for a in activities {
-        if let Ok(tss) = athlete.tss(&calculator, a) {
-            *totals
-                .entry(local_date(a.start_date(), zone))
-                .or_insert(0.0) += tss;
-            debug!(
-                activity_id = %a.id(),
-                name = %a.name(),
-                sport = ?a.sport_type(),
-                start = %a.start_date(),
-                duration_s = a.duration_seconds(),
-                distance_m = ?a.distance_meters(),
-                tss,
-                "Snapshot TSS per-activity"
-            );
-        } else {
-            tss_skipped += 1;
-            info!(
-                activity_id = %a.id(),
-                name = %a.name(),
-                sport = ?a.sport_type(),
-                start = %a.start_date(),
-                duration_s = a.duration_seconds(),
-                distance_m = ?a.distance_meters(),
-                "Snapshot TSS skipped — no estimator could produce a value"
-            );
-        }
-    }
-    info!(
-        total_activities = activities.len(),
-        tss_included = activities.len() - tss_skipped,
-        tss_skipped,
-        total_tss = totals.values().sum::<f64>(),
-        "Snapshot TSS aggregate"
-    );
-    totals
-}
-
 /// The training load on `day` of the athlete's calendar: CTL and ATL at its
 /// end, form (`tsb` over `form_ctl`) from the end of the day before, a
 /// session after it not counted. `None` when the calculation fails.
@@ -721,11 +658,27 @@ fn build_snapshot_from_activities(
     // in, so `computed_at` read on their clock names the day the form reading
     // describes and the deep-fatigue mornings are counted back from the day
     // the roster dates the first of them by (carnet#1640).
+    //
+    // The daily split is cageux's, the one `get_training_history` reads: each
+    // session scored against the member's saved thresholds and counted on
+    // the day it started where they live.
     let zone = resolve_zone(timezone.as_deref());
-    let today = clock_date(now, zone);
-    let algorithm = algorithm_config.training_load_algorithm();
-    let daily =
-        athlete.map(|athlete| daily_tss(activities, athlete, algorithm_config, today, zone));
+    let calculator = TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, now);
+    let today = calculator.as_of();
+    let algorithm = calculator.algorithm();
+    let daily = athlete.map(|athlete| athlete.daily_tss(&calculator, activities));
+    // Diagnoses a member with N workouts landing at an unexpectedly low
+    // CTL/ATL (e.g. WHOOP entries with no distance or HR); cageux logs each
+    // session it could not score.
+    if let Some(daily) = &daily {
+        info!(
+            user_id = %user_id,
+            total_activities = activities.len(),
+            days_with_load = daily.len(),
+            total_tss = daily.values().sum::<f64>(),
+            "Snapshot TSS aggregate"
+        );
+    }
     let load = daily
         .as_ref()
         .and_then(|daily| load_on(&algorithm, daily, today));
@@ -925,6 +878,7 @@ fn assess_overtraining_risk(load: Option<&DailyTrainingLoad>) -> OvertrainingRis
 mod tests {
     use chrono::TimeZone;
     use pierre_core::models::{ActivityBuilder, SportType};
+    use pierre_fitness_compute::compute_training_history;
 
     use super::*;
 
@@ -1099,7 +1053,8 @@ mod tests {
             assert_eq!(snapshot.computed_on(), here, "{zone} at {now}");
             let config = AlgorithmConfig::default();
             let activities = hard_week_ending_yesterday(now, tz);
-            let daily = daily_tss(&activities, &ada_thresholds(), &config, here, tz);
+            let calculator = TrainingLoadCalculator::as_of_today(config.clone(), tz, now);
+            let daily = ada_thresholds().daily_tss(&calculator, &activities);
             let expected = load_on(&config.training_load_algorithm(), &daily, here).unwrap();
             assert_eq!(snapshot.ctl, Some(expected.ctl), "{zone} at {now}");
             assert_eq!(snapshot.tsb, Some(expected.tsb), "{zone} at {now}");
@@ -1111,6 +1066,76 @@ mod tests {
                 "{zone} at {now}: the last run is bucketed on her yesterday"
             );
         }
+    }
+
+    #[test]
+    fn the_roster_reads_the_load_the_training_history_reads_for_her_day() {
+        // One daily split, cageux's: the roster's CTL, ATL and form on her
+        // today are the history's row for that day, in every zone at every
+        // hour (carnet#1663).
+        for (now, zone) in readings() {
+            let snapshot = snapshot_at(now, zone);
+            let tz = resolve_zone(Some(zone));
+            let here = clock_date(now, tz);
+            let rows = compute_training_history(
+                &hard_week_ending_yesterday(now, tz),
+                ada_thresholds(),
+                here - Days::new(5),
+                here,
+                &AlgorithmConfig::default(),
+                Some(zone),
+            )
+            .unwrap();
+            let row = rows.last().unwrap();
+            assert_eq!(row.date, here, "{zone} at {now}");
+            assert_eq!(snapshot.ctl, Some(row.ctl), "{zone} at {now}");
+            assert_eq!(snapshot.atl, Some(row.atl), "{zone} at {now}");
+            assert_eq!(snapshot.tsb, Some(row.tsb), "{zone} at {now}");
+        }
+    }
+
+    #[test]
+    fn a_session_without_training_stress_leaves_the_roster_load_alone() {
+        // A provider-scored zero, two days before her first run: kept, it
+        // would open her history there and lower the seed of every load.
+        let (now, zone) = readings()[0];
+        let tz: Tz = zone.parse().unwrap();
+        let mut activities = hard_week_ending_yesterday(now, tz);
+        let first = activities.iter().map(Activity::start_date).min().unwrap();
+        activities.push(
+            ActivityBuilder::new(
+                "walk",
+                "Marche",
+                SportType::Walk,
+                first - Duration::days(2),
+                1_200,
+                "whoop",
+            )
+            .training_stress_score(0.0)
+            .build(),
+        );
+        let with_walk = build_snapshot_from_activities(
+            Uuid::nil(),
+            "Ada".to_owned(),
+            Some(zone.to_owned()),
+            &activities,
+            now,
+            Some(&ada_thresholds()),
+            &AlgorithmConfig::default(),
+        );
+        let without = snapshot_at(now, zone);
+        assert_eq!(
+            with_walk.ctl, without.ctl,
+            "bug: a zero-TSS session moved the roster CTL"
+        );
+        assert_eq!(
+            with_walk.atl, without.atl,
+            "bug: a zero-TSS session moved the roster ATL"
+        );
+        assert_eq!(
+            with_walk.tsb, without.tsb,
+            "bug: a zero-TSS session moved the roster form"
+        );
     }
 
     #[test]

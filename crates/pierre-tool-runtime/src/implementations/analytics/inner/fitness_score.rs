@@ -22,6 +22,7 @@ use crate::read_subject::{self, WellnessInput};
 #[cfg(feature = "client-notifications")]
 use crate::runtime::ToolRuntime;
 use chrono::{DateTime, Utc};
+use chrono_tz::Tz;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use dravr_cageux::sleep_analysis::SleepAnalyzer;
@@ -34,6 +35,7 @@ use pierre_notifications::triggers as notification_triggers;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::TenantId;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_services::athlete_clock::athlete_zone;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -124,14 +126,17 @@ async fn fetch_and_calculate_recovery_adjustment(
     })
 }
 
-/// Calculate fitness metrics using the 3-component formula with
-/// `TrainingLoadCalculator`, each session's stress scored against `athlete`,
-/// the thresholds saved with `set_physiology`.
+/// Calculate fitness metrics using the 3-component formula with `TrainingLoadCalculator`.
+///
+/// Each session's stress is scored against `athlete`, the thresholds saved
+/// with `set_physiology`, and the load is read as of the athlete's today in
+/// `zone`.
 pub fn calculate_fitness_metrics(
     activities: &[Activity],
     timeframe: &str,
     athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
+    zone: Tz,
     providers_used: ProvidersUsed,
 ) -> FitnessScoreResult {
     use chrono::{Duration, Utc};
@@ -206,8 +211,7 @@ pub fn calculate_fitness_metrics(
     // Chronic load is a point-in-time state, not a windowed aggregate;
     // truncating its input does not narrow the answer, it misstates it
     // (registre#415).
-    let calculator =
-        TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
+    let calculator = TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, now);
     let training_load = athlete.training_load(&calculator, &chronological).ok();
 
     let ctl = training_load.as_ref().map_or(0.0, |l| l.ctl);
@@ -549,6 +553,7 @@ pub(crate) fn handle_calculate_fitness_score(
                             timeframe,
                             &athlete,
                             &executor.cageux_config().algorithms,
+                            athlete_zone(executor.resources.repos(), user_uuid).await,
                             ProvidersUsed {
                                 activity_provider: provider_name.clone(),
                                 sleep_provider: sleep_provider.map(str::to_owned),

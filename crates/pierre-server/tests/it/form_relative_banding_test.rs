@@ -9,6 +9,7 @@
 #![allow(missing_docs)]
 
 use chrono::{Duration, NaiveDate, Utc};
+use chrono_tz::Tz;
 use dravr_cageux::algorithms::training_load::DailyTrainingLoad;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
@@ -351,6 +352,7 @@ fn load_payload(activities: &[Activity]) -> serde_json::Value {
         activities,
         &AthleteInputs::default(),
         &AlgorithmConfig::default(),
+        Tz::UTC,
         ProvidersUsed {
             activity_provider: "strava".to_owned(),
             sleep_provider: None,
@@ -591,6 +593,7 @@ fn training_load_payload_reports_form_pct_and_band() {
         &elite_block_activities(),
         &AthleteInputs::default(),
         &AlgorithmConfig::default(),
+        Tz::UTC,
         ProvidersUsed {
             activity_provider: "strava".to_owned(),
             sleep_provider: None,

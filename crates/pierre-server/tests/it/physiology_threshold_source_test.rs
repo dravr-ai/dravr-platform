@@ -21,6 +21,7 @@
 
 use anyhow::Result;
 use chrono::{Duration, Utc};
+use chrono_tz::Tz;
 use dravr_cageux::algorithms::lthr::max_hr_fraction_at_vo2max_fraction;
 use dravr_cageux::training_load::TrainingLoadCalculator;
 use pierre_core::models::activity::ActivityBuilder;
@@ -382,6 +383,7 @@ async fn analyzed_ctl(
         activities,
         &inputs,
         &executor.cageux_config().algorithms,
+        Tz::UTC,
         ProvidersUsed {
             activity_provider: "strava".to_owned(),
             sleep_provider: None,
@@ -539,6 +541,7 @@ async fn the_fitness_score_reads_the_ftp_saved_with_set_physiology() -> Result<(
         "month",
         inputs,
         config,
+        Tz::UTC,
         providers(),
     ) {
         FitnessScoreResult::Scored(detail) => detail.metrics.ctl,

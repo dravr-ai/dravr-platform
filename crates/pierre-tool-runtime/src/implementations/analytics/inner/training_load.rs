@@ -20,6 +20,7 @@ use crate::read_subject::{self, WellnessInput};
 #[cfg(feature = "client-notifications")]
 use crate::runtime::ToolRuntime;
 use chrono::Utc;
+use chrono_tz::Tz;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::sleep_analysis::SleepAnalyzer;
 use dravr_cageux::training_load::{TrainingLoadCalculator, TrainingLoadLevel, TssDataPoint};
@@ -32,6 +33,7 @@ use pierre_notifications::triggers as notification_triggers;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::TenantId;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_services::athlete_clock::athlete_zone;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -98,8 +100,11 @@ async fn fetch_recovery_context_for_training_load(
     })
 }
 
-/// Analyze detailed training load from activities, scoring each session
-/// against the thresholds on the athlete's physiological profile.
+/// Analyze detailed training load from activities, as of the athlete's today in `zone`.
+///
+/// Each session is scored against the thresholds on the athlete's
+/// physiological profile and counted on the day it started in `zone`: the
+/// days `get_training_history` and the roster count.
 ///
 /// Public so the payload it builds — `form_band`, `form_assessment`,
 /// `tsb_pct_of_ctl` and the banded `taper_status` — has content coverage. The
@@ -110,6 +115,7 @@ pub fn analyze_detailed_training_load(
     activities: &[Activity],
     params: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
+    zone: Tz,
     providers_used: ProvidersUsed,
 ) -> TrainingLoadResult {
     use TrainingLoadCalculator;
@@ -128,7 +134,7 @@ pub fn analyze_detailed_training_load(
     sorted_activities.sort_by_key(Activity::start_date);
 
     let calculator =
-        TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
+        TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, Utc::now());
 
     // The saved thresholds: when present, they enable power-based (FTP) or
     // HR-based (LTHR) TSS instead of the less accurate pace-based fallback.
@@ -419,6 +425,7 @@ pub(crate) fn handle_analyze_training_load(
                             &activities,
                             &physio_params,
                             &executor.cageux_config().algorithms,
+                            athlete_zone(executor.resources.repos(), user_uuid).await,
                             ProvidersUsed {
                                 activity_provider: provider_name.clone(),
                                 sleep_provider: sleep_provider.map(str::to_owned),
