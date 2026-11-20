@@ -532,6 +532,7 @@ jobs:
           ./scripts/ci/dev-process-scope.test.sh
           ./scripts/ci/tunnel-env-lib.test.sh
           ./scripts/ci/pre-push-validate.test.sh
+          ./scripts/ci/remote-clippy-verdict.test.sh
           ./scripts/ci/server-suites.test.sh
           ./scripts/ci/test-binaries.test.sh
           ./scripts/ci/bench-ab.test.sh
