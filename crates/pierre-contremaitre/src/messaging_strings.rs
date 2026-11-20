@@ -712,15 +712,10 @@ pub const KEY_PROVIDER_REAUTH_SERVED_NO_LINK: &str = "messaging.provider.reauth_
 /// The sentence ([`KEY_PROVIDER_REAUTH_REQUIRED`]) already carries the URL as
 /// text for channels that only autolink. Where buttons render, the same URL
 /// also rides a `url` `CardAction` labelled with this string, so the athlete
-/// taps instead of copying. `{0}` = provider display name.
-pub const KEY_PROVIDER_RECONNECT_BUTTON: &str = "messaging.provider.reconnect_button";
-
-/// Key: provider-free button label on the reconnect Card.
-///
-/// [`KEY_PROVIDER_RECONNECT_BUTTON`] interpolates the provider name, which
-/// overflows `WhatsApp`'s 20-character `cta_url` label for `Intervals.icu` and
-/// in Spanish. The Card's title already names the provider, so this label is
-/// the bare verb and takes no placeholder. Every locale fits 20 characters.
+/// taps instead of copying. The Card's title names the provider, so the label
+/// is the bare verb and takes no placeholder: a provider name overflows
+/// `WhatsApp`'s 20-character `cta_url` label for `Intervals.icu` and in
+/// Spanish. Every locale fits 20 characters.
 pub const KEY_PROVIDER_RECONNECT_CTA: &str = "messaging.provider.reconnect_cta";
 
 // ── /status command keys ──────────────────────────────────────────────────
