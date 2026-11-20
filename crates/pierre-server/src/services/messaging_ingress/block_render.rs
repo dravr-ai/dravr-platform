@@ -33,7 +33,7 @@ use pierre_chat_pipeline::{
     AssistantTurn, NoticeKind, QuotaLevel, QuotaWarningState, RenderCapabilities, ReplyBlock,
 };
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_PROVIDER_RECONNECT_BUTTON, KEY_QUOTA_BURST, KEY_QUOTA_WARNING,
+    MessagingStringsRegistry, KEY_PROVIDER_RECONNECT_CTA, KEY_QUOTA_BURST, KEY_QUOTA_WARNING,
 };
 use pierre_core::chunking::chunk_reply;
 use pierre_core::models::messaging::{CardAction, MessageContent, OutgoingMessage};
@@ -305,7 +305,7 @@ fn reconnect_control(
         title: display_name.to_owned(),
         body: String::new(),
         actions: vec![CardAction {
-            label: registry.render(KEY_PROVIDER_RECONNECT_BUTTON, locale, &[display_name]),
+            label: registry.get(KEY_PROVIDER_RECONNECT_CTA, locale),
             action_type: "url".to_owned(),
             value: url.to_owned(),
         }],

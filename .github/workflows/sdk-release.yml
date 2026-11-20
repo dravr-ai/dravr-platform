@@ -25,7 +25,7 @@ permissions:
 jobs:
   validate:
     name: Validate Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # version and npm checks, seconds
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
@@ -116,7 +116,7 @@ jobs:
   build-and-test:
     name: Build and Test SDK
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20  # lint, type check, build and unit tests
 
     steps:
@@ -190,7 +190,7 @@ jobs:
   attach-mcpb:
     name: Attach Claude Desktop bundle to the release
     needs: [validate, build-and-test]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5  # one asset upload
     if: github.event_name == 'release'
     permissions:
@@ -214,7 +214,7 @@ jobs:
   publish-npm:
     name: Publish to npm
     needs: [validate, build-and-test]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15  # npm publish and a read-back
     if: github.event.inputs.dry_run != 'true'
 
@@ -279,7 +279,7 @@ jobs:
   publish-summary:
     name: Release Summary
     needs: [validate, publish-npm, attach-mcpb]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5  # writes the summary
     if: always() && needs.validate.result == 'success'
 

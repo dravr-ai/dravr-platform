@@ -24,13 +24,18 @@ on:
         description: "How many minutes back to scan for errors"
         required: false
         default: "60"
-  workflow_run:
-    workflows: ["Deploy: Build & Ship (dev)"]
-    types: [completed]
+  # Called by publish-images.yml's verify-dev job, after a deploy-dev that
+  # succeeded, and only then. As a workflow_run of every Deploy run it ran once
+  # per skipped or cancelled deploy too, skipping its job each time: 15 of 24
+  # runs on 2026-11-19 were that noise (JF, 2026-11-19).
+  workflow_call:
+    inputs:
+      minutes:
+        description: "How many minutes back to scan for errors"
+        required: false
+        type: string
+        default: "60"
 
-concurrency:
-  group: post-deploy-verify
-  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -39,14 +44,15 @@ permissions:
 jobs:
   verify:
     name: Verify the deployed revision is healthy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # One verification at a time, a deploy's or a manual one.
+    concurrency:
+      group: post-deploy-verify
+      cancel-in-progress: false
     # On workflow_run, only verify a deploy that actually succeeded — verifying
     # after a failed rollout would report the PREVIOUS revision as healthy and
     # read as confirmation that the failed deploy was fine.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
 
     steps:
       - name: Authenticate to Google Cloud
@@ -88,7 +94,7 @@ jobs:
         id: errors
         run: |
           set -euo pipefail
-          MINS="${{ github.event.inputs.minutes || '60' }}"
+          MINS="${{ inputs.minutes || '60' }}"
           SERVICE="${{ vars.GCP_DEV_SERVICE_NAME }}-api"
           FRESH="${MINS}m"
 
@@ -127,7 +133,7 @@ jobs:
         if: steps.errors.outputs.errors != '0'
         run: |
           set -euo pipefail
-          MINS="${{ github.event.inputs.minutes || '60' }}"
+          MINS="${{ inputs.minutes || '60' }}"
           SERVICE="${{ vars.GCP_DEV_SERVICE_NAME }}-api"
           {
             echo "### ERROR-line sample"

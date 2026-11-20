@@ -112,6 +112,18 @@ pub fn channel_allows_proactive(
     }
 }
 
+/// The athlete's last inbound message on a messaging session row — the
+/// `last_inbound` [`channel_allows_proactive`] reads. Only an inbound message
+/// touches the session, so its `last_message_at` is that instant; `None` when
+/// the row carries none that parses, which the window reads as closed.
+pub(crate) fn session_last_inbound(session: &Value) -> Option<DateTime<Utc>> {
+    session
+        .get("last_message_at")
+        .and_then(Value::as_str)
+        .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
+        .map(|at| at.with_timezone(&Utc))
+}
+
 /// Where a verdict resolved to.
 struct ChannelRoute {
     /// Channel slug for config load and the route label.
@@ -244,11 +256,7 @@ impl ServerCommitmentReporter {
                 .and_then(Value::as_str),
             channel_user_id,
         );
-        let last_inbound = session
-            .get("last_message_at")
-            .and_then(Value::as_str)
-            .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
-            .map(|dt| dt.with_timezone(&Utc));
+        let last_inbound = session_last_inbound(&session);
 
         let Ok(channel_type) = ChannelType::from_str(channel_str) else {
             warn!(channel = %channel_str, "commitment verdict: unknown channel type");

@@ -1,0 +1,173 @@
+{
+  "$comment": "Which work runs in a Claude Code on the web session instead of on this machine. Read by the remote-work skill's guard hook and by remote-work.sh prepare (dravr-savoir platform/skills/remote-work/policy.sh). An entry names a command by 'match' (words at a command position) or 'pattern' (an extended regex matched anywhere). Overrides for one developer go in .claude/remote-work.local.json (git-ignored), deep-merged over this file; a list there replaces the list here.",
+  "pressure": {
+    "$comment": "A permitted entry with remote_when_busy goes remote while either threshold is crossed: 1-minute load per core, or swap in use in GB. macOS grows swap on demand, so a swap percentage reads near 100% whenever anything is swapped; GB is the meaningful unit.",
+    "load_per_core": 1.5,
+    "swap_used_gb": 12
+  },
+  "forced": [
+    {
+      "match": "cargo clippy",
+      "why": "strict clippy is heavy; the cloud runs it exactly as CI does"
+    }
+  ],
+  "permitted": [
+    {
+      "match": "cargo test",
+      "remote_when_busy": true
+    },
+    {
+      "match": "cargo nextest",
+      "remote_when_busy": true
+    },
+    {
+      "match": "cargo check",
+      "remote_when_busy": true
+    },
+    {
+      "match": "cargo build",
+      "remote_when_busy": true
+    },
+    {
+      "match": "rustc"
+    }
+  ],
+  "prohibited": [
+    {
+      "match": "cargo run",
+      "why": "needs the local stack: port 8081, the dev database, .envrc"
+    },
+    {
+      "pattern": "(^|[/[:space:]])bin/(start-server|stop-server|setup-db-with-seeds[^[:space:]]*)\\.sh",
+      "why": "starts or resets the local dev stack"
+    },
+    {
+      "pattern": "(^|[[:space:];&|(])(bun|npm|npx|yarn|pnpm)[[:space:]]+(run[[:space:]]+)?(dev|start|tunnel|e2e[^[:space:]]*|test:e2e[^[:space:]]*)",
+      "why": "dev servers, tunnels and e2e need the local stack, a browser or a simulator"
+    },
+    {
+      "pattern": "(^|[[:space:];&|(])(expo|maestro|playwright|xcrun|adb)([[:space:]]|$)",
+      "why": "needs a simulator, a device or a browser"
+    },
+    {
+      "match": "git push",
+      "why": "outward-facing: a remote runner never publishes"
+    },
+    {
+      "pattern": "(^|[[:space:];&|(])gh[[:space:]]+(release|workflow|pr|issue|api)",
+      "why": "outward-facing GitHub action"
+    },
+    {
+      "pattern": "(^|[[:space:];&|(])(gcloud|terraform|kubectl|docker[[:space:]]+push)([[:space:]]|$)",
+      "why": "outward-facing: changes cloud infrastructure"
+    },
+    {
+      "pattern": "carnet\\.sh",
+      "why": "outward-facing: writes the tracker"
+    },
+    {
+      "pattern": "\\.envrc|direnv|\\.env([[:space:]]|$)|GITHUB_PERSONAL_ACCESS_TOKEN|_SECRET|_TOKEN=",
+      "why": "touches secrets, which would travel into a cloud session"
+    }
+  ],
+  "unlisted": "local",
+  "sessions": {
+    "$comment": "What a cloud session is for, in this project. remote_role is enforced by remote-work.sh: \"verify\" makes prepare refuse --commit; \"commit\" lets a run commit to refs/remote-work/<id> only.",
+    "remote_role": "commit",
+    "rules": [
+      "A cloud session builds and tests the patch prepare sends and answers a VERDICT. It commits only when prepare --commit asks, and only to refs/remote-work/<id>: never a branch, never main, no CI.",
+      "remote-work.sh land recreates that commit on a local feature branch, signed and through the local hooks; pushes go from this machine and CI on the pushed SHA is the final word.",
+      "Every routine carries clear_mcp_connections: true. A cloud session never releases, deploys or writes the tracker."
+    ]
+  },
+  "remote": {
+    "$comment": "How a run is built (remote-work.sh prepare). sources are attached to the cloud session; the proxy authenticates only attached repos, and every dravr-ai git dependency in Cargo.lock is private, so cargo_git_owner attaches those too.",
+    "model": "claude-sonnet-5-5",
+    "describe": "the dravr-platform Rust workspace",
+    "sources": [
+      "dravr-ai/dravr-platform",
+      "dravr-ai/dravr-savoir",
+      "dravr-ai/dravr-build-config",
+      "dravr-ai/llm-registre"
+    ],
+    "cargo_git_owner": "dravr-ai",
+    "bootstrap": [
+      "git submodule update --init --recursive && bash .build/ci/savoir.sh sync && head -1 .savoir/platform/AGENTS.md",
+      "rustup component add clippy"
+    ],
+    "run_prefix": "CARGO_NET_GIT_FETCH_WITH_CLI=true CARGO_BUILD_WARNINGS=deny",
+    "default_command": "cargo clippy --workspace --all-targets --all-features --keep-going",
+    "default_label": "workspace",
+    "patch_command": "scripts/ci/remote-clippy-verdict.sh patch",
+    "sent_command": "scripts/ci/remote-clippy-verdict.sh sent",
+    "fallback": "push a feature/* or claude/* branch and read CI (scripts/ci/ci-verdict.sh <sha>)",
+    "clean_keep": "target"
+  },
+  "examples": [
+    {
+      "cmd": "CARGO_BUILD_WARNINGS=deny cargo clippy --workspace",
+      "class": "forced"
+    },
+    {
+      "cmd": "cargo clippy --workspace --all-targets --all-features --keep-going",
+      "class": "forced",
+      "sendable": true
+    },
+    {
+      "cmd": "cargo test -p pierre_mcp_server --test it -- auth::",
+      "class": "permitted",
+      "sendable": true
+    },
+    {
+      "cmd": "cargo run --bin pierre-cli -- token list",
+      "class": "prohibited",
+      "sendable": false
+    },
+    {
+      "cmd": "./bin/start-server.sh",
+      "class": "prohibited"
+    },
+    {
+      "cmd": "./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh",
+      "class": "prohibited"
+    },
+    {
+      "cmd": "bun run dev",
+      "class": "prohibited"
+    },
+    {
+      "cmd": "bun run test:e2e",
+      "class": "prohibited"
+    },
+    {
+      "cmd": "maestro test flows/",
+      "class": "prohibited"
+    },
+    {
+      "cmd": "git push origin main",
+      "class": "prohibited",
+      "sendable": false
+    },
+    {
+      "cmd": "gh release create v1",
+      "class": "prohibited"
+    },
+    {
+      "cmd": "terraform apply",
+      "class": "prohibited"
+    },
+    {
+      "cmd": ".claude/skills/carnet/carnet.sh claim 12",
+      "class": "prohibited"
+    },
+    {
+      "cmd": "direnv exec . cargo test",
+      "class": "prohibited"
+    },
+    {
+      "cmd": "bun run test -- --run",
+      "class": "unlisted",
+      "sendable": false
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 // ABOUTME: The one MessagingRepository implementation, emitted per backend by impl_messaging_repository! with that backend's id codec
-// ABOUTME: Row-to-JSON projections and the trait body over the statements in repositories/messaging.rs; the shells are one line each
+// ABOUTME: Row-to-JSON projections and the trait body over the statements in repositories/messaging/sql.rs; the shells are one line each
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -457,10 +457,66 @@ macro_rules! impl_messaging_repository {
                     .bind(params.correlation_id)
                     .bind(params.raw_payload)
                     .bind(params.chat_message_id)
+                    .bind(params.proactive_purpose)
                     .bind(Utc::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to insert message: {e}")))?;
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn find_proactive_notice(
+                &self,
+                tenant_id: TenantId,
+                channel_type: &str,
+                channel_message_id: &str,
+            ) -> AppResult<Option<ProactiveNotice>> {
+                let rows = sqlx::query(PROACTIVE_NOTICE_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(channel_type)
+                    .bind(channel_message_id)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read a proactive notice: {e}"))
+                    })?;
+                let Some(first) = rows.first() else {
+                    return Ok(None);
+                };
+                let parts = rows
+                    .iter()
+                    .map(|row| {
+                        Ok(ProactiveNoticePart {
+                            id: text_column(row, "id")?,
+                            channel_message_id: text_column(row, "channel_message_id")?,
+                            content_body: text_column_opt(row, "content_body")?,
+                            chat_message_id: text_column_opt(row, "chat_message_id")?,
+                        })
+                    })
+                    .collect::<AppResult<Vec<_>>>()?;
+                Ok(Some(ProactiveNotice {
+                    purpose: text_column(first, "proactive_purpose")?,
+                    user_id: $ids::read_text(first, "user_id")?,
+                    conversation_id: text_column_opt(first, "pierre_conversation_id")?,
+                    parts,
+                }))
+            }
+
+            async fn stamp_notice_chat_message(
+                &self,
+                tenant_id: TenantId,
+                message_id: &str,
+                chat_message_id: &str,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(STAMP_NOTICE_CHAT_MESSAGE_SQL)
+                    .bind(chat_message_id)
+                    .bind(tenant_id.to_string())
+                    .bind(message_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to stamp a notice's chat row: {e}"))
+                    })?;
                 Ok(result.rows_affected() > 0)
             }
 
@@ -609,6 +665,12 @@ macro_rules! impl_messaging_repository {
                 &self,
                 params: &CreateChannelLinkParams<'_>,
             ) -> AppResult<()> {
+                if !is_routable_sender_id(params.channel_user_id) {
+                    return Err(AppError::invalid_input(format!(
+                        "Refusing to link a {} identity that names no single sender",
+                        params.channel_type
+                    )));
+                }
                 sqlx::query(CREATE_CHANNEL_LINK_SQL)
                     .bind(params.id)
                     .bind(params.tenant_id)
@@ -636,6 +698,54 @@ macro_rules! impl_messaging_repository {
                         }
                     })?;
                 Ok(())
+            }
+
+            async fn rekey_channel_identity(
+                &self,
+                params: &RekeyChannelIdentityParams<'_>,
+            ) -> AppResult<bool> {
+                let rekey_error = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to re-key channel identity: {e}"))
+                };
+                let user_id = $ids::bind_text(params.user_id)?;
+                let mut tx = self.pool().begin().await.map_err(rekey_error)?;
+                let moved = sqlx::query(REKEY_CHANNEL_LINK_SQL)
+                    .bind(params.to_channel_user_id)
+                    .bind(params.link_tenant_id)
+                    .bind(params.channel_type)
+                    .bind(params.from_channel_user_id)
+                    .bind(user_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(rekey_error)?
+                    .rows_affected()
+                    == 1;
+                if !moved {
+                    tx.rollback().await.map_err(rekey_error)?;
+                    return Ok(false);
+                }
+                sqlx::query(REKEY_CHANNEL_SESSIONS_SQL)
+                    .bind(params.to_channel_user_id)
+                    .bind(params.session_tenant_id)
+                    .bind(params.link_tenant_id)
+                    .bind(user_id)
+                    .bind(params.channel_type)
+                    .bind(params.from_channel_user_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(rekey_error)?;
+                sqlx::query(REKEY_RESUMABLE_TURNS_SQL)
+                    .bind(params.to_channel_user_id)
+                    .bind(params.session_tenant_id.to_string())
+                    .bind(params.link_tenant_id.to_string())
+                    .bind(params.user_id)
+                    .bind(params.channel_type)
+                    .bind(params.from_channel_user_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(rekey_error)?;
+                tx.commit().await.map_err(rekey_error)?;
+                Ok(true)
             }
 
             async fn get_channel_link(

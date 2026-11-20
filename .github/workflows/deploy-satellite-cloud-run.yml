@@ -98,7 +98,7 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy ${{ inputs.service }} to dev
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Fixed, not computed from the services found: a job killed by its timeout
     # skips the rollback, so the bound must cover the worst case, rollback
     # included. Per wait: quiesce 15 min, settle 10, a probe under 3, the read
@@ -501,7 +501,7 @@ jobs:
   # ---------------------------------------------------------------------------
   tag-deployed:
     name: Tag Deployed Digest (${{ inputs.service }}, dev)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # one Artifact Registry tag, ~20 s
     needs: deploy
     # Explicit, not defaulted: tag only a deploy that succeeded, so a rolled-back
@@ -575,7 +575,7 @@ jobs:
   # the version the binary expects before the binary starts up.
   platform:
     name: Ship the platform binary carrying the new crate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5  # dispatches publish-images.yml, ~15 s
     needs: deploy
     if: ${{ !cancelled() && inputs.ship_platform && needs.deploy.result == 'success' }}

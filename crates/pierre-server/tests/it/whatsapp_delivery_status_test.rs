@@ -60,6 +60,31 @@ fn parses_a_delivered_status_without_error() {
 }
 
 #[test]
+fn a_status_for_a_reply_sent_to_a_bsuid_names_the_bsuid() {
+    // A reply addressed through `recipient` to a business-scoped user id comes
+    // back with `recipient_id` omitted when Meta cannot share the phone number;
+    // `recipient_user_id` always carries the BSUID (carnet#1668).
+    let body = br#"{"entry":[{"changes":[{"value":{"statuses":[
+        {"id":"wamid.B","status":"failed","recipient_user_id":"US.13491208655302741918",
+         "errors":[{"code":131047,"title":"Re-engagement message"}]}
+    ]}}]}]}"#;
+    let statuses = parse_whatsapp_delivery_statuses(body);
+    assert_eq!(statuses.len(), 1);
+    assert_eq!(statuses[0].recipient_id, "US.13491208655302741918");
+    assert_eq!(statuses[0].error_code, Some(131_047));
+}
+
+#[test]
+fn a_status_naming_both_ids_keeps_the_phone_number() {
+    let body = br#"{"entry":[{"changes":[{"value":{"statuses":[
+        {"id":"wamid.C","status":"delivered","recipient_id":"14502244753",
+         "recipient_user_id":"US.13491208655302741918"}
+    ]}}]}]}"#;
+    let statuses = parse_whatsapp_delivery_statuses(body);
+    assert_eq!(statuses[0].recipient_id, "14502244753");
+}
+
+#[test]
 fn inbound_message_webhook_yields_no_statuses() {
     // A normal inbound user message carries `value.messages[]`, not `statuses[]`.
     let body = br#"{"entry":[{"changes":[{"value":{"messages":[

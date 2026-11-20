@@ -40,6 +40,7 @@ use std::fmt;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, UserTier};
+use pierre_core::usage_log::{self, LimitHit};
 use pierre_database::RepositoryRegistry;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use tracing::{debug, info};
@@ -273,7 +274,10 @@ pub async fn check_quotas(
 
     let subject = resolve_quota_subject(inputs.repos, user_id).await;
     match run_ladder(inputs, tenant_id, user_id, &subject.tier, surface).await {
-        Ok(warning) => Ok(warning),
+        Ok(warning) => Ok(warning.map(|(limit_type, check)| {
+            report_warning(tenant_id, user_id, surface, limit_type, &check);
+            check
+        })),
         Err(LadderStop::Failed(error)) => Err(error),
         Err(LadderStop::Cap(breach)) => {
             report_limit_reached(tenant_id, user_id, &subject, surface, &breach);
@@ -325,7 +329,7 @@ async fn run_ladder(
     user_id: Uuid,
     tier: &UserTier,
     surface: &QuotaSurface<'_>,
-) -> Result<Option<LimitCheckResult>, LadderStop> {
+) -> Result<Option<(&'static str, LimitCheckResult)>, LadderStop> {
     // Degrade to compile-time tier defaults (rather than skipping
     // enforcement) when the admin config service is unavailable.
     let compiled_defaults: &dyn AdminConfigLookup = default_admin_config();
@@ -436,106 +440,70 @@ fn select_usage_warning(
     daily_msg_check: &LimitCheckResult,
     daily_token_check: &LimitCheckResult,
     weekly_token_check: &LimitCheckResult,
-) -> Option<LimitCheckResult> {
-    let checks: [&LimitCheckResult; 3] = [weekly_token_check, daily_token_check, daily_msg_check];
+) -> Option<(&'static str, LimitCheckResult)> {
+    let checks: [(&'static str, &LimitCheckResult); 3] = [
+        ("weekly_tokens", weekly_token_check),
+        ("daily_tokens", daily_token_check),
+        ("daily_messages", daily_msg_check),
+    ];
 
     checks
         .iter()
-        .find(|c| c.burst_zone)
-        .or_else(|| checks.iter().find(|c| c.warning))
-        .map(|c| (*c).clone())
+        .find(|(_, c)| c.burst_zone)
+        .or_else(|| checks.iter().find(|(_, c)| c.warning))
+        .map(|(limit_type, c)| (*limit_type, (*c).clone()))
+}
+
+/// Log that the athlete is near `limit_type`, the counter the warning they
+/// will be shown is about. Once per checked request while they stay over the
+/// threshold: the notice itself is shown once per window, but which limit an
+/// athlete was working against is what an operator needs to read back.
+fn report_warning(
+    tenant_id: TenantId,
+    user_id: Uuid,
+    surface: &QuotaSurface<'_>,
+    limit_type: &'static str,
+    check: &LimitCheckResult,
+) {
+    let user_id = user_id.to_string();
+    let tenant_id = tenant_id.to_string();
+    usage_log::warning(
+        &LimitHit {
+            user_id: &user_id,
+            tenant_id: Some(&tenant_id),
+            limit_type,
+            current: check.current,
+            limit: check.limit,
+            surface: surface.label(),
+        },
+        if check.burst_zone {
+            "burst"
+        } else {
+            "approaching"
+        },
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::fmt::Debug as FmtDebug;
-    use std::mem;
-    use std::sync::{Arc, Mutex};
 
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::UserTier;
+    use pierre_core::usage_log;
     use pierre_runtime_context::default_admin_config;
     use pierre_test_support::db::create_test_db;
+    use pierre_test_support::log_capture::{capture_notify, capture_target, drain};
     use pierre_test_support::server::create_test_user;
-    use tracing::field::{Field, Visit};
-    use tracing::span::{Attributes, Id, Record};
-    use tracing::subscriber::{self, DefaultGuard};
-    use tracing::{Event, Metadata, Subscriber};
     use uuid::Uuid;
 
     use super::{
-        check_quotas, refuse_if_at_limit, refuse_if_over_burst, BreachedCap, LadderStop,
-        LimitCheckResult, PreChatScope, QuotaPolicyInputs, QuotaSurface, TenantId,
-        UsageCounterService,
+        check_quotas, refuse_if_at_limit, refuse_if_over_burst, report_warning,
+        select_usage_warning, BreachedCap, LadderStop, LimitCheckResult, PreChatScope,
+        QuotaPolicyInputs, QuotaSurface, TenantId, UsageCounterService,
     };
 
     const RESETS_AT: &str = "2099-01-01T00:00:00Z";
-
-    /// The fields of every `target: "notify"` event emitted on this thread
-    /// while the capture is installed, each rendered as text.
-    type NotifyEvents = Arc<Mutex<Vec<HashMap<String, String>>>>;
-
-    #[derive(Default)]
-    struct FieldText(HashMap<String, String>);
-
-    impl Visit for FieldText {
-        fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-            self.0.insert(field.name().to_owned(), format!("{value:?}"));
-        }
-
-        fn record_str(&mut self, field: &Field, value: &str) {
-            self.0.insert(field.name().to_owned(), value.to_owned());
-        }
-
-        fn record_i64(&mut self, field: &Field, value: i64) {
-            self.0.insert(field.name().to_owned(), value.to_string());
-        }
-    }
-
-    /// A whole subscriber that keeps `notify` events and owns no spans, so no
-    /// span id it hands out is ever resolved elsewhere.
-    #[derive(Default)]
-    struct NotifyCapture(NotifyEvents);
-
-    impl Subscriber for NotifyCapture {
-        fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
-            true
-        }
-
-        fn new_span(&self, _span: &Attributes<'_>) -> Id {
-            Id::from_u64(1)
-        }
-
-        fn record(&self, _span: &Id, _values: &Record<'_>) {}
-
-        fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
-
-        fn event(&self, event: &Event<'_>) {
-            if event.metadata().target() != "notify" {
-                return;
-            }
-            let mut fields = FieldText::default();
-            event.record(&mut fields);
-            self.0.lock().unwrap().push(fields.0);
-        }
-
-        fn enter(&self, _span: &Id) {}
-
-        fn exit(&self, _span: &Id) {}
-    }
-
-    /// Capture this thread's `notify` events until the guard drops.
-    fn capture_notify() -> (NotifyEvents, DefaultGuard) {
-        let capture = NotifyCapture::default();
-        let events = Arc::clone(&capture.0);
-        (events, subscriber::set_default(capture))
-    }
-
-    /// The captured events, leaving none behind.
-    fn drain(events: &NotifyEvents) -> Vec<HashMap<String, String>> {
-        mem::take(&mut *events.lock().unwrap())
-    }
 
     fn check(allowed: bool, current: i64, limit: i64) -> LimitCheckResult {
         LimitCheckResult {
@@ -751,5 +719,62 @@ mod tests {
                 assert!(reported.is_empty(), "{tier:?}: {reported:?}");
             }
         }
+    }
+
+    /// The warning names the counter it is about, burst before warning and
+    /// weekly before daily, so the log can say which limit an athlete is near
+    /// (carnet#1630).
+    #[test]
+    fn the_selected_warning_names_its_counter() {
+        let near = |warning: bool, burst_zone: bool| LimitCheckResult {
+            warning,
+            burst_zone,
+            ..check(true, 400_000, 500_000)
+        };
+        let quiet = near(false, false);
+        assert_eq!(
+            select_usage_warning(&quiet, &near(true, false), &quiet).map(|(name, _)| name),
+            Some("daily_tokens"),
+            "the daily token counter past its warning threshold"
+        );
+        assert_eq!(
+            select_usage_warning(&near(true, false), &near(true, false), &near(false, true))
+                .map(|(name, _)| name),
+            Some("weekly_tokens"),
+            "a burst outranks a warning, whatever the order"
+        );
+        assert!(
+            select_usage_warning(&quiet, &quiet, &quiet).is_none(),
+            "no counter near its limit, no warning"
+        );
+    }
+
+    /// A warning is logged with who, which counter, its numbers and level.
+    #[test]
+    fn a_warning_is_logged_with_its_counter_and_numbers() {
+        let (events, _guard) = capture_target(usage_log::TARGET);
+        let user_id = Uuid::new_v4();
+        let warned = LimitCheckResult {
+            warning: true,
+            ..check(true, 400_447, 500_000)
+        };
+        report_warning(
+            TenantId::generate(),
+            user_id,
+            &QuotaSurface::McpToolCall,
+            "daily_tokens",
+            &warned,
+        );
+        let lines = drain(&events);
+        assert_eq!(lines.len(), 1, "one line per warning: {lines:?}");
+        let line = &lines[0];
+        assert_eq!(line.get("user_id"), Some(&user_id.to_string()));
+        assert_eq!(
+            line.get("limit_type").map(String::as_str),
+            Some("daily_tokens")
+        );
+        assert_eq!(line.get("current").map(String::as_str), Some("400447"));
+        assert_eq!(line.get("limit").map(String::as_str), Some("500000"));
+        assert_eq!(line.get("level").map(String::as_str), Some("approaching"));
     }
 }

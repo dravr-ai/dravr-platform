@@ -267,6 +267,7 @@ mod command_tests {
             correlation_id: "test-logout-history",
             raw_payload: None,
             chat_message_id: None,
+            proactive_purpose: None,
         })
         .await
         .unwrap();

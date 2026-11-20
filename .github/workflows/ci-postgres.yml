@@ -120,7 +120,7 @@ jobs:
   # runner's peak memory on every run so the margin stays visible.
   build-tests:
     name: Build Test Binaries (PostgreSQL)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A backstop: a cold build takes 6-7 minutes, a warm one less.
     timeout-minutes: 60
     outputs:
@@ -546,7 +546,7 @@ jobs:
 
   postgres-tests:
     name: Database Tests (PostgreSQL ${{ matrix.shard }}/4)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build-tests
     if: needs.build-tests.outputs.skip != 'true'
     # A backstop, not a performance budget. A shard runs its tests in 8-11 min

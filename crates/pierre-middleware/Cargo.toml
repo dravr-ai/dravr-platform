@@ -43,6 +43,8 @@ uuid = { version = "1.29", features = ["v4", "serde"] }
 [dev-dependencies]
 # Property tests for the redactors (carnet#1143).
 proptest = { version = "1", default-features = false, features = ["std"] }
+# log_capture: asserts the usage-limit line a refused budget logs (carnet#1630).
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
 
 [lints]
 workspace = true

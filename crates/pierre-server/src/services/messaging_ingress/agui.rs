@@ -161,6 +161,7 @@ impl MessagingAgUiWiring {
                 receipt_id: Some(channel_message_id),
                 delivered: true,
                 chat_message_id: assistant_message_id,
+                proactive_purpose: None,
             },
             &outgoing,
         )

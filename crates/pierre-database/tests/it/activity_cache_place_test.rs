@@ -92,6 +92,7 @@ impl World {
             version: VERSION,
             computed_at: Utc::now(),
             home_declared_at_seen: None,
+            newest_track_at_seen: stamp.newest_track_at,
         }
     }
 

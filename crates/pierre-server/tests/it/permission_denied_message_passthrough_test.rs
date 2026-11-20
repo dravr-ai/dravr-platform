@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! A refusal is the one error class whose message is the whole answer: "Group
-//! coaching requires a Professional or Enterprise plan" tells the athlete what
+//! A refusal is the one error class whose message is the whole answer: "Your
+//! plan does not include group coaching" tells the athlete what
 //! to do, and `ErrorCode::PermissionDenied.description()` — "You do not have
 //! permission to perform this action" — tells them nothing. So
 //! `AppError::sanitized_message` passes those messages through, and these tests
@@ -26,7 +26,7 @@ use pierre_core::errors::{AppError, ErrorCode, ErrorResponse};
 /// shape a handler writes: a plan gate, an ownership check, a membership check,
 /// and an admin-privilege check.
 const REVIEWED_REFUSALS: &[&str] = &[
-    "Group coaching requires a Professional or Enterprise plan",
+    "Your plan does not include group coaching",
     "Only the conversation's owner can delete it",
     "Cannot remove the group owner",
     "Admin privileges required for impersonation",
@@ -53,12 +53,12 @@ fn test_permission_denied_message_reaches_the_client_verbatim() {
 fn test_permission_denied_refusal_survives_the_http_response_body() {
     let error = AppError::new(
         ErrorCode::PermissionDenied,
-        "Group coaching requires a Professional or Enterprise plan",
+        "Your plan does not include group coaching",
     );
     let json = serde_json::to_string(&ErrorResponse::from(error)).unwrap();
 
     assert!(
-        json.contains("Group coaching requires a Professional or Enterprise plan"),
+        json.contains("Your plan does not include group coaching"),
         "the refusal must survive ErrorResponse, which is what the 403 body carries: {json}"
     );
     assert!(

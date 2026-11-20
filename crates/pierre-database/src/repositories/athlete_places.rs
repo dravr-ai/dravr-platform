@@ -125,16 +125,27 @@ pub struct PlaceRun {
     /// when the user never declared. A failed recompute leaves it alone, so
     /// a declaration no successful recompute saw keeps the user due.
     pub home_declared_at_seen: Option<DateTime<Utc>>,
+    /// The newest `created_at` among the user's drawn route tracks when the
+    /// clustering read them ([`CachedRowsStamp::newest_track_at`]); `None`
+    /// when there were none. A failed recompute leaves it alone, so a track
+    /// no successful recompute saw keeps the user due.
+    pub newest_track_at_seen: Option<DateTime<Utc>>,
 }
 
-/// How many cached rows a user holds in a tenant and the newest `synced_at`
-/// among them: what a clustering records in its [`PlaceRun`].
+/// How many cached rows a user holds in a tenant, the newest `synced_at`
+/// among them and the newest drawn route track: what a clustering records in
+/// its [`PlaceRun`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CachedRowsStamp {
     /// How many cached rows.
     pub rows: u32,
     /// The newest `synced_at` among them; `None` when there are none.
     pub newest_synced_at: Option<DateTime<Utc>>,
+    /// The newest `created_at` among the user's drawn route tracks in the
+    /// tenant; `None` when there are none. A drawn track gives a ride the
+    /// trimmed start a place forms from, and arrives on a detail or route
+    /// read that moves neither of the counts above (carnet#1679).
+    pub newest_track_at: Option<DateTime<Utc>>,
 }
 
 /// Persistence for athlete places.
@@ -223,8 +234,9 @@ pub trait AthletePlaceRepository: Send + Sync {
     /// recompute at `now`, in one statement over column aggregates: no runs
     /// row, a run of another `version`, a run older than 24 hours, a cached
     /// row count or newest sync that differs from the run's, a run that saw
-    /// rows the user no longer holds, or a home declaration newer than the
-    /// one the last successful run saw.
+    /// rows the user no longer holds, a home declaration newer than the one
+    /// the last successful run saw, or a drawn route track stored after the
+    /// newest one it saw.
     ///
     /// Users never tried come first, then the one tried longest ago, so a
     /// user whose recompute keeps failing goes to the back of the queue
@@ -247,8 +259,8 @@ pub trait AthletePlaceRepository: Send + Sync {
     /// Record that the user's places recompute failed at `now`: their run's
     /// `computed_at` moves to `now` and nothing else changes, so
     /// [`Self::due_users`] puts them behind every user tried earlier. A user
-    /// due for new rows, another version, an erasure or a home declaration
-    /// stays due; one due only for the 24-hour backstop waits another day. A user with no run
+    /// due for new rows, another version, an erasure, a home declaration or
+    /// a drawn track stays due; one due only for the 24-hour backstop waits another day. A user with no run
     /// gets one that saw nothing at `version`, which keeps them due while
     /// they hold rows.
     ///
@@ -307,9 +319,13 @@ pub(crate) const GET_PLACE_SQL: &str = r"
     FROM athlete_places
     WHERE tenant_id = $1 AND user_id = $2 AND id = $3";
 
-/// The count and newest sync of the cached rows of `$2` (user) in `$1` (tenant).
+/// The count and newest sync of the cached rows of `$2` (user) in `$1`
+/// (tenant), and the newest of their drawn route tracks.
 pub(crate) const CACHED_ROWS_STAMP_SQL: &str = r"
-    SELECT COUNT(*) AS n, MAX(synced_at) AS newest_synced_at
+    SELECT COUNT(*) AS n, MAX(synced_at) AS newest_synced_at,
+           (SELECT MAX(rt.created_at) FROM activity_route_tracks rt
+            WHERE rt.tenant_id = $1 AND rt.user_id = $2 AND rt.track_json IS NOT NULL)
+               AS newest_track_at
     FROM cached_activities
     WHERE tenant_id = $1 AND user_id = $2";
 
@@ -359,15 +375,16 @@ pub(crate) const INSERT_ATHLETE_PLACE_SQL: &str = r"
 pub(crate) const UPSERT_PLACE_RUN_SQL: &str = r"
     INSERT INTO athlete_place_runs (
         tenant_id, user_id, rows_seen, newest_synced_at, version, computed_at,
-        home_declared_at_seen
+        home_declared_at_seen, newest_track_at_seen
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     ON CONFLICT (tenant_id, user_id) DO UPDATE SET
         rows_seen = EXCLUDED.rows_seen,
         newest_synced_at = EXCLUDED.newest_synced_at,
         version = EXCLUDED.version,
         computed_at = EXCLUDED.computed_at,
-        home_declared_at_seen = EXCLUDED.home_declared_at_seen";
+        home_declared_at_seen = EXCLUDED.home_declared_at_seen,
+        newest_track_at_seen = EXCLUDED.newest_track_at_seen";
 
 /// The home declaration of `$2` (user) in `$1` (tenant).
 pub(crate) const HOME_DECLARATION_SQL: &str = r"
@@ -411,7 +428,9 @@ pub(crate) const RECORD_FAILED_PLACE_RUN_SQL: &str = r"
 /// tried longest ago. The first branch aggregates each user's cached rows
 /// against their run; the second finds a run that saw rows the user no
 /// longer holds at all; the third finds a home declaration no successful run
-/// saw, which a failed run does not clear. No JSON is read. The NULL order is spelled out,
+/// saw, which a failed run does not clear; the fourth finds a drawn route
+/// track stored after the newest one a successful run saw, which a failed run
+/// does not clear either. No JSON is read. The NULL order is spelled out,
 /// since the engines sort a NULL at opposite ends.
 pub(crate) const DUE_PLACE_USERS_SQL: &str = r"
     SELECT tenant_id, user_id FROM (
@@ -441,6 +460,15 @@ pub(crate) const DUE_PLACE_USERS_SQL: &str = r"
         LEFT JOIN athlete_place_runs r
                ON r.tenant_id = h.tenant_id AND r.user_id = h.user_id
         WHERE r.home_declared_at_seen IS NULL OR h.declared_at > r.home_declared_at_seen
+        UNION
+        SELECT r.tenant_id, r.user_id, r.computed_at
+        FROM athlete_place_runs r
+        WHERE EXISTS (
+            SELECT 1 FROM activity_route_tracks rt
+            WHERE rt.tenant_id = r.tenant_id AND rt.user_id = r.user_id
+              AND rt.track_json IS NOT NULL
+              AND (r.newest_track_at_seen IS NULL OR rt.created_at > r.newest_track_at_seen)
+        )
     ) due
     ORDER BY CASE WHEN computed_at IS NULL THEN 0 ELSE 1 END, computed_at, tenant_id, user_id
     LIMIT $3";
@@ -570,6 +598,9 @@ where
         rows: u32::try_from(rows).unwrap_or(u32::MAX),
         newest_synced_at: row.try_get("newest_synced_at").map_err(|e| {
             AppError::database(format!("cached rows stamp col newest_synced_at: {e}"))
+        })?,
+        newest_track_at: row.try_get("newest_track_at").map_err(|e| {
+            AppError::database(format!("cached rows stamp col newest_track_at: {e}"))
         })?,
     })
 }
@@ -758,6 +789,7 @@ macro_rules! impl_athlete_place_repository {
                     .bind(integer_column(run.version, "places version")?)
                     .bind(run.computed_at)
                     .bind(run.home_declared_at_seen)
+                    .bind(run.newest_track_at_seen)
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| failed("run", e))?;

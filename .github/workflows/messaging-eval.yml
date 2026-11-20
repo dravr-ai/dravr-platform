@@ -86,7 +86,7 @@ env:
 jobs:
   rust-asserters:
     name: Rust asserters (Phase 0-3)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30  # p90 7 min
     env:
       CARGO_TERM_COLOR: always
@@ -105,8 +105,12 @@ jobs:
         with:
           components: clippy
 
+      - name: Name the runner image for the cache key
+        shell: bash
+        run: echo "RUST_CACHE_IMAGE=${ImageOS:-unknown-image}" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: v0-rust-${{ env.RUST_CACHE_IMAGE }}
           # Written by the nightly scheduled run on main only; every other run restores
           # (see .github/actions/rust-setup for why a cache is saved once a day).
           # Saved whatever the tests conclude, so a red night still re-seeds the
@@ -139,7 +143,7 @@ jobs:
     # that holds the scope rules a small local model could not (carnet#819).
     # The off-scope probes are answered by the scope rails before any model;
     # the smoke and the tempo control reach Haiku.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: rust-asserters
     # Sized for a COLD build. The repo's Actions cache sits past GitHub's 10 GB
     # limit and LRU eviction drops this lane's entry, so a night can start cold:
@@ -185,8 +189,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.100.0
 
+      - name: Name the runner image for the cache key
+        shell: bash
+        run: echo "RUST_CACHE_IMAGE=${ImageOS:-unknown-image}" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: v0-rust-${{ env.RUST_CACHE_IMAGE }}
           # Written by the nightly scheduled run on main only; every other run restores
           # (see .github/actions/rust-setup for why a cache is saved once a day).
           # Saved whatever the tests conclude, so a red night still re-seeds the

@@ -39,7 +39,7 @@ use pierre_chat_pipeline::{
     SceneImage, ServedTurn, SurfaceProfile, TurnAction, TurnEnvelope, TurnState, TurnTelemetry,
 };
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_EMPTY_REPLY, KEY_PROVIDER_RECONNECT_BUTTON,
+    MessagingStringsRegistry, KEY_EMPTY_REPLY, KEY_PROVIDER_RECONNECT_CTA,
 };
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::messaging::OutgoingMessage;
@@ -831,8 +831,22 @@ fn a_reconnect_prompt_becomes_a_button_where_controls_render() {
             assert_eq!(actions[0].value, "https://dravr.test/reconnect");
             assert_eq!(
                 actions[0].label,
-                strings().render(KEY_PROVIDER_RECONNECT_BUTTON, "fr", &["WHOOP"]),
+                strings().get(KEY_PROVIDER_RECONNECT_CTA, "fr"),
                 "the button must be localized, not a hardcoded English word"
+            );
+            assert!(
+                !actions[0].label.is_empty(),
+                "the reconnect label key must resolve to text; a missing key reads as empty on both sides of the comparison above"
+            );
+            assert!(
+                actions[0].label.chars().count() <= 20,
+                "the label must fit WhatsApp's 20-character cta_url cap: {:?}",
+                actions[0].label
+            );
+            assert!(
+                !actions[0].label.contains("WHOOP"),
+                "the label is provider-free; the card title names the provider: {:?}",
+                actions[0].label
             );
         }
         other => panic!("a reconnect control must be a card: {other:?}"),

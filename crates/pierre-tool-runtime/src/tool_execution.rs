@@ -29,6 +29,7 @@ use std::time::Instant;
 
 use pierre_core::llm::tool_simulation;
 use pierre_core::tokens::join_prompt_text;
+use pierre_core::usage_log::{self, LimitHit};
 use tracing::info;
 
 use crate::cli_loop::cli_loop_call;
@@ -298,6 +299,7 @@ pub(crate) async fn run_api_tool_loop(
     }
 
     // Max iterations reached
+    log_iteration_cap(params, params.max_iterations);
     Ok(tally.max_iterations(spend.reported()))
 }
 
@@ -501,6 +503,7 @@ pub async fn run_cli_tool_loop(
     }
 
     // Max iterations reached without a final text response
+    log_iteration_cap(params, max_iterations);
     Ok(tally.max_iterations(None))
 }
 
@@ -665,6 +668,20 @@ pub struct AddedFunctionResponses {
     /// Every formatted `[Tool Result for X]: ...` block from this round,
     /// joined by `"\n\n"`. Empty when `function_responses` is empty.
     pub combined_text: String,
+}
+
+/// Log a turn whose tool loop ran out of iterations before the model answered.
+fn log_iteration_cap(params: &ToolLoopParams<'_>, max_iterations: usize) {
+    let tenant_id = params.tenant_id.to_string();
+    let cap = i64::try_from(max_iterations).unwrap_or(i64::MAX);
+    usage_log::reply_cut_short(&LimitHit {
+        user_id: params.user_id,
+        tenant_id: Some(&tenant_id),
+        limit_type: "max_tool_iterations",
+        current: cap,
+        limit: cap,
+        surface: "chat",
+    });
 }
 
 /// The assistant message a tool round leaves in the conversation: its text and
