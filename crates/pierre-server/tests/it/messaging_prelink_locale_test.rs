@@ -67,9 +67,11 @@ mod prelink_locale {
     /// A country whose language the platform does not speak, which reads
     /// English (owner decision, carnet#1669).
     const AMSTERDAM: &str = "31612345106";
-    /// What dravr-canot v0.11.0 names a sender whose webhook carried no number:
-    /// nothing places them, so they read the default.
-    const NO_NUMBER: &str = "unknown";
+    /// A sender whose webhook showed no phone number, whom dravr-canot names by
+    /// their business-scoped user id alone: its country places them. (The
+    /// `"unknown"` canot v0.11.0 wrote for such a sender is refused before any
+    /// reply since carnet#1668.)
+    const NUMBERLESS_IN_SPAIN: &str = "ES.13491208655302741918";
 
     struct Bot {
         resources: Arc<ServerContext>,
@@ -291,7 +293,7 @@ mod prelink_locale {
             (BERLIN, "de"),
             (LISBON, "pt"),
             (AMSTERDAM, "en"),
-            (NO_NUMBER, DEFAULT_LOCALE),
+            (NUMBERLESS_IN_SPAIN, "es"),
         ]);
         for (msg_id, (sender, locale)) in numbered_senders {
             let asked = bot.whatsapp(sender, "Hello", msg_id).await;
