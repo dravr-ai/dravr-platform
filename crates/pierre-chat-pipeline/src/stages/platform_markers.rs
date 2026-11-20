@@ -11,7 +11,7 @@ use pierre_services::conversation_compaction::REPLAYED_SUMMARY_PREFIX;
 
 use super::capability_recovery::REPAIR_EVIDENCE_FRAME;
 use super::peer_grounding::PEER_GROUNDING_LEAD;
-use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
+use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_BRIEF_LEAD, STARTUP_GROUNDING_LEAD};
 use super::turn_clock::TURN_CLOCK_LEAD;
 
 /// The literal lead sentences that mark a `User` message as platform-authored.
@@ -25,11 +25,13 @@ use super::turn_clock::TURN_CLOCK_LEAD;
 /// from real provider data — the athlete's own, or ([`PEER_GROUNDING_LEAD`]) a
 /// consenting group member's. [`REPAIR_EVIDENCE_FRAME`] asserts that the data
 /// under it was fetched by the platform and is not the athlete speaking.
-/// [`TURN_CLOCK_LEAD`] asserts what today is.
-pub(crate) const PLATFORM_MARKERS: [&str; 6] = [
+/// [`TURN_CLOCK_LEAD`] asserts what today is. [`STARTUP_BRIEF_LEAD`] asserts
+/// that the text under it is the agent's configured brief, not the athlete.
+pub(crate) const PLATFORM_MARKERS: [&str; 7] = [
     REPLAYED_SUMMARY_PREFIX,
     REFRESH_GROUNDING_LEAD,
     STARTUP_GROUNDING_LEAD,
+    STARTUP_BRIEF_LEAD,
     PEER_GROUNDING_LEAD,
     REPAIR_EVIDENCE_FRAME,
     TURN_CLOCK_LEAD,
