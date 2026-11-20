@@ -1,5 +1,5 @@
 # ABOUTME: Weekly check for new releases of @github/copilot-linux-x64 npm package
-# ABOUTME: Opens or updates a tracking issue when the Dockerfile pin drifts behind npm latest
+# ABOUTME: Opens or updates a tracking issue when the Dockerfile pin drifts behind the newest CLI the SDK crate accepts
 name: "Monitor: Copilot CLI Version"
 
 on:
@@ -21,7 +21,9 @@ jobs:
   check-copilot-cli:
     name: Check Copilot CLI Version
     runs-on: ubuntu-24.04
-    timeout-minutes: 10  # two registry reads and the issue, ~15 s
+    # Registry reads, one CLI download per release probed (newest first, down to
+    # the first the SDK crate accepts) and the issue: ~1 min when warm.
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -38,24 +40,14 @@ jobs:
           echo "version=$PINNED" >> "$GITHUB_OUTPUT"
           echo "Pinned Copilot CLI version: $PINNED"
 
-      - name: Fetch npm latest version
-        id: latest
-        run: |
-          # npm view returns the string value of the dist-tag
-          LATEST=$(npm view @github/copilot-linux-x64 version 2>/dev/null)
-          if [ -z "$LATEST" ]; then
-            echo "ERROR: could not fetch npm latest version for @github/copilot-linux-x64" >&2
-            exit 1
-          fi
-          echo "version=$LATEST" >> "$GITHUB_OUTPUT"
-          echo "npm latest version: $LATEST"
-
       # The copilot_sdk provider speaks to the runtime through the
-      # github-copilot-sdk crate, whose release cadence trails the CLI's;
-      # a runtime newer than the crate's pin has always handshaken so far
-      # (protocol version 3 at every tag), but behaviour has changed between
-      # CLI patch releases with no protocol bump, so the crate pin is watched
-      # beside the CLI pin.
+      # github-copilot-sdk crate, whose release cadence trails the CLI's. The
+      # crate refuses a runtime whose protocol version is outside its
+      # MIN_PROTOCOL_VERSION..=SDK_PROTOCOL_VERSION, and the two have parted:
+      # CLI 1.0.113 moved to protocol 4 while every crate release through
+      # 1.0.35 accepted protocol 3 only (carnet#1637). Behaviour has also
+      # changed between CLI patch releases with no protocol bump, so the crate
+      # pin is watched beside the CLI pin.
       - name: Read pinned github-copilot-sdk version from Cargo.lock
         id: sdk_pinned
         run: |
@@ -83,20 +75,36 @@ jobs:
           echo "version=$SDK_LATEST" >> "$GITHUB_OUTPUT"
           echo "crates.io latest github-copilot-sdk: $SDK_LATEST"
 
+      # The CLI this monitor proposes is the newest release whose runtime the
+      # locked crate accepts, never npm `latest` as such: the script asks each
+      # candidate's runtime its protocol over `ping`, reads the accepted range
+      # from the source of the crate version Cargo.lock pins, and fails the run
+      # when the Dockerfile pin itself is outside it.
+      - name: Find the newest CLI the locked SDK crate accepts
+        id: latest
+        env:
+          PINNED: ${{ steps.pinned.outputs.version }}
+          SDK_PINNED: ${{ steps.sdk_pinned.outputs.version }}
+        run: |
+          ./scripts/ci/copilot-cli-protocol.test.sh
+          out="$(./scripts/ci/copilot-cli-protocol.sh target "$PINNED" "$SDK_PINNED")"
+          printf '%s\n' "$out"
+          printf '%s\n' "$out" >> "$GITHUB_OUTPUT"
+
       - name: Compare versions
         id: compare
         env:
           PINNED: ${{ steps.pinned.outputs.version }}
-          LATEST: ${{ steps.latest.outputs.version }}
+          LATEST: ${{ steps.latest.outputs.target }}
           SDK_PINNED: ${{ steps.sdk_pinned.outputs.version }}
           SDK_LATEST: ${{ steps.sdk_latest.outputs.version }}
         run: |
           DRIFT=false
           if [ "$PINNED" = "$LATEST" ]; then
-            echo "Pinned CLI version matches npm latest"
+            echo "Pinned CLI version is the newest the SDK crate accepts"
           else
             DRIFT=true
-            echo "CLI drift detected: pinned=$PINNED, latest=$LATEST"
+            echo "CLI drift detected: pinned=$PINNED, newest accepted=$LATEST"
           fi
           if [ "$SDK_PINNED" = "$SDK_LATEST" ]; then
             echo "Pinned github-copilot-sdk matches crates.io latest"
@@ -112,7 +120,13 @@ jobs:
         uses: actions/github-script@v9
         env:
           PINNED: ${{ steps.pinned.outputs.version }}
-          LATEST: ${{ steps.latest.outputs.version }}
+          LATEST: ${{ steps.latest.outputs.target }}
+          NPM_LATEST: ${{ steps.latest.outputs.latest }}
+          NPM_LATEST_PROTOCOL: ${{ steps.latest.outputs.latest_protocol }}
+          PINNED_PROTOCOL: ${{ steps.latest.outputs.pinned_protocol }}
+          SDK_MIN: ${{ steps.latest.outputs.sdk_min }}
+          SDK_MAX: ${{ steps.latest.outputs.sdk_max }}
+          REJECTED: ${{ steps.latest.outputs.rejected }}
           SDK_PINNED: ${{ steps.sdk_pinned.outputs.version }}
           SDK_LATEST: ${{ steps.sdk_latest.outputs.version }}
         with:
@@ -128,6 +142,8 @@ jobs:
             const pinned = process.env.PINNED;
             const latest = process.env.LATEST;
             const today = new Date().toISOString().split('T')[0];
+            const rejected = (process.env.REJECTED || '').split(' ').filter(Boolean)
+              .map((pair) => { const [v, p] = pair.split('='); return `\`${v}\` (protocol ${p})`; });
 
             const body = [
               `# Copilot CLI version drift — ${today}`,
@@ -137,7 +153,10 @@ jobs:
               `| Location | Version |`,
               `| --- | --- |`,
               `| \`docker/images/server/Dockerfile\` (\`ARG COPILOT_CLI_VERSION\`) | \`${pinned}\` |`,
-              `| npm \`@github/copilot-linux-x64\` \`latest\` dist-tag | \`${latest}\` |`,
+              `| \`docker/images/server/Dockerfile\` pin's SDK protocol | \`${process.env.PINNED_PROTOCOL}\` |`,
+              `| npm \`@github/copilot-linux-x64\` \`latest\` dist-tag | \`${process.env.NPM_LATEST}\` (protocol ${process.env.NPM_LATEST_PROTOCOL || 'not probed'}) |`,
+              `| Newest CLI the locked \`github-copilot-sdk\` accepts | \`${latest}\` |`,
+              `| Protocols \`github-copilot-sdk\` \`${sdkPinned}\` accepts | \`${process.env.SDK_MIN}\`–\`${process.env.SDK_MAX}\` |`,
               `| \`Cargo.lock\` (\`github-copilot-sdk\`, the copilot_sdk provider's SDK) | \`${sdkPinned}\` |`,
               `| crates.io \`github-copilot-sdk\` latest | \`${sdkLatest}\` |`,
               ``,
@@ -146,6 +165,15 @@ jobs:
               `extraction into \`/opt/copilot-pkg\` at image build, so a CLI bump keeps \`COPILOT_RUNTIME_PATH\``,
               `valid; the Dockerfile asserts the pair is there.`,
               ``,
+              ...(rejected.length ? [
+                `## Releases held back`,
+                ``,
+                `These CLI releases are newer than the proposed one but speak a protocol the locked`,
+                `\`github-copilot-sdk\` rejects, so the copilot_sdk tier would fail its handshake at startup`,
+                `(carnet#1637): ${rejected.join(', ')}. They become eligible once a crate release`,
+                `that accepts their protocol is pinned (embacle first, then this \`Cargo.lock\`).`,
+                ``,
+              ] : []),
               `## Why this matters`,
               ``,
               `The Pierre server container bundles GitHub Copilot CLI at build time. Staying on an old version can:`,
@@ -179,7 +207,7 @@ jobs:
               `- \`deploy-gcp.yml\` rolls out to dev`,
               `- Send a Telegram / messaging probe to confirm \`copilot-acp\` dispatches successfully`,
               ``,
-              `_This issue auto-updates each Monday. It closes itself when both pins are current (CLI \`${latest}\`, SDK \`${sdkLatest}\`)._`,
+              `_This issue auto-updates each Monday. It closes itself when both pins are current (CLI \`${latest}\`, the newest the SDK crate accepts; SDK \`${sdkLatest}\`)._`,
             ].join('\n');
 
             // The title carries the drifted versions, so the open issue from an
@@ -201,5 +229,5 @@ jobs:
               owner: 'dravr-ai', repo: 'dravr-carnet',
               label: 'dravr-platform',
               titlePrefixes: ['[platform] Copilot pin drift:'],
-              comment: 'Both Copilot pins are current (Dockerfile CLI ARG vs npm `latest`, Cargo.lock github-copilot-sdk vs crates.io). Auto-closing.',
+              comment: 'Both Copilot pins are current (Dockerfile CLI ARG vs the newest CLI the locked github-copilot-sdk accepts, Cargo.lock github-copilot-sdk vs crates.io). Auto-closing.',
             });
