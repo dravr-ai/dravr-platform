@@ -456,7 +456,7 @@ mod tests {
     use pierre_core::errors::ErrorCode;
     use pierre_database::RepositoryRegistry;
     use pierre_test_support::db::create_test_db;
-    use tracing::subscriber;
+    use tracing::{callsite, subscriber};
     use tracing_subscriber::fmt;
 
     use super::super::{
@@ -820,6 +820,10 @@ mod tests {
             .with_writer(move || writer.clone())
             .finish();
         let capturing = subscriber::set_default(subscriber);
+        // Another test thread can reach the log site first, with no
+        // subscriber, and cache its interest as "never": rebuild it now that
+        // this thread's subscriber is set, or the line is dropped.
+        callsite::rebuild_interest_cache();
         let refused = read_budget(&limiter, STRAVA_SESSION, athlete)
             .admit(STRAVA_SESSION)
             .await
