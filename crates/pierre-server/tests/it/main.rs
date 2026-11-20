@@ -794,6 +794,7 @@ mod sciotte_backpressure_test;
 mod sciotte_cancel_test;
 mod sciotte_connect_read_burst_test;
 mod sciotte_coros_otp_test;
+mod sciotte_detail_track_test;
 mod sciotte_disconnect_session_drop_test;
 mod sciotte_first_reconnect_test;
 mod sciotte_first_sweep_test;

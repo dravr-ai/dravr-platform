@@ -98,10 +98,9 @@ use dashmap::DashMap;
 use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, RouteGeometrySource, TenantId};
-use pierre_database::repositories::StoredRouteTrack;
 use pierre_database::RepositoryRegistry;
-use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError, MAP_MAX_POINTS};
-use pierre_services::activity_track::{stored_track, StoredTrack};
+use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError};
+use pierre_services::activity_track::{self, stored_track, RouteRead, StoredTrack};
 use pierre_tool_runtime::activity_detail_store;
 use pierre_tool_runtime::protocol::auth::AuthService;
 use pierre_tool_runtime::protocol::provider_helpers::configured_provider;
@@ -762,7 +761,13 @@ async fn stored_route(
 }
 
 /// Simplify a read's track to the points a Home map carries, store the
-/// outcome — until it expires, for `unavailable` — and answer it.
+/// outcome under the cached row's provider key — until it expires, for
+/// `unavailable` — and answer it.
+///
+/// The store is the one route-track write
+/// ([`activity_track::store_route_read`]), which never replaces a drawn
+/// track: a streams read whose detail the detail store kept has had its
+/// outcome stored there already, under the same key.
 async fn settle(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
@@ -771,13 +776,21 @@ async fn settle(
     source: RouteGeometrySource,
     outcome: ActivityRouteOutcome,
 ) -> AppResult<ActivityRouteOutcome> {
-    let outcome = outcome.map(|track| track.simplified(MAP_MAX_POINTS));
-    let read = StoredRead {
+    let outcome = outcome.map(activity_track::map_track);
+    let read = RouteRead {
         source,
-        outcome: &outcome,
+        outcome: outcome.as_ref().map_err(|miss| miss.as_str()),
         expires_at: expires_at(&outcome, Utc::now()),
     };
-    store_outcome(repos, tenant_id, user_id, cached, read).await?;
+    activity_track::store_route_read(
+        repos,
+        &tenant_id,
+        user_id,
+        cached.provider,
+        cached.activity.id(),
+        read,
+    )
+    .await?;
     Ok(outcome)
 }
 
@@ -851,45 +864,4 @@ async fn read_streams(
             RouteTrack::from_streams(streams).map_err(RouteMiss::Settled)
         });
     Ok((answered_by, outcome))
-}
-
-/// One read's outcome as it is stored.
-struct StoredRead<'a> {
-    source: RouteGeometrySource,
-    outcome: &'a ActivityRouteOutcome,
-    /// When the stored answer is read again; `None` when it stands.
-    expires_at: Option<DateTime<Utc>>,
-}
-
-/// Persist a read's outcome under the cached row's provider key.
-async fn store_outcome(
-    repos: &RepositoryRegistry,
-    tenant_id: TenantId,
-    user_id: Uuid,
-    cached: CachedActivityRef<'_>,
-    read: StoredRead<'_>,
-) -> AppResult<()> {
-    let source = read.source.as_str().to_owned();
-    let stored = match read.outcome {
-        Ok(track) => StoredRouteTrack::Drawn {
-            source,
-            track_json: serde_json::to_string(track)
-                .map_err(|e| AppError::internal(format!("serialize route track: {e}")))?,
-        },
-        Err(miss) => StoredRouteTrack::Unavailable {
-            source,
-            reason: miss.as_str().to_owned(),
-            expires_at: read.expires_at,
-        },
-    };
-    repos
-        .activity_route_tracks
-        .upsert_route_track(
-            &tenant_id,
-            user_id,
-            cached.provider,
-            cached.activity.id(),
-            &stored,
-        )
-        .await
 }
