@@ -56,8 +56,8 @@ use axum::{
 };
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use futures_util::stream::{self, StreamExt, TryStreamExt};
-use pierre_auth::auth::AuthResult;
 use pierre_config::coach_home::CoachHomeConfig;
+use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{CoachingGroup, MemberFitnessSnapshot};
@@ -333,12 +333,17 @@ pub async fn handle_roster(
     let repos = &resources.common.repos;
     let groups = roster_groups(repos, coach).await?;
 
-    let gathered = roster_served_to(repos, &auth, &groups).await?;
+    let outside = ai_scope::served_outside(auth.acts_for_outside_client());
+    let gathered = roster_served_to(repos, outside, auth.user_id, &groups).await?;
     let scope = RosterScope {
         visible_members: gathered.visible_members(),
         roster_members: gathered.roster_members(),
     };
-    let ordered = order_roster(repos, gathered.members).await?;
+    // Served outside, the order reads only what the client may be shown
+    // (carnet#1511).
+    let terms = resources.provider_registry();
+    let outside_terms: Option<&dyn ProviderTerms> = outside.then_some(terms.as_ref());
+    let ordered = order_roster(repos, gathered.members, outside_terms).await?;
     let offset = query.offset.unwrap_or(0).min(ordered.len());
     let limit = query.limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE);
     let end = offset.saturating_add(limit).min(ordered.len());
@@ -422,23 +427,22 @@ pub async fn handle_roster(
         .into_response())
 }
 
-/// The roster of `groups` as it is served to `auth`, its coach. An outside
-/// client acting for the coach is never told of an athlete who stopped
-/// sharing (EFVP 2026-11-17, decision 9.4c), as the agent's
-/// `get_roster_overview`, a first-party-only tool, never tells one.
+/// The roster of `groups` as it is served to `coach`. An outside client
+/// acting for the coach (`outside`) is never told of an athlete who stopped
+/// sharing (EFVP 2026-11-17, decision 9.4c), as the coach's assistant is
+/// never told one by `get_roster_overview`.
 async fn roster_served_to(
     repos: &RepositoryRegistry,
-    auth: &AuthResult,
+    outside: bool,
+    coach: Uuid,
     groups: &[CoachingGroup],
 ) -> AppResult<GatheredRoster> {
-    let gathered = gather_roster(repos, auth.user_id, groups).await?;
-    Ok(
-        if ai_scope::served_outside(auth.acts_for_outside_client()) {
-            gathered.served_to_outside_client()
-        } else {
-            gathered
-        },
-    )
+    let gathered = gather_roster(repos, coach, groups).await?;
+    Ok(if outside {
+        gathered.served_to_outside_client()
+    } else {
+        gathered
+    })
 }
 
 /// What one page read shares across its rows.

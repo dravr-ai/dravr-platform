@@ -26,7 +26,7 @@
 mod coach_tools_external_surface_tests {
     use crate::common::{self, create_test_server_resources};
     use crate::helpers::coach_roster_fixtures::{
-        coach, coached_group, group_agent, join, person, seed_ride, Person,
+        coach, coached_group, group_agent, join, person, ride, seed_activities, seed_ride, Person,
     };
     use crate::public_tool_surface_test::HIDDEN_TOOLS;
 
@@ -36,19 +36,25 @@ mod coach_tools_external_surface_tests {
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use axum::Router;
-    use chrono::Utc;
+    use chrono::{Duration, Utc};
     use embacle_tool_host::ToolSurface;
     use pierre_chat_pipeline::ToolSessionTurn;
-    use pierre_core::models::ConversationTurnId;
+    use pierre_core::ai_policy::ProviderTerms;
+    use pierre_core::constants::oauth::providers::{INTERVALS_ICU, STRAVA};
+    use pierre_core::models::{Activity, ActivityBuilder, ConversationTurnId, SportType};
     use pierre_core::permissions::scopes::OAuthScope;
     use pierre_core::transport::Transport;
     use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
     use pierre_mcp_server::mcp::resources::tool_surface::{HostedToolBridge, TurnToolSurface};
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_providers::ai_scope;
+    use pierre_services::coach_roster::{
+        gather_roster, order_roster, roster_access, OrderedMember, RosterAccess,
+    };
     use pierre_tool_runtime::chat_catalogue::{offered_schemas, SwitchedOff};
     use pierre_tool_runtime::coach_seat::TurnSeat;
     use pierre_tool_runtime::first_party_tools::FIRST_PARTY_SURFACE_ERROR_CODE;
+    use pierre_tool_runtime::implementations::group_roster::KEPT_IN_DRAVR;
     use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
     use pierre_tool_runtime::runtime::ToolRuntime;
     use pierre_tool_runtime::security::{Audience, ToolReach};
@@ -479,5 +485,159 @@ mod coach_tools_external_surface_tests {
         assert!(api_key_names.contains("get_activities"));
         let refused = api_key.call("get_roster_overview", &json!({})).await;
         assert!(refused.is_error, "{}", refused.text);
+    }
+
+    /// A ride from Intervals.icu `days_ago`, whose terms let it reach an
+    /// assistant outside Dravr.
+    fn intervals_ride(id: &str, days_ago: i64) -> Activity {
+        ActivityBuilder::new(
+            id.to_owned(),
+            format!("ride {id}"),
+            SportType::Ride,
+            Utc::now() - Duration::days(days_ago),
+            3_600,
+            INTERVALS_ICU.to_owned(),
+        )
+        .distance_meters(30_000.0)
+        .build()
+    }
+
+    /// A coach of one group with three opted-in members: Kim syncs only
+    /// from Strava, whose data stays in Dravr; Lee trained on Intervals.icu
+    /// five days ago; Mo trained on Intervals.icu twenty days ago and on
+    /// Strava yesterday.
+    struct Provenance {
+        casey: Person,
+        kim: Person,
+        lee: Person,
+        mo: Person,
+    }
+
+    async fn provenance(res: &Arc<ServerContext>) -> Provenance {
+        let casey = coach(res, "casey@provenance.test", "Casey Coach").await;
+        let kim = person(res, "kim@provenance.test", "Kim Kept").await;
+        let lee = person(res, "lee@provenance.test", "Lee Loop").await;
+        let mo = person(res, "mo@provenance.test", "Mo Mixed").await;
+        let agent = group_agent(res, &casey).await;
+        let group = coached_group(res, casey.tenant, casey.id, &agent, "Provenance").await;
+        for member in [&kim, &lee, &mo] {
+            join(res, group, member.id, member.tenant, true).await;
+            allow_assistant(res, group, member, true).await;
+        }
+        seed_ride(res, &kim, 1).await;
+        seed_activities(res, &lee, INTERVALS_ICU, &[intervals_ride("lee-1", 5)]).await;
+        seed_activities(res, &mo, INTERVALS_ICU, &[intervals_ride("mo-1", 20)]).await;
+        seed_activities(res, &mo, STRAVA, &[ride("mo-2", 1)]).await;
+        Provenance {
+            casey,
+            kim,
+            lee,
+            mo,
+        }
+    }
+
+    /// A member whose only sources keep their data in Dravr reads to the
+    /// coach's assistant as present with their data withheld, after the
+    /// members it may read, and never as the quietest athlete (carnet#1511).
+    #[tokio::test]
+    async fn a_member_whose_data_stays_in_dravr_is_present_not_gone_quiet() {
+        let res = create_test_server_resources().await.unwrap();
+        let squad = provenance(&res).await;
+        let app = ProviderToolRouter::build_http_app(&res);
+        let grant = delegated(&res, &squad.casey);
+
+        let roster = mcp_call(&app, &grant, "get_roster_overview", json!({})).await;
+        assert_eq!(roster["result"]["isError"], false, "{roster}");
+        let overview = &roster["result"]["structuredContent"];
+        let athletes = overview["athletes"]
+            .as_array()
+            .unwrap_or_else(|| panic!("the athletes: {roster}"));
+        let names: Vec<&str> = athletes
+            .iter()
+            .map(|a| a["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names.last(),
+            Some(&"Kim Kept"),
+            "listed after the members whose training is read: {names:?}"
+        );
+        let kim = athletes.last().unwrap();
+        assert_eq!(kim["status"], "shared", "{kim}");
+        assert!(kim.get("training").is_none(), "nothing of theirs: {kim}");
+        assert_eq!(kim["not_read"], KEPT_IN_DRAVR, "{kim}");
+        let text = roster["result"]["content"].to_string();
+        assert!(!text.contains("ride-1"), "no session of theirs: {roster}");
+        for readable in ["Lee Loop", "Mo Mixed"] {
+            let athlete = athletes
+                .iter()
+                .find(|a| a["name"] == readable)
+                .unwrap_or_else(|| panic!("{readable}: {roster}"));
+            assert!(athlete.get("training").is_some(), "{athlete}");
+        }
+
+        // In Dravr's own app the coach reads Kim's ride as before.
+        let in_app = call_over(&res, &squad.casey, "get_roster_overview", Transport::WebApp).await;
+        let in_app = in_app.result.unwrap();
+        let kim_in_app = in_app["athletes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["name"] == "Kim Kept")
+            .unwrap_or_else(|| panic!("{in_app}"))
+            .clone();
+        assert!(kim_in_app.get("training").is_some(), "{kim_in_app}");
+        assert!(kim_in_app.get("not_read").is_none(), "{kim_in_app}");
+    }
+
+    /// The roster's order, which decides the cut at 40, reads only the
+    /// sessions an outside client may be shown: a Strava ride yesterday
+    /// never places Mo behind a member who trained more recently on a
+    /// service the client may see (carnet#1511).
+    #[tokio::test]
+    async fn the_order_an_outside_client_reads_ignores_sessions_kept_in_dravr() {
+        let res = create_test_server_resources().await.unwrap();
+        let squad = provenance(&res).await;
+        let repos = &res.common.repos;
+        let RosterAccess::Granted(groups) = roster_access(repos, squad.casey.id).await.unwrap()
+        else {
+            panic!("Casey coaches the group");
+        };
+        let gathered = gather_roster(repos, squad.casey.id, &groups).await.unwrap();
+        let place = |ordered: &[OrderedMember], who: Uuid| {
+            ordered
+                .iter()
+                .position(|m| m.member.user_id == who)
+                .unwrap()
+        };
+
+        let in_app = order_roster(repos, gathered.members.clone(), None)
+            .await
+            .unwrap();
+        assert!(
+            place(&in_app, squad.lee.id) < place(&in_app, squad.mo.id),
+            "in the app Mo's Strava ride yesterday makes Lee the quieter"
+        );
+        assert!(in_app.iter().all(|m| !m.kept_in_dravr));
+
+        let registry = res.provider_registry();
+        let terms: &dyn ProviderTerms = registry.as_ref();
+        let outside = order_roster(repos, gathered.members, Some(terms))
+            .await
+            .unwrap();
+        assert!(
+            place(&outside, squad.mo.id) < place(&outside, squad.lee.id),
+            "outside, Mo is placed by the Intervals.icu ride twenty days ago"
+        );
+        let mo = &outside[place(&outside, squad.mo.id)];
+        assert_eq!(
+            mo.last_cached_activity
+                .map(|at| (Utc::now() - at).num_days()),
+            Some(20),
+            "never the day of a session kept in Dravr"
+        );
+        let kim = &outside[place(&outside, squad.kim.id)];
+        assert!(kim.kept_in_dravr, "Kim syncs only from Strava");
+        assert_eq!(kim.last_cached_activity, None);
+        assert_eq!(place(&outside, squad.kim.id), outside.len() - 1);
     }
 }

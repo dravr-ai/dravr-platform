@@ -35,9 +35,7 @@ use pierre_core::models::groups::MemberFitnessSnapshot;
 use pierre_core::models::{FormBand, TenantId};
 use pierre_database::repositories::CoachReadClass;
 use pierre_database::RepositoryRegistry;
-use pierre_services::coach_roster::{
-    OrderedMember, RosterAthleteStatus, ROSTER_LOOKUP_CONCURRENCY,
-};
+use pierre_services::coach_roster::{OrderedMember, ROSTER_LOOKUP_CONCURRENCY};
 use pierre_services::coached_athlete::{CoachedAthleteAccess, CoachedAthleteRefusal};
 
 use crate::group_fitness::fetch_member_snapshots;
@@ -106,8 +104,9 @@ pub async fn gate_page_reads(
         OrderedMember,
         Result<CoachedAthleteAccess, CoachedReadRefusal>,
     )> = stream::iter(
-        page.into_iter()
-            .filter(|m| m.member.status == RosterAthleteStatus::Shared),
+        // A sharer whose data stays in Dravr has nothing this reader may see,
+        // so nothing of theirs is read or recorded as read.
+        page.into_iter().filter(OrderedMember::readable),
     )
     .map(|member| async move {
         let gate = match member.member.shared_via {
@@ -160,7 +159,7 @@ pub async fn fetch_page_snapshots(
 ) -> HashMap<Uuid, MemberFitnessSnapshot> {
     let wanted: Vec<(Uuid, TenantId)> = page
         .iter()
-        .filter(|m| m.member.status == RosterAthleteStatus::Shared)
+        .filter(|m| m.readable())
         .map(|m| (m.member.user_id, m.member.tenant))
         .collect();
     stream::iter(wanted)

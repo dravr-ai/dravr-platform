@@ -38,7 +38,11 @@
 //! 4. **Order.** Shared athletes with a source first, the longest without a
 //!    session at the top, ordered on the activity cache so a page can be cut
 //!    before any provider is read; then the athletes whose training is not
-//!    listed, by name.
+//!    listed, by name. Served to an outside client ([`order_roster`]'s
+//!    `outside` terms), a session that client may not be shown never places
+//!    an athlete, and a sharer whose every connected service keeps its data
+//!    in Dravr is listed after the readable sharers, by name, as present with
+//!    their data withheld: never first as if they had gone quiet (carnet#1511).
 
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
@@ -48,6 +52,7 @@ use futures_util::stream::{self, StreamExt, TryStreamExt};
 use serde::Serialize;
 use uuid::Uuid;
 
+use pierre_core::ai_policy::{first_party_only, ProviderTerms};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{CoachingGroup, GroupMember};
 use pierre_core::models::{Activity, TenantId};
@@ -179,6 +184,9 @@ pub struct RosterMember {
     /// The tenants their connected sources live under — where their cached
     /// activities are. Empty for anyone the coach may not read.
     pub source_tenants: Vec<TenantId>,
+    /// The services they connected, as the connection rows name them. Empty
+    /// for anyone the coach may not read.
+    pub source_providers: Vec<String>,
     /// When they last stopped sharing with the coach: the latest known
     /// instant across the coach's groups holding them, only while the status
     /// is `NoCoachConsent` and only when one is recorded. `None` otherwise,
@@ -368,6 +376,7 @@ pub async fn gather_members(
                     shared_via: (status == RosterAthleteStatus::Shared).then_some(group.id),
                     member_display_name: member.display_name.clone(),
                     source_tenants: Vec::new(),
+                    source_providers: Vec::new(),
                     sharing_stopped_at: stopped_at,
                     joined: RosterJoin {
                         at: member.joined_at,
@@ -429,7 +438,7 @@ async fn mark_sources(repos: &RepositoryRegistry, members: &mut [RosterMember]) 
         .map(|(at, _)| at)
         .collect();
     let ids: Vec<Uuid> = sharers.iter().map(|&at| members[at].user_id).collect();
-    let sources: Vec<Vec<TenantId>> = stream::iter(ids)
+    let sources: Vec<(Vec<TenantId>, Vec<String>)> = stream::iter(ids)
         .map(|user_id| async move {
             let connections = repos
                 .provider_connections
@@ -441,17 +450,21 @@ async fn mark_sources(repos: &RepositoryRegistry, members: &mut [RosterMember]) 
                 .collect::<AppResult<_>>()?;
             tenants.sort_unstable_by_key(TenantId::as_uuid);
             tenants.dedup();
-            AppResult::Ok(tenants)
+            let mut providers: Vec<String> = connections.into_iter().map(|c| c.provider).collect();
+            providers.sort_unstable();
+            providers.dedup();
+            AppResult::Ok((tenants, providers))
         })
         .buffered(ROSTER_LOOKUP_CONCURRENCY)
         .try_collect()
         .await?;
-    for (at, tenants) in sharers.into_iter().zip(sources) {
+    for (at, (tenants, providers)) in sharers.into_iter().zip(sources) {
         let member = &mut members[at];
         if tenants.is_empty() {
             member.status = RosterAthleteStatus::NoSource;
         } else {
             member.source_tenants = tenants;
+            member.source_providers = providers;
         }
     }
     Ok(())
@@ -465,12 +478,34 @@ pub struct OrderedMember {
     /// Display name — never their account identifier.
     pub name: String,
     /// The day the activity cache last saw a session from them; only for a
-    /// readable sharer.
+    /// readable sharer, and only a session the reader may be shown.
     pub last_cached_activity: Option<DateTime<Utc>>,
+    /// They share and have connected services, and every one of those keeps
+    /// its data in Dravr: served to an outside client, nothing of their
+    /// training reaches it. Listed as present with their data withheld, never
+    /// as an athlete who stopped training.
+    pub kept_in_dravr: bool,
+}
+
+impl OrderedMember {
+    /// Whether their training is read for this roster: they share, and some
+    /// of it may reach the reader.
+    #[must_use]
+    pub fn readable(&self) -> bool {
+        self.member.status == RosterAthleteStatus::Shared && !self.kept_in_dravr
+    }
 }
 
 /// Put the roster in order (rule 4) from the database alone, so a page can be
 /// cut before any snapshot is fetched.
+///
+/// `outside` is the provider terms when the roster is served to a client
+/// outside Dravr's own surfaces, `None` in Dravr's own app. Outside, a session
+/// whose terms keep it in Dravr never sets an athlete's place, which would
+/// tell the client who trained when no value does (carnet#1511), and a sharer
+/// whose every connected service keeps its data in Dravr is
+/// [`OrderedMember::kept_in_dravr`], placed by name after the readable
+/// sharers and never read from the cache at all.
 ///
 /// # Errors
 ///
@@ -478,15 +513,22 @@ pub struct OrderedMember {
 pub async fn order_roster(
     repos: &RepositoryRegistry,
     members: Vec<RosterMember>,
+    outside: Option<&dyn ProviderTerms>,
 ) -> AppResult<Vec<OrderedMember>> {
     let mut ordered: Vec<OrderedMember> = stream::iter(members)
         .map(|member| async move {
             let name = fetch_user_display_name(repos, member.user_id).await;
-            let last_cached_activity = last_consented_activity(repos, &member).await?;
+            let kept_in_dravr = outside.is_some_and(|terms| kept_in_dravr(terms, &member));
+            let last_cached_activity = if kept_in_dravr {
+                None
+            } else {
+                last_consented_activity(repos, &member, outside).await?
+            };
             AppResult::Ok(OrderedMember {
                 member,
                 name,
                 last_cached_activity,
+                kept_in_dravr,
             })
         })
         .buffered(ROSTER_LOOKUP_CONCURRENCY)
@@ -494,6 +536,17 @@ pub async fn order_roster(
         .await?;
     ordered.sort_by(roster_order);
     Ok(ordered)
+}
+
+/// Whether `member` shares, has connected services, and every one of them
+/// keeps its data in Dravr by `terms`.
+fn kept_in_dravr(terms: &dyn ProviderTerms, member: &RosterMember) -> bool {
+    member.status == RosterAthleteStatus::Shared
+        && !member.source_providers.is_empty()
+        && member
+            .source_providers
+            .iter()
+            .all(|provider| first_party_only(terms, provider, None))
 }
 
 /// Cached sessions read per page while looking past withheld ones.
@@ -505,7 +558,8 @@ const WITHHELD_SCAN_PAGE: i64 = 100;
 const WITHHELD_SCAN_MAX_PAGES: usize = 20;
 
 /// When the athlete last trained, as far as the cache knows, by the sources
-/// whose AI use they have not withheld.
+/// whose AI use they have not withheld and, served to an outside client
+/// (`outside`), by the sessions whose terms let them reach it.
 ///
 /// The order is read by the agent and the coach alike, so a source the athlete
 /// withheld from AI must not place them either: its session's day would show
@@ -516,6 +570,7 @@ const WITHHELD_SCAN_MAX_PAGES: usize = 20;
 async fn last_consented_activity(
     repos: &RepositoryRegistry,
     member: &RosterMember,
+    outside: Option<&dyn ProviderTerms>,
 ) -> AppResult<Option<DateTime<Utc>>> {
     if member.source_tenants.is_empty() {
         return Ok(None);
@@ -523,28 +578,53 @@ async fn last_consented_activity(
     let withheld = ai_consent_withheld(repos, member.tenant.as_uuid(), member.user_id).await;
     let mut latest = None;
     for tenant in &member.source_tenants {
-        let start = if withheld.is_empty() {
+        let start = if withheld.is_empty() && outside.is_none() {
             repos
                 .activity_cache
                 .latest_activity_start(member.user_id, tenant)
                 .await?
         } else {
-            latest_unwithheld_start(repos, member.user_id, tenant, &withheld).await?
+            let hidden = Hidden {
+                withheld: &withheld,
+                outside,
+            };
+            latest_unwithheld_start(repos, member.user_id, tenant, &hidden).await?
         };
         latest = latest.max(start);
     }
     Ok(latest)
 }
 
-/// The start of the user's newest cached session in `tenant` that neither
-/// comes from nor was relayed from a provider in `withheld`.
+/// What a reader of the roster's order may not be shown of a session.
+struct Hidden<'a> {
+    /// The providers whose AI use the athlete withheld.
+    withheld: &'a BTreeSet<String>,
+    /// The provider terms, when the reader is a client outside Dravr.
+    outside: Option<&'a dyn ProviderTerms>,
+}
+
+impl Hidden<'_> {
+    /// Whether `activity` is hidden from the reader: it comes from or was
+    /// relayed from a withheld provider, or its terms keep it in Dravr and
+    /// the reader is outside.
+    fn hides(&self, activity: &Activity) -> bool {
+        let is_withheld = |name: &str| self.withheld.contains(&name.to_ascii_lowercase());
+        is_withheld(activity.provider())
+            || activity.source().is_some_and(is_withheld)
+            || self.outside.is_some_and(|terms| {
+                first_party_only(terms, activity.provider(), activity.source())
+            })
+    }
+}
+
+/// The start of the user's newest cached session in `tenant` that `hidden`
+/// does not hide.
 async fn latest_unwithheld_start(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant: &TenantId,
-    withheld: &BTreeSet<String>,
+    hidden: &Hidden<'_>,
 ) -> AppResult<Option<DateTime<Utc>>> {
-    let is_withheld = |name: &str| withheld.contains(&name.to_ascii_lowercase());
     let mut end = Utc::now();
     let mut previous_oldest = None;
     for _ in 0..WITHHELD_SCAN_MAX_PAGES {
@@ -562,10 +642,7 @@ async fn latest_unwithheld_start(
         let Some(oldest) = page.last().map(Activity::start_date) else {
             return Ok(None);
         };
-        if let Some(kept) = page
-            .iter()
-            .find(|a| !is_withheld(a.provider()) && !a.source().is_some_and(is_withheld))
-        {
+        if let Some(kept) = page.iter().find(|a| !hidden.hides(a)) {
             return Ok(Some(kept.start_date()));
         }
         if i64::try_from(page.len()).unwrap_or(i64::MAX) < WITHHELD_SCAN_PAGE {
@@ -586,9 +663,18 @@ async fn latest_unwithheld_start(
 }
 
 /// Readable sharers first, the longest without a session (none at all
-/// first), then everyone else; by name within each.
+/// first); then the sharers whose data stays in Dravr; then everyone else; by
+/// name within each.
 fn roster_order(a: &OrderedMember, b: &OrderedMember) -> Ordering {
-    let rank = |m: &OrderedMember| u8::from(m.member.status != RosterAthleteStatus::Shared);
+    let rank = |m: &OrderedMember| {
+        if m.readable() {
+            0_u8
+        } else if m.member.status == RosterAthleteStatus::Shared {
+            1
+        } else {
+            2
+        }
+    };
     rank(a)
         .cmp(&rank(b))
         .then_with(|| match (a.last_cached_activity, b.last_cached_activity) {
@@ -606,6 +692,15 @@ mod tests {
     use super::*;
 
     fn ordered(name: &str, status: RosterAthleteStatus, last: Option<i64>) -> OrderedMember {
+        ordered_kept(name, status, last, false)
+    }
+
+    fn ordered_kept(
+        name: &str,
+        status: RosterAthleteStatus,
+        last: Option<i64>,
+        kept_in_dravr: bool,
+    ) -> OrderedMember {
         OrderedMember {
             member: RosterMember {
                 user_id: Uuid::new_v4(),
@@ -615,6 +710,7 @@ mod tests {
                 shared_via: None,
                 member_display_name: None,
                 source_tenants: Vec::new(),
+                source_providers: Vec::new(),
                 sharing_stopped_at: None,
                 joined: RosterJoin {
                     at: DateTime::UNIX_EPOCH,
@@ -627,7 +723,26 @@ mod tests {
             },
             name: name.to_owned(),
             last_cached_activity: last.map(|secs| DateTime::from_timestamp(secs, 0).unwrap()),
+            kept_in_dravr,
         }
+    }
+
+    #[test]
+    fn a_sharer_whose_data_stays_in_dravr_follows_the_readable_sharers_by_name() {
+        let mut roster = [
+            ordered("Zoé", RosterAthleteStatus::NoCoachConsent, None),
+            ordered_kept("Kept B", RosterAthleteStatus::Shared, None, true),
+            ordered("Recent", RosterAthleteStatus::Shared, Some(2_000)),
+            ordered_kept("Kept A", RosterAthleteStatus::Shared, None, true),
+            ordered("Never", RosterAthleteStatus::Shared, None),
+        ];
+        roster.sort_by(roster_order);
+        let names: Vec<&str> = roster.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["Never", "Recent", "Kept A", "Kept B", "Zoé"],
+            "an athlete with nothing an outside client may see is never ordered as gone quiet"
+        );
     }
 
     #[test]

@@ -87,6 +87,13 @@ use crate::runtime::ToolRuntime;
 /// The tool's name, as a refusal words it.
 const TOOL_NAME: &str = "get_roster_overview";
 
+/// `not_read` of a sharer whose every connected service keeps its data in
+/// Dravr, served to an assistant outside Dravr (carnet#1511): present, their
+/// data withheld, and nothing said about whether they trained.
+pub const KEPT_IN_DRAVR: &str = "Their training comes only from services whose data stays \
+     inside Dravr, so none of it is shown to an assistant outside Dravr. This says nothing \
+     about whether they trained; never infer it.";
+
 /// Most athletes one call fetches training for, and most it names without.
 /// Each snapshot is a provider read, so the cap bounds both the turn's latency
 /// and the reply's token cost.
@@ -400,6 +407,10 @@ async fn build_overview(
         (gathered, 0)
     };
     let total = gathered.roster_members();
+    // Served outside Dravr, the order reads only what may reach the caller.
+    let terms = runtime.provider_registry();
+    let outside: Option<&dyn ProviderTerms> =
+        coach_assistant::serving_coach_assistant().then_some(terms.as_ref());
     let summaries = gathered
         .groups
         .iter()
@@ -409,12 +420,20 @@ async fn build_overview(
         })
         .collect();
 
-    let (mut readable, mut others): (Vec<_>, Vec<_>) = order_roster(repos, gathered.members)
+    let (mut readable, rest): (Vec<_>, Vec<_>) = order_roster(repos, gathered.members, outside)
         .await?
         .into_iter()
+        .partition(OrderedMember::readable);
+    // A sharer whose data stays in Dravr is listed as present, after the
+    // readable sharers: never first as if they had gone quiet.
+    let (mut kept, mut others): (Vec<_>, Vec<_>) = rest
+        .into_iter()
         .partition(|m| m.member.status == RosterAthleteStatus::Shared);
-    let truncated = readable.len() > MAX_ROSTER_ATHLETES || others.len() > MAX_ROSTER_ATHLETES;
+    let truncated = readable.len() > MAX_ROSTER_ATHLETES
+        || kept.len() > MAX_ROSTER_ATHLETES
+        || others.len() > MAX_ROSTER_ATHLETES;
     readable.truncate(MAX_ROSTER_ATHLETES);
+    kept.truncate(MAX_ROSTER_ATHLETES);
     others.truncate(MAX_ROSTER_ATHLETES);
     let (readable, unread) = gate_reads(context, readable).await?;
 
@@ -424,7 +443,6 @@ async fn build_overview(
         ai_scope::note_member_read(m.member.user_id);
     }
     let snapshots = fetch_page_snapshots(runtime, &readable).await;
-    let terms = runtime.provider_registry();
     let group_names = |m: &OrderedMember| m.member.groups.iter().map(|g| g.name.clone()).collect();
     let mut shared: Vec<RosterOverviewAthlete> = readable
         .iter()
@@ -448,6 +466,13 @@ async fn build_overview(
         truncated,
         "get_roster_overview: consent-gated roster read"
     );
+    shared.extend(kept.iter().map(|m| RosterOverviewAthlete {
+        name: m.name.clone(),
+        groups: group_names(m),
+        status: RosterAthleteStatus::Shared,
+        training: None,
+        not_read: Some(KEPT_IN_DRAVR.to_owned()),
+    }));
     shared.extend(unread.iter().map(|(m, why)| RosterOverviewAthlete {
         name: m.name.clone(),
         groups: group_names(m),
