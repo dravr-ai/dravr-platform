@@ -1061,3 +1061,55 @@ async fn the_sweep_walks_the_session_and_passes_over_the_grant_beside_it() {
         "bug: the grant beside the session must be counted as passed over"
     );
 }
+
+/// carnet#1692: an active athlete's live session whose head their own turn
+/// read minutes ago is refreshed by an active sweep that skips nothing, as
+/// an operator asks with `skip_fetched_within_hours=0`. The 2026-11-20 run
+/// asked exactly that and passed the session over, the zero read as an hour.
+#[tokio::test]
+async fn an_active_sweep_skipping_nothing_refreshes_a_session_a_turn_just_read() {
+    let (f, _scraper) = athlete_on_the_mirror().await;
+    let repos = f.runtime.repos();
+    repos
+        .provider_connections
+        .touch_last_used(f.user_id, f.tenant, "sciotte")
+        .await
+        .unwrap();
+    let tenant = f.tenant.to_string();
+    fetch_provider_head(&f.runtime, "sciotte", f.user_id, &tenant, &head_window())
+        .await
+        .expect("the turn's read is served by the session");
+    let snapshot = repos
+        .activity_cache
+        .capture_freshness_snapshot(DEFAULT_CONNECTION_LIMIT)
+        .await
+        .unwrap();
+    assert!(
+        snapshot
+            .iter()
+            .any(|c| c.provider == "sciotte" && c.last_fetch_at.is_some()),
+        "bug: the turn's read must mark the session's head fetched: {snapshot:?}"
+    );
+
+    let report = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection::from_hours(Some(168), Some(0)),
+    )
+    .await
+    .expect("refresh report");
+
+    assert!(
+        report
+            .connections
+            .iter()
+            .any(|c| c.provider == "sciotte"
+                && matches!(c.outcome, RefreshOutcome::Refreshed { .. })),
+        "bug: an active sweep skipping nothing must refresh the athlete's live session: {:?}",
+        report.connections
+    );
+    assert_eq!(
+        report.passed_over, 0,
+        "bug: an active sweep skipping nothing passes over no live session of an active athlete"
+    );
+}

@@ -184,10 +184,8 @@ pub struct CaptureStalenessQuery {
 }
 
 /// Query parameters for `/admin/diagnostics/capture-refresh`. Both absent,
-/// the sweep walks every live connection, as the daily monitor asks.
-///
-/// Either one given is clamped to `1..=MAX_THRESHOLD_HOURS`, as the staleness
-/// reader's are: an unbounded window would overflow `now - window`.
+/// the sweep walks every live connection, as the daily monitor asks. Read
+/// into the sweep's selection by [`SweepSelection::from_hours`].
 #[derive(Debug, Default, Deserialize)]
 pub struct CaptureRefreshQuery {
     /// Only the connections of athletes served, on any of their connections,
@@ -199,11 +197,7 @@ pub struct CaptureRefreshQuery {
 
 impl CaptureRefreshQuery {
     fn selection(&self) -> SweepSelection {
-        let hours = |h: u32| Duration::hours(i64::from(h).clamp(1, MAX_THRESHOLD_HOURS));
-        SweepSelection {
-            active_within: self.active_within_hours.map(hours),
-            skip_fetched_within: self.skip_fetched_within_hours.map(hours),
-        }
+        SweepSelection::from_hours(self.active_within_hours, self.skip_fetched_within_hours)
     }
 }
 
@@ -431,7 +425,7 @@ mod tests {
     use axum::http::Uri;
     use chrono::Duration;
 
-    use super::{CaptureRefreshQuery, SweepSelection, MAX_THRESHOLD_HOURS};
+    use super::{CaptureRefreshQuery, SweepSelection};
 
     fn selection_of(uri: &str) -> SweepSelection {
         let uri: Uri = uri.parse().expect("a uri");
@@ -457,22 +451,22 @@ mod tests {
         );
     }
 
-    /// A window past the bound is clamped to it, so the sweep's `now - window`
-    /// stays in range instead of panicking the request.
+    /// The operator's "skip nothing" reaches the sweep as no skip window
+    /// (carnet#1692): dispatched with `0`, the lane passed over a head the
+    /// athlete's own turn had read 26 minutes before.
     #[test]
-    fn an_out_of_range_window_is_clamped() {
+    fn a_zero_skip_window_reaches_the_sweep_as_none() {
         let selection = selection_of(
-            "/admin/diagnostics/capture-refresh?active_within_hours=4294967295&skip_fetched_within_hours=0",
+            "/admin/diagnostics/capture-refresh?active_within_hours=168&skip_fetched_within_hours=0",
+        );
+        assert_eq!(
+            selection.skip_fetched_within, None,
+            "bug: skip_fetched_within_hours=0 must pass over no connection"
         );
         assert_eq!(
             selection.active_within,
-            Some(Duration::hours(MAX_THRESHOLD_HOURS)),
-            "bug: an oversized window must be clamped to the bound"
-        );
-        assert_eq!(
-            selection.skip_fetched_within,
-            Some(Duration::hours(1)),
-            "bug: a zero window must be clamped to one hour"
+            Some(Duration::hours(168)),
+            "bug: active_within_hours must still narrow the sweep"
         );
     }
 

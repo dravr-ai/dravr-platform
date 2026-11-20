@@ -158,7 +158,31 @@ pub struct SweepSelection {
     pub skip_fetched_within: Option<ChronoDuration>,
 }
 
+/// The widest window, in hours, either bound of a [`SweepSelection`] takes:
+/// past it the sweep's `now - window` would leave chrono's range.
+const MAX_SELECTION_HOURS: i64 = 720;
+
 impl SweepSelection {
+    /// The selection the hour bounds a caller names, each `None` when not
+    /// given. Either one given is clamped to at most `MAX_SELECTION_HOURS`.
+    ///
+    /// An activity window of zero hours would select nobody, so it is clamped
+    /// to one. A skip window of zero passes over nothing: every connection of
+    /// an active athlete is due, a head their own turn read minutes ago
+    /// included, which is what an operator asking the lane to skip nothing
+    /// expects (carnet#1692).
+    #[must_use]
+    pub fn from_hours(
+        active_within_hours: Option<u32>,
+        skip_fetched_within_hours: Option<u32>,
+    ) -> Self {
+        let hours = |h: u32| ChronoDuration::hours(i64::from(h).clamp(1, MAX_SELECTION_HOURS));
+        Self {
+            active_within: active_within_hours.map(hours),
+            skip_fetched_within: skip_fetched_within_hours.filter(|&h| h > 0).map(hours),
+        }
+    }
+
     /// The athletes of `rows` this sweep treats as active: those with a serve
     /// of ANY of their connections within `active_within`. `None` when the
     /// sweep walks everyone.
@@ -853,7 +877,7 @@ mod tests {
     use pierre_providers::sciotte_error::coach_account_error;
     use serde_json::json;
 
-    use super::{unflagged_outcome, RefreshOutcome, SweepSelection};
+    use super::{unflagged_outcome, RefreshOutcome, SweepSelection, MAX_SELECTION_HOURS};
 
     fn connection(
         last_used_at: Option<DateTime<Utc>>,
@@ -879,6 +903,46 @@ mod tests {
         let now = Utc::now();
         let active = selection.active_athletes(slice::from_ref(row), now);
         selection.selects(row, now, &active)
+    }
+
+    /// A window past the bound is clamped to it, so the sweep's `now - window`
+    /// stays in range instead of panicking the request, and an activity window
+    /// of zero hours, which would select nobody, is clamped to one.
+    #[test]
+    fn an_out_of_range_window_is_clamped() {
+        let oversized = SweepSelection::from_hours(Some(u32::MAX), Some(u32::MAX));
+        assert_eq!(
+            oversized.active_within,
+            Some(Duration::hours(MAX_SELECTION_HOURS)),
+            "bug: an oversized activity window must be clamped to the bound"
+        );
+        assert_eq!(
+            oversized.skip_fetched_within,
+            Some(Duration::hours(MAX_SELECTION_HOURS)),
+            "bug: an oversized skip window must be clamped to the bound"
+        );
+        assert_eq!(
+            SweepSelection::from_hours(Some(0), None).active_within,
+            Some(Duration::hours(1)),
+            "bug: a zero activity window must be clamped to one hour"
+        );
+    }
+
+    /// carnet#1692: a skip window of zero hours passes over nothing, so a
+    /// head the athlete's own turn read 26 minutes ago is refreshed.
+    #[test]
+    fn a_zero_skip_window_makes_every_connection_due() {
+        let selection = SweepSelection::from_hours(Some(168), Some(0));
+        assert_eq!(
+            selection.skip_fetched_within, None,
+            "bug: a zero skip window must be no window"
+        );
+        let now = Utc::now();
+        let row = connection(Some(now), Some(now - Duration::minutes(26)));
+        assert!(
+            selects_alone(&selection, &row),
+            "bug: an active athlete's head fetched 26 minutes ago must be due"
+        );
     }
 
     /// The 2026-10-27 athlete: chatted yesterday, last fetched this morning.
