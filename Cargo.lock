@@ -3747,6 +3747,7 @@ dependencies = [
  "jsonschema",
  "lingua",
  "photograveur",
+ "pierre-agent-parser",
  "pierre-agui",
  "pierre-cache",
  "pierre-commands",

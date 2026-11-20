@@ -694,7 +694,9 @@ async fn answer_stored_turn(
     stages::agent_mention::apply_prompt_text(&mut history, &user_message.id, &input);
 
     // Stage 6: Resolve the agent runtime context this turn answers as.
-    let agent_ctx = stages::prompt_assembly::resolve_turn_agent_ctx(ctx, &input, &conv).await?;
+    let agent_ctx =
+        stages::prompt_assembly::resolve_turn_agent_ctx(ctx, &input, &conv, &profile.locale)
+            .await?;
 
     // Stages 7a–7h + 8: assemble the hardened system prompt and flatten the
     // conversation history into a ready-to-dispatch LLM message list.

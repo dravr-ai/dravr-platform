@@ -854,6 +854,7 @@ mod sleep_recovery_integration_test;
 mod sleep_training_load_provider_test;
 mod sse_manager_test;
 mod startup_banner_test;
+mod startup_query_locale_pipeline_test;
 mod statistical_analysis_test;
 mod stopped_turn_envelope_notice_test;
 mod store_cursor_pagination_test;

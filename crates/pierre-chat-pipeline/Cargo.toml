@@ -45,6 +45,8 @@ language-detection = ["dep:lingua"]
 # TokenCounts for the per-call cost the recorder prices through the registry.
 embacle = { version = "0.47.0" }
 embacle-tool-host = "0.47.0"
+# Reads a locale file's frontmatter for the startup query the turn opens with.
+pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-agui = { version = "0.3.0", path = "../pierre-agui" }
 # The shared cache a proposed route's line is read back from by its route_ref.
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }

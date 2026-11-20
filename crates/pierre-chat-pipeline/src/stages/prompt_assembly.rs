@@ -46,8 +46,10 @@ use pierre_groups::service::MemberCards;
 
 mod placeholders;
 mod stable_head;
+mod startup_query;
 use placeholders::interpolate_prompt_placeholders;
 use stable_head::mark_stable_head;
+use startup_query::localize_startup_query;
 
 /// Identity anchor appended to the tail of every assembled system prompt.
 ///
@@ -1119,21 +1121,27 @@ pub(crate) async fn assemble_prompt_and_messages(
 /// shared messaging room reads the athlete's copy rather than looking for it
 /// under the bot's tenant. Otherwise the conversation's bound agent resolves
 /// under the conversation's tenant, as every turn did before mentions existed.
+///
+/// `locale` is the turn's resolved locale: the startup query a catalogue
+/// agent opens with is read in it, English when the locale has none.
 pub(crate) async fn resolve_turn_agent_ctx(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
     conv: &ConversationRecord,
+    locale: &str,
 ) -> AppResult<Option<AgentRuntimeContext>> {
-    if let Some(mention) = &input.mentioned_agent {
-        return Ok(Some(mention.runtime.clone()));
+    let mut agent = if let Some(mention) = &input.mentioned_agent {
+        Some(mention.runtime.clone())
+    } else if let Some(agent_id) = conv.agent_id.as_deref() {
+        ctx.repos
+            .agents
+            .get_agent_runtime_context(agent_id, input.conversation_tenant_id)
+            .await?
+    } else {
+        None
+    };
+    if let Some(agent) = agent.as_mut() {
+        localize_startup_query(&ctx.prompt_registry, agent, locale);
     }
-    match conv.agent_id.as_deref() {
-        Some(agent_id) => {
-            ctx.repos
-                .agents
-                .get_agent_runtime_context(agent_id, input.conversation_tenant_id)
-                .await
-        }
-        None => Ok(None),
-    }
+    Ok(agent)
 }
