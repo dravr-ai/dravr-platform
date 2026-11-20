@@ -4,16 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_canot::channels::whatsapp::identity::sender_phone_number;
 use pierre_contremaitre::messaging_strings::DEFAULT_LOCALE;
 use pierre_core::models::messaging::{ChannelType, IncomingMessage};
 use pierre_core::models::{locale_from_language_tag, whatsapp_sender_locale};
 use serde_json::Value;
-
-/// Metadata key under which dravr-canot puts a `WhatsApp` sender's phone number
-/// (Meta's `wa_id`) whenever the webhook carried one. canot writes it from
-/// 8f2bd6c on, the commit that keys senders on their business-scoped user id
-/// (carnet#1668); v0.11.0 keys them on the number and sends no metadata.
-const WHATSAPP_PHONE_NUMBER_KEY: &str = "wa_id";
 
 /// The language a sender who has not linked an account reads, from what the
 /// channel tells us about them in `message`; [`DEFAULT_LOCALE`] only when it
@@ -26,13 +21,9 @@ const WHATSAPP_PHONE_NUMBER_KEY: &str = "wa_id";
 /// and Discord deliver carry no language of their sender.
 pub(super) fn prelink_locale(message: &IncomingMessage) -> &'static str {
     let signal = match message.channel_type {
-        ChannelType::WhatsApp => whatsapp_sender_locale(
-            &message.sender_id,
-            message
-                .metadata
-                .get(WHATSAPP_PHONE_NUMBER_KEY)
-                .and_then(Value::as_str),
-        ),
+        ChannelType::WhatsApp => {
+            whatsapp_sender_locale(&message.sender_id, sender_phone_number(message))
+        }
         ChannelType::Telegram => {
             telegram_sender_language(&message.raw_payload).and_then(locale_from_language_tag)
         }
