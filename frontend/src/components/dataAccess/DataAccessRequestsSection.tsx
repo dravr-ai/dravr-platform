@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import type { DataAccessRequest } from '@pierre/shared-types';
 import { dataAccessDateLines, dataAccessStatus, formatCivilDate } from '@pierre/ui-logic';
@@ -58,12 +58,46 @@ function RequestRow({
   );
 }
 
-export default function DataAccessRequestsSection() {
+interface DataAccessRequestsSectionProps {
+  /**
+   * The request a reminder opens (carnet#1659): shown, and scrolled to, once
+   * the list has loaded.
+   */
+  openRequestId?: string | null;
+  /** Called once that request is open, or found gone from the list. */
+  onRequestOpened?: () => void;
+}
+
+export default function DataAccessRequestsSection({
+  openRequestId = null,
+  onRequestOpened,
+}: DataAccessRequestsSectionProps) {
   const { t } = useTranslation();
   const { requests, isLoading, isError } = useDataAccessRequests();
   const [pane, setPane] = useState<Pane>({ kind: 'none' });
+  const detailRef = useRef<HTMLDivElement>(null);
+  const scrollToDetail = useRef(false);
+
+  // A reminder's request opens once the list has it. One the athlete has
+  // since deleted opens nothing: the list is what is left to show.
+  useEffect(() => {
+    if (openRequestId === null || requests === undefined) return;
+    if (requests.some((request) => request.id === openRequestId)) {
+      setPane({ kind: 'view', id: openRequestId });
+      scrollToDetail.current = true;
+    }
+    onRequestOpened?.();
+  }, [openRequestId, requests, onRequestOpened]);
 
   const shown = pane.kind === 'edit' || pane.kind === 'view' ? requests?.find((r) => r.id === pane.id) : undefined;
+
+  // The section sits below the fold of the privacy pane: bring the opened
+  // request's letter into view.
+  useEffect(() => {
+    if (!scrollToDetail.current || pane.kind !== 'view') return;
+    scrollToDetail.current = false;
+    detailRef.current?.scrollIntoView?.({ block: 'start' });
+  }, [pane]);
 
   return (
     <Section
@@ -136,7 +170,7 @@ export default function DataAccessRequestsSection() {
           />
         )}
         {pane.kind === 'view' && shown && (
-          <div className="rounded-lg border ghost-border-faint p-4">
+          <div ref={detailRef} className="rounded-lg border ghost-border-faint p-4">
             <DataAccessRequestDetail
               key={shown.id}
               request={shown}

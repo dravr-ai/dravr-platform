@@ -160,6 +160,28 @@ describe('usePushNotifications', () => {
       });
     });
 
+    it('opens a data access reminder on its request on the privacy screen (carnet#1659)', () => {
+      setup();
+
+      subscribed(addResponseListener).listener(tap({ screen: 'privacy', id: 'req-42' }));
+
+      expect(mockPush).toHaveBeenCalledTimes(1);
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/(app)/(tabs)/(settings)/privacy',
+        params: { request: 'req-42' },
+      });
+    });
+
+    it('opens the app and nothing more for a screen this build does not know', () => {
+      // What a build from before a screen was added does with it: the
+      // reminder's body still names where to go, from the notification centre.
+      setup();
+
+      subscribed(addResponseListener).listener(tap({ screen: 'not_yet_shipped', id: 'req-42' }));
+
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
     it('opens the app and nothing more when the payload names no destination', () => {
       setup();
 

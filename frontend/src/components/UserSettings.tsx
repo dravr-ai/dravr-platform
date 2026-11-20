@@ -114,7 +114,21 @@ function getUsageBarColor(current: number, limit: number): string {
   return 'bg-success';
 }
 
-export default function UserSettings({ initialTab = 'profile', hideTabNav = false }: { initialTab?: SettingsTab; hideTabNav?: boolean }) {
+interface UserSettingsProps {
+  initialTab?: SettingsTab;
+  hideTabNav?: boolean;
+  /** The data access request a reminder opens in the privacy section, once. */
+  dataAccessRequest?: string | null;
+  /** Called once that request is open, or found gone. */
+  onDataAccessRequestOpened?: () => void;
+}
+
+export default function UserSettings({
+  initialTab = 'profile',
+  hideTabNav = false,
+  dataAccessRequest = null,
+  onDataAccessRequestOpened,
+}: UserSettingsProps) {
   const { user, logout, isAuthenticated, viewMode } = useAuth();
   const { scheme, toggle: toggleTheme } = useTheme();
   const { t, language } = useTranslation();
@@ -1260,7 +1274,12 @@ Authorization: Bearer <your-token-here>`}
 
         {activeTab === 'memory' && <MemoryPanel />}
 
-        {activeTab === 'privacy' && <PrivacySettingsTab />}
+        {activeTab === 'privacy' && (
+          <PrivacySettingsTab
+            dataAccessRequest={dataAccessRequest}
+            onDataAccessRequestOpened={onDataAccessRequestOpened}
+          />
+        )}
 
         {/* About Tab — rows in the order the shared pane declaration holds
             them, so the phone's About screen lists the same four things. */}

@@ -22,6 +22,8 @@ import { ScrollView, type ScrollViewProps } from 'react-native';
  * (Connections as a modal) gets the header inset and nothing at the bottom,
  * which is exactly what that screen has.
  */
-export function PaneScrollView(props: ScrollViewProps) {
+export function PaneScrollView(
+  props: ScrollViewProps & { ref?: React.Ref<ScrollView> },
+) {
   return <ScrollView contentInsetAdjustmentBehavior="automatic" {...props} />;
 }

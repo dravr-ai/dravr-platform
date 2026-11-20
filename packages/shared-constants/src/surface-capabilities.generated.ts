@@ -1,9 +1,9 @@
 // ABOUTME: Auto-generated catalogue of what every chat surface renders, from the running server
 // ABOUTME: Generated from GET /api/surfaces/capabilities - DO NOT EDIT MANUALLY
 //
-// Surfaces: 7 · Reply-block kinds: 10 · Notification screens: 5
+// Surfaces: 7 · Reply-block kinds: 10 · Notification screens: 6
 // capability-digest: 325bc5f6c9a2ab1f
-// content-digest: a4451466699624c6
+// content-digest: 9e61b5135eb9ae68
 // To regenerate: bun run generate (from packages/shared-constants)
 
 /**
@@ -160,6 +160,7 @@ export const NOTIFICATION_SCREEN_SURFACES = {
   'coach': 'chat',
   'connections': 'connections',
   'group_info': 'chat',
+  'privacy': 'privacy',
 } as const;
 
 /** A screen name a notification's `data.screen` field can carry. */

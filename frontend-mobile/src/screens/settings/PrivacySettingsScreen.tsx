@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import React, { useState, useEffect } from 'react';
-import { View, Text, Switch, Alert } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, Switch, Alert, type ScrollView } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
+import { MOBILE_DATA_ACCESS_REQUEST_PARAM } from '@pierre/shared-constants';
 import { PaneScrollView, Section, switchColors } from '../../components/ui';
 import { useMutation } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
@@ -42,6 +44,18 @@ export function PrivacySettingsScreen(): React.JSX.Element {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const { user, updateUser } = useAuth();
+  // A data access reminder names its request (carnet#1659).
+  const params = useLocalSearchParams<{ [MOBILE_DATA_ACCESS_REQUEST_PARAM]?: string }>();
+  const openRequestId =
+    typeof params[MOBILE_DATA_ACCESS_REQUEST_PARAM] === 'string'
+      ? params[MOBILE_DATA_ACCESS_REQUEST_PARAM]
+      : null;
+  const scrollRef = useRef<ScrollView>(null);
+  const dataAccessY = useRef(0);
+  // The section sits below the fold: bring the opened request into view.
+  const scrollToDataAccess = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: dataAccessY.current, animated: true });
+  }, []);
 
   // Analytics consent is stored on the user record, so the switch is seeded
   // from the auth context rather than a screen-local fetch.
@@ -79,6 +93,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
   return (
     <View className="flex-1 bg-background-primary" testID="privacy-settings-screen">
       <PaneScrollView
+        ref={scrollRef}
         contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: spacing.xl }}
         showsVerticalScrollIndicator={false}
       >
@@ -125,7 +140,16 @@ export function PrivacySettingsScreen(): React.JSX.Element {
 
           <DataExportSection />
 
-          <DataAccessRequestsSection />
+          <View
+            onLayout={(event) => {
+              dataAccessY.current = event.nativeEvent.layout.y;
+            }}
+          >
+            <DataAccessRequestsSection
+              openRequestId={openRequestId}
+              onRequestOpened={scrollToDataAccess}
+            />
+          </View>
 
           <AccountDeletionSection />
         </View>

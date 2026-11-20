@@ -31,14 +31,15 @@ use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::{DataAccessRequest, ReminderStage};
 use pierre_database::RepositoryRegistry;
 use pierre_notifications::events::{
-    DATA_ACCESS_COMPANY_PARAM, DATA_ACCESS_DUE_ON_PARAM, DATA_ACCESS_REFERENCE_PARAM,
+    data_access_request_route, DATA_ACCESS_COMPANY_PARAM, DATA_ACCESS_DUE_ON_PARAM,
+    DATA_ACCESS_REFERENCE_PARAM,
 };
 use pierre_notifications::models::NotificationCategory;
 use pierre_notifications::{
     DispatchOutcome, EventDispatch, NotificationEvent, NotificationService, PushTier,
     TenantId as CommereTenantId,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use tracing::{debug, info, warn};
 
 use crate::periodic::spawn_periodic;
@@ -95,10 +96,9 @@ fn reminder(request: &DataAccessRequest, stage: ReminderStage, due_on: NaiveDate
             DATA_ACCESS_REFERENCE_PARAM: request.reference,
             DATA_ACCESS_DUE_ON_PARAM: due_on.format("%Y-%m-%d").to_string(),
         }),
-        // `NotificationScreen` names no Privacy & Data screen, so the
-        // reminder opens the notification centre and its body names where
-        // to go.
-        route: Value::Null,
+        // A tap opens the request in Settings → Privacy & Data. The body
+        // still names where to go, for a client too old to know the screen.
+        route: data_access_request_route(request.id),
         actions: None,
         // At most two per request per due date, each about a legal deadline:
         // the daily cap must not swallow one.

@@ -12,6 +12,7 @@ import Dashboard from '../Dashboard';
 import { ThemeProvider } from '../../hooks/useTheme';
 
 const chatTabProps = vi.fn();
+const settingsShellProps = vi.fn();
 const markAsRead = vi.fn();
 
 function notification(overrides: Partial<NotificationItem>): NotificationItem {
@@ -69,6 +70,15 @@ const FEED: NotificationItem[] = [
     body: 'Coach Ana asked to read them in Squad',
     data: { screen: 'group_info', id: 'room-7' },
   }),
+  // A data access reminder names the request it is about (carnet#1659).
+  notification({
+    id: 'data-access-due',
+    category: 'system',
+    notification_type: 'data_access_request_due_soon',
+    title: 'Acme must answer soon',
+    body: 'Your request DRV-2026-AB3XZ7 is due on 21 November 2026',
+    data: { screen: 'privacy', id: 'req-42' },
+  }),
   // A sync failure stored when its screen was `settings`, which no longer
   // names a destination: its Reconnect button would lead nowhere.
   notification({
@@ -113,6 +123,23 @@ vi.mock('../ChatTab', () => ({
       info: props.openInfoFor ?? null,
     });
     return <div data-testid="chat-tab" />;
+  },
+}));
+
+// The settings pane's own rendering is covered by its tests; here only the
+// request it is handed to open is asserted.
+vi.mock('../settings/SettingsShell', () => ({
+  default: (props: {
+    tab: string | null;
+    dataAccessRequest?: string | null;
+    onDataAccessRequestOpened?: () => void;
+  }) => {
+    settingsShellProps({ tab: props.tab, request: props.dataAccessRequest ?? null });
+    return (
+      <button type="button" data-testid="settings-shell" onClick={props.onDataAccessRequestOpened}>
+        settings
+      </button>
+    );
   },
 }));
 
@@ -243,5 +270,34 @@ describe('Dashboard — where a notification row goes', () => {
     expect(await screen.findByTestId('chat-tab')).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe('#chat/conv-abc-123'));
     expect(chatTabProps).toHaveBeenLastCalledWith({ selected: 'conv-abc-123', info: null });
+  });
+
+  it('opens a data access reminder on its request in the privacy pane, once', async () => {
+    await openNotifications();
+
+    await act(async () => {
+      screen.getByTestId('notification-row-data-access-due').click();
+    });
+
+    const shell = await screen.findByTestId('settings-shell');
+    // The route keeps the pane alone, so Back never reopens the request.
+    await waitFor(() => expect(window.location.hash).toBe('#settings/privacy'));
+    expect(settingsShellProps).toHaveBeenLastCalledWith({ tab: 'privacy', request: 'req-42' });
+
+    await act(async () => {
+      shell.click();
+    });
+    expect(settingsShellProps).toHaveBeenLastCalledWith({ tab: 'privacy', request: null });
+  });
+
+  it('opens the request a bookmarked reminder link names', async () => {
+    window.history.replaceState(null, '', '/#settings/privacy/data-access/req-9');
+    await act(async () => {
+      renderDashboard();
+    });
+
+    expect(await screen.findByTestId('settings-shell')).toBeInTheDocument();
+    expect(settingsShellProps).toHaveBeenLastCalledWith({ tab: 'privacy', request: 'req-9' });
+    await waitFor(() => expect(window.location.hash).toBe('#settings/privacy'));
   });
 });
