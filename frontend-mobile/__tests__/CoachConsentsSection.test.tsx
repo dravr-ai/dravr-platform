@@ -34,6 +34,9 @@ function consents(overrides: Partial<CoachConsentsResponse> = {}): CoachConsents
     wellness_read_supported: true,
     wellness_read_skipped: null,
     wellness_notice_due: false,
+    assistant_read: false,
+    assistant_read_at: null,
+    assistant_read_supported: false,
     ...overrides,
   };
 }

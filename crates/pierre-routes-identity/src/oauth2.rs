@@ -54,6 +54,8 @@ use self::session::SignInCookie;
 mod consent;
 /// What the consent screen says about who is asking and where the data goes
 mod consent_copy;
+/// Which role lines the consent screen shows the signed-in user (carnet#1511)
+mod consent_role;
 /// The consent flow's text, in the reader's language
 mod consent_text;
 /// Which consent text a grant was approved under, and whether it is current.
@@ -82,7 +84,7 @@ mod well_known;
 pub use consent_text::ConsentText;
 pub use google_login::GoogleSignIn;
 pub use login_text::LoginPageLabels;
-pub use pages::{ConsentHtmlParams, LoginHtmlParams};
+pub use pages::{ConsentHtmlParams, ConsentRole, LoginHtmlParams};
 
 /// OAuth 2.0 server context shared across all handlers
 #[derive(Clone)]
@@ -465,6 +467,7 @@ impl OAuth2Routes {
         }
 
         let text = ConsentText::for_reader(&context.strings, Some(&user.locale), headers);
+        let role = Self::consent_role(context, &user).await;
         // The consent form's synchronizer token, bound to this user: a page
         // on another origin cannot read it, so it cannot post an approval.
         match context.csrf_manager.generate_token(authenticated_user_id) {
@@ -475,6 +478,7 @@ impl OAuth2Routes {
                 &user.email,
                 &context.first_party_only_sources,
                 &text,
+                role,
             ),
             Err(e) => {
                 error!("Failed to mint the consent form token: {e}");

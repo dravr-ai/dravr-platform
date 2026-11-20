@@ -1102,6 +1102,9 @@ test.describe('Group info — coaching-platform links', () => {
       wellness_read_supported: true,
       wellness_read_skipped: null,
       wellness_notice_due: false,
+      assistant_read: false,
+      assistant_read_at: null,
+      assistant_read_supported: false,
     };
 
     await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
@@ -1194,6 +1197,9 @@ test.describe('Group info — coaching-platform links', () => {
       wellness_read_supported: true,
       wellness_read_skipped: null,
       wellness_notice_due: true,
+      assistant_read: false,
+      assistant_read_at: null,
+      assistant_read_supported: false,
     };
 
     await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {

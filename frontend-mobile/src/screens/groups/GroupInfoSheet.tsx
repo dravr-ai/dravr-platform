@@ -41,6 +41,7 @@ import {
   useUpdatePeerConsent,
   useCoachSharing,
   useSetCoachSharing,
+  useSetCoachConsents,
 } from '../../hooks/useGroups';
 import { useOpenAthleteThread } from '../../hooks/useCoachPlan';
 import { GroupInsightsSection } from './GroupInsightsSection';
@@ -176,6 +177,12 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const { sharing: coachSharing } = useCoachSharing(groupId, showsCoachSharing);
   const { setSharing: setCoachSharing, isPending: isSavingCoachSharing } =
     useSetCoachSharing(groupId);
+  // Whether the coach's AI assistant includes the member in its roster tools
+  // (carnet#1511): per membership, off until the member turns it on here.
+  const { setConsents: setCoachConsents, isPending: isSavingAssistantRead } =
+    useSetCoachConsents(groupId);
+  const showsAssistantRead =
+    showsCoachSharing && !!group?.coach_user_id && coachConsents?.assistant_read_supported === true;
   const { updateRole } = useUpdateMemberRole(groupId);
   const { removeMember } = useRemoveMember(groupId);
   const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
@@ -370,6 +377,17 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       }
     },
     [setCoachSharing, t],
+  );
+
+  const handleAssistantReadChange = useCallback(
+    async (granted: boolean) => {
+      try {
+        await setCoachConsents({ assistant_read: granted });
+      } catch (err) {
+        Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedUpdateSharing' }));
+      }
+    },
+    [setCoachConsents, t],
   );
 
   /**
@@ -803,8 +821,27 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                       testID="coach-sharing-switch"
                     />
                   }
-                  last
+                  last={!showsAssistantRead}
                   testID="coach-sharing-row"
+                />
+              )}
+              {/* Beside coach sharing: whether the coach's AI assistant (Claude,
+                  ChatGPT…) includes the member in its roster tools (carnet#1511). */}
+              {showsAssistantRead && coachConsents && (
+                <Row
+                  title={t('humanCoach.assistantOptIn.label', { coach: coachName ?? '' })}
+                  subtitle={t('humanCoach.assistantOptIn.hint', { coach: coachName ?? '' })}
+                  trailing={
+                    <Switch
+                      value={coachConsents.assistant_read}
+                      onValueChange={(value) => void handleAssistantReadChange(value)}
+                      disabled={isSavingAssistantRead}
+                      {...switchColors(colors.tokens, coachConsents.assistant_read)}
+                      testID="coach-assistant-read-switch"
+                    />
+                  }
+                  last
+                  testID="coach-assistant-read-row"
                 />
               )}
             </View>

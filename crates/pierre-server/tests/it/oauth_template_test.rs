@@ -232,6 +232,7 @@ fn test_consent_page_escapes_the_client_name_and_names_the_account() {
         switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
         first_party_only_sources: &["Strava"],
         text: &ConsentText::new(&STRINGS, "en"),
+        role: pierre_routes_identity::ConsentRole::default(),
     });
 
     assert!(!html.contains("<script>"), "{html}");
@@ -278,6 +279,7 @@ fn test_consent_page_names_the_host_the_browser_goes_to() {
             switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
             first_party_only_sources: &[],
             text: &ConsentText::new(&STRINGS, "en"),
+            role: pierre_routes_identity::ConsentRole::default(),
         })
     };
 
@@ -327,6 +329,7 @@ fn test_consent_page_names_the_data_that_stays_inside_dravr() {
             switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
             first_party_only_sources: sources,
             text: &ConsentText::new(&STRINGS, "en"),
+            role: pierre_routes_identity::ConsentRole::default(),
         })
     };
 
@@ -381,6 +384,7 @@ fn test_consent_page_states_the_client_trust_and_the_data_obligations() {
             switch_account_url: "/oauth2/login?client_id=x&state=s",
             first_party_only_sources: &[],
             text: &ConsentText::new(&STRINGS, "en"),
+            role: pierre_routes_identity::ConsentRole::default(),
         })
     };
 
@@ -998,6 +1002,7 @@ fn consent_in(locale: &str, client_id: &str, redirect_uri: &str, scope: &str) ->
         switch_account_url: "/oauth2/login?client_id=x&state=s",
         first_party_only_sources: &["Strava", "Garmin", "WHOOP"],
         text: &ConsentText::new(&STRINGS, locale),
+        role: pierre_routes_identity::ConsentRole::default(),
     })
 }
 
@@ -1215,6 +1220,7 @@ fn a_french_consent_page_escapes_what_the_client_supplies() {
         switch_account_url: "/oauth2/login",
         first_party_only_sources: &["<u>x</u>"],
         text: &ConsentText::new(&STRINGS, "fr"),
+        role: pierre_routes_identity::ConsentRole::default(),
     });
     for raw in ["<script>", "<b>scope", "<i>a", "<u>x"] {
         assert!(!html.contains(raw), "{raw}: {html}");
@@ -1264,4 +1270,43 @@ async fn a_failed_provider_callback_reads_in_the_browsers_language() {
         .await
         .body_text();
     assert!(!french.contains("Connection Failed"), "{french}");
+}
+
+/// A coach and an admin are shown a role line naming what their role adds
+/// (carnet#1511). Until the catalogue carries the line's text the screen
+/// leaves it out, so neither ever reads a raw key, and an athlete never sees
+/// one.
+#[test]
+fn a_role_line_never_shows_as_its_key_and_an_athlete_sees_none() {
+    let render = |role| {
+        OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
+            client_id: "mcp_client_1",
+            redirect_uri: "https://claude.ai/api/mcp/auth_callback",
+            response_type: "code",
+            state: "s",
+            scope: "fitness:read",
+            code_challenge: "challenge_abc",
+            code_challenge_method: "S256",
+            resource: "",
+            csrf_token: "token",
+            client_label: "Claude",
+            account_email: "coach@example.test",
+            switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
+            first_party_only_sources: &["Strava"],
+            text: &ConsentText::new(&STRINGS, "en"),
+            role,
+        })
+    };
+    let athlete = render(pierre_routes_identity::ConsentRole::default());
+    let both = render(pierre_routes_identity::ConsentRole {
+        coach: true,
+        admin: true,
+    });
+    for html in [&athlete, &both] {
+        assert!(!html.contains("oauth.consent.role"), "{html}");
+    }
+    let carries = |key: &str| STRINGS.get_exact(key, "en").is_some();
+    if !carries("oauth.consent.roleCoach") && !carries("oauth.consent.roleAdmin") {
+        assert_eq!(athlete, both, "no text yet, so no line");
+    }
 }

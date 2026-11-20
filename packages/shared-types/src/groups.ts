@@ -786,6 +786,17 @@ export interface CoachConsentsResponse {
    * Keeping it is a fresh grant (`wellness_read: true`), which clears this.
    */
   wellness_notice_due: boolean;
+  /**
+   * The member lets the AI assistant their group's human coach connects to
+   * Dravr (an MCP client, an A2A agent) include them in the coach's roster
+   * tools. Off until the member turns it on in Dravr's own app; it does not
+   * govern the coach's reads of the member by name, which coach sharing does.
+   */
+  assistant_read: boolean;
+  /** When the member last turned `assistant_read` on or off (RFC 3339); `null` while they never did. */
+  assistant_read_at: string | null;
+  /** The group has an active human coach other than the member, so the member can be asked for `assistant_read`. */
+  assistant_read_supported: boolean;
 }
 
 /**
@@ -798,6 +809,8 @@ export interface CoachConsentsResponse {
 export interface UpdateCoachConsentsRequest {
   calendar_write?: boolean;
   wellness_read?: boolean;
+  /** Granted only from Dravr's own app; a revoke is accepted from anywhere. */
+  assistant_read?: boolean;
 }
 
 /**

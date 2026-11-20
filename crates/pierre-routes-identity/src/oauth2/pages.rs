@@ -18,9 +18,9 @@ use pierre_auth::oauth2_server::{
 use pierre_contremaitre::consent_strings::{
     KEY_CONSENT_ALLOW, KEY_CONSENT_DENY, KEY_CONSENT_FIRST_PARTY_ONLY, KEY_CONSENT_LEAD,
     KEY_CONSENT_LIST_PAIR, KEY_CONSENT_PRIVACY_POLICY, KEY_CONSENT_RETURNS_TO,
-    KEY_CONSENT_REVOKE_ANYTIME, KEY_CONSENT_SCOPES_TITLE, KEY_CONSENT_SIGNED_IN_AS,
-    KEY_CONSENT_TERMS, KEY_CONSENT_TITLE, KEY_CONSENT_USE_ANOTHER_ACCOUNT, KEY_ERROR_TITLE,
-    KEY_ERROR_TRY_AGAIN,
+    KEY_CONSENT_REVOKE_ANYTIME, KEY_CONSENT_ROLE_ADMIN, KEY_CONSENT_ROLE_COACH,
+    KEY_CONSENT_SCOPES_TITLE, KEY_CONSENT_SIGNED_IN_AS, KEY_CONSENT_TERMS, KEY_CONSENT_TITLE,
+    KEY_CONSENT_USE_ANOTHER_ACCOUNT, KEY_ERROR_TITLE, KEY_ERROR_TRY_AGAIN,
 };
 use pierre_core::html::{escape_html_attribute, oauth_error_page, with_hosted_page_css};
 use url::Url;
@@ -118,6 +118,19 @@ pub struct ConsentHtmlParams<'a> {
     pub first_party_only_sources: &'a [&'a str],
     /// The page's text in the reader's language
     pub text: &'a ConsentText<'a>,
+    /// The role lines the signed-in user is shown (carnet#1511)
+    pub role: ConsentRole,
+}
+
+/// Which role lines the consent screen shows the signed-in user: what their
+/// role adds to what the client is offered (carnet#1511). An athlete is shown
+/// none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ConsentRole {
+    /// A human coach who leads an active group, by the one coach rule.
+    pub coach: bool,
+    /// An admin.
+    pub admin: bool,
 }
 
 impl fmt::Debug for ConsentHtmlParams<'_> {
@@ -194,6 +207,7 @@ impl OAuth2Routes {
         account_email: &str,
         first_party_only_sources: &[&str],
         text: &ConsentText<'_>,
+        role: ConsentRole,
     ) -> Response {
         let client_label = client_name
             .map(str::trim)
@@ -215,6 +229,7 @@ impl OAuth2Routes {
             switch_account_url: &switch_account_url,
             first_party_only_sources,
             text,
+            role,
         });
         Html(html).into_response()
     }
@@ -377,7 +392,11 @@ impl OAuth2Routes {
             .replace("{{SCOPE_ITEMS}}", &scope_items)
             .replace(
                 "{{FIRST_PARTY_ONLY_LINE}}",
-                &first_party_only_line(params.first_party_only_sources, &client, text),
+                &format!(
+                    "{}{}",
+                    role_lines(params.role, &client, text),
+                    first_party_only_line(params.first_party_only_sources, &client, text)
+                ),
             )
     }
 
@@ -456,6 +475,20 @@ impl OAuth2Routes {
 /// The consent screen's line naming the services whose data stays inside
 /// Dravr and so never reaches the `client`, which is already markup; empty
 /// when `sources` names none.
+/// The lines `role` adds to the screen, naming `client`: the coach line, then
+/// the admin line. A line the catalogue has no text for yet is left out, never
+/// shown as its key.
+fn role_lines(role: ConsentRole, client: &str, text: &ConsentText<'_>) -> String {
+    [
+        (role.coach, KEY_CONSENT_ROLE_COACH),
+        (role.admin, KEY_CONSENT_ROLE_ADMIN),
+    ]
+    .into_iter()
+    .filter(|(shown, key)| *shown && !text.line(key).is_empty())
+    .map(|(_, key)| format!(r#"<p class="disclosure">{}</p>"#, text.html(key, &[client])))
+    .collect()
+}
+
 pub(super) fn first_party_only_line(
     sources: &[&str],
     client: &str,
