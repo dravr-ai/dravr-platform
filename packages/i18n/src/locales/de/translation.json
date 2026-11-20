@@ -2131,7 +2131,14 @@
     "wellnessWidenedBody": "Wenn du deine Wellness mit {{coach}} teilst, umfasst das jetzt Schlaf, HRV, Ruhepuls, Gewicht, Tagesform und Tagesnotizen aus allen deinen verbundenen Apps, nicht nur aus {{platform}}. {{coach}} kann sie über Dravr und über die KI-Tools lesen, die {{coach}} mit Dravr verbindet.",
     "wellnessWidenedKeep": "Weiter teilen",
     "wellnessWidenedTitle": "Das Teilen deiner Wellness umfasst jetzt alle deine Apps",
-    "withdraw": "Zurückziehen"
+    "withdraw": "Zurückziehen",
+    "sensitiveT2Label": "{{coach}} deine Gesundheitsakten lesen lassen (Laborwerte, klinische Unterlagen, Blutzucker)",
+    "sensitiveT3Label": "{{coach}} deine intimen Gesundheitsdaten lesen lassen (Zyklustracking, psychische und reproduktive Gesundheit)",
+    "sensitiveHint": "Dafür muss auch dein eigener Schalter unter Datenschutz und Daten, Abschnitt Sensible Gesundheitsdaten, an sein. KI-Tools, die {{coach}} mit Dravr verbindet, erhalten diese Daten nicht.",
+    "sensitiveForever": "Bis ich es ausschalte",
+    "sensitiveFor30Days": "Für 30 Tage",
+    "sensitiveUntil": "Bis {{date}}",
+    "sensitiveT2Granted": "{{coach}} kann jetzt deine Gesundheitsakten lesen."
   },
   "discover": {
     "addAgent": "Agenten hinzufügen",
@@ -3197,6 +3204,41 @@
       "claiming": "Einen Moment…",
       "done": "Du bist jetzt der Coach dieser Gruppe.",
       "failed": "Du konntest nicht als Coach eingetragen werden. Versuch es noch einmal."
+    },
+    "groupChat": {
+      "connected": "Dieser Chat ist jetzt mit {0} auf Dravr verbunden. Die Mitglieder können hier mit dem Agenten der Gruppe schreiben.",
+      "already_connected": "Dieser Chat ist schon mit {0} verbunden.",
+      "code_invalid": "Dieser Verbindungscode ist abgelaufen oder wurde schon verwendet. Erstell in der Dravr-App in der Gruppe einen neuen.",
+      "not_manager": "Nur der Eigentümer oder der Coach der Gruppe kann diesen Chat verbinden.",
+      "group_connected_elsewhere": "{0} ist schon mit einem anderen Chat verbunden. Trenn die Verbindung zuerst in der Dravr-App.",
+      "chat_taken": "Dieser Chat ist schon mit einer anderen Dravr-Gruppe verbunden; wer diese Gruppe leitet, muss ihn zuerst trennen.",
+      "not_linked": "Verknüpfe zuerst {0} mit deinem Dravr-Konto (in der App: Einstellungen › Nachrichten) und schick den Code dann noch einmal.",
+      "group_gone": "Diese Gruppe gibt es auf Dravr nicht mehr.",
+      "non_member_prompt": "Dieser Chat ist der Raum der Dravr-Gruppe {0}, und nur ihre Mitglieder nehmen teil. Bitte den Coach der Gruppe um eine Einladung. Schon Mitglied? Verknüpfe {1} in der Dravr-App unter Einstellungen › Nachrichten mit deinem Konto.",
+      "disconnected": "Dieser Chat ist nicht mehr mit {0} auf Dravr verbunden.",
+      "web": {
+        "title": "Chat-App",
+        "notConnected": "Keine Chat-App verbunden",
+        "notConnectedHint": "Verbinde einen Gruppenchat, damit alle dort mit dem Agenten schreiben können.",
+        "connect": "Chat-App verbinden",
+        "comingSoon": "Demnächst",
+        "pendingIntro": "Öffne {{app}}, wähl deinen Gruppenchat und füge den Bot hinzu. Die Gruppe ist verbunden, sobald der Bot beitritt.",
+        "scanHint": "Oder scanne diesen Code mit deinem Handy, um {{app}} zu öffnen.",
+        "commandLabel": "Ist der Bot schon im Chat? Tippe:",
+        "copyCommand": "Befehl kopieren",
+        "waiting": "Warte auf den Bot…",
+        "expiresAt": "Dieser Code gilt bis {{time}} Uhr.",
+        "expired": "Dieser Code ist abgelaufen. Erstell einen neuen, um den Chat zu verbinden.",
+        "newCode": "Neuen Code erstellen",
+        "connectedTo": "Mit {{app}} verbunden",
+        "untitledChat": "Dein {{app}}-Chat",
+        "disconnectTitle": "{{app}} trennen?",
+        "disconnectBody": "Der Agent liest und antwortet nicht mehr in diesem Chat. Du kannst ihn später wieder verbinden.",
+        "disconnected": "Chat getrennt",
+        "alreadyConnected": "Diese Gruppe ist schon mit einem Chat verbunden.",
+        "connectFailed": "Der Code konnte nicht erstellt werden. Versuch es noch einmal.",
+        "disconnectFailed": "Der Chat konnte nicht getrennt werden. Versuch es noch einmal."
+      }
     }
   },
   "messaging": {
@@ -4260,7 +4302,15 @@
       "withdraw": "KI-Nutzung widerrufen",
       "withdrawn": "KI-Nutzung widerrufen. Dein Agent liest keine {{provider}}-Daten mehr.",
       "allowed": "KI-Nutzung erlaubt. Dein Agent liest wieder {{provider}}-Daten.",
-      "failed": "Deine KI-Einwilligung konnte nicht aktualisiert werden. Bitte versuche es erneut."
+      "failed": "Deine KI-Einwilligung konnte nicht aktualisiert werden. Bitte versuche es erneut.",
+      "sensitive": {
+        "title": "Sensible Gesundheitsdaten",
+        "blurb": "Deine Gesundheitsakten (Laborwerte, klinische Unterlagen, Blutzucker) und deine intimen Gesundheitsdaten (Zyklustracking, psychische und reproduktive Gesundheit) bleiben für deinen KI-Agenten und deinen menschlichen Coach gesperrt, bis du sie hier erlaubst. In der App siehst du sie weiterhin. Ein Widerruf beendet die KI-Nutzung sofort.",
+        "t2Label": "Meinem KI-Agenten erlauben, meine Gesundheitsakten zu lesen (Laborwerte, klinische Unterlagen, Blutzucker)",
+        "t3Label": "Meinem KI-Agenten erlauben, meine intimen Gesundheitsdaten zu lesen (Zyklustracking, psychische und reproduktive Gesundheit)",
+        "allowed": "Erlaubt. Dein Agent liest diese Daten ab jetzt.",
+        "withdrawn": "Widerrufen. Dein Agent liest diese Daten nicht mehr."
+      }
     },
     "connectTombstoned": "Dieses {{provider}}-Konto gehörte zu einem Dravr-Konto, das am {{date}} gelöscht wurde. Seine Daten bleiben gelöscht, bis du dich entscheidest, damit neu anzufangen.",
     "connectTombstonedClear": "Neu anfangen und verbinden",

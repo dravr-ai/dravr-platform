@@ -2131,7 +2131,14 @@
     "wellnessWidenedBody": "Sharing your wellness with {{coach}} now covers your sleep, HRV, resting heart rate, weight, readiness and daily notes from all your connected apps, not only {{platform}}. {{coach}} may read them through Dravr and through the AI tools {{coach}} connects to Dravr.",
     "wellnessWidenedKeep": "Keep sharing",
     "wellnessWidenedTitle": "Wellness sharing now covers all your apps",
-    "withdraw": "Withdraw"
+    "withdraw": "Withdraw",
+    "sensitiveT2Label": "Let {{coach}} read your health records (lab results, clinical records, blood glucose)",
+    "sensitiveT3Label": "Let {{coach}} read your intimate health records (cycle tracking, mental and reproductive health)",
+    "sensitiveHint": "This also needs your own switch on in Privacy & Data, under Sensitive health records. AI tools {{coach}} connects to Dravr do not get these records.",
+    "sensitiveForever": "Until I turn it off",
+    "sensitiveFor30Days": "For 30 days",
+    "sensitiveUntil": "Until {{date}}",
+    "sensitiveT2Granted": "{{coach}} can now read your health records."
   },
   "discover": {
     "addAgent": "Add Agent",
@@ -3197,6 +3204,41 @@
       "claiming": "One moment…",
       "done": "You're now this group's coach.",
       "failed": "Couldn't make you the coach. Try again."
+    },
+    "groupChat": {
+      "connected": "This chat is now connected to {0} on Dravr. Its members can talk to the group's agent here.",
+      "already_connected": "This chat is already connected to {0}.",
+      "code_invalid": "That connect code has expired or was already used. Make a new one from the group in the Dravr app.",
+      "not_manager": "Only the group's owner or coach can connect this chat.",
+      "group_connected_elsewhere": "{0} is already connected to another chat. Disconnect it in the Dravr app first.",
+      "chat_taken": "This chat is already connected to another Dravr group; whoever runs that group has to disconnect it first.",
+      "not_linked": "Link {0} to your Dravr account first (in the app: Settings › Messaging), then send the code again.",
+      "group_gone": "That group no longer exists on Dravr.",
+      "non_member_prompt": "This chat is the room of the Dravr group {0}, and only its members take part. Ask the group's coach for an invite. Already a member? Link {1} to your account in the Dravr app, under Settings › Messaging.",
+      "disconnected": "This chat is no longer connected to {0} on Dravr.",
+      "web": {
+        "title": "Chat app",
+        "notConnected": "No chat app connected",
+        "notConnectedHint": "Connect a group chat so everyone can talk with the agent there.",
+        "connect": "Connect a chat app",
+        "comingSoon": "Coming soon",
+        "pendingIntro": "Open {{app}}, pick your group chat and add the bot. The group connects as soon as the bot joins.",
+        "scanHint": "Or scan this code with your phone to open {{app}}.",
+        "commandLabel": "Bot already in the chat? Type:",
+        "copyCommand": "Copy the command",
+        "waiting": "Waiting for the bot to join…",
+        "expiresAt": "This code works until {{time}}.",
+        "expired": "This code expired. Make a new one to connect the chat.",
+        "newCode": "Make a new code",
+        "connectedTo": "Connected to {{app}}",
+        "untitledChat": "Your {{app}} chat",
+        "disconnectTitle": "Disconnect {{app}}?",
+        "disconnectBody": "The agent stops reading and answering in that chat. You can connect it again later.",
+        "disconnected": "Chat disconnected",
+        "alreadyConnected": "This group is already connected to a chat.",
+        "connectFailed": "The code couldn’t be made. Try again.",
+        "disconnectFailed": "The chat couldn’t be disconnected. Try again."
+      }
     }
   },
   "messaging": {
@@ -4260,7 +4302,15 @@
       "withdraw": "Withdraw AI use",
       "withdrawn": "AI use withdrawn. Your agent no longer reads {{provider}} data.",
       "allowed": "AI use allowed. Your agent reads {{provider}} data again.",
-      "failed": "Could not update your AI consent. Please try again."
+      "failed": "Could not update your AI consent. Please try again.",
+      "sensitive": {
+        "title": "Sensitive health records",
+        "blurb": "Health records (lab results, clinical records, blood glucose) and intimate health records (cycle tracking, mental and reproductive health) stay off limits to your AI agent and your human coach until you allow them here. You still see them in the app. Withdrawing stops AI use at once.",
+        "t2Label": "Let my AI agent read my health records (lab results, clinical records, blood glucose)",
+        "t3Label": "Let my AI agent read my intimate health records (cycle tracking, mental and reproductive health)",
+        "allowed": "Allowed. Your agent reads these records from now on.",
+        "withdrawn": "Withdrawn. Your agent no longer reads these records."
+      }
     },
     "connectTombstoned": "This {{provider}} account belonged to a Dravr account deleted on {{date}}. Its data stays deleted until you choose to start fresh with it.",
     "connectTombstonedClear": "Start fresh and connect",
