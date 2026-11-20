@@ -335,7 +335,7 @@ pub(crate) async fn persist_inbound(
 /// The identity a notify event carries for a sender with no linked Pierre user:
 /// the hash of `{channel}:{sender_id}`, never the sender id itself.
 ///
-/// A sender id is a phone number or a BSUID on WhatsApp and a numeric user id
+/// A sender id is a phone number or a `BSUID` on `WhatsApp` and a numeric user id
 /// on Telegram. The hash correlates one sender's events in Cloud Logging; it is
 /// unkeyed, so it is reversible over the phone-number space and must not leave
 /// the logs. Consent is keyed on a Pierre user and the analytics sink hashes
