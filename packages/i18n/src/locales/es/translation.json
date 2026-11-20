@@ -181,13 +181,13 @@
     "alreadyHaveAccount": "¿Ya tienes cuenta?",
     "alsoFetchProfile": "Obtener también el perfil del atleta",
     "analytics": "Analítica",
-    "analyticsBlurb": "Comparte patrones de uso para ayudar a mejorar Dravr. Nunca tus mensajes ni datos de forma física.",
+    "analyticsBlurb": "Comparte qué funciones usas para ayudar a mejorar Dravr. Con tu consentimiento, PostHog registra estos eventos vinculados al correo de tu cuenta.",
     "analyticsCollect0": "Patrones de uso de funciones (qué herramientas y comandos usas)",
     "analyticsCollect1": "Frecuencia de sesiones y uso de los canales de mensajería",
     "analyticsCollect2": "Tasas de error y métricas de rendimiento",
-    "analyticsNever0": "Tus mensajes, conversaciones o datos de forma física",
+    "analyticsNever0": "El texto de los mensajes que escribes",
     "analyticsNever1": "Tu nombre o ubicación",
-    "analyticsNever2": "Tu ID de usuario real (todos los identificadores se cifran con SHA-256)",
+    "analyticsNever2": "Tu ID de cuenta sin cifrar (los eventos llevan un ID con hash, más tu correo una vez que lo activas)",
     "apiKey": "Clave API",
     "apiKeyLower": "Clave API",
     "apiKeyNoOauth": "Clave API: sin redirección OAuth",
@@ -570,7 +570,7 @@
     "privacyAnalyticsBlurb": "Ayuda a mejorar Dravr con estadísticas de uso. Con tu consentimiento, PostHog registra qué funciones usas, vinculado al correo de tu cuenta. Está desactivado hasta que lo actives, y puedes desactivarlo cuando quieras.",
     "privacyAndData": "Privacidad y datos",
     "privacyNote": "Nota de privacidad",
-    "privacyNoteBlurb": "Dravr solo accede a los datos que autorizas. Nunca compartimos tus datos de forma física con terceros. Puedes desconectar cualquier proveedor cuando quieras.",
+    "privacyNoteBlurb": "Dravr solo accede a los datos que autorizas. Nunca vendemos tus datos. Quién los recibe, y por qué: dravr.ai/privacy. Puedes desconectar cualquier proveedor cuando quieras.",
     "profileTypeBlurb": "¿Cómo vas a usar Dravr? Esto adapta los agentes que sugerimos. Puedes cambiarlo cuando quieras en Ajustes.",
     "profileUpdated": "Perfil actualizado",
     "promote": "Ascender",
@@ -1801,7 +1801,7 @@
       "consent_ask_body": "Con tu consentimiento, PostHog registra qué funciones usas, vinculado al correo de tu cuenta, para ver qué ayuda y arreglar lo que falla. Está desactivado salvo que digas que sí, y puedes cambiar tu respuesta cuando quieras con /privacy.\n\nCómo lo usamos: {0}",
       "consent_ask_decline": "No, gracias",
       "consent_ask_title": "¿Nos ayudas a mejorar Dravr?",
-      "description": "Ver tu ajuste de consentimiento a las estadísticas anónimas",
+      "description": "Ver tu ajuste de consentimiento a las estadísticas de uso",
       "off_confirmation": "El consentimiento de analíticas está ahora **desactivado**. PostHog ya no registra qué funciones usas.\n\nUsa `/privacy on` para volver a activarlo cuando quieras.",
       "on_confirmation": "El consentimiento de analíticas está ahora **activado**. ¡Gracias por ayudarnos a mejorar Dravr!\n\nUsa `/privacy off` para darte de baja en cualquier momento.",
       "status": {
@@ -1811,10 +1811,10 @@
       "status_line": "El consentimiento de analíticas está actualmente **{0}**.\n\nUsa `/privacy on` para activarlo o `/privacy off` para desactivarlo."
     },
     "privacy-off": {
-      "description": "Retirar el consentimiento a las estadísticas anónimas"
+      "description": "Retirar el consentimiento a las estadísticas de uso"
     },
     "privacy-on": {
-      "description": "Dar el consentimiento a las estadísticas anónimas"
+      "description": "Dar el consentimiento a las estadísticas de uso"
     },
     "reset": {
       "confirm": "🔄 Nueva conversación iniciada — empezamos de cero. Tu conversación anterior sigue en tu lista.",
@@ -2903,7 +2903,7 @@
     "intake_persona": "Primero: ¿entrenas para ti, entrenas a otras personas, o ambas cosas?\n\n**1** — Entreno para mí\n**2** — Entreno a otras personas\n**3** — Ambas",
     "invite": "Invitación de coach",
     "inviteHint": "Una invitación de coach asigna a quien la usa como coach humano de este grupo. Solo un coach que gestiona una plantilla en el espacio de este grupo puede usarla.",
-    "inviteShare": "Compártelo con el coach que quieres que supervise este grupo.",
+    "inviteShare": "Compártelo con el coach que quieres en este grupo. Podrá leer las respuestas del agente a los miembros que comparten con él, y corregirlas después.",
     "inviteShareMessage": "Invitación de entrenador para {{group}} en Dravr: {{link}}",
     "invite_body": "Invitación de coach para {0} — quien la use se convierte en el coach humano del grupo:\nhttps://app.dravr.ai/groups/join/{1}\n\nCódigo: {2}\nVálido 7 días.",
     "joined_group": "Ahora eres el coach humano de {0}.",
@@ -4213,7 +4213,7 @@
     "notConnected": "No conectado",
     "pendingLink": "{{coach}} pidió vincular tus entrenamientos; revísalo en {{group}}",
     "polar": "Polar",
-    "privacyNote": "Dravr solo accede a los datos que autorizas. Nunca compartimos tus datos de fitness con terceros. Puedes desconectar cualquier proveedor cuando quieras.",
+    "privacyNote": "Dravr solo accede a los datos que autorizas. Nunca vendemos tus datos. Quién los recibe, y por qué: dravr.ai/privacy. Puedes desconectar cualquier proveedor cuando quieras.",
     "provider": "Proveedor",
     "reconnect": "Volver a conectar",
     "reconnectNeeded": "Hace falta reconectar",
