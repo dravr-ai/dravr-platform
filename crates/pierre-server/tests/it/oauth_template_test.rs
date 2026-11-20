@@ -1110,7 +1110,19 @@ fn a_french_consent_page_says_every_line_in_french() {
         .filter(|key| key.starts_with("oauth.consent."))
         .collect();
     let french = every_consent_line_in("fr");
-    let bodies = [page_body(&french[0]), page_body(&french[1])];
+    // The role lines are shown to a coach and an admin alone.
+    let both_roles = consent_for_role(
+        pierre_routes_identity::ConsentRole {
+            coach: true,
+            admin: true,
+        },
+        "fr",
+    );
+    let bodies = [
+        page_body(&french[0]),
+        page_body(&french[1]),
+        page_body(&both_roles),
+    ];
     for html in &french {
         assert!(html.contains("<html lang=\"fr\">"), "{html}");
         assert!(
@@ -1272,35 +1284,39 @@ async fn a_failed_provider_callback_reads_in_the_browsers_language() {
     assert!(!french.contains("Connection Failed"), "{french}");
 }
 
+/// The consent page Claude is shown for `role` in `locale`.
+fn consent_for_role(role: pierre_routes_identity::ConsentRole, locale: &str) -> String {
+    OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
+        client_id: "mcp_client_1",
+        redirect_uri: "https://claude.ai/api/mcp/auth_callback",
+        response_type: "code",
+        state: "s",
+        scope: "fitness:read",
+        code_challenge: "challenge_abc",
+        code_challenge_method: "S256",
+        resource: "",
+        csrf_token: "token",
+        client_label: "Claude",
+        account_email: "coach@example.test",
+        switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
+        first_party_only_sources: &["Strava"],
+        text: &ConsentText::new(&STRINGS, locale),
+        role,
+    })
+}
+
 /// A coach and an admin are shown a role line naming what their role adds,
 /// with the client in its slot (carnet#1511); an athlete sees neither.
 #[test]
 fn a_coach_and_an_admin_read_their_role_line_and_an_athlete_none() {
-    let render = |role| {
-        OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
-            client_id: "mcp_client_1",
-            redirect_uri: "https://claude.ai/api/mcp/auth_callback",
-            response_type: "code",
-            state: "s",
-            scope: "fitness:read",
-            code_challenge: "challenge_abc",
-            code_challenge_method: "S256",
-            resource: "",
-            csrf_token: "token",
-            client_label: "Claude",
-            account_email: "coach@example.test",
-            switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
-            first_party_only_sources: &["Strava"],
-            text: &ConsentText::new(&STRINGS, "en"),
-            role,
-        })
-    };
+    let render = |role| consent_for_role(role, "en");
+    // The client arrives in its slot as markup, as on every disclosure line.
     let line = |key: &str| {
         STRINGS
             .get_exact(key, "en")
             .unwrap_or_else(|| panic!("the catalogue carries {key}"))
-            .replace("{0}", "Claude")
             .replace('\'', "&#x27;")
+            .replace("{0}", r#"<span class="client">Claude</span>"#)
     };
     let (coach_line, admin_line) = (
         line("oauth.consent.roleCoach"),
