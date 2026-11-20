@@ -34,9 +34,9 @@
 use std::sync::Arc;
 
 use pierre_core::models::groups::{CoachingGroup, GroupMember};
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, TurnOrigin};
 use pierre_database::database::ConversationRecord;
-use pierre_services::group_chat_poster::proactive_chat;
+use pierre_services::group_chat_poster::{proactive_chat, GroupChatPoster};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -103,6 +103,71 @@ fn relay_name(member: Option<&GroupMember>, display_name: Option<&str>, email: &
         )
 }
 
+/// A group whose connected chat a row may be relayed into, with what the
+/// relay needs to decide and to send.
+struct RelayTarget {
+    group: CoachingGroup,
+    members: Vec<GroupMember>,
+    poster: Arc<dyn GroupChatPoster>,
+}
+
+/// The group a stored row of a turn on `surface` would be relayed for: one
+/// connected to a chat from the web app, on a turn from Dravr's own apps.
+/// `None` when nothing is relayed; a failed lookup is logged and relays
+/// nothing.
+async fn relay_target(
+    ctx: &ChatPipelineContext,
+    surface: SurfaceId,
+    conversation: &ConversationRecord,
+) -> Option<RelayTarget> {
+    if !matches!(surface, SurfaceId::Web | SurfaceId::Mobile) {
+        return None;
+    }
+    let group_id = conversation.group_id.as_deref()?;
+    let poster = ctx.tool_runtime.group_chat_poster().map(Arc::clone)?;
+    // The id alone finds a group; the tenant argument filters nothing.
+    let tenant = TenantId::parse_str(&conversation.tenant_id).ok()?;
+    let groups = ctx.repos.groups.as_ref();
+    let group = groups
+        .get_group(group_id, tenant)
+        .await
+        .inspect_err(|e| warn!(error = %e, group_id, "room relay: group lookup failed"))
+        .ok()
+        .flatten()
+        .filter(|group| group.is_active && group.chat_connection.is_some())?;
+    let members = groups
+        .list_members(group_id)
+        .await
+        .inspect_err(|e| warn!(error = %e, group_id, "room relay: member lookup failed"))
+        .ok()?;
+    Some(RelayTarget {
+        group,
+        members,
+        poster,
+    })
+}
+
+/// What the chat reads for `row`: the reply as it was written, a member's
+/// post under their name.
+async fn relay_body(
+    ctx: &ChatPipelineContext,
+    members: &[GroupMember],
+    author: Uuid,
+    row: RelayedRow,
+    text: &str,
+) -> String {
+    if row == RelayedRow::AgentReply {
+        return text.to_owned();
+    }
+    let user = ctx.repos.users.get_global(author).await.ok().flatten();
+    let name = relay_name(
+        members.iter().find(|m| m.user_id == author),
+        user.as_ref().and_then(|u| u.display_name.as_deref()),
+        user.as_ref().map_or("", |u| u.email.as_str()),
+    );
+    format!("{name}: {text}")
+}
+
 /// Relay one stored row of a web or mobile turn into its group's connected
 /// chat, when it may cross (see the module docs).
 pub(crate) async fn relay_to_connected_chat(
@@ -113,59 +178,26 @@ pub(crate) async fn relay_to_connected_chat(
     row: RelayedRow,
     text: &str,
 ) {
-    if !matches!(surface, SurfaceId::Web | SurfaceId::Mobile) || text.trim().is_empty() {
-        return;
-    }
-    let Some(group_id) = conversation.group_id.as_deref() else {
-        return;
-    };
-    let Some(poster) = ctx.tool_runtime.group_chat_poster().map(Arc::clone) else {
-        return;
-    };
     let Ok(author) = Uuid::parse_str(author) else {
         return;
     };
-    let groups = ctx.repos.groups.as_ref();
-    // The id alone finds a group; the tenant argument filters nothing.
-    let Ok(conversation_tenant) = TenantId::parse_str(&conversation.tenant_id) else {
-        return;
-    };
-    let group = match groups.get_group(group_id, conversation_tenant).await {
-        Ok(Some(group)) if group.is_active && group.chat_connection.is_some() => group,
-        Ok(_) => return,
-        Err(e) => {
-            warn!(error = %e, group_id, "room relay: group lookup failed; not relayed");
-            return;
-        }
-    };
-    let Some(chat) = proactive_chat(&group) else {
-        return;
-    };
-    let members = match groups.list_members(group_id).await {
-        Ok(members) => members,
-        Err(e) => {
-            warn!(error = %e, group_id, "room relay: member lookup failed; not relayed");
-            return;
-        }
-    };
-    if !readable_by_the_room(&group, &members, author, row) {
-        info!(group_id, row = ?row, "room relay: the room may not read this row; kept in the app");
+    if text.trim().is_empty() {
         return;
     }
-    let body = match row {
-        RelayedRow::AgentReply => text.to_owned(),
-        RelayedRow::MemberPost => {
-            let user = ctx.repos.users.get_global(author).await.ok().flatten();
-            let name = relay_name(
-                members.iter().find(|m| m.user_id == author),
-                user.as_ref().and_then(|u| u.display_name.as_deref()),
-                user.as_ref().map_or("", |u| u.email.as_str()),
-            );
-            format!("{name}: {text}")
-        }
+    let Some(target) = relay_target(ctx, surface, conversation).await else {
+        return;
     };
+    let group_id = target.group.id;
+    if !readable_by_the_room(&target.group, &target.members, author, row) {
+        info!(%group_id, row = ?row, "room relay: the room may not read this row; kept in the app");
+        return;
+    }
+    let Some(chat) = proactive_chat(&target.group) else {
+        return;
+    };
+    let body = relay_body(ctx, &target.members, author, row, text).await;
     let (channel, chat_id, tenant_id) = (chat.channel, chat.chat_id.to_owned(), chat.tenant_id);
-    let group_id = group.id;
+    let poster = target.poster;
     tokio::spawn(async move {
         let parts = poster.post(tenant_id, channel, &chat_id, &body).await;
         if parts == 0 {
@@ -174,6 +206,29 @@ pub(crate) async fn relay_to_connected_chat(
             info!(%group_id, channel = %channel, row = ?row, parts, "room relay: posted into the chat");
         }
     });
+}
+
+/// Relay the agent's reply to an athlete's own app turn: a turn the platform
+/// started answers nobody's post, so its reply stays in the app.
+pub(crate) async fn relay_reply(
+    ctx: &ChatPipelineContext,
+    surface: SurfaceId,
+    origin: TurnOrigin,
+    conversation: &ConversationRecord,
+    author: &str,
+    text: &str,
+) {
+    if origin == TurnOrigin::Athlete {
+        relay_to_connected_chat(
+            ctx,
+            surface,
+            conversation,
+            author,
+            RelayedRow::AgentReply,
+            text,
+        )
+        .await;
+    }
 }
 
 #[cfg(test)]

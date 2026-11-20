@@ -899,17 +899,15 @@ async fn answer_stored_turn(
     .await?;
     // The reply to an app post in a group connected to a chat follows that
     // post into the chat, when the room may read it (carnet#1683).
-    if input.origin == TurnOrigin::Athlete {
-        room_relay::relay_to_connected_chat(
-            ctx,
-            profile.surface,
-            &updated_conversation,
-            &input.user_id,
-            room_relay::RelayedRow::AgentReply,
-            &persisted_assistant_content,
-        )
-        .await;
-    }
+    room_relay::relay_reply(
+        ctx,
+        profile.surface,
+        input.origin,
+        &updated_conversation,
+        &input.user_id,
+        &persisted_assistant_content,
+    )
+    .await;
 
     // Stage 19.5: Persist claim verdicts now that the assistant message is durable.
     #[cfg(feature = "tools-verification")]
