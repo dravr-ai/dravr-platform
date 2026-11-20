@@ -48,6 +48,8 @@ mod whatsapp_sender_identity_tests {
     const PHONE: &str = "15149166448";
     const BSUID_A: &str = "US.13491208655302741918";
     const BSUID_B: &str = "CA.80211354923874651002";
+    const BSUID_C: &str = "CA.55512093847561029384";
+    const NEW_PHONE: &str = "12195555358";
 
     /// A user owning their own tenant, which also holds the `WhatsApp`
     /// channel config: the bot tenant a webhook arrives under. Linking this
@@ -130,6 +132,17 @@ mod whatsapp_sender_identity_tests {
             let key = if *field == "from" { "wa_id" } else { "user_id" };
             contact[key] = json!(value);
         }
+        let reply = post_webhook(resources, &[contact], &[message]).await;
+        reply["messages_stored"].as_u64().unwrap()
+    }
+
+    /// A signed webhook carrying `messages` and `contacts`. Returns the
+    /// route's JSON reply.
+    async fn post_webhook(
+        resources: &Arc<ServerContext>,
+        contacts: &[Value],
+        messages: &[Value],
+    ) -> Value {
         let body = json!({
             "object": "whatsapp_business_account",
             "entry": [{
@@ -142,8 +155,8 @@ mod whatsapp_sender_identity_tests {
                             "display_phone_number": "+14388392708",
                             "phone_number_id": "123456789012345"
                         },
-                        "contacts": [contact],
-                        "messages": [message]
+                        "contacts": contacts,
+                        "messages": messages
                     }
                 }]
             }]
@@ -160,8 +173,69 @@ mod whatsapp_sender_identity_tests {
             .send(MessagingRoutes::routes(Arc::clone(resources)))
             .await;
         assert_eq!(resp.status_code(), StatusCode::OK);
-        let reply: Value = resp.json();
-        reply["messages_stored"].as_u64().unwrap()
+        resp.json()
+    }
+
+    /// A `user_changed_number` system message as Meta documents it: the old
+    /// number in `from`, the new one in `system.wa_id`, the new BSUID in
+    /// `system.user_id` and, when Meta still has it, the old one in
+    /// `system.previous_user_id`.
+    fn changed_number(previous_user_id: Option<&str>, user_id: &str) -> Value {
+        let mut system = json!({
+            "body": format!("User Athlete changed from {PHONE} to {NEW_PHONE}"),
+            "wa_id": NEW_PHONE,
+            "user_id": user_id,
+            "type": "user_changed_number"
+        });
+        if let Some(previous) = previous_user_id {
+            system["previous_user_id"] = json!(previous);
+        }
+        json!({
+            "from": PHONE,
+            "id": "wamid.changed-number",
+            "timestamp": "1763560000",
+            "type": "system",
+            "system": system
+        })
+    }
+
+    /// A `user_changed_user_id` system message with no phone number to share.
+    fn changed_user_id(previous_user_id: &str, user_id: &str) -> Value {
+        json!({
+            "id": "wamid.changed-user-id",
+            "timestamp": "1763560000",
+            "type": "system",
+            "system": {
+                "body": format!("User changed from {previous_user_id} to {user_id}"),
+                "user_id": user_id,
+                "previous_user_id": previous_user_id,
+                "type": "user_changed_user_id"
+            }
+        })
+    }
+
+    /// Post a webhook carrying only `notice`, asserting it reached the agent
+    /// as no message: nothing received, nothing stored, no link prompt
+    /// opened for any identifier it names.
+    async fn post_notice(resources: &Arc<ServerContext>, notice: Value) {
+        let reply = post_webhook(resources, &[], &[notice]).await;
+        assert_eq!(
+            reply["messages_received"].as_u64(),
+            Some(0),
+            "an identity change is never a message"
+        );
+        assert_eq!(
+            reply["messages_stored"].as_u64(),
+            Some(0),
+            "bug: an identity change was stored as a message"
+        );
+        for identity in [PHONE, NEW_PHONE, BSUID_A, BSUID_B, BSUID_C] {
+            assert_eq!(
+                link_states_for(resources, identity).await,
+                0,
+                "an identity change prompts no one to link ({identity})"
+            );
+        }
     }
 
     /// Link states (a link prompt, an OTP flow) opened for a channel identity,
@@ -514,6 +588,191 @@ mod whatsapp_sender_identity_tests {
         assert!(
             matches!(&claim, TurnClaim::Claimed(resumed) if resumed.sender_id == BSUID_A),
             "the recorded turn is still claimable and its sender follows the link onto the BSUID"
+        );
+    }
+
+    // carnet#1688: Meta regenerates the BSUID when the athlete changes their
+    // phone number, and announces it in a `system` message. The link follows
+    // it, so the athlete's next message under the new BSUID is still theirs.
+
+    /// The production shape: the link under the bot tenant, the athlete's DM
+    /// session under their own.
+    async fn linked_athlete_with_session(
+        resources: &ServerContext,
+        identity: &str,
+    ) -> (TenantId, Uuid, TenantId, String) {
+        let (_, bot_tenant) = user_with_whatsapp(resources, "change-bot@example.com").await;
+        let (athlete, athlete_tenant) =
+            user_with_tenant(resources, "change-athlete@example.com").await;
+        link(resources, bot_tenant, athlete, identity).await;
+        let session_id = Uuid::new_v4().to_string();
+        resources
+            .common
+            .repos
+            .messaging
+            .create_session(&CreateSessionParams {
+                id: &session_id,
+                user_id: &athlete.to_string(),
+                tenant_id: athlete_tenant,
+                channel_type: "whatsapp",
+                channel_user_id: identity,
+                channel_conversation_id: None,
+                pierre_conversation_id: None,
+            })
+            .await
+            .unwrap();
+        (bot_tenant, athlete, athlete_tenant, session_id)
+    }
+
+    /// The athlete is linked under `to` and not `from`, keeps `session_id`,
+    /// and their next message under `to` is routed as theirs.
+    async fn assert_followed(
+        resources: &Arc<ServerContext>,
+        (bot_tenant, athlete, athlete_tenant, session_id): &(TenantId, Uuid, TenantId, String),
+        from: &str,
+        to: &str,
+    ) {
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+        assert_eq!(
+            linked_user(db, *bot_tenant, to).await,
+            Some(athlete.to_string()),
+            "the link moves onto the new identifier under the bot tenant"
+        );
+        assert_eq!(
+            linked_user(db, *bot_tenant, from).await,
+            None,
+            "bug: the replaced identifier still holds the link"
+        );
+        let session = db
+            .get_session_by_channel_identity(*athlete_tenant, "whatsapp", to, None)
+            .await
+            .unwrap()
+            .expect("the DM session follows the link");
+        assert_eq!(
+            session["id"].as_str(),
+            Some(session_id.as_str()),
+            "bug: the athlete's own session did not follow the link"
+        );
+
+        let stored = post_text(resources, "wamid.after-change", &[("from_user_id", to)]).await;
+        assert_eq!(stored, 1, "the athlete stays linked: routed, not prompted");
+        assert_eq!(
+            link_states_for(resources, to).await,
+            0,
+            "bug: a linked athlete was offered linking again"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_phone_number_change_moves_the_link_from_the_previous_bsuid() {
+        let resources = create_test_server_resources().await.unwrap();
+        let athlete = linked_athlete_with_session(&resources, BSUID_A).await;
+
+        post_notice(&resources, changed_number(Some(BSUID_A), BSUID_C)).await;
+
+        assert_followed(&resources, &athlete, BSUID_A, BSUID_C).await;
+    }
+
+    #[tokio::test]
+    async fn a_phone_number_change_without_the_previous_bsuid_moves_a_phone_number_link() {
+        let resources = create_test_server_resources().await.unwrap();
+        let athlete = linked_athlete_with_session(&resources, PHONE).await;
+
+        post_notice(&resources, changed_number(None, BSUID_C)).await;
+
+        assert_followed(&resources, &athlete, PHONE, BSUID_C).await;
+    }
+
+    #[tokio::test]
+    async fn a_bsuid_change_moves_the_link_from_the_previous_bsuid() {
+        let resources = create_test_server_resources().await.unwrap();
+        let athlete = linked_athlete_with_session(&resources, BSUID_A).await;
+
+        post_notice(&resources, changed_user_id(BSUID_A, BSUID_C)).await;
+
+        assert_followed(&resources, &athlete, BSUID_A, BSUID_C).await;
+    }
+
+    #[tokio::test]
+    async fn a_change_whose_new_bsuid_another_link_holds_moves_nothing() {
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+        let (changer, bot_tenant) = user_with_whatsapp(&resources, "changer@example.com").await;
+        let (holder, _) = user_with_tenant(&resources, "holder-of-new@example.com").await;
+        link(&resources, bot_tenant, changer, BSUID_A).await;
+        link(&resources, bot_tenant, holder, BSUID_C).await;
+
+        post_notice(&resources, changed_user_id(BSUID_A, BSUID_C)).await;
+        post_notice(&resources, changed_number(Some(BSUID_A), BSUID_C)).await;
+
+        assert_eq!(
+            linked_user(db, bot_tenant, BSUID_A).await,
+            Some(changer.to_string()),
+            "the changer's link stays where it was"
+        );
+        assert_eq!(
+            linked_user(db, bot_tenant, BSUID_C).await,
+            Some(holder.to_string()),
+            "the holder of the new BSUID keeps it"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_change_for_an_unlinked_sender_moves_nothing_and_prompts_no_one() {
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+        let (_, bot_tenant) = user_with_whatsapp(&resources, "quiet-bot@example.com").await;
+
+        post_notice(&resources, changed_number(Some(BSUID_A), BSUID_C)).await;
+
+        assert_eq!(
+            linked_user(db, bot_tenant, BSUID_C).await,
+            None,
+            "bug: a change nobody was linked under created a link"
+        );
+    }
+
+    /// A message under the new BSUID in the same webhook as the change is
+    /// routed as the athlete's: the change is applied first.
+    #[tokio::test]
+    async fn a_message_in_the_same_webhook_as_the_change_reaches_the_athlete() {
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+        let (bot_tenant, athlete, _, _) = linked_athlete_with_session(&resources, BSUID_A).await;
+        let message = json!({
+            "id": "wamid.same-body",
+            "from_user_id": BSUID_C,
+            "timestamp": "1763560001",
+            "type": "text",
+            "text": { "body": "New phone, same athlete" }
+        });
+
+        let reply = post_webhook(
+            &resources,
+            &[json!({ "profile": { "name": "Athlete" }, "user_id": BSUID_C })],
+            &[changed_user_id(BSUID_A, BSUID_C), message],
+        )
+        .await;
+
+        assert_eq!(
+            reply["messages_received"].as_u64(),
+            Some(1),
+            "only the athlete's own message is a message"
+        );
+        assert_eq!(
+            reply["messages_stored"].as_u64(),
+            Some(1),
+            "bug: the athlete's message under the new BSUID was not routed"
+        );
+        assert_eq!(
+            linked_user(db, bot_tenant, BSUID_C).await,
+            Some(athlete.to_string()),
+            "bug: the link did not move before the message was routed"
+        );
+        assert_eq!(
+            link_states_for(&resources, BSUID_C).await,
+            0,
+            "bug: the athlete was prompted to link under the new BSUID"
         );
     }
 }

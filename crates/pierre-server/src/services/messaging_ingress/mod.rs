@@ -59,8 +59,9 @@ pub(crate) use resume::start_turn;
 /// What a shared room is left seeing once a slash command is answered privately.
 pub mod room_echo;
 /// Which channel identity a message is routed on: placeholders refused,
-/// `WhatsApp` phone-number links moved onto the business-scoped user id.
+/// `WhatsApp` links moved onto the business-scoped user id Meta names them by.
 mod sender_identity;
+pub(crate) use sender_identity::apply_identity_changes;
 /// Session resolution for linked channel users + unlinked-user link-and-prompt.
 mod session;
 /// Channel framing around the turn service's slash dispatch: channel-link

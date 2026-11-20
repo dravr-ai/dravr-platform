@@ -13,9 +13,10 @@
 //! captioned photo is answered from its caption. A photo posted into a room
 //! for its people draws no reply at all.
 //!
-//! canot parses a Telegram photo as media and every other non-text type but a
-//! location (voice, video, document, sticker) as its unsupported-type
-//! placeholder, and neither reaches the model as text. On `WhatsApp` that
+//! canot parses a Telegram photo, video, voice note, audio, document,
+//! animation or video note as media, and every other non-text type but a
+//! location (a sticker) as its unsupported-type placeholder, and neither
+//! reaches the model as text. On `WhatsApp` that
 //! placeholder is mostly a reaction, so it is dropped before anything else
 //! sees it: no link prompt, no session, no ledger row, no reply.
 
@@ -172,7 +173,7 @@ mod media_text_only {
 
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
-    async fn a_voice_note_gets_the_text_only_reply_and_the_placeholder_never_reaches_the_agent() {
+    async fn a_voice_note_gets_the_text_only_reply_and_never_reaches_the_agent() {
         let e2e = start().await;
         let member = e2e.linked_member(true).await;
 
@@ -187,18 +188,18 @@ mod media_text_only {
         assert_eq!(
             e2e.outbound_bodies_for_session(&session).await,
             vec![expected_reply(&e2e, &member).await],
-            "a Telegram voice note arrives as the placeholder and is told the agent reads text"
+            "a Telegram voice note arrives as media and is told the agent reads text"
         );
         assert_eq!(
             e2e.inbound_rows_for_session(member.home_tenant, &session)
                 .await,
-            vec![("text".to_owned(), None)],
-            "the placeholder is ledgered with no body: it is not the athlete's words"
+            vec![("media".to_owned(), None)],
+            "the voice note is ledgered as media with no body: it carries no words"
         );
         assert_eq!(
             e2e.llm.turn_calls.load(Ordering::SeqCst),
             0,
-            "the unsupported-type placeholder must not reach the model"
+            "a voice note with no caption must not reach the model"
         );
     }
 

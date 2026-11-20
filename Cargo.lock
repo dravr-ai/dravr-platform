@@ -1382,8 +1382,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.12.0"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.12.0#b6a0d198bc0f6a4ebaa9d04d5084d2f1bcc3893a"
+version = "0.13.0"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.13.0#7cf43d9267c84069564e5584fa7e42432725c40c"
 dependencies = [
  "async-trait",
  "chrono",

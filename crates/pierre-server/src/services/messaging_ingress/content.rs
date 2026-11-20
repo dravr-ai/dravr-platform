@@ -21,8 +21,7 @@ pub(super) fn content_type_label(content: &MessageContent) -> &'static str {
 ///
 /// canot's `WhatsApp`, Telegram and Messenger transports collapse every such type into
 /// this one literal, so the platform cannot tell them apart by content. On `WhatsApp`
-/// that is a reaction, a sticker or a contact card; on Telegram a voice note, video,
-/// document or sticker.
+/// that is a reaction, a sticker or a contact card; on Telegram a sticker.
 const UNSUPPORTED_PLACEHOLDER: &str = "[unsupported message type]";
 
 /// `true` when `content` is canot's stand-in for a message type it does not parse

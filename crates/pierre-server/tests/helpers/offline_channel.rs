@@ -32,7 +32,7 @@ use dravr_canot::turn::ConversationTurnId;
 use http::HeaderMap;
 use pierre_core::models::messaging::{
     ChannelConfig, ChannelType, DeliveryReceipt, DeliveryStatus, InboundReaction, IncomingMessage,
-    OutgoingMessage,
+    OutgoingMessage, SenderIdentityChange,
 };
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 use serde_json::Value;
@@ -200,6 +200,14 @@ impl MessagingChannel for OfflineSendChannel {
         body: &[u8],
     ) -> MessagingResult<Vec<InboundReaction>> {
         self.inner.receive_reactions(headers, body).await
+    }
+
+    async fn receive_identity_changes(
+        &self,
+        headers: &HeaderMap,
+        body: &[u8],
+    ) -> MessagingResult<Vec<SenderIdentityChange>> {
+        self.inner.receive_identity_changes(headers, body).await
     }
 
     fn render(&self, msg: &OutgoingMessage) -> MessagingResult<Value> {

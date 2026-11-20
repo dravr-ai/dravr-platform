@@ -1,5 +1,5 @@
 // ABOUTME: The channel identity an inbound message is routed on: placeholder ids refused, WhatsApp re-keyed to the BSUID
-// ABOUTME: Moves an athlete linked by phone number onto their business-scoped user id so the account and conversation follow
+// ABOUTME: Moves an athlete's link onto the id Meta names them by now: their BSUID, or the one a number change regenerates
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -18,10 +18,17 @@
 //!   linked by phone number before canot keyed on the BSUID is moved onto it
 //!   the first time a message carries both, keeping their account and
 //!   conversation instead of being asked to link again.
+//! - Meta regenerates the BSUID when the athlete changes their phone number,
+//!   or on its own, and announces it in a `system` message canot surfaces as
+//!   a [`SenderIdentityChange`]. The link moves from the previous BSUID, or
+//!   failing that the previous phone number, onto the new id before any
+//!   message in the same webhook is routed (carnet#1688).
 
 use dravr_canot::channels::whatsapp::identity::sender_phone_number;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::messaging::{is_routable_sender_id, ChannelType, IncomingMessage};
+use pierre_core::models::messaging::{
+    is_routable_sender_id, ChannelType, IncomingMessage, SenderIdentityChange,
+};
 use pierre_core::models::TenantId;
 use pierre_database::backends::{MessagingRepository, RekeyChannelIdentityParams};
 use tracing::{info, warn};
@@ -87,7 +94,7 @@ async fn adopt_business_scoped_id(
     if phone_number == message.sender_id {
         return;
     }
-    if let Err(e) = rekey_phone_link(
+    match move_link(
         resources,
         tenant_id,
         channel,
@@ -96,39 +103,123 @@ async fn adopt_business_scoped_id(
     )
     .await
     {
-        warn!(
+        Ok(LinkMove::Moved { user_id }) => info!(
+            channel,
+            user_id, "Moved a phone-number channel link onto the sender's business-scoped id"
+        ),
+        Ok(LinkMove::AlreadyHeld | LinkMove::NothingLinked) => {}
+        Err(e) => warn!(
             channel,
             error = %e,
             "Could not move a phone-number link onto the sender's business-scoped id"
-        );
+        ),
     }
 }
 
-/// Re-key the link a phone number holds, with its sessions and recorded turns,
-/// onto `business_scoped_id`.
-async fn rekey_phone_link(
+/// Move each athlete a webhook announces a new identifier for onto it, under
+/// the bot tenant `tenant_id` the webhook arrived on.
+///
+/// Applied before the webhook's messages are routed, so a message sent under
+/// the new id in the same body finds the link. For each change the link is
+/// looked up under the previous business-scoped user id, then under the
+/// previous phone number (an athlete linked by phone number before canot
+/// keyed on the BSUID); the first that holds one moves. A change whose new id
+/// a link already holds moves nothing, and one whose previous ids hold no link
+/// leaves the athlete to link again. Best effort: a failure is logged and the
+/// webhook goes on.
+pub(crate) async fn apply_identity_changes(
     resources: &ServerContext,
     tenant_id: TenantId,
     channel: &str,
-    phone_number: &str,
-    business_scoped_id: &str,
-) -> AppResult<()> {
+    changes: &[SenderIdentityChange],
+) {
+    for change in changes {
+        let Some(to) = change.sender_id().filter(|id| is_routable_sender_id(id)) else {
+            warn!(
+                channel,
+                channel_message_id = %change.channel_message_id,
+                "Sender identity change names no routable identifier; ignored"
+            );
+            continue;
+        };
+        let outcome = move_onto(resources, tenant_id, channel, change, to).await;
+        log_identity_change(channel, change, outcome);
+    }
+}
+
+/// Log what applying `change` did, naming the user a moved link names but
+/// never an identifier.
+fn log_identity_change(channel: &str, change: &SenderIdentityChange, outcome: AppResult<LinkMove>) {
+    match outcome {
+        Ok(outcome) => info!(
+            channel,
+            kind = ?change.kind,
+            outcome = ?outcome,
+            "Applied a sender identity change"
+        ),
+        Err(e) => warn!(
+            channel,
+            kind = ?change.kind,
+            error = %e,
+            "Could not move a channel link onto the identifier the platform announced"
+        ),
+    }
+}
+
+/// Move the link the first of `change`'s previous ids that holds one onto
+/// `to`.
+async fn move_onto(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel: &str,
+    change: &SenderIdentityChange,
+    to: &str,
+) -> AppResult<LinkMove> {
+    let previous_ids = change
+        .previous_sender_ids()
+        .filter(|id| is_routable_sender_id(id));
+    for from in previous_ids {
+        let outcome = move_link(resources, tenant_id, channel, from, to).await?;
+        if outcome != LinkMove::NothingLinked {
+            return Ok(outcome);
+        }
+    }
+    Ok(LinkMove::NothingLinked)
+}
+
+/// What [`move_link`] found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LinkMove {
+    /// The link naming `user_id` moved onto the new identifier.
+    Moved {
+        /// The Pierre user the moved link names
+        user_id: String,
+    },
+    /// A link already holds the new identifier, so nothing moved: the athlete
+    /// was moved before, or the identifier belongs to another link.
+    AlreadyHeld,
+    /// No link holds the previous identifier.
+    NothingLinked,
+}
+
+/// Re-key the link `from` holds, with its sessions and recorded turns, onto
+/// `to`.
+async fn move_link(
+    resources: &ServerContext,
+    tenant_id: TenantId,
+    channel: &str,
+    from: &str,
+    to: &str,
+) -> AppResult<LinkMove> {
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
 
     // The steady state once an athlete has been moved, so it is checked first:
-    // the BSUID already holds the link and there is nothing to do.
-    if db
-        .get_channel_link(tenant_id, channel, business_scoped_id)
-        .await?
-        .is_some()
-    {
-        return Ok(());
+    // the new identifier already holds a link and there is nothing to do.
+    if db.get_channel_link(tenant_id, channel, to).await?.is_some() {
+        return Ok(LinkMove::AlreadyHeld);
     }
-    let Some(link) = db
-        .get_channel_link(tenant_id, channel, phone_number)
-        .await?
-    else {
-        return Ok(());
+    let Some(link) = db.get_channel_link(tenant_id, channel, from).await? else {
+        return Ok(LinkMove::NothingLinked);
     };
     let user_id = link["user_id"]
         .as_str()
@@ -152,15 +243,17 @@ async fn rekey_phone_link(
             session_tenant_id,
             user_id,
             channel_type: channel,
-            from_channel_user_id: phone_number,
-            to_channel_user_id: business_scoped_id,
+            from_channel_user_id: from,
+            to_channel_user_id: to,
         })
         .await?;
-    if moved {
-        info!(
-            channel,
-            user_id, "Moved a phone-number channel link onto the sender's business-scoped id"
-        );
-    }
-    Ok(())
+    // The transaction refuses to move onto an identifier a link holds, so
+    // `false` means one took `to` after the check above.
+    Ok(if moved {
+        LinkMove::Moved {
+            user_id: user_id.to_owned(),
+        }
+    } else {
+        LinkMove::AlreadyHeld
+    })
 }
