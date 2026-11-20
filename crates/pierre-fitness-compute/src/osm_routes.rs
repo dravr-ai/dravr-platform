@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::routes::haversine_meters_between;
+use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::SportType;
 use serde::{Deserialize, Serialize};
@@ -59,20 +60,13 @@ const MAX_CACHED_ROUTE_POINTS: usize = 1_000_000;
 /// Default search radius in meters for Overpass queries
 const DEFAULT_SEARCH_RADIUS_METERS: u32 = 10_000;
 
-/// Metres in a kilometre — the unit OSM's `distance` tag is written in when
-/// it names none.
-const METERS_PER_KILOMETER: f64 = 1000.0;
-
 /// Metres in a statute mile, for a `distance` tag written in miles.
 const METERS_PER_MILE: f64 = 1609.344;
 
 /// The units a `distance` tag may be written in, with their length in
 /// metres. Ordered so a suffix is tried before any shorter suffix it ends in.
-const DISTANCE_TAG_UNITS: &[(&str, f64)] = &[
-    ("km", METERS_PER_KILOMETER),
-    ("mi", METERS_PER_MILE),
-    ("m", 1.0),
-];
+const DISTANCE_TAG_UNITS: &[(&str, f64)] =
+    &[("km", METERS_PER_KM), ("mi", METERS_PER_MILE), ("m", 1.0)];
 
 /// How far from a target distance a route's usable distance may land, as a
 /// share of the target, and still count as matching it. A tenth: a session
@@ -590,7 +584,7 @@ fn parse_distance_tag_meters(raw: &str) -> Option<f64> {
     let (figure, unit_meters) = DISTANCE_TAG_UNITS
         .iter()
         .find_map(|(suffix, meters)| Some((normalized.strip_suffix(suffix)?, *meters)))
-        .unwrap_or((normalized.as_str(), METERS_PER_KILOMETER));
+        .unwrap_or((normalized.as_str(), METERS_PER_KM));
     let value = figure.trim().parse::<f64>().ok()?;
     (value.is_finite() && value > 0.0).then_some(value * unit_meters)
 }

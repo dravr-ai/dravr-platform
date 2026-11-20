@@ -17,6 +17,8 @@
 //! summarized as a count with a pointer to `get_training_plan`.
 
 use chrono::{Days, NaiveDate};
+use pierre_core::constants::time_constants::{DAYS_PER_WEEK, SECONDS_PER_MINUTE};
+use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::errors::AppResult;
 use pierre_core::models::periodization::{WorkoutFilter, WorkoutPurpose};
 use pierre_core::models::{TenantId, WorkoutStep};
@@ -41,9 +43,6 @@ use crate::plan_fueling::FuelingDisclosure;
 /// fortnight, so a second copy of this number is a second fortnight waiting
 /// to disagree with the first.
 pub const ACTIVE_WEEKS: usize = 2;
-
-/// Days in a training week, for testing a phase against a week's whole span.
-const DAYS_PER_WEEK: u64 = 7;
 
 /// One week chosen by [`select_active_weeks`], with the dates it spans.
 #[derive(Debug)]
@@ -223,13 +222,14 @@ fn step_summary(step: &WorkoutStep) -> String {
 /// `min` spelled out so a minute is never read as a metre.
 fn step_extent(step: &WorkoutStep) -> String {
     if let Some(distance) = step.distance_meters {
-        if distance >= 1000.0 {
-            return format!("{}km", distance / 1000.0);
+        if distance >= METERS_PER_KM {
+            return format!("{}km", distance / METERS_PER_KM);
         }
         return format!("{}m", distance.round());
     }
-    let minutes = step.duration_seconds / 60;
-    let seconds = step.duration_seconds % 60;
+    let duration_seconds = u64::from(step.duration_seconds);
+    let minutes = duration_seconds / SECONDS_PER_MINUTE;
+    let seconds = duration_seconds % SECONDS_PER_MINUTE;
     match (minutes, seconds) {
         (0, s) => format!("{s}s"),
         (m, 0) => format!("{m}min"),
@@ -509,7 +509,7 @@ fn phase_touches_rendered_weeks(
             continue;
         };
         any_week_parsed = true;
-        if (0..DAYS_PER_WEEK).any(|offset| {
+        if (0..u64::from(DAYS_PER_WEEK)).any(|offset| {
             start
                 .checked_add_days(Days::new(offset))
                 .is_some_and(|day| phase.covers(day))
@@ -533,9 +533,10 @@ fn render_phase_header(
     catalogue: &PackagedCatalogue<'_>,
 ) -> String {
     let mut out = String::with_capacity(512);
+    let week = i64::from(DAYS_PER_WEEK);
     let weeks_left = phase
         .end_exclusive()
-        .map_or_default(|end| ((end - today).num_days() + 6) / 7);
+        .map_or_default(|end| ((end - today).num_days() + week - 1) / week);
     let _ = writeln!(
         out,
         "\nCurrent phase: {} ({} of {}), {weeks_left} week(s) left{}",

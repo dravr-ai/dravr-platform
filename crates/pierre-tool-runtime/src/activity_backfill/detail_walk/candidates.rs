@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
+use pierre_core::constants::time_constants::SECONDS_PER_DAY;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
@@ -28,9 +29,6 @@ const WALK_PAGE_ROWS: i64 = 200;
 /// Reads of the window one step makes looking for activities to read before
 /// it records where it got to.
 const WALK_PAGES_PER_STEP: usize = 20;
-
-/// Seconds in a day, as a span of starts.
-const DAY_SECS: i64 = 86_400;
 
 /// Stored rows one page of the look for the other copies of a step's
 /// activities takes: the look reads every row a day either side of the
@@ -443,8 +441,8 @@ async fn drop_read_twins(
         .read_between(
             keys,
             (
-                oldest.saturating_sub(DAY_SECS),
-                newest.saturating_add(DAY_SECS + 1),
+                oldest.saturating_sub(i64::from(SECONDS_PER_DAY)),
+                newest.saturating_add(i64::from(SECONDS_PER_DAY) + 1),
             ),
             want,
         )

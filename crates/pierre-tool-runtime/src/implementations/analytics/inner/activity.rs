@@ -27,7 +27,7 @@ use dravr_cageux::physiological_constants::business_thresholds::{
     ACHIEVEMENT_DISTANCE_THRESHOLD_KM, ACHIEVEMENT_ELEVATION_THRESHOLD_M,
 };
 use dravr_cageux::zones::{HrIntensity, HrZones};
-use pierre_config::constants::limits::METERS_PER_KILOMETER;
+use pierre_config::constants::units::METERS_PER_KM;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::{Activity, TenantId};
@@ -67,7 +67,7 @@ fn generate_activity_insights(
 
     // Analyze distance
     if let Some(distance) = activity.distance_meters() {
-        let km = distance / METERS_PER_KILOMETER;
+        let km = distance / METERS_PER_KM;
         insights.push(format!("Activity covered {km:.2} km"));
         if km > ACHIEVEMENT_DISTANCE_THRESHOLD_KM {
             recommendations.push("Great long-distance effort! Ensure proper recovery time");
@@ -172,7 +172,7 @@ fn create_intelligence_response(
         timestamp: chrono::Utc::now().to_rfc3339(),
         intelligence,
         performance_metrics: ActivityPerformanceMetrics {
-            distance_km: activity.distance_meters().map(|d| d / METERS_PER_KILOMETER),
+            distance_km: activity.distance_meters().map(|d| d / METERS_PER_KM),
             duration_minutes: Some(duration_minutes),
             elevation_meters: activity.elevation_gain(),
             average_heart_rate: activity.average_heart_rate(),

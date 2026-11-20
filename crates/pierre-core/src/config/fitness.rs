@@ -6,7 +6,6 @@
 
 //! Fitness-specific configuration for sport types and intelligence parameters
 
-use crate::constants::time::MINUTE_SECONDS;
 use crate::errors::AppResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -372,6 +371,10 @@ impl WeatherApiConfig {
     /// own host; any other value is the single origin every weather call
     /// goes to.
     pub const DEFAULT_BASE_URL: &'static str = "https://api.openweathermap.org";
+
+    /// The weather API request rate a configuration nobody changed allows,
+    /// in requests per minute.
+    const DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE: u64 = 60;
 }
 
 impl Default for WeatherApiConfig {
@@ -382,7 +385,7 @@ impl Default for WeatherApiConfig {
             enabled: true,
             cache_duration_hours: 24,
             request_timeout_seconds: 10,
-            rate_limit_requests_per_minute: MINUTE_SECONDS as u64,
+            rate_limit_requests_per_minute: Self::DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE,
         }
     }
 }

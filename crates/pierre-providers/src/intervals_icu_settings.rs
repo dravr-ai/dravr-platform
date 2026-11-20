@@ -43,6 +43,7 @@ use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use tracing::warn;
 
+use crate::constants::units::METERS_PER_KM;
 use crate::intervals_icu_calendar::event_sport;
 use crate::intervals_icu_planned::lenient;
 use crate::models::{
@@ -51,10 +52,6 @@ use crate::models::{
 
 /// The origin an imported threshold's provenance names.
 const ORIGIN: &str = "intervals.icu";
-
-/// Metres in a kilometre: what turns a speed in metres per second into a
-/// pace in seconds per kilometre.
-const METRES_PER_KM: f64 = 1_000.0;
 
 /// Tenths in a second: a converted pace keeps one decimal, the precision a
 /// pace is stated with, rather than the float division's tail.
@@ -175,7 +172,7 @@ fn whole<T: TryFrom<i64>>(value: Option<i64>) -> Option<T> {
 /// per second.
 fn pace_sec_per_km(metres_per_second: Option<f64>) -> Option<f64> {
     let speed = metres_per_second.filter(|speed| speed.is_finite() && *speed > 0.0)?;
-    Some((METRES_PER_KM / speed * PACE_TENTHS_PER_SECOND).round() / PACE_TENTHS_PER_SECOND)
+    Some((METERS_PER_KM / speed * PACE_TENTHS_PER_SECOND).round() / PACE_TENTHS_PER_SECOND)
 }
 
 /// The thresholds a raw `GET /sport-settings` array holds, chosen per

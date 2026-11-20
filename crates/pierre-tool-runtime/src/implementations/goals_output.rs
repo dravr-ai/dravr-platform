@@ -17,8 +17,8 @@ use dravr_cageux::physiological_constants::goal_feasibility::{
     DAYS_PER_MONTH_APPROX, EXCELLENT_DATA_QUALITY_THRESHOLD, GOOD_DATA_QUALITY_THRESHOLD,
     SAFE_MONTHLY_IMPROVEMENT_RATE_PERCENT,
 };
-use pierre_config::constants::limits::METERS_PER_KILOMETER;
-use pierre_config::constants::time_constants::{DAYS_PER_MONTH, SECONDS_PER_HOUR_F64};
+use pierre_config::constants::time_constants::SECONDS_PER_HOUR_F64;
+use pierre_config::constants::units::METERS_PER_KM;
 use pierre_core::models::Activity;
 use tracing::warn;
 
@@ -238,7 +238,7 @@ pub(crate) fn build_feasibility_payload(
         params.effective_timeframe
     } else {
         let safe_days_f64 = (params.improvement_required / SAFE_MONTHLY_IMPROVEMENT_RATE_PERCENT)
-            .mul_add(f64::from(DAYS_PER_MONTH), 0.0)
+            .mul_add(DAYS_PER_MONTH_APPROX, 0.0)
             .ceil();
         safe_f64_to_u32(safe_days_f64)
     };
@@ -295,7 +295,7 @@ pub(crate) fn build_progress_payload(params: &ProgressResponseParams<'_>) -> Tra
         .iter()
         .filter_map(|a| a.distance_meters())
         .sum::<f64>()
-        / METERS_PER_KILOMETER;
+        / METERS_PER_KM;
     let total_duration_hours = match u32::try_from(params.total_duration.min(u64::from(u32::MAX))) {
         Ok(duration_u32) => f64::from(duration_u32) / SECONDS_PER_HOUR_F64,
         Err(e) => {

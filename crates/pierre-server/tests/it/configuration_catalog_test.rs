@@ -32,6 +32,16 @@ fn test_parameter_lookup() {
     // from cageux's one zone model, never from a catalogue percentage.
     assert!(CatalogBuilder::get_parameter("heart_rate.anaerobic_threshold").is_none());
     assert!(CatalogBuilder::get_parameter("hr_zones.elite_zone6_threshold").is_none());
+
+    // No lactate-threshold velocity setting either: nothing reads one.
+    assert!(
+        CatalogBuilder::get_parameter("vo2.threshold_velocity_base").is_none(),
+        "catalogue bug: it offers vo2.threshold_velocity_base, which no computation reads"
+    );
+    assert!(
+        CatalogBuilder::get_parameter("vo2.threshold_adjustment_factor").is_none(),
+        "catalogue bug: it offers vo2.threshold_adjustment_factor, which no computation reads"
+    );
 }
 
 #[test]

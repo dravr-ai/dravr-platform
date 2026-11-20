@@ -17,7 +17,8 @@ use dravr_cageux::metrics::distance_per_climb_score;
 use dravr_cageux::models::maxhr::MaxHrAlgorithm;
 use dravr_cageux::physiological_constants::unit_conversions::MS_TO_KMH_FACTOR;
 use dravr_cageux::zones::{HeartRateReading, HrZones};
-use pierre_config::constants::limits::{self, METERS_PER_KILOMETER};
+use pierre_config::constants::time_constants::SECONDS_PER_MINUTE;
+use pierre_config::constants::units::METERS_PER_KM;
 use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::UserPhysiologicalProfile;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
@@ -160,7 +161,7 @@ fn calculate_activity_metrics(params: &ActivityParameters) -> CalculatedMetrics 
         f64::from(u32::try_from(params.duration.min(u64::from(u32::MAX))).unwrap_or(u32::MAX));
 
     let pace = if params.distance > 0.0 && params.duration > 0 {
-        duration_f64 / (params.distance / METERS_PER_KILOMETER)
+        duration_f64 / (params.distance / METERS_PER_KM)
     } else {
         0.0
     };
@@ -232,8 +233,6 @@ fn build_metrics_response(
     reading: Result<HeartRateReading, String>,
     output_format: OutputFormat,
 ) -> Result<UniversalResponse, ProtocolError> {
-    use limits;
-
     let payload = ActivityMetricsResult {
         pace: metrics.pace,
         speed: metrics.speed,
@@ -244,8 +243,8 @@ fn build_metrics_response(
         heart_rate_unavailable: reading.as_ref().err().cloned(),
         heart_rate_reading: reading.ok(),
         metrics_summary: MetricsInputSummary {
-            distance_km: params.distance / METERS_PER_KILOMETER,
-            duration_minutes: params.duration / limits::SECONDS_PER_MINUTE,
+            distance_km: params.distance / METERS_PER_KM,
+            duration_minutes: params.duration / SECONDS_PER_MINUTE,
             elevation_meters: params.elevation_gain,
             average_heart_rate: params.heart_rate,
         },

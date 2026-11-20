@@ -11,7 +11,7 @@
 //! agents and stored in the database.
 
 use crate::constants::rate_limits::DEFAULT_BURST_LIMIT;
-use crate::constants::time::HOUR_SECONDS;
+use crate::constants::time_constants::SECONDS_PER_HOUR;
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -66,9 +66,8 @@ const fn default_rate_limit_requests() -> u32 {
     DEFAULT_BURST_LIMIT * 10
 }
 
-#[allow(clippy::cast_possible_truncation)] // Safe: HOUR_SECONDS is 3600, well within u32 range
 const fn default_rate_limit_window() -> u32 {
-    HOUR_SECONDS as u32
+    SECONDS_PER_HOUR
 }
 
 /// A2A Active session information

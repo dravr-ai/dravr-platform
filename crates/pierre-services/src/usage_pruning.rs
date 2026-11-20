@@ -18,12 +18,10 @@ use tracing::{debug, info, warn};
 
 use crate::periodic::spawn_periodic;
 use crate::usage_counter::UsageCounterService;
+use pierre_core::constants::time_constants::SECONDS_PER_HOUR;
 use pierre_database::backends::UsageCounterRepository;
 use pierre_database::repositories::WorkerRunRepository;
 use pierre_runtime_context::{AdminConfigLookup, ConfigLookupScope};
-
-/// Number of seconds in one hour
-const HOUR_SECONDS: u64 = 3_600;
 
 /// Default retention period in days for old usage counters
 const DEFAULT_RETENTION_DAYS: i64 = 90;
@@ -41,7 +39,7 @@ pub fn start_usage_pruning_task(
 ) -> AbortHandle {
     let abort_handle = spawn_periodic(
         "usage counter pruning",
-        Duration::from_secs(HOUR_SECONDS),
+        Duration::from_secs(u64::from(SECONDS_PER_HOUR)),
         ledger,
         move || {
             let usage_counters = Arc::clone(&usage_counters);

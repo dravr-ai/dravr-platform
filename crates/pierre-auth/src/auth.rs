@@ -32,7 +32,7 @@ use uuid::Uuid;
 use crate::admin::jwks::JwksManager;
 use crate::oauth2_server::first_party::names_third_party;
 use pierre_core::constants::{
-    limits::{OAUTH_ACCESS_TOKEN_EXPIRY_HOURS, USER_SESSION_EXPIRY_HOURS},
+    limits::OAUTH_ACCESS_TOKEN_EXPIRY_HOURS,
     service_names::{MCP, OAUTH2_AUTHORIZE, PIERRE_MCP_SERVER},
     time_constants::SECONDS_PER_HOUR,
 };
@@ -141,7 +141,7 @@ impl Display for JwtValidationError {
                         duration_expired.num_minutes(),
                         expired_at.format("%Y-%m-%d %H:%M:%S UTC")
                     )
-                } else if duration_expired.num_hours() < USER_SESSION_EXPIRY_HOURS {
+                } else if duration_expired.num_days() < 1 {
                     write!(
                         f,
                         "JWT token expired {} hours ago at {}",

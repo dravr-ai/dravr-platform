@@ -92,6 +92,7 @@ mod track;
 use std::sync::Arc;
 
 use pierre_core::constants::oauth::providers::{STRAVA, STRAVA_ARCHIVE};
+use pierre_core::constants::time_constants::SECONDS_PER_DAY;
 use pierre_core::errors::AppResult;
 use pierre_core::models::coverage::Pending;
 use pierre_core::models::TenantId;
@@ -125,9 +126,6 @@ pub(crate) const DETAIL_WALK_STEP_ACTIVITIES: usize = 10;
 /// the athlete's day re-reading the activities the backend could not read.
 /// A week: a ride deleted or made private since is read again soon enough.
 pub(crate) const DETAIL_WALK_STANDS_MS: i64 = 7 * 86_400_000;
-
-/// Seconds in a day.
-const SECS_PER_DAY: f64 = 86_400.0;
 
 /// The backend a detail walk of `provider`'s history reads for the athlete.
 ///
@@ -682,7 +680,7 @@ pub(super) async fn session_walk_window(
 pub(crate) fn detail_walk_running(progress: &JobProgress, daily_calls: Option<u32>) -> Pending {
     let units = |n: i64| u32::try_from(n.max(0)).unwrap_or(u32::MAX);
     let day = daily_calls.unwrap_or(DETAIL_WALK_DAILY_CALLS).max(1);
-    let budget_pace = SECS_PER_DAY / f64::from(day);
+    let budget_pace = f64::from(SECONDS_PER_DAY) / f64::from(day);
     let pace = progress
         .secs_per_unit
         .map_or(budget_pace, |measured| measured.max(budget_pace));

@@ -17,7 +17,7 @@ pub use crate::client_types::{
     A2ARateLimitStatus, ClientCredentials, ClientRegistrationRequest, ClientUsageStats, DailyUsage,
 };
 use crate::constants::rate_limits::DEFAULT_BURST_LIMIT;
-use crate::constants::time::HOUR_SECONDS;
+use crate::constants::time_constants::SECONDS_PER_HOUR;
 use crate::{map_db_error, A2AError};
 use chrono::{DateTime, Datelike, Days, NaiveTime, Utc};
 use pierre_auth::oauth2_server::{ClientRegistrationManager, OAuth2Error};
@@ -88,7 +88,6 @@ impl A2AClientManager {
     /// Returns an error if:
     /// - Registration request validation fails
     /// - Database storage fails
-    #[allow(clippy::cast_possible_truncation)] // Safe: HOUR_SECONDS is 3600, well within u32 range
     pub async fn register_client(
         &self,
         request: ClientRegistrationRequest,
@@ -115,7 +114,7 @@ impl A2AClientManager {
             is_active: true,
             created_at: Utc::now(),
             rate_limit_requests: DEFAULT_BURST_LIMIT * 10,
-            rate_limit_window_seconds: HOUR_SECONDS as u32,
+            rate_limit_window_seconds: SECONDS_PER_HOUR,
             updated_at: Utc::now(),
         };
 

@@ -21,6 +21,8 @@ use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::training_load::TrainingLoadCalculator;
 use futures_util::future::join_all;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
+use pierre_core::constants::time_constants::DAYS_PER_WEEK;
+use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::models::groups::{
     FormMorning, MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity,
 };
@@ -318,9 +320,6 @@ fn deep_fatigue_mornings(
     run
 }
 
-/// Number of days in one week, used to split current vs previous week.
-const DAYS_PER_WEEK: i64 = 7;
-
 /// Aggregated current-week metrics plus the prior week's volume trend input.
 ///
 /// `previous_week_volume_km` is `None` when no activity falls in the
@@ -365,10 +364,9 @@ pub fn compute_weekly_metrics(
 ) -> WeeklyMetrics {
     let today = clock_date(now, zone);
     let days_back = |a: &Activity| days_before(today, a.start_date(), zone);
-    let weekly_activities: Vec<_> = activities
-        .iter()
-        .filter(|a| days_back(a) < DAYS_PER_WEEK)
-        .collect();
+    // Days in one week, splitting the current week from the previous one.
+    let week = i64::from(DAYS_PER_WEEK);
+    let weekly_activities: Vec<_> = activities.iter().filter(|a| days_back(a) < week).collect();
 
     let weekly_activity_count = i32::try_from(weekly_activities.len()).unwrap_or(i32::MAX);
 
@@ -376,13 +374,13 @@ pub fn compute_weekly_metrics(
         .iter()
         .filter_map(|a| a.distance_meters())
         .sum::<f64>()
-        / 1000.0;
+        / METERS_PER_KM;
 
     let weekly_duration_seconds: u64 = weekly_activities.iter().map(|a| a.duration_seconds()).sum();
 
     let previous_week: Vec<_> = activities
         .iter()
-        .filter(|a| (DAYS_PER_WEEK..2 * DAYS_PER_WEEK).contains(&days_back(a)))
+        .filter(|a| (week..2 * week).contains(&days_back(a)))
         .collect();
     let previous_week_volume_km = if previous_week.is_empty() {
         None
@@ -392,7 +390,7 @@ pub fn compute_weekly_metrics(
                 .iter()
                 .filter_map(|a| a.distance_meters())
                 .sum::<f64>()
-                / 1000.0,
+                / METERS_PER_KM,
         )
     };
 
@@ -756,7 +754,7 @@ fn compute_recent_activities(
             RosterActivity {
                 start: a.start_date(),
                 sport: format!("{:?}", a.sport_type()),
-                distance_km: a.distance_meters().map(|m| m / 1000.0),
+                distance_km: a.distance_meters().map(|m| m / METERS_PER_KM),
                 duration_seconds: a.duration_seconds(),
                 name: display_line(a.name(), ACTIVITY_NAME_MAX_CHARS),
                 city: a.city().map(str::to_owned),

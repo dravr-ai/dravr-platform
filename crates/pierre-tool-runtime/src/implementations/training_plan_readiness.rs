@@ -29,6 +29,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use pierre_core::ai_policy::ProviderTerms;
+use pierre_core::constants::time_constants::SECONDS_PER_HOUR_F64;
 use pierre_core::models::periodization::alerts::BASELINE_DAYS;
 use pierre_core::models::periodization::{
     alerts, ladder, readiness_level, substitute, AlertInput, DayReadinessInput, DaySubstitution,
@@ -49,9 +50,6 @@ use crate::runtime::ToolRuntime;
 use crate::training_history_compute::history_rows_for_model;
 use pierre_services::athlete_clock::athlete_zone;
 use pierre_services::stored_health::{self, SourceFilter};
-
-/// Seconds in an hour, for the nightly sleep total.
-const SECONDS_PER_HOUR: f64 = 3600.0;
 
 /// Whether the ladder reads the athlete's recovery series: their sleep, HRV
 /// and resting heart rate.
@@ -570,7 +568,7 @@ fn hours_by_night<Z: TimeZone>(
         // a sleep starting before midnight belongs to the morning it ended
         // on, whatever the athlete's distance from UTC.
         let night = session.night_date(zone);
-        *by_night.entry(night).or_insert(0.0) += f64::from(seconds) / SECONDS_PER_HOUR;
+        *by_night.entry(night).or_insert(0.0) += f64::from(seconds) / SECONDS_PER_HOUR_F64;
     }
     by_night
 }

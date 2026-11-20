@@ -24,7 +24,7 @@ use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use dravr_cageux::training_load::TrainingLoad;
 use dravr_cageux::training_load::{FormBand, RiskLevel, TrainingLoadCalculator, TrainingLoadLevel};
 use dravr_cageux::zones::HrZones;
-use pierre_config::constants::limits::METERS_PER_KILOMETER;
+use pierre_config::constants::units::METERS_PER_KM;
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::{Activity, TenantId};
@@ -651,8 +651,8 @@ fn generate_goal_specific_recommendations(
             }
         })
         .max_by(|a, b| {
-            let pace_a = a.1 / (a.0 / METERS_PER_KILOMETER);
-            let pace_b = b.1 / (b.0 / METERS_PER_KILOMETER);
+            let pace_a = a.1 / (a.0 / METERS_PER_KM);
+            let pace_b = b.1 / (b.0 / METERS_PER_KM);
             pace_b.partial_cmp(&pace_a).unwrap_or(Ordering::Equal)
         });
 
@@ -668,7 +668,7 @@ fn generate_goal_specific_recommendations(
             race_predictions = Some(RacePredictionSummary {
                 based_on: format!(
                     "{:.1}km in {}",
-                    distance / METERS_PER_KILOMETER,
+                    distance / METERS_PER_KM,
                     PerformancePredictor::format_time(time)
                 ),
                 vdot: predictions.vdot,

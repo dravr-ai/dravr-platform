@@ -22,6 +22,7 @@
 use std::sync::Arc;
 
 use chrono::Days;
+use pierre_core::constants::time_constants::DAYS_PER_WEEK;
 use pierre_core::models::periodization::{EnvelopeFinding, WorkoutPurpose};
 use pierre_core::models::TargetAnchor;
 use pierre_memory::training_plans;
@@ -42,10 +43,6 @@ const PUBLISH_TOOL: &str = "publish_training_plan";
 
 /// The one-session push, which reports the session it pushed.
 const PRESCRIBE_TOOL: &str = "prescribe_workout";
-
-/// The days a stored plan week holds, from its `week_start`: a save refuses a
-/// day outside them.
-const DAYS_PER_WEEK: u64 = 7;
 
 /// Which write reported a session, and so which earlier report it replaces.
 ///
@@ -198,7 +195,8 @@ fn days_written(tool_name: &str, payload: &Value) -> Vec<String> {
             monday
         })
         .flat_map(|monday| {
-            (0..DAYS_PER_WEEK).filter_map(move |offset| monday.checked_add_days(Days::new(offset)))
+            (0..u64::from(DAYS_PER_WEEK))
+                .filter_map(move |offset| monday.checked_add_days(Days::new(offset)))
         })
         .map(|day| day.to_string())
         .collect()
