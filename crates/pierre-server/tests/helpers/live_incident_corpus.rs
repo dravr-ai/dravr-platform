@@ -691,9 +691,14 @@ pub(crate) const CORPUS: &[Episode] = &[
                 user: "Combien de kilomètres de vélo j'ai fait cette année?",
                 expect: &[],
             },
+            // The incident is a figure with no read behind it, so any tool that
+            // reads the year counts. query_activities is the one that counts
+            // and sums over any period (carnet#1485), and the prompt routes a
+            // yearly total to it.
             Turn {
                 user: "Et l'an dernier?",
                 expect: &[Expect::Calls(&[
+                    "query_activities",
                     "get_activities",
                     "get_stats",
                     "get_training_history",
