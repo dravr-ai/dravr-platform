@@ -975,6 +975,7 @@ mod viz_token_test;
 mod walk_completion_render_test;
 mod walk_on_connect_test;
 mod walked_window_read_test;
+mod walks_after_chat_read_test;
 mod warp_axum_migration_regression_test;
 mod weather_backfill_test;
 mod weather_default_place_test;

@@ -1177,7 +1177,7 @@ async fn a_walk_the_ledger_cannot_record_never_reads_as_unreadable() {
         &[ride(oauth_providers::STRAVA, start(5))],
     )
     .await;
-    refuse_walk_rows_on(&resources, "INSERT").await;
+    refuse_walk_rows_on(&resources, BackfillJobKind::DetailWalk, "INSERT").await;
 
     let payload = call(
         &resources,
@@ -1220,7 +1220,7 @@ async fn an_ask_that_cannot_widen_the_owed_walk_reads_it_walking() {
         first["coverage"]["incomplete_reason"], "segment_detail_walking",
         "{first}"
     );
-    refuse_walk_rows_on(&resources, "UPDATE").await;
+    refuse_walk_rows_on(&resources, BackfillJobKind::DetailWalk, "UPDATE").await;
 
     let again = call(
         &resources,

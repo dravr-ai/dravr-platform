@@ -68,6 +68,8 @@ use crate::training_history_compute::{
 };
 use pierre_providers::ai_scope;
 
+/// The walks a session's head refresh asks, from the capture sweep and a chat read
+pub(crate) mod after_refresh;
 /// A detail walk: the segment efforts of a window's stored activities read in
 pub mod detail_walk;
 /// A history walk: the athlete's whole history paged into the store

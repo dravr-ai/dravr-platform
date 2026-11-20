@@ -36,8 +36,10 @@
 //! asked again for the connection (it is asked only once the connection's
 //! history walk, when it has one, has ended, so the store holds the whole
 //! history the list is read against); a dead session ends it incomplete, and
-//! the next ask records it again. It is asked by the nightly capture sweep
-//! once a connection's head refresh succeeds ([`ask_tag_walk`]).
+//! the next ask records it again. It is asked once a connection's head
+//! refresh succeeds ([`ask_tag_walk`]): by the nightly capture sweep, and by
+//! a chat turn's live read of the session's list head, both through
+//! `activity_backfill::after_refresh`.
 //!
 //! **What it writes.** Through
 //! [`ActivityCacheRepository::amend_listed_reads`](pierre_database::repositories::ActivityCacheRepository::amend_listed_reads)
@@ -109,8 +111,8 @@ pub enum TagWalkAsked {
 ///
 /// A connection whose walk is owed or ended walked is left alone; one that
 /// ended incomplete (its session died, its budget left no call) is recorded
-/// again. Asked by the capture sweep after a head refresh that succeeded, so
-/// the session is live.
+/// again. Asked after a head refresh that succeeded, so the session is live:
+/// by the capture sweep, and by a chat turn's live read of the list head.
 pub async fn ask_tag_walk(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,

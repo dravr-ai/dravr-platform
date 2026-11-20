@@ -200,7 +200,10 @@ async fn session_server(scraper_url: &str) -> Arc<ServerContext> {
 }
 
 /// An athlete, in a tenant of their own, holding a live sciotte session.
-async fn session_athlete(resources: &Arc<ServerContext>, label: &str) -> (Uuid, TenantId) {
+pub(crate) async fn session_athlete(
+    resources: &Arc<ServerContext>,
+    label: &str,
+) -> (Uuid, TenantId) {
     let (user_id, _user, tenant) = common::create_test_user_with_plan(
         &resources.agent.database,
         &format!("{label}-{}@example.com", Uuid::new_v4()),

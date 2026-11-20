@@ -49,6 +49,7 @@ use tokio::sync::{oneshot, watch};
 use tokio::time;
 use tracing::{info, instrument, warn};
 
+use super::after_refresh;
 use super::{
     enqueue, job_row, keep_backfill_lease, lease_ms, mark_in_flight, notify_backfill_reauth,
     now_ms,
@@ -444,6 +445,7 @@ pub(super) async fn run_live_read(
         .map_or_else(Utc::now, |authenticated| authenticated.attempt_started_at);
     let output = read_once(job, authenticated, attempt_started_at).await;
     drop(renewal);
+    after_refresh::ask_walks_after_live_read(job, &output.read);
     let attempt = Attempt::of(&output.read);
     // A landed read finishes its row before it marks itself landed, and both
     // before anything is answered. From then on the run holds no read and no

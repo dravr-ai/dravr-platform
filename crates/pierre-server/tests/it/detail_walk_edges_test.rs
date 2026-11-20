@@ -37,7 +37,7 @@ use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::coverage::Pending;
 use pierre_core::models::{Activity, ActivityBuilder, ConnectionStatus, SportType, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
-use pierre_database::repositories::BackfillJobState;
+use pierre_database::repositories::{BackfillJobKind, BackfillJobState};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
 use pierre_services::live_activities::WriteOrigin;
@@ -51,23 +51,28 @@ use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
 /// The trigger, and on `PostgreSQL` the function behind it, that refuses
-/// every detail walk row the ledger is asked to record.
+/// every walk row of one kind the ledger is asked to record.
 const REFUSE_WALK_ROWS: &str = "refuse_detail_walk_rows";
 
 /// Make the ledger refuse to record any detail walk row from now on.
 async fn refuse_walk_rows(resources: &Arc<ServerContext>) {
-    refuse_walk_rows_on(resources, "INSERT").await;
+    refuse_walk_rows_on(resources, BackfillJobKind::DetailWalk, "INSERT").await;
 }
 
-/// Make the ledger refuse every `event` (`INSERT` or `UPDATE`) of a detail
+/// Make the ledger refuse every `event` (`INSERT` or `UPDATE`) of a `kind`
 /// walk row from now on, until [`accept_walk_rows`].
-pub(crate) async fn refuse_walk_rows_on(resources: &Arc<ServerContext>, event: &str) {
+pub(crate) async fn refuse_walk_rows_on(
+    resources: &Arc<ServerContext>,
+    kind: BackfillJobKind,
+    event: &str,
+) {
+    let kind = kind.as_str();
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => {
             sqlx::query(&format!(
                 "CREATE TRIGGER {REFUSE_WALK_ROWS} BEFORE {event} ON activity_backfill_jobs \
-                 WHEN NEW.kind = 'detail_walk' \
-                 BEGIN SELECT RAISE(ABORT, 'detail walk row refused by the test'); END"
+                 WHEN NEW.kind = '{kind}' \
+                 BEGIN SELECT RAISE(ABORT, 'walk row refused by the test'); END"
             ))
             .execute(db.pool())
             .await
@@ -77,14 +82,14 @@ pub(crate) async fn refuse_walk_rows_on(resources: &Arc<ServerContext>, event: &
         DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(&format!(
                 "CREATE FUNCTION {REFUSE_WALK_ROWS}() RETURNS trigger LANGUAGE plpgsql \
-                 AS $$ BEGIN RAISE EXCEPTION 'detail walk row refused by the test'; END $$"
+                 AS $$ BEGIN RAISE EXCEPTION 'walk row refused by the test'; END $$"
             ))
             .execute(db.pool())
             .await
             .unwrap();
             sqlx::query(&format!(
                 "CREATE TRIGGER {REFUSE_WALK_ROWS} BEFORE {event} ON activity_backfill_jobs \
-                 FOR EACH ROW WHEN (NEW.kind = 'detail_walk') \
+                 FOR EACH ROW WHEN (NEW.kind = '{kind}') \
                  EXECUTE FUNCTION {REFUSE_WALK_ROWS}()"
             ))
             .execute(db.pool())

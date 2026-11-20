@@ -74,9 +74,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 #[cfg(feature = "tools-data")]
-use crate::activity_backfill::detail_walk::ask_track_walk;
-#[cfg(feature = "tools-data")]
-use crate::activity_backfill::tag_walk::ask_tag_walk;
+use crate::activity_backfill::after_refresh;
 use crate::activity_fetch::fetch_provider_head;
 use crate::activity_fetch::sync_verdict::{
     covers_list_head, held_to_background_share, record_sync_failure,
@@ -658,7 +656,10 @@ async fn refresh_one(
     match result {
         Ok(activities) => {
             #[cfg(feature = "tools-data")]
-            ask_walks_after_refresh(runtime, tenant_id, parsed_user, provider).await;
+            if let Ok(tenant) = TenantId::parse_str(tenant_id) {
+                after_refresh::ask_walks_after_refresh(runtime, parsed_user, tenant, provider)
+                    .await;
+            }
             RefreshOutcome::Refreshed {
                 activities: activities.len(),
             }
@@ -675,27 +676,6 @@ async fn refresh_one(
         }
         Err(e) => unflagged_outcome(&e, user_id, provider),
     }
-}
-
-/// A connection whose head just refreshed has a live session: ask for its
-/// tag walk, which fills the tags and gear id of the stored history the head
-/// read never carries, once per connection and only after its history walk
-/// ended ([`ask_tag_walk`]), and for its track walk, which reads once more the
-/// rides a detail read reached before it kept their route
-/// ([`ask_track_walk`]). A backend that is no counted session is asked
-/// neither.
-#[cfg(feature = "tools-data")]
-async fn ask_walks_after_refresh(
-    runtime: &Arc<dyn ToolRuntime>,
-    tenant_id: &str,
-    user_id: Uuid,
-    provider: &str,
-) {
-    let Ok(tenant) = TenantId::parse_str(tenant_id) else {
-        return;
-    };
-    ask_tag_walk(runtime, user_id, tenant, provider).await;
-    ask_track_walk(runtime, user_id, tenant, provider).await;
 }
 
 /// What the sweep reports for a fetch error that leaves the connection
