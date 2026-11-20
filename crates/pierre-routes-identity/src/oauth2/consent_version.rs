@@ -126,9 +126,8 @@ fn digested_page(template: &str, text: &ConsentText<'_>, subject: ConsentSubject
             switch_account_url: "",
             first_party_only_sources: &sources,
             text,
-            // The version digests the screen an athlete reads; a role line
-            // joins the digest once its text is in the catalogue
-            // (CONSENT_SCREEN_KEYS).
+            // The version digests the screen an athlete reads; the role
+            // lines join it through their text (CONSENT_SCREEN_KEYS).
             role: ConsentRole::default(),
         },
     )

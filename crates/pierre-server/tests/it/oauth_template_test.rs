@@ -1272,12 +1272,10 @@ async fn a_failed_provider_callback_reads_in_the_browsers_language() {
     assert!(!french.contains("Connection Failed"), "{french}");
 }
 
-/// A coach and an admin are shown a role line naming what their role adds
-/// (carnet#1511). Until the catalogue carries the line's text the screen
-/// leaves it out, so neither ever reads a raw key, and an athlete never sees
-/// one.
+/// A coach and an admin are shown a role line naming what their role adds,
+/// with the client in its slot (carnet#1511); an athlete sees neither.
 #[test]
-fn a_role_line_never_shows_as_its_key_and_an_athlete_sees_none() {
+fn a_coach_and_an_admin_read_their_role_line_and_an_athlete_none() {
     let render = |role| {
         OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
             client_id: "mcp_client_1",
@@ -1297,16 +1295,28 @@ fn a_role_line_never_shows_as_its_key_and_an_athlete_sees_none() {
             role,
         })
     };
+    let line = |key: &str| {
+        STRINGS
+            .get_exact(key, "en")
+            .unwrap_or_else(|| panic!("the catalogue carries {key}"))
+            .replace("{0}", "Claude")
+            .replace('\'', "&#x27;")
+    };
+    let (coach_line, admin_line) = (line("oauth.consent.roleCoach"), line("oauth.consent.roleAdmin"));
     let athlete = render(pierre_routes_identity::ConsentRole::default());
-    let both = render(pierre_routes_identity::ConsentRole {
+    let coach = render(pierre_routes_identity::ConsentRole {
         coach: true,
+        admin: false,
+    });
+    let admin = render(pierre_routes_identity::ConsentRole {
+        coach: false,
         admin: true,
     });
-    for html in [&athlete, &both] {
+    for html in [&athlete, &coach, &admin] {
         assert!(!html.contains("oauth.consent.role"), "{html}");
     }
-    let carries = |key: &str| STRINGS.get_exact(key, "en").is_some();
-    if !carries("oauth.consent.roleCoach") && !carries("oauth.consent.roleAdmin") {
-        assert_eq!(athlete, both, "no text yet, so no line");
-    }
+    assert!(!athlete.contains(&coach_line) && !athlete.contains(&admin_line), "{athlete}");
+    assert!(coach.contains(&coach_line) && !coach.contains(&admin_line), "{coach}");
+    assert!(admin.contains(&admin_line) && !admin.contains(&coach_line), "{admin}");
 }
+

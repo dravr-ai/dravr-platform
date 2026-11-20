@@ -472,23 +472,22 @@ impl OAuth2Routes {
     }
 }
 
-/// The consent screen's line naming the services whose data stays inside
-/// Dravr and so never reaches the `client`, which is already markup; empty
-/// when `sources` names none.
-/// The lines `role` adds to the screen, naming `client`: the coach line, then
-/// the admin line. A line the catalogue has no text for yet is left out, never
-/// shown as its key.
+/// The lines `role` adds to the screen, naming `client`, which is already
+/// markup: the coach line, then the admin line.
 fn role_lines(role: ConsentRole, client: &str, text: &ConsentText<'_>) -> String {
     [
         (role.coach, KEY_CONSENT_ROLE_COACH),
         (role.admin, KEY_CONSENT_ROLE_ADMIN),
     ]
     .into_iter()
-    .filter(|(shown, key)| *shown && !text.line(key).is_empty())
+    .filter(|(shown, _)| *shown)
     .map(|(_, key)| format!(r#"<p class="disclosure">{}</p>"#, text.html(key, &[client])))
     .collect()
 }
 
+/// The consent screen's line naming the services whose data stays inside
+/// Dravr and so never reaches the `client`, which is already markup; empty
+/// when `sources` names none.
 pub(super) fn first_party_only_line(
     sources: &[&str],
     client: &str,
