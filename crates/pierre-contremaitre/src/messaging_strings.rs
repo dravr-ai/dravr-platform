@@ -270,6 +270,12 @@ pub const KEY_AGENT_SCOPE_CARVE_OUT_RECIPES: &str = "messaging.scope.carve_out.r
 /// Key: short placeholder shown in-channel (Telegram/Slack/Discord) while
 /// the LLM is still generating the reply — e.g. "thinking…" / "réflexion…".
 pub const KEY_THINKING_PLACEHOLDER: &str = "messaging.thinking_placeholder";
+/// Key: reply to a voice note, a photo without a caption, or another media
+/// message the agent cannot read yet.
+///
+/// Sent instead of silence and never forwarded to the model: the platform
+/// downloads no media, so the only thing it can say is that it reads text.
+pub const KEY_MEDIA_TEXT_ONLY: &str = "messaging.media_text_only";
 /// Key: reply for unmatched slash commands.
 ///
 /// Fires when the user types a `/something` prefix that doesn't match any
@@ -710,6 +716,14 @@ pub const KEY_PROVIDER_REAUTH_SERVED_NO_LINK: &str = "messaging.provider.reauth_
 /// also rides a `url` `CardAction` labelled with this string, so the athlete
 /// taps instead of copying. `{0}` = provider display name.
 pub const KEY_PROVIDER_RECONNECT_BUTTON: &str = "messaging.provider.reconnect_button";
+
+/// Key: provider-free button label on the reconnect Card.
+///
+/// [`KEY_PROVIDER_RECONNECT_BUTTON`] interpolates the provider name, which
+/// overflows `WhatsApp`'s 20-character `cta_url` label for `Intervals.icu` and
+/// in Spanish. The Card's title already names the provider, so this label is
+/// the bare verb and takes no placeholder. Every locale fits 20 characters.
+pub const KEY_PROVIDER_RECONNECT_CTA: &str = "messaging.provider.reconnect_cta";
 
 // ── /status command keys ──────────────────────────────────────────────────
 

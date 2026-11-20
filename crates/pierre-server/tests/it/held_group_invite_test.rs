@@ -45,6 +45,7 @@ use pierre_core::models::groups::{GroupInvite, GroupInviteKind};
 use pierre_core::models::{
     default_locale, CreateGroupRequest, GroupInviteHold, TenantId, User, UserStatus,
 };
+use pierre_core::usage_log;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_groups::strategies::tier::EnterpriseTierStrategy;
 use pierre_groups::SIGNUP_INVITE_MAX_DAYS;
@@ -54,6 +55,7 @@ use pierre_routes_auth::AuthRoutes;
 use pierre_routes_groups::GroupRoutes;
 use pierre_services::delegated_connections::person_name;
 use pierre_services::signup_policy::{set_signup_policy, SignupPolicyUpdate};
+use pierre_test_support::log_capture::{capture_target, drain};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -1266,10 +1268,43 @@ async fn a_group_full_at_join_time_is_refused_by_name_and_keeps_the_hold_for_a_r
         .unwrap();
     assert_eq!(coach.member_count(&resources).await, 2, "the group is full");
 
+    let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
     let (status, body) = join_held(&resources, &holder).await;
+    drop(usage_guard);
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["outcome"], "refused", "{body}");
     assert_eq!(body["reason"], "group_full", "{body}");
+
+    // The refusal is logged as the group's member cap, against the athlete
+    // who could not join (carnet#1630).
+    let lines = drain(&usage_lines);
+    assert_eq!(lines.len(), 1, "one usage line per refusal: {lines:?}");
+    let line = &lines[0];
+    assert_eq!(
+        line.get("user_id").map(String::as_str),
+        Some(holder.id.to_string().as_str()),
+        "the line names the athlete refused: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit_type").map(String::as_str),
+        Some("group_members"),
+        "the line names the member cap: {line:?}"
+    );
+    assert_eq!(
+        line.get("current").map(String::as_str),
+        Some("2"),
+        "the owner and one athlete fill it: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit").map(String::as_str),
+        Some("2"),
+        "the group holds two members: {line:?}"
+    );
+    assert_eq!(
+        line.get("surface").map(String::as_str),
+        Some("held_group_invite"),
+        "the refusal was met redeeming a held invite: {line:?}"
+    );
     let message = body["message"].as_str().unwrap();
     assert_eq!(
         message,

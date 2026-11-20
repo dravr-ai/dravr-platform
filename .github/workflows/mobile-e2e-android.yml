@@ -110,7 +110,7 @@ jobs:
   e2e-tests:
     name: Maestro E2E
     needs: build-server
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       # The "Run Maestro tests on Android" step's timeout-minutes, read there and by

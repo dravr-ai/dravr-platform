@@ -85,7 +85,7 @@ jobs:
   # ---------------------------------------------------------------------------
   structural:
     name: Structural validation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     if: |
       github.event_name != 'workflow_dispatch' ||
@@ -106,8 +106,12 @@ jobs:
             "https://github.com/"
 
       - uses: dtolnay/rust-toolchain@1.100.0
+      - name: Name the runner image for the cache key
+        shell: bash
+        run: echo "RUST_CACHE_IMAGE=${ImageOS:-unknown-image}" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: v0-rust-${{ env.RUST_CACHE_IMAGE }}
           shared-key: chat-eval-structural
           # Written by the nightly scheduled run on main only; every other run restores
           # (see .github/actions/rust-setup for why a cache is saved once a day).
@@ -135,7 +139,7 @@ jobs:
   # ---------------------------------------------------------------------------
   live-llm:
     name: Live LLM execution (shard ${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Restoring the platform contract to the live driver put the whole
     # ~23.7 KB document in front of a CPU-only q4_K_M 7b at num_ctx 32768,
     # which is the prompt production runs and the reason this lane grades the
@@ -200,8 +204,12 @@ jobs:
             "https://github.com/"
 
       - uses: dtolnay/rust-toolchain@1.100.0
+      - name: Name the runner image for the cache key
+        shell: bash
+        run: echo "RUST_CACHE_IMAGE=${ImageOS:-unknown-image}" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: v0-rust-${{ env.RUST_CACHE_IMAGE }}
           shared-key: chat-eval-live
           # Written by the nightly scheduled run on main only; every other run restores
           # (see .github/actions/rust-setup for why a cache is saved once a day).

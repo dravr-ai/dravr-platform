@@ -1,5 +1,5 @@
-// ABOUTME: The one read and decode of a stored route track, and the provider-free local track read the places path uses
-// ABOUTME: A cached row's trimmed track from its polyline, its stored Home map or its stored samples, never from a provider
+// ABOUTME: The one read, decode and write of a stored route track, and the provider-free local track read the places path uses
+// ABOUTME: A cached row's trimmed track from its polyline, its stored route track or its stored samples, never from a provider
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,18 +8,22 @@
 //!
 //! [`stored_track`] is the one read and decode of `activity_route_tracks`:
 //! the Home map reads its stored answer through it, and so does the places
-//! path. [`local_track`] finds a cached row's trimmed track without asking any
-//! provider: the route overview the row carries, else the map Home stored for
-//! it, else the samples stored for it (a push, an upload, an archive). All
-//! three are trimmed by [`RouteTrack`] before they reach a caller, so their
-//! first and last points sit past the privacy radius.
+//! path. [`store_route_read`] is its one write: the Home map's route read
+//! stores what it read through it, and so does every kept detail read that
+//! carried the activity's streams or route (carnet#1679). A drawn track
+//! stands once stored. [`local_track`] finds a cached row's trimmed track
+//! without asking any provider: the route overview the row carries, else the
+//! track a route or detail read stored for it, else the samples stored for it
+//! (a push, an upload, an archive). All three are trimmed by [`RouteTrack`]
+//! before they reach a caller, so their first and last points sit past the
+//! privacy radius.
 
 use chrono::{DateTime, Utc};
-use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, SportType, TenantId};
+use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::{Activity, RouteGeometrySource, SportType, TenantId};
 use pierre_database::repositories::{CachedActivityRow, StoredRouteOutcome, StoredRouteTrack};
 use pierre_database::RepositoryRegistry;
-use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError};
+use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError, MAP_MAX_POINTS};
 use pierre_providers::core::OwnerStores;
 use tracing::warn;
 use uuid::Uuid;
@@ -81,10 +85,88 @@ pub async fn stored_track(
     }))
 }
 
+/// One route read's outcome, as [`store_route_read`] stores it.
+#[derive(Debug, Clone, Copy)]
+pub struct RouteRead<'read> {
+    /// What the line was read from.
+    pub source: RouteGeometrySource,
+    /// The drawn track, simplified to a map's points ([`map_track`]), or the
+    /// slug of why there is none.
+    pub outcome: Result<&'read RouteTrack, &'read str>,
+    /// When the stored answer is read again; `None` when it stands.
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+/// A read's track as a Home map draws it and the store keeps it: simplified
+/// to [`MAP_MAX_POINTS`].
+#[must_use]
+pub fn map_track(track: RouteTrack) -> RouteTrack {
+    track.simplified(MAP_MAX_POINTS)
+}
+
+/// Store one activity's route read under `provider_key`, unless the answer
+/// standing for it outranks the read.
+///
+/// A completed activity's route does not change. A drawn track that still
+/// decodes is never replaced: a later read whose line came back empty is a
+/// scrape that lost it. A read's word that the activity has no track
+/// (`no_gps`, `too_short`) is replaced only by a drawn track — a line a read
+/// drew proves the earlier read lost it — never by another miss. An
+/// `unavailable` answer, an expired one, a track that no longer decodes and a
+/// reason this build does not know are replaced by any read.
+///
+/// # Errors
+///
+/// Returns the repository error when the stored read cannot be loaded or the
+/// outcome cannot be written, and an internal error when the track does not
+/// serialize.
+pub async fn store_route_read(
+    repos: &RepositoryRegistry,
+    tenant_id: &TenantId,
+    user_id: Uuid,
+    provider_key: &str,
+    activity_id: &str,
+    read: RouteRead<'_>,
+) -> AppResult<()> {
+    let standing = stored_track(repos, tenant_id, user_id, provider_key, activity_id).await?;
+    if standing.is_some_and(|standing| outranks(&standing, read.outcome.is_ok())) {
+        return Ok(());
+    }
+    let source = read.source.as_str().to_owned();
+    let stored = match read.outcome {
+        Ok(track) => StoredRouteTrack::Drawn {
+            source,
+            track_json: serde_json::to_string(track)
+                .map_err(|e| AppError::internal(format!("serialize route track: {e}")))?,
+        },
+        Err(reason) => StoredRouteTrack::Unavailable {
+            source,
+            reason: reason.to_owned(),
+            expires_at: read.expires_at,
+        },
+    };
+    repos
+        .activity_route_tracks
+        .upsert_route_track(tenant_id, user_id, provider_key, activity_id, &stored)
+        .await
+}
+
+/// Whether the answer `standing` for an activity is kept over a read that
+/// drew a track (`drawn`) or settled none: a drawn track over anything, a
+/// reason a read settled ([`RouteTrackError`]) over another miss.
+fn outranks(standing: &StoredTrack, drawn: bool) -> bool {
+    match standing {
+        StoredTrack::Drawn { .. } => true,
+        StoredTrack::Unavailable { reason, .. } => {
+            !drawn && RouteTrackError::from_slug(reason).is_some()
+        }
+    }
+}
+
 /// A cached row's trimmed track, read from what is stored locally, cheapest
-/// first: the route overview the row carries, then the map Home stored for it,
-/// then its stored samples. Every source gives the same trimmed endpoints, so
-/// the order only spares reads.
+/// first: the route overview the row carries, then the track a route or
+/// detail read stored for it, then its stored samples. Every source gives the
+/// same trimmed endpoints, so the order only spares reads.
 ///
 /// No provider is asked. A row whose sport records no outdoor route (a
 /// trainer ride, a virtual sport, anything outside the outdoor GPS sports)
@@ -155,7 +237,7 @@ pub(crate) fn records_outdoor_route(activity: &Activity) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
+    use chrono::{Duration, TimeZone};
     use pierre_core::models::{ActivityBuilder, TimeSeriesData, User};
     use pierre_database::backends::factory::Database;
     use pierre_database::repositories::{ActivityStreamsWrite, StoredRouteTrack, StreamOrigin};
@@ -431,5 +513,77 @@ mod tests {
                 "bug: a {sport:?} row records no outdoor route"
             );
         }
+    }
+
+    /// What a [`store_route_read`] of `outcome` leaves stored for `a1`.
+    async fn write(world: &World, outcome: Result<&RouteTrack, &str>) -> Option<StoredTrack> {
+        let read = RouteRead {
+            source: RouteGeometrySource::Streams,
+            outcome,
+            expires_at: None,
+        };
+        store_route_read(
+            world.repos(),
+            &world.tenant,
+            world.user,
+            "garmin",
+            "a1",
+            read,
+        )
+        .await
+        .unwrap();
+        stored_track(world.repos(), &world.tenant, world.user, "garmin", "a1")
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_drawn_track_stands_and_a_settled_miss_yields_only_to_a_track() {
+        let world = World::new().await;
+        let track = map_track(RouteTrack::from_overview(&line(MAP.0, MAP.1)).unwrap());
+        let unavailable = RouteRead {
+            source: RouteGeometrySource::Streams,
+            outcome: Err("unavailable"),
+            expires_at: Some(Utc::now() + Duration::minutes(10)),
+        };
+        store_route_read(
+            world.repos(),
+            &world.tenant,
+            world.user,
+            "garmin",
+            "a1",
+            unavailable,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            write(&world, Err("no_gps")).await,
+            Some(StoredTrack::Unavailable {
+                reason: "no_gps".to_owned(),
+                expires_at: None,
+            }),
+            "bug: a read that settled no_gps did not replace an unavailable answer"
+        );
+        assert_eq!(
+            write(&world, Err("too_short")).await,
+            Some(StoredTrack::Unavailable {
+                reason: "no_gps".to_owned(),
+                expires_at: None,
+            }),
+            "bug: a later miss replaced a miss a read had settled"
+        );
+        let drawn = Some(StoredTrack::Drawn {
+            track: track.clone(),
+        });
+        assert_eq!(
+            write(&world, Ok(&track)).await,
+            drawn,
+            "bug: a drawn track did not replace a settled miss"
+        );
+        assert_eq!(
+            write(&world, Err("no_gps")).await,
+            drawn,
+            "bug: a later miss replaced a drawn track"
+        );
     }
 }

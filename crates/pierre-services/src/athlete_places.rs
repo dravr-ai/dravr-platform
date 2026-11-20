@@ -485,8 +485,8 @@ async fn recompute(
     user_id: Uuid,
     now: DateTime<Utc>,
 ) -> AppResult<Vec<AthletePlace>> {
-    // Read before the rows: a row synced while this runs makes the athlete
-    // due again rather than being taken as seen.
+    // Read before the rows: a row synced, or a track drawn, while this runs
+    // makes the athlete due again rather than being taken as seen.
     let stamp = repos
         .athlete_places
         .cached_rows_stamp(tenant_id, user_id)
@@ -565,6 +565,7 @@ async fn recompute(
         version: PLACES_VERSION,
         computed_at: now,
         home_declared_at_seen: home.declared_at,
+        newest_track_at_seen: stamp.newest_track_at,
     };
     repos
         .athlete_places

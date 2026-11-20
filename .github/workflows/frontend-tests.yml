@@ -71,7 +71,7 @@ jobs:
   # the SPA told users to point their MCP clients at it.
   nginx-routing:
     name: nginx Routing Contract
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # ~30 s
 
     steps:
@@ -87,7 +87,7 @@ jobs:
   # tree. This job is the gate for them.
   shared-package-tests:
     name: Shared Package Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
@@ -141,7 +141,7 @@ jobs:
 
   frontend-tests:
     name: Frontend Test Suite
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20  # lint, type check, tests and build, ~4 min
 
     steps:

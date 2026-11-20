@@ -19,7 +19,9 @@ inputs:
   cache-save:
     description: >-
       When rust-cache saves. auto (the default) saves only on the scheduled run on main, so each
-      cache is written once a day; true always saves; false never does. See the cache step.
+      cache is written once a day, or on a run dispatched by hand on main, which rewrites it after
+      a toolchain or lockfile change without waiting for the night; true always saves; false never
+      does. See the cache step.
     default: 'auto'
   reclaim-android:
     description: Remove the Android SDK while freeing disk space (measured 55.5s of the step)
@@ -131,10 +133,24 @@ runs:
     # what changed since the night before.
     # A workflow whose jobs use auto needs a daily schedule that runs them, or its
     # cache is never refreshed.
+    # The runner image is part of the cache key. A build tree from Ubuntu 26.04
+    # links glibc 2.43, and its build scripts and proc-macros then fail to load
+    # on 24.04; rust-cache keys on `runner.os` ("Linux") only. Every job moved
+    # from ubuntu-latest (26.04) to ubuntu-24.04 on 2026-11-19, so no 26.04
+    # entry may be restored on them.
+    - name: Name the runner image for the cache key
+      shell: bash
+      run: echo "RUST_CACHE_IMAGE=${ImageOS:-unknown-image}" >> "$GITHUB_ENV"
+
     - name: Cache Rust dependencies
       uses: Swatinem/rust-cache@v2
       with:
         workspaces: ". -> target"
         cache-on-failure: true
+        prefix-key: v0-rust-${{ env.RUST_CACHE_IMAGE }}
         shared-key: ${{ inputs.shared-key }}
-        save-if: ${{ inputs.cache-save == 'auto' && github.ref == 'refs/heads/main' && github.event_name == 'schedule' || inputs.cache-save == 'true' }}
+        # A dispatched run on main writes too: on 2026-11-19 the Rust 1.100 bump
+        # changed every key at 15:56 UTC and the one scheduled run that day was
+        # cancelled, so every build compiled cold (a main Backend run took 382
+        # runner-minutes instead of ~90) until someone could write the cache.
+        save-if: ${{ inputs.cache-save == 'auto' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') || inputs.cache-save == 'true' }}

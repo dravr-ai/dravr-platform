@@ -338,7 +338,9 @@ fn detect_handshake_response(channel: &str, body: &Bytes) -> Option<Value> {
 pub struct WhatsappDeliveryStatus {
     /// `sent` | `delivered` | `read` | `failed`.
     pub status: String,
-    /// The recipient's `WhatsApp` id (a phone number — masked at log time).
+    /// The recipient's `WhatsApp` id — the phone number (`recipient_id`), or
+    /// the business-scoped user id (`recipient_user_id`) when Meta omits the
+    /// phone number for a reply sent to a BSUID. Masked at log time.
     pub recipient_id: String,
     /// Meta's `wamid` for the message this status refers to.
     pub message_id: String,
@@ -402,6 +404,7 @@ pub fn parse_whatsapp_delivery_statuses(body: &[u8]) -> Vec<WhatsappDeliveryStat
                         .to_owned(),
                     recipient_id: s
                         .get("recipient_id")
+                        .or_else(|| s.get("recipient_user_id"))
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_owned(),

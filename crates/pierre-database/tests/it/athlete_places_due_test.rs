@@ -11,7 +11,7 @@
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::models::{ActivityBuilder, HomeDeclaration, SportType, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
-use pierre_database::repositories::PlaceRun;
+use pierre_database::repositories::{PlaceRun, StoredRouteTrack};
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -55,7 +55,8 @@ async fn ride(repos: &RepositoryRegistry, who: Athlete, id: &str, at: DateTime<U
         .unwrap();
 }
 
-/// Record a clustering of `who` at `at` that saw every row they hold.
+/// Record a clustering of `who` at `at` that saw every row and drawn track
+/// they hold.
 async fn cluster(repos: &RepositoryRegistry, who: Athlete, at: DateTime<Utc>) {
     cluster_seeing(repos, who, at, None).await;
 }
@@ -79,6 +80,7 @@ async fn cluster_seeing(
         version: VERSION,
         computed_at: at,
         home_declared_at_seen: seen,
+        newest_track_at_seen: stamp.newest_track_at,
     };
     places
         .replace_clustering(&who.tenant, who.user, &[], &[], &run)
@@ -340,5 +342,88 @@ async fn a_failed_recompute_after_a_declaration_keeps_it_due() {
         due(repos, 100, now).await,
         vec![(who.tenant, who.user)],
         "bug: a failure deferred a declaration no run saw to the daily backstop"
+    );
+}
+
+/// Store a route read for `who`'s activity `id`: a drawn track, or the reason
+/// there is none, with its expiry.
+async fn route_read(repos: &RepositoryRegistry, who: Athlete, id: &str, read: &StoredRouteTrack) {
+    repos
+        .activity_route_tracks
+        .upsert_route_track(&who.tenant, who.user, "strava", id, read)
+        .await
+        .unwrap();
+}
+
+/// A drawn track can give a ride the trimmed start a place forms from, so one
+/// stored after the last successful run makes the athlete due (carnet#1679);
+/// an answer that there is no track cannot, and does not. A failed recompute
+/// leaves it due.
+#[tokio::test]
+async fn a_drawn_track_stored_after_the_last_run_is_due_until_a_run_sees_it() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let now = Utc::now();
+    let who = athlete(repos, FIRST_TENANT).await;
+    ride(repos, who, "a", now - Duration::hours(2)).await;
+    cluster(repos, who, now - Duration::hours(1)).await;
+    assert!(
+        due(repos, 100, now).await.is_empty(),
+        "bug: a user whose run saw everything is due"
+    );
+
+    route_read(
+        repos,
+        who,
+        "indoor",
+        &StoredRouteTrack::Unavailable {
+            source: "streams".to_owned(),
+            reason: "no_gps".to_owned(),
+            expires_at: None,
+        },
+    )
+    .await;
+    route_read(
+        repos,
+        who,
+        "unread",
+        &StoredRouteTrack::Unavailable {
+            source: "streams".to_owned(),
+            reason: "unavailable".to_owned(),
+            expires_at: Some(now + Duration::minutes(10)),
+        },
+    )
+    .await;
+    assert!(
+        due(repos, 100, now).await.is_empty(),
+        "bug: an answer that a ride has no track made the user due"
+    );
+
+    let drawn = StoredRouteTrack::Drawn {
+        source: "streams".to_owned(),
+        track_json: "{}".to_owned(),
+    };
+    route_read(repos, who, "a", &drawn).await;
+    assert_eq!(
+        due(repos, 100, now).await,
+        vec![(who.tenant, who.user)],
+        "bug: a drawn track stored after the last run did not make the user due"
+    );
+
+    repos
+        .athlete_places
+        .record_failed_recompute(&who.tenant, who.user, VERSION, now)
+        .await
+        .unwrap();
+    assert_eq!(
+        due(repos, 100, now).await,
+        vec![(who.tenant, who.user)],
+        "bug: a failure deferred a track no run saw to the daily backstop"
+    );
+
+    cluster(repos, who, now).await;
+    assert!(
+        due(repos, 100, now).await.is_empty(),
+        "bug: a run that saw the drawn track left the user due"
     );
 }

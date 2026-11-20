@@ -17,6 +17,7 @@ use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupInvite, GroupInviteKind, GroupMember, GroupRole,
 };
 use pierre_core::models::TenantId;
+use pierre_core::usage_log::{self, LimitHit};
 use rand::Rng;
 use tracing::info;
 use uuid::Uuid;
@@ -343,6 +344,14 @@ impl GroupService {
             .count_members(&invite.group_id.to_string())
             .await?;
         if current_count >= i64::from(group.max_members) {
+            usage_log::limit_reached(&LimitHit {
+                user_id: &user_id.to_string(),
+                tenant_id: Some(&tenant_id.to_string()),
+                limit_type: "group_members",
+                current: current_count,
+                limit: i64::from(group.max_members),
+                surface: "groups",
+            });
             return Err(AppError::invalid_input("This group is full"));
         }
 

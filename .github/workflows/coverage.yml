@@ -71,7 +71,7 @@ jobs:
   batcher-self-test:
     name: Coverage batcher self-test
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout code
@@ -91,7 +91,7 @@ jobs:
   coverage:
     name: Generate Coverage Report
     if: github.event_name != 'push'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 150  # ~92 min in batches
 
     steps:

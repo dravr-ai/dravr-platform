@@ -126,3 +126,6 @@ pub mod trace_propagation;
 
 /// The athlete's civil clock — local-zone rendering and localized weekday names
 pub mod civil_time;
+
+/// One structured log line for every usage limit an athlete is refused by or warned about
+pub mod usage_log;

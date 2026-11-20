@@ -62,11 +62,13 @@ use pierre_core::errors::ErrorCode;
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
+use pierre_core::usage_log;
 use pierre_llm::{
     ChatMessage, ChatProvider, EmbacleProvider, FunctionDeclaration, HeadlessEventStream,
     HeadlessToolResponse, HeadlessTurnProvider, McpServerConfig, McpTransport, ObservedToolCall,
     QuotaCooldowns, Tool,
 };
+use pierre_test_support::log_capture::{capture_target, drain};
 use pierre_tool_runtime::chat_catalogue;
 use pierre_tool_runtime::protocol::UniversalToolExecutor;
 use pierre_tool_runtime::tool_execution::run_tool_loop;
@@ -392,6 +394,60 @@ impl HeadlessTurnProvider for ScriptedSdk {
 /// An API tier as a chain tier.
 fn api_tier(tier: &Arc<ScriptedApi>) -> EmbacleProvider {
     EmbacleProvider::from_runner(Box::new(Arc::clone(tier)), "Anthropic API (scripted)")
+}
+
+/// A CLI-shaped tier: no native or SDK tool calling, so the turn runs the
+/// text-simulation loop, and every reply asks for `ROUND_TRIP_TOOL` again as a
+/// `<tool_call>` block.
+struct ScriptedCli {
+    calls: AtomicUsize,
+    models: Vec<String>,
+}
+
+#[async_trait]
+impl EmbacleLlmProvider for ScriptedCli {
+    fn name(&self) -> &'static str {
+        "claude_code"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Claude Code CLI (scripted)"
+    }
+
+    fn capabilities(&self) -> LlmCapabilities {
+        LlmCapabilities::SYSTEM_MESSAGES
+    }
+
+    fn default_model(&self) -> &str {
+        &self.models[0]
+    }
+
+    fn available_models(&self) -> &[String] {
+        &self.models
+    }
+
+    async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, RunnerError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(ChatResponse {
+            replay_blocks: None,
+            content: format!(
+                "<tool_call>\n{{\"name\": \"{ROUND_TRIP_TOOL}\", \"arguments\": {{}}}}\n</tool_call>"
+            ),
+            model: self.models[0].clone(),
+            usage: None,
+            finish_reason: Some("stop".to_owned()),
+            warnings: None,
+            tool_calls: None,
+        })
+    }
+
+    async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, RunnerError> {
+        Err(RunnerError::internal("the CLI tool loop never streams"))
+    }
+
+    async fn health_check(&self) -> Result<bool, RunnerError> {
+        Ok(true)
+    }
 }
 
 /// The Copilot tier as a chain tier, reachable as a turn provider.
@@ -723,12 +779,45 @@ async fn a_head_that_runs_out_of_iterations_stays_off_the_tail() {
         .unwrap(),
     );
 
-    let (result, _) = run_turn(&chain).await;
+    let turn = TurnContext::new().await;
+    let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
+    let (result, _) = turn.run(&chain).await;
+    drop(usage_guard);
 
     assert_eq!(
         head.calls.load(Ordering::SeqCst),
         4,
         "the head spends the whole budget of 4"
+    );
+    // The cut-short reply is logged against the athlete with the cap that
+    // cut it (carnet#1630).
+    let lines = drain(&usage_lines);
+    assert_eq!(lines.len(), 1, "one usage line per cut reply: {lines:?}");
+    let line = &lines[0];
+    assert_eq!(
+        line.get("event").map(String::as_str),
+        Some(usage_log::REPLY_CUT_SHORT),
+        "the line is a cut-short reply: {line:?}"
+    );
+    assert_eq!(
+        line.get("user_id").map(String::as_str),
+        Some(turn.user.as_str()),
+        "the line names the athlete whose turn was cut: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit_type").map(String::as_str),
+        Some("max_tool_iterations"),
+        "the line names the iteration cap: {line:?}"
+    );
+    assert_eq!(
+        line.get("current").map(String::as_str),
+        Some("4"),
+        "the loop ran the whole budget of 4: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit").map(String::as_str),
+        Some("4"),
+        "the cap is the turn's budget of 4: {line:?}"
     );
     assert!(
         tail.conversed.lock().unwrap().is_empty(),
@@ -737,6 +826,76 @@ async fn a_head_that_runs_out_of_iterations_stays_off_the_tail() {
     assert_eq!(tail.completes.load(Ordering::SeqCst), 0);
     assert_eq!(result.finish_reason.as_deref(), Some("max_iterations"));
     assert_eq!(result.tool_calls_count, 4);
+}
+
+/// (e') The text-simulation loop a CLI provider runs has the same budget: a
+/// model that keeps asking for tools until it runs out is cut short, and the
+/// cut reply is logged against the athlete with the cap (carnet#1630).
+#[tokio::test]
+async fn a_cli_turn_that_runs_out_of_iterations_logs_the_cap() {
+    let cli = Arc::new(ScriptedCli {
+        calls: AtomicUsize::new(0),
+        models: vec!["claude-sonnet-5.5".to_owned()],
+    });
+    let chain = ChatProvider::Embacle(
+        EmbacleProvider::chain(
+            vec![EmbacleProvider::from_runner(
+                Box::new(Arc::clone(&cli)),
+                "Claude Code CLI (scripted)",
+            )],
+            QuotaCooldowns::default(),
+        )
+        .unwrap(),
+    );
+    assert!(
+        !chain.capabilities().supports_function_calling()
+            && !chain.capabilities().supports_sdk_tool_calling(),
+        "fixture: the scripted tier routes the turn to the text-simulation loop"
+    );
+
+    let turn = TurnContext::new().await;
+    let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
+    let (result, _) = turn.run(&chain).await;
+    drop(usage_guard);
+
+    assert_eq!(
+        result.finish_reason.as_deref(),
+        Some("max_iterations"),
+        "a model that never stops calling tools spends the budget"
+    );
+    assert_eq!(
+        cli.calls.load(Ordering::SeqCst),
+        4,
+        "the CLI loop asks once per iteration of the budget of 4"
+    );
+    let lines = drain(&usage_lines);
+    assert_eq!(lines.len(), 1, "one usage line per cut reply: {lines:?}");
+    let line = &lines[0];
+    assert_eq!(
+        line.get("event").map(String::as_str),
+        Some(usage_log::REPLY_CUT_SHORT),
+        "the line is a cut-short reply: {line:?}"
+    );
+    assert_eq!(
+        line.get("user_id").map(String::as_str),
+        Some(turn.user.as_str()),
+        "the line names the athlete whose turn was cut: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit_type").map(String::as_str),
+        Some("max_tool_iterations"),
+        "the line names the iteration cap: {line:?}"
+    );
+    assert_eq!(
+        line.get("current").map(String::as_str),
+        Some("4"),
+        "the loop ran the whole budget of 4: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit").map(String::as_str),
+        Some("4"),
+        "the cap is the turn's budget of 4, under the CLI ceiling of 5: {line:?}"
+    );
 }
 
 /// (f) A head error that is not a provider fault comes back as it is: the

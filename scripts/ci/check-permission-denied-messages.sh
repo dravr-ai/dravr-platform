@@ -7,8 +7,8 @@
 # WHY THIS EXISTS
 # ---------------
 # `AppError::sanitized_message()` passes `ErrorCode::PermissionDenied` messages
-# through verbatim, so a refusal names what was refused ("Group coaching
-# requires a Professional or Enterprise plan") instead of the one constant
+# through verbatim, so a refusal names what was refused ("Your plan does not
+# include group coaching") instead of the one constant
 # sentence the code description carries. That is a standing commitment, not a
 # one-time review: every future PermissionDenied message a handler writes ships
 # to the client the moment it is written, and its author has no way of knowing

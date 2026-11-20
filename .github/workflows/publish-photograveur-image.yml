@@ -50,7 +50,7 @@ env:
 jobs:
   publish-photograveur:
     name: Publish Photograveur Image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45  # image build and Trivy, ~3 min on its buildcache
 
     # Exported by digest rather than by tag: the caller deploys and, if the

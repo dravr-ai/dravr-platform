@@ -33,11 +33,13 @@ use pierre_auth::{
 };
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{JwtMonthlyUsage, MonthlyLimitOverride, User, UserTier, WindowUsage};
+use pierre_core::usage_log;
 use pierre_database::repositories::analytics::next_utc_month_start;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_middleware::rate_limiting::enforce_request_budget;
 use pierre_middleware::McpAuthMiddleware;
 use pierre_test_support::db::create_test_db_with_key;
+use pierre_test_support::log_capture::{capture_target, drain};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -210,11 +212,43 @@ async fn test_starter_tier_rate_limiting() {
 
     // The sixth is refused as a 429 with the seconds until the oldest call
     // leaves the 30-day window.
+    let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
     let refusal = auth_middleware
         .authenticate_request(Some(full_key))
         .await
         .unwrap_err();
+    drop(usage_guard);
     assert_eq!(refusal.code, ErrorCode::RateLimitExceeded);
+    // The refusal is logged as the key owner's usage limit, with the
+    // window's count (carnet#1630).
+    let lines = drain(&usage_lines);
+    assert_eq!(lines.len(), 1, "one usage line per refusal: {lines:?}");
+    let line = &lines[0];
+    assert_eq!(
+        line.get("user_id").map(String::as_str),
+        Some(user.id.to_string().as_str()),
+        "the line names the key's owner: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit_type").map(String::as_str),
+        Some("api_key_window"),
+        "the line names the key's sliding window: {line:?}"
+    );
+    assert_eq!(
+        line.get("current").map(String::as_str),
+        Some("5"),
+        "five calls fill the window: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit").map(String::as_str),
+        Some("5"),
+        "the key admits five calls: {line:?}"
+    );
+    assert_eq!(
+        line.get("surface").map(String::as_str),
+        Some("api_key"),
+        "the refusal was met on an API key: {line:?}"
+    );
     assert_eq!(refusal.http_status(), 429);
     let retry_after = refusal.retry_after_secs().unwrap();
     let window = u64::from(MONTH_WINDOW_SECS);

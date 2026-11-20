@@ -12,8 +12,10 @@
 //!
 //! This module owns the *messaging-specific* decisions — which agent seeds
 //! the group, which tenant plan applies — and delegates every group write to
-//! [`GroupService`], which owns the tier gate, the member clamp and the
-//! catalogued `group.created` / `group.joined` emissions. Reaching past the
+//! [`GroupService`], which owns the member clamp and the catalogued
+//! `group.created` / `group.joined` emissions. Whether the plan includes group
+//! coaching at all is asked here, before creation, through the one gate every
+//! creation path shares ([`refuses_group_coaching`]). Reaching past the
 //! service to the repository (as this module once did) silently skipped both:
 //! chat-created groups ignored the tenant's plan and never reached Slack or
 //! `PostHog`.
@@ -43,15 +45,19 @@
 //! exists, returns `Ok(None)` — the chat operates without group context until
 //! an agent exists.
 
-use pierre_core::errors::{AppResult, ErrorCode};
+use std::sync::Arc;
+
+use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{CoachingGroup, UpdateGroupRequest};
 use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::{AgentRepos, AuthRepos};
+use pierre_groups::creation_policy::refuses_group_coaching;
 use pierre_groups::service::ChannelGroupSpec;
-use pierre_groups::strategies::tier::tier_strategy_for;
+use pierre_groups::strategies::tier::{tier_strategy_for, GroupTierStrategy};
 use pierre_groups::GroupService;
 use tracing::warn;
+use uuid::Uuid;
 
 use crate::default_agent::group_default;
 
@@ -182,34 +188,20 @@ pub async fn resolve_or_create_channel_group(
         channel_type: binding.channel_type,
         channel_chat_id: binding.channel_chat_id,
     };
-    let tier_member_cap = resolve_tier_member_cap(auth, binding.tenant_id).await;
+    // The tenant plan decides whether the chat may become a group at all. A
+    // plan without group coaching is not an ingress failure: the chat answers
+    // normally, just without group context, so it stays ungrouped rather than
+    // failing the message.
+    let plan_tier = resolve_plan_tier(auth, binding.tenant_id).await;
+    let Some(tier_member_cap) = channel_group_member_cap(plan_tier.as_deref(), user_uuid, binding)
+    else {
+        return Ok(None);
+    };
 
-    match groups
+    let created = groups
         .create_channel_group(&spec, user_uuid, binding.tenant_id, tier_member_cap)
-        .await
-    {
-        Ok(created) => Ok(Some(created.id.to_string())),
-        // The tenant's plan does not include group coaching at all. Not an
-        // ingress failure: the chat answers normally, just without group
-        // context, so this is a warn and an ungrouped conversation rather
-        // than an error the caller logs on every message.
-        //
-        // Only `PermissionDenied` — the tier gate — is swallowed. The
-        // per-owner group allowance deliberately does not apply to this path
-        // (`OwnerGroupLimit::Exempt`), so an `InvalidInput` here would mean
-        // something genuinely wrong with the request, and silently
-        // un-grouping the chat would hide it.
-        Err(e) if e.code == ErrorCode::PermissionDenied => {
-            warn!(
-                channel_type = binding.channel_type,
-                channel_chat_id = binding.channel_chat_id,
-                reason = %e.message,
-                "Tenant plan does not include group coaching; conversation stays ungrouped"
-            );
-            Ok(None)
-        }
-        Err(e) => Err(e),
-    }
+        .await?;
+    Ok(Some(created.id.to_string()))
 }
 
 /// Give an already-bound chat's group its chat title when the group still
@@ -283,22 +275,153 @@ async fn adopt_chat_title(
     }
 }
 
-/// The tenant plan's per-group member cap, as `GroupService` expects it.
+/// The tier of the tenant plan the chat's group would be created under.
 ///
-/// Fails closed: a tenant lookup that errors yields `0`, which
-/// `create_channel_group` rejects. An unreadable plan must not grant group
-/// coaching by default — that is exactly the bypass this path used to have.
-async fn resolve_tier_member_cap(auth: &AuthRepos, tenant_id: TenantId) -> i32 {
+/// Fails closed: a tenant lookup that errors yields `None`, which keeps the
+/// chat ungrouped. An unreadable plan must not grant group coaching by
+/// default — that is exactly the bypass this path used to have.
+async fn resolve_plan_tier(
+    auth: &AuthRepos,
+    tenant_id: TenantId,
+) -> Option<Arc<dyn GroupTierStrategy>> {
     match auth.tenants.get_by_id(tenant_id).await {
-        Ok(tenant) => i32::try_from(tier_strategy_for(&tenant.plan).max_members_per_group())
-            .unwrap_or(i32::MAX),
+        Ok(tenant) => Some(tier_strategy_for(&tenant.plan)),
         Err(e) => {
             warn!(
                 %tenant_id,
                 error = %e,
                 "Could not read tenant plan for group binding; withholding group coaching"
             );
-            0
+            None
         }
+    }
+}
+
+/// The member cap a new channel group is created under, or `None` when the
+/// chat stays ungrouped: the plan could not be read, or it includes no group
+/// coaching.
+///
+/// Whether the plan includes group coaching is
+/// [`refuses_group_coaching`]'s decision, the one every creation path asks;
+/// it logs the refusal against the chat's channel.
+fn channel_group_member_cap(
+    plan_tier: Option<&dyn GroupTierStrategy>,
+    owner_id: Uuid,
+    binding: &ChannelChatBinding<'_>,
+) -> Option<i32> {
+    let plan_tier = plan_tier?;
+    if refuses_group_coaching(plan_tier, owner_id, binding.tenant_id, binding.channel_type) {
+        warn!(
+            channel_type = binding.channel_type,
+            channel_chat_id = binding.channel_chat_id,
+            "Tenant plan does not include group coaching; conversation stays ungrouped"
+        );
+        return None;
+    }
+    Some(i32::try_from(plan_tier.max_members_per_group()).unwrap_or(i32::MAX))
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_core::usage_log;
+    use pierre_groups::creation_policy::GROUP_COACHING_PLAN_LIMIT;
+    use pierre_groups::strategies::tier::{ProfessionalTierStrategy, StarterTierStrategy};
+    use pierre_test_support::group_tier::NoGroupCoachingTier;
+    use pierre_test_support::log_capture::{capture_target, drain};
+
+    use super::*;
+
+    fn chat(tenant_id: TenantId) -> ChannelChatBinding<'static> {
+        ChannelChatBinding {
+            tenant_id,
+            channel_type: "telegram",
+            channel_chat_id: "-100900",
+            user_id: "unused",
+            chat_title: Some("Plan Chat"),
+        }
+    }
+
+    /// A plan without group coaching leaves the chat ungrouped, and the
+    /// refusal is logged against the chat's channel.
+    #[test]
+    fn a_plan_without_group_coaching_keeps_the_chat_ungrouped() {
+        let (events, _guard) = capture_target(usage_log::TARGET);
+        let owner_id = Uuid::new_v4();
+        let tenant_id = TenantId::generate();
+
+        assert_eq!(
+            channel_group_member_cap(Some(&NoGroupCoachingTier), owner_id, &chat(tenant_id)),
+            None,
+            "no group is created for a plan without group coaching"
+        );
+
+        let lines = drain(&events);
+        assert_eq!(lines.len(), 1, "one usage line per refusal: {lines:?}");
+        let field = |name: &str| lines[0].get(name).map(String::as_str);
+        assert_eq!(
+            field("user_id"),
+            Some(owner_id.to_string().as_str()),
+            "the line names the sender who would have owned the group"
+        );
+        assert_eq!(
+            field("tenant_id"),
+            Some(tenant_id.to_string().as_str()),
+            "the line names the chat's tenant"
+        );
+        assert_eq!(
+            field("limit_type"),
+            Some(GROUP_COACHING_PLAN_LIMIT),
+            "the line names the plan as the limit"
+        );
+        assert_eq!(
+            field("surface"),
+            Some("telegram"),
+            "the line names the chat's channel"
+        );
+    }
+
+    /// A plan with group coaching creates the group under its member cap and
+    /// logs no limit.
+    #[test]
+    fn a_plan_with_group_coaching_creates_under_its_member_cap() {
+        let (events, _guard) = capture_target(usage_log::TARGET);
+        let tenant_id = TenantId::generate();
+
+        assert_eq!(
+            channel_group_member_cap(
+                Some(&ProfessionalTierStrategy),
+                Uuid::new_v4(),
+                &chat(tenant_id)
+            ),
+            Some(2),
+            "a Professional group is a coach and one athlete"
+        );
+        assert_eq!(
+            channel_group_member_cap(Some(&StarterTierStrategy), Uuid::new_v4(), &chat(tenant_id)),
+            Some(2),
+            "a Starter group is a coach and one athlete"
+        );
+        let lines = drain(&events);
+        assert!(
+            lines.is_empty(),
+            "an admitted plan logs no limit: {lines:?}"
+        );
+    }
+
+    /// An unreadable plan keeps the chat ungrouped without blaming the plan.
+    #[test]
+    fn an_unreadable_plan_keeps_the_chat_ungrouped() {
+        let (events, _guard) = capture_target(usage_log::TARGET);
+
+        assert_eq!(
+            channel_group_member_cap(None, Uuid::new_v4(), &chat(TenantId::generate())),
+            None,
+            "an unreadable plan must not grant group coaching"
+        );
+        let lines = drain(&events);
+        assert!(
+            lines.is_empty(),
+            "an unreadable plan is not a plan limit, so no usage line: {lines:?}"
+        );
     }
 }

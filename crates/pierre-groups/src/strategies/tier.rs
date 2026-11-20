@@ -53,6 +53,9 @@ pub enum GroupAllowance {
     BilledAbove(usize),
     /// No limit and no per-athlete charge.
     Unlimited,
+    /// The plan includes no group coaching: every creation is refused before
+    /// any group is counted.
+    Disabled,
 }
 
 impl GroupAllowance {
@@ -69,8 +72,19 @@ impl GroupAllowance {
                 let held = u64::try_from(active_groups).unwrap_or(0);
                 held.saturating_sub(u64::try_from(included).unwrap_or(u64::MAX))
             }
-            Self::Capped(_) | Self::Unlimited => 0,
+            Self::Capped(_) | Self::Unlimited | Self::Disabled => 0,
         }
+    }
+
+    /// Whether a tier with this allowance includes group coaching at all.
+    ///
+    /// A plan without it says so with [`Self::Disabled`], so the allowance is
+    /// the one place a tier declares it, and no tier can answer otherwise.
+    /// The creation paths ask it through
+    /// [`crate::creation_policy::refuses_group_coaching`], never directly.
+    #[must_use]
+    pub const fn includes_group_coaching(self) -> bool {
+        !matches!(self, Self::Disabled)
     }
 }
 
@@ -125,11 +139,9 @@ pub(crate) enum OwnerGroupLimit {
 /// `agent_id`, never a member row. A coach brings each athlete into their own
 /// group, so the group allowance is sized for the validation cohort's 5–10
 /// athletes per coach. Every group *feature* below (roster, dashboard, peer
-/// sharing, digests) stays off. The member cap is what
-/// [`crate::GroupService::create_group`] and
-/// [`crate::GroupService::create_channel_group`] gate on — a cap of `0` there
-/// rejects creation outright, which is why this tier carries a real number
-/// rather than zero: every tenant is created on Starter.
+/// sharing, digests) stays off. Group coaching itself is included: every
+/// tenant is created on Starter, and a plan without group coaching says so
+/// with [`GroupAllowance::Disabled`], not with a member cap.
 #[derive(Debug)]
 pub struct StarterTierStrategy;
 
@@ -338,6 +350,38 @@ mod tests {
         assert_eq!(GroupAllowance::Capped(10).billed_athletes(10), 0);
         assert_eq!(GroupAllowance::Capped(10).billed_athletes(25), 0);
         assert_eq!(GroupAllowance::Unlimited.billed_athletes(500), 0);
+    }
+
+    #[test]
+    fn a_plan_without_group_coaching_bills_nothing() {
+        assert_eq!(
+            GroupAllowance::Disabled.billed_athletes(0),
+            0,
+            "a plan without group coaching holds no billed athlete"
+        );
+        assert_eq!(
+            GroupAllowance::Disabled.billed_athletes(40),
+            0,
+            "groups left from an earlier plan are not billed under one without coaching"
+        );
+    }
+
+    #[test]
+    fn every_plan_name_resolves_to_a_tier_with_group_coaching() {
+        for plan in [
+            "starter",
+            "professional",
+            "pro",
+            "enterprise",
+            "an-unknown-plan",
+        ] {
+            assert!(
+                tier_strategy_for(plan)
+                    .group_allowance()
+                    .includes_group_coaching(),
+                "no shipping plan leaves group coaching out, but {plan} did"
+            );
+        }
     }
 
     #[test]

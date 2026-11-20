@@ -58,7 +58,7 @@ env:
 jobs:
   drift:
     name: Check satellite pins against their releases
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # ~20 s
     steps:
       - uses: actions/checkout@v6

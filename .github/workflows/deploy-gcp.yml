@@ -22,7 +22,7 @@ jobs:
   # ---------------------------------------------------------------------------
   resolve-images:
     name: Resolve Image Tags
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5  # reads refs and secrets, seconds
 
     outputs:
@@ -64,7 +64,7 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy-api:
     name: Deploy Backend API
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 65  # 15-min quiesce, a canary of up to 32 min (Ready, key read, two ramp steps) and a 10-min settle: 57 min of waits plus the deploy
     needs: resolve-images
     if: needs.resolve-images.outputs.gcp_configured == 'true'
@@ -161,7 +161,7 @@ jobs:
   # deploy failed, so an emergency redeploy of the frontend is not held hostage.
   deploy-frontend:
     name: Deploy Frontend
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40  # 15-min quiesce and 10-min settle waits around the rollout
     needs: [resolve-images, deploy-api]
     if: ${{ !cancelled() && needs.resolve-images.outputs.gcp_configured == 'true' }}
@@ -214,7 +214,7 @@ jobs:
   # either service rolled. Unauthenticated, it writes nothing.
   sign-in-smoke:
     name: First-Party Sign-In Smoke (dev)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # ~20 s
     needs: [resolve-images, deploy-api, deploy-frontend]
     if: ${{ !cancelled() && needs.resolve-images.outputs.gcp_configured == 'true' && (needs.deploy-api.result == 'success' || needs.deploy-frontend.result == 'success') }}
@@ -252,7 +252,7 @@ jobs:
   # they run against the image the API now serves, so only once it deployed.
   update-seed-jobs:
     name: Update Seed Job Images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # gcloud job image updates
     needs: [resolve-images, deploy-api, deploy-frontend]
     if: ${{ !cancelled() && needs.resolve-images.outputs.gcp_configured == 'true' && needs.deploy-api.result == 'success' }}
@@ -300,7 +300,7 @@ jobs:
   # ---------------------------------------------------------------------------
   verify-seed-jobs:
     name: Execute Seed Jobs (smoke)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [resolve-images, update-seed-jobs]
     # Explicit: a defaulted success() goes false when deploy-frontend, an
     # ancestor through update-seed-jobs, failed or was skipped.
@@ -359,7 +359,7 @@ jobs:
   # ---------------------------------------------------------------------------
   deployment-summary:
     name: Deployment Summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5  # writes the summary
     needs: [deploy-api, deploy-frontend, sign-in-smoke, update-seed-jobs, verify-seed-jobs]
     if: always()

@@ -36,7 +36,7 @@ permissions:
 jobs:
   mcp-scan:
     name: Scan MCP Config & Skills
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # ~20 s
     # SNYK_TOKEN is mapped at job level so each scan step can gate on its presence.
     # GitHub withholds repo secrets from dependabot/fork PRs, where the token is empty;

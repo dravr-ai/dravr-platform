@@ -102,7 +102,7 @@ concurrency:
 jobs:
   corpus:
     name: Injection corpus (dispatch side, real pipeline)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A healthy run is the build (~30 min) plus 70 graded turns and up to ten
     # warm-ups at one to two minutes each. GitHub's own limit is 360; a run that
     # needs more is a run to narrow with `scenarios` or `attempts`.

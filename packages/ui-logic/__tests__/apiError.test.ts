@@ -248,11 +248,11 @@ describe('describeApiError', () => {
       describeApiError(
         responded(403, {
           code: 'PermissionDenied',
-          message: 'Group coaching requires a Professional or Enterprise plan',
+          message: 'Your plan does not include group coaching',
         }),
         { online: true, t, fallbackKey: 'errors.forbidden' },
       ),
-    ).toBe('Group coaching requires a Professional or Enterprise plan');
+    ).toBe('Your plan does not include group coaching');
     // And when the server said nothing usable, the translated key — never the
     // axios sentence "Request failed with status code 403".
     expect(describeApiError(responded(403), { online: true, t, fallbackKey: 'errors.forbidden' })).toBe(

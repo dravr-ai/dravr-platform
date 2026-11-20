@@ -1330,8 +1330,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.24.0"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.24.0#7644b6f6a0e676b7ca504a91c9d2c5cc071db762"
+version = "0.25.0"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.25.0#785843520d07730624b9a482877b1583518dde42"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1395,8 +1395,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.11.0"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.11.0#c609aecc64ab9c57c2df5268b924e4b3c9513983"
+version = "0.12.0"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.12.0#b6a0d198bc0f6a4ebaa9d04d5084d2f1bcc3893a"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1440,12 +1440,12 @@ dependencies = [
 [[package]]
 name = "dravr-contremaitre"
 version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=db094681469feebde0f9280ce14980495845c943#db094681469feebde0f9280ce14980495845c943"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=bd0b285affa0c332060369e9767c7e6b063525d4#bd0b285affa0c332060369e9767c7e6b063525d4"
 
 [[package]]
 name = "dravr-enforme"
-version = "0.21.4"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.21.4#31c563a2b5b1c299f16535836ae3012db89e124e"
+version = "0.21.5"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.21.5#5c13e3623e0afe364e93c29879f436bd83632539"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1508,8 +1508,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "3.0.2"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v3.0.2#a8bc6fc72f11409eea8e2f7afb60dd37675fda20"
+version = "3.0.3"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v3.0.3#f82f6071c089a8d3522feafe88c041d8ad2cdeb9"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4086,6 +4086,7 @@ dependencies = [
  "pierre-core",
  "pierre-database",
  "pierre-providers",
+ "pierre-test-support",
  "rand 0.9.5",
  "serde_json",
  "tracing",
@@ -4183,6 +4184,7 @@ dependencies = [
  "pierre-database",
  "pierre-logging",
  "pierre-runtime-context",
+ "pierre-test-support",
  "proptest",
  "regex",
  "serde",
@@ -4612,11 +4614,13 @@ dependencies = [
  "futures-util",
  "pierre-core",
  "pierre-database",
+ "pierre-groups",
  "reqwest 0.12.28",
  "secrecy",
  "serde_json",
  "sqlx",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -5032,7 +5036,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -5070,7 +5074,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -6468,7 +6472,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -7314,7 +7318,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
