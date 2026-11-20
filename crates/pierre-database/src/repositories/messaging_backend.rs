@@ -456,10 +456,66 @@ macro_rules! impl_messaging_repository {
                     .bind(params.correlation_id)
                     .bind(params.raw_payload)
                     .bind(params.chat_message_id)
+                    .bind(params.proactive_purpose)
                     .bind(Utc::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to insert message: {e}")))?;
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn find_proactive_notice(
+                &self,
+                tenant_id: TenantId,
+                channel_type: &str,
+                channel_message_id: &str,
+            ) -> AppResult<Option<ProactiveNotice>> {
+                let rows = sqlx::query(PROACTIVE_NOTICE_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(channel_type)
+                    .bind(channel_message_id)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read a proactive notice: {e}"))
+                    })?;
+                let Some(first) = rows.first() else {
+                    return Ok(None);
+                };
+                let parts = rows
+                    .iter()
+                    .map(|row| {
+                        Ok(ProactiveNoticePart {
+                            id: text_column(row, "id")?,
+                            channel_message_id: text_column(row, "channel_message_id")?,
+                            content_body: text_column_opt(row, "content_body")?,
+                            chat_message_id: text_column_opt(row, "chat_message_id")?,
+                        })
+                    })
+                    .collect::<AppResult<Vec<_>>>()?;
+                Ok(Some(ProactiveNotice {
+                    purpose: text_column(first, "proactive_purpose")?,
+                    user_id: $ids::read_text(first, "user_id")?,
+                    conversation_id: text_column_opt(first, "pierre_conversation_id")?,
+                    parts,
+                }))
+            }
+
+            async fn stamp_notice_chat_message(
+                &self,
+                tenant_id: TenantId,
+                message_id: &str,
+                chat_message_id: &str,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(STAMP_NOTICE_CHAT_MESSAGE_SQL)
+                    .bind(chat_message_id)
+                    .bind(tenant_id.to_string())
+                    .bind(message_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to stamp a notice's chat row: {e}"))
+                    })?;
                 Ok(result.rows_affected() > 0)
             }
 

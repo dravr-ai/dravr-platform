@@ -27,6 +27,9 @@ use tracing::{debug, error, field, info, warn, Span};
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
 use crate::services::messaging_ingress::reactions;
+use crate::services::messaging_ingress::window_failure::{
+    self, WindowFailure, WHATSAPP_REENGAGEMENT_REQUIRED,
+};
 use pierre_core::errors::AppError;
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 
@@ -233,7 +236,13 @@ pub(crate) async fn ingest(
     // drops (it parses only inbound messages), so a FAILED async push — a
     // backfill-ready notice or reconnect nudge that Meta accepted but never
     // delivered — was previously invisible (a silent `message_count=0` webhook).
-    log_whatsapp_delivery_statuses(channel, body);
+    // A proactive notice Meta failed for its closed 24-hour window (131047) is
+    // written into the athlete's conversation instead (carnet#1672).
+    for status in log_whatsapp_delivery_statuses(channel, body) {
+        if let Some(failure) = status.window_failure() {
+            window_failure::redeliver_in_app(resources, verification.tenant_id, failure).await;
+        }
+    }
 
     // Persist messages synchronously and collect pending dispatches for background processing
     let (stored_count, pending_dispatches) = messaging_ingress::persist_inbound(
@@ -322,7 +331,9 @@ fn detect_handshake_response(channel: &str, body: &Bytes) -> Option<Value> {
 /// `value.statuses[]` rather than `value.messages[]`, so the channel adapter's
 /// `receive` — which only extracts inbound user messages — silently drops them.
 /// Surfacing them makes a failed async push (backfill-ready notice, reconnect
-/// nudge) VISIBLE instead of a `message_count=0` no-op webhook.
+/// nudge) VISIBLE instead of a `message_count=0` no-op webhook, and lets a
+/// proactive notice Meta refused for its closed window reach the app
+/// ([`Self::window_failure`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WhatsappDeliveryStatus {
     /// `sent` | `delivered` | `read` | `failed`.
@@ -338,6 +349,22 @@ pub struct WhatsappDeliveryStatus {
     pub error_code: Option<i64>,
     /// Human-readable Meta error title, present only on `failed`.
     pub error_title: Option<String>,
+}
+
+impl WhatsappDeliveryStatus {
+    /// The failure this status reports when it is Meta's refusal of a
+    /// free-form message sent outside the recipient's 24-hour window
+    /// ([`WHATSAPP_REENGAGEMENT_REQUIRED`]); `None` for any other status or
+    /// error.
+    #[must_use]
+    pub(crate) fn window_failure(&self) -> Option<WindowFailure<'_>> {
+        (self.status == "failed" && self.error_code == Some(WHATSAPP_REENGAGEMENT_REQUIRED)).then(
+            || WindowFailure {
+                recipient_id: &self.recipient_id,
+                message_id: &self.message_id,
+            },
+        )
+    }
 }
 
 /// Parse Meta `WhatsApp` `value.statuses[]` delivery receipts from a raw webhook
@@ -399,17 +426,19 @@ pub fn parse_whatsapp_delivery_statuses(body: &[u8]) -> Vec<WhatsappDeliveryStat
 }
 
 /// Log Meta `WhatsApp` delivery-status callbacks so a FAILED async push (one Meta
-/// accepted but never delivered) is observable instead of silent. No-op for
-/// non-`WhatsApp` channels and inbound-message webhooks.
-fn log_whatsapp_delivery_statuses(channel: &str, body: &Bytes) {
+/// accepted but never delivered) is observable instead of silent, and hand
+/// them back for what follows. Empty for non-`WhatsApp` channels and
+/// inbound-message webhooks.
+fn log_whatsapp_delivery_statuses(channel: &str, body: &Bytes) -> Vec<WhatsappDeliveryStatus> {
     if channel != "whatsapp" {
-        return;
+        return Vec::new();
     }
     // Re-parses the raw body: the upstream parse lives inside the channel
     // adapter's `receive` (which yields only inbound messages, not the raw
     // `Value`) and the handshake probe runs only for Slack/Discord, so no
     // already-parsed body `Value` is available at this call site to reuse.
-    for s in parse_whatsapp_delivery_statuses(body) {
+    let statuses = parse_whatsapp_delivery_statuses(body);
+    for s in &statuses {
         let recipient = mask_recipient(&s.recipient_id);
         if s.status == "failed" {
             warn!(
@@ -430,6 +459,7 @@ fn log_whatsapp_delivery_statuses(channel: &str, body: &Bytes) {
             );
         }
     }
+    statuses
 }
 
 /// Resolve tenant by matching webhook signature against DB channel configs
@@ -613,4 +643,54 @@ fn enrich_slack_bot_allow_list(
         map.insert("allowed_bot_ids".to_owned(), json!(ids));
     }
     Some(cloned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The athlete's `WhatsApp` id the status bodies below name.
+    const PHONE: &str = "15145550172";
+
+    /// The statuses a Meta webhook reporting `status` (and `code`) for one
+    /// message parses to.
+    fn statuses(status: &str, code: Option<i64>) -> Vec<WhatsappDeliveryStatus> {
+        let mut entry = json!({ "id": "wamid.x", "status": status, "recipient_id": PHONE });
+        if let Some(code) = code {
+            entry["errors"] = json!([{ "code": code, "title": "Re-engagement message" }]);
+        }
+        let body = json!({ "entry": [{ "changes": [{ "value": { "statuses": [entry] } }] }] });
+        parse_whatsapp_delivery_statuses(body.to_string().as_bytes())
+    }
+
+    #[test]
+    fn only_a_failed_131047_is_a_window_failure() {
+        let failed = statuses("failed", Some(131_047));
+        let window: Vec<(&str, &str)> = failed
+            .iter()
+            .filter_map(WhatsappDeliveryStatus::window_failure)
+            .map(|failure| (failure.recipient_id, failure.message_id))
+            .collect();
+        assert_eq!(
+            window,
+            vec![(PHONE, "wamid.x")],
+            "a failed 131047 names its recipient and message"
+        );
+
+        // Another failure (here: the number is not on WhatsApp) stays a warning.
+        assert!(
+            statuses("failed", Some(131_026))[0]
+                .window_failure()
+                .is_none(),
+            "another error code is no window failure"
+        );
+        assert!(
+            statuses("failed", None)[0].window_failure().is_none(),
+            "a failure with no code is no window failure"
+        );
+        assert!(
+            statuses("delivered", None)[0].window_failure().is_none(),
+            "a delivered message is no failure"
+        );
+    }
 }

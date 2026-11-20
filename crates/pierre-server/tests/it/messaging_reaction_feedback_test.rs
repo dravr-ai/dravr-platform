@@ -141,6 +141,7 @@ async fn deliver_a_reply_on(channel: &str, chat_id: &str, channel_user_id: &str)
         correlation_id: &Uuid::new_v4().to_string(),
         raw_payload: None,
         chat_message_id: Some(&assistant.id),
+        proactive_purpose: None,
     })
     .await
     .unwrap();

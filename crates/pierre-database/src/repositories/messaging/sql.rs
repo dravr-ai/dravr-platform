@@ -164,8 +164,8 @@ pub(crate) const INSERT_MESSAGE_SQL: &str = r"
             INSERT INTO messaging_messages
                 (id, tenant_id, session_id, direction, channel_type, channel_message_id,
                  sender_id, content_type, content_body, correlation_id, raw_payload,
-                 chat_message_id, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                 chat_message_id, proactive_purpose, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             ON CONFLICT (tenant_id, channel_message_id) DO NOTHING
             ";
 

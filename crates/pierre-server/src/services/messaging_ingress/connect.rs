@@ -42,7 +42,7 @@ use crate::mcp::resources::ServerContext;
 /// `user_id`, and the user's first/active tenant is the scope under which a
 /// provider connection must be stored. Falls back to the inbound tenant if the
 /// per-user tenant lookup is empty.
-async fn resolve_user_and_tenant(
+pub(super) async fn resolve_user_and_tenant(
     resources: &ServerContext,
     tenant_id: TenantId,
     channel: &str,

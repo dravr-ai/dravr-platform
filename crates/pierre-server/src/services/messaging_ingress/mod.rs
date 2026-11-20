@@ -35,7 +35,8 @@ mod dispatch;
 mod linking;
 /// In-chat OTP linking flow + logout + supporting helpers.
 mod otp;
-mod outbound_persist;
+/// The one `messaging_messages` outbound-row insert, shared with the proactive notices.
+pub(crate) mod outbound_persist;
 /// Shared failed-outbound enqueue helper — single source of truth for the retry
 /// queue, reused by the synchronous reply path and the backfill-completion push.
 pub mod outbound_retry;
@@ -45,6 +46,8 @@ pub mod outbound_send;
 pub mod reactions;
 /// The durable record every turn runs from, the runner hand-off and the sweeper.
 pub mod resume;
+/// A proactive notice `WhatsApp` failed for its closed window, re-delivered in the app.
+pub(crate) mod window_failure;
 /// The messaging background workers started once per process.
 pub mod workers;
 pub use dispatch::turn_watchdog;
@@ -1185,6 +1188,7 @@ async fn store_inbound_message(
         // Inbound rows are what the athlete said; there is no assistant reply
         // to rate on this side of the turn.
         chat_message_id: None,
+        proactive_purpose: None,
     };
 
     match db.insert_message(&params).await {

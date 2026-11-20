@@ -185,6 +185,7 @@ impl FirstSyncPoster {
                     athlete,
                     dm,
                     &prompt,
+                    PostPurpose::FirstSync,
                 )
                 .await;
                 if let Some(posted) = posted {

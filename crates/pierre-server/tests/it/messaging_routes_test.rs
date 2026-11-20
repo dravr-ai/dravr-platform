@@ -980,6 +980,7 @@ mod messaging_routes_tests {
             correlation_id: &Uuid::new_v4().to_string(),
             raw_payload: None,
             chat_message_id: None,
+            proactive_purpose: None,
         };
         db.insert_message(&msg_params).await.unwrap();
 

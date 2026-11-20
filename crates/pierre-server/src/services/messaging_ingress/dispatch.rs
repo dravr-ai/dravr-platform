@@ -1108,6 +1108,7 @@ async fn send_outbound_response(
                     receipt_id: receipt.channel_message_id.as_deref(),
                     delivered: true,
                     chat_message_id: assistant_message_id,
+                    proactive_purpose: None,
                 },
                 outgoing,
             )

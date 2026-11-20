@@ -20,6 +20,28 @@
 //! argument; everything else — the join, the filters, the ordering and the
 //! row decode — exists once.
 
+use pierre_core::models::TenantId;
+
+/// The resolved target of an inbound emoji reaction: the assistant chat
+/// message a sent channel message delivered, plus the session identity
+/// needed to authorise and address the feedback write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReactionFeedbackTarget {
+    /// Assistant `chat_messages.id` the reacted-to channel message delivered.
+    pub chat_message_id: String,
+    /// Tenant the conversation (and so the feedback row) lives under — the
+    /// session tenant, which for a DM is the athlete's own, not the bot's.
+    pub tenant_id: TenantId,
+    /// Pierre user the conversation belongs to.
+    pub user_id: String,
+    /// Channel-native id of that user. A reactor with a different channel
+    /// id (another member in a group room) must not write feedback as this
+    /// user.
+    pub channel_user_id: String,
+    /// Conversation the assistant message belongs to.
+    pub conversation_id: String,
+}
+
 /// The lookup statement, with `$cast` appended wherever Postgres needs a text
 /// coercion and `SQLite` needs nothing.
 ///

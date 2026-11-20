@@ -1,5 +1,5 @@
 // ABOUTME: Contract test — a failed backfill-completion push is queued for retry, not silently dropped
-// ABOUTME: Models Meta WhatsApp error 131047 (out-of-24h-window) and pins push/sync-reply path parity
+// ABOUTME: Models a send the channel refuses outright and pins push/sync-reply path parity
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -39,8 +39,9 @@ const BASE_URL: &str = "https://app.test";
 /// A backfill-completion push whose channel send FAILS must persist + enqueue the
 /// dropped notice for the background retry worker — exactly as the synchronous
 /// reply path does (`dispatch::send_outbound_response` on a send error) — instead
-/// of the old warn-and-drop. This models Meta `WhatsApp` error 131047
-/// (out-of-24h-window / message-template-required): a real per-channel delivery
+/// of the old warn-and-drop. This models a send the channel refuses outright
+/// inside the window (Meta's out-of-window 131047 arrives only afterwards, in a
+/// status webhook — `proactive_window_gate_test`): a real per-channel delivery
 /// failure a Telegram-only fix never exercises, where the user previously got
 /// NOTHING after a completed backfill. Pins that the push now QUEUES (path parity
 /// with the live reply) so the worker retries with backoff + dead-letters.
@@ -74,7 +75,7 @@ async fn failed_push_is_enqueued_for_retry_not_dropped() {
     )
     .await;
 
-    // The channel rejects every send with the non-retryable 131047 error.
+    // The channel rejects every send outright.
     let failing = Arc::new(FailingChannel::default());
     let resolver = Arc::new(FakeResolver::new(failing.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
@@ -204,8 +205,8 @@ async fn successful_push_does_not_enqueue() {
 
 /// Parity for the OTHER proactive push: a failed provider-reauth NUDGE (the "your
 /// Garmin/Strava session expired, reconnect here" notice) must likewise be
-/// persisted + enqueued for the retry worker, not warn-and-dropped. Same Meta
-/// 131047 out-of-24h-window failure mode as the completion push — and the reauth
+/// persisted + enqueued for the retry worker, not warn-and-dropped. Same
+/// outright refusal as the completion push — and the reauth
 /// nudge is the one the user most needs: dropping it leaves them silently unable
 /// to reconnect while every subsequent backfill keeps failing. Pins the reauth
 /// path to the same `enqueue_failed_outbound` rail as the completion push + sync
@@ -243,7 +244,7 @@ async fn failed_reauth_nudge_is_enqueued_for_retry_not_dropped() {
         .await
         .unwrap();
 
-    // The channel rejects the nudge send with the non-retryable 131047 error.
+    // The channel rejects the nudge send outright.
     let failing = Arc::new(FailingChannel::default());
     let resolver = Arc::new(FakeResolver::new(failing.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(

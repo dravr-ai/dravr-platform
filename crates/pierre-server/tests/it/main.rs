@@ -699,6 +699,7 @@ mod preferred_calendar_api_test;
 mod prescribed_workouts_repo_test;
 mod private_lane_test;
 mod proactive_turn_origin_test;
+mod proactive_window_gate_test;
 mod production_critical_coverage;
 mod production_logging_test;
 mod professional_athlete_billing_test;
