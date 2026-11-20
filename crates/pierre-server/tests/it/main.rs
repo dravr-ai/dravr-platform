@@ -424,6 +424,7 @@ mod harness_config_validation_test;
 mod headless_capture_write_through_test;
 mod headless_degenerate_reply_test;
 mod headless_stream_canary_test;
+mod headless_tool_rounds_test;
 mod health_merge_integration_test;
 mod health_soft_delete_test;
 mod health_sync_connected_users_test;

@@ -176,7 +176,8 @@ pub mod function_dispatch;
 #[cfg(feature = "client-chat")]
 mod head_stream;
 /// How a Copilot headless turn ends: a text tool call handed to the text
-/// loop, a degenerate reply retried once, the loopback's signals drained
+/// loop, a degenerate reply retried once, its tool round recorded, the
+/// loopback's signals drained
 #[cfg(feature = "client-chat")]
 mod headless_finalize;
 #[cfg(feature = "client-chat")]

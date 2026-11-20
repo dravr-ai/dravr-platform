@@ -1,5 +1,5 @@
 // ABOUTME: How a Copilot headless turn ends — a text tool call handed to the text loop, a degenerate reply retried once
-// ABOUTME: Drains the loopback's Guardian block and reconnect offer, and assembles the ToolLoopResult the pipeline reads
+// ABOUTME: Records the calls the runtime ran as the turn's tool round, drains the loopback's signals, assembles the ToolLoopResult
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,14 +11,17 @@ use pierre_core::llm::tool_simulation;
 use pierre_core::models::GUARDIAN_DENIED_FINISH_REASON;
 use pierre_core::narration::is_degenerate_reply;
 use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
-use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, TokenUsage};
+use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, ObservedToolCall, TokenUsage};
+use pierre_providers::ai_scope;
 use pierre_services::chat_stream::{TurnEvent, TurnEventSink};
 use tracing::{info, warn};
 
 use crate::envelope_notices::merge_notice_days;
 use crate::guardian::HeadlessBlock;
 use crate::tool_execution::{headless_turn_key, parse_lenient_tool_call_blocks, run_cli_tool_loop};
-use crate::tool_loop_io::{observed_tool_name, GuardianDenial, ToolLoopParams, ToolLoopResult};
+use crate::tool_loop_io::{
+    observed_tool_name, GuardianDenial, ToolLoopParams, ToolLoopResult, ToolRoundRecord,
+};
 use crate::tool_loop_telemetry::millis_elapsed;
 use crate::tool_progress;
 
@@ -51,6 +54,12 @@ use crate::tool_progress;
 /// the only way this path learns of either — and the text loop's own asks carry
 /// the same MCP servers, so a model that calls a tool natively there raises them
 /// the same way.
+///
+/// The calls the runtime ran natively are recorded as the turn's tool round
+/// through [`ToolLoopParams::tool_message_recorder`], as every other loop
+/// records its rounds (ADR-016): without them a follow-up turn sees a grounded
+/// answer with no evidence behind it. A degenerate first pass and its retry are
+/// two rounds, each written from the calls it reported.
 ///
 /// `streamed_to` is the sink the reply's prose reached, `None` when none did
 /// (a turn that did not stream, or one that wrote only `<tool_call>` blocks):
@@ -112,6 +121,7 @@ pub async fn finalize_headless_turn(
         }
     }
 
+    record_observed_round(params, &headless_response.tool_calls);
     let mut tool_calls_count =
         u32::try_from(headless_response.tool_calls.len()).unwrap_or(u32::MAX);
     let mut tools_called: Vec<String> = headless_response
@@ -135,9 +145,10 @@ pub async fn finalize_headless_turn(
         content = retry.content;
         usage = retry.usage;
         finish_reason = retry.finish_reason;
+        record_observed_round(params, &retry.tool_calls);
         tool_calls_count = tool_calls_count
             .saturating_add(u32::try_from(retry.tool_calls.len()).unwrap_or(u32::MAX));
-        tools_called.extend(retry.tool_calls);
+        tools_called.extend(retry.tool_calls.iter().map(observed_tool_name));
     }
 
     let mut result = ToolLoopResult {
@@ -237,6 +248,56 @@ pub(crate) fn settle_turn_signals(params: &ToolLoopParams<'_>, result: &mut Tool
     }
 }
 
+/// Record the calls one headless converse ran as a tool round (ADR-016).
+///
+/// The runtime ran every call itself, so the round is what it reported: each
+/// call that carries the text handed back to the model becomes a
+/// `[Tool Result for <tool>]: <text>` block, the shape the API and text loops
+/// persist, so the next turn replays the same evidence whichever tier served
+/// this one. The text is stored as the model received it: the loopback seam
+/// already projected it the way every other path projects a tool result.
+///
+/// A call the transport reported without its result (the ACP adapter carries
+/// only a title and a status) has no evidence to persist and is left out; a
+/// converse with none is no round. No assistant preamble is recorded, because
+/// the runtime reports none per call: the round's text is the final answer,
+/// which the pipeline stores as the reply.
+///
+/// The round is about every group member the turn has read so far. The calls
+/// ran on the loopback task, where no per-round scope collects what they read,
+/// but they marked the turn's own provenance; the turn's set holds this
+/// round's, so a member who withdraws still takes the round's rows with them,
+/// and a turn that read several keeps no round (carnet#1174).
+fn record_observed_round(params: &ToolLoopParams<'_>, calls: &[ObservedToolCall]) {
+    let Some(recorder) = params.tool_message_recorder.as_ref() else {
+        return;
+    };
+    let tool_result_text = observed_tool_results(calls);
+    if tool_result_text.is_empty() {
+        return;
+    }
+    recorder.record(ToolRoundRecord {
+        assistant_text: String::new(),
+        tool_result_text,
+        members_read: ai_scope::current_provenance()
+            .map_or_default(|provenance| provenance.members_read()),
+    });
+}
+
+/// The `[Tool Result for <tool>]: <text>` blocks of every call in `calls`
+/// that reported its result, joined as the other loops join a round's.
+fn observed_tool_results(calls: &[ObservedToolCall]) -> String {
+    calls
+        .iter()
+        .filter_map(|call| {
+            call.result
+                .as_deref()
+                .map(|text| format!("[Tool Result for {}]: {text}", observed_tool_name(call)))
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 /// Take back the first reply's streamed prose, which will not be the turn's
 /// reply: the text loop's answer to its `<tool_call>` blocks, or the retry of
 /// a degenerate turn, replaces it, and neither streams. Left on screen it
@@ -258,7 +319,8 @@ struct HeadlessRetry {
     content: String,
     usage: Option<TokenUsage>,
     finish_reason: Option<String>,
-    tool_calls: Vec<String>,
+    /// The calls the retry ran, as the runtime reported them.
+    tool_calls: Vec<ObservedToolCall>,
 }
 
 /// Retry a degenerate headless turn once via non-streaming `converse()`.
@@ -280,7 +342,6 @@ async fn retry_headless_turn(
         .await
         .map_err(AppError::from)?;
     let retry_latency_ms = millis_elapsed(retry_start);
-    let tool_calls: Vec<String> = retry.tool_calls.iter().map(observed_tool_name).collect();
     emit_call_record_with_text(
         CallRecordInputs {
             recorder: params.call_recorder.as_ref(),
@@ -292,7 +353,7 @@ async fn retry_headless_turn(
             latency_ms: retry_latency_ms,
             success: true,
             call_sequence: Some(2),
-            tools_called: tool_calls.clone(),
+            tools_called: retry.tool_calls.iter().map(observed_tool_name).collect(),
         },
         Some(prompt_text),
         Some(&retry.content),
@@ -301,6 +362,55 @@ async fn retry_headless_turn(
         content: tool_simulation::strip_simulation_artifacts(&retry.content),
         usage: retry.usage,
         finish_reason: retry.finish_reason,
-        tool_calls,
+        tool_calls: retry.tool_calls,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn call(name: Option<&str>, title: &str, result: Option<&str>) -> ObservedToolCall {
+        ObservedToolCall {
+            id: format!("call-{title}"),
+            title: title.to_owned(),
+            status: "Completed".to_owned(),
+            name: name.map(ToOwned::to_owned),
+            arguments: None,
+            result: result.map(ToOwned::to_owned),
+        }
+    }
+
+    /// Each call that reported its result is one block under the platform's
+    /// bare tool name, in the order the runtime ran them; a call reported
+    /// without its result is left out rather than given an invented one.
+    #[test]
+    fn a_round_holds_the_results_the_runtime_reported() {
+        let calls = [
+            call(Some("dravr-get_stats"), "Get stats", Some("{\"rides\":3}")),
+            call(None, "get_activities", None),
+            call(Some("get_athlete"), "Get athlete", Some("Ana")),
+        ];
+
+        assert_eq!(
+            observed_tool_results(&calls),
+            "[Tool Result for get_stats]: {\"rides\":3}\n\n[Tool Result for get_athlete]: Ana",
+            "every reported result, and only those, must reach the round in order"
+        );
+    }
+
+    /// A converse that reported no result has no round to record.
+    #[test]
+    fn calls_without_results_make_no_round() {
+        assert_eq!(
+            observed_tool_results(&[call(None, "get_activities", None)]),
+            "",
+            "a call with no result carries no evidence"
+        );
+        assert_eq!(
+            observed_tool_results(&[]),
+            "",
+            "a turn that ran no tool has no round"
+        );
+    }
 }
