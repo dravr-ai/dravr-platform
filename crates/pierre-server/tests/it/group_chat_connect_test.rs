@@ -21,13 +21,18 @@ mod group_chat_connect_tests {
     use pierre_core::models::groups::{
         CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     };
+    use pierre_core::models::messaging::MessageContent;
+    use pierre_mcp_server::routes::chat::ChatRoutes;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use serde_json::{json, Value};
     use serial_test::serial;
     use tokio::time::sleep;
     use uuid::Uuid;
 
-    use crate::common::create_test_server_resources_with_chat_provider;
+    use crate::common::{
+        create_test_server_resources_with_chat_provider,
+        create_test_server_resources_with_chat_provider_on_adapters,
+    };
     use crate::helpers::axum_test::AxumTestRequest;
     use crate::helpers::command_e2e::{
         CommandE2e, Member, RoomE2e, RouterLlm, WebhookOutcome, BOT_USERNAME,
@@ -108,6 +113,18 @@ mod group_chat_connect_tests {
             .unwrap();
     }
 
+    /// Enrol `m` as a member who shares their training with the group.
+    async fn enrol_sharing(e2e: &CommandE2e, group: &CoachingGroup, m: &Member) {
+        enrol(e2e, group, m, GroupRole::Member).await;
+        e2e.resources
+            .common
+            .repos
+            .groups
+            .update_peer_sharing_consent(&group.id.to_string(), m.user_id, true)
+            .await
+            .unwrap();
+    }
+
     async fn mint(e2e: &CommandE2e, group: &CoachingGroup, by: &Member) -> String {
         e2e.resources
             .group_service()
@@ -148,7 +165,11 @@ mod group_chat_connect_tests {
             .into_iter()
             .filter(|s| s.recipient_id == CHAT.to_string())
             .map(|s| match s.content {
-                pierre_core::models::messaging::MessageContent::Text { body } => body,
+                // The ingress answers in plain text; the platform's own posts
+                // (the group chat poster) go out as rich text, escaped.
+                MessageContent::Text { body } | MessageContent::RichText { body } => {
+                    body.replace('\\', "")
+                }
                 _ => String::new(),
             })
             .collect()
@@ -535,5 +556,121 @@ mod group_chat_connect_tests {
         assert!(chat_group(&e2e).await.is_none());
         let (status, _) = rest(&e2e, "DELETE", &group, &coach_token, None).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "nothing left to disconnect");
+    }
+
+    /// A test whose platform posts (the group chat poster) land in the same
+    /// captured adapters as the webhook's replies.
+    async fn start_capturing() -> Arc<CommandE2e> {
+        let llm = RouterLlm::new();
+        let adapters = Arc::new(OfflineSendAdapters::default());
+        let resources = create_test_server_resources_with_chat_provider_on_adapters(
+            Arc::<RouterLlm>::clone(&llm),
+            Arc::<OfflineSendAdapters>::clone(&adapters),
+        )
+        .await
+        .unwrap();
+        CommandE2e::start_on(resources, llm, adapters).await
+    }
+
+    /// Post `text` in `m`'s own app thread of `group`'s room.
+    async fn post_in_app(e2e: &CommandE2e, group: &CoachingGroup, m: &Member, text: &str) {
+        let token = token_for(e2e, m).await;
+        let opened = AxumTestRequest::post(&format!("/api/chat/groups/{}/room", group.id))
+            .header("authorization", &format!("Bearer {token}"))
+            .send(ChatRoutes::routes(Arc::clone(&e2e.resources)))
+            .await;
+        let room: Value = opened.json();
+        let room_id = room["id"].as_str().expect("the room opens").to_owned();
+        let sent = AxumTestRequest::post(&format!("/api/chat/conversations/{room_id}/messages"))
+            .header("authorization", &format!("Bearer {token}"))
+            .json(&json!({ "content": text }))
+            .send(ChatRoutes::routes(Arc::clone(&e2e.resources)))
+            .await;
+        assert!(
+            sent.status_code().is_success(),
+            "the app post is accepted: {}",
+            sent.status_code()
+        );
+    }
+
+    /// Wait until the chat holds a send containing `needle`, or give up.
+    async fn wait_chat_send(e2e: &CommandE2e, needle: &str) -> bool {
+        for _ in 0..50 {
+            if chat_sends(e2e).iter().any(|body| body.contains(needle)) {
+                return true;
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+        false
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn an_app_post_and_its_reply_reach_the_chat_only_when_the_room_may_read_them() {
+        let e2e = start_capturing().await;
+        let coach = e2e.linked_member(true).await;
+        let alice = e2e.linked_member(true).await;
+        let bob = e2e.linked_member(true).await;
+        let group = web_group(&e2e, &coach, "Les Rouleurs").await;
+        enrol_sharing(&e2e, &group, &alice).await;
+        enrol(&e2e, &group, &bob, GroupRole::Member).await;
+        let code = mint(&e2e, &group, &coach).await;
+        say(&e2e, &coach, &format!("/start {code}")).await;
+
+        // Alice shares with the group: her post crosses attributed, and the
+        // agent's reply follows it.
+        e2e.llm
+            .set_turn_replies(&["Departure at 7, see you there."]);
+        post_in_app(&e2e, &group, &alice, "Ride at 7 tomorrow?").await;
+        assert!(
+            wait_chat_send(&e2e, ": Ride at 7 tomorrow?").await,
+            "the post reaches the chat, attributed: {:?}",
+            chat_sends(&e2e)
+        );
+        assert!(
+            wait_chat_send(&e2e, "Departure at 7, see you there.").await,
+            "the reply follows it: {:?}",
+            chat_sends(&e2e)
+        );
+        assert!(
+            chat_sends(&e2e)
+                .iter()
+                .all(|body| !body.contains("@example.com")),
+            "no email address reaches the chat"
+        );
+
+        // Bob does not share: the room cannot read him in the app, so the
+        // chat does not either.
+        let before = chat_sends(&e2e).len();
+        e2e.llm.set_turn_replies(&["Bob's private answer."]);
+        post_in_app(&e2e, &group, &bob, "My knee hurts").await;
+        assert!(e2e.wait_llm_turns(2).await, "Bob's turn ran in the app");
+        sleep(Duration::from_millis(500)).await;
+        assert_eq!(
+            chat_sends(&e2e).len(),
+            before,
+            "nothing of Bob's crosses: {:?}",
+            chat_sends(&e2e)
+        );
+
+        // A turn that came from the chat is answered there once, by the
+        // ingress, and never relayed a second time.
+        let before = chat_sends(&e2e).len();
+        e2e.llm.set_turn_replies(&["Answered in the chat."]);
+        say(&e2e, &alice, &format!("@{BOT_USERNAME} and the route?")).await;
+        assert!(wait_chat_send(&e2e, "Answered in the chat.").await);
+        sleep(Duration::from_millis(500)).await;
+        let echoes = chat_sends(&e2e)[before..]
+            .iter()
+            .filter(|body| {
+                body.contains("Answered in the chat.") || body.contains("and the route?")
+            })
+            .count();
+        assert_eq!(
+            echoes,
+            1,
+            "the chat's own turn crosses once: {:?}",
+            chat_sends(&e2e)
+        );
     }
 }

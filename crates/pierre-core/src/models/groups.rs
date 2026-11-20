@@ -14,7 +14,7 @@ use dravr_cageux::algorithms::training_load::DailyTrainingLoad;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::FormReading;
+use super::{FormReading, TenantId};
 
 /// Title every group context section in an agent's system prompt opens with
 /// (`--- Group Coaching Context ---`, the admin view qualifying it).
@@ -380,7 +380,7 @@ pub struct GroupMember {
 pub struct GroupChatConnection {
     /// Tenant whose bot serves the chat: the one the chat's messages arrive
     /// under, and the one whose channel configuration posts into it.
-    pub channel_tenant_id: crate::models::TenantId,
+    pub channel_tenant_id: TenantId,
     /// The chat's title when it was connected, for « Connected to Telegram:
     /// <title> ». `None` when the platform sent none.
     pub chat_title: Option<String>,
@@ -399,7 +399,7 @@ pub struct GroupChatConnectCode {
     /// The channel the code is redeemable on (`telegram`).
     pub channel_type: String,
     /// The tenant whose bot may redeem it.
-    pub channel_tenant_id: crate::models::TenantId,
+    pub channel_tenant_id: TenantId,
     /// Who minted it.
     pub created_by: Uuid,
     /// When it stops being redeemable.
@@ -418,7 +418,7 @@ pub struct ConnectGroupChat<'a> {
     /// Channel-native id of the chat.
     pub channel_chat_id: &'a str,
     /// Tenant whose bot serves the chat.
-    pub channel_tenant_id: crate::models::TenantId,
+    pub channel_tenant_id: TenantId,
     /// The chat's title, when the platform sent one.
     pub chat_title: Option<&'a str>,
     /// Another group the chat is bound to now, released in the same
@@ -452,7 +452,7 @@ pub struct ReleasedGroupChat {
     /// Channel-native id of the chat.
     pub channel_chat_id: String,
     /// Tenant whose bot serves it.
-    pub channel_tenant_id: crate::models::TenantId,
+    pub channel_tenant_id: TenantId,
 }
 
 impl CoachingGroup {
@@ -461,9 +461,9 @@ impl CoachingGroup {
     /// created lives under its bot's tenant). `None` when the group's tenant
     /// is not a valid id and nothing was recorded.
     #[must_use]
-    pub fn chat_serving_tenant(&self) -> Option<crate::models::TenantId> {
+    pub fn chat_serving_tenant(&self) -> Option<TenantId> {
         self.chat_connection.as_ref().map_or_else(
-            || crate::models::TenantId::parse_str(&self.tenant_id).ok(),
+            || TenantId::parse_str(&self.tenant_id).ok(),
             |connection| Some(connection.channel_tenant_id),
         )
     }
