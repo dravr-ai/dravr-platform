@@ -22,6 +22,10 @@
 //! Every group read selects the same column list, so a listing can never
 //! hand back a group with fewer fields than the by-id read does.
 
+mod sql;
+
+pub(crate) use sql::*;
+
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 

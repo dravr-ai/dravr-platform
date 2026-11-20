@@ -1,5 +1,5 @@
 // ABOUTME: Shared statements for coaching groups — create, read, list, update, archive, coach attachment, context queries
-// ABOUTME: Split from coaching_groups.rs so it stays under the size ceiling; the repository body there runs them
+// ABOUTME: A child of coaching_groups.rs, which re-exports them; the repository body there runs them
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
