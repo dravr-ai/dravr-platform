@@ -31,9 +31,9 @@ pub use agent_choice::parse_choice;
 pub use viz_delivery::card_or_rich_text;
 /// LLM dispatch + outbound delivery + retry queue for messaging turns.
 mod dispatch;
-/// Channel-linking commands (`/start <code>`, `LINK <code>`) + analytics-consent hydration.
 /// A group chat connected to a web coaching group: the connect code and the members-only room (carnet#1683).
 mod group_connect;
+/// Channel-linking commands (`/start <code>`, `LINK <code>`) + analytics-consent hydration.
 mod linking;
 /// In-chat OTP linking flow + logout + supporting helpers.
 mod otp;

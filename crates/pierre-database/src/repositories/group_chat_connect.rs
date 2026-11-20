@@ -56,9 +56,12 @@ pub trait GroupChatConnectRepository: Send + Sync {
     /// Clear the group's chat binding, whichever way it was made, and record
     /// the chat as released so its next message creates no group. Returns
     /// the binding removed, `None` when the group was bound to no chat.
+    /// `tenant_id` is the tenant that owns the group; the write matches the
+    /// group only under it.
     async fn disconnect_group_chat(
         &self,
         group_id: Uuid,
+        tenant_id: TenantId,
         now: DateTime<Utc>,
     ) -> AppResult<Option<ReleasedGroupChat>>;
 
@@ -99,39 +102,43 @@ pub(crate) const SPEND_CHAT_CONNECT_CODE_SQL: &str = r"UPDATE group_chat_connect
               WHERE code = $1 AND used_at IS NULL AND expires_at > $2";
 
 /// Clear group `$1`'s chat binding when it is still bound to chat `$3` of
-/// channel `$2`: the group the chat moves off when its owner connects it to
+/// channel `$2` served by tenant `$5` (the served-chat expression the lookup
+/// found it by): the group the chat moves off when its owner connects it to
 /// another group. The group itself, its members and its history stay.
 pub(crate) const RELEASE_GROUP_CHAT_FOR_MOVE_SQL: &str = r"UPDATE coaching_groups
               SET channel_type = NULL, channel_chat_id = NULL, channel_tenant_id = NULL,
                   channel_chat_title = NULL, channel_connected_at = NULL, updated_at = $4
-              WHERE id = $1 AND channel_type = $2 AND channel_chat_id = $3";
+              WHERE id = $1 AND COALESCE(channel_tenant_id, tenant_id) = $5
+                AND channel_type = $2 AND channel_chat_id = $3";
 
-/// Bind active group `$1`, which is bound to no chat, to chat `$3` of channel
-/// `$2` served by tenant `$4`. Zero rows means the group was connected to a
-/// chat in the meantime (or archived); the served-chat unique index refuses a
-/// chat another group still holds.
+/// Bind active group `$1` of tenant `$7`, which is bound to no chat, to chat
+/// `$3` of channel `$2` served by tenant `$4`. Zero rows means the group was
+/// connected to a chat in the meantime (or archived); the served-chat unique
+/// index refuses a chat another group still holds.
 pub(crate) const CONNECT_GROUP_CHAT_SQL: &str = r"UPDATE coaching_groups
               SET channel_type = $2, channel_chat_id = $3, channel_tenant_id = $4,
                   channel_chat_title = $5, channel_connected_at = $6, updated_at = $6
-              WHERE id = $1 AND channel_type IS NULL AND is_active = TRUE";
+              WHERE id = $1 AND tenant_id = $7 AND channel_type IS NULL AND is_active = TRUE";
 
 /// Forget that chat `$3` of channel `$2`, served by tenant `$1`, was released:
 /// it is being connected again.
 pub(crate) const FORGET_GROUP_CHAT_RELEASE_SQL: &str = r"DELETE FROM group_chat_releases
               WHERE channel_tenant_id = $1 AND channel_type = $2 AND channel_chat_id = $3";
 
-/// The chat group `$1` is bound to, with the tenant serving it, read before a
-/// disconnect clears it.
+/// The chat group `$1` of tenant `$2` is bound to, with the tenant serving
+/// it, read before a disconnect clears it.
 pub(crate) const GROUP_CHAT_BINDING_SQL: &str = r"SELECT channel_type, channel_chat_id,
               COALESCE(channel_tenant_id, tenant_id) AS serving_tenant_id
               FROM coaching_groups
-              WHERE id = $1 AND channel_type IS NOT NULL AND channel_chat_id IS NOT NULL";
+              WHERE id = $1 AND tenant_id = $2
+                AND channel_type IS NOT NULL AND channel_chat_id IS NOT NULL";
 
-/// Clear group `$1`'s chat binding, whichever way it was made.
+/// Clear the chat binding of group `$1` of tenant `$2`, whichever way it was
+/// made, at `$3`.
 pub(crate) const DISCONNECT_GROUP_CHAT_SQL: &str = r"UPDATE coaching_groups
               SET channel_type = NULL, channel_chat_id = NULL, channel_tenant_id = NULL,
-                  channel_chat_title = NULL, channel_connected_at = NULL, updated_at = $2
-              WHERE id = $1 AND channel_type IS NOT NULL";
+                  channel_chat_title = NULL, channel_connected_at = NULL, updated_at = $3
+              WHERE id = $1 AND tenant_id = $2 AND channel_type IS NOT NULL";
 
 /// Record that chat `$3` of channel `$2`, served by tenant `$1`, was released
 /// at `$4`, so its next message auto-creates no group. A chat released twice
@@ -244,6 +251,7 @@ macro_rules! impl_group_chat_connect_repository {
                         .bind(connect.channel_type)
                         .bind(connect.channel_chat_id)
                         .bind(connect.now)
+                        .bind(connect.channel_tenant_id.to_string())
                         .execute(&mut *tx)
                         .await
                         .map_err(failed)?;
@@ -255,6 +263,7 @@ macro_rules! impl_group_chat_connect_repository {
                     .bind(connect.channel_tenant_id.to_string())
                     .bind(connect.chat_title)
                     .bind(connect.now)
+                    .bind(connect.group_tenant_id.to_string())
                     .execute(&mut *tx)
                     .await;
                 match bound {
@@ -286,6 +295,7 @@ macro_rules! impl_group_chat_connect_repository {
             async fn disconnect_group_chat(
                 &self,
                 group_id: Uuid,
+                tenant_id: TenantId,
                 now: DateTime<Utc>,
             ) -> AppResult<Option<ReleasedGroupChat>> {
                 let failed = |e: sqlx::Error| {
@@ -294,6 +304,7 @@ macro_rules! impl_group_chat_connect_repository {
                 let mut tx = self.pool().begin().await.map_err(failed)?;
                 let row = sqlx::query(GROUP_CHAT_BINDING_SQL)
                     .bind($ids::bind(group_id))
+                    .bind(tenant_id.to_string())
                     .fetch_optional(&mut *tx)
                     .await
                     .map_err(failed)?;
@@ -308,6 +319,7 @@ macro_rules! impl_group_chat_connect_repository {
                 })?;
                 let cleared = sqlx::query(DISCONNECT_GROUP_CHAT_SQL)
                     .bind($ids::bind(group_id))
+                    .bind(tenant_id.to_string())
                     .bind(now)
                     .execute(&mut *tx)
                     .await

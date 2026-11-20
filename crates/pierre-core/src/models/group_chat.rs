@@ -60,6 +60,9 @@ pub struct ConnectGroupChat<'a> {
     pub code: &'a str,
     /// The group the chat is connected to.
     pub group_id: Uuid,
+    /// The tenant that owns the group (its own `tenant_id`): the write
+    /// matches the group only under it.
+    pub group_tenant_id: TenantId,
     /// Channel of the chat (`telegram`).
     pub channel_type: &'a str,
     /// Channel-native id of the chat.
@@ -94,6 +97,7 @@ impl fmt::Debug for ConnectGroupChat<'_> {
         f.debug_struct("ConnectGroupChat")
             .field("code", &"<redacted>")
             .field("group_id", &self.group_id)
+            .field("group_tenant_id", &self.group_tenant_id)
             .field("channel_type", &self.channel_type)
             .field("channel_chat_id", &self.channel_chat_id)
             .field("channel_tenant_id", &self.channel_tenant_id)
@@ -145,7 +149,7 @@ impl CoachingGroup {
     /// Whether the person `user_id` may connect this group to a chat, or
     /// disconnect it: its owner or its human coach.
     #[must_use]
-    pub fn chat_manager(&self, user_id: Uuid) -> bool {
+    pub fn can_manage_chat(&self, user_id: Uuid) -> bool {
         self.owner_id == user_id || self.coach_user_id == Some(user_id)
     }
 }

@@ -37,10 +37,12 @@ use pierre_core::models::groups::{CoachingGroup, GroupMember};
 use pierre_core::models::{TenantId, TurnOrigin};
 use pierre_database::database::ConversationRecord;
 use pierre_services::group_chat_poster::{proactive_chat, GroupChatPoster};
+use tokio::runtime::Handle;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::context::ChatPipelineContext;
+use crate::supervised::{spawn_supervised, TaskOwner};
 use crate::surface_profile::SurfaceId;
 
 /// Which row of a turn is relayed.
@@ -198,7 +200,8 @@ pub(crate) async fn relay_to_connected_chat(
     let body = relay_body(ctx, &target.members, author, row, text).await;
     let (channel, chat_id, tenant_id) = (chat.channel, chat.chat_id.to_owned(), chat.tenant_id);
     let poster = target.poster;
-    tokio::spawn(async move {
+    let owner = TaskOwner::Conversation(conversation.id.clone());
+    spawn_supervised(&Handle::current(), "room_relay_post", owner, async move {
         let parts = poster.post(tenant_id, channel, &chat_id, &body).await;
         if parts == 0 {
             warn!(%group_id, channel = %channel, row = ?row, "room relay: nothing reached the chat");
@@ -285,34 +288,28 @@ mod tests {
         let alice = Uuid::new_v4();
         let members = [member(alice, true), member(Uuid::new_v4(), false)];
         let g = group(None, true);
-        assert!(readable_by_the_room(
-            &g,
-            &members,
-            alice,
-            RelayedRow::MemberPost
-        ));
-        assert!(readable_by_the_room(
-            &g,
-            &members,
-            alice,
-            RelayedRow::AgentReply
-        ));
+        assert!(
+            readable_by_the_room(&g, &members, alice, RelayedRow::MemberPost),
+            "bug: a sharing member's post is read by the whole room"
+        );
+        assert!(
+            readable_by_the_room(&g, &members, alice, RelayedRow::AgentReply),
+            "bug: the reply to a sharing member is read by the whole room"
+        );
     }
 
     #[test]
     fn a_member_who_does_not_share_stays_in_the_app() {
         let alice = Uuid::new_v4();
         let members = [member(alice, false)];
-        assert!(!readable_by_the_room(
-            &group(None, true),
-            &members,
-            alice,
-            RelayedRow::MemberPost
-        ));
+        assert!(
+            !readable_by_the_room(&group(None, true), &members, alice, RelayedRow::MemberPost),
+            "bug: a member who does not share is withheld from the others"
+        );
         let sharing = [member(alice, true)];
         assert!(
             !readable_by_the_room(&group(None, false), &sharing, alice, RelayedRow::MemberPost),
-            "the group's kill switch withholds everyone"
+            "bug: the group's kill switch withholds everyone"
         );
     }
 
@@ -322,50 +319,57 @@ mod tests {
         let g = group(Some(coach), true);
         let all_share = [member(Uuid::new_v4(), true), member(Uuid::new_v4(), true)];
         let one_withholds = [member(Uuid::new_v4(), true), member(Uuid::new_v4(), false)];
-        assert!(readable_by_the_room(
-            &g,
-            &one_withholds,
-            coach,
-            RelayedRow::MemberPost
-        ));
-        assert!(readable_by_the_room(
-            &g,
-            &all_share,
-            coach,
-            RelayedRow::AgentReply
-        ));
-        assert!(!readable_by_the_room(
-            &g,
-            &one_withholds,
-            coach,
-            RelayedRow::AgentReply
-        ));
+        assert!(
+            readable_by_the_room(&g, &one_withholds, coach, RelayedRow::MemberPost),
+            "bug: the coach's own post is read by everyone"
+        );
+        assert!(
+            readable_by_the_room(&g, &all_share, coach, RelayedRow::AgentReply),
+            "bug: the reply to the coach crosses while every member shares"
+        );
+        assert!(
+            !readable_by_the_room(&g, &one_withholds, coach, RelayedRow::AgentReply),
+            "bug: the reply to the coach may draw on a withholding member, so it stays in the app"
+        );
     }
 
     #[test]
     fn someone_outside_the_group_is_never_relayed() {
         let members = [member(Uuid::new_v4(), true)];
-        assert!(!readable_by_the_room(
-            &group(None, true),
-            &members,
-            Uuid::new_v4(),
-            RelayedRow::MemberPost
-        ));
+        assert!(
+            !readable_by_the_room(
+                &group(None, true),
+                &members,
+                Uuid::new_v4(),
+                RelayedRow::MemberPost
+            ),
+            "bug: a row by someone outside the group reads as no one's"
+        );
     }
 
     #[test]
     fn a_relayed_post_never_carries_a_whole_email_address() {
         assert_eq!(
             relay_name(None, None, "alice.martin@example.com"),
-            "alice.martin"
+            "alice.martin",
+            "bug: with no name, only the part before the `@` is shown"
         );
-        assert_eq!(relay_name(None, Some("Alice"), "a@example.com"), "Alice");
+        assert_eq!(
+            relay_name(None, Some("Alice"), "a@example.com"),
+            "Alice",
+            "bug: the display name wins over the email"
+        );
         let mut named = member(Uuid::new_v4(), true);
         named.display_name = Some("Ali".to_owned());
         assert_eq!(
             relay_name(Some(&named), Some("Alice"), "a@example.com"),
-            "Ali"
+            "Ali",
+            "bug: the member's name in the group wins over their display name"
         );
-        assert_eq!(relay_name(None, Some("  "), "bob@example.com"), "bob");
+        assert_eq!(
+            relay_name(None, Some("  "), "bob@example.com"),
+            "bob",
+            "bug: a blank display name counts as none, so the email's local part is shown"
+        );
     }
 }

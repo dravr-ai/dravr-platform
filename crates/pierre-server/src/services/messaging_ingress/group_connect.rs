@@ -413,7 +413,8 @@ mod tests {
     fn the_add_to_group_start_carries_a_connect_code() {
         assert_eq!(
             detect_connect_code(&message("/start ABCD2345EFGH", false)).as_deref(),
-            Some("ABCD2345EFGH")
+            Some("ABCD2345EFGH"),
+            "bug: the `/start <code>` Telegram delivers in a group chat is a connect code"
         );
     }
 
@@ -421,7 +422,8 @@ mod tests {
     fn group_link_typed_by_hand_carries_a_connect_code() {
         assert_eq!(
             detect_connect_code(&message("/group link ABCD2345EFGH", false)).as_deref(),
-            Some("ABCD2345EFGH")
+            Some("ABCD2345EFGH"),
+            "bug: `/group link <code>` typed in a group chat is a connect code"
         );
         assert_eq!(
             detect_connect_code(&message("  /group  LINK   ABCD2345EFGH ", false)).as_deref(),
@@ -434,7 +436,8 @@ mod tests {
     fn a_direct_message_start_is_a_pairing_code_not_a_connect_code() {
         assert_eq!(
             detect_connect_code(&message("/start ABCD2345EFGH", true)),
-            None
+            None,
+            "bug: a direct message's `/start <code>` is a pairing code for the linking path"
         );
     }
 
@@ -448,7 +451,11 @@ mod tests {
             "/start ABC-D2345",
             "hello /start ABCD2345EFGH",
         ] {
-            assert_eq!(detect_connect_code(&message(text, false)), None, "{text}");
+            assert_eq!(
+                detect_connect_code(&message(text, false)),
+                None,
+                "bug: {text:?} is not a connect code"
+            );
         }
     }
 }

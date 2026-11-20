@@ -323,12 +323,11 @@ pub trait AgentsRepository: Send + Sync {
 }
 
 /// Coaching group storage, membership management, and invite tracking
-#[async_trait]
-/// Coaching groups, members, invites and the room transcript.
 ///
 /// Connecting a group to a messaging chat from the web app (carnet#1683) is
 /// [`GroupChatConnectRepository`]'s, a supertrait, so the same repository
 /// object answers both.
+#[async_trait]
 pub trait CoachingGroupRepository: GroupChatConnectRepository + Send + Sync {
     // -- Group CRUD --
 

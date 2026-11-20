@@ -190,16 +190,28 @@ mod group_chat_connect_tests {
         say(&e2e, &coach, &format!("/start {code}")).await;
 
         let connected = reread(&e2e, group.id).await;
-        assert_eq!(connected.channel_type.as_deref(), Some("telegram"));
+        assert_eq!(
+            connected.channel_type.as_deref(),
+            Some("telegram"),
+            "bug: the web group is bound to the Telegram chat"
+        );
         assert_eq!(
             connected.channel_chat_id.as_deref(),
-            Some(CHAT.to_string().as_str())
+            Some(CHAT.to_string().as_str()),
+            "bug: the web group is bound to the chat the code was redeemed in"
         );
         let connection = connected
             .chat_connection
             .expect("connected from the web app");
-        assert_eq!(connection.channel_tenant_id, e2e.bot_tenant);
-        assert_eq!(connection.chat_title.as_deref(), Some("Command E2e Group"));
+        assert_eq!(
+            connection.channel_tenant_id, e2e.bot_tenant,
+            "bug: the connection records the bot tenant that serves the chat"
+        );
+        assert_eq!(
+            connection.chat_title.as_deref(),
+            Some("Command E2e Group"),
+            "bug: the chat's title is kept for the web panel"
+        );
         assert_eq!(
             connected.tenant_id,
             coach.home_tenant.to_string(),
@@ -232,10 +244,18 @@ mod group_chat_connect_tests {
         // A member who neither owns nor coaches the group cannot connect it,
         // and their attempt does not spend the code.
         say(&e2e, &athlete, &format!("/group link {code}")).await;
-        assert_eq!(reread(&e2e, group.id).await.channel_type, None);
+        assert_eq!(
+            reread(&e2e, group.id).await.channel_type,
+            None,
+            "bug: a member who neither owns nor coaches the group connects nothing"
+        );
 
         say(&e2e, &coach, &format!("/group link {code}")).await;
-        assert_eq!(chat_group(&e2e).await.map(|g| g.id), Some(group.id));
+        assert_eq!(
+            chat_group(&e2e).await.map(|g| g.id),
+            Some(group.id),
+            "bug: the owner's unspent code connects the chat"
+        );
 
         // Spent: a second group cannot ride the same code into another chat.
         let other = web_group(&e2e, &coach, "Other Group").await;
@@ -332,7 +352,11 @@ mod group_chat_connect_tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(record.group_id, Some(group.id.to_string()));
+        assert_eq!(
+            record.group_id,
+            Some(group.id.to_string()),
+            "bug: a member's room conversation is bound to the web group"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -346,7 +370,11 @@ mod group_chat_connect_tests {
 
         say(&e2e, &coach, &format!("/start {code}")).await;
 
-        assert_eq!(chat_group(&e2e).await.map(|g| g.id), Some(group.id));
+        assert_eq!(
+            chat_group(&e2e).await.map(|g| g.id),
+            Some(group.id),
+            "bug: the chat moves to the web group when its owner connects it"
+        );
         let left = reread(&e2e, old.group_id).await;
         assert_eq!(left.channel_type, None, "the old group loses only its chat");
         assert!(left.is_active, "the old group and its history stay");
@@ -365,8 +393,16 @@ mod group_chat_connect_tests {
 
         say(&e2e, &coach, &format!("/start {code}")).await;
 
-        assert_eq!(chat_group(&e2e).await.map(|g| g.id), Some(old.group_id));
-        assert_eq!(reread(&e2e, group.id).await.channel_type, None);
+        assert_eq!(
+            chat_group(&e2e).await.map(|g| g.id),
+            Some(old.group_id),
+            "bug: a chat bound to a group someone else owns stays with that group"
+        );
+        assert_eq!(
+            reread(&e2e, group.id).await.channel_type,
+            None,
+            "bug: the refused web group stays bound to no chat"
+        );
         assert!(
             e2e.resources
                 .common
@@ -390,7 +426,10 @@ mod group_chat_connect_tests {
         say(&e2e, &coach, &format!("/start {code}")).await;
         e2e.llm.set_turn_replies(&["OK."]);
         say(&e2e, &coach, &format!("@{BOT_USERNAME} hi")).await;
-        assert!(e2e.wait_llm_turns(1).await);
+        assert!(
+            e2e.wait_llm_turns(1).await,
+            "bug: the owner's turn in the connected chat reaches the agent"
+        );
         let grouped = e2e
             .conversation_id(&coach, e2e.bot_tenant, &CHAT.to_string())
             .await
@@ -404,10 +443,16 @@ mod group_chat_connect_tests {
             .await
             .unwrap()
             .expect("the group had a chat");
-        assert_eq!(released.channel_tenant_id, e2e.bot_tenant);
+        assert_eq!(
+            released.channel_tenant_id, e2e.bot_tenant,
+            "bug: the released binding names the bot tenant that serves the chat"
+        );
 
         say(&e2e, &coach, &format!("@{BOT_USERNAME} still there?")).await;
-        assert!(e2e.wait_llm_turns(2).await);
+        assert!(
+            e2e.wait_llm_turns(2).await,
+            "bug: a linked sender is still answered, ungrouped, after the disconnect"
+        );
         assert!(
             chat_group(&e2e).await.is_none(),
             "no group is auto-created for the chat"
@@ -502,9 +547,17 @@ mod group_chat_connect_tests {
         );
 
         let (status, body) = rest(&e2e, "GET", &group, &coach_token, None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["connected"], json!(false));
-        assert_eq!(body["can_manage"], json!(true));
+        assert_eq!(status, StatusCode::OK, "bug: the owner reads the panel");
+        assert_eq!(
+            body["connected"],
+            json!(false),
+            "bug: a fresh web group has no chat"
+        );
+        assert_eq!(
+            body["can_manage"],
+            json!(true),
+            "bug: the owner may connect the group"
+        );
 
         let (status, _) = rest(&e2e, "GET", &group, &outsider_token, None).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "a non-member learns nothing");
@@ -533,11 +586,27 @@ mod group_chat_connect_tests {
         say(&e2e, &coach, &format!("/start {code}")).await;
 
         let (status, body) = rest(&e2e, "GET", &group, &athlete_token, None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["connected"], json!(true));
-        assert_eq!(body["channel"], json!("telegram"));
-        assert_eq!(body["chat_title"], json!("Command E2e Group"));
-        assert_eq!(body["can_manage"], json!(false));
+        assert_eq!(status, StatusCode::OK, "bug: a member reads the panel");
+        assert_eq!(
+            body["connected"],
+            json!(true),
+            "bug: the panel reads the chat connected"
+        );
+        assert_eq!(
+            body["channel"],
+            json!("telegram"),
+            "bug: the panel names the chat app"
+        );
+        assert_eq!(
+            body["chat_title"],
+            json!("Command E2e Group"),
+            "bug: the panel names the chat"
+        );
+        assert_eq!(
+            body["can_manage"],
+            json!(false),
+            "bug: a plain member may not change the connection"
+        );
 
         let (status, _) = rest(
             &e2e,
@@ -550,10 +619,17 @@ mod group_chat_connect_tests {
         assert_eq!(status, StatusCode::CONFLICT, "one chat app per group");
 
         let (status, _) = rest(&e2e, "DELETE", &group, &athlete_token, None).await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "bug: a plain member may not disconnect"
+        );
         let (status, _) = rest(&e2e, "DELETE", &group, &coach_token, None).await;
-        assert_eq!(status, StatusCode::NO_CONTENT);
-        assert!(chat_group(&e2e).await.is_none());
+        assert_eq!(status, StatusCode::NO_CONTENT, "bug: the owner disconnects");
+        assert!(
+            chat_group(&e2e).await.is_none(),
+            "bug: after the disconnect the chat finds no group"
+        );
         let (status, _) = rest(&e2e, "DELETE", &group, &coach_token, None).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "nothing left to disconnect");
     }
@@ -658,7 +734,10 @@ mod group_chat_connect_tests {
         let before = chat_sends(&e2e).len();
         e2e.llm.set_turn_replies(&["Answered in the chat."]);
         say(&e2e, &alice, &format!("@{BOT_USERNAME} and the route?")).await;
-        assert!(wait_chat_send(&e2e, "Answered in the chat.").await);
+        assert!(
+            wait_chat_send(&e2e, "Answered in the chat.").await,
+            "bug: the chat's own turn is answered in the chat"
+        );
         sleep(Duration::from_millis(500)).await;
         let echoes = chat_sends(&e2e)[before..]
             .iter()

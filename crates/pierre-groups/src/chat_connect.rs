@@ -120,6 +120,12 @@ pub enum ChatConnectResult {
     Refused(ChatConnectRefusal),
 }
 
+/// The tenant that owns `group`, which every write to its row is scoped to.
+fn owning_tenant(group: &CoachingGroup) -> AppResult<TenantId> {
+    TenantId::parse_str(&group.tenant_id)
+        .map_err(|_| AppError::internal("Group carries no valid tenant_id"))
+}
+
 impl GroupService {
     /// Mint a code that connects `group` to a chat on `channel_type`, when the
     /// bot of `channel_tenant_id` redeems it there.
@@ -137,7 +143,7 @@ impl GroupService {
         channel_type: &str,
         channel_tenant_id: TenantId,
     ) -> AppResult<GroupChatConnectCode> {
-        if !group.chat_manager(caller) {
+        if !group.can_manage_chat(caller) {
             return Err(AppError::new(
                 ErrorCode::PermissionDenied,
                 "Only the group's owner or coach can connect it to a chat",
@@ -190,7 +196,7 @@ impl GroupService {
             Some(group) if group.is_active => group,
             _ => return Ok(ChatConnectResult::Refused(ChatConnectRefusal::GroupGone)),
         };
-        if !group.chat_manager(chat.sender) {
+        if !group.can_manage_chat(chat.sender) {
             return Ok(ChatConnectResult::Refused(ChatConnectRefusal::NotManager));
         }
         if group.channel_type.is_some() {
@@ -231,6 +237,7 @@ impl GroupService {
             .connect_group_chat(&ConnectGroupChat {
                 code: chat.code,
                 group_id: group.id,
+                group_tenant_id: owning_tenant(&group)?,
                 channel_type: chat.channel_type,
                 channel_chat_id: chat.channel_chat_id,
                 channel_tenant_id: chat.channel_tenant_id,
@@ -284,7 +291,7 @@ impl GroupService {
         group: &CoachingGroup,
         caller: Uuid,
     ) -> AppResult<Option<ReleasedGroupChat>> {
-        if !group.chat_manager(caller) {
+        if !group.can_manage_chat(caller) {
             return Err(AppError::new(
                 ErrorCode::PermissionDenied,
                 "Only the group's owner or coach can disconnect its chat",
@@ -292,7 +299,7 @@ impl GroupService {
         }
         let released = self
             .repo()
-            .disconnect_group_chat(group.id, Utc::now())
+            .disconnect_group_chat(group.id, owning_tenant(group)?, Utc::now())
             .await?;
         if let Some(chat) = released.as_ref() {
             info!(

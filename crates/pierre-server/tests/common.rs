@@ -1576,9 +1576,6 @@ struct ContextParts {
     channel_adapters: Option<Arc<dyn ChannelAdapterFactory>>,
 }
 
-/// [`create_test_server_resources`] on an offline adapter factory the test
-/// keeps, for a test that reads back what the context's own senders sent:
-/// the notification sink, the approval notice, the consent ask.
 /// [`create_test_server_resources_with_chat_provider`] over `adapters`, so a
 /// test reads back what the platform posts into a chat on its own — the group
 /// chat poster's relay of an app turn into a connected group chat
@@ -1606,6 +1603,9 @@ pub(crate) async fn create_test_server_resources_with_chat_provider_on_adapters(
     .await
 }
 
+/// [`create_test_server_resources`] on an offline adapter factory the test
+/// keeps, for a test that reads back what the context's own senders sent:
+/// the notification sink, the approval notice, the consent ask.
 #[cfg(feature = "client-messaging")]
 pub(crate) async fn create_test_server_resources_on_adapters(
     adapters: Arc<dyn ChannelAdapterFactory>,

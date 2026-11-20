@@ -299,10 +299,6 @@ fn only_a_chat_that_takes_a_proactive_message_is_posted_into() {
     assert_eq!(digest_room(&group(Some("carrier-pigeon"), Some("1"))), None);
 }
 
-/// Only a group whose digest goes to its chat is posted into: a Telegram
-/// group that turned its digest off, or kept it for its managers, has no
-/// room to post to however good its binding.
-
 /// A group connected to its chat from the web app lives under its creator's
 /// tenant while another tenant's bot serves the chat (carnet#1683): its
 /// digest goes through that bot, never through the group's own tenant, which
@@ -322,6 +318,10 @@ fn a_connected_chat_is_posted_into_through_the_bot_that_serves_it() {
         "the post goes through the tenant whose bot serves the chat"
     );
 }
+
+/// Only a group whose digest goes to its chat is posted into: a Telegram
+/// group that turned its digest off, or kept it for its managers, has no
+/// room to post to however good its binding.
 #[test]
 fn only_the_chat_mode_posts_into_the_chat() {
     let bound = |mode| group_in_mode(mode, Some("telegram"), Some("-5284201188"));

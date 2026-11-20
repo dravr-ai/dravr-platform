@@ -141,7 +141,7 @@ pub(crate) async fn get_chat_connection(
         channel: group.channel_type.clone(),
         chat_title: connection.and_then(|c| c.chat_title.clone()),
         connected_at: connection.map(|c| c.connected_at),
-        can_manage: group.chat_manager(auth.user_id),
+        can_manage: group.can_manage_chat(auth.user_id),
     })
     .into_response())
 }
@@ -210,7 +210,7 @@ pub(crate) async fn create_chat_connection(
     // hears that rather than whether a bot exists, and a group that already
     // has a chat is told so whatever bot would serve a new one (one chat app
     // per group). `mint_chat_connect_code` asks both again.
-    if !group.chat_manager(auth.user_id) {
+    if !group.can_manage_chat(auth.user_id) {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
             "Only the group's owner or coach can connect it to a chat",
