@@ -759,6 +759,17 @@ pub trait MessagingRepository: Send + Sync {
         channel_user_id: &str,
     ) -> AppResult<Option<Value>>;
 
+    /// Open the in-chat OTP flow on a link state just minted for an unlinked
+    /// sender: `awaiting_otp` with no address yet, and the `locale` every
+    /// prompt of the flow is written in, so the flow never switches language
+    /// mid-way (carnet#1669).
+    async fn open_otp_flow_on_link_state(
+        &self,
+        id: &str,
+        tenant_id: TenantId,
+        locale: &str,
+    ) -> AppResult<()>;
+
     /// Advance the OTP flow: set email and OTP hash, transition to `awaiting_otp`.
     async fn set_otp_on_link_state(&self, id: &str, email: &str, otp_hash: &str) -> AppResult<()>;
 
@@ -786,8 +797,9 @@ pub trait MessagingRepository: Send + Sync {
     ///
     /// In one transaction: any other code this sender held is handed back
     /// unspent, the sender's own in-chat OTP flow is spent (the pairing link
-    /// supersedes it), and the code is bound to this sender. Nothing is linked
-    /// and the code stays unspent until the sender confirms.
+    /// supersedes it), and the code is bound to this sender with the `locale`
+    /// its confirmation prompts are written in (carnet#1669). Nothing is
+    /// linked and the code stays unspent until the sender confirms.
     ///
     /// Returns `false` when the code is not a live deep-link code minted on an
     /// account for `channel_type` in this tenant.
@@ -800,6 +812,7 @@ pub trait MessagingRepository: Send + Sync {
         tenant_id: TenantId,
         channel_type: &str,
         channel_user_id: &str,
+        locale: &str,
     ) -> AppResult<bool>;
 
     /// Spend a pairing code this sender holds, once they confirm it

@@ -384,7 +384,7 @@ pub(crate) const LOGOUT_INVALIDATE_STATES_SQL: &str = r"
 pub(crate) const ACTIVE_OTP_LINK_STATE_SQL: &str = r"
             SELECT id, tenant_id, user_id, channel_type, code, method,
                    channel_user_id, sender_name, otp_step, email, otp_hash,
-                   otp_attempts, expires_at, created_at
+                   otp_attempts, locale, expires_at, created_at
             FROM messaging_link_states
             WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
               AND otp_step IS NOT NULL AND used = FALSE AND expires_at > $4

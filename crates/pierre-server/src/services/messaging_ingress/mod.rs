@@ -42,6 +42,8 @@ pub(crate) mod outbound_persist;
 pub mod outbound_retry;
 /// The config-loading, body-splitting egress seam every non-pipeline reply leaves through.
 pub mod outbound_send;
+/// The language a sender with no account is asked in (carnet#1669).
+mod prelink;
 /// Inbound emoji reactions mapped onto the shared per-message feedback write.
 pub mod reactions;
 /// The durable record every turn runs from, the runner hand-off and the sweeper.
@@ -101,6 +103,7 @@ use linking::{detect_linking_code, handle_linking_command, LinkingAction};
 /// last readable point without a network stub.
 pub use otp::start_otp_flow;
 use otp::{apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command};
+use prelink::prelink_locale;
 /// Re-exported alongside [`start_otp_flow`], and for the same reason.
 pub use session::create_link_and_prompt;
 pub(crate) use session::fresh_title_fallback;
@@ -125,6 +128,7 @@ use serde_json::Value;
 
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::SurfaceProfile;
+use pierre_middleware::redaction::mask_recipient;
 use pierre_services::analytics::hash_id;
 
 /// Outcome of persisting a single inbound message
@@ -549,19 +553,12 @@ async fn handle_pre_session_commands(
     let mut reply = if let LinkingAction::LinkCode(code) =
         detect_linking_code(channel_type, &message.content, &message.metadata)
     {
-        info!(channel = %channel, sender_id = %message.sender_id, "Processing channel linking command");
+        info!(channel = %channel, sender_id = %mask_recipient(&message.sender_id), "Processing channel linking command");
         emit_messaging_intent(pre_link_identity, tenant_id, channel, "link_code");
-        handle_linking_command(resources, tenant_id, channel, &message.sender_id, &code).await
+        handle_linking_command(resources, tenant_id, channel, message, &code).await
     } else {
-        let otp_response = handle_otp_flow(
-            resources,
-            tenant_id,
-            channel_type,
-            channel,
-            &message.sender_id,
-            &message.content,
-        )
-        .await?;
+        let otp_response =
+            handle_otp_flow(resources, tenant_id, channel_type, channel, message).await?;
         emit_messaging_intent(pre_link_identity, tenant_id, channel, "otp_flow");
         otp_response
     };
@@ -656,14 +653,8 @@ async fn persist_single_message(
         // degrades to the old unledgered send rather than blocking logout.
         let logout_persist =
             outbound_persist::logout_persist_spec(resources, tenant_id, channel, message).await;
-        let mut logout_response = handle_logout(
-            resources,
-            tenant_id,
-            channel_type,
-            channel,
-            &message.sender_id,
-        )
-        .await;
+        let mut logout_response =
+            handle_logout(resources, tenant_id, channel_type, channel, message).await;
         logout_response.thread_id = thread_id;
         apply_conversation_recipient(&mut logout_response, message.conversation_id.as_deref());
         send_channel_response(
@@ -945,7 +936,7 @@ async fn handle_ambient_group_message(
             // so this is a transcript gap rather than a dropped answer.
             warn!(
                 error = %e,
-                sender_id = %message.sender_id,
+                sender_id = %mask_recipient(&message.sender_id),
                 channel = %channel,
                 "ambient group message: session resolution failed; transcript row lost"
             );
@@ -1021,7 +1012,7 @@ async fn send_unlinked_user_prompt(
     emit_unlinked_prompted(tenant_id, channel, prompt_type);
 
     let mut prompt = if resources.common.email_service.is_some() {
-        info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, starting OTP flow");
+        info!(channel = %channel, sender_id = %mask_recipient(&message.sender_id), "Unlinked user, starting OTP flow");
         start_otp_flow(
             resources,
             db,
@@ -1029,10 +1020,11 @@ async fn send_unlinked_user_prompt(
             channel_type,
             &message.sender_id,
             message.sender_name.as_deref(),
+            prelink_locale(message),
         )
         .await
     } else {
-        info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, sending link URL (no email service)");
+        info!(channel = %channel, sender_id = %mask_recipient(&message.sender_id), "Unlinked user, sending link URL (no email service)");
         create_link_and_prompt(
             resources,
             db,
@@ -1040,6 +1032,7 @@ async fn send_unlinked_user_prompt(
             channel_type,
             &message.sender_id,
             message.sender_name.as_deref(),
+            prelink_locale(message),
         )
         .await
     };
@@ -1143,7 +1136,7 @@ async fn resolve_or_prompt(
             // Slack notifier so operators see the outage within seconds.
             error!(
                 error = %e,
-                sender_id = %message.sender_id,
+                sender_id = %mask_recipient(&message.sender_id),
                 channel = %channel_type,
                 "Failed to resolve messaging session, dropping message"
             );
