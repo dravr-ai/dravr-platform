@@ -1025,20 +1025,7 @@ macro_rules! impl_messaging_repository {
                 tenant_id: TenantId,
                 locale: &str,
             ) -> AppResult<()> {
-                let opened = sqlx::query(OPEN_OTP_FLOW_SQL)
-                    .bind(locale)
-                    .bind(id)
-                    .bind(tenant_id)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to open OTP flow: {e}")))?
-                    .rows_affected();
-                if opened == 0 {
-                    return Err(AppError::not_found(format!(
-                        "link state {id} in tenant {tenant_id}"
-                    )));
-                }
-                Ok(())
+                link_states::open_otp_flow(self.pool(), id, tenant_id, locale).await
             }
 
             async fn set_otp_on_link_state(
@@ -1111,42 +1098,15 @@ macro_rules! impl_messaging_repository {
                 channel_user_id: &str,
                 locale: &str,
             ) -> AppResult<bool> {
-                let hold_error =
-                    |e: sqlx::Error| AppError::database(format!("Failed to hold pairing code: {e}"));
-                let mut tx = self.pool().begin().await.map_err(hold_error)?;
-                sqlx::query(RELEASE_SENDER_LINK_CONFIRMATIONS_SQL)
-                    .bind(tenant_id)
-                    .bind(channel_type)
-                    .bind(channel_user_id)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(hold_error)?;
-                sqlx::query(INVALIDATE_OTP_LINK_STATES_SQL)
-                    .bind(tenant_id)
-                    .bind(channel_type)
-                    .bind(channel_user_id)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(hold_error)?;
-                let held = sqlx::query(HOLD_LINK_FOR_CONFIRMATION_SQL)
-                    .bind(channel_user_id)
-                    .bind(code)
-                    .bind(tenant_id)
-                    .bind(channel_type)
-                    .bind(Utc::now())
-                    .bind(locale)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(hold_error)?
-                    .rows_affected()
-                    == 1;
-                if held {
-                    tx.commit().await.map_err(hold_error)?;
-                } else {
-                    // Not a code this sender may hold: leave their own flow as it was.
-                    tx.rollback().await.map_err(hold_error)?;
-                }
-                Ok(held)
+                link_states::hold_link_for_confirmation(
+                    self.pool(),
+                    code,
+                    tenant_id,
+                    channel_type,
+                    channel_user_id,
+                    locale,
+                )
+                .await
             }
 
             async fn spend_held_link_code(
@@ -1156,19 +1116,14 @@ macro_rules! impl_messaging_repository {
                 channel_type: &str,
                 channel_user_id: &str,
             ) -> AppResult<bool> {
-                let spent = sqlx::query(SPEND_HELD_LINK_CODE_SQL)
-                    .bind(code)
-                    .bind(tenant_id)
-                    .bind(channel_type)
-                    .bind(channel_user_id)
-                    .bind(Utc::now())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to spend held pairing code: {e}"))
-                    })?
-                    .rows_affected();
-                Ok(spent == 1)
+                link_states::spend_held_link_code(
+                    self.pool(),
+                    code,
+                    tenant_id,
+                    channel_type,
+                    channel_user_id,
+                )
+                .await
             }
 
             async fn release_link_confirmations(
@@ -1177,16 +1132,13 @@ macro_rules! impl_messaging_repository {
                 channel_type: &str,
                 channel_user_id: &str,
             ) -> AppResult<()> {
-                sqlx::query(RELEASE_SENDER_LINK_CONFIRMATIONS_SQL)
-                    .bind(tenant_id)
-                    .bind(channel_type)
-                    .bind(channel_user_id)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to release pairing code: {e}"))
-                    })?;
-                Ok(())
+                link_states::release_link_confirmations(
+                    self.pool(),
+                    tenant_id,
+                    channel_type,
+                    channel_user_id,
+                )
+                .await
             }
 
             // ── Backfill Push Dedup ──

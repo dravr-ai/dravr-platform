@@ -472,6 +472,134 @@ macro_rules! impl_link_state_functions {
             state.user_id = Some(user_id.to_owned());
             Ok(state.into_json())
         }
+
+        /// Open the in-chat OTP flow on a link state just minted for an
+        /// unlinked sender, in the `locale` its prompts are written in.
+        ///
+        /// # Errors
+        /// Returns not-found when `tenant_id` holds no state `id`, or a
+        /// database error when the update fails.
+        pub(crate) async fn open_otp_flow(
+            pool: &Pool<$db>,
+            id: &str,
+            tenant_id: TenantId,
+            locale: &str,
+        ) -> AppResult<()> {
+            let opened = sqlx::query(OPEN_OTP_FLOW_SQL)
+                .bind(locale)
+                .bind(id)
+                .bind(tenant_id)
+                .execute(pool)
+                .await
+                .map_err(|e| AppError::database(format!("Failed to open OTP flow: {e}")))?
+                .rows_affected();
+            if opened == 0 {
+                return Err(AppError::not_found(format!(
+                    "link state {id} in tenant {tenant_id}"
+                )));
+            }
+            Ok(())
+        }
+
+        /// Hold pairing code `code` for the sender who redeemed it, until they
+        /// confirm, with the `locale` their confirmation prompts are written
+        /// in. One transaction first hands back any code the sender already
+        /// held and closes their live OTP flow; `false`, with nothing changed,
+        /// when the code is not one this sender may hold.
+        ///
+        /// # Errors
+        /// Returns a database error when a statement or the transaction fails.
+        pub(crate) async fn hold_link_for_confirmation(
+            pool: &Pool<$db>,
+            code: &str,
+            tenant_id: TenantId,
+            channel_type: &str,
+            channel_user_id: &str,
+            locale: &str,
+        ) -> AppResult<bool> {
+            let hold_error =
+                |e: sqlx::Error| AppError::database(format!("Failed to hold pairing code: {e}"));
+            let mut tx = pool.begin().await.map_err(hold_error)?;
+            sqlx::query(RELEASE_SENDER_LINK_CONFIRMATIONS_SQL)
+                .bind(tenant_id)
+                .bind(channel_type)
+                .bind(channel_user_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(hold_error)?;
+            sqlx::query(INVALIDATE_OTP_LINK_STATES_SQL)
+                .bind(tenant_id)
+                .bind(channel_type)
+                .bind(channel_user_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(hold_error)?;
+            let held = sqlx::query(HOLD_LINK_FOR_CONFIRMATION_SQL)
+                .bind(channel_user_id)
+                .bind(code)
+                .bind(tenant_id)
+                .bind(channel_type)
+                .bind(Utc::now())
+                .bind(locale)
+                .execute(&mut *tx)
+                .await
+                .map_err(hold_error)?
+                .rows_affected()
+                == 1;
+            if held {
+                tx.commit().await.map_err(hold_error)?;
+            } else {
+                // Not a code this sender may hold: leave their own flow as it was.
+                tx.rollback().await.map_err(hold_error)?;
+            }
+            Ok(held)
+        }
+
+        /// Spend the pairing code this sender holds pending confirmation;
+        /// `false` when they hold no such live code.
+        ///
+        /// # Errors
+        /// Returns a database error when the update fails.
+        pub(crate) async fn spend_held_link_code(
+            pool: &Pool<$db>,
+            code: &str,
+            tenant_id: TenantId,
+            channel_type: &str,
+            channel_user_id: &str,
+        ) -> AppResult<bool> {
+            let spent = sqlx::query(SPEND_HELD_LINK_CODE_SQL)
+                .bind(code)
+                .bind(tenant_id)
+                .bind(channel_type)
+                .bind(channel_user_id)
+                .bind(Utc::now())
+                .execute(pool)
+                .await
+                .map_err(|e| AppError::database(format!("Failed to spend held pairing code: {e}")))?
+                .rows_affected();
+            Ok(spent == 1)
+        }
+
+        /// Hand back, unspent, every pairing code this sender holds pending
+        /// confirmation.
+        ///
+        /// # Errors
+        /// Returns a database error when the update fails.
+        pub(crate) async fn release_link_confirmations(
+            pool: &Pool<$db>,
+            tenant_id: TenantId,
+            channel_type: &str,
+            channel_user_id: &str,
+        ) -> AppResult<()> {
+            sqlx::query(RELEASE_SENDER_LINK_CONFIRMATIONS_SQL)
+                .bind(tenant_id)
+                .bind(channel_type)
+                .bind(channel_user_id)
+                .execute(pool)
+                .await
+                .map_err(|e| AppError::database(format!("Failed to release pairing code: {e}")))?;
+            Ok(())
+        }
     };
 }
 pub(crate) use impl_link_state_functions;

@@ -40,10 +40,6 @@ use crate::repositories::messaging::{
 use crate::repositories::messaging_backend::{
     impl_messaging_repository, instant_from_rfc3339, messaging_column_error,
 };
-use crate::repositories::messaging_link_states::{
-    HOLD_LINK_FOR_CONFIRMATION_SQL, OPEN_OTP_FLOW_SQL, RELEASE_SENDER_LINK_CONFIRMATIONS_SQL,
-    SPEND_HELD_LINK_CODE_SQL,
-};
 use crate::repositories::messaging_proactive::{
     ProactiveNotice, ProactiveNoticePart, PROACTIVE_NOTICE_SQL, STAMP_NOTICE_CHAT_MESSAGE_SQL,
 };
