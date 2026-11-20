@@ -59,6 +59,8 @@ pub mod network;
 pub mod nutrition_params;
 /// The typed value a configuration parameter takes
 pub mod runtime;
+/// The per-athlete sciotte session-read caps as admin parameters (`sciotte_reads.*`)
+pub mod sciotte_reads;
 /// Security configuration (auth, headers, monitoring)
 pub mod security;
 /// Sleep tool operational parameters (activity limits, trend thresholds)

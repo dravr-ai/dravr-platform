@@ -22,7 +22,7 @@ use tracing::{info, instrument, warn};
 use super::candidates::{take_seconds, Athlete, Unread};
 use super::{session_walk_budget, walk_daily_calls, walk_keys, walk_row};
 use crate::activity_backfill::owed_write::{land_owed, Landed};
-use crate::activity_backfill::pause::retry_at_ms;
+use crate::activity_backfill::pause::paused_by;
 use crate::activity_backfill::{
     keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms, ActivityBackfillJob,
     MAX_BACKFILL_ATTEMPTS,
@@ -268,7 +268,7 @@ enum Read {
     /// The backend answered that it cannot be read ([`answered_unreadable`]),
     /// or no row stands to store it beside: it is walked past.
     Skipped,
-    /// A spent budget refused the read: until when ([`retry_at_ms`]).
+    /// A spent budget refused the read: until when ([`paused_by`]).
     Paused(i64),
     /// The backend's credential is dead.
     AuthRequired,
@@ -300,15 +300,18 @@ fn read_failed(job: &ActivityBackfillJob, id: &str, e: &AppError) -> Read {
 /// says nothing about the activity, so the step stops at it and the walk
 /// reads it again.
 fn failure_read(e: &AppError) -> Read {
-    if e.code == ErrorCode::ExternalRateLimited {
-        Read::Paused(retry_at_ms(e))
-    } else if e.provider_auth_required_provider().is_some() {
-        Read::AuthRequired
-    } else if answered_unreadable(e) {
-        Read::Skipped
-    } else {
-        Read::Failed
-    }
+    paused_by(e).map_or_else(
+        || {
+            if e.provider_auth_required_provider().is_some() {
+                Read::AuthRequired
+            } else if answered_unreadable(e) {
+                Read::Skipped
+            } else {
+                Read::Failed
+            }
+        },
+        Read::Paused,
+    )
 }
 
 /// Whether `error` is the backend's answer that this one activity cannot

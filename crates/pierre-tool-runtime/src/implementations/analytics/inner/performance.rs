@@ -7,6 +7,7 @@
 use crate::implementations::analytics::output::{
     BestPerformance, NoRacePrediction, RacePrediction, RacePredictionDetail, RacePredictionResult,
 };
+use crate::implementations::stored_copy::{activities_or_stored, with_caveat, Reader, Served};
 use crate::implementations::stored_physiology::stored_athlete_inputs;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
@@ -271,11 +272,17 @@ pub(crate) fn handle_predict_performance(
             .await
         {
             Ok(provider) => {
-                match provider
-                    .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
-                    .await
+                match activities_or_stored(
+                    Reader::new(&executor.resources, user_uuid, request.tenant_id.as_deref()),
+                    provider.as_ref(),
+                    DEFAULT_ACTIVITY_LIMIT,
+                )
+                .await
                 {
-                    Ok(raw_activities) => {
+                    Ok(Served {
+                        value: raw_activities,
+                        caveat,
+                    }) => {
                         // VDOT race-time prediction relies on best-effort
                         // samples; collapsing fragments to one row per session
                         // keeps the predictor from picking a doubled-recording
@@ -290,22 +297,25 @@ pub(crate) fn handle_predict_performance(
                             &executor.cageux_config().algorithms,
                         );
 
-                        apply_format_typed(
-                            UniversalResponse {
-                                success: true,
-                                result: None,
-                                error: None,
-                                metadata: Some({
-                                    let mut map = HashMap::new();
-                                    map.insert(
-                                        "user_id".to_owned(),
-                                        serde_json::Value::String(user_uuid.to_string()),
-                                    );
-                                    map
-                                }),
-                            },
-                            prediction,
-                            output_format,
+                        with_caveat(
+                            apply_format_typed(
+                                UniversalResponse {
+                                    success: true,
+                                    result: None,
+                                    error: None,
+                                    metadata: Some({
+                                        let mut map = HashMap::new();
+                                        map.insert(
+                                            "user_id".to_owned(),
+                                            serde_json::Value::String(user_uuid.to_string()),
+                                        );
+                                        map
+                                    }),
+                                },
+                                prediction,
+                                output_format,
+                            ),
+                            caveat,
                         )
                     }
                     Err(e) => {

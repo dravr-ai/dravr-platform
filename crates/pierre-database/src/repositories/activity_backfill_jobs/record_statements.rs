@@ -32,7 +32,8 @@ pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_
        secs_per_unit = excluded.secs_per_unit, turn_id = excluded.turn_id, \
        asked_message_id = excluded.asked_message_id, walk_backend = NULL, outcome = NULL, \
        next_attempt_ms = 0, walk_sport = excluded.walk_sport, \
-       window_top_ts = excluded.window_top_ts, ended_at_ms = NULL \
+       window_top_ts = excluded.window_top_ts, ended_at_ms = NULL, \
+       wellness_resume_day = NULL \
      WHERE activity_backfill_jobs.outcome IS NOT NULL \
        AND activity_backfill_jobs.outcome <> $21 \
        AND activity_backfill_jobs.tenant_id = excluded.tenant_id";

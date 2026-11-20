@@ -15,6 +15,10 @@
 //! Uses the goal engine directly for clean, efficient goal management.
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::implementations::goals_activities::{
+    fetch_feasibility_activities, fetch_progress_activities, fetch_suggestion_activities,
+};
+use crate::implementations::stored_copy::{caveated, Served};
 use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -23,9 +27,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Datelike, FixedOffset, Utc};
 use num_traits::ToPrimitive;
 use pierre_database::database::repositories::ProfileRepository;
-use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use serde_json::{from_value, json, Value};
-use tracing::{debug, warn};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::capabilities::PROVIDER_READ;
@@ -42,7 +45,6 @@ use crate::implementations::goals_spec::{
     activities_toward_goal, extract_goal_details, goal_type_vocabulary, validated_new_goal,
     GoalDetails, GOAL_TIMEFRAMES, GOAL_TYPES,
 };
-use crate::protocol::auth::AuthService;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -50,12 +52,11 @@ use dravr_cageux::goal_engine::{AdvancedGoalEngine, GoalEngineTrait};
 use dravr_cageux::physiological_constants::goal_feasibility::{
     ADEQUATE_FREQUENCY_DATA_THRESHOLD, ASSUMED_TRAINING_HISTORY_WEEKS, DAYS_PER_MONTH_APPROX,
     DEFAULT_TIMEFRAME_DAYS as GOAL_DEFAULT_TIMEFRAME_DAYS, EXCELLENT_CONFIDENCE_THRESHOLD,
-    EXCELLENT_DATA_QUALITY_THRESHOLD, EXCESSIVE_IMPROVEMENT_PENALTY_FACTOR,
-    GOAL_SUGGESTION_ACTIVITY_LIMIT, GOOD_CONFIDENCE_LEVEL, GOOD_CONFIDENCE_THRESHOLD,
-    GOOD_DATA_QUALITY_THRESHOLD, HIGH_CONFIDENCE_LEVEL, LIMITED_CONFIDENCE_LEVEL, MAX_PERCENTAGE,
-    MEDIUM_CONFIDENCE_LEVEL, MINIMUM_CONFIDENCE_LEVEL, MIN_ACTIVITIES_FOR_EXCELLENT_CONFIDENCE,
-    MIN_ACTIVITIES_FOR_GOOD_CONFIDENCE, MODERATE_FEASIBILITY_THRESHOLD,
-    PROGRESS_TRACKING_ACTIVITY_LIMIT, SAFE_MONTHLY_IMPROVEMENT_RATE_PERCENT,
+    EXCELLENT_DATA_QUALITY_THRESHOLD, EXCESSIVE_IMPROVEMENT_PENALTY_FACTOR, GOOD_CONFIDENCE_LEVEL,
+    GOOD_CONFIDENCE_THRESHOLD, GOOD_DATA_QUALITY_THRESHOLD, HIGH_CONFIDENCE_LEVEL,
+    LIMITED_CONFIDENCE_LEVEL, MAX_PERCENTAGE, MEDIUM_CONFIDENCE_LEVEL, MINIMUM_CONFIDENCE_LEVEL,
+    MIN_ACTIVITIES_FOR_EXCELLENT_CONFIDENCE, MIN_ACTIVITIES_FOR_GOOD_CONFIDENCE,
+    MODERATE_FEASIBILITY_THRESHOLD, SAFE_MONTHLY_IMPROVEMENT_RATE_PERCENT,
     SAFE_RANGE_PENALTY_FACTOR, SIMPLE_PROGRESS_THRESHOLD, UNSAFE_IMPROVEMENT_PENALTY_BASE,
     VERY_LOW_CONFIDENCE_LEVEL, VOLUME_DOUBLING_THRESHOLD,
 };
@@ -65,7 +66,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::constants::defaults::DEFAULT_GOAL_TIMEFRAME_DAYS;
 use pierre_config::constants::goal_management::MIN_ACTIVITIES_FOR_TRAINING_HISTORY;
 use pierre_config::constants::limits::{
-    ACTIVITY_CAPACITY_HINT, MAX_TIMEFRAME_DAYS, METERS_PER_KILOMETER, PERCENTAGE_MULTIPLIER,
+    MAX_TIMEFRAME_DAYS, METERS_PER_KILOMETER, PERCENTAGE_MULTIPLIER,
 };
 use pierre_config::constants::time_constants::{
     DAYS_PER_MONTH, DAYS_PER_QUARTER, DAYS_PER_WEEK, DAYS_PER_YEAR, SECONDS_PER_HOUR_F64,
@@ -220,92 +221,6 @@ async fn load_user_profile(
             create_fallback_profile(user_id.to_owned(), activities)
         }),
         Ok(None) | Err(_) => create_fallback_profile(user_id.to_owned(), activities),
-    }
-}
-
-/// The workouts among a provider's `activities`: each workout's recordings
-/// (an auto-split, a watch and a bike computer) merged into one session
-/// ([`merge_duplicates`]), so a goal's progress counts and sums workouts.
-fn sessions(activities: Vec<Activity>) -> Vec<Activity> {
-    merge_duplicates(activities, &DedupConfig::from_env()).0
-}
-
-/// Fetch activities for goal suggestions; returns empty vec if auth/fetch fails.
-async fn fetch_suggestion_activities(
-    context: &ToolExecutionContext,
-    provider_name: &str,
-    user_uuid: Uuid,
-) -> Vec<Activity> {
-    let auth_service = AuthService::new(context.resources.clone());
-    let tenant_id = context.tenant_id.map(|id| id.to_string());
-    let mut activities = Vec::new();
-    if let Ok(provider) = auth_service
-        .create_authenticated_provider(provider_name, user_uuid, tenant_id.as_deref())
-        .await
-    {
-        if let Ok(provider_activities) = provider
-            .get_activities(Some(GOAL_SUGGESTION_ACTIVITY_LIMIT), None)
-            .await
-        {
-            activities = sessions(provider_activities);
-        }
-    }
-    activities
-}
-
-/// Fetch activities for goal feasibility analysis; returns empty vec if auth/fetch fails.
-async fn fetch_feasibility_activities(
-    context: &ToolExecutionContext,
-    provider_name: &str,
-    user_uuid: Uuid,
-) -> Vec<Activity> {
-    let auth_service = AuthService::new(context.resources.clone());
-    let tenant_id = context.tenant_id.map(|id| id.to_string());
-    let mut activities: Vec<Activity> = Vec::with_capacity(ACTIVITY_CAPACITY_HINT);
-    if let Ok(provider) = auth_service
-        .create_authenticated_provider(provider_name, user_uuid, tenant_id.as_deref())
-        .await
-    {
-        if let Ok(provider_activities) = provider
-            .get_activities(Some(PROGRESS_TRACKING_ACTIVITY_LIMIT), None)
-            .await
-        {
-            activities = sessions(provider_activities);
-        }
-    }
-    activities
-}
-
-/// Fetch activities for progress tracking; returns error if auth fails.
-async fn fetch_progress_activities(
-    context: &ToolExecutionContext,
-    provider_name: &str,
-    user_uuid: Uuid,
-) -> AppResult<Vec<Activity>> {
-    let auth_service = AuthService::new(context.resources.clone());
-    let tenant_id = context.tenant_id.map(|id| id.to_string());
-    match auth_service
-        .create_authenticated_provider(provider_name, user_uuid, tenant_id.as_deref())
-        .await
-    {
-        Ok(provider) => {
-            debug!("Provider authenticated for progress tracking");
-            Ok(sessions(
-                provider
-                    .get_activities(Some(PROGRESS_TRACKING_ACTIVITY_LIMIT), None)
-                    .await
-                    .unwrap_or_default(),
-            ))
-        }
-        Err(response) => {
-            debug!("Authentication failed for progress tracking");
-            Err(AppError::external_service(
-                "fitness_provider",
-                response
-                    .error
-                    .unwrap_or_else(|| "Authentication failed".to_owned()),
-            ))
-        }
     }
 }
 
@@ -874,7 +789,10 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
             };
             let user_uuid = context.user_id;
 
-            let activities = fetch_suggestion_activities(&context, &provider_name, user_uuid).await;
+            let Served {
+                value: activities,
+                caveat,
+            } = fetch_suggestion_activities(&context, &provider_name, user_uuid).await;
 
             let cageux_config = context.cageux_config();
             let goal_engine = AdvancedGoalEngine::new(&cageux_config);
@@ -887,12 +805,15 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
             .await;
 
             match goal_engine.suggest_goals(&user_profile, &activities).await {
-                Ok(suggestions) => ok_typed(
-                    "suggest_goals",
-                    SuggestGoalsResult {
-                        suggested_goals: format_goal_suggestions(suggestions),
-                        activities_analyzed: activities.len(),
-                    },
+                Ok(suggestions) => caveated(
+                    ok_typed(
+                        "suggest_goals",
+                        SuggestGoalsResult {
+                            suggested_goals: format_goal_suggestions(suggestions),
+                            activities_analyzed: activities.len(),
+                        },
+                    ),
+                    caveat,
                 ),
                 Err(e) => Ok(ToolResult::error(json!({
                     "error": format!("Failed to suggest goals: {e}")
@@ -985,7 +906,10 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
 
             let days_remaining = calculate_days_remaining(details.created_at, &details.timeframe);
 
-            let activities = fetch_progress_activities(&context, &provider_name, user_uuid).await?;
+            let Served {
+                value: activities,
+                caveat,
+            } = fetch_progress_activities(&context, &provider_name, user_uuid).await?;
 
             let relevant_activities =
                 activities_toward_goal(&activities, details.created_at, details.sport.as_ref());
@@ -1005,7 +929,7 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
                 details.created_at,
             );
 
-            ok_typed(
+            let payload = ok_typed(
                 "track_progress",
                 build_progress_payload(&ProgressResponseParams {
                     goal_id: &goal_id,
@@ -1019,7 +943,8 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
                     relevant_activities: &relevant_activities,
                     total_duration,
                 }),
-            )
+            );
+            caveated(payload, caveat)
         }
         .await;
         tool_result_to_response(result)
@@ -1116,8 +1041,10 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             };
             let user_uuid = context.user_id;
 
-            let activities =
-                fetch_feasibility_activities(&context, &provider_name, user_uuid).await;
+            let Served {
+                value: activities,
+                caveat,
+            } = fetch_feasibility_activities(&context, &provider_name, user_uuid).await;
 
             let (current_level, confidence_level, risk_factors, recommendations) =
                 analyze_goal_by_type(&goal_type, &activities, target_value, effective_timeframe);
@@ -1136,7 +1063,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
                 activities.len(),
             );
 
-            ok_typed(
+            let payload = ok_typed(
                 "analyze_goal_feasibility",
                 build_feasibility_payload(&FeasibilityResponseParams {
                     feasibility_score,
@@ -1152,7 +1079,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
                     activities_len: activities.len(),
                     goal_type: &goal_type,
                 }),
-            )
+            );
+            caveated(payload, caveat)
         }
         .await;
         tool_result_to_response(result)

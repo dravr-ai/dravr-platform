@@ -334,7 +334,10 @@ pub mod usage;
 
 /// Tier-keyed quota configuration (Starter / Professional / Enterprise).
 pub mod tier_quota;
-pub use tier_quota::{TierQuotaConfig, ENTERPRISE, PROFESSIONAL, STARTER};
+pub use tier_quota::{
+    SessionReadCap, SessionReadCaps, TierQuotaConfig, ENTERPRISE, PROFESSIONAL,
+    SESSION_READ_CAPS_CATEGORY, STARTER,
+};
 
 /// Stripe-backed subscription domain model.
 pub mod subscription;

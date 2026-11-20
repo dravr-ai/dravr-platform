@@ -45,6 +45,7 @@ use pierre_core::models::{normalize_email, DelegatedConnection, ProviderAccountR
 use pierre_database::repositories::{OAuthTokenRepository, ProviderPurge, PurgeReason};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::registry::ProviderRegistry;
+use pierre_providers::request_budget;
 use pierre_providers::sciotte_error::to_app_error_for;
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_providers::sciotte_session::{read_imported_persisting, store_over_row};
@@ -414,9 +415,14 @@ async fn purge_misfiled_activities(
 /// over `read_from`, the token row `session` was stored as, while that row
 /// still stands ([`read_imported_persisting`]).
 ///
+/// The read is one of the session's: it is first admitted against the
+/// session-read windows of `read_from`'s user, the session's owner
+/// (carnet#1661).
+///
 /// # Errors
 ///
-/// Returns an error when the scraper service is not configured, or when it
+/// Returns an error when the scraper service is not configured, when the
+/// owner's session-read windows refuse the read, or when the service
 /// cannot import the session or read the profile. A session the service no
 /// longer holds names `sciotte_trainingpeaks`, whose sign-in renews it.
 pub async fn trainingpeaks_profile(
@@ -428,6 +434,15 @@ pub async fn trainingpeaks_profile(
     let remote = registry
         .require_sciotte_reads()?
         .for_session(&session.session_id);
+    let backend = SciotteTarget::TrainingPeaks.provider_name();
+    request_budget::admit(
+        registry
+            .session_read_budget(backend, read_from.user_id())
+            .as_ref(),
+        backend,
+    )
+    .await
+    .map_err(|e| request_budget::with_brand(e, SciotteTarget::TrainingPeaks.brand()))?;
     read_imported_persisting(
         remote,
         session,

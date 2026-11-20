@@ -51,7 +51,9 @@ use tracing::{info, instrument, warn};
 
 use super::{
     enqueue, job_row, keep_backfill_lease, lease_ms, mark_in_flight, notify_backfill_reauth,
-    now_ms, rebind_live_read, remove_backfill_job, ActivityBackfillJob, Enqueued, InFlight,
+    now_ms,
+    pause::{retry_at_ms, waits_out},
+    rebind_live_read, remove_backfill_job, wait_out, ActivityBackfillJob, Enqueued, InFlight,
     InFlightClaim, MAX_BACKFILL_ATTEMPTS,
 };
 use crate::activity_fetch::read_live_window;
@@ -382,6 +384,10 @@ enum Attempt {
     Landed(usize),
     /// The session lapsed; the athlete must reconnect.
     AuthRequired,
+    /// A request budget refused the read before it was sent (a session-read
+    /// cap included): it may be tried again once the refusing window ends
+    /// (unix ms).
+    Paused(i64),
     /// Anything else, an empty answer the cache contradicts included.
     Failed,
 }
@@ -395,6 +401,7 @@ impl Attempt {
                 ..
             }) => Self::Landed(activities.len()),
             Err(e) if e.provider_auth_required_provider().is_some() => Self::AuthRequired,
+            Err(e) if waits_out(e) => Self::Paused(retry_at_ms(e)),
             Ok(HeadRead {
                 verdict: HeadVerdict::EmptyOverCached { .. },
                 ..
@@ -509,7 +516,12 @@ async fn settle(
         (Attempt::Failed, Some((lease, attempts))) if !delivered => {
             give_back(job, claim, &lease, attempts).await;
         }
-        (Attempt::Failed, Some((lease, attempts))) => {
+        // A refused attempt no turn heard of: the row stays owed, its
+        // attempt returned, until the refusing window ends.
+        (Attempt::Paused(until_ms), Some((lease, _))) if !delivered => {
+            wait_out(job, &lease, until_ms).await;
+        }
+        (Attempt::Failed | Attempt::Paused(_), Some((lease, attempts))) => {
             // The turn heard of the failure itself; only a newer ask the
             // row was rebound to is still owed. It keeps the row while the
             // read has attempts left, and is told the read gave up once it
@@ -523,7 +535,7 @@ async fn settle(
                 }
             }
         }
-        (Attempt::Landed(_) | Attempt::Failed, None) => {}
+        (Attempt::Landed(_) | Attempt::Failed | Attempt::Paused(_), None) => {}
     }
 }
 

@@ -904,6 +904,17 @@ impl ProviderRegistry {
             .and_then(|limiter| RequestBudget::for_session_context(limiter, backend, user_id))
     }
 
+    /// The budget every read of `user_id`'s signed-in session at `backend`
+    /// is counted in: that athlete's session-read windows, by tier
+    /// (carnet#1661). `None` when this registry counts nothing, or `backend`
+    /// is not one of the scraper's sessions.
+    #[must_use]
+    pub fn session_read_budget(&self, backend: &str, user_id: Uuid) -> Option<RequestBudget> {
+        self.request_limiter
+            .as_ref()
+            .and_then(|limiter| RequestBudget::for_session_read(limiter, backend, user_id))
+    }
+
     /// The budget of the personal API key that belongs to `account`, the
     /// provider's id for its account: the windows the provider keeps for
     /// each key. `None` when this registry counts nothing, or when `account`

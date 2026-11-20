@@ -11,6 +11,7 @@ use super::ServerContextOptions;
 use crate::a2a::client::A2AClientManager;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
+use crate::config::sciotte_read_caps::SciotteReadCaps;
 use crate::services::archive_import::ArchiveImports;
 #[cfg(feature = "client-messaging")]
 use crate::services::backfill_notifier::ServerBackfillNotifier;
@@ -152,6 +153,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(feature = "protocol-rest")]
 use std::sync::OnceLock;
+use std::time::Duration;
 #[cfg(feature = "health-sync")]
 use tokio::task::AbortHandle;
 use tracing::{error, info, warn};
@@ -245,10 +247,11 @@ impl ServerContext {
         // (a session's calls on the one its id picks) and the sign-in client
         // every step of a sign-in shares (carnet#1504)
         let sciotte = &config.external_services.sciotte;
+        let request_limiter = Self::create_provider_rate_limiter(&config, &repos);
         let provider_registry = Arc::new(
             ProviderRegistry::new()
                 .with_endpoint_overrides(&config.oauth.endpoints)
-                .with_request_limiter(Self::create_provider_rate_limiter(&config, &repos))
+                .with_request_limiter(Arc::clone(&request_limiter))
                 .with_sciotte_reads(startup_reads(
                     &sciotte.read_urls,
                     sciotte.audience.as_deref(),
@@ -359,6 +362,21 @@ impl ServerContext {
         // Create admin config service if SQLite is available
         // This provides runtime-configurable parameters via admin API
         let admin_config = Self::init_admin_config_service(&database_arc).await;
+
+        // Each athlete's sciotte session reads are held to their tier's caps,
+        // as the admin config's sciotte_reads.* parameters set them, each
+        // answer kept a minute (carnet#1661). Bound even when the admin
+        // config could not start, so the compiled caps still apply by tier.
+        request_limiter.bind_session_read_limits(
+            Arc::new(SciotteReadCaps::new(
+                admin_config.clone().map(|config| {
+                    let lookup: Arc<dyn pierre_runtime_context::AdminConfigLookup> = config;
+                    lookup
+                }),
+                Arc::clone(&repos.users),
+            )),
+            Duration::from_mins(1),
+        );
 
         // Start background usage counter pruning task (hourly, removes records older than 90 days)
         let pruning_abort_handle = admin_config.as_ref().map(|config| {
@@ -491,6 +509,7 @@ impl ServerContext {
             Self::init_health_sync(
                 &repos,
                 &provider_registry,
+                &request_limiter,
                 &sse_manager,
                 SyncFailureNotices::new(
                     Arc::clone(&repos.provider_connections),
@@ -927,6 +946,7 @@ impl ServerContext {
     fn init_health_sync(
         repos: &Arc<RepositoryRegistry>,
         provider_registry: &ProviderRegistry,
+        request_limiter: &Arc<ProviderRateLimiter>,
         sse_manager: &Arc<SseManager>,
         notices: SyncFailureNotices,
     ) -> AppResult<(
@@ -942,7 +962,10 @@ impl ServerContext {
         // provider registry names for each, as the activity and link calls
         // do. A build that registers no provider for one of them reads none
         // of its wellness.
-        let adapter = Arc::new(PierreSyncStorage::new(repos));
+        // Every daily-summary read of a scrape session spends its owner's
+        // session reads (carnet#1661).
+        let adapter =
+            Arc::new(PierreSyncStorage::new(repos).with_read_budget(Arc::clone(request_limiter)));
         let orchestrator = adapter
             .build_orchestrator(
                 provider_registry.sciotte_reads().cloned(),

@@ -33,7 +33,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::models::coverage::{Completeness, IncompleteReason};
 use pierre_core::models::{Activity, RefreshConfig, TenantId};
 use serde_json::{json, Value};
-use tracing::{debug, field, info, warn, Span};
+use tracing::{debug, field, info, Span};
 
 use pierre_cache::{CacheKey, CacheResource};
 use uuid::Uuid;
@@ -66,8 +66,9 @@ use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::continuous_series::GetHeartRateSeriesTool;
 use crate::implementations::data_helpers::{
     attach_stand_in_caveat, backfill_placeholder_message, historical_backfill_fetch_limit,
-    historical_window_read_limit, pagination_has_more, response_cache_eligible, serve_in_place,
-    window_fetch_limit, AskedWindow, PrimaryStandIn, WindowCount, HISTORICAL_COVERAGE_BOUND_SECS,
+    historical_window_read_limit, log_failed_live_read, pagination_has_more, read_paused_note,
+    response_cache_eligible, serve_in_place, window_fetch_limit, AskedWindow, PrimaryStandIn,
+    WindowCount, HISTORICAL_COVERAGE_BOUND_SECS,
 };
 use crate::implementations::fitness_support::{
     activity_matches_sport, build_activities_success_response, cache_activities_result,
@@ -648,6 +649,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                 ),
                             })));
                         }
+                        InlineHistoricalServe::Paused(until_ms) => {
+                            return Ok(ToolResult::error(json!({
+                                "error": read_paused_note(&display_provider, until_ms),
+                            })));
+                        }
                         InlineHistoricalServe::Served(served) => (served, None),
                     }
                 } else {
@@ -780,10 +786,10 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             Ok(HeadRead {
                                 verdict: HeadVerdict::EmptyOverCached { cached },
                                 ..
-                            }) => Err(format!(
+                            }) => Err((format!(
                                 "{display_provider} answered with no activities for a window \
                                  the platform holds {cached} of its activities in"
-                            )),
+                            ), StaleReason::Error)),
                             // Its grant answered in the session's place (carnet#1494).
                             Ok(head) => {
                                 if head.served_by_grant.is_some() {
@@ -795,19 +801,19 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             }
                             // The model reads the provider's name; the log keeps the whole error.
                             Err(e) => {
-                                warn!(provider = %provider_name, error = %e, "live activity read failed");
+                                log_failed_live_read(&provider_name, &e);
                                 if e.provider_auth_required_provider().is_some() {
                                     let error = format!(
                                         "Failed to fetch activities: {display_provider} needs to be reconnected"
                                     );
                                     return Ok(ToolResult::error(json!({ "error": error })));
                                 }
-                                Err(e.tool_message())
+                                Err((e.tool_message(), StaleReason::of_failure(&e)))
                             }
                         };
                         match live {
                             Ok(activities) => (activities, provider),
-                            Err(reason) => {
+                            Err((reason, why)) => {
                                 let cached_rows = if context.tenant_id.is_some() {
                                     serve_stale_activities(
                                         &context.resources,
@@ -829,7 +835,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                 // nothing to write back, no serve to record, no
                                 // response to cache, and the caveat says the newest
                                 // sessions may be missing.
-                                stood_in = Some(PrimaryStandIn::Stale(provider_name.clone(), StaleReason::Error));
+                                stood_in = Some(PrimaryStandIn::Stale(provider_name.clone(), why));
                                 (cached_rows, None)
                             }
                         }

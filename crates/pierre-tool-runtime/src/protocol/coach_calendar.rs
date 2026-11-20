@@ -77,7 +77,7 @@ use pierre_providers::ai_scope::AiGovernedProvider;
 use pierre_providers::{CoreFitnessProvider, OAuth2Credentials};
 use pierre_services::coach_consents::member_consents;
 use pierre_services::coach_platform::{
-    check_roster_transport, coach_platform, with_key_budget, CoachPlatform,
+    check_roster_transport, coach_platform, with_request_budget, CoachPlatform,
 };
 use pierre_services::delegated_connections::{
     coach_roster, coach_session_state, CoachSession, DelegationServices,
@@ -439,7 +439,11 @@ impl AuthService {
         };
         Ok(Ok(Reach {
             athlete_id,
-            credentials: with_key_budget(self.runtime().provider_registry(), &token, credentials),
+            credentials: with_request_budget(
+                self.runtime().provider_registry(),
+                &token,
+                credentials,
+            ),
             group_id: group.id,
             seat: CoachSeat {
                 coach_user_id: requester,

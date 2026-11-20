@@ -96,7 +96,7 @@ use std::time::{Duration as StdDuration, Instant};
 
 use chrono::{DateTime, Utc};
 use pierre_core::constants::provider_capture::current_capture_version;
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::{
@@ -115,7 +115,7 @@ use uuid::Uuid;
 
 use super::{
     capture_with_head, keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms, owed_write,
-    pause::retry_at_ms, provider_tenant_id_str, spawn_activity_backfill, warm_training_history,
+    pause::paused_by, provider_tenant_id_str, spawn_activity_backfill, warm_training_history,
     ActivityBackfillJob, BackfillFetch, MAX_BACKFILL_ATTEMPTS,
 };
 use crate::activity_fetch::write_through::WriteThrough;
@@ -423,7 +423,7 @@ enum Step {
     Ended(JobProgressStep),
     /// A request budget refused the step: the walk resumes later, from the
     /// same cursor, once the refusing window ends (unix ms), or a lease from
-    /// now when the refusal named no end ([`retry_at_ms`]).
+    /// now when the refusal named no end ([`paused_by`]).
     Paused(i64),
     /// The source's credential is dead.
     AuthRequired,
@@ -630,21 +630,17 @@ async fn hand_off_to_grant(
 
 /// End the walk on its last `step`: the wellness before a push grant first,
 /// then the row kept as walked, the coverage, and the one message. A wellness
-/// copy that failed with attempts left leaves the row to the sweep, which
-/// re-runs the last step and copies again. `false` when the row is no longer
-/// this step's.
+/// copy that failed with attempts left, or that a session-read cap paused,
+/// leaves the row to the sweep, which re-runs the last step and copies again
+/// ([`wellness::copy_or_wait`]). `false` when the row is no longer this step's.
 async fn end_walk(
     job: &ActivityBackfillJob,
     lease: &JobLease,
     attempts: i64,
     step: JobProgressStep,
 ) -> bool {
-    if !wellness::copy_before_grant(job).await && attempts < MAX_BACKFILL_ATTEMPTS {
-        return log_write(
-            "the wellness copy failed; the sweep re-runs the last step",
-            Ok(true),
-            job,
-        );
+    if let Some(kept) = wellness::copy_or_wait(job, lease, attempts).await {
+        return kept;
     }
     let ended = job
         .resources
@@ -727,9 +723,13 @@ async fn walk_unrecorded(job: &ActivityBackfillJob, executor: &UniversalExecutor
                     grant_phase = Some(phase_reading(job, hand_off.backend, window.clone()));
                     continue;
                 }
-                wellness::copy_before_grant(phase).await;
+                // The activities are all in; a wellness copy left unfinished
+                // is not announced as walked, and the next ask copies again.
+                let copied = wellness::copy_unrecorded(phase).await;
                 record_walk_coverage(phase, step.before_ts, true).await;
-                announce_walked(phase, landed).await;
+                if copied {
+                    announce_walked(phase, landed).await;
+                }
                 return;
             }
             other => {
@@ -956,9 +956,6 @@ async fn api_step(
         let activities =
             match ai_scope::unfiltered(provider.get_activities_with_params(&read)).await {
                 Ok(activities) => activities,
-                Err(e) if e.code == ErrorCode::ExternalRateLimited => {
-                    return Step::Paused(retry_at_ms(&e));
-                }
                 Err(e) => return failed_read(job, &e),
             };
         if !activities.is_empty() {
@@ -1007,7 +1004,7 @@ fn with_floor(step: Step, learned: Option<JobFloor>) -> Step {
 /// when it names none, so the walk ends on its empty years and the profile
 /// is not read again. `Ok(None)` when the profile cannot be read for any
 /// reason but a spent budget, which is `Err` with the instant the refusing
-/// window ends ([`retry_at_ms`]).
+/// window ends ([`paused_by`]).
 async fn account_floor(
     job: &ActivityBackfillJob,
     provider: &dyn CoreFitnessProvider,
@@ -1023,16 +1020,22 @@ async fn account_floor(
                     .map(|after_ts| months_between(Utc::now().timestamp(), after_ts)),
             }))
         }
-        Err(e) if e.code == ErrorCode::ExternalRateLimited => Err(retry_at_ms(&e)),
-        Err(e) => {
-            warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the athlete's profile could not be read; walking to the empty years");
-            Ok(None)
-        }
+        Err(e) => paused_by(&e).map_or_else(
+            || {
+                warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the athlete's profile could not be read; walking to the empty years");
+                Ok(None)
+            },
+            Err,
+        ),
     }
 }
 
-/// A read that failed: a dead credential, or a transient failure.
+/// A read that failed: a spent request budget (a session-read cap
+/// included), a dead credential, or a transient failure.
 fn failed_read(job: &ActivityBackfillJob, error: &AppError) -> Step {
+    if let Some(until_ms) = paused_by(error) {
+        return Step::Paused(until_ms);
+    }
     let auth_required = error.provider_auth_required_provider().is_some();
     warn!(user_id = %job.user_id, provider = %job.provider_name, error = %error, auth_required, "History walk: a step's read failed");
     if auth_required {
@@ -1076,6 +1079,7 @@ async fn land(
         BackfillFetch::Activities(activities) => activities,
         BackfillFetch::AuthRequired => return Step::AuthRequired,
         BackfillFetch::Failed => return Step::Failed,
+        BackfillFetch::Paused(until_ms) => return Step::Paused(until_ms),
     };
     let oldest = activities
         .iter()

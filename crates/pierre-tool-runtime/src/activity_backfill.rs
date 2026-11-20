@@ -51,7 +51,7 @@ use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillCoverage, BackfillJobKind, JobLease, JobProgress,
 };
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
-use pierre_providers::request_budget::in_background;
+use pierre_providers::request_budget::{in_background, is_background};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -82,6 +82,8 @@ mod owed_write;
 mod pause;
 /// What a job does when it finds its provider session dead
 mod reauth;
+/// What a recorded backfill's outcome does to its row
+mod settle;
 /// A tag walk: Strava's own list paged for the tags and gear id of the stored history
 pub mod tag_walk;
 
@@ -91,6 +93,7 @@ use in_flight::{
 };
 pub use reauth::backfill_session_expired;
 use reauth::notify_backfill_reauth;
+use settle::{remove_backfill_job, settle_backfill_job, wait_out};
 
 /// Default age (days) past which an activity request is served via background
 /// backfill instead of an inline provider scrape.
@@ -347,8 +350,30 @@ async fn enqueue(
         }
         Recorded::Unrecorded => None,
     };
-    spawn_backfill_run(job, claim, recorded, handoff);
+    spawn_backfill_run(job, claim, recorded, handoff, Awaited::of_asker());
     Enqueued::Started
+}
+
+/// Whether the ask that started a job's run may be waiting on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Awaited {
+    /// An ask an athlete may wait on: a turn, a route.
+    Maybe,
+    /// Nobody waits: work [`in_background`] asked for it (a platform post's
+    /// turn), or the resume sweep re-runs it.
+    No,
+}
+
+impl Awaited {
+    /// What the running task's ask is, read in its own task: a task-local
+    /// does not cross the spawn that runs the job.
+    fn of_asker() -> Self {
+        if is_background() {
+            Self::No
+        } else {
+            Self::Maybe
+        }
+    }
 }
 
 /// Point the live read this instance runs for the pair at `job`'s newer ask;
@@ -394,7 +419,8 @@ pub(crate) fn resume_recorded_backfill(
         );
         return false;
     };
-    spawn_backfill_run(job, claim, Some((row_id, attempts)), None);
+    // Nobody waits on a re-run: the turn that asked has its follow-up.
+    spawn_backfill_run(job, claim, Some((row_id, attempts)), None, Awaited::No);
     true
 }
 
@@ -430,17 +456,22 @@ pub(crate) fn answer_reaped_live_read(job: ActivityBackfillJob) -> bool {
 /// walk ([`detail_walk`]), or a backfill. A job neither a conversation nor a
 /// turn waits on runs [`in_background`], leaving the head reads athletes
 /// wait on the rest of each window (carnet#1478); so does every detail walk,
-/// whatever asked it: nobody waits on it.
+/// whatever asked it: nobody waits on it. So does a job `asker` says nobody
+/// waits on, whatever it is bound to: its session reads count as background
+/// (carnet#1661).
 fn spawn_backfill_run(
     job: ActivityBackfillJob,
     claim: InFlightClaim,
     recorded: Option<(JobLease, i64)>,
     handoff: Option<live_read::LiveReadHandoff>,
+    asker: Awaited,
 ) {
-    let awaited = !matches!(
-        job.kind,
-        BackfillJobKind::DetailWalk | BackfillJobKind::TagWalk
-    ) && (job.pierre_conversation_id.is_some() || handoff.is_some());
+    let awaited = asker == Awaited::Maybe
+        && !matches!(
+            job.kind,
+            BackfillJobKind::DetailWalk | BackfillJobKind::TagWalk
+        )
+        && (job.pierre_conversation_id.is_some() || handoff.is_some());
     let (user_id, provider, kind) = (job.user_id, job.provider_name.clone(), job.kind);
     let run = async move {
         let after = match job.kind {
@@ -588,62 +619,6 @@ async fn run_recorded_backfill(job: &ActivityBackfillJob, row_id: &JobLease, att
     drop(renewal);
 }
 
-/// What the run's outcome does to its row: finished on an outcome the
-/// athlete is told about, left to the sweep on a transient failure — unless
-/// this was the job's last attempt, in which case the row is dropped so the
-/// athlete's next ask can record a fresh one instead of being told forever
-/// that this one is owed.
-async fn settle_backfill_job(
-    job: &ActivityBackfillJob,
-    row_id: &JobLease,
-    attempts: i64,
-    outcome: &BackfillRunOutcome,
-) {
-    match outcome {
-        BackfillRunOutcome::Completed | BackfillRunOutcome::AuthRequired => {
-            remove_backfill_job(job, row_id, "finished").await;
-        }
-        BackfillRunOutcome::Failed if attempts >= MAX_BACKFILL_ATTEMPTS => {
-            warn!(
-                user_id = %job.user_id,
-                provider = %job.provider_name,
-                row_id = %row_id,
-                attempts,
-                "Activity backfill: failed on its last attempt; dropping the job — the athlete's next ask starts a fresh one"
-            );
-            remove_backfill_job(job, row_id, "exhausted").await;
-        }
-        BackfillRunOutcome::Failed => info!(
-            user_id = %job.user_id,
-            provider = %job.provider_name,
-            row_id = %row_id,
-            attempts,
-            "Activity backfill: failed; leaving the job for the resume sweep once its lease lapses"
-        ),
-    }
-}
-
-/// Delete the job's row. A delete the ledger refuses is logged and left: the
-/// row's lease lapses, and the sweep either re-runs it or reaps it.
-async fn remove_backfill_job(job: &ActivityBackfillJob, row_id: &JobLease, why: &str) {
-    if let Err(e) = job
-        .resources
-        .repos()
-        .activity_backfill_jobs
-        .finish_backfill_job(row_id)
-        .await
-    {
-        warn!(
-            user_id = %job.user_id,
-            provider = %job.provider_name,
-            row_id = %row_id,
-            why,
-            error = %e,
-            "Activity backfill: job row could not be removed from the ledger; the sweep sees it again"
-        );
-    }
-}
-
 /// The lease renewal a running backfill keeps alive; aborted when dropped.
 struct LeaseRenewal(JoinHandle<()>);
 
@@ -723,6 +698,10 @@ pub(crate) enum BackfillRunOutcome {
     AuthRequired,
     /// Transient failure — nothing persisted; a retry re-runs the window.
     Failed,
+    /// A request budget refused the read before it was sent (a session-read
+    /// cap included): nothing persisted, and the window is re-run once the
+    /// refusing window ends (unix ms), with no attempt spent.
+    Paused(i64),
 }
 
 /// Run a backfill to completion on the caller's own future, serializing on
@@ -769,6 +748,10 @@ pub(crate) enum InlineHistoricalServe {
     AuthRequired,
     /// Transient failure — the caller answers with a retry hint.
     Failed,
+    /// A request budget refused the read before it was sent (a session-read
+    /// cap included): live reads resume at this instant (unix ms), and the
+    /// caller answers with that wait rather than a failure.
+    Paused(i64),
 }
 
 /// Run the backfill inline (see [`run_activity_backfill_inline`]) and read
@@ -790,6 +773,7 @@ pub(crate) async fn backfill_inline_and_serve(
     match run_activity_backfill_inline(job).await {
         BackfillRunOutcome::AuthRequired => return InlineHistoricalServe::AuthRequired,
         BackfillRunOutcome::Failed => return InlineHistoricalServe::Failed,
+        BackfillRunOutcome::Paused(until_ms) => return InlineHistoricalServe::Paused(until_ms),
         BackfillRunOutcome::Completed => {}
     }
     let window = read_cached_window(
@@ -825,6 +809,9 @@ enum BackfillFetch {
     /// Any other (transient/unsupported) failure, a headless capture
     /// included — logged, no nudge.
     Failed,
+    /// A request budget refused the read before it was sent; it may be
+    /// tried again once the refusing window ends (unix ms).
+    Paused(i64),
 }
 
 /// Classify a fetched capture by the provider's own verdict on its head.
@@ -913,6 +900,8 @@ async fn fetch_backfill_activities(
             );
             if auth_required {
                 BackfillFetch::AuthRequired
+            } else if pause::waits_out(&e) {
+                BackfillFetch::Paused(pause::retry_at_ms(&e))
             } else {
                 BackfillFetch::Failed
             }
@@ -1008,6 +997,7 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) -> BackfillRunOutcome 
             return BackfillRunOutcome::AuthRequired;
         }
         BackfillFetch::Failed => return BackfillRunOutcome::Failed,
+        BackfillFetch::Paused(until_ms) => return BackfillRunOutcome::Paused(until_ms),
     };
 
     if activities.is_empty() {

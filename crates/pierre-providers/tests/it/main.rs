@@ -45,6 +45,8 @@ mod sciotte_route_time_series_test;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_session_expiry_test;
 #[cfg(feature = "provider-sciotte")]
+mod sciotte_session_read_cap_test;
+#[cfg(feature = "provider-sciotte")]
 mod sciotte_session_reimport_test;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_session_rotation_test;

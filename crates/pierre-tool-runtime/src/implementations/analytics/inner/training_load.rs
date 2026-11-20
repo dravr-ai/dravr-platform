@@ -10,6 +10,7 @@ use crate::implementations::analytics::output::{
     LoadMetrics, LoadRecoveryContext, NoTrainingLoad, ProvidersUsed, TrainingLoadDetail,
     TrainingLoadResult, TrainingZone, WeeklyTss,
 };
+use crate::implementations::stored_copy::{activities_or_stored, with_caveat, Reader, Served};
 use crate::implementations::stored_physiology::stored_athlete_inputs;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
@@ -37,7 +38,6 @@ use std::pin::Pin;
 #[cfg(feature = "client-notifications")]
 use std::sync::Arc;
 use tracing::{debug, warn};
-#[cfg(feature = "client-notifications")]
 use uuid::Uuid;
 
 /// Recovery context from sleep/HRV data for training load interpretation
@@ -373,8 +373,17 @@ pub(crate) fn handle_analyze_training_load(
         {
             Ok(provider) => {
                 let activity_limit = executor.resources.config().activity_fetch_limit;
-                match provider.get_activities(Some(activity_limit), None).await {
-                    Ok(raw_activities) => {
+                match activities_or_stored(
+                    Reader::new(&executor.resources, user_uuid, request.tenant_id.as_deref()),
+                    provider.as_ref(),
+                    activity_limit,
+                )
+                .await
+                {
+                    Ok(Served {
+                        value: raw_activities,
+                        caveat,
+                    }) => {
                         // Collapse overlapping GPS recordings (Garmin auto-split,
                         // dual-device, Strava re-upload) into canonical sessions
                         // before TSS / CTL / ATL are computed; otherwise the
@@ -498,7 +507,7 @@ pub(crate) fn handle_analyze_training_load(
                             }),
                         };
 
-                        apply_format_typed(result, analysis, output_format)
+                        with_caveat(apply_format_typed(result, analysis, output_format), caveat)
                     }
                     Err(e) => {
                         warn!(error = %e, "activity read for training load failed");

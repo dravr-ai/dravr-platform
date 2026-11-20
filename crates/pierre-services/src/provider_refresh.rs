@@ -30,6 +30,8 @@ use pierre_providers::backend_resolver;
 use pierre_providers::backend_resolver::sync_backend;
 #[cfg(feature = "health-sync")]
 use pierre_providers::registry::global_registry;
+#[cfg(feature = "health-sync")]
+use pierre_providers::request_budget::in_background;
 use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
@@ -610,7 +612,8 @@ impl RefreshService {
                 return;
             }
 
-            tokio::spawn(
+            // Nobody waits on it: its session reads count as background.
+            tokio::spawn(in_background(
                 BackgroundSync {
                     orchestrator,
                     repos: self.repos.clone(),
@@ -621,7 +624,7 @@ impl RefreshService {
                     provider,
                 }
                 .run(),
-            );
+            ));
         }
     }
 

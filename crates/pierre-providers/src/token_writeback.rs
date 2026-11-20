@@ -75,6 +75,12 @@ impl StoredTokenRow {
         }
     }
 
+    /// The user the row is stored for: the owner of the session it holds.
+    #[must_use]
+    pub const fn user_id(&self) -> Uuid {
+        self.user_id
+    }
+
     /// The row `token` was read as.
     ///
     /// # Errors

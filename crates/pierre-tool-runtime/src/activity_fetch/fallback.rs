@@ -21,14 +21,15 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, ConnectionStatus, ProviderConnection, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig, FragmentReport};
+use pierre_providers::request_budget::session_read_cap;
 use pierre_providers::{ai_scope, backend_resolver};
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::pushed::{connection_grant_beside_session, pushed_head};
 use super::sync_verdict::{
-    falls_back, log_head_failure, read_provider_head, record_head_attempt, HeadRead, HeadVerdict,
-    LiveRead,
+    capped_session_falls_back, falls_back, log_head_failure, read_provider_head,
+    record_head_attempt, HeadRead, HeadVerdict, LiveRead,
 };
 use super::{
     fetch_provider_activities, read_cached_window, read_exact_backend, serve_stale_activities,
@@ -81,7 +82,9 @@ pub(super) async fn serve_head(
         params,
         ..
     } = live;
-    let grant = if falls_back(&read) {
+    // A capped Strava session read asks the grant too (carnet#1661).
+    let capped = matches!(&read, Err(e) if capped_session_falls_back(e, provider_slug));
+    let grant = if falls_back(&read) || capped {
         pair_grant(runtime, user_id, tenant, provider_slug).await
     } else {
         None
@@ -136,13 +139,7 @@ async fn answer_with_grant(
                 )
                 .await;
             }
-            warn!(
-                user_id = %user_id,
-                provider = %provider_slug,
-                grant = %grant,
-                cause = %head_cause(&read),
-                "Live activity head read failed on the session; its grant answered in its place"
-            );
+            log_grant_answered(&read, user_id, provider_slug, grant);
             head.served_by_grant = Some(grant.to_owned());
             Ok(head)
         }
@@ -163,6 +160,29 @@ async fn answer_with_grant(
             }
             read
         }
+    }
+}
+
+/// Log that `grant` answered a head read of `provider_slug` the session
+/// answered with `read`: a warning for a failed read, information for one
+/// the athlete's session-read cap refused, which the limiter logged once
+/// already, on the usage target (carnet#1661).
+fn log_grant_answered(read: &AppResult<HeadRead>, user_id: Uuid, provider_slug: &str, grant: &str) {
+    if matches!(read, Err(e) if session_read_cap(e).is_some()) {
+        info!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            grant = %grant,
+            "Live activity head read capped on the session; its grant answered in its place"
+        );
+    } else {
+        warn!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            grant = %grant,
+            cause = %head_cause(read),
+            "Live activity head read failed on the session; its grant answered in its place"
+        );
     }
 }
 

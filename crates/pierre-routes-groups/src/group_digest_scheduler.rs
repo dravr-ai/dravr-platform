@@ -82,6 +82,7 @@
 //! notification is logged and counted, and never aborts the rest of the sweep.
 
 use pierre_providers::ai_scope;
+use pierre_providers::request_budget::in_background;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
@@ -398,9 +399,13 @@ async fn process_group<C>(
         })
         .collect();
     // The digest is derived from those members' training: it is stamped with
-    // what those reads served (carnet#769).
-    let (snapshots, derived_from) =
-        ai_scope::derived(fetch_member_snapshots_in(sweep.runtime, &readers)).await;
+    // what those reads served (carnet#769). Nobody waits on the weekly
+    // digest, so its session reads count as background (carnet#1661).
+    let (snapshots, derived_from) = in_background(ai_scope::derived(fetch_member_snapshots_in(
+        sweep.runtime,
+        &readers,
+    )))
+    .await;
     outcome.groups_reported += 1;
     let posted = post_digest_to_room(sweep, tenant_id, group, &audience, &snapshots, outcome).await;
 

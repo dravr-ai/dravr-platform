@@ -597,7 +597,9 @@ impl AuthService {
     /// by OAuth (intervals.icu): no client issued it, so no app budget
     /// applies, and its provider-side user id rides as `client_id`, the
     /// athlete the API path addresses. The key's requests are counted in the
-    /// windows its provider keeps for each key, under that same id.
+    /// windows its provider keeps for each key, under that same id. A
+    /// scraper session is read as `user_id`, so its reads are counted in that
+    /// athlete's session-read windows at its backend (carnet#1661).
     async fn signing_credentials(
         &self,
         provider_name: &str,
@@ -613,7 +615,7 @@ impl AuthService {
             let budget = if token_data.kind == CredentialKind::ApiKey {
                 registry.api_key_budget(&account)
             } else {
-                None
+                registry.session_read_budget(provider_name, user_id)
             };
             return Ok((account, SecretString::default(), budget));
         }

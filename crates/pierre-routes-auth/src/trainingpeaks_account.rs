@@ -16,6 +16,7 @@ use std::sync::Arc;
 use dravr_sciotte::models::AuthSession;
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::models::{ConnectionType, ProviderAccountRole, TenantId};
+use pierre_providers::request_budget::in_background;
 use pierre_providers::token_writeback::StoredTokenRow;
 use pierre_services::scrape_session::StoredSession;
 use pierre_services::trainingpeaks_accounts::probe_trainingpeaks_role;
@@ -63,7 +64,9 @@ pub(crate) fn spawn_login_probe(
     let session_json = stored.session_json.expose_secret().to_owned();
     let read_from = stored.row.clone();
     let persist_rotated = persist_rotated(resources, stored);
-    tokio::spawn(async move {
+    // Nobody waits on the probe or the prefetch: their session reads count
+    // as background (carnet#1661).
+    tokio::spawn(in_background(async move {
         let tenant = TenantId::from_uuid(tenant_id);
         let probed = async {
             let purge = purge?;
@@ -111,7 +114,7 @@ pub(crate) fn spawn_login_probe(
             ticket,
         )
         .await;
-    });
+    }));
     wait
 }
 
@@ -132,7 +135,8 @@ pub(crate) fn spawn_role_probe_if_unread(
     let repos = Arc::clone(&resources.repos);
     let purge = resources.data.provider_purge().map(Arc::clone);
     let registry = Arc::clone(&resources.provider_registry);
-    tokio::spawn(async move {
+    // Nobody waits on the probe: its session read counts as background.
+    tokio::spawn(in_background(async move {
         let tenant = TenantId::from_uuid(tenant_id);
         let unread = match repos
             .provider_connections
@@ -181,5 +185,5 @@ pub(crate) fn spawn_role_probe_if_unread(
                 "TrainingPeaks account probe failed on a reused session"
             ),
         }
-    });
+    }));
 }

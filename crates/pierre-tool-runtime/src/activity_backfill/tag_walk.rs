@@ -49,7 +49,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::provider_context::ProviderActivitySearch;
 use pierre_core::models::Activity;
 use pierre_core::models::TenantId;
@@ -66,7 +66,7 @@ use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 use super::detail_walk::session_walk_window;
-use super::pause::retry_at_ms;
+use super::pause::paused_by;
 use super::{
     enqueue, keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms, provider_tenant_id_str,
     ActivityBackfillJob, Enqueued, MAX_BACKFILL_ATTEMPTS,
@@ -448,15 +448,20 @@ async fn amend_across_keys(
 /// What a failed page read comes to: a spent budget or a provider rate limit
 /// pauses the walk, a dead credential ends it, anything else retries it.
 fn read_failed(job: &ActivityBackfillJob, page: i64, e: &AppError) -> Read {
-    if e.code == ErrorCode::ExternalRateLimited {
-        info!(user_id = %job.user_id, provider = %job.provider_name, page, error = %e, "Tag walk: a rate limit paused the walk");
-        Read::Paused(retry_at_ms(e))
-    } else if e.provider_auth_required_provider().is_some() {
-        Read::AuthRequired
-    } else {
-        warn!(user_id = %job.user_id, provider = %job.provider_name, page, error = %e, "Tag walk: the page could not be read");
-        Read::Failed
-    }
+    paused_by(e).map_or_else(
+        || {
+            if e.provider_auth_required_provider().is_some() {
+                Read::AuthRequired
+            } else {
+                warn!(user_id = %job.user_id, provider = %job.provider_name, page, error = %e, "Tag walk: the page could not be read");
+                Read::Failed
+            }
+        },
+        |until_ms| {
+            info!(user_id = %job.user_id, provider = %job.provider_name, page, error = %e, "Tag walk: a rate limit paused the walk");
+            Read::Paused(until_ms)
+        },
+    )
 }
 
 /// What `step` does to the walk's row.

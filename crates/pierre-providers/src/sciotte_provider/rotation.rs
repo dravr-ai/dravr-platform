@@ -6,7 +6,9 @@
 
 //! Every read a [`SciotteProvider`] makes goes through
 //! [`SciotteProvider::read_through`], the provider's use of
-//! [`read_imported_persisting`]. A session the scraped platform rotated on a
+//! [`read_imported_persisting`]. Each is first admitted against the budget
+//! its credentials carry: the athlete's session-read windows at this backend
+//! (carnet#1661), so a refused read never reaches the session. A session the scraped platform rotated on a
 //! read (Garmin logs the old cookie out) replaces the one the provider holds,
 //! so its later reads import the live copy, and reaches the token-refresh
 //! callback as the credentials the provider was given with the rotated
@@ -22,12 +24,15 @@ use tracing::{debug, warn};
 use super::{SciotteProvider, SciotteTarget};
 use crate::core::TokenRefreshCallback;
 use crate::errors::AppResult;
+use crate::request_budget::{self, carried_by};
 use crate::sciotte_session::{self, read_imported_persisting};
 
 impl SciotteProvider {
-    /// Run `read` through `session` on `remote`.
+    /// Run `read` through `session` on `remote`, once the budget the
+    /// credentials carry admits it.
     ///
-    /// A session the platform rotated on it is adopted
+    /// A refusal names the platform's brand and sends nothing. A session the
+    /// platform rotated on it is adopted
     /// ([`Self::adopt_rotated`]) whatever the read answered, and a failure is
     /// mapped to the platform error.
     pub(super) async fn read_through<T, F, Fut>(
@@ -41,7 +46,12 @@ impl SciotteProvider {
         F: Fn() -> Fut + Send + Sync,
         Fut: Future<Output = Result<T, ClientError>> + Send,
     {
-        let provider = SciotteTarget::from_backend_name(self.provider_name).scraper_provider_name();
+        let target = SciotteTarget::from_backend_name(self.provider_name);
+        let budget = carried_by(&self.credentials).await;
+        request_budget::admit(budget.as_ref(), self.provider_name)
+            .await
+            .map_err(|e| request_budget::with_brand(e, target.brand()))?;
+        let provider = target.scraper_provider_name();
         read_imported_persisting(remote, session, provider, read, |rotated| {
             self.adopt_rotated(rotated)
         })

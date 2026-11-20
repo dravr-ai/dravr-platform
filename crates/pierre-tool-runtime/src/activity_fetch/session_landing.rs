@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use pierre_core::models::TenantId;
+use pierre_providers::request_budget::keep_scope;
 use pierre_services::live_activities::LandedSession;
 use uuid::Uuid;
 
@@ -17,7 +18,8 @@ use crate::runtime::ToolRuntime;
 /// runtime's [`SessionLandedSink`](crate::runtime::SessionLandedSink), off
 /// the write's path: the sink may post the coach's reaction or send the
 /// per-session digest, and a turn's fetch must not wait on either. Nothing
-/// happens when nothing landed or no sink is wired.
+/// happens when nothing landed or no sink is wired. The sink's reads count as
+/// the fetch's do: background when it is ([`keep_scope`]).
 pub(super) fn announce(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -27,7 +29,7 @@ pub(super) fn announce(
     let (Some(session), Some(sink)) = (landed, runtime.session_landed_sink()) else {
         return;
     };
-    tokio::spawn(async move {
+    tokio::spawn(keep_scope(async move {
         sink.session_landed(user_id, tenant_id, session).await;
-    });
+    }));
 }

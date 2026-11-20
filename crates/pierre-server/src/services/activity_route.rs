@@ -100,6 +100,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, RouteGeometrySource, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError};
+use pierre_providers::request_budget::session_read_cap;
 use pierre_services::activity_track::{self, stored_track, RouteRead, StoredTrack};
 use pierre_tool_runtime::activity_detail_store;
 use pierre_tool_runtime::protocol::auth::AuthService;
@@ -695,7 +696,8 @@ impl DetachedRead {
 /// # Errors
 ///
 /// Returns [`AppError::provider_auth_required`] when the connection needs
-/// reconnecting.
+/// reconnecting, and the athlete's session-read cap's refusal when their live
+/// reads are used up: neither is stored.
 async fn read_streams_by(
     runtime: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
@@ -706,7 +708,10 @@ async fn read_streams_by(
     let unread = || Ok((cached.provider.to_owned(), Err(RouteMiss::Unavailable)));
     match timeout(bound, read_streams(runtime, tenant_id, user_id, cached)).await {
         Ok(Ok(read)) => Ok(read),
+        // A session-read cap's refusal settles nothing either: no read was
+        // sent, and it answers 503 with when live reads resume (carnet#1661).
         Ok(Err(e)) if e.provider_auth_required_provider().is_some() => Err(e),
+        Ok(Err(e)) if session_read_cap(&e).is_some() => Err(e),
         Ok(Err(e)) => {
             warn!(
                 activity_id = cached.activity.id(),

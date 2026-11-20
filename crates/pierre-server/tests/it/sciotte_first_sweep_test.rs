@@ -85,13 +85,13 @@ const SUBSCRIPTION_ID: u64 = 91;
 /// A loopback backend that counts the activity-list reads it answers, and
 /// answers `503` while `failing` is set.
 #[derive(Default)]
-struct Backend {
+pub(crate) struct Backend {
     reads: AtomicUsize,
     failing: AtomicBool,
 }
 
 impl Backend {
-    fn reads(&self) -> usize {
+    pub(crate) fn reads(&self) -> usize {
         self.reads.load(Ordering::SeqCst)
     }
 }
@@ -177,13 +177,13 @@ async fn spawn_strava() -> (String, Arc<Backend>) {
 
 /// The scraper, Strava, and a server reaching both, whose Strava app is
 /// [`APP`] and whose Strava webhook subscription is [`SUBSCRIPTION_ID`].
-struct World {
-    resources: Arc<ServerContext>,
-    scraper: Arc<Backend>,
-    strava: Arc<Backend>,
+pub(crate) struct World {
+    pub(crate) resources: Arc<ServerContext>,
+    pub(crate) scraper: Arc<Backend>,
+    pub(crate) strava: Arc<Backend>,
 }
 
-async fn world() -> World {
+pub(crate) async fn world() -> World {
     let (scraper_url, scraper) = spawn_scraper().await;
     let (strava_url, strava) = spawn_strava().await;
     let resources =
@@ -208,7 +208,7 @@ fn config(scraper_url: &str, strava_url: &str) -> ServerConfig {
 
 /// A new athlete holding a live Strava grant — token and active connection —
 /// and a live usr/pwd session beside it.
-async fn athlete_with_both(resources: &Arc<ServerContext>) -> (Uuid, TenantId) {
+pub(crate) async fn athlete_with_both(resources: &Arc<ServerContext>) -> (Uuid, TenantId) {
     let (user_id, _user, tenant) = common::create_test_user_with_plan(
         &resources.agent.database,
         &format!("sciotte-first-{}@example.com", Uuid::new_v4()),

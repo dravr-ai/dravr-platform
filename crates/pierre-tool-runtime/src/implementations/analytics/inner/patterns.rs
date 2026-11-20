@@ -8,6 +8,7 @@ use crate::implementations::analytics::output::{
     DayFrequency, HardEasyPatternResult, InsufficientPatternData, IntensityDistribution,
     OvertrainingResult, PatternsResult, VolumeProgressionResult, WeeklySchedulePatternResult,
 };
+use crate::implementations::stored_copy::{activities_or_stored, with_caveat, Reader, Served};
 use crate::implementations::stored_physiology::stored_hr_zones;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
@@ -48,7 +49,7 @@ const PATTERN_TYPES: [&str; 4] = [
 /// # Arguments
 /// * `provider` - Configured fitness provider
 /// * `pattern_type` - Type of pattern to detect (e.g., "`weekly_schedule`", "overtraining")
-/// * `user_uuid` - User UUID for response metadata
+/// * `reader` - Whose read it is: their stored copy answers a capped read
 /// * `hr_zones` - The athlete's heart-rate zones, or why they are unknown
 ///
 /// # Returns
@@ -56,18 +57,18 @@ const PATTERN_TYPES: [&str; 4] = [
 async fn fetch_and_detect_patterns(
     provider: Box<dyn FitnessProvider>,
     pattern_type: &str,
-    user_uuid: uuid::Uuid,
+    reader: Reader<'_>,
     user_timezone: Option<&str>,
     hr_zones: Result<&HrZones, &HrZonesUnavailable>,
     output_format: OutputFormat,
 ) -> Result<UniversalResponse, ProtocolError> {
     use DEFAULT_ACTIVITY_LIMIT;
 
-    match provider
-        .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
-        .await
-    {
-        Ok(raw_activities) => {
+    match activities_or_stored(reader, provider.as_ref(), DEFAULT_ACTIVITY_LIMIT).await {
+        Ok(Served {
+            value: raw_activities,
+            caveat,
+        }) => {
             // Collapse fragments so the overtraining detector doesn't trip on
             // synthetic activity-density signals from re-uploaded GPS files.
             let (activities, _fragment_report) =
@@ -75,22 +76,25 @@ async fn fetch_and_detect_patterns(
             let analysis =
                 detect_activity_patterns(&activities, pattern_type, user_timezone, hr_zones);
 
-            apply_format_typed(
-                UniversalResponse {
-                    success: true,
-                    result: None,
-                    error: None,
-                    metadata: Some({
-                        let mut map = HashMap::new();
-                        map.insert(
-                            "user_id".to_owned(),
-                            serde_json::Value::String(user_uuid.to_string()),
-                        );
-                        map
-                    }),
-                },
-                analysis,
-                output_format,
+            with_caveat(
+                apply_format_typed(
+                    UniversalResponse {
+                        success: true,
+                        result: None,
+                        error: None,
+                        metadata: Some({
+                            let mut map = HashMap::new();
+                            map.insert(
+                                "user_id".to_owned(),
+                                serde_json::Value::String(reader.user_id.to_string()),
+                            );
+                            map
+                        }),
+                    },
+                    analysis,
+                    output_format,
+                ),
+                caveat,
             )
         }
         Err(e) => {
@@ -443,7 +447,7 @@ pub(crate) fn handle_detect_patterns(
                 let result = fetch_and_detect_patterns(
                     provider,
                     pattern_type,
-                    user_uuid,
+                    Reader::new(&executor.resources, user_uuid, request.tenant_id.as_deref()),
                     user_timezone.as_deref(),
                     hr_zones.as_ref(),
                     output_format,

@@ -43,6 +43,7 @@ use pierre_middleware::AuthenticatedUser;
 use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::registry::ProviderRegistry;
+use pierre_providers::request_budget::in_background;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::coach_consents::{
     consent_offer, link_consents, link_offer, link_reads_wellness, set_coach_consents,
@@ -779,7 +780,8 @@ impl DelegatedConnectionRoutes {
     /// Read the member's recent `backend` workouts through the link they just
     /// confirmed, off the request, so their first question finds them
     /// cached. The read writes through under the member's own keys; its
-    /// failure is logged, and the next read tries again.
+    /// failure is logged, and the next read tries again. Nobody waits on it,
+    /// so its session reads count as background (carnet#1661).
     fn spawn_warm_up<C: ToolRuntime>(
         resources: &Arc<C>,
         backend: String,
@@ -788,7 +790,7 @@ impl DelegatedConnectionRoutes {
     ) {
         let cloned: Arc<C> = Arc::clone(resources);
         let runtime: Arc<dyn ToolRuntime> = cloned;
-        tokio::spawn(async move {
+        tokio::spawn(in_background(async move {
             let params = ActivityQueryParams {
                 limit: Some(WARM_UP_ACTIVITIES),
                 offset: None,
@@ -810,7 +812,7 @@ impl DelegatedConnectionRoutes {
                     "Warm-up read through a confirmed delegated link failed"
                 ),
             }
-        });
+        }));
     }
 
     /// DELETE `/api/groups/:group_id/delegated-connections/:connection_id` —

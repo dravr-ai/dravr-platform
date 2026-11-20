@@ -32,6 +32,7 @@ use crate::revalidation::{revalidation_timeout, RevalidationRegistry};
 use crate::runtime::ToolRuntime;
 use pierre_providers::ai_scope;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_providers::request_budget::keep_scope;
 
 /// Age beyond which cached activities trigger a revalidation
 /// (stale-while-revalidate). Cached data is still what gets served; this only
@@ -265,7 +266,9 @@ async fn activity_cache_is_stale(
 ///
 /// Past the budget the task keeps running detached — capped at
 /// [`revalidation_timeout`] so a hung scrape releases its slot — and its
-/// write-through still lands for the next turn. Deduplicated: only one
+/// write-through still lands for the next turn. Its reads count as the
+/// caller's do: background for a weekly digest, asked for a coach's turn
+/// ([`keep_scope`]). Deduplicated: only one
 /// revalidation runs per `(user, tenant)` at a time; when one is already in
 /// flight this reports "not fresh" rather than waiting on a task it has no
 /// handle to.
@@ -284,7 +287,7 @@ async fn revalidate_within_budget(
     };
 
     let runtime = Arc::clone(runtime);
-    let task = tokio::spawn(async move {
+    let task = tokio::spawn(keep_scope(async move {
         // Hold the slot for the whole refresh; dropping `guard` frees it.
         let _guard = guard;
         info!(user_id = %user_id, "Activity cache: revalidation started");
@@ -306,7 +309,7 @@ async fn revalidate_within_budget(
                 "Activity cache: revalidation timed out; releasing slot"
             ),
         }
-    });
+    }));
 
     let budget = RefreshConfig::default().wait_for_refresh_timeout();
     match timeout(budget, task).await {

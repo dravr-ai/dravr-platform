@@ -7,6 +7,9 @@
 use crate::implementations::analytics::output::{
     CompareActivitiesResult, MetricComparison, PersonalRecordComparison,
 };
+use crate::implementations::stored_copy::{
+    activities_or_stored, activity_or_stored, with_caveat, Reader, Served,
+};
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::{by_id_reader, resolve_provider_for_request};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -55,7 +58,7 @@ async fn execute_activity_comparison(
     activity_id: &str,
     comparison_type: &str,
     compare_activity_id: Option<&str>,
-    user_uuid: uuid::Uuid,
+    store: Reader<'_>,
     output_format: OutputFormat,
 ) -> Result<UniversalResponse, ProtocolError> {
     use DEFAULT_ACTIVITY_LIMIT;
@@ -63,12 +66,21 @@ async fn execute_activity_comparison(
     // The target is read from the copy standing for its workout; the set it
     // is compared against is the connection's merged list.
     let target = reader.as_deref().unwrap_or_else(|| provider.as_ref());
-    match target.get_activity(activity_id).await {
-        Ok(target_activity) => {
-            let raw_activities = provider
-                .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
-                .await
-                .unwrap_or_default();
+    // A read the athlete's session-read cap refused is answered by their
+    // stored copy, under a caveat (carnet#1661).
+    match activity_or_stored(store, target, activity_id).await {
+        Ok(Served {
+            value: target_activity,
+            caveat,
+        }) => {
+            let (raw_activities, listed_caveat) =
+                activities_or_stored(store, provider.as_ref(), DEFAULT_ACTIVITY_LIMIT)
+                    .await
+                    .map_or_else(
+                        |_| (Vec::new(), None),
+                        |listed| (listed.value, listed.caveat),
+                    );
+            let caveat = caveat.or(listed_caveat);
             // Compare against canonical sessions only — comparing a workout
             // against its own fragments is degenerate and surfaces "0% delta"
             // noise.
@@ -82,22 +94,25 @@ async fn execute_activity_comparison(
                 compare_activity_id,
             );
 
-            apply_format_typed(
-                UniversalResponse {
-                    success: true,
-                    result: None,
-                    error: None,
-                    metadata: Some({
-                        let mut map = HashMap::new();
-                        map.insert(
-                            "user_id".to_owned(),
-                            serde_json::Value::String(user_uuid.to_string()),
-                        );
-                        map
-                    }),
-                },
-                comparison,
-                output_format,
+            with_caveat(
+                apply_format_typed(
+                    UniversalResponse {
+                        success: true,
+                        result: None,
+                        error: None,
+                        metadata: Some({
+                            let mut map = HashMap::new();
+                            map.insert(
+                                "user_id".to_owned(),
+                                serde_json::Value::String(store.user_id.to_string()),
+                            );
+                            map
+                        }),
+                    },
+                    comparison,
+                    output_format,
+                ),
+                caveat,
             )
         }
         Err(e) => {
@@ -708,7 +723,7 @@ pub(crate) fn handle_compare_activities(
                     activity_id,
                     comparison_type,
                     compare_activity_id,
-                    user_uuid,
+                    Reader::new(&executor.resources, user_uuid, request.tenant_id.as_deref()),
                     output_format,
                 )
                 .await?;
