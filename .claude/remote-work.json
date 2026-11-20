@@ -82,7 +82,6 @@
   },
   "remote": {
     "$comment": "How a run is built (remote-work.sh prepare). sources are attached to the cloud session; the proxy authenticates only attached repos, and every dravr-ai git dependency in Cargo.lock is private, so cargo_git_owner attaches those too.",
-    "model": "claude-sonnet-5-5",
     "describe": "the dravr-platform Rust workspace",
     "sources": [
       "dravr-ai/dravr-platform",
