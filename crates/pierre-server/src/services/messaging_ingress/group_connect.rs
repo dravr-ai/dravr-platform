@@ -16,8 +16,9 @@
 //! and answers in the chat.
 //!
 //! **Taking part.** A connected chat is the group's room for its members
-//! only. [`admit_to_connected_room`] runs before anything else touches a
-//! message there: a sender who is not a member (or the group's coach),
+//! only, and a disconnected one is silent for everyone.
+//! [`admit_to_connected_room`] runs before anything else touches a message
+//! there: a sender who is not a member (or the group's coach),
 //! linked or not, gets no session, no stored message and no turn, and is told
 //! once how to join. Their words never reach the room, because the room
 //! carries peer context they never consented to share in.
@@ -101,7 +102,9 @@ pub(super) async fn answered_connect_code(
 /// Whether the message stops at the door of a chat connected to a group from
 /// the web app: its sender is not a member. Anyone else's message goes no
 /// further — no session, no stored row, no turn — and they are told once how
-/// to join.
+/// to join. A chat its group disconnected stops every message, silently: the
+/// bot no longer reads or answers there until someone connects it again (a
+/// connect code is answered before this runs).
 pub(super) async fn kept_out_of_connected_room(
     resources: &Arc<ServerContext>,
     tenant_id: TenantId,
@@ -112,6 +115,7 @@ pub(super) async fn kept_out_of_connected_room(
 ) -> bool {
     match admit_to_connected_room(resources, tenant_id, channel, channel_type, message).await {
         RoomAdmission::NotConnected | RoomAdmission::Admitted => false,
+        RoomAdmission::Released => true,
         RoomAdmission::Refused(note) => {
             if let Some(note) = note {
                 send_channel_responses(resources, tenant_id, channel, adapter, vec![(*note, None)])
@@ -262,6 +266,34 @@ enum RoomAdmission {
     /// Carries the one-time note on how to join, the first time they are
     /// refused while asking for an answer.
     Refused(Option<Box<OutgoingMessage>>),
+    /// The chat was disconnected from its group in the web app: the bot stays
+    /// silent there for everyone until it is connected again.
+    Released,
+}
+
+/// [`RoomAdmission::Released`] for a chat its group disconnected, else
+/// [`RoomAdmission::NotConnected`]. A lookup failure reads as not released:
+/// the usual path binds a chat it cannot place to no group.
+async fn released_or_not_connected(
+    resources: &Arc<ServerContext>,
+    tenant_id: TenantId,
+    channel: &str,
+    chat_id: &str,
+) -> RoomAdmission {
+    match resources
+        .common
+        .repos
+        .groups
+        .is_group_chat_released(tenant_id, channel, chat_id)
+        .await
+    {
+        Ok(true) => RoomAdmission::Released,
+        Ok(false) => RoomAdmission::NotConnected,
+        Err(e) => {
+            warn!(error = %e, channel, "connected room: release lookup failed; usual path");
+            RoomAdmission::NotConnected
+        }
+    }
 }
 
 /// Whether the message may go on into a chat connected to a group from the
@@ -289,7 +321,8 @@ async fn admit_to_connected_room(
         .await
     {
         Ok(Some(group)) if group.chat_connection.is_some() => group,
-        Ok(_) => return RoomAdmission::NotConnected,
+        Ok(Some(_)) => return RoomAdmission::NotConnected,
+        Ok(None) => return released_or_not_connected(resources, tenant_id, channel, chat_id).await,
         Err(e) => {
             warn!(error = %e, channel, "connected room: group lookup failed; usual path");
             return RoomAdmission::NotConnected;

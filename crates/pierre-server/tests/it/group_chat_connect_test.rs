@@ -13,6 +13,7 @@
 // would never find the group (the tenant-mismatch design point).
 #[cfg(feature = "client-messaging")]
 mod group_chat_connect_tests {
+    use std::sync::atomic::Ordering;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -365,6 +366,17 @@ mod group_chat_connect_tests {
         let e2e = Arc::clone(&start().await);
         let coach = e2e.linked_member(true).await;
         let old = RoomE2e::bind_room(Arc::clone(&e2e), CHAT, GroupRespondMode::All, &coach).await;
+        // The owner already talks in the chat-created group's room.
+        e2e.llm.set_turn_replies(&["OK."]);
+        say(&e2e, &coach, &format!("@{BOT_USERNAME} hi")).await;
+        assert!(
+            e2e.wait_llm_turns(1).await,
+            "bug: the owner's turn in the chat-created room reaches the agent"
+        );
+        let before = e2e
+            .conversation_id(&coach, e2e.bot_tenant, &CHAT.to_string())
+            .await
+            .expect("the owner has a room session");
         let group = web_group(&e2e, &coach, "Les Rouleurs").await;
         let code = mint(&e2e, &group, &coach).await;
 
@@ -376,8 +388,41 @@ mod group_chat_connect_tests {
             "bug: the chat moves to the web group when its owner connects it"
         );
         let left = reread(&e2e, old.group_id).await;
-        assert_eq!(left.channel_type, None, "the old group loses only its chat");
-        assert!(left.is_active, "the old group and its history stay");
+        assert_eq!(
+            left.channel_type, None,
+            "bug: the old group loses only its chat"
+        );
+        assert!(left.is_active, "bug: the old group and its history stay");
+
+        // Their next turn runs in a conversation of the web group, never in
+        // the one written with the old group's context.
+        say(&e2e, &coach, &format!("@{BOT_USERNAME} and now?")).await;
+        assert!(
+            e2e.wait_llm_turns(2).await,
+            "bug: the owner's turn in the moved chat reaches the agent"
+        );
+        let after = e2e
+            .conversation_id(&coach, e2e.bot_tenant, &CHAT.to_string())
+            .await
+            .expect("the owner still has a room session");
+        assert_ne!(
+            after, before,
+            "bug: the session leaves the old group's conversation"
+        );
+        let record = e2e
+            .resources
+            .common
+            .repos
+            .chat
+            .get_conversation(&after, &coach.user_id.to_string(), e2e.bot_tenant)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            record.group_id,
+            Some(group.id.to_string()),
+            "bug: the new conversation carries the web group's context"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -418,7 +463,7 @@ mod group_chat_connect_tests {
 
     #[tokio::test(flavor = "multi_thread")]
     #[serial]
-    async fn a_disconnected_chat_stays_ungrouped_and_its_member_leaves_the_group_context() {
+    async fn a_disconnected_chat_goes_silent_and_creates_no_group() {
         let e2e = start().await;
         let coach = e2e.linked_member(true).await;
         let group = web_group(&e2e, &coach, "Les Rouleurs").await;
@@ -430,10 +475,6 @@ mod group_chat_connect_tests {
             e2e.wait_llm_turns(1).await,
             "bug: the owner's turn in the connected chat reaches the agent"
         );
-        let grouped = e2e
-            .conversation_id(&coach, e2e.bot_tenant, &CHAT.to_string())
-            .await
-            .unwrap();
 
         let connected = reread(&e2e, group.id).await;
         let released = e2e
@@ -447,40 +488,47 @@ mod group_chat_connect_tests {
             released.channel_tenant_id, e2e.bot_tenant,
             "bug: the released binding names the bot tenant that serves the chat"
         );
+        // Let the connected turn's follow-through settle before counting.
+        sleep(Duration::from_millis(500)).await;
+        let sends_before = chat_sends(&e2e).len();
+        let turns_before = e2e.llm.turn_calls.load(Ordering::SeqCst);
 
-        say(&e2e, &coach, &format!("@{BOT_USERNAME} still there?")).await;
-        assert!(
-            e2e.wait_llm_turns(2).await,
-            "bug: a linked sender is still answered, ungrouped, after the disconnect"
+        // Silent for everyone, the owner included: nothing stored, no turn.
+        let question = format!("@{BOT_USERNAME} still there?");
+        let outcome = say(&e2e, &coach, &question).await;
+        assert_eq!(
+            outcome.messages_stored(),
+            0,
+            "bug: nothing is dispatched in a disconnected chat"
+        );
+        sleep(Duration::from_millis(500)).await;
+        assert_eq!(
+            e2e.llm.turn_calls.load(Ordering::SeqCst),
+            turns_before,
+            "bug: the agent answers nothing in a disconnected chat"
+        );
+        assert_eq!(
+            e2e.count_inbound_with_body(&question).await,
+            0,
+            "bug: a disconnected chat's messages are not stored"
+        );
+        assert_eq!(
+            chat_sends(&e2e).len(),
+            sends_before,
+            "bug: the bot posts nothing into a disconnected chat"
         );
         assert!(
             chat_group(&e2e).await.is_none(),
-            "no group is auto-created for the chat"
+            "bug: no group is auto-created for a disconnected chat"
         );
-        let now_conversation = e2e
-            .conversation_id(&coach, e2e.bot_tenant, &CHAT.to_string())
-            .await
-            .unwrap();
-        assert_ne!(
-            now_conversation, grouped,
-            "the session left the group's conversation"
-        );
-        let record = e2e
-            .resources
-            .common
-            .repos
-            .chat
-            .get_conversation(
-                &now_conversation,
-                &coach.user_id.to_string(),
-                e2e.bot_tenant,
-            )
-            .await
-            .unwrap()
-            .unwrap();
+
+        // A connect code still works there, so the chat can be connected again.
+        let again = mint(&e2e, &reread(&e2e, group.id).await, &coach).await;
+        say(&e2e, &coach, &format!("/start {again}")).await;
         assert_eq!(
-            record.group_id, None,
-            "the chat carries no group context any more"
+            chat_group(&e2e).await.map(|g| g.id),
+            Some(group.id),
+            "bug: a disconnected chat can be connected again"
         );
     }
 

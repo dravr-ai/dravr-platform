@@ -24,6 +24,9 @@ import { PersonRow, ROW_DIVIDER, RowBox } from './GroupInfoParts';
 /** How long the copy button shows its tick after the command was copied. */
 const COPIED_TICK_MS = 2000;
 
+/** The longest delay `setTimeout` honours (2^31 − 1 ms, about 24.8 days). */
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
 /** The chat apps offered, in order; only a `connectable` one can be chosen. */
 const CHAT_APPS: { channel: GroupChatChannel; connectable: boolean }[] = [
   { channel: 'telegram', connectable: true },
@@ -90,6 +93,9 @@ export default function GroupChatConnection({ groupId }: { groupId: string }) {
       setExpired(true);
       return;
     }
+    // A delay past the timer's 32-bit ceiling fires at once rather than never,
+    // so a code that outlives any page is simply not watched.
+    if (left > MAX_TIMER_DELAY_MS) return;
     const timer = setTimeout(() => setExpired(true), left);
     return () => clearTimeout(timer);
   }, [code]);
