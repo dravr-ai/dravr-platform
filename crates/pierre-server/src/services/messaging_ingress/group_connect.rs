@@ -27,11 +27,12 @@ use std::sync::Arc;
 use chrono::Utc;
 use dravr_canot::channel::MessagingChannel;
 use pierre_contremaitre::messaging_strings::{
-    DEFAULT_LOCALE, KEY_ERROR_GENERIC, KEY_GROUP_CHAT_ALREADY_CONNECTED, KEY_GROUP_CHAT_CHAT_TAKEN,
-    KEY_GROUP_CHAT_CODE_INVALID, KEY_GROUP_CHAT_CONNECTED,
+    MessagingStringsRegistry, DEFAULT_LOCALE, KEY_ERROR_GENERIC, KEY_GROUP_CHAT_ALREADY_CONNECTED,
+    KEY_GROUP_CHAT_CHAT_TAKEN, KEY_GROUP_CHAT_CODE_INVALID, KEY_GROUP_CHAT_CONNECTED,
     KEY_GROUP_CHAT_GROUP_CONNECTED_ELSEWHERE, KEY_GROUP_CHAT_GROUP_GONE,
     KEY_GROUP_CHAT_NON_MEMBER_PROMPT, KEY_GROUP_CHAT_NOT_LINKED, KEY_GROUP_CHAT_NOT_MANAGER,
 };
+use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{CoachingGroup, GroupRespondMode};
 use pierre_core::models::messaging::{
     channel_label, ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
@@ -201,7 +202,18 @@ async fn handle_connect_code(
             sender,
         })
         .await;
-    let body = match result {
+    let body = connect_reply_text(registry, &locale, channel, result);
+    chat_reply(message, channel_type, body)
+}
+
+/// The words a connect attempt is answered with in the chat, in `locale`.
+fn connect_reply_text(
+    registry: &MessagingStringsRegistry,
+    locale: &str,
+    channel: &str,
+    result: AppResult<ChatConnectResult>,
+) -> String {
+    let refusal = match result {
         Ok(ChatConnectResult::Connected { group, moved_from }) => {
             info!(
                 group_id = %group.id,
@@ -209,39 +221,33 @@ async fn handle_connect_code(
                 moved_from = ?moved_from,
                 "Group chat connected from its connect code"
             );
-            registry.render(KEY_GROUP_CHAT_CONNECTED, &locale, &[&group.name])
+            return registry.render(KEY_GROUP_CHAT_CONNECTED, locale, &[&group.name]);
         }
         Ok(ChatConnectResult::AlreadyConnected { group }) => {
-            registry.render(KEY_GROUP_CHAT_ALREADY_CONNECTED, &locale, &[&group.name])
+            return registry.render(KEY_GROUP_CHAT_ALREADY_CONNECTED, locale, &[&group.name]);
         }
-        Ok(ChatConnectResult::Refused(refusal)) => {
-            info!(channel, refusal = ?refusal, "Group chat connect refused");
-            match refusal {
-                ChatConnectRefusal::CodeInvalid => {
-                    registry.render(KEY_GROUP_CHAT_CODE_INVALID, &locale, &[])
-                }
-                ChatConnectRefusal::NotManager => {
-                    registry.render(KEY_GROUP_CHAT_NOT_MANAGER, &locale, &[])
-                }
-                ChatConnectRefusal::GroupConnectedElsewhere { group_name } => registry.render(
-                    KEY_GROUP_CHAT_GROUP_CONNECTED_ELSEWHERE,
-                    &locale,
-                    &[&group_name],
-                ),
-                ChatConnectRefusal::ChatTakenByOtherGroup => {
-                    registry.render(KEY_GROUP_CHAT_CHAT_TAKEN, &locale, &[])
-                }
-                ChatConnectRefusal::GroupGone => {
-                    registry.render(KEY_GROUP_CHAT_GROUP_GONE, &locale, &[])
-                }
-            }
-        }
+        Ok(ChatConnectResult::Refused(refusal)) => refusal,
         Err(e) => {
             error!(error = %e, channel, "Group chat connect failed");
-            registry.render(KEY_ERROR_GENERIC, &locale, &[])
+            return registry.render(KEY_ERROR_GENERIC, locale, &[]);
         }
     };
-    chat_reply(message, channel_type, body)
+    info!(channel, refusal = ?refusal, "Group chat connect refused");
+    match refusal {
+        ChatConnectRefusal::CodeInvalid => {
+            registry.render(KEY_GROUP_CHAT_CODE_INVALID, locale, &[])
+        }
+        ChatConnectRefusal::NotManager => registry.render(KEY_GROUP_CHAT_NOT_MANAGER, locale, &[]),
+        ChatConnectRefusal::GroupConnectedElsewhere { group_name } => registry.render(
+            KEY_GROUP_CHAT_GROUP_CONNECTED_ELSEWHERE,
+            locale,
+            &[&group_name],
+        ),
+        ChatConnectRefusal::ChatTakenByOtherGroup => {
+            registry.render(KEY_GROUP_CHAT_CHAT_TAKEN, locale, &[])
+        }
+        ChatConnectRefusal::GroupGone => registry.render(KEY_GROUP_CHAT_GROUP_GONE, locale, &[]),
+    }
 }
 
 /// What [`admit_to_connected_room`] decided about one message.
