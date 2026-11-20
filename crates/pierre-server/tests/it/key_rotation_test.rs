@@ -563,25 +563,29 @@ async fn an_index_rotation_signs_no_one_out() {
         .unwrap()
         .is_some());
 
-    // k1 keeps live rows (revoked ones included) until they expire.
-    assert!(
-        booted
-            .security()
-            .count_live_index_hashes(1, Utc::now())
-            .await
-            .unwrap()
-            >= 2
-    );
-    for minutes in [45, 50, 55] {
-        tick(
-            &booted,
-            &controller,
-            Utc::now() + Duration::minutes(minutes),
-        )
-        .await;
+    // A used index key is never retired: k1 stays loaded long after every
+    // refresh token under it has expired, and the family does not rotate again.
+    for days in [1, 31, 400] {
+        tick(&booted, &controller, Utc::now() + Duration::days(days)).await;
     }
     assert_eq!(
         booted.state(KeyFamily::Index, 1).await,
         KeyState::DecryptOnly
+    );
+    assert!(
+        booted
+            .key_manager
+            .rotate(&booted.database, KeyFamily::Index)
+            .await
+            .is_err(),
+        "the index family rotates once: a third key would leave a lookup unable to bind both older ones"
+    );
+    assert!(
+        booted
+            .key_manager
+            .destroy(&booted.database, KeyFamily::Index, 1)
+            .await
+            .is_err(),
+        "an index key is never destroyed"
     );
 }

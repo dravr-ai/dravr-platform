@@ -160,8 +160,7 @@ impl KeyManager {
             .and_then(|key| key.demoted_at)
             .unwrap_or(now);
         let mut state = SweepState::read(security).await?;
-        let remaining =
-            count_remaining(security, &[], &mut state, family, version, demoted_at, now).await?;
+        let remaining = count_remaining(security, &[], &mut state, version, demoted_at).await?;
         if remaining > 0 {
             return Err(AppError::invalid_input(format!(
                 "{family} v{version} still has {remaining} rows under it; enable it, let the sweep finish, and retry"
@@ -211,15 +210,15 @@ impl KeyManager {
         let mut scratch = sweep.clone();
         for family in KeyFamily::ALL {
             for (version, key) in doc.versions(family) {
-                let remaining = if matches!(key.state, KeyState::DecryptOnly | KeyState::Disabled) {
+                let counted = family == KeyFamily::Data
+                    && matches!(key.state, KeyState::DecryptOnly | KeyState::Disabled);
+                let remaining = if counted {
                     count_remaining(
                         security,
                         &[],
                         &mut scratch,
-                        family,
                         version,
                         key.demoted_at.unwrap_or(now),
-                        now,
                     )
                     .await
                     .ok()

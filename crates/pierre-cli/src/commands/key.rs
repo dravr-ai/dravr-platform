@@ -35,7 +35,7 @@ use std::sync::Arc;
 use clap::{Subcommand, ValueEnum};
 use pierre_auth::key_management::{DatabaseEncryptionKey, KeyManager, LocalKekProvider};
 use pierre_auth::keyset::operator::KeysetStatus;
-use pierre_auth::keyset::RELOAD_PERIOD;
+use pierre_auth::keyset::{KeyState, RELOAD_PERIOD};
 #[cfg(feature = "postgresql")]
 use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::AppResult;
@@ -248,9 +248,13 @@ fn print_status(status: &KeysetStatus) {
             .or(key.demoted_at)
             .or(key.promoted_at)
             .unwrap_or(key.created_at);
-        let remaining = version
-            .remaining
-            .map_or_else(String::new, |n| format!(", {n} rows left"));
+        let remaining = match (version.family, version.remaining) {
+            (_, Some(n)) => format!(", {n} rows left"),
+            (KeyFamily::Index, None) if key.state == KeyState::DecryptOnly => {
+                ", kept for good (a used index key is never retired)".to_owned()
+            }
+            _ => String::new(),
+        };
         let drained = key.drained_at.map_or_else(String::new, |at| {
             format!(", drained once at {}", at.to_rfc3339())
         });

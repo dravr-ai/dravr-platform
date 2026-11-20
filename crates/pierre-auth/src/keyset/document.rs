@@ -317,15 +317,25 @@ impl KeysetDocument {
     /// already rotates (a `staged` or `decrypt_only` key): one rotation per
     /// family at a time, so a lookup never needs more than two index keys.
     ///
+    /// An index key that was ever primary is never retired (it keys digests
+    /// that never expire), so once the index family has rotated it holds two
+    /// keys for good, and a third would leave a lookup unable to bind both
+    /// older ones: the index family rotates once.
+    ///
     /// # Errors
     ///
-    /// When the family is mid-rotation.
+    /// When the family is mid-rotation, or the index family has rotated.
     pub fn next_version(&self, family: KeyFamily) -> AppResult<u32> {
         let versions = self.versions(family);
         if let Some((version, key)) = versions
             .iter()
             .find(|(_, key)| matches!(key.state, KeyState::Staged | KeyState::DecryptOnly))
         {
+            if family == KeyFamily::Index && key.state == KeyState::DecryptOnly {
+                return Err(AppError::invalid_input(format!(
+                    "index v{version} is kept for good: an index key that keyed a digest is never retired, and a lookup binds at most two index keys, so the index family does not rotate again"
+                )));
+            }
             return Err(AppError::invalid_input(format!(
                 "{family} v{version} is still {}; one rotation per family at a time",
                 key.state.as_str()
@@ -410,21 +420,21 @@ impl KeysetDocument {
         made
     }
 
-    /// The `decrypt_only` versions whose disable wait has passed: the fleet
-    /// window plus the sign-in cookie's lifetime since demotion.
+    /// The data `decrypt_only` versions whose disable wait has passed: the
+    /// fleet window plus the sign-in cookie's lifetime since demotion.
+    ///
+    /// Never an index version: an index key keys erasure ids and import
+    /// tombstones that never expire, so a key that was used is never retired
+    /// (JF, carnet#1347).
     #[must_use]
-    pub fn disable_candidates(&self, now: DateTime<Utc>) -> Vec<(KeyFamily, u32, DateTime<Utc>)> {
+    pub fn disable_candidates(&self, now: DateTime<Utc>) -> Vec<(u32, DateTime<Utc>)> {
         let wait = fleet_window() + span(SIGN_IN_COOKIE_TTL);
-        KeyFamily::ALL
+        self.versions(KeyFamily::Data)
             .into_iter()
-            .flat_map(|family| {
-                self.versions(family)
-                    .into_iter()
-                    .filter_map(move |(version, key)| {
-                        let demoted = key.demoted_at?;
-                        (key.state == KeyState::DecryptOnly && now - demoted >= wait)
-                            .then_some((family, version, demoted))
-                    })
+            .filter_map(|(version, key)| {
+                let demoted = key.demoted_at?;
+                (key.state == KeyState::DecryptOnly && now - demoted >= wait)
+                    .then_some((version, demoted))
             })
             .collect()
     }
@@ -526,6 +536,11 @@ impl KeysetDocument {
             .versions(family)
             .remove(&version)
             .ok_or_else(|| AppError::not_found(format!("{family} v{version}")))?;
+        if family == KeyFamily::Index {
+            return Err(AppError::invalid_input(format!(
+                "index v{version} is never destroyed: it keyed digests that never expire"
+            )));
+        }
         let (KeyState::Disabled, Some(disabled_at)) = (key.state, key.disabled_at) else {
             return Err(AppError::invalid_input(format!(
                 "{family} v{version} is {}; only a disabled key is destroyed",
@@ -728,6 +743,35 @@ mod tests {
     }
 
     #[test]
+    fn a_used_index_key_is_never_retired_and_the_index_family_rotates_once() {
+        let mut doc = KeysetDocument::fresh(at(0));
+        doc.stage(KeyFamily::Index, 2, at(0)).unwrap();
+        doc.promote_due(at(15));
+        assert_eq!(
+            doc.versions(KeyFamily::Index)[&1].state,
+            KeyState::DecryptOnly
+        );
+        assert_eq!(
+            doc.disable_candidates(at(60 * 24 * 400)),
+            Vec::new(),
+            "bug: an index key is a disable candidate"
+        );
+        assert!(
+            doc.next_version(KeyFamily::Index).is_err(),
+            "bug: a third index key would leave a lookup unable to bind both older ones"
+        );
+        assert!(
+            !doc.rotation_due(KeyFamily::Index, 1, at(60 * 24 * 400)),
+            "bug: a scheduled rotation is due on a family that cannot rotate"
+        );
+        assert!(
+            doc.check_destroyable(KeyFamily::Index, 1, at(60 * 24 * 400))
+                .is_err(),
+            "bug: an index key is destroyable"
+        );
+    }
+
+    #[test]
     fn a_drained_key_is_disabled_on_the_second_zero_after_the_wait() {
         let mut doc = KeysetDocument::fresh(at(0));
         doc.stage(KeyFamily::Data, 2, at(0)).unwrap();
@@ -740,7 +784,7 @@ mod tests {
         );
         assert_eq!(
             doc.disable_candidates(at(40)),
-            vec![(KeyFamily::Data, 1, at(15))],
+            vec![(1, at(15))],
             "v1 is a candidate once the wait has passed"
         );
 

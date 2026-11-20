@@ -127,9 +127,6 @@ pub trait SecurityRepository: Send + Sync {
     /// How many rows of `kind` hold a value sealed under data `version`
     /// (for version 1, untagged values too).
     async fn count_sealed_under(&self, kind: StoredSecretKind, version: u32) -> AppResult<u64>;
-    /// How many refresh-token rows unexpired at `now`, of any status, in
-    /// both refresh-token tables, carry a hash under index `version`.
-    async fn count_live_index_hashes(&self, version: u32, now: DateTime<Utc>) -> AppResult<u64>;
     /// Record one key lifecycle transition in `audit_events` (global: no
     /// tenant, no user), with its family, version and states in `metadata`.
     async fn record_key_lifecycle(
@@ -329,18 +326,6 @@ pub(crate) const fn sweep_sql(kind: StoredSecretKind) -> SweepSql {
     }
 }
 
-/// Refresh-token rows unexpired at `$1`, of any status, in both tables,
-/// whose hash is tagged `$2` (`k{N}:%`), or untagged when `$3`.
-/// Deployment-wide with no tenant or user key on purpose: the index key is
-/// one for every tenant, and it is retired only once no tenant's row needs it.
-pub(crate) const COUNT_LIVE_INDEX_HASHES_SQL: &str = r"
-            SELECT (SELECT COUNT(*) FROM oauth2_refresh_tokens
-                     WHERE expires_at > $1 AND (token LIKE $2 OR ($3 AND token NOT LIKE '%:%')))
-                 + (SELECT COUNT(*) FROM session_refresh_tokens
-                     WHERE expires_at > $1
-                       AND (token_hash LIKE $2 OR ($3 AND token_hash NOT LIKE '%:%'))) AS n
-            ";
-
 /// A key lifecycle transition: global, so tenant and user stay NULL.
 pub(crate) const RECORD_KEY_LIFECYCLE_SQL: &str = "INSERT INTO audit_events \
              (id, event_type, severity, message, source, result, tenant_id, user_id, metadata, timestamp) \
@@ -355,11 +340,6 @@ pub(crate) const LIST_KEY_LIFECYCLE_SQL: &str =
 /// The `LIKE` pattern of values sealed under data `version`.
 pub(crate) fn data_tag_pattern(version: u32) -> String {
     format!("v{version}:%")
-}
-
-/// The `LIKE` pattern of hashes computed under index `version`.
-pub(crate) fn index_tag_pattern(version: u32) -> String {
-    format!("k{version}:%")
 }
 
 /// Emit the whole [`SecurityRepository`] implementation for one backend
@@ -662,28 +642,6 @@ macro_rules! impl_security_repository {
                         AppError::database(format!(
                             "Failed to count {} rows under v{version}: {e}",
                             kind.as_str()
-                        ))
-                    })?;
-                let n: i64 = row
-                    .try_get("n")
-                    .map_err(|e| AppError::database(format!("Failed to get the count: {e}")))?;
-                Ok(u64::try_from(n).unwrap_or(0))
-            }
-
-            async fn count_live_index_hashes(
-                &self,
-                version: u32,
-                now: DateTime<Utc>,
-            ) -> AppResult<u64> {
-                let row = sqlx::query(COUNT_LIVE_INDEX_HASHES_SQL)
-                    .bind(now)
-                    .bind(index_tag_pattern(version))
-                    .bind(version == 1)
-                    .fetch_one(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to count refresh tokens under k{version}: {e}"
                         ))
                     })?;
                 let n: i64 = row

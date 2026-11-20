@@ -8,8 +8,7 @@
 //!
 //! A keyed digest names something without naming it in clear: someone who
 //! holds only the database cannot confirm a known identity or id, because
-//! the digest needs the Index key (today the blind-index key pinned to DEK
-//! v1, carnet#1347 makes it a rotating family).
+//! the digest needs the Index key, the keyset's rotating `index` family.
 //!
 //! Every such digest is made here, through the backend's own
 //! [`HasEncryption::hash_token_for_storage`], on the message
@@ -23,11 +22,9 @@
 //! [`index_lookup`]'s digests, so one written under the key being retired
 //! still matches.
 //!
-//! **Retirement is carnet#1347's to settle**: erasures and tombstones never
-//! expire, so a version these digests use must not be disabled while they
-//! hold it, or they must be re-keyed from plaintext before carnet#1550 drops
-//! it (open question 5 of the owl phase 3 plan). On main the key never
-//! retires.
+//! **A used key is never retired** (JF, carnet#1347): erasures and
+//! tombstones never expire, so the rotation controller keeps an Index
+//! version loaded while any stored keyed digest still names it.
 
 use pierre_core::errors::AppResult;
 
@@ -79,59 +76,93 @@ pub fn index_mac(
 }
 
 /// The two digests a read of `message` in `domain` binds: the primary's,
-/// then the other live version's. With one live key (main today) the
-/// primary's twice; carnet#1347 maps this onto its `blind_index_lookups`.
+/// then the other live version's, or the primary's twice with one live key.
 ///
 /// # Errors
-/// The backend's HMAC failure.
+/// None today; kept fallible so a caller's key failure has a path.
 pub fn index_lookup(
     keys: &dyn HasEncryption,
     domain: KeyedDomain,
     message: &[u8],
 ) -> AppResult<[String; 2]> {
-    let primary = index_mac(keys, domain, message)?;
-    Ok([primary.clone(), primary])
+    Ok(keys.blind_index_lookups(&keyed_message(domain, message)))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
     use super::*;
+    use crate::backends::shared::keyring::{index_version_of, Keyring, KeyringCell};
 
-    struct Echo;
+    struct Keys(Arc<KeyringCell>);
 
-    impl HasEncryption for Echo {
-        fn encrypt_data_with_aad(&self, data: &str, _aad: &str) -> AppResult<String> {
-            Ok(data.to_owned())
+    impl HasEncryption for Keys {
+        fn keyring(&self) -> &Arc<KeyringCell> {
+            &self.0
         }
+    }
 
-        fn decrypt_data_with_aad(&self, encrypted: &str, _aad: &str) -> AppResult<String> {
-            Ok(encrypted.to_owned())
-        }
-
-        fn hash_token_for_storage(&self, token: &str) -> AppResult<String> {
-            Ok(token.to_owned())
-        }
+    fn keys(index: &[u32], index_primary: u32) -> Keys {
+        let key = |v: u32| vec![u8::try_from(v).unwrap(); 32];
+        Keys(KeyringCell::new(
+            Keyring::new(
+                BTreeMap::from([(1, key(1))]),
+                1,
+                index.iter().map(|v| (*v, key(*v))).collect(),
+                index_primary,
+                1,
+                true,
+            )
+            .unwrap(),
+        ))
     }
 
     #[test]
     fn a_keyed_message_carries_its_domain_and_never_reads_as_a_token() {
-        let mac = index_mac(&Echo, KeyedDomain::ImportTombstone, b"ab").unwrap();
+        let message = keyed_message(KeyedDomain::ImportTombstone, b"ab");
         assert_eq!(
-            mac,
+            message,
             concat!("dravr.keyed.v1\0import_tombstone\0", "6162"),
             "bug: the keyed message is not format, domain and hex message"
         );
-        assert!(mac.contains('\0'), "a refresh token never holds a NUL");
+        assert!(message.contains('\0'), "a refresh token never holds a NUL");
         assert_ne!(
-            index_mac(&Echo, KeyedDomain::Barrage("barrage.log_record"), b"ab").unwrap(),
-            mac,
+            keyed_message(KeyedDomain::Barrage("barrage.log_record"), b"ab"),
+            message,
             "bug: two domains share a keyed message"
         );
-        let [a, b] = index_lookup(&Echo, KeyedDomain::ImportTombstone, b"ab").unwrap();
+    }
+
+    #[test]
+    fn a_write_keys_under_the_primary_and_a_read_binds_both_live_versions() {
+        let old = keys(&[1], 1);
+        let rotated = keys(&[1, 2], 2);
+        let domain = KeyedDomain::ImportTombstone;
+
+        let under_v1 = index_mac(&old, domain, b"ab").unwrap();
+        let under_k2 = index_mac(&rotated, domain, b"ab").unwrap();
+        assert_eq!(index_version_of(&under_v1), 1);
         assert_eq!(
-            (a.as_str(), b.as_str()),
-            (mac.as_str(), mac.as_str()),
+            index_version_of(&under_k2),
+            2,
+            "bug: a write is not under the primary"
+        );
+
+        let [primary, other] = index_lookup(&rotated, domain, b"ab").unwrap();
+        assert_eq!(
+            primary, under_k2,
             "bug: a lookup does not bind the digest a write stores"
+        );
+        assert_eq!(
+            other, under_v1,
+            "bug: a digest written before the rotation no longer matches"
+        );
+        assert_eq!(
+            index_lookup(&old, domain, b"ab").unwrap(),
+            [under_v1.clone(), under_v1],
+            "with one live key a lookup binds the primary twice"
         );
     }
 }

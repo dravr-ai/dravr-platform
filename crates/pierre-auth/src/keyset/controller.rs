@@ -15,8 +15,10 @@
 //!    back only while the row still holds what was read, so a concurrent
 //!    write wins. A legacy plaintext private key is sealed. A row that does
 //!    not open is kept in the unreadable set and blocks its key's disable.
-//! 3. **Disable** a `decrypt_only` key whose wait has passed and whose count
-//!    was zero on two consecutive ticks. A count that fails is not zero.
+//! 3. **Disable** a data `decrypt_only` key whose wait has passed and whose
+//!    count was zero on two consecutive ticks. A count that fails is not
+//!    zero. An index key is never disabled: it keys digests that never
+//!    expire (erasure ids, import tombstones), and a used key is never retired.
 //! 4. **Stage** a scheduled rotation for a family whose primary is older than
 //!    the configured age.
 //!
@@ -239,11 +241,9 @@ pub async fn stage_key(
     Ok(version)
 }
 
-/// Count what is still sealed or hashed under `family` `version`.
-///
-/// The stored rows (and, for data, the unreadable ones), plus for data each
-/// external holder's values sealed before `demoted_at` + the fleet window.
-/// Holder counts are written into `state`.
+/// Count what is still sealed under data `version`: the stored rows, the
+/// unreadable ones, and each external holder's values sealed before
+/// `demoted_at` + the fleet window. Holder counts are written into `state`.
 ///
 /// # Errors
 ///
@@ -252,36 +252,29 @@ pub async fn count_remaining(
     security: &dyn SecurityRepository,
     holders: &[Arc<dyn CiphertextHolder>],
     state: &mut SweepState,
-    family: KeyFamily,
     version: u32,
     demoted_at: DateTime<Utc>,
-    now: DateTime<Utc>,
 ) -> AppResult<u64> {
-    match family {
-        KeyFamily::Index => security.count_live_index_hashes(version, now).await,
-        KeyFamily::Data => {
-            let mut total = state.unreadable_under(version);
-            for kind in StoredSecretKind::ALL {
-                total += security.count_sealed_under(kind, version).await?;
+    let mut total = state.unreadable_under(version);
+    for kind in StoredSecretKind::ALL {
+        total += security.count_sealed_under(kind, version).await?;
+    }
+    let before =
+        demoted_at + chrono::Duration::from_std(FLEET_WINDOW).unwrap_or(chrono::Duration::MAX);
+    let mut failed = None;
+    for holder in holders {
+        match holder.count_sealed_before(before).await {
+            Ok(n) => {
+                state.holders.insert(holder.name().to_owned(), Some(n));
+                total += n;
             }
-            let before = demoted_at
-                + chrono::Duration::from_std(FLEET_WINDOW).unwrap_or(chrono::Duration::MAX);
-            let mut failed = None;
-            for holder in holders {
-                match holder.count_sealed_before(before).await {
-                    Ok(n) => {
-                        state.holders.insert(holder.name().to_owned(), Some(n));
-                        total += n;
-                    }
-                    Err(e) => {
-                        state.holders.insert(holder.name().to_owned(), None);
-                        failed = Some(e);
-                    }
-                }
+            Err(e) => {
+                state.holders.insert(holder.name().to_owned(), None);
+                failed = Some(e);
             }
-            failed.map_or(Ok(total), Err)
         }
     }
+    failed.map_or(Ok(total), Err)
 }
 
 /// The key rotation controller.
@@ -384,17 +377,10 @@ impl KeysetController {
     ) -> Vec<Transition> {
         let mut disabled = Vec::new();
         let mut count_failed = false;
-        for (family, version, demoted_at) in doc.disable_candidates(now) {
-            let drained = match count_remaining(
-                security,
-                &self.holders,
-                state,
-                family,
-                version,
-                demoted_at,
-                now,
-            )
-            .await
+        let family = KeyFamily::Data;
+        for (version, demoted_at) in doc.disable_candidates(now) {
+            let drained = match count_remaining(security, &self.holders, state, version, demoted_at)
+                .await
             {
                 Ok(remaining) => {
                     info!(event = events::DRAIN_COUNTED, key_family = %family, key_version = version, remaining, "drain counted");

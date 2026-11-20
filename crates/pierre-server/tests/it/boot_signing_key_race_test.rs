@@ -414,9 +414,6 @@ impl SecurityRepository for PeerCommitsFirst<'_> {
     async fn count_sealed_under(&self, kind: StoredSecretKind, version: u32) -> AppResult<u64> {
         self.inner.count_sealed_under(kind, version).await
     }
-    async fn count_live_index_hashes(&self, version: u32, now: DateTime<Utc>) -> AppResult<u64> {
-        self.inner.count_live_index_hashes(version, now).await
-    }
     async fn record_key_lifecycle(
         &self,
         message: &str,

@@ -63,9 +63,8 @@ enum IndexKeys {
 
 /// Barrage's [`Keyed`] over the platform's Index key.
 ///
-/// The Index key is pinned to DEK v1 on main, so a handle taken at boot keys
-/// the same as one taken later; carnet#1347 replaces it with a keyring every
-/// clone shares.
+/// The backend handle shares its process keyring with every clone, so a
+/// handle taken at boot keys under whatever Index primary is current.
 #[derive(Clone)]
 pub struct PlatformKeyed {
     keys: IndexKeys,
