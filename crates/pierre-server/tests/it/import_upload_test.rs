@@ -27,7 +27,7 @@ use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::{
     BlobKey, BlobMeta, BlobPrefix, BlobStat, BlobStore, DeletePage, PageToken, UploadTarget,
 };
-use dravr_barrage::store::memory::{MemoryActivityRecordStore, MemoryImportJobStore};
+use dravr_barrage::store::memory::MemoryImportJobStore;
 use dravr_barrage::store::{BarrageStores, NewImportJob};
 use dravr_barrage::{BarrageError, FailureCode, ImportId, JobStatus, Scope, SourceKey};
 use futures_util::stream::{self, BoxStream};
@@ -42,6 +42,7 @@ use pierre_mcp_server::services::archive_import::{ArchiveImports, ImportWiring};
 use pierre_middleware::provider_link_token::{
     mint_connect_link_token, mint_import_link_token, verify_link_token, CONNECT_PROVIDER,
 };
+use pierre_services::barrage_keys::memory_records;
 use serde_json::{json, Value};
 use tokio::time::sleep;
 use tower::ServiceExt;
@@ -171,7 +172,7 @@ fn imports_running(
 ) -> (ArchiveImports, BarrageStores) {
     let stores = BarrageStores {
         blobs,
-        records: Arc::new(MemoryActivityRecordStore::new()),
+        records: Arc::new(memory_records()),
         jobs: Arc::new(MemoryImportJobStore::new()),
     };
     let (seed, _) = imports_serving(Vec::new());

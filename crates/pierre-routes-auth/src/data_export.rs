@@ -113,11 +113,12 @@ use pierre_core::models::TenantId;
 use pierre_database::repositories::{
     UserExportRepository, UserExportTable, USER_EXPORT_EXCLUDED_TABLES,
 };
+use pierre_services::barrage_keys::published_checkpoint_key;
 
 use self::barrage::{write_barrage, ExportSources, Section};
 use crate::AuthRoutesContext;
 
-/// Barrage's records and erasures in the export.
+/// Barrage's records, erasures and `record_log` in the export.
 mod barrage;
 
 /// How many exports one account may start in [`RATE_WINDOW`].
@@ -332,7 +333,7 @@ async fn write_export<S: ChunkSink>(
                 )
                 .await;
             }
-            Section::Records | Section::Erased => {
+            Section::Records | Section::Erased | Section::Log => {
                 write_barrage(*section, &sources, user_id, &mut writer, &mut summary).await;
             }
         }
@@ -618,6 +619,7 @@ pub(crate) async fn handle_user_export(
             records: records.as_ref(),
             tenants: &tenants,
             originals,
+            checkpoint_key: published_checkpoint_key(),
         };
         let summary = write_export(
             sources,
@@ -673,13 +675,13 @@ mod tests {
     use async_trait::async_trait;
     use dravr_barrage::store::memory::MemoryActivityRecordStore;
     use pierre_database::repositories::{UserExportPage, USER_EXPORT_TABLES};
+    use pierre_services::barrage_keys::memory_records;
     use tokio::task;
 
     use super::*;
 
     /// No barrage history: the platform tables' tests read none.
-    static NO_RECORDS: LazyLock<MemoryActivityRecordStore> =
-        LazyLock::new(MemoryActivityRecordStore::new);
+    static NO_RECORDS: LazyLock<MemoryActivityRecordStore> = LazyLock::new(memory_records);
 
     pub(super) fn sources(repository: &FakeRepository) -> ExportSources<'_> {
         ExportSources {
@@ -687,6 +689,7 @@ mod tests {
             records: &*NO_RECORDS,
             tenants: &[],
             originals: Value::Null,
+            checkpoint_key: None,
         }
     }
 

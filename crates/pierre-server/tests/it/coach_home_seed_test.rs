@@ -19,10 +19,10 @@ mod coach_home_seed_tests {
     use std::sync::Arc;
 
     use chrono::{Duration, Utc};
-    use dravr_barrage::store::memory::MemoryActivityRecordStore;
     use pierre_core::models::{Activity, TenantId};
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_seeders::coach_home::{run, SeedArgs};
+    use pierre_services::barrage_keys::memory_records;
     use pierre_services::barrage_live_store::live_store;
     use pierre_services::live_activities::LiveActivityStore;
     use serde_json::Value;
@@ -43,11 +43,7 @@ mod coach_home_seed_tests {
     /// The activity store the seeder keeps its sessions in: barrage, over a
     /// record store of the test's own, projecting into `res`' cache.
     fn store(res: &Arc<ServerContext>) -> Arc<dyn LiveActivityStore> {
-        live_store(
-            Arc::new(MemoryActivityRecordStore::new()),
-            None,
-            &res.common.repos,
-        )
+        live_store(Arc::new(memory_records()), None, &res.common.repos)
     }
 
     fn strings<'a>(page: &'a Value, pick: impl Fn(&'a Value) -> Vec<&'a str>) -> BTreeSet<&'a str> {

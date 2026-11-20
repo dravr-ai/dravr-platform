@@ -816,11 +816,11 @@ mod tests {
     use std::future;
 
     use dravr_barrage::blob::memory::MemoryBlobStore;
-    use dravr_barrage::store::memory::MemoryActivityRecordStore;
     use pierre_core::models::{Tenant, User};
     use pierre_test_support::db::create_test_db;
 
     use super::*;
+    use crate::barrage_keys::memory_records;
 
     #[tokio::test]
     async fn a_build_that_panics_stops_its_heartbeat() {
@@ -881,7 +881,7 @@ mod tests {
             .unwrap();
         // Every slot held by other athletes' builds.
         let service = Arc::new(OriginalsBundleService {
-            records: Arc::new(MemoryActivityRecordStore::new()),
+            records: Arc::new(memory_records()),
             blobs: Arc::new(MemoryBlobStore::new()),
             repos,
             slots: Arc::new(Semaphore::new(0)),

@@ -25,7 +25,6 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 use chrono::{DateTime, Duration, SubsecRound, Utc};
-use dravr_barrage::store::memory::MemoryActivityRecordStore;
 use dravr_barrage::store::sql::sqlite::{self, SqliteRecordStore};
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{ActivityId, LiveSource, Scope, SourceKey};
@@ -43,6 +42,7 @@ use pierre_mcp_server::config::admin::UpdateConfigContext;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::retention_sweep_worker::retention_sweeper;
 use pierre_services::activity_cache_sink::LiveCacheSink;
+use pierre_services::barrage_keys::{memory_records, PlatformKeyed};
 use pierre_services::barrage_live_store::BarrageLiveStore;
 use pierre_services::live_activities::{LiveActivityStore, WriteOrigin};
 use pierre_services::retention_sweep::RetentionPass;
@@ -71,7 +71,7 @@ struct World {
 impl World {
     /// The athlete's reads kept in memory.
     async fn new() -> Self {
-        Self::over(Arc::new(MemoryActivityRecordStore::new()), None).await
+        Self::over(Arc::new(memory_records()), None).await
     }
 
     /// The athlete's reads kept in a SQLite file of barrage's own, the store
@@ -80,7 +80,14 @@ impl World {
         let dir = TempDir::new().unwrap();
         let url = format!("sqlite:{}", dir.path().join("barrage.db").display());
         let pool = sqlite::open(&url).await.unwrap();
-        Self::over(Arc::new(SqliteRecordStore::new(pool)), Some(dir)).await
+        Self::over(
+            Arc::new(SqliteRecordStore::new(
+                pool,
+                Arc::new(PlatformKeyed::ephemeral()),
+            )),
+            Some(dir),
+        )
+        .await
     }
 
     async fn over(records: Arc<dyn ActivityRecordStore>, records_dir: Option<TempDir>) -> Self {

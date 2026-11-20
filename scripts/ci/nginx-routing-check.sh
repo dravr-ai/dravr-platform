@@ -348,8 +348,10 @@ else
     echo "  FAIL a request with no Authorization was served the answer to one with it (got: ${card_after:0:120})"
     failures=$((failures + 1))
 fi
-discovery_get mcp.dravr.ai /.well-known/jwks.json >/dev/null
-discovery_get mcp.dravr.ai /.well-known/jwks.json >/dev/null
+for uncached_path in /.well-known/jwks.json /.well-known/did.json /.well-known/dravr-checkpoint; do
+    discovery_get mcp.dravr.ai "$uncached_path" >/dev/null
+    discovery_get mcp.dravr.ai "$uncached_path" >/dev/null
+done
 
 # Hashed assets: a chunk the image holds is served as JavaScript, and one it
 # lacks is a 404 — never the SPA shell, which a module import of a chunk from
@@ -511,19 +513,22 @@ else
         # An empty upstream is the proof that a request with no credential
         # never dialled the API.
         expect_line "a repeated discovery fetch is a cache HIT with no upstream" '.path == "/.well-known/oauth-protected-resource/mcp" and .cache == "HIT" and (.upstream == "" or .upstream == "-")'
-        # Every jwks.json line reached the backend with no cache status: the
-        # signing keys have their own uncached location, so the repeated fetch
-        # above would be a HIT were they cached, and fewer than two lines would
-        # mean the check saw nothing.
-        jwks_lines="$(jq -c 'select(.path == "/.well-known/jwks.json")' <<<"$access_json")"
-        jwks_direct="$(jq -c 'select((.cache == "" or .cache == "-") and .upstream != "" and .upstream != "-")' <<<"$jwks_lines" | wc -l | tr -d ' ')"
-        jwks_total="$(printf '%s' "$jwks_lines" | grep -c '^{' || true)"
-        if [ "$jwks_total" -ge 2 ] && [ "$jwks_direct" = "$jwks_total" ]; then
-            echo "  ok   jwks.json always reaches the backend, uncached ($jwks_direct requests)"
-        else
-            echo "  FAIL jwks.json went through the discovery cache ($jwks_direct of $jwks_total requests reached the backend uncached)"
-            failures=$((failures + 1))
-        fi
+        # Every line of a key or transparency document reached the backend
+        # with no cache status: each has its own uncached location (the
+        # signing keys, the checkpoint key's did:web, the newest checkpoint),
+        # so the repeated fetch above would be a HIT were it cached, and fewer
+        # than two lines would mean the check saw nothing.
+        for uncached_path in /.well-known/jwks.json /.well-known/did.json /.well-known/dravr-checkpoint; do
+            path_lines="$(jq -c --arg p "$uncached_path" 'select(.path == $p)' <<<"$access_json")"
+            path_direct="$(jq -c 'select((.cache == "" or .cache == "-") and .upstream != "" and .upstream != "-")' <<<"$path_lines" | wc -l | tr -d ' ')"
+            path_total="$(printf '%s' "$path_lines" | grep -c '^{' || true)"
+            if [ "$path_total" -ge 2 ] && [ "$path_direct" = "$path_total" ]; then
+                echo "  ok   $uncached_path always reaches the backend, uncached ($path_direct requests)"
+            else
+                echo "  FAIL $uncached_path went through the discovery cache ($path_direct of $path_total requests reached the backend uncached)"
+                failures=$((failures + 1))
+            fi
+        done
         expect_line "an MCP request nginx answers is logged as a 401 with no upstream" '.path == "/__mcp_unauthenticated_401" and .status == 401 and (.upstream == "" or .upstream == "-")'
         expect_line "an upstream failure is ERROR" ".path == \"$UPSTREAM_FAILS_PATH\" and .status == 502 and .severity == \"ERROR\""
         expect_line "a 200 served after abandoning an address is WARNING" '.path == "/api/health" and .status == 200 and .severity == "WARNING" and (.upstream | contains(", "))'

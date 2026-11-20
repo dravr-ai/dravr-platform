@@ -1,0 +1,247 @@
+// ABOUTME: The hourly record_log worker: keys erasures and tombstones, baselines unlogged records, sweeps orphans, cuts checkpoints
+// ABOUTME: Always started; only the checkpoint cut waits for a signer, which a KMS deployment gets once its key is applied
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! # The `record_log` worker (carnet#1542)
+//!
+//! One hourly tick on [`spawn_periodic`], leased to one instance by the
+//! worker ledger, does every step, each bounded:
+//!
+//! 1. keys barrage erasures and import tombstones written without their keyed
+//!    digest (before the columns existed, or by an older revision during a
+//!    rolling deploy);
+//! 2. baselines records no log entry names yet;
+//! 3. deletes the log of an account the platform no longer holds (an older
+//!    binary's account deletion leaves it behind; see the plan's D2b);
+//! 4. with a signer, cuts a checkpoint anchoring the deletion receipt chain's
+//!    head, records the anchor, and logs the signed note to Cloud Logging
+//!    (target `dravr::checkpoint`): the place the database cannot reach.
+
+use std::fmt;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
+
+use chrono::Utc;
+use dravr_barrage::digest::Sha256;
+use dravr_barrage::keyed::{KeyedDigest, Signer};
+use dravr_barrage::record_log::checkpoint::Anchor;
+use dravr_barrage::record_log::{cut_checkpoint, LOG_PAGE};
+use dravr_barrage::store::ActivityRecordStore;
+use dravr_barrage::{BarrageError, UserId};
+use pierre_core::errors::{AppError, AppResult};
+use pierre_database::repositories::{
+    subject_hash, AccountDeletionRepository, ImportTombstoneRepository, ReceiptAnchor,
+    UserRepository, WorkerRunRepository,
+};
+use tokio::task::AbortHandle;
+use tracing::{info, warn};
+use uuid::Uuid;
+
+use crate::barrage_keys::CHECKPOINT_ORIGIN;
+use crate::periodic::spawn_periodic;
+
+/// The worker's ledger name.
+const WORKER_NAME: &str = "record_log";
+
+/// One tick an hour: a checkpoint is cut at most once per hour.
+const INTERVAL: Duration = Duration::from_hours(1);
+
+/// How many rows each backfill step keys per tick.
+const BACKFILL_PER_TICK: u32 = 500;
+
+/// What one tick did.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct RecordLogTick {
+    /// Barrage erasures keyed.
+    pub erasures_keyed: u64,
+    /// Import tombstones keyed.
+    pub tombstones_keyed: u64,
+    /// Baseline entries appended.
+    pub baselined: u64,
+    /// Deleted accounts whose log was swept.
+    pub orphans_swept: u64,
+    /// The checkpoint cut, with the receipt it anchors.
+    pub anchored: Option<ReceiptAnchor>,
+}
+
+/// The `record_log` worker's dependencies.
+pub struct RecordLogWorker {
+    records: Arc<dyn ActivityRecordStore>,
+    tombstones: Arc<dyn ImportTombstoneRepository>,
+    receipts: Arc<dyn AccountDeletionRepository>,
+    users: Arc<dyn UserRepository>,
+    signer: Option<Arc<dyn Signer>>,
+    /// Where the orphan sweep resumes: one page per tick, wrapping around.
+    orphan_cursor: Mutex<Option<KeyedDigest>>,
+}
+
+impl fmt::Debug for RecordLogWorker {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RecordLogWorker")
+            .field("signs", &self.signer.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl RecordLogWorker {
+    /// The worker over `records`, the platform's repositories, and `signer`
+    /// (`None`: no checkpoint is cut).
+    #[must_use]
+    pub fn new(
+        records: Arc<dyn ActivityRecordStore>,
+        tombstones: Arc<dyn ImportTombstoneRepository>,
+        receipts: Arc<dyn AccountDeletionRepository>,
+        users: Arc<dyn UserRepository>,
+        signer: Option<Arc<dyn Signer>>,
+    ) -> Self {
+        Self {
+            records,
+            tombstones,
+            receipts,
+            users,
+            signer,
+            orphan_cursor: Mutex::new(None),
+        }
+    }
+
+    /// One tick.
+    ///
+    /// # Errors
+    ///
+    /// The first step that fails; the steps before it stay done.
+    pub async fn run(&self) -> AppResult<RecordLogTick> {
+        let barrage = |e: BarrageError| AppError::internal(format!("record_log: {e}"));
+        let mut tick = RecordLogTick {
+            erasures_keyed: self
+                .records
+                .backfill_erased_keys(BACKFILL_PER_TICK)
+                .await
+                .map_err(barrage)?,
+            tombstones_keyed: self
+                .tombstones
+                .backfill_identity_keys(i64::from(BACKFILL_PER_TICK))
+                .await?,
+            baselined: self
+                .records
+                .baseline(BACKFILL_PER_TICK)
+                .await
+                .map_err(barrage)?,
+            ..RecordLogTick::default()
+        };
+        tick.orphans_swept = self.sweep_orphans().await?;
+        if let Some(signer) = &self.signer {
+            tick.anchored = self.anchor(signer.as_ref()).await?;
+        }
+        Ok(tick)
+    }
+
+    /// Delete the log of every account on one page of heads that the
+    /// platform no longer holds.
+    async fn sweep_orphans(&self) -> AppResult<u64> {
+        let after = self
+            .orphan_cursor
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let heads = self
+            .records
+            .log_heads(after.as_ref(), LOG_PAGE)
+            .await
+            .map_err(|e| AppError::internal(format!("record_log heads: {e}")))?;
+        let next = if heads.len() == LOG_PAGE as usize {
+            heads.last().map(|(_, head)| head.keyed_scope.clone())
+        } else {
+            None
+        };
+        *self
+            .orphan_cursor
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = next;
+        let users: Vec<Uuid> = heads.iter().map(|(scope, _)| scope.user_id.0).collect();
+        let held = self.users.get_global_many(&users).await?;
+        let mut swept = 0;
+        for user in users.into_iter().filter(|user| !held.contains_key(user)) {
+            self.records
+                .delete_user(UserId(user))
+                .await
+                .map_err(|e| AppError::internal(format!("record_log orphan sweep: {e}")))?;
+            warn!(
+                subject_hash = %subject_hash(user),
+                "Deleted the record_log of an account the platform no longer holds"
+            );
+            swept += 1;
+        }
+        Ok(swept)
+    }
+
+    /// Cut a checkpoint anchoring the receipt chain's head, and record it.
+    async fn anchor(&self, signer: &dyn Signer) -> AppResult<Option<ReceiptAnchor>> {
+        let (seq, hash) = self
+            .receipts
+            .receipt_chain_head()
+            .await?
+            .unwrap_or_else(|| (0, hex::encode([0_u8; 32])));
+        let anchor = Anchor {
+            seq: u64::try_from(seq).map_err(|_| {
+                AppError::internal(format!("receipt chain head has a negative seq {seq}"))
+            })?,
+            hash: Sha256::parse_hex(&hash)
+                .map_err(|e| AppError::internal(format!("receipt chain head: {e}")))?,
+        };
+        let Some(checkpoint) = cut_checkpoint(
+            self.records.as_ref(),
+            signer,
+            anchor,
+            CHECKPOINT_ORIGIN,
+            Utc::now(),
+        )
+        .await
+        .map_err(|e| AppError::internal(format!("record_log checkpoint: {e}")))?
+        else {
+            return Ok(None);
+        };
+        // Logged before the anchor row is written: the copy outside the
+        // database must not depend on that write, since a cut checkpoint is
+        // never cut again for an unchanged tree.
+        info!(
+            target: "dravr::checkpoint",
+            checkpoint_id = checkpoint.id,
+            tree_size = checkpoint.size,
+            receipt_seq = seq,
+            note = %checkpoint.note,
+            "Signed record_log checkpoint"
+        );
+        let recorded = ReceiptAnchor {
+            receipt_seq: seq,
+            receipt_hash: hash,
+            checkpoint_id: checkpoint.id,
+            tree_size: i64::try_from(checkpoint.size).map_err(|_| {
+                AppError::internal(format!(
+                    "checkpoint {} has a size {} past i64",
+                    checkpoint.id, checkpoint.size
+                ))
+            })?,
+            tree_root: checkpoint.root.to_hex(),
+            note: checkpoint.note.clone(),
+            anchored_at: Utc::now(),
+        };
+        self.receipts.record_anchor(&recorded).await?;
+        Ok(Some(recorded))
+    }
+}
+
+/// Start the worker on [`spawn_periodic`], hourly.
+pub fn start_record_log_worker(
+    worker: Arc<RecordLogWorker>,
+    ledger: Arc<dyn WorkerRunRepository>,
+) -> AbortHandle {
+    let signs = worker.signer.is_some();
+    let handle = spawn_periodic(WORKER_NAME, INTERVAL, ledger, move || {
+        let worker = Arc::clone(&worker);
+        async move { worker.run().await.map(|_| ()) }
+    });
+    info!(signs, "record_log worker started (hourly)");
+    handle
+}

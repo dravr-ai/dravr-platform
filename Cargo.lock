@@ -1330,8 +1330,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.25.2"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.25.2#35aa47eeee6eb7e0009313fd3731342b4a9fdb89"
+version = "0.26.0"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.26.0#b9e0b3f82d914b95acd99f78038ef8309fe58674"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4356,6 +4356,7 @@ dependencies = [
  "pierre-services",
  "pierre-test-support",
  "reqwest 0.12.28",
+ "ring",
  "secrecy",
  "serde",
  "serde_json",
@@ -4426,6 +4427,7 @@ name = "pierre-routes-identity"
 version = "0.3.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "chrono",
  "hex",
  "pierre-auth",

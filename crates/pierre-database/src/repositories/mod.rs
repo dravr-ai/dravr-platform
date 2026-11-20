@@ -302,7 +302,8 @@ pub use a2a::*;
 pub use a2a_task_reaper::*;
 pub use account_deletion::{
     verify_receipt_chain, AccountDeletion, AccountDeletionPlan, AccountDeletionRepository,
-    ChainBreak, ChainVerification, DeletionActor, DeletionReceipt, PlannedBackend, GENESIS_HASH,
+    ChainBreak, ChainVerification, DeletionActor, DeletionReceipt, PlannedBackend, ReceiptAnchor,
+    GENESIS_HASH,
 };
 pub use account_reset::{
     AccountReset, AccountResetCommit, AccountResetRepository, AccountResetWipe, OwnedGroup,
