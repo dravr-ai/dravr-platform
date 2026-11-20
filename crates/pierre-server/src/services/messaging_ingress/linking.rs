@@ -307,9 +307,10 @@ pub(super) async fn link_time_reply(
     }
 }
 
-/// Emit the post-link notify pair: `messaging.identity_alias` (glues the
-/// `{channel}:{sender_id}` distinct id to the linked Pierre user) and
-/// `messaging.linking_completed`. `link_method` is `deep_link` or `otp`.
+/// Emit the post-link notify pair: `messaging.identity_alias` (pairs the
+/// linked Pierre user with the hashed `{channel}:{sender_id}` pre-link
+/// identity, in Cloud Logging only: the analytics sink strips
+/// `channel_identity`) and `messaging.linking_completed`. `link_method` is `deep_link` or `otp`.
 ///
 /// `user_id` is the raw (un-hashed) Pierre user id. Shared by the deep-link
 /// path here and the in-chat OTP path in `otp.rs`.
@@ -320,7 +321,7 @@ pub(super) fn emit_linking_success(
     sender_id: &str,
     link_method: &str,
 ) {
-    let channel_identity = format!("{channel}:{sender_id}");
+    let channel_identity = super::pre_link_identity(channel, sender_id);
     info!(
         target: "notify",
         event = "messaging.identity_alias",

@@ -332,12 +332,25 @@ pub(crate) async fn persist_inbound(
     (stored_count, pending_dispatches)
 }
 
+/// The identity a notify event carries for a sender with no linked Pierre user:
+/// the hash of `{channel}:{sender_id}`, never the sender id itself.
+///
+/// A sender id is a phone number or a BSUID on WhatsApp and a numeric user id
+/// on Telegram. The hash correlates one sender's events in Cloud Logging; it is
+/// unkeyed, so it is reversible over the phone-number space and must not leave
+/// the logs. Consent is keyed on a Pierre user and the analytics sink hashes
+/// `user_id` again, so a pre-link event is never captured in `PostHog`, and
+/// `messaging.identity_alias` carries it as `channel_identity`, a key the sink
+/// strips (carnet#1680).
+pub(super) fn pre_link_identity(channel: &str, sender_id: &str) -> String {
+    hash_id(&format!("{channel}:{sender_id}"))
+}
+
 /// Emit the `messaging.intent` product notify event for a recognised intent.
 ///
-/// `user_id` is the raw (un-hashed) Pierre user id, or — for pre-link intents
-/// that have no resolved user yet — the `{channel}:{sender_id}` distinct id the
-/// provider will hash. `intent_type` is one of `link_code`, `otp_flow`,
-/// `logout`, `normal_chat`.
+/// `user_id` is the raw (un-hashed) Pierre user id, or, for pre-link intents
+/// that have no resolved user yet, the [`pre_link_identity`] hash.
+/// `intent_type` is one of `link_code`, `otp_flow`, `logout`, `normal_chat`.
 fn emit_messaging_intent(user_id: &str, tenant_id: TenantId, channel: &str, intent_type: &str) {
     info!(
         target: "notify",
@@ -613,11 +626,10 @@ async fn persist_single_message(
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let thread_id = extract_thread_id(&message.metadata);
 
-    // Pre-link intent events have no resolved Pierre user yet, so the
-    // `{channel}:{sender_id}` channel identity is the raw distinct_id the
-    // provider will hash (the same value the post-link `alias` glues to the
-    // user id once linking completes).
-    let pre_link_identity = format!("{channel}:{}", message.sender_id);
+    // Pre-link intent events have no resolved Pierre user yet, so they carry
+    // the hashed `{channel}:{sender_id}` channel identity (see
+    // `pre_link_identity`). It reaches Cloud Logging only.
+    let pre_link_identity = pre_link_identity(channel, &message.sender_id);
 
     if let Some(outcome) = handle_pre_session_commands(
         resources,
@@ -1201,5 +1213,17 @@ async fn store_inbound_message(
             );
             Err(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pre_link_identity_is_the_hash_of_channel_and_sender() {
+        let identity = pre_link_identity("whatsapp", "+15551234567");
+        assert_eq!(identity, hash_id("whatsapp:+15551234567"));
+        assert!(!identity.contains("15551234567"));
     }
 }
