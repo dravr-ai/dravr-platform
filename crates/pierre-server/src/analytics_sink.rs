@@ -335,24 +335,3 @@ fn event_emoji(event: &str) -> &'static str {
         _ => "🔔",
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn channel_identity_never_reaches_posthog_properties() {
-        let fields: HashMap<String, String> = [
-            ("tenant_id", "tenant-abc"),
-            ("channel_identity", "whatsapp:+15551234567"),
-            ("channel", "whatsapp"),
-        ]
-        .iter()
-        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
-        .collect();
-        let props = build_properties(&fields, EventTier::Product, None);
-        let props = props.as_object().expect("object properties");
-        assert!(!props.contains_key("channel_identity"));
-        assert!(props.contains_key("channel"));
-    }
-}

@@ -188,6 +188,27 @@ fn sender_host_survives_posthog_property_stripping() {
 }
 
 #[test]
+fn channel_identity_never_reaches_posthog_properties() {
+    // A channel identity derives from a sender's phone number or channel user
+    // id; an unkeyed hash of it is reversible, so the sink strips it.
+    let provider = PierreAnalyticsProvider;
+    let f = fields(&[
+        ("tenant_id", "tenant-1"),
+        ("channel_identity", "whatsapp:+15551234567"),
+        ("channel", "whatsapp"),
+    ]);
+    let capture = provider
+        .capture_for("provider.fetch_started", &f)
+        .expect("operational event captures");
+    let props = capture.properties.as_object().expect("object properties");
+    assert!(
+        !props.contains_key("channel_identity"),
+        "channel_identity must be stripped from PostHog properties"
+    );
+    assert_eq!(props["channel"], "whatsapp");
+}
+
+#[test]
 fn enricher_keeps_call_site_emoji() {
     let mut f = fields(&[("emoji", "🎯")]);
     PierreNotifyEnricher::new(None).enrich("user.login", &mut f);
