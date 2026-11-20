@@ -7,9 +7,11 @@
 //! Link states for the Postgres backend.
 //!
 //! The statements, the guards and the row decode live in
-//! [`crate::repositories::messaging_link_states`]; this file expands them
-//! over the Postgres pool. The `MessagingRepository` impl in `messaging.rs`
-//! delegates to these free functions.
+//! [`crate::repositories::messaging_link_states`], bar the OTP-flow
+//! invalidation a pairing hold shares with the repository body, which lives
+//! in `repositories/messaging/sql.rs`; this file expands them over the
+//! Postgres pool. The `MessagingRepository` impl in `messaging.rs` delegates
+//! to these free functions.
 
 use chrono::Utc;
 use pierre_core::errors::messaging::MessagingError;

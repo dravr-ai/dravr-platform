@@ -67,10 +67,10 @@ mod prelink_locale {
     /// A country whose language the platform does not speak, which reads
     /// English (owner decision, carnet#1669).
     const AMSTERDAM: &str = "31612345106";
-    /// A sender whose webhook showed no phone number, whom dravr-canot names by
-    /// their business-scoped user id alone: its country places them. (The
-    /// `"unknown"` canot v0.11.0 wrote for such a sender is refused before any
-    /// reply since carnet#1668.)
+    /// A sender whose webhook shows no phone number, whom dravr-canot names by
+    /// their business-scoped user id alone: its country places them. A
+    /// placeholder sender id such as `"unknown"` is refused before any reply
+    /// (carnet#1668), so it never reaches the flow.
     const NUMBERLESS_IN_SPAIN: &str = "ES.13491208655302741918";
 
     struct Bot {

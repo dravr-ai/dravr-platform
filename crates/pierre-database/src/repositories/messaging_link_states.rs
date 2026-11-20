@@ -8,10 +8,13 @@
 //!
 //! A link state is the one-time code that turns "someone messaged us from
 //! this Telegram/Slack id" into "this id belongs to that Dravr account". It
-//! is minted with a TTL, consumed exactly once, or completed by a webhook
-//! that learned the user id after the fact, and those four operations are
-//! what this module holds. The `MessagingRepository` impl of each backend
-//! delegates its four link-state methods here.
+//! is minted with a TTL, read back, consumed exactly once, or completed by a
+//! webhook that learned the user id after the fact. One minted for an
+//! unlinked sender opens the in-chat OTP flow, and a pairing code a sender
+//! redeems is held for them until they confirm, then spent or handed back.
+//! This module holds those operations, and the `MessagingRepository` impl of
+//! each backend delegates them here; the rest of the OTP flow stays in that
+//! impl, over the statements in `messaging/sql.rs`.
 //!
 //! The two backends differ in one respect only: `tenant_id` and `user_id`
 //! are `uuid` columns on Postgres and `TEXT` on `SQLite`. `tenant_id` binds
@@ -309,7 +312,7 @@ where
     })
 }
 
-/// Emit the four link-state operations for one backend, as free functions
+/// Emit the link-state operations for one backend, as free functions
 /// over that backend's pool — the shape a `MessagingRepository` impl can
 /// delegate to from another module, since a trait impl cannot be split
 /// across files.

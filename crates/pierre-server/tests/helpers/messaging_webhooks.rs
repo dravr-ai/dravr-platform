@@ -8,6 +8,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use chrono::Utc;
+use dravr_canot::channels::whatsapp::identity;
 use ed25519_dalek::{Signer, SigningKey};
 use hmac::{Hmac, Mac};
 use rand::RngCore;
@@ -243,6 +244,10 @@ pub(crate) fn discord_webhook(
 }
 
 /// Build a `WhatsApp` Business Cloud API webhook signed with Meta HMAC-SHA256.
+///
+/// The sender is named where Meta names them: a business-scoped user id in
+/// `messages[].from_user_id` alone, the shape a sender who shares no phone
+/// number arrives in, and a phone number in `messages[].from`.
 #[must_use]
 pub(crate) fn whatsapp_webhook(
     text: &str,
@@ -251,6 +256,11 @@ pub(crate) fn whatsapp_webhook(
     phone_number_id: &str,
     secrets: &ChannelSecrets,
 ) -> WebhookRequest {
+    let sender_field = if identity::is_business_scoped_user_id(sender_id) {
+        "from_user_id"
+    } else {
+        "from"
+    };
     let body_value = json!({
         "object": "whatsapp_business_account",
         "entry": [{
@@ -263,7 +273,7 @@ pub(crate) fn whatsapp_webhook(
                         "phone_number_id": phone_number_id,
                     },
                     "messages": [{
-                        "from": sender_id,
+                        sender_field: sender_id,
                         "id": format!("wamid.test_{msg_id}"),
                         "timestamp": "1700000000",
                         "type": "text",
