@@ -342,7 +342,7 @@ async fn enqueue(
         Recorded::Unrecorded
             if matches!(
                 job.kind,
-                BackfillJobKind::DetailWalk | BackfillJobKind::TagWalk
+                BackfillJobKind::DetailWalk | BackfillJobKind::TagWalk | BackfillJobKind::TrackWalk
             ) =>
         {
             release_in_flight(&claim);
@@ -469,7 +469,7 @@ fn spawn_backfill_run(
     let awaited = asker == Awaited::Maybe
         && !matches!(
             job.kind,
-            BackfillJobKind::DetailWalk | BackfillJobKind::TagWalk
+            BackfillJobKind::DetailWalk | BackfillJobKind::TagWalk | BackfillJobKind::TrackWalk
         )
         && (job.pierre_conversation_id.is_some() || handoff.is_some());
     let (user_id, provider, kind) = (job.user_id, job.provider_name.clone(), job.kind);
@@ -484,7 +484,7 @@ fn spawn_backfill_run(
                 run_backfill(&job, recorded).await;
                 history_walk::AfterStep::Settled
             }
-            BackfillJobKind::DetailWalk => {
+            BackfillJobKind::DetailWalk | BackfillJobKind::TrackWalk => {
                 detail_walk::run_detail_walk(&job, recorded).await;
                 history_walk::AfterStep::Settled
             }

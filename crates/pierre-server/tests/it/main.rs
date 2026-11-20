@@ -913,6 +913,7 @@ mod tool_surface_cutover_test;
 mod tool_surface_refusal_notify_test;
 mod tool_surface_turn_token_test;
 mod tools_engine_test;
+mod track_walk_test;
 mod training_catalogue_sync_test;
 mod training_catalogue_test;
 mod training_history_from_cache_test;

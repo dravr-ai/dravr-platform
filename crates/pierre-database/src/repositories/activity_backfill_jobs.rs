@@ -373,13 +373,16 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         stored: i64,
     ) -> AppResult<bool>;
 
-    /// The [`BackfillJobKind::DetailWalk`] filed under `(user_id, provider)`
-    /// in `tenant_id`, owed or ended, or `None` when the ledger holds none.
+    /// The `kind` walk filed under `(user_id, provider)` in `tenant_id`, owed
+    /// or ended, or `None` when the ledger holds none: a
+    /// [`BackfillJobKind::DetailWalk`], or a walk with its cursor and window
+    /// ([`BackfillJobKind::TrackWalk`]).
     async fn detail_walk_row(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
+        kind: BackfillJobKind,
     ) -> AppResult<Option<DetailWalkRow>>;
 
     /// Record on the ended [`BackfillJobKind::DetailWalk`] filed under

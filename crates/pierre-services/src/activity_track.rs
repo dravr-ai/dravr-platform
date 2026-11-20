@@ -207,6 +207,25 @@ pub(crate) async fn local_track(
     Ok(samples.and_then(|samples| RouteTrack::from_streams(&samples).ok()))
 }
 
+/// Whether the cached row still has no track a detail read could give it.
+///
+/// Its sport records an outdoor route, it carries no route overview
+/// [`local_track`] would trim, and its stored route read neither drew a
+/// track nor settled that it has none (carnet#1679). An `unavailable` answer does
+/// not settle it, as [`store_route_read`] replaces one with any read; an
+/// expired one reads as none (the row's join leaves it out).
+#[must_use]
+pub fn track_unsettled(row: &CachedActivityRow) -> bool {
+    records_outdoor_route(&row.activity)
+        && row
+            .activity
+            .summary_polyline()
+            .and_then(RouteTrack::trimmed_overview)
+            .is_none()
+        && row.route != Some(StoredRouteOutcome::Drawn)
+        && !route_settled_absent(row.route.as_ref())
+}
+
 /// Whether the cached row's stored route read settled that it has no track.
 fn route_settled_absent(route: Option<&StoredRouteOutcome>) -> bool {
     matches!(
@@ -585,5 +604,45 @@ mod tests {
             drawn,
             "bug: a later miss replaced a drawn track"
         );
+    }
+
+    #[test]
+    fn only_an_outdoor_row_with_no_line_and_no_settled_read_awaits_a_track() {
+        let unavailable = |reason: &str| {
+            Some(StoredRouteOutcome::Unavailable {
+                reason: reason.to_owned(),
+            })
+        };
+        let awaits = [
+            (row("a", SportType::Ride, false, None), true),
+            (
+                row("b", SportType::Ride, false, unavailable("unavailable")),
+                true,
+            ),
+            (row("c", SportType::Ride, true, None), false),
+            (
+                row("d", SportType::Ride, false, Some(StoredRouteOutcome::Drawn)),
+                false,
+            ),
+            (
+                row("e", SportType::Ride, false, unavailable("no_gps")),
+                false,
+            ),
+            (
+                row("f", SportType::Ride, false, unavailable("too_short")),
+                false,
+            ),
+            (row("g", SportType::VirtualRide, false, None), false),
+        ];
+        for (row, expected) in awaits {
+            assert_eq!(
+                track_unsettled(&row),
+                expected,
+                "bug: row {} (route {:?}) awaits a track read: {}",
+                row.activity.id(),
+                row.route,
+                !expected
+            );
+        }
     }
 }

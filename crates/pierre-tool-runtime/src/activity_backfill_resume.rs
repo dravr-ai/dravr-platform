@@ -196,7 +196,7 @@ async fn job_from_row(
             .unwrap_or_else(|| row.provider.clone())
     } else if matches!(
         row.kind,
-        BackfillJobKind::DetailWalk | BackfillJobKind::TagWalk
+        BackfillJobKind::DetailWalk | BackfillJobKind::TagWalk | BackfillJobKind::TrackWalk
     ) {
         // Filed under the backend that reads it, which it reads exactly as
         // named: never resolved to the session first.

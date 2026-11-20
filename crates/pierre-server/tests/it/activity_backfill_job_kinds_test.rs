@@ -1226,7 +1226,7 @@ async fn a_detail_walk_that_reached_its_floor_ends_walked_and_keeps_its_counts()
     );
     assert_eq!(
         ledger
-            .detail_walk_row(user, tenant, PROVIDER)
+            .detail_walk_row(user, tenant, PROVIDER, BackfillJobKind::DetailWalk)
             .await
             .unwrap(),
         Some(DetailWalkRow {
@@ -1245,7 +1245,12 @@ async fn a_detail_walk_that_reached_its_floor_ends_walked_and_keeps_its_counts()
     );
     assert_eq!(
         ledger
-            .detail_walk_row(user, TenantId::generate(), PROVIDER)
+            .detail_walk_row(
+                user,
+                TenantId::generate(),
+                PROVIDER,
+                BackfillJobKind::DetailWalk
+            )
             .await
             .unwrap(),
         None,
@@ -1293,7 +1298,7 @@ async fn a_detail_walk_that_reached_its_floor_ends_walked_and_keeps_its_counts()
         "bug: a fresh walk is not recorded over the ended one"
     );
     let fresh_row = ledger
-        .detail_walk_row(user, tenant, PROVIDER)
+        .detail_walk_row(user, tenant, PROVIDER, BackfillJobKind::DetailWalk)
         .await
         .unwrap()
         .expect("the fresh walk is recorded");
@@ -1362,7 +1367,7 @@ async fn a_walk_widened_to_every_sport_restarts_at_its_top() {
         "an ask of the same sport widens the owed walk"
     );
     let row = ledger
-        .detail_walk_row(user, tenant, PROVIDER)
+        .detail_walk_row(user, tenant, PROVIDER, BackfillJobKind::DetailWalk)
         .await
         .unwrap()
         .unwrap();
@@ -1384,7 +1389,7 @@ async fn a_walk_widened_to_every_sport_restarts_at_its_top() {
         "an ask of every sport widens the owed walk"
     );
     let row = ledger
-        .detail_walk_row(user, tenant, PROVIDER)
+        .detail_walk_row(user, tenant, PROVIDER, BackfillJobKind::DetailWalk)
         .await
         .unwrap()
         .unwrap();
@@ -1399,7 +1404,7 @@ async fn a_walk_widened_to_every_sport_restarts_at_its_top() {
     );
     assert_eq!(
         ledger
-            .detail_walk_row(user, tenant, PROVIDER)
+            .detail_walk_row(user, tenant, PROVIDER, BackfillJobKind::DetailWalk)
             .await
             .unwrap()
             .unwrap()

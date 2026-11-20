@@ -32,6 +32,11 @@ pub enum BackfillJobKind {
     /// gear id only a list row carries into the rows already stored. Its
     /// unit is a list page, counted in the row's `months_done`.
     TagWalk,
+    /// The walk that reads once more, newest first, the stored activities
+    /// whose segment efforts a detail read stored before it kept the route,
+    /// for the track only that read carries (carnet#1679). Its unit is an
+    /// activity, its cursor the row's `before_ts`.
+    TrackWalk,
 }
 
 impl BackfillJobKind {
@@ -44,6 +49,7 @@ impl BackfillJobKind {
             Self::LiveRead => "live_read",
             Self::DetailWalk => "detail_walk",
             Self::TagWalk => "tag_walk",
+            Self::TrackWalk => "track_walk",
         }
     }
 
@@ -59,6 +65,7 @@ impl BackfillJobKind {
             "live_read" => Ok(Self::LiveRead),
             "detail_walk" => Ok(Self::DetailWalk),
             "tag_walk" => Ok(Self::TagWalk),
+            "track_walk" => Ok(Self::TrackWalk),
             other => Err(AppError::database(format!(
                 "activity_backfill_jobs kind is not one this build knows: {other}"
             ))),
@@ -72,7 +79,8 @@ impl BackfillJobKind {
 /// with. The test beside it keeps the list in step with [`BackfillJobKind`].
 macro_rules! known_backfill_job_kinds {
     () => {
-        "('backfill', 'history_walk', 'live_read', 'detail_walk', 'tag_walk')"
+        "('backfill', 'history_walk', 'live_read', 'detail_walk', 'tag_walk', \
+         'track_walk')"
     };
 }
 pub(crate) use known_backfill_job_kinds;
@@ -90,12 +98,13 @@ mod tests {
     /// Every kind this build runs. The exhaustive match in the test below
     /// stops compiling when a variant is added, which is the cue to add it
     /// here and to the SQL list.
-    const ALL: [BackfillJobKind; 5] = [
+    const ALL: [BackfillJobKind; 6] = [
         BackfillJobKind::Backfill,
         BackfillJobKind::HistoryWalk,
         BackfillJobKind::LiveRead,
         BackfillJobKind::DetailWalk,
         BackfillJobKind::TagWalk,
+        BackfillJobKind::TrackWalk,
     ];
 
     /// The claim and the reap filter on the SQL list, so a kind added to the
@@ -122,7 +131,8 @@ mod tests {
                 | BackfillJobKind::HistoryWalk
                 | BackfillJobKind::LiveRead
                 | BackfillJobKind::DetailWalk
-                | BackfillJobKind::TagWalk => {}
+                | BackfillJobKind::TagWalk
+                | BackfillJobKind::TrackWalk => {}
             }
         }
     }

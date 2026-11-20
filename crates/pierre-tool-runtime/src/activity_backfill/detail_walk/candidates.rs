@@ -1,5 +1,5 @@
 // ABOUTME: Which stored activities a detail walk reads: a window's rows taken by whole seconds, newest first
-// ABOUTME: Of the walk's sport, the copies of one activity as one, only those no copy of which holds its efforts
+// ABOUTME: Of the walk's sport, the copies of one activity as one: those with no efforts, or read with no track
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,9 +11,10 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
-    CachedActivityRow, CachedRowCursor, CachedRowsQuery, WalkTried,
+    BackfillJobKind, CachedActivityRow, CachedRowCursor, CachedRowsQuery, WalkTried,
 };
 use pierre_providers::deduplication::one_activity_key;
+use pierre_services::activity_track;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -41,6 +42,47 @@ pub(super) struct Athlete<'run> {
     pub(super) runtime: &'run Arc<dyn ToolRuntime>,
     pub(super) user_id: Uuid,
     pub(super) tenant_id: TenantId,
+}
+
+/// What a walk reads an activity's detail for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Want {
+    /// Its segment efforts, which no copy holds: a detail walk.
+    Efforts,
+    /// Its track, which a detail read of its efforts stored before it kept
+    /// the route, never stored (carnet#1679): a track walk. A copy holds
+    /// its efforts, and no copy's track is settled
+    /// ([`activity_track::track_unsettled`]).
+    Track,
+}
+
+impl Want {
+    /// What a walk of `kind` reads for.
+    pub(super) fn of(kind: BackfillJobKind) -> Self {
+        if kind == BackfillJobKind::TrackWalk {
+            Self::Track
+        } else {
+            Self::Efforts
+        }
+    }
+
+    /// Whether `row` holds what the walk reads for, so no copy of its
+    /// activity is read.
+    fn holds(self, row: &CachedActivityRow) -> bool {
+        match self {
+            Self::Efforts => row.segment_read,
+            Self::Track => !activity_track::track_unsettled(row),
+        }
+    }
+
+    /// Whether the activity whose copies are `copies` is one to read: no
+    /// copy holds what the walk reads for, and, for its track, a copy holds
+    /// its efforts — an activity no detail read ever reached is the detail
+    /// walk's, whose read keeps the route.
+    fn reads(self, copies: &[CachedActivityRow]) -> bool {
+        !copies.iter().any(|copy| self.holds(copy))
+            && (self == Self::Efforts || copies.iter().any(|copy| copy.segment_read))
+    }
 }
 
 /// One activity of a second of the window: its copies under the walk's keys.
@@ -116,11 +158,13 @@ impl Athlete<'_> {
     }
 
     /// Every activity under `keys` started in `[floor, top)` a copy of
-    /// which holds its efforts, read a page at a time down to `floor`.
+    /// which holds what the walk reads for (`want`), read a page at a time
+    /// down to `floor`.
     async fn read_between(
         &self,
         keys: &[&str],
         window: (i64, i64),
+        want: Want,
     ) -> AppResult<HashSet<NativeKey>> {
         let mut read = HashSet::new();
         let mut below = None;
@@ -129,7 +173,7 @@ impl Athlete<'_> {
                 .rows_between(keys, window, TWIN_LOOKUP_ROWS, below)
                 .await?;
             let full = i64::try_from(rows.len()).unwrap_or(i64::MAX) >= TWIN_LOOKUP_ROWS;
-            read.extend(rows.iter().filter(|row| row.segment_read).map(identity));
+            read.extend(rows.iter().filter(|row| want.holds(row)).map(identity));
             match rows.last() {
                 Some(last) if full => below = Some(CachedRowCursor::after(last)),
                 _ => return Ok(read),
@@ -276,10 +320,10 @@ fn identity(row: &CachedActivityRow) -> NativeKey {
     one_activity_key(&row.activity)
 }
 
-/// The activities among one second's `rows` no copy of which in that second
-/// holds its efforts; a copy elsewhere is the step's to look for
-/// ([`drop_read_twins`]).
-fn unread_of(rows: Vec<CachedActivityRow>) -> Vec<Unread> {
+/// The activities among one second's `rows` the walk reads for `want`
+/// ([`Want::reads`]), by their copies in that second; a copy elsewhere is the
+/// step's to look for ([`drop_read_twins`]).
+fn unread_of(rows: Vec<CachedActivityRow>, want: Want) -> Vec<Unread> {
     let mut activities: Vec<(NativeKey, Vec<CachedActivityRow>)> = Vec::new();
     for row in rows {
         let key = identity(&row);
@@ -290,7 +334,7 @@ fn unread_of(rows: Vec<CachedActivityRow>) -> Vec<Unread> {
     }
     activities
         .into_iter()
-        .filter(|(_, copies)| !copies.iter().any(|copy| copy.segment_read))
+        .filter(|(_, copies)| want.reads(copies))
         .map(|(_, copies)| Unread { copies })
         .collect()
 }
@@ -314,19 +358,28 @@ impl Taken {
     }
 }
 
+/// What a step reads its window for: what it wants of each activity, the
+/// sport it reads, and the range an earlier walk tried.
+pub(super) struct Reading<'step> {
+    pub(super) want: Want,
+    pub(super) sport: Option<&'step str>,
+    pub(super) tried: Option<&'step WalkTried>,
+}
+
 /// Take whole seconds of the window below `cursor`, newest first, until
 /// they hold [`DETAIL_WALK_STEP_ACTIVITIES`] activities to read, the floor
 /// is reached, or [`WALK_PAGES_PER_STEP`] reads found too few. A second whose
 /// activities would carry the step past its count is left to the next step,
-/// unless the step holds none yet. An activity an earlier walk `tried`
-/// ([`tried_by`]) is not one to read.
+/// unless the step holds none yet. An activity is one to read for what the
+/// step wants ([`Want::reads`]), of its sport, unless an earlier walk
+/// `tried` it ([`tried_by`]).
 pub(super) async fn take_seconds(
     athlete: &Athlete<'_>,
     keys: &[&str],
     (floor, cursor): (i64, i64),
-    sport: Option<&str>,
-    tried: Option<&WalkTried>,
+    reading: Reading<'_>,
 ) -> Result<Taken, ()> {
+    let Reading { want, sport, tried } = reading;
     let mut taken = Taken {
         seconds: Vec::new(),
         reached_floor: false,
@@ -340,7 +393,7 @@ pub(super) async fn take_seconds(
         for (at, rows) in page.seconds {
             let second = Second {
                 at,
-                unread: unread_of(rows)
+                unread: unread_of(rows, want)
                     .into_iter()
                     .filter(|unread| {
                         !tried.is_some_and(|tried| tried_by(tried, at, unread.first_stored_ms()))
@@ -348,7 +401,7 @@ pub(super) async fn take_seconds(
                     .collect(),
             };
             if unread >= DETAIL_WALK_STEP_ACTIVITIES && !second.unread.is_empty() {
-                return drop_read_twins(athlete, keys, taken).await;
+                return drop_read_twins(athlete, keys, taken, want).await;
             }
             unread += second.unread.len();
             top = second.at;
@@ -356,15 +409,15 @@ pub(super) async fn take_seconds(
         }
         if page.reached_floor {
             taken.reached_floor = true;
-            return drop_read_twins(athlete, keys, taken).await;
+            return drop_read_twins(athlete, keys, taken, want).await;
         }
     }
-    drop_read_twins(athlete, keys, taken).await
+    drop_read_twins(athlete, keys, taken, want).await
 }
 
 /// Drop from `taken` every activity another copy of which, anywhere a day
-/// either side of the activities taken, holds its efforts, and every second
-/// copy of one activity the step took twice.
+/// either side of the activities taken, holds what the step reads for
+/// (`want`), and every second copy of one activity the step took twice.
 ///
 /// The copies of one activity can start in different seconds: a session's
 /// list read can carry only the day, while the grant's names the start, and
@@ -374,6 +427,7 @@ async fn drop_read_twins(
     athlete: &Athlete<'_>,
     keys: &[&str],
     mut taken: Taken,
+    want: Want,
 ) -> Result<Taken, ()> {
     let starts = || {
         taken
@@ -392,6 +446,7 @@ async fn drop_read_twins(
                 oldest.saturating_sub(DAY_SECS),
                 newest.saturating_add(DAY_SECS + 1),
             ),
+            want,
         )
         .await
         .map_err(|e| {
@@ -416,9 +471,9 @@ mod tests {
 
     use chrono::{TimeZone, Utc};
     use pierre_core::models::{ActivityBuilder, SportType};
-    use pierre_database::repositories::CachedActivityRow;
+    use pierre_database::repositories::{CachedActivityRow, StoredRouteOutcome};
 
-    use super::{rows_by_second, unread_of, Second};
+    use super::{rows_by_second, unread_of, Second, Want};
 
     /// The unread activities of each second, by the first copy's id.
     fn unread_ids(seconds: &[Second]) -> HashMap<i64, Vec<String>> {
@@ -476,7 +531,7 @@ mod tests {
             .into_iter()
             .map(|(at, rows)| Second {
                 at,
-                unread: unread_of(rows),
+                unread: unread_of(rows, Want::Efforts),
             })
             .collect();
         let ids = unread_ids(&seconds);
@@ -489,6 +544,63 @@ mod tests {
             ids.get(&1_000),
             Some(&Vec::new()),
             "bug: a ride a copy of which holds its efforts, or a run in a ride walk, is read: {ids:?}"
+        );
+    }
+
+    #[test]
+    fn a_track_walk_reads_only_rides_read_for_their_efforts_whose_track_is_unsettled() {
+        let routed = |mut row: CachedActivityRow, route: StoredRouteOutcome| {
+            row.route = Some(route);
+            row
+        };
+        let unavailable = |reason: &str| StoredRouteOutcome::Unavailable {
+            reason: reason.to_owned(),
+        };
+        let rows = vec![
+            // Read for its efforts, no track: read once more.
+            row("sciotte", "201", 1_000, SportType::Ride, true),
+            // Its grant copy unread, the session's read: one read.
+            row("strava", "202", 1_000, SportType::Ride, false),
+            row("sciotte", "202", 1_000, SportType::Ride, true),
+            // An answer that settled nothing is no track.
+            routed(
+                row("sciotte", "203", 1_000, SportType::Ride, true),
+                unavailable("unavailable"),
+            ),
+            // A drawn track, or a settled miss, on any copy.
+            routed(
+                row("sciotte", "204", 1_000, SportType::Ride, true),
+                StoredRouteOutcome::Drawn,
+            ),
+            row("strava", "205", 1_000, SportType::Ride, false),
+            routed(
+                row("sciotte", "205", 1_000, SportType::Ride, true),
+                unavailable("no_gps"),
+            ),
+            // Never read for its efforts: the detail walk's.
+            row("sciotte", "206", 1_000, SportType::Ride, false),
+            // A sport that records no route.
+            row("sciotte", "207", 1_000, SportType::VirtualRide, true),
+        ];
+        let unread = unread_of(rows, Want::Track);
+        let mut ids: Vec<&str> = unread
+            .iter()
+            .filter_map(|unread| unread.copies.first())
+            .map(|copy| copy.activity.id())
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(
+            ids,
+            vec!["201", "202", "203"],
+            "bug: a track walk reads a ride whose track is settled, or one never read for its efforts"
+        );
+        assert_eq!(
+            unread
+                .iter()
+                .find(|unread| unread.copies.first().map(|copy| copy.activity.id()) == Some("202"))
+                .map(|unread| unread.copies.len()),
+            Some(2),
+            "bug: the session's and the grant's copies of one ride are not read as one"
         );
     }
 }

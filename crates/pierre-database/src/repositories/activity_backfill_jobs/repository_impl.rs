@@ -457,6 +457,7 @@ macro_rules! impl_activity_backfill_job_repository {
                 user_id: Uuid,
                 tenant_id: TenantId,
                 provider: &str,
+                kind: BackfillJobKind,
             ) -> AppResult<Option<$crate::repositories::activity_backfill_jobs::DetailWalkRow>>
             {
                 let row =
@@ -464,7 +465,7 @@ macro_rules! impl_activity_backfill_job_repository {
                         .bind(user_id.to_string())
                         .bind(tenant_id)
                         .bind(provider)
-                        .bind(BackfillJobKind::DetailWalk.as_str())
+                        .bind(kind.as_str())
                         .fetch_optional(self.pool())
                         .await
                         .map_err(|e| {

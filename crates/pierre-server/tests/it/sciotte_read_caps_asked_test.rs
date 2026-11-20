@@ -522,6 +522,106 @@ async fn a_professional_athlete_reads_past_the_starter_day() {
     );
 }
 
+/// A capped read answered by the stored copy is no detail read: neither the
+/// stored activity (`calculate_metrics`) nor its stored samples
+/// (`extract_activity_streams`) is kept again as a detail, so no route answer
+/// is written for the run, even though its samples carry a GPS line
+/// (carnet#1679 keeps the route of a provider's own detail read only).
+#[tokio::test]
+async fn a_capped_read_answered_by_the_stored_copy_writes_no_route() {
+    let resources = common::create_test_server_resources_with_sciotte(NO_SCRAPER)
+        .await
+        .unwrap();
+    let (user_id, tenant) = garmin_athlete(&resources).await;
+    store_runs(&resources, user_id, tenant).await;
+    let repos = &resources.common.repos;
+    let run = ActivityBuilder::new(
+        "run-1".to_owned(),
+        "Easy run".to_owned(),
+        SportType::Run,
+        Utc::now() - Duration::days(2),
+        3_600,
+        GARMIN,
+    )
+    .distance_meters(10_000.0)
+    .build();
+    repos
+        .activity_cache
+        .upsert_activities(user_id, &tenant, GARMIN, &[run])
+        .await
+        .unwrap();
+    // A 6 km line north: a track any route keeper would draw.
+    let line: Vec<Option<(f64, f64)>> = (0..60)
+        .map(|i| Some((f64::from(i).mul_add(0.001, 45.50), -73.60)))
+        .collect();
+    let samples = TimeSeriesData {
+        timestamps: (0..60).collect(),
+        heart_rate: None,
+        power: None,
+        cadence: None,
+        speed: None,
+        altitude: None,
+        temperature: None,
+        gps_coordinates: Some(line),
+        distance: None,
+        grade_smooth: None,
+        moving: None,
+    };
+    repos
+        .activity_streams
+        .upsert_activity_streams(&ActivityStreamsWrite {
+            tenant_id: &tenant,
+            user_id,
+            provider: GARMIN,
+            activity_id: "run-1",
+            origin: StreamOrigin::Push,
+            source_ref: None,
+            streams: &samples,
+            synced_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+    spend_the_asked_day(&resources, user_id).await;
+
+    let samples_read = call_with(
+        &resources,
+        user_id,
+        tenant,
+        "extract_activity_streams",
+        json!({ "activity_id": "run-1" }),
+    )
+    .await;
+    assert!(
+        samples_read.success,
+        "bug: a capped sample read with stored samples failed: {:?}",
+        samples_read.error
+    );
+    let metrics = call_with(
+        &resources,
+        user_id,
+        tenant,
+        "calculate_metrics",
+        json!({ "activity_id": "run-1", "provider": "garmin" }),
+    )
+    .await;
+    assert!(
+        metrics.success,
+        "bug: a capped activity read with a stored copy failed: {:?}",
+        metrics.error
+    );
+    for key in [GARMIN, SCIOTTE_GARMIN] {
+        assert_eq!(
+            repos
+                .activity_route_tracks
+                .get_route_track(&tenant, user_id, key, "run-1")
+                .await
+                .unwrap(),
+            None,
+            "bug: a stored copy standing in for a capped read wrote a route answer under {key}"
+        );
+    }
+}
+
 /// A Strava athlete signed in through the scraper and holding a Strava grant:
 /// a read their session-read cap refuses is asked of the grant, which has a
 /// request budget of its own and costs the session nothing, before any stored
