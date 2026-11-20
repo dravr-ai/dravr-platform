@@ -8,12 +8,13 @@
 //!
 //! The pipeline is compiled in only with `--features telemetry` and stays
 //! dormant until `OTEL_EXPORTER_OTLP_ENDPOINT` is set, at which point traces
-//! and metrics are exported over OTLP HTTP/protobuf (reusing reqwest, so no
-//! tonic/gRPC dependency). Spans flow through the `tracing-opentelemetry`
-//! layer wired in [`crate::LoggingConfig::init`]; metrics flow through the
-//! global meter provider that HTTP middleware records against. Batch span and
-//! periodic metric exports run on SDK-owned background threads, so no async
-//! runtime handle is required.
+//! and metrics are exported over OTLP HTTP/protobuf (through the workspace's
+//! reqwest 0.12, so no tonic/gRPC dependency and no second reqwest). Spans
+//! flow through the `tracing-opentelemetry` layer wired in
+//! [`crate::LoggingConfig::init`]; metrics flow through the global meter
+//! provider that HTTP middleware records against. Batch span and periodic
+//! metric exports run on SDK-owned background threads, so no async runtime
+//! handle is required.
 //!
 //! Each signal can be switched off on its own with the standard
 //! `OTEL_TRACES_EXPORTER=none` / `OTEL_METRICS_EXPORTER=none`, so traces can
@@ -26,16 +27,25 @@
 //! i.e. every trace is kept; the startup line below echoes both values so
 //! that fallback is visible.
 
+use async_trait::async_trait;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{global, KeyValue};
-use opentelemetry_otlp::{MetricExporter, Protocol, SpanExporter, WithExportConfig};
+use opentelemetry_http::{Bytes, HttpClient, HttpError, Request, Response};
+use opentelemetry_otlp::{
+    MetricExporter, Protocol, SpanExporter, WithExportConfig, WithHttpConfig,
+    OTEL_EXPORTER_OTLP_METRICS_TIMEOUT, OTEL_EXPORTER_OTLP_TIMEOUT,
+    OTEL_EXPORTER_OTLP_TIMEOUT_DEFAULT, OTEL_EXPORTER_OTLP_TRACES_TIMEOUT,
+};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::trace::{SdkTracer, SdkTracerProvider};
 use opentelemetry_sdk::Resource;
 use pierre_core::errors::{AppError, AppResult};
-use rustls::crypto::ring;
+use reqwest::blocking::{Client, Request as BlockingRequest};
 use std::env;
+use std::mem;
+use std::thread;
+use std::time::Duration;
 
 use crate::LoggingConfig;
 
@@ -148,6 +158,58 @@ impl TelemetryHandle {
     }
 }
 
+/// The HTTP client both OTLP exporters send through: the reqwest 0.12
+/// blocking client, so the exporters share the HTTP stack every other client
+/// in the binary links instead of otlp's own reqwest 0.13 (carnet#1645).
+///
+/// Blocking, because the SDK's batch span and periodic metric exporters run
+/// on their own threads with no async runtime; reqwest's blocking client
+/// drives its requests on a runtime thread of its own.
+#[derive(Debug)]
+struct OtlpHttpClient(Client);
+
+impl OtlpHttpClient {
+    /// Build the client with the export timeout otlp would give its own:
+    /// the signal's variable, then `OTEL_EXPORTER_OTLP_TIMEOUT`, in
+    /// milliseconds, then the 10 s default.
+    ///
+    /// Built on a spawned thread, as otlp builds its own: the blocking
+    /// client owns a runtime, and creating it inside the server's tokio
+    /// runtime panics.
+    fn try_new(signal_timeout_env: &'static str) -> AppResult<Self> {
+        let timeout = export_timeout(signal_timeout_env);
+        thread::spawn(move || Client::builder().timeout(timeout).build())
+            .join()
+            .map_err(|_| AppError::internal("OTLP HTTP client build thread panicked"))?
+            .map(Self)
+            .map_err(|e| AppError::internal(format!("OTLP HTTP client init failed: {e}")))
+    }
+}
+
+#[async_trait]
+impl HttpClient for OtlpHttpClient {
+    async fn send_bytes(&self, request: Request<Bytes>) -> Result<Response<Bytes>, HttpError> {
+        let mut response = self
+            .0
+            .execute(BlockingRequest::try_from(request)?)?
+            .error_for_status()?;
+        let headers = mem::take(response.headers_mut());
+        let mut http_response = Response::builder()
+            .status(response.status())
+            .body(response.bytes()?)?;
+        *http_response.headers_mut() = headers;
+        Ok(http_response)
+    }
+}
+
+/// The export timeout for one signal, resolved the way otlp resolves it.
+fn export_timeout(signal_timeout_env: &str) -> Duration {
+    [signal_timeout_env, OTEL_EXPORTER_OTLP_TIMEOUT]
+        .into_iter()
+        .find_map(|name| env::var(name).ok()?.parse().ok())
+        .map_or(OTEL_EXPORTER_OTLP_TIMEOUT_DEFAULT, Duration::from_millis)
+}
+
 /// Build the OTLP traces + metrics pipeline when an endpoint is configured.
 ///
 /// Returns `Ok(None)` when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset (the
@@ -178,23 +240,12 @@ pub fn build_telemetry(config: &LoggingConfig) -> AppResult<Option<TelemetryHand
     // W3C Trace Context so spans chain across service boundaries.
     global::set_text_map_propagator(TraceContextPropagator::new());
 
-    // The exporters' reqwest is built with `rustls-no-provider` (Cargo.toml
-    // says why), and that build takes its TLS provider from the process
-    // default alone — reqwest 0.13 panics with "No provider set" instead of
-    // falling back to a compiled-in one. Ring is the provider every other TLS
-    // client in the binary links, so it is installed here, before the first
-    // exporter builds its client. `Err` means a peer installed the default
-    // first (rustls does so from crate features on its first `ClientConfig`),
-    // and with ring the only provider compiled in, that default is ring too.
-    if ring::default_provider().install_default().is_err() {
-        eprintln!("OpenTelemetry OTLP pipeline: rustls CryptoProvider already installed by a peer; keeping it");
-    }
-
     let tracer_provider = if traces {
         let endpoint = non_empty_env(OTLP_TRACES_ENDPOINT_ENV)
             .unwrap_or_else(|| join_path(&base, "v1/traces"));
         let span_exporter = SpanExporter::builder()
             .with_http()
+            .with_http_client(OtlpHttpClient::try_new(OTEL_EXPORTER_OTLP_TRACES_TIMEOUT)?)
             .with_protocol(Protocol::HttpBinary)
             .with_endpoint(endpoint)
             .build()
@@ -215,6 +266,7 @@ pub fn build_telemetry(config: &LoggingConfig) -> AppResult<Option<TelemetryHand
             .unwrap_or_else(|| join_path(&base, "v1/metrics"));
         let metric_exporter = MetricExporter::builder()
             .with_http()
+            .with_http_client(OtlpHttpClient::try_new(OTEL_EXPORTER_OTLP_METRICS_TIMEOUT)?)
             .with_protocol(Protocol::HttpBinary)
             .with_endpoint(endpoint)
             .build()
@@ -288,7 +340,80 @@ fn join_path(base: &str, path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{describe_sampler, parse_signal_exporter, SignalExporter};
+    use std::future::Future;
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpListener;
+    use std::pin::pin;
+    use std::task::{Context, Poll, Waker};
+    use std::thread;
+
+    use opentelemetry_http::{Bytes, HttpClient, Request};
+    use opentelemetry_otlp::OTEL_EXPORTER_OTLP_TRACES_TIMEOUT;
+
+    use super::{describe_sampler, parse_signal_exporter, OtlpHttpClient, SignalExporter};
+
+    /// The exporters' client posts the payload it is handed and returns the
+    /// collector's status and body. A local listener stands in for the
+    /// collector; the request is read whole before the reply.
+    #[test]
+    fn otlp_client_posts_the_payload_and_returns_the_reply() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let collector = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).unwrap();
+            let mut content_length = 0;
+            loop {
+                let mut header = String::new();
+                reader.read_line(&mut header).unwrap();
+                if header == "\r\n" {
+                    break;
+                }
+                if let Some(value) = header.to_ascii_lowercase().strip_prefix("content-length:") {
+                    content_length = value.trim().parse().unwrap();
+                }
+            }
+            let mut body = vec![0; content_length];
+            reader.read_exact(&mut body).unwrap();
+            reader
+                .get_mut()
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok")
+                .unwrap();
+            (request_line, body)
+        });
+
+        let client = OtlpHttpClient::try_new(OTEL_EXPORTER_OTLP_TRACES_TIMEOUT).unwrap();
+        let request = Request::post(format!("http://127.0.0.1:{port}/v1/traces"))
+            .header("content-type", "application/x-protobuf")
+            .body(Bytes::from_static(b"spans"))
+            .unwrap();
+        // The client blocks inside `send_bytes`, so its future is ready on
+        // the first poll; the SDK's exporter threads drive it the same way.
+        let mut send = pin!(client.send_bytes(request));
+        let Poll::Ready(reply) = send.as_mut().poll(&mut Context::from_waker(Waker::noop())) else {
+            panic!("the blocking client's future must complete on its first poll");
+        };
+        let reply = reply.unwrap();
+
+        let (request_line, body) = collector.join().unwrap();
+        assert_eq!(
+            request_line, "POST /v1/traces HTTP/1.1\r\n",
+            "the client must POST to the request's path"
+        );
+        assert_eq!(body, b"spans", "the client must send the payload unchanged");
+        assert_eq!(
+            reply.status(),
+            200,
+            "the client must return the collector's status"
+        );
+        assert_eq!(
+            reply.body().as_ref(),
+            b"ok",
+            "the client must return the collector's body"
+        );
+    }
 
     #[test]
     fn unset_or_empty_exporter_keeps_otlp() {

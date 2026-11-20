@@ -1651,10 +1651,20 @@ jobs:
           # 44307715156). ChefFamille chose to raise both ceilings by 2MB
           # (2026-11-18): shipped 123, thin 152.
           #
+          # Back to 122 on 2026-11-19 (carnet#1645), the first ceiling moved
+          # down by a cut rather than up: main read 122MB (run 44564706605,
+          # `ls` 123M). The OTLP exporters dropped their own reqwest 0.13 for
+          # the workspace's 0.12 (reqwest 0.13, its h2 and hyper-util copies
+          # leave the binary), dashmap 5 went for the 6 lingua links, and the
+          # locale catalogue embeds brotli-compressed (1.5MB of JSON to
+          # 370KB). Same tree, same build on macOS: 109,468,016 to
+          # 107,847,984 bytes stripped, -1.55MiB, so about 121MB here. The
+          # ceiling keeps Phil's ~1.5MB of headroom over that.
+          #
           # server-e2e.yml checks the thin binary against this ceiling
-          # scaled to that build (152), so a branch push that skips this job
+          # scaled to that build (148), so a branch push that skips this job
           # is still sized against it. Move both together.
-          MAX_SIZE_MB=123
+          MAX_SIZE_MB=122
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
           # can still cross the gap in a single change.

@@ -123,7 +123,8 @@ fi
 # Check 1: the string catalogue ships every key in all 5 locales
 # ---------------------------------------------------------------------------
 # The catalogue is the five nested packages/i18n/src/locales/<l>/translation.json
-# files: the messaging-strings registry seeds from them (include_str!), both
+# files: the messaging-strings registry seeds from them (embedded compressed by
+# pierre-contremaitre's build.rs), both
 # clients embed them, GET /api/i18n/{locale} serves them, contremaitre overlays
 # them. One key set across the five files is the invariant that used to be
 # `entries == keys × 5` over the Rust COMPILED_IN table.
