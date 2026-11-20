@@ -20,6 +20,7 @@
 //! - `DELETE` — disconnect. Owner or coach only. The chat is told, and stays
 //!   ungrouped: its next message creates no group.
 
+use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -70,8 +71,9 @@ pub(crate) struct CreateChatConnectionBody {
     channel: String,
 }
 
-/// A connect code and the two ways to redeem it.
-#[derive(Debug, Serialize)]
+/// A connect code and the two ways to redeem it. `Debug` never prints the
+/// code, nor the link and command that carry it.
+#[derive(Serialize)]
 pub(crate) struct ChatConnectCodeResponse {
     channel: String,
     code: String,
@@ -84,6 +86,15 @@ pub(crate) struct ChatConnectCodeResponse {
     /// their phone.
     qr_svg: Option<String>,
     expires_at: DateTime<Utc>,
+}
+
+impl fmt::Debug for ChatConnectCodeResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ChatConnectCodeResponse")
+            .field("channel", &self.channel)
+            .field("expires_at", &self.expires_at)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The group named by the path, when the caller may read it: a member or its

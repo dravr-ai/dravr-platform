@@ -25,6 +25,7 @@
 use std::sync::Arc;
 
 use chrono::Utc;
+use dravr_canot::channel::MessagingChannel;
 use pierre_contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_ERROR_GENERIC, KEY_GROUP_CHAT_ALREADY_CONNECTED, KEY_GROUP_CHAT_CHAT_TAKEN,
     KEY_GROUP_CHAT_CODE_INVALID, KEY_GROUP_CHAT_CONNECTED,
@@ -45,6 +46,8 @@ use uuid::Uuid;
 
 use super::addressing::reply_recipient;
 use super::content::content_body_text;
+use super::emit_messaging_intent;
+use super::outbound_send::send_channel_responses;
 use crate::mcp::resources::ServerContext;
 
 /// The connect code a group-chat message carries, when it is one:
@@ -55,7 +58,7 @@ use crate::mcp::resources::ServerContext;
 /// code and keeps going to the channel-linking path. The platforms strip the
 /// `@bot` suffix of a command before it gets here.
 #[must_use]
-pub(super) fn detect_connect_code(message: &IncomingMessage) -> Option<String> {
+fn detect_connect_code(message: &IncomingMessage) -> Option<String> {
     if message.is_direct_message {
         return None;
     }
@@ -71,6 +74,51 @@ pub(super) fn detect_connect_code(message: &IncomingMessage) -> Option<String> {
     code.chars()
         .all(|c| c.is_ascii_alphanumeric())
         .then(|| (*code).to_owned())
+}
+
+/// Answer a connect code sent in a group chat. `true` when the message was
+/// one: it is answered in the chat and goes no further.
+pub(super) async fn answered_connect_code(
+    resources: &Arc<ServerContext>,
+    tenant_id: TenantId,
+    channel: &str,
+    channel_type: ChannelType,
+    adapter: &Arc<dyn MessagingChannel>,
+    message: &IncomingMessage,
+    pre_link_identity: &str,
+) -> bool {
+    let Some(code) = detect_connect_code(message) else {
+        return false;
+    };
+    emit_messaging_intent(pre_link_identity, tenant_id, channel, "group_connect");
+    let reply =
+        handle_connect_code(resources, tenant_id, channel, channel_type, message, &code).await;
+    send_channel_responses(resources, tenant_id, channel, adapter, vec![(reply, None)]).await;
+    true
+}
+
+/// Whether the message stops at the door of a chat connected to a group from
+/// the web app: its sender is not a member. Anyone else's message goes no
+/// further — no session, no stored row, no turn — and they are told once how
+/// to join.
+pub(super) async fn kept_out_of_connected_room(
+    resources: &Arc<ServerContext>,
+    tenant_id: TenantId,
+    channel: &str,
+    channel_type: ChannelType,
+    adapter: &Arc<dyn MessagingChannel>,
+    message: &IncomingMessage,
+) -> bool {
+    match admit_to_connected_room(resources, tenant_id, channel, channel_type, message).await {
+        RoomAdmission::NotConnected | RoomAdmission::Admitted => false,
+        RoomAdmission::Refused(note) => {
+            if let Some(note) = note {
+                send_channel_responses(resources, tenant_id, channel, adapter, vec![(*note, None)])
+                    .await;
+            }
+            true
+        }
+    }
 }
 
 /// The sender's Dravr user, when their chat identity is linked under the bot
@@ -111,7 +159,7 @@ fn chat_reply(
 }
 
 /// Redeem a connect code sent in a group chat, and the reply to post there.
-pub(super) async fn handle_connect_code(
+async fn handle_connect_code(
     resources: &Arc<ServerContext>,
     tenant_id: TenantId,
     channel: &str,
@@ -198,7 +246,7 @@ pub(super) async fn handle_connect_code(
 
 /// What [`admit_to_connected_room`] decided about one message.
 #[derive(Debug)]
-pub(super) enum RoomAdmission {
+enum RoomAdmission {
     /// The chat is not connected to a group from the web app (or the message
     /// is a direct one): the usual rules apply.
     NotConnected,
@@ -216,7 +264,7 @@ pub(super) enum RoomAdmission {
 /// A lookup failure lets the message through to the usual path, which binds
 /// a sender it cannot place to no group, so a transient error costs nobody's
 /// privacy.
-pub(super) async fn admit_to_connected_room(
+async fn admit_to_connected_room(
     resources: &Arc<ServerContext>,
     tenant_id: TenantId,
     channel: &str,

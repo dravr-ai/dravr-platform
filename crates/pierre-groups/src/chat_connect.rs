@@ -26,6 +26,8 @@
 //!   owner of a chat-created group is its first sender, who may be an athlete.
 //!   The old group keeps its members and history and loses only the chat.
 
+use std::fmt;
+
 use chrono::{Duration, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{
@@ -48,8 +50,9 @@ pub const CHAT_CONNECT_CODE_TTL_MINUTES: i64 = 10;
 /// far beyond guessing inside the code's ten minutes.
 const CHAT_CONNECT_CODE_LEN: usize = 12;
 
-/// The chat a connect code was redeemed in, and who redeemed it.
-#[derive(Debug, Clone, Copy)]
+/// The chat a connect code was redeemed in, and who redeemed it. `Debug`
+/// never prints the code.
+#[derive(Clone, Copy)]
 pub struct ChatToConnect<'a> {
     /// The code the sender typed (or the add-to-group link carried).
     pub code: &'a str,
@@ -63,6 +66,18 @@ pub struct ChatToConnect<'a> {
     pub chat_title: Option<&'a str>,
     /// The Dravr user the sender's chat identity is linked to.
     pub sender: Uuid,
+}
+
+impl fmt::Debug for ChatToConnect<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ChatToConnect")
+            .field("code", &"<redacted>")
+            .field("channel_type", &self.channel_type)
+            .field("channel_chat_id", &self.channel_chat_id)
+            .field("channel_tenant_id", &self.channel_tenant_id)
+            .field("sender", &self.sender)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Why a connect redeemed in a chat was refused. Nothing changed in any of

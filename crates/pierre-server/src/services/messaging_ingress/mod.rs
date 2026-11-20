@@ -634,21 +634,19 @@ async fn persist_single_message(
     // `pre_link_identity`). It reaches Cloud Logging only.
     let pre_link_identity = pre_link_identity(channel, &message.sender_id);
 
-    // A connect code redeemed in a group chat (carnet#1683) is an explicit
-    // interaction with the bot, like a linking code, and is answered before
-    // the room's own rules: it may be what makes the chat a group's room.
-    if let Some(code) = group_connect::detect_connect_code(message) {
-        emit_messaging_intent(&pre_link_identity, tenant_id, channel, "group_connect");
-        let reply = group_connect::handle_connect_code(
-            resources,
-            tenant_id,
-            channel,
-            channel_type,
-            message,
-            &code,
-        )
-        .await;
-        send_channel_responses(resources, tenant_id, channel, adapter, vec![(reply, None)]).await;
+    // A connect code redeemed in a group chat (carnet#1683) is answered first,
+    // like a linking code: it may be what makes the chat a group's room.
+    if group_connect::answered_connect_code(
+        resources,
+        tenant_id,
+        channel,
+        channel_type,
+        adapter,
+        message,
+        &pre_link_identity,
+    )
+    .await
+    {
         return Ok(PersistOutcome::HandledNotStored);
     }
 
@@ -666,28 +664,19 @@ async fn persist_single_message(
         return Ok(outcome);
     }
 
-    // A chat connected to a group from the web app is that group's room for
-    // its members only. Anyone else's message goes no further — no session,
-    // no stored row, no turn — and they are told once how to join. Placed
-    // before the ambient gate, which would otherwise capture a non-member's
-    // chatter into the room transcript.
-    match group_connect::admit_to_connected_room(
+    // A chat connected from the web app admits its group's members only,
+    // ahead of the ambient gate that would capture a stranger's chatter.
+    if group_connect::kept_out_of_connected_room(
         resources,
         tenant_id,
         channel,
         channel_type,
+        adapter,
         message,
     )
     .await
     {
-        group_connect::RoomAdmission::NotConnected | group_connect::RoomAdmission::Admitted => {}
-        group_connect::RoomAdmission::Refused(note) => {
-            if let Some(note) = note {
-                send_channel_responses(resources, tenant_id, channel, adapter, vec![(*note, None)])
-                    .await;
-            }
-            return Ok(PersistOutcome::HandledNotStored);
-        }
+        return Ok(PersistOutcome::HandledNotStored);
     }
 
     // Group respond-mode gate. Placed BEFORE the logout keyword check so

@@ -15,10 +15,11 @@ use pierre_core::models::agents::{
     UpdateAgentRequest,
 };
 use pierre_core::models::groups::{
-    CoachingGroup, ConnectGroupChat, GroupChatConnectCode, GroupChatConnectOutcome, GroupInvite,
-    GroupMember, GroupRole, GroupSetupTimeline, GroupSummary, GroupTranscriptEntry,
-    NewGroupTranscriptEntry, ReleasedGroupChat, RoomTranscriptEntry, UpdateGroupRequest,
+    CoachingGroup, GroupInvite, GroupMember, GroupRole, GroupSetupTimeline, GroupSummary,
+    GroupTranscriptEntry, NewGroupTranscriptEntry, RoomTranscriptEntry, UpdateGroupRequest,
 };
+
+use super::group_chat_connect::GroupChatConnectRepository;
 
 use pierre_core::models::AgentRuntimeContext;
 use pierre_core::models::TenantId;
@@ -323,7 +324,12 @@ pub trait AgentsRepository: Send + Sync {
 
 /// Coaching group storage, membership management, and invite tracking
 #[async_trait]
-pub trait CoachingGroupRepository: Send + Sync {
+/// Coaching groups, members, invites and the room transcript.
+///
+/// Connecting a group to a messaging chat from the web app (carnet#1683) is
+/// [`GroupChatConnectRepository`]'s, a supertrait, so the same repository
+/// object answers both.
+pub trait CoachingGroupRepository: GroupChatConnectRepository + Send + Sync {
     // -- Group CRUD --
 
     /// Create a new coaching group
@@ -366,64 +372,6 @@ pub trait CoachingGroupRepository: Send + Sync {
         channel_type: &str,
         channel_chat_id: &str,
     ) -> AppResult<Option<CoachingGroup>>;
-
-    // -- Connecting a group to a chat from the web app (carnet#1683) --
-
-    /// Store a freshly minted connect code.
-    async fn create_chat_connect_code(
-        &self,
-        code: &GroupChatConnectCode,
-        now: DateTime<Utc>,
-    ) -> AppResult<()>;
-
-    /// The connect code `code` when the bot of `channel_tenant_id` may still
-    /// redeem it on `channel_type` at `now`: unspent and unexpired. Reading
-    /// never spends it.
-    async fn live_chat_connect_code(
-        &self,
-        code: &str,
-        channel_type: &str,
-        channel_tenant_id: TenantId,
-        now: DateTime<Utc>,
-    ) -> AppResult<Option<GroupChatConnectCode>>;
-
-    /// Spend the code and bind the group to the chat, in one transaction.
-    ///
-    /// Releases `release_group_id` from the chat first when it is named,
-    /// and forgets that the chat was released by an earlier disconnect.
-    /// Every refusal leaves everything as it was, the code unspent included,
-    /// except [`GroupChatConnectOutcome::CodeSpent`], where it already was.
-    async fn connect_group_chat(
-        &self,
-        connect: &ConnectGroupChat<'_>,
-    ) -> AppResult<GroupChatConnectOutcome>;
-
-    /// Clear the group's chat binding, whichever way it was made, and record
-    /// the chat as released so its next message creates no group. Returns
-    /// the binding removed, `None` when the group was bound to no chat.
-    async fn disconnect_group_chat(
-        &self,
-        group_id: Uuid,
-        now: DateTime<Utc>,
-    ) -> AppResult<Option<ReleasedGroupChat>>;
-
-    /// Whether the chat was released by a disconnect and not connected since.
-    async fn is_group_chat_released(
-        &self,
-        channel_tenant_id: TenantId,
-        channel_type: &str,
-        channel_chat_id: &str,
-    ) -> AppResult<bool>;
-
-    /// Record that a non-member sender in the group's chat was told how to
-    /// join. `true` the first time, `false` when they already were.
-    async fn record_chat_invite_prompt(
-        &self,
-        group_id: Uuid,
-        channel_type: &str,
-        channel_user_id: &str,
-        now: DateTime<Utc>,
-    ) -> AppResult<bool>;
 
     /// List groups the user belongs to (as member, admin, or owner).
     /// Membership-based lookup — no tenant filter since members join cross-tenant.

@@ -390,7 +390,9 @@ pub struct GroupChatConnection {
 
 /// A connect code a group's owner or coach minted in the web app, which the
 /// bot redeems in the chat to connect it (carnet#1683).
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// The code is a credential while it lives, so `Debug` never prints it.
+#[derive(Clone, PartialEq, Eq)]
 pub struct GroupChatConnectCode {
     /// The code itself, single use.
     pub code: String,
@@ -407,7 +409,8 @@ pub struct GroupChatConnectCode {
 }
 
 /// The chat a group is being connected to, with the code that authorizes it.
-#[derive(Debug, Clone, Copy)]
+/// `Debug` never prints the code.
+#[derive(Clone, Copy)]
 pub struct ConnectGroupChat<'a> {
     /// The live code being spent.
     pub code: &'a str,
@@ -427,6 +430,33 @@ pub struct ConnectGroupChat<'a> {
     pub release_group_id: Option<Uuid>,
     /// The instant the connection is recorded at; the code must be live then.
     pub now: DateTime<Utc>,
+}
+
+impl fmt::Debug for GroupChatConnectCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GroupChatConnectCode")
+            .field("code", &"<redacted>")
+            .field("group_id", &self.group_id)
+            .field("channel_type", &self.channel_type)
+            .field("channel_tenant_id", &self.channel_tenant_id)
+            .field("created_by", &self.created_by)
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
+impl fmt::Debug for ConnectGroupChat<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConnectGroupChat")
+            .field("code", &"<redacted>")
+            .field("group_id", &self.group_id)
+            .field("channel_type", &self.channel_type)
+            .field("channel_chat_id", &self.channel_chat_id)
+            .field("channel_tenant_id", &self.channel_tenant_id)
+            .field("release_group_id", &self.release_group_id)
+            .field("now", &self.now)
+            .finish_non_exhaustive()
+    }
 }
 
 /// What [`ConnectGroupChat`] did.
