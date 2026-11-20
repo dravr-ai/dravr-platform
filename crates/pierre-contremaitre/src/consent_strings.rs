@@ -66,6 +66,13 @@ pub const KEY_CONSENT_EXPRESS: &str = "oauth.consent.express";
 pub const KEY_CONSENT_FIRST_PARTY_ONLY: &str = "oauth.consent.firstPartyOnly";
 /// Key: "`{0}` and `{1}`", joining the last service to the ones before it
 pub const KEY_CONSENT_LIST_PAIR: &str = "oauth.consent.listPair";
+/// Key: shown to a human coach who leads an active group: `{0}`, the client,
+/// also sees by name the training of the members who allowed their coach's AI
+/// tools (carnet#1511)
+pub const KEY_CONSENT_ROLE_COACH: &str = "oauth.consent.roleCoach";
+/// Key: shown to an admin: `{0}`, the client, is offered every tool, and may
+/// act as a user in a support session (carnet#1511)
+pub const KEY_CONSENT_ROLE_ADMIN: &str = "oauth.consent.roleAdmin";
 
 /// Every line the consent screen can show.
 ///
@@ -74,7 +81,7 @@ pub const KEY_CONSENT_LIST_PAIR: &str = "oauth.consent.listPair";
 /// a key the screen renders and this list leaves out is a wording change
 /// nobody is asked again about; its test holds every `oauth.consent.` key in
 /// the catalogue to this list.
-pub const CONSENT_SCREEN_KEYS: [&str; 28] = [
+pub const CONSENT_SCREEN_KEYS: [&str; 30] = [
     KEY_CONSENT_TITLE,
     KEY_CONSENT_LEAD,
     KEY_CONSENT_RETURNS_TO,
@@ -103,6 +110,8 @@ pub const CONSENT_SCREEN_KEYS: [&str; 28] = [
     KEY_CONSENT_EXPRESS,
     KEY_CONSENT_FIRST_PARTY_ONLY,
     KEY_CONSENT_LIST_PAIR,
+    KEY_CONSENT_ROLE_COACH,
+    KEY_CONSENT_ROLE_ADMIN,
 ];
 
 /// Key: "Connection Failed": the error page's title and heading. No format placeholders.
