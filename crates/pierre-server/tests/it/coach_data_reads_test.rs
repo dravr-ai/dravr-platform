@@ -1100,7 +1100,7 @@ async fn the_purge_removes_reads_past_twelve_months_and_keeps_the_rest() {
 // ── /group reads ─────────────────────────────────────────────────────────
 
 /// The `/group reads` templates, as the catalogue words them in English.
-const READS_TEMPLATES: [(&str, &str); 16] = [
+const READS_TEMPLATES: [(&str, &str); 17] = [
     (
         "commands.group.reads_header",
         "Your human coach's reads of your data in {0}, newest first:",
@@ -1146,6 +1146,10 @@ const READS_TEMPLATES: [(&str, &str); 16] = [
     (
         "humanCoach.reads_served_to_assistant",
         "read by an AI tool your coach connects to Dravr", // humanCoach.reads_served_to_assistant
+    ),
+    (
+        "humanCoach.reads_support_read",
+        "read by Dravr support's AI tool while helping your coach", // humanCoach.reads_support_read
     ),
 ];
 
@@ -1322,7 +1326,10 @@ async fn a_read_in_a_support_session_is_recorded_and_listed_as_supports() {
             .await
         })
         .await;
-    ok(served, "get_training_history in the admin's support session");
+    ok(
+        served,
+        "get_training_history in the admin's support session",
+    );
 
     let mut recorded: Vec<(String, Option<Uuid>)> = f
         .recorded()
@@ -1367,5 +1374,27 @@ async fn a_read_in_a_support_session_is_recorded_and_listed_as_supports() {
     assert!(
         !body.to_string().contains(&admin.to_string()),
         "bug: the athlete's record never names the admin: {body}"
+    );
+
+    // `/group reads` names support beside the support read, never the
+    // coach's outside tool, though it was served over MCP.
+    let listed = group_reads(&f.res, f.athlete).await;
+    let support_lines: Vec<&str> = listed
+        .lines()
+        .filter(|line| line.contains("read by Dravr support's AI tool")) // humanCoach.reads_support_read
+        .collect();
+    assert_eq!(
+        support_lines.len(),
+        1,
+        "bug: /group reads marks the one support read: {listed}"
+    );
+    assert!(
+        support_lines[0].contains("get_training_history")
+            && !support_lines[0].contains("an AI tool your coach connects"),
+        "bug: the support read names support alone: {listed}"
+    );
+    assert!(
+        !listed.contains(&admin.to_string()),
+        "bug: /group reads never names the admin: {listed}"
     );
 }

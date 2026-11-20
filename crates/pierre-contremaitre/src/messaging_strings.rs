@@ -1349,6 +1349,13 @@ pub const KEY_GROUP_REPLY_CORRECTED: &str = "humanCoach.reply_corrected";
 /// 9.4b). Under `humanCoach.*`, so the vocabulary fence reads its "your
 /// coach" as the human coach. No placeholder.
 pub const KEY_GROUP_READS_SERVED_TO_ASSISTANT: &str = "humanCoach.reads_served_to_assistant";
+/// Key: `/group reads` words beside a read Dravr support made acting as the
+/// coach.
+///
+/// An admin's assistant in a support session (carnet#1511) made the read, in
+/// place of [`KEY_GROUP_READS_SERVED_TO_ASSISTANT`]: the coach connected no
+/// tool for it. Under `humanCoach.*` for the vocabulary fence. No placeholder.
+pub const KEY_GROUP_READS_SUPPORT_READ: &str = "humanCoach.reads_support_read";
 /// Key: the room post a coach's publish of an athlete's plan leaves in their
 /// group, when it changed days of a plan the athlete already had.
 ///
