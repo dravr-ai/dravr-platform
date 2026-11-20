@@ -136,6 +136,11 @@ mod last_known;
 /// beside a tool's answer and labelled as the provider's (carnet#1622)
 #[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
 pub(crate) mod provider_context_reads;
+/// What answers an activity read the athlete's session-read cap refused.
+///
+/// Their Strava grant, else the stored copy under a `read_limit` caveat
+/// (carnet#1661).
+pub(crate) mod stored_copy;
 
 /// Stored health-data tools: `get_sleep_sessions`, `get_recovery_metrics`,
 /// `get_health_snapshots`, `list_data_sources` (`tools-data` feature).
@@ -240,6 +245,9 @@ pub mod session_merge_summary;
 #[cfg(feature = "tools-goals")]
 pub mod goals;
 
+/// The activity reads the goal tools measure (`tools-goals` feature).
+#[cfg(feature = "tools-goals")]
+mod goals_activities;
 /// Answer shapes for the goal tools, split out because `goals` is at its size
 /// ceiling (`tools-goals` feature).
 #[cfg(feature = "tools-goals")]

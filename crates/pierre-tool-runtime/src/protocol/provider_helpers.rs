@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::context::ToolExecutionContext;
+use crate::implementations::stored_copy::{samples_or_stored, Reader};
 use crate::protocol::auth::AuthService;
 use crate::protocol::types::provider_auth_failure;
 use crate::protocol::types::{
@@ -25,6 +26,7 @@ use pierre_providers::core::FitnessProvider;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_providers::precedence::{key_source, rank, Kind};
 use pierre_providers::registry::global_registry;
+use pierre_providers::request_budget::session_read_cap;
 use pierre_tools_core::ToolResult;
 use serde_json::{json, Value as JsonValue};
 use std::cmp::Ordering;
@@ -295,8 +297,11 @@ pub fn create_auth_error_response(provider_name: &str, error: &str) -> Universal
 ///
 /// Returns [`AppError`] when authentication fails, and preserves a
 /// `ProviderAuthRequired` error verbatim, so the tool executor and the chat
-/// pipeline's `auth_recovery` stage offer a reconnect; any other fetch failure
-/// reads as the activity being unreachable by this id.
+/// pipeline's `auth_recovery` stage offer a reconnect. A read the athlete's
+/// session-read cap refused is answered by the stored activity with its
+/// stored samples ([`samples_or_stored`]), else its refusal stands verbatim,
+/// with its wait; any other fetch failure reads as the activity being
+/// unreachable by this id.
 pub async fn fetch_activity_from_provider(
     resources: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -308,18 +313,19 @@ pub async fn fetch_activity_from_provider(
         &by_id_provider(resources, user_id, provider_name, tenant_id, activity_id).await;
     let provider = configured_provider(resources, user_id, provider_name, tenant_id).await?;
 
-    provider
-        .get_activity_with_streams(activity_id)
-        .await
-        .map_err(|e| {
-            if e.code == ErrorCode::ProviderAuthRequired {
-                e
-            } else {
-                AppError::not_found(format!(
-                    "activity {activity_id} not found on {provider_name}: {e}"
-                ))
-            }
-        })
+    match provider.get_activity_with_streams(activity_id).await {
+        Ok(activity) => Ok(activity),
+        // The activity is there: its stored copy answers, else the refusal
+        // says when live reads resume (carnet#1661).
+        Err(e) if session_read_cap(&e).is_some() => {
+            let reader = Reader::new(resources, user_id, tenant_id);
+            samples_or_stored(reader, provider.name(), activity_id, e).await
+        }
+        Err(e) if e.code == ErrorCode::ProviderAuthRequired => Err(e),
+        Err(e) => Err(AppError::not_found(format!(
+            "activity {activity_id} not found on {provider_name}: {e}"
+        ))),
+    }
 }
 
 /// The reader of `activity_id` when it is not `elected`'s, with its key.

@@ -6,6 +6,7 @@
 
 use crate::implementations::analytics::output::{ActivityMetricsResult, MetricsInputSummary};
 use crate::implementations::configuration::configured_max_hr_algorithm;
+use crate::implementations::stored_copy::{activity_or_stored, with_caveat, Reader, Served};
 use crate::implementations::stored_physiology::stored_profile;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::{by_id_reader, resolve_provider_for_request};
@@ -316,13 +317,21 @@ async fn fetch_and_calculate_metrics(
     let target = reader
         .as_ref()
         .map_or_else(|| provider.as_ref(), |(_, p)| p.as_ref());
-    let activity = target.get_activity(activity_id).await.map_err(|e| {
-        warn!(error = %e, %activity_id, "activity read for activity metrics failed");
-        ProtocolError::ExecutionFailed(format!(
-            "Failed to fetch activity {activity_id}: {}",
-            e.tool_message()
-        ))
-    })?;
+    // A read the athlete's session-read cap refused is answered by their
+    // stored copy, under a caveat (carnet#1661).
+    let store = Reader::new(&executor.resources, user_uuid, request.tenant_id.as_deref());
+    let Served {
+        value: activity,
+        caveat,
+    } = activity_or_stored(store, target, activity_id)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, %activity_id, "activity read for activity metrics failed");
+            ProtocolError::ExecutionFailed(format!(
+                "Failed to fetch activity {activity_id}: {}",
+                e.tool_message()
+            ))
+        })?;
 
     // Convert Activity model to parameters format
     let mut request_with_activity = request.clone();
@@ -390,7 +399,10 @@ async fn fetch_and_calculate_metrics(
         },
     );
 
-    build_metrics_response(&params, &metrics, max_hr.as_ref(), reading, output_format)
+    with_caveat(
+        build_metrics_response(&params, &metrics, max_hr.as_ref(), reading, output_format),
+        caveat,
+    )
 }
 
 /// Handle `calculate_metrics` tool - calculate custom fitness metrics (async)

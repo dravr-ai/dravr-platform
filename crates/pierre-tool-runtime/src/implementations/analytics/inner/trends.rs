@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::implementations::analytics::output::{PerformanceTrendsResult, TrendStatistics};
+use crate::implementations::stored_copy::{activities_or_stored, with_caveat, Reader, Served};
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -32,7 +33,7 @@ use tracing::warn;
 /// * `provider` - Configured fitness provider
 /// * `metric` - Metric to analyze (e.g., "pace", "distance")
 /// * `timeframe` - Analysis timeframe (e.g., "week", "month")
-/// * `user_uuid` - User UUID for response metadata
+/// * `reader` - Whose read it is: their stored copy answers a capped read
 ///
 /// # Returns
 /// `UniversalResponse` with trend analysis or error
@@ -40,16 +41,16 @@ async fn fetch_and_analyze_trends(
     provider: Box<dyn FitnessProvider>,
     metric: &str,
     timeframe: &str,
-    user_uuid: uuid::Uuid,
+    reader: Reader<'_>,
     output_format: OutputFormat,
 ) -> Result<UniversalResponse, ProtocolError> {
     use MAX_ACTIVITY_LIMIT;
 
-    match provider
-        .get_activities(Some(MAX_ACTIVITY_LIMIT), None)
-        .await
-    {
-        Ok(raw_activities) => {
+    match activities_or_stored(reader, provider.as_ref(), MAX_ACTIVITY_LIMIT).await {
+        Ok(Served {
+            value: raw_activities,
+            caveat,
+        }) => {
             // Trend regression must see one row per session, otherwise duplicate
             // captures bias slope estimates toward the days that were
             // double-recorded.
@@ -57,22 +58,25 @@ async fn fetch_and_analyze_trends(
                 merge_duplicates(raw_activities, &DedupConfig::default());
             let analysis = analyze_performance_trend(&activities, metric, timeframe);
 
-            apply_format_typed(
-                UniversalResponse {
-                    success: true,
-                    result: None,
-                    error: None,
-                    metadata: Some({
-                        let mut map = HashMap::new();
-                        map.insert(
-                            "user_id".to_owned(),
-                            serde_json::Value::String(user_uuid.to_string()),
-                        );
-                        map
-                    }),
-                },
-                analysis,
-                output_format,
+            with_caveat(
+                apply_format_typed(
+                    UniversalResponse {
+                        success: true,
+                        result: None,
+                        error: None,
+                        metadata: Some({
+                            let mut map = HashMap::new();
+                            map.insert(
+                                "user_id".to_owned(),
+                                serde_json::Value::String(reader.user_id.to_string()),
+                            );
+                            map
+                        }),
+                    },
+                    analysis,
+                    output_format,
+                ),
+                caveat,
             )
         }
         Err(e) => {
@@ -401,9 +405,14 @@ pub(crate) fn handle_analyze_performance_trends(
             .await
         {
             Ok(provider) => {
-                let result =
-                    fetch_and_analyze_trends(provider, metric, timeframe, user_uuid, output_format)
-                        .await?;
+                let result = fetch_and_analyze_trends(
+                    provider,
+                    metric,
+                    timeframe,
+                    Reader::new(&executor.resources, user_uuid, request.tenant_id.as_deref()),
+                    output_format,
+                )
+                .await?;
 
                 Ok(result)
             }

@@ -61,8 +61,11 @@ pub struct TombstoneListQuery {
     pub include_cleared: bool,
 }
 
-/// `GET /admin/deletion-receipts` — one page of the receipt chain, in `seq`
-/// order. Answers 403 for anything but a super-admin token.
+/// `GET /admin/deletion-receipts` — one page of the receipt chain, in `seq` order.
+///
+/// It carries the newest anchor: the receipt a signed `record_log`
+/// checkpoint holds as its leaf 0 (carnet#1542), `null` before the first.
+/// Answers 403 for anything but a super-admin token.
 ///
 /// # Errors
 ///
@@ -84,11 +87,12 @@ pub async fn handle_list_deletion_receipts(
         .account_deletion
         .list_deletion_receipts(query.after_seq.max(0), limit)
         .await?;
+    let anchor = context.repos.account_deletion.latest_anchor().await?;
     Ok(json_response(
         AdminResponse {
             success: true,
             message: format!("{} deletion receipts", receipts.len()),
-            data: to_value(json!({ "receipts": receipts, "limit": limit })).ok(),
+            data: to_value(json!({ "receipts": receipts, "limit": limit, "anchor": anchor })).ok(),
         },
         StatusCode::OK,
     )

@@ -10,6 +10,7 @@ use dravr_enforme::{EnformeError, SyncOrchestrator};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::backend_resolver;
 use pierre_providers::connect_prefetch::PrefetchWait;
+use pierre_providers::request_budget::in_background;
 use pierre_services::health_sync::{sync_error_is_push_stand_down, wellness_pull_stands_down};
 use pierre_services::provider_refresh::token_tenant;
 use pierre_services::sync_failure_notice::SyncFailureNotices;
@@ -70,7 +71,9 @@ pub(crate) fn spawn_health_backfill(
         user_id: user_id.to_owned(),
         provider: provider.to_owned(),
     };
-    Some(tokio::spawn(backfill.run(after)))
+    // Nobody waits on the backfill: its session reads count as background
+    // (carnet#1661).
+    Some(tokio::spawn(in_background(backfill.run(after))))
 }
 
 /// One connect's health backfill of `provider` for `user_id`, and its report.

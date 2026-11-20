@@ -25,12 +25,12 @@ pub(crate) const RECORD_JOB_PROGRESS_SQL: &str = "UPDATE activity_backfill_jobs 
      WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
 
 /// Adds a walk's last step to the progress and keeps the row, released, as
-/// walked.
+/// walked. Its wellness copy is done, so no day is kept to resume it from.
 pub(crate) const END_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
      SET before_ts = $3, months_done = months_done + $4, rows_landed = rows_landed + $5, \
          secs_per_unit = COALESCE($6, secs_per_unit), after_ts = COALESCE($7, after_ts), \
          months_total = COALESCE($8, months_total), outcome = $9, \
-         leased_until_ms = 0, lease_token = NULL \
+         leased_until_ms = 0, lease_token = NULL, wellness_resume_day = NULL \
      WHERE id = $1 AND lease_token = $2 AND outcome IS NULL \
      RETURNING months_total, months_done, rows_landed, secs_per_unit";
 

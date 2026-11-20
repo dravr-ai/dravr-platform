@@ -259,7 +259,7 @@ pub(crate) async fn walk_row_under(
         .common
         .repos
         .activity_backfill_jobs
-        .detail_walk_row(user_id, tenant, backend)
+        .detail_walk_row(user_id, tenant, backend, BackfillJobKind::DetailWalk)
         .await
         .unwrap()
 }

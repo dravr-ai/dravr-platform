@@ -195,8 +195,12 @@ pub mod team_rules;
 /// The one write path of every provider's activities: kept in the activity store (carnet#1482)
 pub mod live_activities;
 
+/// The platform's keys for barrage: the Index-key HMAC and the checkpoint signer (carnet#1542).
+pub mod barrage_keys;
 /// The activity store over dravr-barrage, its record store opener and its projection into the cache (carnet#1482)
 pub mod barrage_live_store;
+/// The hourly `record_log` worker: keyed backfills, baseline, orphan sweep, signed checkpoints (carnet#1542).
+pub mod record_log_worker;
 
 /// The athlete's originals bundle: built on request, tracked, downloaded, swept.
 pub mod originals_bundle;

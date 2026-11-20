@@ -70,6 +70,7 @@ use http::{HeaderMap, HeaderValue, StatusCode};
 use pierre_auth::rate_limiting::RequestBudget;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{A2AUsage, ApiKeyUsage};
+use pierre_core::usage_log::{self, LimitHit};
 use pierre_database::backends::{A2ARepository, UsageRepository};
 use pierre_database::RepositoryRegistry;
 use tokio::runtime::Handle;
@@ -247,6 +248,24 @@ pub fn enforce_request_budget(budget: RequestBudget, now: DateTime<Utc>) -> AppR
             ))
         }
         RequestBudget::Metered { .. } | RequestBudget::Unlimited => Ok(()),
+    }
+}
+
+/// Log a request `budget` refused as the usage limit `user_id` reached.
+///
+/// `limit_type` names the budget (`api_key_window`, `monthly_requests`,
+/// `a2a_client_window`), `surface` where it was met. An unlimited budget
+/// refuses nothing and logs nothing.
+pub fn log_budget_refusal(budget: RequestBudget, user_id: &str, limit_type: &str, surface: &str) {
+    if let RequestBudget::Metered { limit, used, .. } = budget {
+        usage_log::limit_reached(&LimitHit {
+            user_id,
+            tenant_id: None,
+            limit_type,
+            current: i64::from(used),
+            limit: i64::from(limit),
+            surface,
+        });
     }
 }
 
@@ -480,4 +499,54 @@ pub async fn request_budget_middleware(
         }
     }
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use pierre_auth::rate_limiting::RequestBudget;
+    use pierre_core::usage_log;
+    use pierre_test_support::log_capture::{capture_target, drain};
+
+    use super::log_budget_refusal;
+
+    /// A refused metered budget is logged with the caller, the budget's name
+    /// and where its window stood (carnet#1630).
+    #[test]
+    fn a_refused_budget_is_logged_with_its_window() {
+        let (events, _guard) = capture_target(usage_log::TARGET);
+        let budget = RequestBudget::Metered {
+            limit: 1_000,
+            used: 1_000,
+            resets_at: Utc::now(),
+        };
+        log_budget_refusal(budget, "athlete-1", "monthly_requests", "mcp");
+        let lines = drain(&events);
+        assert_eq!(lines.len(), 1, "one line per refusal: {lines:?}");
+        let line = &lines[0];
+        assert_eq!(line.get("user_id").map(String::as_str), Some("athlete-1"));
+        assert_eq!(
+            line.get("limit_type").map(String::as_str),
+            Some("monthly_requests")
+        );
+        assert_eq!(line.get("current").map(String::as_str), Some("1000"));
+        assert_eq!(line.get("limit").map(String::as_str), Some("1000"));
+        assert_eq!(line.get("surface").map(String::as_str), Some("mcp"));
+    }
+
+    /// An unlimited budget refuses nothing, so it logs nothing.
+    #[test]
+    fn an_unlimited_budget_logs_nothing() {
+        let (events, _guard) = capture_target(usage_log::TARGET);
+        log_budget_refusal(
+            RequestBudget::Unlimited,
+            "athlete-1",
+            "monthly_requests",
+            "mcp",
+        );
+        assert!(
+            drain(&events).is_empty(),
+            "an unlimited budget has no limit to report"
+        );
+    }
 }

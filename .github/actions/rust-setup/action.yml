@@ -133,11 +133,21 @@ runs:
     # what changed since the night before.
     # A workflow whose jobs use auto needs a daily schedule that runs them, or its
     # cache is never refreshed.
+    # The runner image is part of the cache key. A build tree from Ubuntu 26.04
+    # links glibc 2.43, and its build scripts and proc-macros then fail to load
+    # on 24.04; rust-cache keys on `runner.os` ("Linux") only. Every job moved
+    # from ubuntu-latest (26.04) to ubuntu-24.04 on 2026-11-19, so no 26.04
+    # entry may be restored on them.
+    - name: Name the runner image for the cache key
+      shell: bash
+      run: echo "RUST_CACHE_IMAGE=${ImageOS:-unknown-image}" >> "$GITHUB_ENV"
+
     - name: Cache Rust dependencies
       uses: Swatinem/rust-cache@v2
       with:
         workspaces: ". -> target"
         cache-on-failure: true
+        prefix-key: v0-rust-${{ env.RUST_CACHE_IMAGE }}
         shared-key: ${{ inputs.shared-key }}
         # A dispatched run on main writes too: on 2026-11-19 the Rust 1.100 bump
         # changed every key at 15:56 UTC and the one scheduled run that day was

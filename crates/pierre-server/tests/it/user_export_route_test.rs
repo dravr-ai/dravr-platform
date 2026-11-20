@@ -34,10 +34,10 @@ use tokio::time;
 use dravr_barrage::blob::BlobKey;
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::record::{StreamsState, SummaryWindow, TotalsFrom};
-use dravr_barrage::store::memory::MemoryActivityRecordStore;
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{ActivityId, ActivityRecord, LiveSource, Provenance, Scope, SourceKey};
 use pierre_core::models::{ActivityBuilder, SportType};
+use pierre_services::barrage_keys::memory_records;
 
 use crate::archive_import_test::imports_serving;
 use crate::common::{
@@ -450,7 +450,7 @@ fn ids(doc: &Value, table: &str) -> Vec<String> {
 
 #[tokio::test]
 async fn an_athletes_barrage_records_are_exported_and_no_one_elses() {
-    let records = Arc::new(MemoryActivityRecordStore::new());
+    let records = Arc::new(memory_records());
     let resources =
         create_test_server_resources_with_config_and_records(test_server_config(), records.clone())
             .await
@@ -601,7 +601,7 @@ async fn an_imported_record_reaches_the_export_through_the_one_record_store() {
 #[test]
 fn imports_and_live_reads_on_two_record_stores_are_refused() {
     let (imports, stores) = imports_serving(Vec::new());
-    let other: Arc<dyn ActivityRecordStore> = Arc::new(MemoryActivityRecordStore::new());
+    let other: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
     assert!(
         imports.record_store(Some(other)).is_err(),
         "bug: a context would run two record stores, and the export would miss imports"

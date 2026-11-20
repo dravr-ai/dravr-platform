@@ -18,8 +18,12 @@ use std::sync::Arc;
 use chrono::{DateTime, NaiveDate, Utc};
 
 use serde_json::{json, Value};
+#[cfg(feature = "tools-data")]
+use tracing::debug;
 use tracing::warn;
 
+#[cfg(feature = "tools-data")]
+use pierre_core::errors::AppError;
 #[cfg(feature = "tools-data")]
 use pierre_core::models::coverage::Pending;
 use pierre_core::models::coverage::{
@@ -32,6 +36,9 @@ use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::core::ActivityQueryParams;
 #[cfg(feature = "tools-data")]
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_providers::request_budget;
+#[cfg(feature = "tools-data")]
+use pierre_providers::request_budget::session_read_cap;
 use pierre_services::provider_refresh::UNREAD_PROVIDER_DIRECTIVE;
 use uuid::Uuid;
 
@@ -41,6 +48,7 @@ use crate::activity_fetch::{FallbackServe, StaleReason};
 use crate::activity_query::{count_served_list, ServedList};
 #[cfg(feature = "tools-data")]
 use crate::context::ToolExecutionContext;
+use crate::implementations::stored_copy::caveat;
 use crate::runtime::ToolRuntime;
 
 /// How far forward the coverage probe looks from `after`.
@@ -406,6 +414,51 @@ pub fn provider_stale_note(display_name: &str) -> Value {
     })
 }
 
+/// Log a live activity read of `provider` that failed with `error`: a
+/// warning, except for a session-read cap's refusal (carnet#1661), which the
+/// limiter has logged once already, on the usage target.
+#[cfg(feature = "tools-data")]
+pub(crate) fn log_failed_live_read(provider: &str, error: &AppError) {
+    if session_read_cap(error).is_some() {
+        debug!(provider = %provider, error = %error, "live activity read refused by the session-read cap");
+    } else {
+        warn!(provider = %provider, error = %error, "live activity read failed");
+    }
+}
+
+/// The note on `what` (activities, a profile) `name` served as it was `when`
+/// because the athlete's live reads of it are used up for now (carnet#1661),
+/// resuming after `retry_after_secs`.
+#[must_use]
+pub(crate) fn read_limit_note(name: &str, what: &str, when: &str, retry_after_secs: u64) -> String {
+    let minutes = request_budget::minutes_until(retry_after_secs);
+    format!(
+        "{name} was not read live: the athlete's live {name} reads are used up for now and \
+         resume in about {minutes} min. What is above ({what}) is the copy {when}: anything \
+         that changed since is missing. Its connection is intact, so do not ask the athlete \
+         to reconnect it. Answer from it. {UNREAD_PROVIDER_DIRECTIVE}"
+    )
+}
+
+/// The answer to an older-history read of `name` a request budget refused.
+///
+/// The refusal came before anything was sent (a session-read cap included,
+/// carnet#1661): live reads resume at `until_ms` (unix ms), and the
+/// connection is intact.
+#[cfg(feature = "tools-data")]
+#[must_use]
+pub(crate) fn read_paused_note(name: &str, until_ms: i64) -> String {
+    let wait_ms = until_ms
+        .saturating_sub(Utc::now().timestamp_millis())
+        .max(0);
+    let minutes = request_budget::minutes_until(u64::try_from(wait_ms / 1_000).unwrap_or(0));
+    format!(
+        "Older {name} history could not be fetched: the athlete's live {name} reads are used \
+         up for now and resume in about {minutes} min. Its connection is intact, so do not ask \
+         the athlete to reconnect it; say when the history can be fetched."
+    )
+}
+
 /// Build the `provider_unavailable` sidecar for a window the provider's own
 /// OAuth grant served in place of the athlete's usr/pwd session
 /// (carnet#1494).
@@ -480,6 +533,11 @@ impl PrimaryStandIn {
                 "provider_unavailable",
                 provider_unavailable_note(user_facing_name(backend)),
                 "error",
+            ),
+            Self::Stale(backend, reason @ StaleReason::ReadLimit { .. }) => (
+                "provider_unavailable",
+                caveat(backend, "activities", *reason, None),
+                reason.as_str(),
             ),
             Self::Stale(backend, reason) => (
                 "provider_unavailable",
@@ -663,10 +721,79 @@ pub fn backfill_placeholder_message(
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
+
+    #[cfg(feature = "tools-data")]
+    use super::read_paused_note;
     use super::{
-        provider_reconnect_note, provider_stale_note, provider_unavailable_note,
-        UNREAD_PROVIDER_DIRECTIVE,
+        provider_reconnect_note, provider_stale_note, provider_unavailable_note, PrimaryStandIn,
+        StaleReason, UNREAD_PROVIDER_DIRECTIVE,
     };
+
+    /// An older-history read a request budget refused says when live reads
+    /// resume, and never asks for a reconnect: it is a wait, not a failure.
+    #[cfg(feature = "tools-data")]
+    #[test]
+    fn a_paused_history_read_says_when_live_reads_resume() {
+        let until_ms = Utc::now().timestamp_millis() + 600_000;
+        let note = read_paused_note("Garmin", until_ms);
+        assert!(
+            note.contains("about 10 min"),
+            "bug: the paused read does not name its wait: {note}"
+        );
+        assert!(
+            note.contains("do not ask the athlete to reconnect"),
+            "bug: a paused read reads as a dead connection: {note}"
+        );
+        let past = read_paused_note("Garmin", Utc::now().timestamp_millis() - 5_000);
+        assert!(
+            past.contains("about 1 min"),
+            "bug: a wait already over reads as no wait at all: {past}"
+        );
+    }
+
+    /// A window served from the cache because the athlete's live reads are
+    /// used up (carnet#1661) says so, and when they resume: it is not worded
+    /// as a provider that failed.
+    #[test]
+    fn a_read_limited_window_says_its_reads_are_used_up_and_when_they_resume() {
+        let stand_in = PrimaryStandIn::Stale(
+            "sciotte".to_owned(),
+            StaleReason::ReadLimit {
+                retry_after_secs: 90,
+            },
+        );
+        let (key, caveat) = stand_in.caveat();
+        assert_eq!(
+            key, "provider_unavailable",
+            "bug: a read-limited window is sidecarred as a dead connection"
+        );
+        assert_eq!(
+            caveat["reason"], "read_limit",
+            "bug: a read-limited window is not tagged read_limit: {caveat}"
+        );
+        assert_eq!(
+            caveat["retry_after_secs"], 90,
+            "bug: the sidecar does not carry the refusal's wait: {caveat}"
+        );
+        let note = caveat["note"].as_str().unwrap_or_default();
+        assert!(
+            note.contains("used up for now"),
+            "bug: the note does not say live reads are used up: {note}"
+        );
+        assert!(
+            note.contains("about 2 min"),
+            "bug: the note does not say when live reads resume: {note}"
+        );
+        assert!(
+            note.contains(UNREAD_PROVIDER_DIRECTIVE),
+            "bug: the note drops the unread-provider directive: {note}"
+        );
+        assert!(
+            !note.contains("could not be read"),
+            "bug: a read-limited window is worded as a failed read: {note}"
+        );
+    }
 
     /// A provider that could not answer this turn is the agent's to know and
     /// not the athlete's to hear about: on 2026-10-23 and 2026-10-27 the

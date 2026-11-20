@@ -7,9 +7,11 @@
 //! Link states for the Postgres backend.
 //!
 //! The statements, the guards and the row decode live in
-//! [`crate::repositories::messaging_link_states`]; this file expands them
-//! over the Postgres pool. The `MessagingRepository` impl in `messaging.rs`
-//! delegates to these free functions.
+//! [`crate::repositories::messaging_link_states`], bar the OTP-flow
+//! invalidation a pairing hold shares with the repository body, which lives
+//! in `repositories/messaging/sql.rs`; this file expands them over the
+//! Postgres pool. The `MessagingRepository` impl in `messaging.rs` delegates
+//! to these free functions.
 
 use chrono::Utc;
 use pierre_core::errors::messaging::MessagingError;
@@ -18,10 +20,13 @@ use pierre_core::models::TenantId;
 use serde_json::Value;
 use sqlx::{Pool, Postgres};
 
+use crate::repositories::messaging::sql::INVALIDATE_OTP_LINK_STATES_SQL;
 use crate::repositories::messaging_link_states::{
     complete_link_state_sql, create_link_state_sql, impl_link_state_functions,
     link_state_by_code_sql, link_state_columns, link_state_for_tenant_sql, link_state_from_row,
     live_link_state_sql, parse_expires_at, LinkStateRow, CONSUME_LINK_STATE_SQL,
+    HOLD_LINK_FOR_CONFIRMATION_SQL, OPEN_OTP_FLOW_SQL, RELEASE_SENDER_LINK_CONFIRMATIONS_SQL,
+    SPEND_HELD_LINK_CODE_SQL,
 };
 use crate::repositories::CreateLinkStateParams;
 

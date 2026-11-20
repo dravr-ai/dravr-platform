@@ -344,7 +344,61 @@ pub trait AccountDeletionRepository: Send + Sync {
         after_seq: i64,
         limit: i64,
     ) -> AppResult<Vec<DeletionReceipt>>;
+
+    /// The newest receipt's `seq` and `hash`: the chain head a checkpoint
+    /// anchors. `None` before the first deletion.
+    ///
+    /// # Errors
+    /// Returns a database error when the row cannot be read.
+    async fn receipt_chain_head(&self) -> AppResult<Option<(i64, String)>>;
+
+    /// Record that `anchor`'s receipt was anchored under a signed checkpoint.
+    ///
+    /// # Errors
+    /// Returns a database error when the row cannot be written.
+    async fn record_anchor(&self, anchor: &ReceiptAnchor) -> AppResult<()>;
+
+    /// The newest anchor, if any checkpoint anchored the chain yet.
+    ///
+    /// # Errors
+    /// Returns a database error when the row cannot be read or decoded.
+    async fn latest_anchor(&self) -> AppResult<Option<ReceiptAnchor>>;
 }
+
+/// Where the receipt chain's head was anchored: leaf 0 of a signed barrage
+/// `record_log` checkpoint (carnet#1542), which the `record_log` worker also
+/// writes to Cloud Logging, outside the database's reach.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReceiptAnchor {
+    /// The anchored receipt's position in the chain (0: none yet).
+    pub receipt_seq: i64,
+    /// Its hash (64 zeros before any receipt).
+    pub receipt_hash: String,
+    /// The barrage checkpoint's id.
+    pub checkpoint_id: i64,
+    /// The signed tree's size.
+    pub tree_size: i64,
+    /// The signed tree's head, hex.
+    pub tree_root: String,
+    /// The C2SP signed note.
+    pub note: String,
+    /// When it was anchored.
+    pub anchored_at: DateTime<Utc>,
+}
+
+/// Record one anchor; a checkpoint is anchored once.
+pub(crate) const INSERT_ANCHOR_SQL: &str = r"
+            INSERT INTO deletion_receipt_anchors
+                (receipt_seq, receipt_hash, checkpoint_id, tree_size, tree_root, note, anchored_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (checkpoint_id) DO NOTHING
+            ";
+
+/// The newest anchor.
+pub(crate) const LATEST_ANCHOR_SQL: &str = r"
+            SELECT receipt_seq, receipt_hash, checkpoint_id, tree_size, tree_root, note, anchored_at
+            FROM deletion_receipt_anchors ORDER BY checkpoint_id DESC LIMIT 1
+            ";
 
 /// The account's email, `$1` its id through the backend's uuid codec.
 pub(crate) const SUBJECT_EMAIL_SQL: &str = "SELECT email FROM users WHERE id = $1";
@@ -604,6 +658,7 @@ macro_rules! impl_account_deletion_repository {
                 let mut tombstone_ids = Vec::with_capacity(identities.len() + 1);
                 for (provider, identity_hash) in &identities {
                     tombstone_ids.push(ensure_tombstone_in_transaction!(
+                        self,
                         guard,
                         &subject,
                         TombstoneKind::ProviderAccount,
@@ -614,6 +669,7 @@ macro_rules! impl_account_deletion_repository {
                 }
                 let email_hash = email_identity_hash(&email);
                 tombstone_ids.push(ensure_tombstone_in_transaction!(
+                    self,
                     guard,
                     &subject,
                     TombstoneKind::Email,
@@ -702,6 +758,76 @@ macro_rules! impl_account_deletion_repository {
                         AppError::database(format!("Failed to list deletion receipts: {e}"))
                     })?;
                 rows.iter().map(receipt_from_row).collect()
+            }
+
+            async fn receipt_chain_head(&self) -> AppResult<Option<(i64, String)>> {
+                let row = sqlx::query(RECEIPT_HEAD_SQL)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read the receipt chain head: {e}"))
+                    })?;
+                row.map(|row| {
+                    let seq: i64 = row.try_get("seq").map_err(|e| {
+                        AppError::database(format!("Failed to read deletion_receipts.seq: {e}"))
+                    })?;
+                    let hash: String = row.try_get("hash").map_err(|e| {
+                        AppError::database(format!("Failed to read deletion_receipts.hash: {e}"))
+                    })?;
+                    Ok((seq, hash))
+                })
+                .transpose()
+            }
+
+            async fn record_anchor(&self, anchor: &ReceiptAnchor) -> AppResult<()> {
+                sqlx::query(INSERT_ANCHOR_SQL)
+                    .bind(anchor.receipt_seq)
+                    .bind(&anchor.receipt_hash)
+                    .bind(anchor.checkpoint_id)
+                    .bind(anchor.tree_size)
+                    .bind(&anchor.tree_root)
+                    .bind(&anchor.note)
+                    .bind(anchor.anchored_at)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to record an anchor: {e}")))?;
+                Ok(())
+            }
+
+            async fn latest_anchor(&self) -> AppResult<Option<ReceiptAnchor>> {
+                let row = sqlx::query(LATEST_ANCHOR_SQL)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to read the anchor: {e}")))?;
+                row.map(|row| {
+                    let column = |name: &str, e: sqlx::Error| {
+                        AppError::database(format!(
+                            "Failed to read deletion_receipt_anchors.{name}: {e}"
+                        ))
+                    };
+                    Ok(ReceiptAnchor {
+                        receipt_seq: row
+                            .try_get("receipt_seq")
+                            .map_err(|e| column("receipt_seq", e))?,
+                        receipt_hash: row
+                            .try_get("receipt_hash")
+                            .map_err(|e| column("receipt_hash", e))?,
+                        checkpoint_id: row
+                            .try_get("checkpoint_id")
+                            .map_err(|e| column("checkpoint_id", e))?,
+                        tree_size: row
+                            .try_get("tree_size")
+                            .map_err(|e| column("tree_size", e))?,
+                        tree_root: row
+                            .try_get("tree_root")
+                            .map_err(|e| column("tree_root", e))?,
+                        note: row.try_get("note").map_err(|e| column("note", e))?,
+                        anchored_at: row
+                            .try_get("anchored_at")
+                            .map_err(|e| column("anchored_at", e))?,
+                    })
+                })
+                .transpose()
             }
         }
     };

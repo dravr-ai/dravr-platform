@@ -1,4 +1,4 @@
-// ABOUTME: The one store of activity detail reads — what a detail read found, kept beside the cached row
+// ABOUTME: The one store of activity detail reads — what a detail read found, kept beside the cached row, its route as the stored track
 // ABOUTME: Also the one read of a served list's cached rows, which yields their details and places
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -11,10 +11,16 @@
 //! cached copy from a list read that carries none of them. What a detail read
 //! found is stored beside the cached row
 //! (`ActivityCacheRepository::store_activity_detail`) and every read of the
-//! row fills the fields its list copy lacks from it. Both detail readers go
-//! through this module: the activity view (`pierre-server`'s activity detail
-//! service) and `get_activities`, which details the activities of the last
-//! fourteen days.
+//! row fills the fields its list copy lacks from it. Every detail reader goes
+//! through this module: the activity view and the Home map's route read
+//! (`pierre-server`'s activity detail and route services), `get_activities`,
+//! which details the activities of the last fourteen days, and the detail
+//! walk.
+//!
+//! A kept detail read's route is kept too, as the activity's stored track
+//! (`keep_route`): a sciotte list row carries no route overview, so the
+//! scraped detail's `route` is the only line the places path can form a
+//! place from (carnet#1679).
 //!
 //! `get_activities` reads every served list's cached rows once
 //! ([`stored_served_rows`]): the same read yields the stored details and each
@@ -27,15 +33,17 @@ use std::slice;
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, PlaceRef, TenantId};
+use pierre_core::models::{Activity, PlaceRef, RouteGeometrySource, TenantId};
 use pierre_core::transport::TransportPolicy;
 use pierre_core::untrusted::display_line;
 use pierre_database::repositories::{
     ActivityDetail, CachedActivityRow, CachedRowCursor, CachedRowsQuery,
 };
 use pierre_database::RepositoryRegistry;
+use pierre_fitness_compute::route_track::RouteTrack;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::mirror_backend_for;
+use pierre_services::activity_track::{self, RouteRead};
 use pierre_services::athlete_places::MAX_PLACE_NAME_CHARS;
 use pierre_services::live_activities::{LiveActivityStore, WriteOrigin};
 use pierre_services::training_history_read::history_store_keys;
@@ -203,7 +211,7 @@ pub(crate) async fn store_detail_answered_by(
         answered,
         efforts,
     } = keep;
-    match keep_detail(repos, tenant_id, user_id, answered, detailed, efforts).await {
+    let outcome = match keep_detail(repos, tenant_id, user_id, answered, detailed, efforts).await {
         Ok(false) if answered != provider => match copy.await {
             Ok(0) => DetailKept::NotCached,
             Ok(_) => {
@@ -220,6 +228,54 @@ pub(crate) async fn store_detail_answered_by(
             }
         },
         other => kept(other),
+    };
+    if outcome == DetailKept::Stored {
+        keep_route(repos, tenant_id, user_id, answered, detailed).await;
+    }
+    outcome
+}
+
+/// Keep the route a kept detail read carried as the activity's stored track,
+/// under `answered`, the key its detail is kept under (carnet#1679).
+///
+/// The read's time series is its route: an API provider's recorded streams,
+/// or a scraped detail's `route` folded into them. It is turned into a track
+/// exactly as the Home map's route read turns one (trimmed past the privacy
+/// radius, simplified to a map's points) and stored through the one
+/// route-track write, which never replaces a drawn track. A stream
+/// set without coordinates — a scraped route whose coordinate list is empty,
+/// Strava's streams of a trainer ride — settles `no_gps`. A read with no time
+/// series at all proves nothing (a page read before its map rendered) and
+/// stores nothing. Only a provider's own answer reaches here: a read that
+/// failed or was refused stores no detail, and so no route. A store that
+/// fails is logged: the detail is kept either way.
+async fn keep_route(
+    repos: &RepositoryRegistry,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    answered: &str,
+    detailed: &Activity,
+) {
+    let Some(streams) = detailed.time_series_data() else {
+        return;
+    };
+    let track = RouteTrack::from_streams(streams).map(activity_track::map_track);
+    let read = RouteRead {
+        source: RouteGeometrySource::Streams,
+        outcome: track.as_ref().map_err(|miss| miss.as_str()),
+        expires_at: None,
+    };
+    let activity_id = detailed.id();
+    if let Err(e) =
+        activity_track::store_route_read(repos, &tenant_id, user_id, answered, activity_id, read)
+            .await
+    {
+        warn!(
+            activity_id,
+            provider = answered,
+            error = %e,
+            "storing the route a detail read carried failed; its detail is kept"
+        );
     }
 }
 

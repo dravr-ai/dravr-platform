@@ -36,6 +36,17 @@
 //! dropped — the user has moved on and a stale "your history is ready" ping
 //! against an archived thread would be noise.
 //!
+//! ## The channel's window
+//!
+//! A notice the athlete did not just ask for passes the check the check-in
+//! and the commitment verdict pass ([`ResolvedRoute::window_open`]): Meta's
+//! 24-hour window on `WhatsApp` and Messenger. Outside it the channel would
+//! refuse a free-form send — `WhatsApp` only afterwards, in a status webhook —
+//! so the notice goes into the conversation in the app instead, and
+//! `messaging.proactive_held` says so (carnet#1672). A linked chat whose
+//! window is closed gets no reconnect notice: the notice's app half is its
+//! copy there.
+//!
 //! ## What a model may read of the notice
 //!
 //! The list is persisted in the conversation the model reads back, so the
@@ -86,8 +97,12 @@ mod walk;
 use format::{format_activity_line, warmed_window_policy};
 
 use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
-use crate::services::backfill_delivery::{ChannelDelivery, InAppDelivery, ResolvedRoute};
+use crate::services::backfill_delivery::{
+    reports_window_failure_late, ChannelDelivery, InAppDelivery, NoticeLedger, ResolvedRoute,
+    PURPOSE_BACKFILL_COMPLETE, PURPOSE_PROVIDER_REAUTH,
+};
 use crate::services::backfill_window::read_warmed_window;
+use crate::services::commitment_reporter::{channel_allows_proactive, session_last_inbound};
 use crate::services::messaging_ingress::addressing::reply_recipient;
 use crate::services::messaging_ingress::block_render::{render_reply, RenderedReply};
 use crate::services::messaging_ingress::outbound_retry::{
@@ -95,6 +110,7 @@ use crate::services::messaging_ingress::outbound_retry::{
 };
 use crate::services::messaging_ingress::surface::messaging_render_profile;
 use crate::services::platform_post::{PlatformPost, PostSurface};
+use crate::services::post_delivery::{report_held, HELD_WINDOW_CLOSED};
 use pierre_services::messaging_broadcast::{
     proactive_text, resolve_linked_targets, LinkedChannelTarget,
 };
@@ -358,6 +374,7 @@ impl ServerBackfillNotifier {
             recipient: recipient.to_owned(),
             channel_user_id: channel_user_id.to_owned(),
             channel_tenant_id,
+            last_inbound: session_last_inbound(&session),
         })
     }
 
@@ -405,6 +422,12 @@ impl ServerBackfillNotifier {
     /// read by fetching the conversation and so is delivered into, and a
     /// messaging thread whose session was repointed by a `/reset`, where a
     /// notice against the archived thread would be noise.
+    ///
+    /// A messaging session whose channel may not be written to unprompted
+    /// now ([`ResolvedRoute::window_open`]) is answered in the app instead:
+    /// the conversation is its, and the app reads it too. Decided here,
+    /// before any turn, so the answer is laid out for the app and no tokens
+    /// go to a message the channel would refuse.
     async fn resolve_destination(
         &self,
         user_id: Uuid,
@@ -415,7 +438,11 @@ impl ServerBackfillNotifier {
             .channel_route(user_id, tenant_id, pierre_conversation_id)
             .await
         {
-            return Some(Destination::Channel(Box::new(route)));
+            if route.window_open(Utc::now()) {
+                return Some(Destination::Channel(Box::new(route)));
+            }
+            report_answered_in_app(tenant_id, &route);
+            return Some(Destination::InApp);
         }
 
         let conversation = self
@@ -595,6 +622,22 @@ impl ServerBackfillNotifier {
     }
 }
 
+/// Say that a completion notice owed to `route`'s chat is answered in the app,
+/// because the channel's window is closed: logged, and reported as
+/// `messaging.proactive_held` for tenant `tenant_id`.
+fn report_answered_in_app(tenant_id: TenantId, route: &ResolvedRoute) {
+    info!(
+        channel = %route.channel_str,
+        "Backfill push: the channel's window is closed; answering in the app"
+    );
+    report_held(
+        tenant_id,
+        route.channel_type,
+        PURPOSE_BACKFILL_COMPLETE,
+        HELD_WINDOW_CLOSED,
+    );
+}
+
 #[async_trait]
 impl BackfillNotifier for ServerBackfillNotifier {
     async fn push_backfill_complete(&self, completion: BackfillCompletion<'_>) {
@@ -693,15 +736,15 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 // A read that gave up is answered by the agent alone, which
                 // words the provider being unavailable: the nudge and the
                 // list both say data landed.
-                let reply = if warmed.is_empty() && !provider_unavailable {
+                // The reply, and the assistant row it is already stored as
+                // when the platform post wrote it: a templated notice is not
+                // in the conversation.
+                let (reply, stored_as) = if warmed.is_empty() && !provider_unavailable {
                     // Cache read came back empty (it shouldn't, post-backfill):
                     // the user still hears that their history loaded.
-                    RenderedReply::plain(self.ready_nudge(
-                        &locale,
-                        activity_count,
-                        &warmed,
-                        withheld.is_empty(),
-                    ))
+                    let nudge =
+                        self.ready_nudge(&locale, activity_count, &warmed, withheld.is_empty());
+                    (RenderedReply::plain(nudge), None)
                 } else {
                     // DECOUPLING (data delivery ≠ LLM judgment): the
                     // deterministic list, rendered from the warmed cache the
@@ -731,25 +774,32 @@ impl BackfillNotifier for ServerBackfillNotifier {
                         // prose is reduced to what a channel shows as typed,
                         // with the chart markers stripped, and each chart
                         // follows as its own message.
-                        Some(agent_reply) => render_reply(
-                            &messaging_render_profile(route.channel_type, &locale).render,
-                            &agent_reply.assistant,
-                            &self.strings,
-                            &locale,
+                        Some(agent_reply) => (
+                            render_reply(
+                                &messaging_render_profile(route.channel_type, &locale).render,
+                                &agent_reply.assistant,
+                                &self.strings,
+                                &locale,
+                            ),
+                            Some(agent_reply.assistant.message.id),
                         ),
                         None if provider_unavailable => {
                             info!("The re-ask of a live read that gave up was withheld; nothing is sent");
                             return;
                         }
-                        None => RenderedReply::plain(self.render_list_body(&locale, zone, &warmed)),
+                        None => (
+                            RenderedReply::plain(self.render_list_body(&locale, zone, &warmed)),
+                            None,
+                        ),
                     }
                 };
                 let channel = route.channel_str.clone();
                 let sent = ChannelDelivery {
                     repos: &self.repos,
                     resolver: self.resolver.as_ref(),
+                    purpose: PURPOSE_BACKFILL_COMPLETE,
                 }
-                .send(*route, user_id, tenant_id, reply)
+                .send(*route, user_id, tenant_id, reply, stored_as.as_deref())
                 .await;
                 if sent {
                     info!(channel = %channel, count, "Sent backfill-ready notice on channel");
@@ -841,7 +891,10 @@ impl BackfillNotifier for ServerBackfillNotifier {
         // clicked must not be permanently silenced — so this fires each time,
         // matching the synchronous in-chat reconnect path (which also
         // re-injects every turn). The flag and the once-per-transition notice
-        // were written by the backfill before it called here.
+        // were written by the backfill before it called here. A closed
+        // window's linkless sentence in the app is the one exception: it is
+        // written once while it stands (`reauth_in_app`), its hold reported
+        // each time.
 
         // Resolve the originating channel — cross-channel, DM-correct (the same
         // routing the backfill-ready notice uses).
@@ -851,6 +904,11 @@ impl BackfillNotifier for ServerBackfillNotifier {
         else {
             return;
         };
+        if !route.window_open(Utc::now()) {
+            self.reauth_in_app(user_id, tenant_id, pierre_conversation_id, provider, &route)
+                .await;
+            return;
+        }
         let locale = self.resolve_locale(user_id, tenant_id, Some(&route)).await;
         let ResolvedRoute {
             session_id,
@@ -859,6 +917,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
             recipient,
             channel_user_id: _,
             channel_tenant_id,
+            last_inbound: _,
         } = route;
 
         // The historical backfill only ever runs on the scrape-backed mirrors,
@@ -896,43 +955,61 @@ impl BackfillNotifier for ServerBackfillNotifier {
         else {
             return;
         };
-        if let Err(e) = adapter.send(&outgoing, &channel_config).await {
-            warn!(error = %e, channel = %channel_str, "Reauth nudge: send failed");
-            // Path parity with the completion push + synchronous reply: a failed
-            // reauth-nudge send (e.g. Meta WhatsApp 131047, out-of-24h-window) must
-            // be persisted + queued for the background retry worker, not silently
-            // dropped — otherwise the user never learns their provider session
-            // expired and keeps re-asking. The message row lands on the
-            // user/session tenant; the queue row lands on the bot/channel-owner
-            // tenant so the worker resolves the right channel config on re-send.
-            // The retry is bounded by the link's life, when it carries one, and
-            // stops once the connection is reconnected.
-            let reauth_user_id = user_id.to_string();
-            if let Err(enqueue_err) = enqueue_failed_outbound(
-                self.repos.messaging.as_ref(),
-                adapter.as_ref(),
-                &outgoing,
-                &FailedOutbound {
-                    transcript: Some(TranscriptRecord {
-                        tenant_id,
-                        session_id: &session_id,
-                    }),
-                    queue_tenant_id: channel_tenant_id,
-                    user_id: Some(&reauth_user_id),
-                    channel: &channel_str,
-                    expires_at: link.as_ref().map(|link| link.send_by),
-                    reauth: Some(OutboundReauthGuard {
-                        tenant_id,
-                        provider,
-                    }),
-                },
-            )
-            .await
-            {
-                error!(error = %enqueue_err, "Reauth nudge: failed to enqueue dropped notice for retry");
+        match adapter.send(&outgoing, &channel_config).await {
+            Err(e) => {
+                warn!(error = %e, channel = %channel_str, "Reauth nudge: send failed");
+                // Path parity with the completion push + synchronous reply: a
+                // send the channel refused outright (a network error, a rate
+                // limit, a 5xx) must be persisted + queued for the background
+                // retry worker, not silently dropped — otherwise the user never
+                // learns their provider session expired and keeps re-asking.
+                // The window was checked above, and Meta reports its
+                // out-of-window refusal only afterwards, so that is never what
+                // lands here. The message row lands on the user/session tenant;
+                // the queue row lands on the bot/channel-owner tenant so the
+                // worker resolves the right channel config on re-send. The retry
+                // is bounded by the link's life, when it carries one, and stops
+                // once the connection is reconnected.
+                let reauth_user_id = user_id.to_string();
+                if let Err(enqueue_err) = enqueue_failed_outbound(
+                    self.repos.messaging.as_ref(),
+                    adapter.as_ref(),
+                    &outgoing,
+                    &FailedOutbound {
+                        transcript: Some(TranscriptRecord {
+                            tenant_id,
+                            session_id: &session_id,
+                        }),
+                        queue_tenant_id: channel_tenant_id,
+                        user_id: Some(&reauth_user_id),
+                        channel: &channel_str,
+                        expires_at: link.as_ref().map(|link| link.send_by),
+                        reauth: Some(OutboundReauthGuard {
+                            tenant_id,
+                            provider,
+                        }),
+                    },
+                )
+                .await
+                {
+                    error!(error = %enqueue_err, "Reauth nudge: failed to enqueue dropped notice for retry");
+                }
             }
-        } else {
-            info!(channel = %channel_str, provider = %provider, "Sent provider-reauth nudge on channel");
+            Ok(receipt) => {
+                info!(channel = %channel_str, provider = %provider, "Sent provider-reauth nudge on channel");
+                if reports_window_failure_late(channel_type) {
+                    NoticeLedger {
+                        repos: &self.repos,
+                        session_tenant_id: tenant_id,
+                        session_id: &session_id,
+                        channel: &channel_str,
+                        purpose: PURPOSE_PROVIDER_REAUTH,
+                        chat_message_id: None,
+                    }
+                    .record(&outgoing, &receipt)
+                    .await;
+                }
+            }
         }
     }
 
@@ -946,6 +1023,24 @@ impl BackfillNotifier for ServerBackfillNotifier {
         let mut delivered = 0;
         for target in resolve_linked_targets(self.repos.messaging.as_ref(), user_id).await {
             let channel_str = target.channel_type.to_string();
+            // The chat's own session says when the athlete last wrote there,
+            // which opens its window; the notice's app half stands for a chat
+            // whose window is closed.
+            let session = self.linked_session(tenant_id, &target).await;
+            if !channel_allows_proactive(
+                target.channel_type,
+                session.as_ref().and_then(session_last_inbound),
+                Utc::now(),
+            ) {
+                info!(channel = %channel_str, provider = %provider, "Reconnect notice: the linked chat's window is closed; not sent there");
+                report_held(
+                    tenant_id,
+                    target.channel_type,
+                    PURPOSE_PROVIDER_REAUTH,
+                    HELD_WINDOW_CLOSED,
+                );
+                continue;
+            }
             let locale = resolve_channel_locale(
                 self.repos.messaging.as_ref(),
                 self.repos.users.as_ref(),
@@ -972,9 +1067,27 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 continue;
             };
             match adapter.send(&outgoing, &channel_config).await {
-                Ok(_) => {
+                Ok(receipt) => {
                     info!(channel = %channel_str, provider = %provider, "Sent reconnect notice on linked channel");
                     delivered += 1;
+                    let session_id = session
+                        .as_ref()
+                        .and_then(|session| session.get("id"))
+                        .and_then(Value::as_str);
+                    if let (true, Some(session_id)) =
+                        (reports_window_failure_late(target.channel_type), session_id)
+                    {
+                        NoticeLedger {
+                            repos: &self.repos,
+                            session_tenant_id: tenant_id,
+                            session_id,
+                            channel: &channel_str,
+                            purpose: PURPOSE_PROVIDER_REAUTH,
+                            chat_message_id: None,
+                        }
+                        .record(&outgoing, &receipt)
+                        .await;
+                    }
                 }
                 Err(e) => {
                     warn!(error = %e, channel = %channel_str, provider = %provider, "Reconnect notice: linked channel send failed; queued for retry");

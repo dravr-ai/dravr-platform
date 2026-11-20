@@ -186,6 +186,13 @@ async fn block_kinds_and_screens_are_published_whole() -> Result<(), Box<dyn Err
             .unwrap_or_else(|| panic!("the {token} screen is catalogued"));
         assert_eq!(row["surface"], "home", "{token} opens Home");
     }
+    // A data access reminder opens the privacy settings pane, which holds
+    // the athlete's requests (carnet#1659).
+    let privacy = screens
+        .iter()
+        .find(|row| row["screen"] == "privacy")
+        .expect("the data access reminder screen is catalogued");
+    assert_eq!(privacy["surface"], "privacy");
     // The chat is a list of threads, so only the screens that name one open
     // it; every other screen would land the athlete on an empty chat. A
     // group's info is drawn over its chat: a link proposal opens the member's

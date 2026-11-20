@@ -30,6 +30,7 @@ use pierre_cache::{Cache, CacheConfig};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::repositories::PurgeReason;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_services::barrage_keys::memory_records;
 use pierre_services::live_activities::WriteOrigin;
 use pierre_services::provider_revocation::purge_provider_data;
 use uuid::Uuid;
@@ -179,7 +180,7 @@ async fn served(
 
 #[tokio::test]
 async fn a_disconnect_deletes_the_live_records_and_leaves_the_imported_archive() {
-    let records = Arc::new(MemoryActivityRecordStore::new());
+    let records = Arc::new(memory_records());
     let resources = server_over(Arc::clone(&records)).await;
     let who = athlete(&resources, "disconnect").await;
     let (user_id, tenant_id) = who;
@@ -286,7 +287,7 @@ async fn a_disconnect_deletes_the_live_records_and_leaves_the_imported_archive()
 
 #[tokio::test]
 async fn the_termination_purge_deletes_every_athletes_live_records() {
-    let records = Arc::new(MemoryActivityRecordStore::new());
+    let records = Arc::new(memory_records());
     let resources = server_over(Arc::clone(&records)).await;
     let first = athlete(&resources, "first").await;
     let second = athlete(&resources, "second").await;
@@ -343,7 +344,7 @@ async fn the_termination_purge_deletes_every_athletes_live_records() {
 
 #[tokio::test]
 async fn a_provider_whose_reads_the_store_does_not_keep_is_purged_from_the_tables() {
-    let records = Arc::new(MemoryActivityRecordStore::new());
+    let records = Arc::new(memory_records());
     let resources = server_over(Arc::clone(&records)).await;
     let who = athlete(&resources, "unkept").await;
     let (user_id, tenant_id) = who;
@@ -384,7 +385,7 @@ async fn a_provider_whose_reads_the_store_does_not_keep_is_purged_from_the_table
 /// counted as refused so a caller's accounting of the page still adds up.
 #[tokio::test]
 async fn a_live_read_starting_in_the_future_is_refused_and_counted() {
-    let records = Arc::new(MemoryActivityRecordStore::new());
+    let records = Arc::new(memory_records());
     let resources = server_over(Arc::clone(&records)).await;
     let (user_id, tenant_id) = athlete(&resources, "future-start").await;
     let read = resources

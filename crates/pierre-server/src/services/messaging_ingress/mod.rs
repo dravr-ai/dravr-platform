@@ -35,16 +35,21 @@ mod dispatch;
 mod linking;
 /// In-chat OTP linking flow + logout + supporting helpers.
 mod otp;
-mod outbound_persist;
+/// The one `messaging_messages` outbound-row insert, shared with the proactive notices.
+pub(crate) mod outbound_persist;
 /// Shared failed-outbound enqueue helper — single source of truth for the retry
 /// queue, reused by the synchronous reply path and the backfill-completion push.
 pub mod outbound_retry;
 /// The config-loading, body-splitting egress seam every non-pipeline reply leaves through.
 pub mod outbound_send;
+/// The language a sender with no account is asked in (carnet#1669).
+mod prelink;
 /// Inbound emoji reactions mapped onto the shared per-message feedback write.
 pub mod reactions;
 /// The durable record every turn runs from, the runner hand-off and the sweeper.
 pub mod resume;
+/// A proactive notice `WhatsApp` failed for its closed window, re-delivered in the app.
+pub(crate) mod window_failure;
 /// The messaging background workers started once per process.
 pub mod workers;
 pub use dispatch::turn_watchdog;
@@ -53,6 +58,9 @@ pub(crate) use dispatch::{dispatch_and_respond, TurnClose};
 pub(crate) use resume::start_turn;
 /// What a shared room is left seeing once a slash command is answered privately.
 pub mod room_echo;
+/// Which channel identity a message is routed on: placeholders refused,
+/// `WhatsApp` phone-number links moved onto the business-scoped user id.
+mod sender_identity;
 /// Session resolution for linked channel users + unlinked-user link-and-prompt.
 mod session;
 /// Channel framing around the turn service's slash dispatch: channel-link
@@ -67,9 +75,15 @@ use outbound_send::{
 mod content;
 /// The tapped button's label, echoed where a Telegram inline tap posts nothing.
 mod tap_echo;
-use content::{content_body_text, content_type_label};
+use content::{content_body_text, content_type_label, is_ignorable_placeholder};
+/// The group respond-mode gate: ambient room chatter the agent stays out of.
+mod respond_mode;
+use respond_mode::is_ambient_group_message;
+/// The "text only for now" reply to a voice note or a photo without a caption.
+mod text_only_reply;
 /// Ambient room-chatter capture into the shared group transcript read model.
 mod transcript;
+use text_only_reply::{send_text_only_reply, TextOnlyReply};
 
 /// Lays an assistant turn's blocks out as ordered channel messages, splitting
 /// prose past the channel's per-message ceiling.
@@ -89,6 +103,7 @@ use linking::{detect_linking_code, handle_linking_command, LinkingAction};
 /// last readable point without a network stub.
 pub use otp::start_otp_flow;
 use otp::{apply_conversation_recipient, handle_logout, handle_otp_flow, is_logout_command};
+use prelink::prelink_locale;
 /// Re-exported alongside [`start_otp_flow`], and for the same reason.
 pub use session::create_link_and_prompt;
 pub(crate) use session::fresh_title_fallback;
@@ -100,7 +115,6 @@ use slash::{try_handle_slash_command, SlashCommandContext};
 
 use dravr_canot::channel::MessagingChannel;
 use pierre_auth::auth::AuthResult;
-use pierre_core::models::groups::GroupRespondMode;
 use pierre_core::models::messaging::{ChannelType, IncomingMessage};
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
@@ -114,6 +128,7 @@ use serde_json::Value;
 
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::SurfaceProfile;
+use pierre_middleware::redaction::mask_recipient;
 use pierre_services::analytics::hash_id;
 
 /// Outcome of persisting a single inbound message
@@ -285,6 +300,13 @@ pub(crate) async fn persist_inbound(
     let mut pending_dispatches = Vec::new();
 
     for message in messages {
+        // canot's stand-in for a type it does not parse is, on WhatsApp, mostly a
+        // reaction or a sticker: nothing to read and nothing to answer, so it is
+        // dropped here, ahead of any link prompt, session or ledger row.
+        if is_ignorable_placeholder(&message.content, channel_type) {
+            debug!(channel = %channel, "unsupported message type dropped without a reply");
+            continue;
+        }
         match persist_single_message(
             resources,
             channel,
@@ -310,12 +332,25 @@ pub(crate) async fn persist_inbound(
     (stored_count, pending_dispatches)
 }
 
+/// The identity a notify event carries for a sender with no linked Pierre user:
+/// the hash of `{channel}:{sender_id}`, never the sender id itself.
+///
+/// A sender id is a phone number or a `BSUID` on `WhatsApp` and a numeric user id
+/// on Telegram. The hash correlates one sender's events in Cloud Logging; it is
+/// unkeyed, so it is reversible over the phone-number space and must not leave
+/// the logs. Consent is keyed on a Pierre user and the analytics sink hashes
+/// `user_id` again, so a pre-link event is never captured in `PostHog`, and
+/// `messaging.identity_alias` carries it as `channel_identity`, a key the sink
+/// strips (carnet#1680).
+pub(super) fn pre_link_identity(channel: &str, sender_id: &str) -> String {
+    hash_id(&format!("{channel}:{sender_id}"))
+}
+
 /// Emit the `messaging.intent` product notify event for a recognised intent.
 ///
-/// `user_id` is the raw (un-hashed) Pierre user id, or — for pre-link intents
-/// that have no resolved user yet — the `{channel}:{sender_id}` distinct id the
-/// provider will hash. `intent_type` is one of `link_code`, `otp_flow`,
-/// `logout`, `normal_chat`.
+/// `user_id` is the raw (un-hashed) Pierre user id, or, for pre-link intents
+/// that have no resolved user yet, the [`pre_link_identity`] hash.
+/// `intent_type` is one of `link_code`, `otp_flow`, `logout`, `normal_chat`.
 fn emit_messaging_intent(user_id: &str, tenant_id: TenantId, channel: &str, intent_type: &str) {
     info!(
         target: "notify",
@@ -531,19 +566,12 @@ async fn handle_pre_session_commands(
     let mut reply = if let LinkingAction::LinkCode(code) =
         detect_linking_code(channel_type, &message.content, &message.metadata)
     {
-        info!(channel = %channel, sender_id = %message.sender_id, "Processing channel linking command");
+        info!(channel = %channel, sender_id = %mask_recipient(&message.sender_id), "Processing channel linking command");
         emit_messaging_intent(pre_link_identity, tenant_id, channel, "link_code");
-        handle_linking_command(resources, tenant_id, channel, &message.sender_id, &code).await
+        handle_linking_command(resources, tenant_id, channel, message, &code).await
     } else {
-        let otp_response = handle_otp_flow(
-            resources,
-            tenant_id,
-            channel_type,
-            channel,
-            &message.sender_id,
-            &message.content,
-        )
-        .await?;
+        let otp_response =
+            handle_otp_flow(resources, tenant_id, channel_type, channel, message).await?;
         emit_messaging_intent(pre_link_identity, tenant_id, channel, "otp_flow");
         otp_response
     };
@@ -592,14 +620,16 @@ async fn persist_single_message(
     message: &IncomingMessage,
     status_api_base: Option<&str>,
 ) -> Result<PersistOutcome, ()> {
+    if !sender_identity::admit(resources, tenant_id, channel, channel_type, message).await {
+        return Ok(PersistOutcome::HandledNotStored);
+    }
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let thread_id = extract_thread_id(&message.metadata);
 
-    // Pre-link intent events have no resolved Pierre user yet, so the
-    // `{channel}:{sender_id}` channel identity is the raw distinct_id the
-    // provider will hash (the same value the post-link `alias` glues to the
-    // user id once linking completes).
-    let pre_link_identity = format!("{channel}:{}", message.sender_id);
+    // Pre-link intent events have no resolved Pierre user yet, so they carry
+    // the hashed `{channel}:{sender_id}` channel identity (see
+    // `pre_link_identity`). It reaches Cloud Logging only.
+    let pre_link_identity = pre_link_identity(channel, &message.sender_id);
 
     if let Some(outcome) = handle_pre_session_commands(
         resources,
@@ -635,14 +665,8 @@ async fn persist_single_message(
         // degrades to the old unledgered send rather than blocking logout.
         let logout_persist =
             outbound_persist::logout_persist_spec(resources, tenant_id, channel, message).await;
-        let mut logout_response = handle_logout(
-            resources,
-            tenant_id,
-            channel_type,
-            channel,
-            &message.sender_id,
-        )
-        .await;
+        let mut logout_response =
+            handle_logout(resources, tenant_id, channel_type, channel, message).await;
         logout_response.thread_id = thread_id;
         apply_conversation_recipient(&mut logout_response, message.conversation_id.as_deref());
         send_channel_response(
@@ -816,122 +840,56 @@ async fn persist_single_message(
     // sanitization scanner. Verbatim user text is preserved in the stored
     // message above for audit/compliance; only the LLM-bound copy gets the
     // redaction so injection patterns never reach prompt assembly.
-    content_body_text(&message.content).map_or_else(
-        || {
-            info!("Skipping non-text message for LLM dispatch");
-            Ok(PersistOutcome::StoredNoDispatch)
-        },
-        |text_content| {
-            let sanitized = sanitize_for_dispatch(channel, &session.user_id, text_content);
-            Ok(PersistOutcome::StoredWithDispatch(Box::new(
-                PendingDispatch {
-                    resources: Arc::clone(resources),
-                    adapter: Arc::clone(adapter),
-                    auth_result,
-                    session,
-                    channel_tenant_id: tenant_id,
-                    user_tenant_id,
-                    session_tenant_id,
-                    channel_type,
-                    channel: channel.to_owned(),
-                    sender_id: message.sender_id.clone(),
-                    conversation_id: message.conversation_id.clone(),
-                    text_content: sanitized,
-                    channel_message_id: message.channel_message_id.clone(),
-                    thread_id,
-                    is_group_chat: !message.is_direct_message,
-                    locale,
-                    // Canot generates the turn id at the webhook boundary
-                    // (see canot's IncomingMessage::turn_id); adopt it so
-                    // canot-emitted log spans and the platform's
-                    // /internal/conversation-turn row share one key.
-                    turn_id: message.turn_id.into(),
-                    status_api_base: status_api_base.map(str::to_owned),
-                    // Recorded by `start_turn`, which hands the row on.
-                    record: None,
-                },
-            )))
-        },
-    )
-}
-
-/// Resolve the respond mode of the coaching group bound to a channel chat.
-///
-/// No chat id, no group binding, or a lookup failure all resolve to
-/// [`GroupRespondMode::All`] — the pre-feature behavior — so a transient DB
-/// error can only ever make the agent chattier, never mute it.
-async fn channel_group_respond_mode(
-    resources: &ServerContext,
-    tenant_id: TenantId,
-    channel: &str,
-    conversation_id: Option<&str>,
-) -> GroupRespondMode {
-    let Some(chat_id) = conversation_id.filter(|c| !c.is_empty()) else {
-        return GroupRespondMode::All;
+    let Some(text_content) = content_body_text(&message.content) else {
+        // Nothing the agent can read: a voice note or a bare photo sent to the agent
+        // draws the text-only reply, a pin draws nothing (`needs_text_only_reply`).
+        send_text_only_reply(
+            resources,
+            &TextOnlyReply {
+                tenant_id,
+                session_tenant_id,
+                channel,
+                channel_type,
+                adapter,
+                message,
+                session: &session,
+                thread_id,
+                locale: &locale,
+            },
+        )
+        .await;
+        info!("Skipping non-text message for LLM dispatch");
+        return Ok(PersistOutcome::StoredNoDispatch);
     };
-    match resources
-        .common
-        .repos
-        .groups
-        .get_group_by_channel(tenant_id, channel, chat_id)
-        .await
-    {
-        Ok(Some(group)) => group.respond_mode,
-        Ok(None) => GroupRespondMode::All,
-        Err(e) => {
-            warn!(
-                error = %e,
-                channel = %channel,
-                "respond-mode lookup failed; answering (fail-open to pre-feature behavior)"
-            );
-            GroupRespondMode::All
-        }
-    }
-}
-
-/// `true` when this inbound is ambient room conversation the agent must not
-/// answer: a group-chat message in a mentions-mode group that neither
-/// addresses the bot nor invokes a slash command.
-async fn is_ambient_group_message(
-    resources: &ServerContext,
-    tenant_id: TenantId,
-    channel: &str,
-    message: &IncomingMessage,
-) -> bool {
-    if message.is_direct_message || message.addressed_to_bot {
-        return false;
-    }
-    // Slash commands stay live unaddressed — `/group respond all` must work
-    // without a mention, or the owner could never leave mentions mode from
-    // inside the chat. Their replies are already delivered privately in
-    // shared rooms, so honoring them adds no room noise.
-    if content_body_text(&message.content).is_some_and(|t| t.trim_start().starts_with('/')) {
-        return false;
-    }
-    if channel_group_respond_mode(
-        resources,
-        tenant_id,
-        channel,
-        message.conversation_id.as_deref(),
-    )
-    .await
-        != GroupRespondMode::Mentions
-    {
-        return false;
-    }
-    // A member mid guided walk answers the agent's question unaddressed — an
-    // interview that demanded an @-mention per answer would shed its athlete
-    // by question two. Only the walker is exempted: the lookup resolves the
-    // SENDER's own room session (rooms are per-member), so everyone else's
-    // unaddressed chatter stays silently captured.
-    !session::sender_room_walk_is_active(
-        resources,
-        tenant_id,
-        channel,
-        &message.sender_id,
-        message.conversation_id.as_deref(),
-    )
-    .await
+    let sanitized = sanitize_for_dispatch(channel, &session.user_id, text_content);
+    Ok(PersistOutcome::StoredWithDispatch(Box::new(
+        PendingDispatch {
+            resources: Arc::clone(resources),
+            adapter: Arc::clone(adapter),
+            auth_result,
+            session,
+            channel_tenant_id: tenant_id,
+            user_tenant_id,
+            session_tenant_id,
+            channel_type,
+            channel: channel.to_owned(),
+            sender_id: message.sender_id.clone(),
+            conversation_id: message.conversation_id.clone(),
+            text_content: sanitized,
+            channel_message_id: message.channel_message_id.clone(),
+            thread_id,
+            is_group_chat: !message.is_direct_message,
+            locale,
+            // Canot generates the turn id at the webhook boundary
+            // (see canot's IncomingMessage::turn_id); adopt it so
+            // canot-emitted log spans and the platform's
+            // /internal/conversation-turn row share one key.
+            turn_id: message.turn_id.into(),
+            status_api_base: status_api_base.map(str::to_owned),
+            // Recorded by `start_turn`, which hands the row on.
+            record: None,
+        },
+    )))
 }
 
 /// Silently capture an ambient group message for the room transcript.
@@ -990,7 +948,7 @@ async fn handle_ambient_group_message(
             // so this is a transcript gap rather than a dropped answer.
             warn!(
                 error = %e,
-                sender_id = %message.sender_id,
+                sender_id = %mask_recipient(&message.sender_id),
                 channel = %channel,
                 "ambient group message: session resolution failed; transcript row lost"
             );
@@ -1066,7 +1024,7 @@ async fn send_unlinked_user_prompt(
     emit_unlinked_prompted(tenant_id, channel, prompt_type);
 
     let mut prompt = if resources.common.email_service.is_some() {
-        info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, starting OTP flow");
+        info!(channel = %channel, sender_id = %mask_recipient(&message.sender_id), "Unlinked user, starting OTP flow");
         start_otp_flow(
             resources,
             db,
@@ -1074,10 +1032,11 @@ async fn send_unlinked_user_prompt(
             channel_type,
             &message.sender_id,
             message.sender_name.as_deref(),
+            prelink_locale(message),
         )
         .await
     } else {
-        info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, sending link URL (no email service)");
+        info!(channel = %channel, sender_id = %mask_recipient(&message.sender_id), "Unlinked user, sending link URL (no email service)");
         create_link_and_prompt(
             resources,
             db,
@@ -1085,6 +1044,7 @@ async fn send_unlinked_user_prompt(
             channel_type,
             &message.sender_id,
             message.sender_name.as_deref(),
+            prelink_locale(message),
         )
         .await
     };
@@ -1188,7 +1148,7 @@ async fn resolve_or_prompt(
             // Slack notifier so operators see the outage within seconds.
             error!(
                 error = %e,
-                sender_id = %message.sender_id,
+                sender_id = %mask_recipient(&message.sender_id),
                 channel = %channel_type,
                 "Failed to resolve messaging session, dropping message"
             );
@@ -1233,6 +1193,7 @@ async fn store_inbound_message(
         // Inbound rows are what the athlete said; there is no assistant reply
         // to rate on this side of the turn.
         chat_message_id: None,
+        proactive_purpose: None,
     };
 
     match db.insert_message(&params).await {
@@ -1252,5 +1213,17 @@ async fn store_inbound_message(
             );
             Err(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pre_link_identity_is_the_hash_of_channel_and_sender() {
+        let identity = pre_link_identity("whatsapp", "+15551234567");
+        assert_eq!(identity, hash_id("whatsapp:+15551234567"));
+        assert!(!identity.contains("15551234567"));
     }
 }

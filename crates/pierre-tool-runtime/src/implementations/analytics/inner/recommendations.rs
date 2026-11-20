@@ -8,6 +8,7 @@ use crate::implementations::analytics::recommendations_output::{
     CorePrinciples, RacePredictionSummary, RecommendationMetrics, RecommendationsResult,
     TrainingSummary, WeekStructure,
 };
+use crate::implementations::stored_copy::{activities_or_stored, with_caveat, Reader, Served};
 use crate::implementations::stored_physiology::{stored_athlete_inputs, stored_hr_zones};
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
@@ -957,11 +958,17 @@ pub(crate) fn handle_generate_recommendations(
             .await
         {
             Ok(provider) => {
-                match provider
-                    .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
-                    .await
+                match activities_or_stored(
+                    Reader::new(&executor.resources, user_uuid, request.tenant_id.as_deref()),
+                    provider.as_ref(),
+                    DEFAULT_ACTIVITY_LIMIT,
+                )
+                .await
                 {
-                    Ok(raw_activities) => {
+                    Ok(Served {
+                        value: raw_activities,
+                        caveat,
+                    }) => {
                         // Recommendations are sensitive to consistency + volume
                         // — both are inflated by fragment duplicates. Collapse
                         // before recommendation logic runs.
@@ -1004,7 +1011,7 @@ pub(crate) fn handle_generate_recommendations(
                             }),
                         };
 
-                        apply_format_typed(result, analysis, output_format)
+                        with_caveat(apply_format_typed(result, analysis, output_format), caveat)
                     }
                     Err(e) => {
                         warn!(error = %e, "activity read for recommendations failed");

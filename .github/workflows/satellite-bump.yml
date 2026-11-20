@@ -117,7 +117,7 @@ jobs:
   # ---------------------------------------------------------------------------
   resolve:
     name: Resolve target version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25  # its consumability poll gives up after 15 min
     outputs:
       version: ${{ steps.v.outputs.version }}
@@ -370,7 +370,7 @@ jobs:
   # ---------------------------------------------------------------------------
   bump:
     name: Bump the pins on a branch
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30  # pin rewrite and cargo update, ~1 min
     needs: resolve
     if: needs.resolve.outputs.needed == 'true'
@@ -562,7 +562,7 @@ jobs:
   # ---------------------------------------------------------------------------
   gate:
     name: Wait for CI on the bump branch
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [resolve, bump]
     if: needs.bump.outputs.state == 'pushed'
     # A backstop, not the gate: GitHub expressions cannot add, so this cannot be
@@ -663,7 +663,7 @@ jobs:
   # ---------------------------------------------------------------------------
   merge:
     name: Squash merge onto main
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # ~15 s
     needs: [resolve, bump, gate]
     if: needs.bump.outputs.state == 'pushed'
@@ -730,7 +730,7 @@ jobs:
   # ---------------------------------------------------------------------------
   report-failure:
     name: File the stall on the register
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # ~15 s
     needs: [resolve, bump, gate, merge]
     if: failure() && needs.resolve.outputs.needed == 'true'

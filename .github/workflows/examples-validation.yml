@@ -49,7 +49,7 @@ env:
 jobs:
   compile-rust-examples:
     name: Compile Rust Examples
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20  # three cargo checks, ~1 min warm
     steps:
       - name: Checkout code
@@ -86,7 +86,7 @@ jobs:
 
   validate-python-examples:
     name: Validate Python Examples
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # ~20 s
     steps:
       - name: Checkout code
@@ -113,7 +113,7 @@ jobs:
 
   test-rust-examples:
     name: Test Rust Examples
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20  # ~1 min warm
     needs: compile-rust-examples
     steps:

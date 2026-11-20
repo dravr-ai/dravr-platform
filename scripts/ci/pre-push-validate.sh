@@ -477,7 +477,15 @@ require_build_warnings() {
 if [[ "$HAS_RUST_SRC_CHANGES" == "true" || -n "$(git diff --name-only --diff-filter=AMR "$BASE_REF"...HEAD -- 'crates/pierre-server/tests' 2>/dev/null)" ]]; then
     CHANGED_SERVER_TESTS="$(git diff --name-only --diff-filter=AMR "$BASE_REF"...HEAD -- 'crates/pierre-server/tests' 2>/dev/null \
         | "$PROJECT_ROOT/scripts/ci/server-suites.sh" changed-targets --edited-only)"
-    if [[ -n "$CHANGED_SERVER_TESTS" ]]; then
+    # A cloud clippy run (the remote-work skill) that returned CLEAN for the whole workspace
+    # on exactly HEAD's tree has already linted every one of these targets, so the local
+    # compile would repeat it. Only an exact tree match counts; anything else compiles here.
+    if [[ -n "$CHANGED_SERVER_TESTS" ]] && COVERED="$("$PROJECT_ROOT/scripts/ci/remote-clippy-verdict.sh" check 2>&1)"; then
+        echo "Tier 1e: Changed server-test clippy"
+        echo "------------------------------------"
+        echo "  skipped: $COVERED"
+        echo ""
+    elif [[ -n "$CHANGED_SERVER_TESTS" ]]; then
         echo "Tier 1e: Changed server-test clippy"
         echo "------------------------------------"
         require_build_warnings
@@ -1257,16 +1265,13 @@ if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
     # would print a clippy line for every server test binary.
     ADVISORY_TARGETS=$(echo "$CHANGED_FILES" | "$PROJECT_ROOT/scripts/ci/server-suites.sh" changed-targets --edited-only)
 
-    if [[ -n "$ADVISORY_CRATES" ]] || [[ -n "$ADVISORY_TARGETS" ]]; then
-        echo "NOT COVERED HERE — clippy (deliberate: CPU). CI runs it; these catch it sooner:"
-        while IFS= read -r crate; do
-            [[ -z "$crate" ]] && continue
-            echo "  CARGO_BUILD_WARNINGS=deny cargo clippy -p $crate --all-targets --all-features"
-        done <<< "$ADVISORY_CRATES"
-        while IFS= read -r target; do
-            [[ -z "$target" ]] && continue
-            echo "  CARGO_BUILD_WARNINGS=deny cargo clippy -p pierre_mcp_server --test $target --all-features"
-        done <<< "$ADVISORY_TARGETS"
+    # Clippy runs in a cloud session, not on this machine (the remote-work skill), so the
+    # advice names that run, and stays quiet when a workspace CLEAN already covers HEAD's tree.
+    if { [[ -n "$ADVISORY_CRATES" ]] || [[ -n "$ADVISORY_TARGETS" ]]; } \
+        && ! "$PROJECT_ROOT/scripts/ci/remote-clippy-verdict.sh" check >/dev/null 2>&1; then
+        echo "NOT COVERED HERE — clippy (deliberate: CPU). CI runs it; a cloud run catches it sooner:"
+        echo "  .claude/skills/remote-work/remote-work.sh prepare   (whole workspace, as CI lints it)"
+        echo "  this push reaches: $(echo "$ADVISORY_CRATES" $ADVISORY_TARGETS | tr '\n' ' ' | xargs)"
         echo ""
         echo "  A red clippy run's error list is PARTIAL: a crate whose dependency"
         echo "  failed to compile emits nothing, which reads the same as clean. Fix"

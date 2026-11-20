@@ -59,7 +59,7 @@ env:
 jobs:
   live-llm:
     name: Live local-LLM integration (Ollama qwen2.5:14b-instruct)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
 
     steps:

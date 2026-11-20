@@ -26,7 +26,7 @@ jobs:
   # Validation job runs first to catch version mismatches early
   validate:
     name: Validate Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # version checks, seconds
     outputs:
       version: ${{ steps.get_version.outputs.VERSION }}
@@ -95,7 +95,7 @@ jobs:
   create-draft:
     name: Create Draft Release
     needs: [validate]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10  # release notes and a draft, seconds
     steps:
       - name: Checkout code
@@ -171,7 +171,7 @@ jobs:
             variant: gnu
 
           # Linux musl (static) - x86_64 - RECOMMENDED
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-musl
             archive: tar.gz
             platform: linux
@@ -362,7 +362,7 @@ jobs:
   publish-release:
     name: Publish Release
     needs: [validate, create-draft, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20  # download, checksum and upload the assets
 
     steps:

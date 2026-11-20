@@ -41,6 +41,12 @@ export interface NotificationDestination {
    * link the group's coach proposed — waits for the athlete's answer there.
    */
   openInfo?: boolean;
+  /**
+   * The data access request a `privacy` payload names in `id`: a due-soon or
+   * overdue reminder opens that request in the privacy pane's data access
+   * section (carnet#1659).
+   */
+  dataAccessRequestId?: string;
 }
 
 /**
@@ -48,6 +54,15 @@ export interface NotificationDestination {
  * `chat/<conversationId>/info`.
  */
 export const WEB_THREAD_INFO_SUBVIEW = 'info' as const;
+
+/**
+ * The web sub-view of the privacy pane that opens one data access request:
+ * `settings/privacy/data-access/<requestId>`.
+ */
+export const WEB_DATA_ACCESS_SUBVIEW = 'data-access' as const;
+
+/** The phone's privacy-route param naming the data access request to open. */
+export const MOBILE_DATA_ACCESS_REQUEST_PARAM = 'request' as const;
 
 /**
  * The phone's thread-route param that opens the thread's info over it,
@@ -96,6 +111,12 @@ export function resolveNotificationDestination(
       : { routes, conversationId };
   }
 
+  // A data access reminder names its request; the pane alone is still where
+  // the athlete's requests are, so a payload without one opens it.
+  if (screen === 'privacy') {
+    return typeof data?.id === 'string' ? { routes, dataAccessRequestId: data.id } : { routes };
+  }
+
   // The chat is a list of threads. A notification that names none has nothing
   // there to show, and opening the empty chat is the dead end this refuses.
   return surface === 'chat' ? null : { routes };
@@ -103,8 +124,9 @@ export function resolveNotificationDestination(
 
 /**
  * The Dashboard route a notification opens on web: a `tab`, `tab/subview`
- * for a payload that names its conversation, or `chat/<id>/info` for one that
- * opens the thread's info over it.
+ * for a payload that names its conversation, `chat/<id>/info` for one that
+ * opens the thread's info over it, or `settings/privacy/data-access/<id>` for
+ * a data access reminder.
  */
 export function webNotificationRoute(
   data: Record<string, unknown> | null | undefined,
@@ -113,6 +135,9 @@ export function webNotificationRoute(
   const web = destination?.routes.web;
   if (!web) return null;
 
+  if (destination.dataAccessRequestId) {
+    return `${web}/${WEB_DATA_ACCESS_SUBVIEW}/${encodeURIComponent(destination.dataAccessRequestId)}`;
+  }
   if (!destination.conversationId) return web;
   const thread = `${web}/${encodeURIComponent(destination.conversationId)}`;
   return destination.openInfo ? `${thread}/${WEB_THREAD_INFO_SUBVIEW}` : thread;
@@ -155,7 +180,10 @@ export function mobileNotificationTarget(
 
   // A conversation opens the thread route, which sits beside the tabs, not
   // the chat tab's list.
-  const { conversationId, openInfo } = destination;
+  const { conversationId, openInfo, dataAccessRequestId } = destination;
+  if (dataAccessRequestId) {
+    return { pathname, params: { [MOBILE_DATA_ACCESS_REQUEST_PARAM]: dataAccessRequestId } };
+  }
   if (!conversationId) return { pathname };
   return {
     pathname: MOBILE_THREAD_PATHNAME,

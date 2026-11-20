@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::annotations::{annotations, Effect, Reach};
+use crate::implementations::stored_copy::{activity_or_stored, caveated, Reader, Served};
 use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -175,8 +176,13 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
             }
         };
         let target = reader.as_ref().map_or_else(|| provider.as_ref(), |(_, p)| p.as_ref());
-        let activity = match target.get_activity(activity_id).await {
-            Ok(a) => a,
+        // A read the athlete's session-read cap refused is answered by their
+        // stored row (carnet#1661), under its read_limit caveat: where and
+        // when a recorded activity started does not change, so the weather it
+        // met is the same.
+        let store = Reader::new(&context.resources, context.user_id, tenant_id.as_deref());
+        let (activity, caveat) = match activity_or_stored(store, target, activity_id).await {
+            Ok(Served { value, caveat }) => (value, caveat),
             Err(e) => {
                 warn!(provider = %provider_name, error = %e, "activity read failed");
                 return Ok(ToolResult::error(json!({
@@ -191,7 +197,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
         let (Some(latitude), Some(longitude)) =
             (activity.start_latitude(), activity.start_longitude())
         else {
-            return ok_typed(
+            return caveated(ok_typed(
                 "analyze_weather_impact",
                 WeatherImpactResult {
                     activity_id: activity_id.to_owned(),
@@ -204,7 +210,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
                     ),
                     units: units.to_owned(),
                 },
-            );
+            ), caveat);
         };
 
         let cache_repo = context.resources.repos().weather_cache.clone();
@@ -230,7 +236,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
         {
             Ok(sample) => sample,
             Err(dravr_meteo::WeatherError::Disabled) => {
-                return ok_typed(
+                return caveated(ok_typed(
                     "analyze_weather_impact",
                     WeatherImpactResult {
                         activity_id: activity_id.to_owned(),
@@ -240,7 +246,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
                         note: Some("Weather provider is disabled by configuration".to_owned()),
                         units: units.to_owned(),
                     },
-                );
+                ), caveat);
             }
             Err(e) => {
                 return Ok(ToolResult::error(json!({
@@ -278,7 +284,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
             activity_id, impact.difficulty_level
         );
 
-        ok_typed(
+        caveated(ok_typed(
             "analyze_weather_impact",
             WeatherImpactResult {
                 activity_id: activity_id.to_owned(),
@@ -292,7 +298,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
                 note: None,
                 units: units.to_owned(),
             },
-        )
+        ), caveat)
         }
         .await;
         tool_result_to_response(result)

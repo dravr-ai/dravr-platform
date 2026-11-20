@@ -8,14 +8,21 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { User } from '@pierre/shared-types';
 
 const mockBack = jest.fn();
+let mockSearchParams: Record<string, string> = {};
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), back: mockBack }),
+  useLocalSearchParams: () => mockSearchParams,
 }));
 
 const mockUpdateAnalyticsConsent = jest.fn();
+const mockListDataAccessRequests = jest.fn();
 jest.mock('../src/services/api', () => ({
   userApi: {
     updateAnalyticsConsent: (enabled: boolean) => mockUpdateAnalyticsConsent(enabled),
+  },
+  dataAccessRequestsApi: {
+    list: () => mockListDataAccessRequests(),
+    letter: () => new Promise(() => undefined),
   },
 }));
 
@@ -51,6 +58,8 @@ function renderScreen() {
 describe('PrivacySettingsScreen — analytics consent', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSearchParams = {};
+    mockListDataAccessRequests.mockResolvedValue([]);
     mockUseAuth.mockReturnValue({
       isAuthenticated: true,
       user: userWithConsent(false) as User,
@@ -67,6 +76,33 @@ describe('PrivacySettingsScreen — analytics consent', () => {
     expect(getByTestId('privacy-settings-screen')).toBeTruthy();
     expect(queryByText('Privacy & Data')).toBeNull();
     expect(queryByTestId('back-button')).toBeNull();
+  });
+
+  it('opens the data access request a reminder tap names (carnet#1659)', async () => {
+    mockSearchParams = { request: 'r1' };
+    mockListDataAccessRequests.mockResolvedValue([
+      {
+        id: 'r1',
+        reference: 'DRV-2026-AB3XZ7',
+        controller: 'Acme Fitness',
+        controller_contact: 'privacy@acme.example',
+        athlete_identifier: 'ana@example.com',
+        law: 'gdpr',
+        scope: 'access',
+        letter_locale: 'en',
+        status: 'sent',
+        derived_state: null,
+        sent_on: '2026-11-10',
+        due_on: '2026-12-10',
+        extended_until: null,
+        answered_on: null,
+        created_at: '2026-11-10T15:00:00Z',
+        updated_at: '2026-11-10T15:00:00Z',
+      },
+    ]);
+    const { findByTestId } = renderScreen();
+
+    expect(await findByTestId('data-access-detail-status')).toHaveTextContent('Sent');
   });
 
   it('seeds the switch from the stored consent flag', () => {

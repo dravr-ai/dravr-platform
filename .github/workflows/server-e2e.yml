@@ -93,7 +93,7 @@ env:
 jobs:
   changes:
     name: Detect Changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5  # path filtering only; no toolchain, no compile
     permissions:
       contents: read
@@ -549,7 +549,7 @@ jobs:
 
   mcp-compliance:
     name: MCP Protocol Compliance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, build-server]
     if: needs.changes.outputs.mcp == 'true'
     timeout-minutes: 30
@@ -629,7 +629,7 @@ jobs:
 
   sdk-types-check:
     name: SDK Types Up-to-Date
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, build-server]
     if: needs.changes.outputs.sdk == 'true'
     timeout-minutes: 20
@@ -738,7 +738,7 @@ jobs:
 
   sdk-tests:
     name: SDK Test Suite
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, build-server]
     if: needs.changes.outputs.sdk == 'true'
     timeout-minutes: 25
@@ -859,7 +859,7 @@ jobs:
   # examples/ push.
   examples-smoke:
     name: Integration Smoke Test (examples)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [changes, build-server]
     if: needs.changes.outputs.examples == 'true'
     timeout-minutes: 30  # two example release builds and the smoke

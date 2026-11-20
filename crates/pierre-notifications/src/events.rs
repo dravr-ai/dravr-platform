@@ -19,6 +19,7 @@
 //! sentence. It mirrors `pierre_memory::PredicateCode`: a closed code with a
 //! `catalogue_key`, rendered by one renderer above this crate.
 
+use pierre_core::models::NotificationScreen;
 use pierre_core::transport::TransportPolicy;
 use serde_json::{json, Map, Value};
 
@@ -388,6 +389,17 @@ pub const DATA_ACCESS_REFERENCE_PARAM: &str = "reference";
 /// ISO `YYYY-MM-DD` date the renderer writes in the reader's language.
 pub const DATA_ACCESS_DUE_ON_PARAM: &str = "due_on";
 
+/// The routing payload a data access reminder carries: the athlete's privacy
+/// settings, opened on the request `request_id` the reminder is about, where
+/// its letter, its due date and its steps are.
+#[must_use]
+pub fn data_access_request_route(request_id: Uuid) -> Value {
+    json!({
+        "screen": NotificationScreen::Privacy.as_str(),
+        "id": request_id.to_string(),
+    })
+}
+
 /// The catalogue key naming an action button, or `None` for an id the
 /// catalogue has no word for — that button keeps the label it was stored
 /// with rather than showing a key.
@@ -546,6 +558,29 @@ mod tests {
         assert_eq!(
             action_label_key(ACTION_OPEN_COACH_HOME),
             Some("humanCoach.access.openHome")
+        );
+    }
+
+    #[test]
+    fn a_data_access_reminder_opens_its_request_in_the_privacy_pane() {
+        let request = Uuid::new_v4();
+        let data = event_data(
+            data_access_request_route(request),
+            json!({ DATA_ACCESS_COMPANY_PARAM: "Acme" }),
+        );
+        assert_eq!(
+            data["screen"], "privacy",
+            "bug: the reminder does not open the privacy screen: {data}"
+        );
+        assert_eq!(
+            data["id"],
+            request.to_string(),
+            "bug: the reminder does not name its request: {data}"
+        );
+        // The routing keys and the parameters share the stored object.
+        assert_eq!(
+            data[PARAMS_DATA_KEY][DATA_ACCESS_COMPANY_PARAM], "Acme",
+            "bug: the route dropped the reminder's parameters: {data}"
         );
     }
 

@@ -12,6 +12,7 @@ use super::{
     Utc, Uuid,
 };
 use pierre_providers::backend_resolver::{brand_name, grant_beside_session};
+use pierre_providers::request_budget::in_background;
 use pierre_tool_runtime::reauth_retry::claimed_retry;
 
 /// Whether a last successful fetch is past the bands the chat path refreshes
@@ -167,7 +168,9 @@ pub(super) async fn start_stale_refresh(
     if providers.is_empty() {
         return false;
     }
-    resources.common.turns.spawn(async move {
+    // The page is served from the store; this refresh is work nobody waits
+    // on, so its session reads count as background (carnet#1661).
+    resources.common.turns.spawn(in_background(async move {
         let started_at = Utc::now();
         let bound = revalidation_timeout(&runtime.config().timeouts);
         let mut checked = Vec::with_capacity(providers.len());
@@ -190,7 +193,7 @@ pub(super) async fn start_stale_refresh(
             record_timed_out(&runtime, user_id, tenant_id, unanswered).await;
         }
         drop(slot);
-    });
+    }));
     true
 }
 

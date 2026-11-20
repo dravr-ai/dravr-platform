@@ -10,6 +10,7 @@ import { mobileNotificationTarget } from '@pierre/shared-constants';
 const THREAD_ROUTE = '/(app)/chat/[conversationId]';
 const HOME_ROUTE = '/(app)/(tabs)/(home)';
 const CONNECTIONS_ROUTE = '/(app)/(tabs)/(settings)/connections';
+const PRIVACY_ROUTE = '/(app)/(tabs)/(settings)/privacy';
 
 describe('mobileNotificationTarget', () => {
   it('deep-links an agent message to its thread', () => {
@@ -35,6 +36,14 @@ describe('mobileNotificationTarget', () => {
       pathname: THREAD_ROUTE,
       params: { conversationId: 'room-7', info: 'group' },
     });
+  });
+
+  it('opens a data access reminder on its request on the privacy screen', () => {
+    expect(mobileNotificationTarget({ screen: 'privacy', id: 'req-42' })).toEqual({
+      pathname: PRIVACY_ROUTE,
+      params: { request: 'req-42' },
+    });
+    expect(mobileNotificationTarget({ screen: 'privacy' })).toEqual({ pathname: PRIVACY_ROUTE });
   });
 
   it('opens nothing for a group info payload that names no room', () => {

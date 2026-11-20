@@ -1582,7 +1582,6 @@
       "providers": "Diese Anbieter werden getrennt: {0}",
       "email_mismatch": "Diese E-Mail passt nicht zu deinem Konto. Sende `/deleteaccount`, um zu sehen, was du eingeben musst.",
       "dm_only": "Sende mir `/deleteaccount` als Direktnachricht, damit deine E-Mail hier nicht gepostet wird.",
-      "operator": "Ein Betreiberkonto wird von einem anderen Betreiber entfernt.",
       "blocked": "Dein Konto kann noch nicht gelöscht werden. Andere verlassen sich darauf:\n{0}\n\nÜbergib oder entferne sie und versuch es dann noch einmal.",
       "done": "Dein Konto und alle seine Daten wurden gelöscht. Danke, dass du mit Dravr trainiert hast.",
       "failed": "Dein Konto konnte nicht gelöscht werden. Versuch es gleich noch einmal.",

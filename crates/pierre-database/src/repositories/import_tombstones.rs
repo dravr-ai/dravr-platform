@@ -38,6 +38,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use crate::backends::shared::encryption::HasEncryption;
+use crate::keyed::{index_lookup, index_mac, KeyedDomain};
+
 /// The lowercase hex SHA-256 of `bytes`.
 #[must_use]
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -168,6 +171,11 @@ pub trait ImportTombstoneRepository: Send + Sync {
 
     /// The newest `limit` tombstones, live ones only unless `include_cleared`.
     async fn list(&self, include_cleared: bool, limit: i64) -> AppResult<Vec<ImportTombstone>>;
+
+    /// Key up to `limit` tombstones written without their keyed digest
+    /// (before the column existed, or by an older binary during a rolling
+    /// deploy). The number keyed; 0 once every tombstone is keyed.
+    async fn backfill_identity_keys(&self, limit: i64) -> AppResult<u64>;
 }
 
 /// Every column of a tombstone, in the order the decoder reads them.
@@ -177,11 +185,16 @@ macro_rules! tombstone_columns {
     };
 }
 
-/// The live tombstone of `$1` kind naming `$3` under `$2` (NULL for an email).
+/// The live tombstone of `$1` kind naming identity digest `$3` under `$2`
+/// (NULL for an email): matched by its keyed digest under either live Index
+/// key (`$4`, `$5`, [`identity_lookup`]), or by `$3` while the row is not
+/// keyed yet (carnet#1550 drops that arm with the column).
 pub(crate) const FIND_LIVE_TOMBSTONE_SQL: &str = concat!(
     "SELECT ",
     tombstone_columns!(),
-    " FROM import_tombstones WHERE kind = $1 AND COALESCE(provider, '') = COALESCE($2, '') AND identity_hash = $3 AND cleared_at IS NULL"
+    " FROM import_tombstones WHERE kind = $1 AND COALESCE(provider, '') = COALESCE($2, '') \
+      AND (identity_key IN ($4, $5) OR (identity_key IS NULL AND identity_hash = $3)) \
+      AND cleared_at IS NULL"
 );
 
 /// The tombstone with id `$1`.
@@ -192,12 +205,42 @@ pub(crate) const GET_TOMBSTONE_SQL: &str = concat!(
 );
 
 /// Write one tombstone inside the account deletion: `$1` id, `$2` subject
-/// hash, `$3` kind, `$4` provider, `$5` identity hash, `$6` now.
+/// hash, `$3` kind, `$4` provider, `$5` identity hash, `$6` now, `$7` the
+/// identity's keyed digest ([`identity_key`]).
 pub(crate) const INSERT_TOMBSTONE_SQL: &str = r"
             INSERT INTO import_tombstones
-                (id, subject_hash, kind, provider, identity_hash, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
+                (id, subject_hash, kind, provider, identity_hash, created_at, identity_key)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ";
+
+/// Up to `$1` tombstones written without their keyed digest: the backfill's
+/// sweep, across every tombstone by design (they are global).
+pub(crate) const UNKEYED_TOMBSTONES_SQL: &str = r"
+            SELECT id, identity_hash FROM import_tombstones
+            WHERE identity_key IS NULL ORDER BY id LIMIT $1
+            ";
+
+/// Key tombstone `$1` with `$2`, if it is still unkeyed.
+pub(crate) const SET_TOMBSTONE_KEY_SQL: &str = r"
+            UPDATE import_tombstones SET identity_key = $2
+            WHERE id = $1 AND identity_key IS NULL
+            ";
+
+/// The keyed digest a tombstone of `identity_hash` is written under.
+///
+/// # Errors
+/// The backend's HMAC failure.
+pub fn identity_key(keys: &dyn HasEncryption, identity_hash: &str) -> AppResult<String> {
+    index_mac(keys, KeyedDomain::ImportTombstone, identity_hash.as_bytes())
+}
+
+/// The two keyed digests a lookup of `identity_hash` binds.
+///
+/// # Errors
+/// The backend's HMAC failure.
+pub fn identity_lookup(keys: &dyn HasEncryption, identity_hash: &str) -> AppResult<[String; 2]> {
+    index_lookup(keys, KeyedDomain::ImportTombstone, identity_hash.as_bytes())
+}
 
 /// Record a claim on the live tombstone `$1`: `$2` claimant, `$3` when.
 pub(crate) const CLAIM_TOMBSTONE_SQL: &str = r"
@@ -283,14 +326,17 @@ where
 /// Evaluates to the tombstone's id; a failure returns the enclosing
 /// function's error, rolling the whole deletion back.
 macro_rules! ensure_tombstone_in_transaction {
-    ($guard:ident, $subject:expr, $kind:expr, $provider:expr, $identity_hash:expr, $now:expr) => {{
+    ($keys:expr, $guard:ident, $subject:expr, $kind:expr, $provider:expr, $identity_hash:expr, $now:expr) => {{
         let kind: TombstoneKind = $kind;
         let provider: Option<&str> = $provider;
         let identity_hash: &str = $identity_hash;
+        let [key0, key1] = identity_lookup($keys, identity_hash)?;
         let live = sqlx::query(FIND_LIVE_TOMBSTONE_SQL)
             .bind(kind.as_str())
             .bind(provider)
             .bind(identity_hash)
+            .bind(&key0)
+            .bind(&key1)
             .fetch_optional($guard.executor()?)
             .await
             .map_err(|e| AppError::database(format!("Failed to read a live tombstone: {e}")))?;
@@ -306,6 +352,7 @@ macro_rules! ensure_tombstone_in_transaction {
                 .bind(provider)
                 .bind(identity_hash)
                 .bind($now)
+                .bind(&key0)
                 .execute($guard.executor()?)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to write a tombstone: {e}")))?;
@@ -329,10 +376,13 @@ macro_rules! impl_import_tombstone_repository {
                 provider: Option<&str>,
                 identity_hash: &str,
             ) -> AppResult<Option<ImportTombstone>> {
+                let [key0, key1] = identity_lookup(self, identity_hash)?;
                 let row = sqlx::query(FIND_LIVE_TOMBSTONE_SQL)
                     .bind(kind.as_str())
                     .bind(provider)
                     .bind(identity_hash)
+                    .bind(&key0)
+                    .bind(&key1)
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| {
@@ -400,6 +450,35 @@ macro_rules! impl_import_tombstone_repository {
                     .await
                     .map_err(|e| AppError::database(format!("Failed to list tombstones: {e}")))?;
                 rows.iter().map(tombstone_from_row).collect()
+            }
+
+            async fn backfill_identity_keys(&self, limit: i64) -> AppResult<u64> {
+                let rows = sqlx::query(UNKEYED_TOMBSTONES_SQL)
+                    .bind(limit)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read unkeyed tombstones: {e}"))
+                    })?;
+                let mut keyed = 0;
+                for row in &rows {
+                    let id: String = row
+                        .try_get("id")
+                        .map_err(|e| tombstone_column_error("id", e))?;
+                    let hash: String = row
+                        .try_get("identity_hash")
+                        .map_err(|e| tombstone_column_error("identity_hash", e))?;
+                    let done = sqlx::query(SET_TOMBSTONE_KEY_SQL)
+                        .bind(&id)
+                        .bind(identity_key(self, &hash)?)
+                        .execute(self.pool())
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!("Failed to key a tombstone: {e}"))
+                        })?;
+                    keyed += done.rows_affected();
+                }
+                Ok(keyed)
             }
         }
     };

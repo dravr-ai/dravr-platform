@@ -40,6 +40,7 @@ use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{ConversationTurnId, TenantId, CHANNEL_TYPE_WEB};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
+use pierre_providers::request_budget::in_background;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -228,8 +229,10 @@ impl PlatformPost for PipelinePlatformPost {
         // Through the same turn service a live turn takes, so the post spends
         // the athlete's budget, honours their BYO LLM key and is refused by the
         // same caps — a proactive post is a real model call, and a ladder of
-        // its own is how one stops being any of those things.
-        match pierre_chat_pipeline::execute(&ctx, turn, &profile).await {
+        // its own is how one stops being any of those things. Nobody waits
+        // on it, so the provider reads its tools make count as background
+        // (carnet#1661): the turn runs its tool calls in this task.
+        match in_background(pierre_chat_pipeline::execute(&ctx, turn, &profile)).await {
             Ok(ServedTurn::Pipeline(envelope)) if envelope.posted => Some(PostedReply {
                 assistant: envelope.assistant,
             }),

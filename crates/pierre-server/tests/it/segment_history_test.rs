@@ -404,7 +404,12 @@ async fn walk_row(
         .common
         .repos
         .activity_backfill_jobs
-        .detail_walk_row(user_id, tenant, oauth_providers::STRAVA)
+        .detail_walk_row(
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            BackfillJobKind::DetailWalk,
+        )
         .await
         .unwrap()
 }
@@ -1279,7 +1284,7 @@ async fn a_session_only_athlete_is_walked_through_the_session() {
             .common
             .repos
             .activity_backfill_jobs
-            .detail_walk_row(user_id, tenant, SESSION)
+            .detail_walk_row(user_id, tenant, SESSION, BackfillJobKind::DetailWalk)
             .await
             .unwrap()
             .is_some(),

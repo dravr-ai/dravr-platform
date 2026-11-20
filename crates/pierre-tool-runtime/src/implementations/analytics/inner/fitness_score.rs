@@ -12,6 +12,7 @@ use crate::implementations::analytics::output::{
     FitnessComponents, FitnessInterpretation, FitnessLoadMetrics, FitnessScoreDetail,
     FitnessScoreResult, NoFitnessScore, ProvidersUsed, RecoveryAdjustment,
 };
+use crate::implementations::stored_copy::{activities_or_stored, with_caveat, Reader, Served};
 use crate::implementations::stored_physiology::stored_athlete_inputs;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
@@ -39,7 +40,6 @@ use std::pin::Pin;
 #[cfg(feature = "client-notifications")]
 use std::sync::Arc;
 use tracing::warn;
-#[cfg(feature = "client-notifications")]
 use uuid::Uuid;
 
 /// Information about recovery adjustment applied to fitness score
@@ -527,11 +527,17 @@ pub(crate) fn handle_calculate_fitness_score(
             .await
         {
             Ok(provider) => {
-                match provider
-                    .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
-                    .await
+                match activities_or_stored(
+                    Reader::new(&executor.resources, user_uuid, request.tenant_id.as_deref()),
+                    provider.as_ref(),
+                    DEFAULT_ACTIVITY_LIMIT,
+                )
+                .await
                 {
-                    Ok(raw_activities) => {
+                    Ok(Served {
+                        value: raw_activities,
+                        caveat,
+                    }) => {
                         // Collapse fragments before scoring so CTL/ATL and the
                         // consistency component aren't inflated by re-uploads
                         // or auto-split GPS recordings of the same workout.
@@ -633,7 +639,7 @@ pub(crate) fn handle_calculate_fitness_score(
                         };
 
                         // Apply format transformation
-                        apply_format_typed(result, analysis, output_format)
+                        with_caveat(apply_format_typed(result, analysis, output_format), caveat)
                     }
                     Err(e) => {
                         warn!(error = %e, "activity read for fitness score failed");

@@ -18,6 +18,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::FormBand;
 use pierre_core::models::{DelegationEndReason, TenantId};
+use pierre_core::usage_log::{self, LimitHit};
 use pierre_database::repositories::CoachingGroupRepository;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -56,9 +57,9 @@ pub const DEFAULT_REQUESTED_MEMBERS: i32 = 20;
 /// The chat-side fields that distinguish a channel-bound coaching group from
 /// one created through REST.
 ///
-/// Everything else about creation — tier gate, member clamp, owner
-/// membership, the `group.created` emission — is shared, so this carries only
-/// what actually differs.
+/// Everything else about creation — member clamp, owner membership, the
+/// `group.created` emission — is shared, so this carries only what actually
+/// differs.
 #[derive(Debug)]
 pub struct ChannelGroupSpec<'a> {
     /// Human-readable group name, from the inbound chat title when the
@@ -75,6 +76,7 @@ pub struct ChannelGroupSpec<'a> {
 
 use crate::athlete_billing::{AthleteBilling, AthleteCharge};
 use crate::context_alerts::connection_and_staleness_alerts;
+use crate::creation_policy::{refuses_group_coaching, GROUP_COACHING_NOT_INCLUDED};
 use crate::delegation::DelegationStore;
 use crate::invites::unambiguous_code;
 use crate::setup_timing::record_member_joined;
@@ -357,8 +359,9 @@ impl GroupService {
     ///
     /// `plan_tier` is the tenant plan's tier, resolved by the caller (which
     /// owns tenant-plan access via the tenants repo): `tier_strategy_for(&plan)`.
-    /// The service owns the policy *application*: a member cap of `0` rejects
-    /// creation with [`ErrorCode::PermissionDenied`], the owner's groups are
+    /// The service owns the policy *application*: a plan without group
+    /// coaching is refused with [`ErrorCode::PermissionDenied`] before
+    /// anything else (see [`refuses_group_coaching`]), the owner's groups are
     /// counted against the plan's group allowance (see
     /// [`AthleteBilling::ensure_room`]), and the requested `max_members`
     /// (defaulting to 20) is clamped into `2..=member cap`. A group above a
@@ -367,10 +370,9 @@ impl GroupService {
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::PermissionDenied`] when the plan's tier disables
-    /// group coaching (a member cap of `0`), an `invalid_input` error when the
-    /// plan's group allowance does not cover another group, or a database
-    /// error on failure.
+    /// Returns [`ErrorCode::PermissionDenied`] when the plan includes no group
+    /// coaching, an `invalid_input` error when the plan's group allowance does
+    /// not cover another group, or a database error on failure.
     pub async fn create_group(
         &self,
         request: &CreateGroupRequest,
@@ -378,6 +380,12 @@ impl GroupService {
         tenant_id: TenantId,
         plan_tier: &dyn GroupTierStrategy,
     ) -> AppResult<CoachingGroup> {
+        if refuses_group_coaching(plan_tier, owner_id, tenant_id, "groups") {
+            return Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                GROUP_COACHING_NOT_INCLUDED,
+            ));
+        }
         let tier_member_cap = i32::try_from(plan_tier.max_members_per_group()).unwrap_or(i32::MAX);
         let group = CoachingGroup {
             id: Uuid::new_v4(),
@@ -425,24 +433,26 @@ impl GroupService {
     /// Create the coaching group bound to a messaging chat (Telegram group,
     /// Slack channel, Discord channel), with the first sender as Owner.
     ///
-    /// Shares [`create_group`](Self::create_group)'s tier gate, member-count
-    /// clamp, owner auto-membership and `group.created` emission — chat and
-    /// REST group creation differ only in the fields carried on the row
+    /// Shares [`create_group`](Self::create_group)'s member-count clamp,
+    /// owner auto-membership and `group.created` emission — chat and REST
+    /// group creation differ only in the fields carried on the row
     /// (`channel_type` / `channel_chat_id` and a synthesized name), never in
     /// the policy applied to it. Before this shared path existed the chat
     /// binding called the repository directly, which both skipped the tier
-    /// gate and made every chat-created group invisible to analytics.
+    /// member cap and made every chat-created group invisible to analytics.
     ///
-    /// The owner's tier group *count* allowance deliberately does not apply
-    /// here — see [`OwnerGroupLimit`]. The per-group member cap still does,
-    /// and the group still counts as one of the owner's athletes, so a
-    /// Professional owner's per-athlete charge follows it.
+    /// Whether the plan includes group coaching at all is the caller's
+    /// question, asked through [`refuses_group_coaching`] before it gets here:
+    /// the messaging auto-bind keeps a refused chat ungrouped rather than
+    /// treating the refusal as an error. The owner's tier group *count*
+    /// allowance deliberately does not apply here either — see
+    /// [`OwnerGroupLimit`]. The per-group member cap does, and the group still
+    /// counts as one of the owner's athletes, so a Professional owner's
+    /// per-athlete charge follows it.
     ///
     /// # Errors
     ///
-    /// Returns [`ErrorCode::PermissionDenied`] when the tenant tier disables
-    /// group coaching (`tier_member_cap == 0`), or a database error on
-    /// failure.
+    /// Returns a database error on failure.
     pub async fn create_channel_group(
         &self,
         spec: &ChannelGroupSpec<'_>,
@@ -507,8 +517,9 @@ impl GroupService {
     /// `tenant_id` are supplied inline because the messaging ingress span
     /// carries neither, so the `NotifyLayer` has nothing to inherit there.
     /// `limit` selects whether this creation spends the owner's tier group
-    /// allowance; the tier gate, member clamp and per-athlete charge apply
-    /// either way.
+    /// allowance; the member clamp and per-athlete charge apply either way.
+    /// `tier_member_cap` is only that clamp: whether the plan includes group
+    /// coaching was settled by [`refuses_group_coaching`] before this call.
     async fn create_group_with_owner(
         &self,
         mut group: CoachingGroup,
@@ -517,14 +528,6 @@ impl GroupService {
         tier_member_cap: i32,
         limit: OwnerGroupLimit,
     ) -> AppResult<CoachingGroup> {
-        // Tier gate: a cap of 0 disables group coaching for the plan.
-        if tier_member_cap == 0 {
-            return Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Group coaching requires a Professional or Enterprise plan",
-            ));
-        }
-
         // Per-owner group allowance, on the paths that spend it.
         if let OwnerGroupLimit::Enforced(allowance) = limit {
             self.athlete_billing
@@ -651,6 +654,14 @@ impl GroupService {
 
         let current_count = self.repo.count_members(&group_id).await?;
         if current_count >= i64::from(group.max_members) {
+            usage_log::limit_reached(&LimitHit {
+                user_id: &user_id.to_string(),
+                tenant_id: Some(&group.tenant_id),
+                limit_type: "group_members",
+                current: current_count,
+                limit: i64::from(group.max_members),
+                surface: "groups",
+            });
             warn!(
                 group_id = %group.id,
                 max_members = group.max_members,

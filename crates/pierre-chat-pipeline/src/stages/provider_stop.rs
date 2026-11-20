@@ -20,6 +20,7 @@ use pierre_contremaitre::messaging_strings::{KEY_REPLY_STOP_FILTERED, KEY_REPLY_
 use pierre_core::models::{
     FILTERED_REPLY_FINISH_REASON, STOP_CAVEAT_SEPARATOR, TRUNCATED_REPLY_FINISH_REASON,
 };
+use pierre_core::usage_log::{self, LimitHit};
 use pierre_llm::provider_stop::ProviderStop;
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 use tracing::warn;
@@ -98,6 +99,22 @@ pub(crate) fn caveat_delivered_reply(
     }
     let key = caveat_key(stop)?;
     let stamp = stamped_finish_reason(stop)?;
+    if matches!(stop, ProviderStop::Truncated) {
+        let tenant_id = input.conversation_tenant_id.to_string();
+        usage_log::reply_cut_short(&LimitHit {
+            user_id: &input.user_id,
+            tenant_id: Some(&tenant_id),
+            limit_type: "max_tokens",
+            current: result
+                .usage
+                .as_ref()
+                .map_or(0, |usage| i64::from(usage.completion_tokens)),
+            // The platform sends no max_tokens: the cap that cut the reply
+            // is the provider's own, which it does not report back.
+            limit: 0,
+            surface: "chat",
+        });
+    }
     warn!(
         tenant_id = %input.conversation_tenant_id,
         finish_reason = ?result.finish_reason,

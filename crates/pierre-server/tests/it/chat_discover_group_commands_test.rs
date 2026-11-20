@@ -1177,8 +1177,9 @@ async fn group_create_refuses_without_a_name_or_an_agent() {
 #[tokio::test]
 async fn group_create_on_a_starter_tenant_applies_the_starter_cap_like_the_rest_route() {
     // POST /api/groups resolves the tenant plan's tier and hands it to the
-    // service, which refuses only a member cap of zero. Starter's cap is a
-    // real number, so a Starter owner creates a group there — and here.
+    // service, which refuses only a plan without group coaching. Starter
+    // includes group coaching, so a Starter owner creates a group there — and
+    // here, clamped to Starter's member cap.
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant_id, auth) =
         seed_user_tenant(&resources, "group-starter@test.com", "starter").await;

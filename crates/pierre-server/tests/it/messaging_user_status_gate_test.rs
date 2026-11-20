@@ -23,6 +23,7 @@ mod messaging_user_status_gate_tests {
     use pierre_core::models::usage::JwtUsage;
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{MonthlyLimitOverride, Tenant, TenantId, User, UserStatus};
+    use pierre_core::usage_log;
     use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
@@ -31,6 +32,7 @@ mod messaging_user_status_gate_tests {
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_services::admin_ops;
     use pierre_services::user_status_gate::messaging_key_for_status;
+    use pierre_test_support::log_capture::{capture_target, drain};
     use serde_json::json;
     use sha2::Sha256;
     use std::sync::Arc;
@@ -367,13 +369,45 @@ mod messaging_user_status_gate_tests {
 
         // Two counted: the third is past the override
         record_turn(&resources, user_id).await;
+        let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
         let refusal = authenticate()
             .await
             .expect_err("the third turn of the month is past the override");
+        drop(usage_guard);
         assert_eq!(refusal.code, ErrorCode::RateLimitExceeded);
         let details = refusal.details.as_deref().unwrap();
         assert_eq!(details["limit"], 2);
         assert_eq!(details["current"], 2);
+        // The refused turn is logged as the athlete's usage limit, with the
+        // override's numbers (carnet#1630).
+        let lines = drain(&usage_lines);
+        assert_eq!(lines.len(), 1, "one usage line per refused turn: {lines:?}");
+        let line = &lines[0];
+        assert_eq!(
+            line.get("user_id").map(String::as_str),
+            Some(user_id.to_string().as_str()),
+            "the line names the linked athlete: {line:?}"
+        );
+        assert_eq!(
+            line.get("limit_type").map(String::as_str),
+            Some("monthly_requests"),
+            "the line names the monthly budget: {line:?}"
+        );
+        assert_eq!(
+            line.get("current").map(String::as_str),
+            Some("2"),
+            "two turns were counted this month: {line:?}"
+        );
+        assert_eq!(
+            line.get("limit").map(String::as_str),
+            Some("2"),
+            "the override is the limit: {line:?}"
+        );
+        assert_eq!(
+            line.get("surface").map(String::as_str),
+            Some("messaging"),
+            "the turn was refused on a messaging channel: {line:?}"
+        );
 
         assert!(admin_ops::clear_user_rate_limit_override(repos, user_id)
             .await

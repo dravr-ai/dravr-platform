@@ -18,15 +18,16 @@ use crate::backends::shared::transactions::TransactionGuard;
 use crate::database::Database;
 use crate::repositories::account_deletion::{
     impl_account_deletion_repository, json_list, receipt_from_row, scan_result_json,
-    AccountDeletion, AccountDeletionPlan, AccountDeletionRepository, DeletionReceipt, GENESIS_HASH,
-    INSERT_RECEIPT_SQL, LIST_RECEIPTS_SQL, PROVIDER_IDENTITIES_SQL, RECEIPT_HEAD_SQL,
-    SUBJECT_EMAIL_SQL,
+    AccountDeletion, AccountDeletionPlan, AccountDeletionRepository, DeletionReceipt,
+    ReceiptAnchor, GENESIS_HASH, INSERT_ANCHOR_SQL, INSERT_RECEIPT_SQL, LATEST_ANCHOR_SQL,
+    LIST_RECEIPTS_SQL, PROVIDER_IDENTITIES_SQL, RECEIPT_HEAD_SQL, SUBJECT_EMAIL_SQL,
 };
 use crate::repositories::archive_erasures::QUEUE_ARCHIVE_ERASURE_SQL;
 use crate::repositories::firebase_identity_deletions::QUEUE_FIREBASE_DELETION_SQL;
 use crate::repositories::import_tombstones::{
-    email_identity_hash, ensure_tombstone_in_transaction, provider_identity_hash, subject_hash,
-    tombstone_column_error, TombstoneKind, FIND_LIVE_TOMBSTONE_SQL, INSERT_TOMBSTONE_SQL,
+    email_identity_hash, ensure_tombstone_in_transaction, identity_lookup, provider_identity_hash,
+    subject_hash, tombstone_column_error, TombstoneKind, FIND_LIVE_TOMBSTONE_SQL,
+    INSERT_TOMBSTONE_SQL,
 };
 use crate::repositories::provider_data::{
     USER_ACTIVITY_ROWS_SQL, USER_SYNC_STATE_SQL, USER_WELLNESS_ROWS_SQL,

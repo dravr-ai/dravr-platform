@@ -21,6 +21,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig, FragmentReport};
+use pierre_providers::request_budget::session_read_cap;
 use pierre_providers::CoreFitnessProvider;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -265,6 +266,13 @@ pub enum StaleReason {
     Backoff,
     /// The live read failed.
     Error,
+    /// The athlete's live reads of the session are used up for now
+    /// (carnet#1661): the read was refused before it was sent, and live reads
+    /// resume after `retry_after_secs`.
+    ReadLimit {
+        /// Seconds until the refusing window ends.
+        retry_after_secs: u64,
+    },
 }
 
 impl StaleReason {
@@ -275,6 +283,30 @@ impl StaleReason {
             Self::Timeout => "timeout",
             Self::Backoff => "backoff",
             Self::Error => "error",
+            Self::ReadLimit { .. } => "read_limit",
+        }
+    }
+
+    /// Why a live read that failed with `error` was served from a stored
+    /// copy: [`Self::ReadLimit`] for a session-read cap's refusal
+    /// ([`session_read_cap`]), [`Self::Error`] for any other failure.
+    #[must_use]
+    pub fn of_failure(error: &AppError) -> Self {
+        if session_read_cap(error).is_some() {
+            Self::ReadLimit {
+                retry_after_secs: error.retry_after_secs().unwrap_or(0),
+            }
+        } else {
+            Self::Error
+        }
+    }
+
+    /// Seconds until live reads resume, for a [`Self::ReadLimit`].
+    #[must_use]
+    pub const fn retry_after_secs(self) -> Option<u64> {
+        match self {
+            Self::ReadLimit { retry_after_secs } => Some(retry_after_secs),
+            Self::Timeout | Self::Backoff | Self::Error => None,
         }
     }
 }

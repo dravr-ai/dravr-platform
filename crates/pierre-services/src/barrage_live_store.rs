@@ -32,8 +32,9 @@ use crate::live_activities::{
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use dravr_barrage::blob::BlobStore;
+use dravr_barrage::keyed::Keyed;
 use dravr_barrage::record::{StreamsState, SummaryWindow, TotalsFrom};
-use dravr_barrage::store::memory::{MemoryActivityRecordStore, MemoryImportJobStore};
+use dravr_barrage::store::memory::MemoryImportJobStore;
 use dravr_barrage::store::sql::sqlite::{self, SqliteJobStore, SqliteRecordStore};
 use dravr_barrage::store::{
     ActivityRecordStore, ImportJobStore, PageReq, RecordQuery, MAX_PAGE_LIMIT,
@@ -54,6 +55,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::activity_cache_sink::LiveCacheSink;
+use crate::barrage_keys::{memory_records, PlatformKeyed};
 
 /// Records a termination walk reads per page of a source's athletes.
 const SOURCE_WALK_PAGE: u32 = 500;
@@ -891,11 +893,12 @@ impl fmt::Debug for RecordStores {
 }
 
 impl RecordStores {
-    /// Fresh stores in memory, for a context its binary gave none.
+    /// Fresh stores in memory, for a context its binary gave none, keyed
+    /// under a process-lifetime key.
     #[must_use]
     pub fn in_memory() -> Self {
         Self {
-            records: Arc::new(MemoryActivityRecordStore::new()),
+            records: Arc::new(memory_records()),
             jobs: Arc::new(MemoryImportJobStore::new()),
         }
     }
@@ -929,11 +932,14 @@ pub async fn record_stores(database: &Database, url: &DatabaseUrl) -> Result<Rec
     if url.is_memory() {
         return Ok(RecordStores::in_memory());
     }
+    // Erasures and log entries are keyed under the Index key: the database
+    // handle here carries the real DEK (the key manager ran first).
+    let keyed: Arc<dyn Keyed> = Arc::new(PlatformKeyed::of(database));
     if url.is_postgresql() {
-        return postgres_stores(PlatformPool::of(database), url).await;
+        return postgres_stores(PlatformPool::of(database), url, keyed).await;
     }
     let sqlite_url = env::var(ENV_SQLITE_URL).unwrap_or_else(|_| DEFAULT_SQLITE_URL.to_owned());
-    sqlite_stores(&sqlite_url).await
+    sqlite_stores(&sqlite_url, keyed).await
 }
 
 /// The record and job stores in barrage's SQLite file at `url`, its
@@ -941,7 +947,7 @@ pub async fn record_stores(database: &Database, url: &DatabaseUrl) -> Result<Rec
 ///
 /// SQLite creates a missing file but never a missing directory, and the
 /// default lives under `./data`, relative to wherever the server was started.
-async fn sqlite_stores(url: &str) -> Result<RecordStores, String> {
+async fn sqlite_stores(url: &str, keyed: Arc<dyn Keyed>) -> Result<RecordStores, String> {
     if let Some(dir) = sqlite_file_dir(url) {
         fs::create_dir_all(&dir)
             .await
@@ -951,7 +957,7 @@ async fn sqlite_stores(url: &str) -> Result<RecordStores, String> {
         .await
         .map_err(|e| format!("barrage SQLite database: {e}"))?;
     Ok(RecordStores {
-        records: Arc::new(SqliteRecordStore::new(pool.clone())),
+        records: Arc::new(SqliteRecordStore::new(pool.clone(), keyed)),
         jobs: Arc::new(SqliteJobStore::new(pool)),
     })
 }
@@ -974,7 +980,11 @@ fn sqlite_file_dir(url: &str) -> Option<PathBuf> {
 /// The `barrage` schema migrated on a connection of its own, then the record
 /// and job stores on the platform's pool: no connection slot is added.
 #[cfg(feature = "postgresql")]
-async fn postgres_stores(pool: PlatformPool, url: &DatabaseUrl) -> Result<RecordStores, String> {
+async fn postgres_stores(
+    pool: PlatformPool,
+    url: &DatabaseUrl,
+    keyed: Arc<dyn Keyed>,
+) -> Result<RecordStores, String> {
     use std::str::FromStr;
 
     use dravr_barrage::store::sql::postgres::{migrate, PostgresJobStore, PostgresRecordStore};
@@ -990,7 +1000,7 @@ async fn postgres_stores(pool: PlatformPool, url: &DatabaseUrl) -> Result<Record
         .await
         .map_err(|e| format!("the barrage schema could not be migrated: {e}"))?;
     Ok(RecordStores {
-        records: Arc::new(PostgresRecordStore::new(pool.clone())),
+        records: Arc::new(PostgresRecordStore::new(pool.clone(), keyed)),
         jobs: Arc::new(PostgresJobStore::new(pool)),
     })
 }
@@ -998,7 +1008,11 @@ async fn postgres_stores(pool: PlatformPool, url: &DatabaseUrl) -> Result<Record
 /// A build without Postgres support has no Postgres deployment to serve:
 /// the refusal is ready at once, awaited as the Postgres build's migration is.
 #[cfg(not(feature = "postgresql"))]
-fn postgres_stores(_pool: PlatformPool, _url: &DatabaseUrl) -> Ready<Result<RecordStores, String>> {
+fn postgres_stores(
+    _pool: PlatformPool,
+    _url: &DatabaseUrl,
+    _keyed: Arc<dyn Keyed>,
+) -> Ready<Result<RecordStores, String>> {
     future::ready(Err("this build has no Postgres support".to_owned()))
 }
 
@@ -1007,10 +1021,12 @@ mod tests {
     use std::env;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     use uuid::Uuid;
 
     use super::{sqlite_file_dir, sqlite_stores};
+    use crate::barrage_keys::PlatformKeyed;
 
     #[test]
     fn sqlite_file_dir_names_the_directory_of_each_url_shape() {
@@ -1042,7 +1058,7 @@ mod tests {
         let file = root.join("nested").join("barrage.db");
         let url = format!("sqlite:{}", file.display());
 
-        let opened = sqlite_stores(&url).await;
+        let opened = sqlite_stores(&url, Arc::new(PlatformKeyed::ephemeral())).await;
 
         assert!(
             opened.is_ok(),

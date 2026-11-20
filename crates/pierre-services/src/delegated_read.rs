@@ -19,7 +19,8 @@
 //!    ([`link_binding`]);
 //! 4. the coach's own session must be live, and its credential one that
 //!    reads athletes ([`CoachPlatform::coach_credentials`]), counted against
-//!    the coach's own key ([`with_key_budget`]).
+//!    the coach's own key, or the coach's own session reads for a scraper
+//!    session ([`with_request_budget`]).
 //!
 //! The live read path (the tool runtime's delegated subject), the scheduled
 //! wellness sync (`crate::delegated_wellness`) and a human coach's write to
@@ -37,7 +38,7 @@ use pierre_providers::OAuth2Credentials;
 use std::fmt;
 use uuid::Uuid;
 
-use crate::coach_platform::{with_key_budget, CoachPlatform};
+use crate::coach_platform::{with_request_budget, CoachPlatform};
 use crate::delegated_connections::{coach_session_state, CoachSession};
 use crate::trainingpeaks_accounts::{link_binding, EmailBinding};
 
@@ -150,7 +151,7 @@ pub async fn member_read(
     };
     let coach_tenant = link.coach_tenant_id;
     Ok(MemberRead::ThroughCoach(Box::new(CoachRead {
-        credentials: with_key_budget(registry, &token, credentials),
+        credentials: with_request_budget(registry, &token, credentials),
         coach_tenant,
         link,
     })))

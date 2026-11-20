@@ -72,6 +72,8 @@ mod pages;
 mod revoke;
 /// The sign-in cookie: its name, value and reading.
 mod session;
+/// did:web for the checkpoint key and the newest signed checkpoint (carnet#1542)
+mod transparency;
 /// What a hosted page shows its reader, as the consent text version reads it.
 mod visible_text;
 /// The RFC 8414 and RFC 9728 discovery documents
@@ -174,6 +176,13 @@ impl OAuth2Routes {
             )
             // RFC 7517: JWKS endpoint
             .route("/.well-known/jwks.json", get(Self::handle_jwks))
+            // did:web: the key record_log checkpoints are signed with
+            .route("/.well-known/did.json", get(Self::handle_did_document))
+            // The newest signed record_log checkpoint (C2SP signed note)
+            .route(
+                "/.well-known/dravr-checkpoint",
+                get(Self::handle_latest_checkpoint),
+            )
             // RFC 7591: Dynamic Client Registration
             .route("/oauth2/register", post(Self::handle_client_registration))
             // OAuth 2.0 Authorization endpoint

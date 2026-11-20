@@ -23,5 +23,10 @@ uuid = { version = "1.29", features = ["v4", "serde"] }
 tracing = "0.1"
 rand = "0.9"
 
+[dev-dependencies]
+# log_capture: asserts the usage-limit line a refused group allowance logs (carnet#1630).
+# `groups`: the plan without group coaching the creation gate's integration test refuses.
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["groups"] }
+
 [lints]
 workspace = true

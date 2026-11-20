@@ -24,24 +24,26 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::time::Duration;
 
+#[cfg(feature = "tools-data")]
 use chrono::{DateTime, Utc};
 #[cfg(feature = "tools-data")]
 use pierre_cache::{Cache, CacheKey};
 use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::models::refresh::RefreshConfig;
-use pierre_providers::backend_resolver::user_facing_name;
-use pierre_services::provider_refresh::UNREAD_PROVIDER_DIRECTIVE;
+use pierre_providers::request_budget::{keep_scope, session_read_cap};
 #[cfg(feature = "tools-data")]
 use serde::de::DeserializeOwned;
 #[cfg(feature = "tools-data")]
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::time::timeout;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use pierre_core::errors::protocol::ProtocolError;
 use pierre_core::errors::AppError;
 
+#[cfg(feature = "tools-data")]
+use super::stored_copy::{attach_caveat, caveat};
 use crate::activity_fetch::StaleReason;
 use crate::protocol::types::{
     auth_required_provider, UniversalResponse, META_AUTH_REQUIRED_PROVIDER,
@@ -122,8 +124,8 @@ where
     let mut read = Box::pin(read);
     match timeout(budget, &mut read).await {
         Ok(response) if response.success => LiveRead::Answered(response),
-        Ok(response) => auth_required_provider(&response).map_or(
-            LiveRead::Missed(StaleReason::Error, response),
+        Ok(response) => auth_required_provider(&response).map_or_else(
+            || LiveRead::Missed(missed_because(&response), response),
             LiveRead::AuthRequired,
         ),
         Err(_) => {
@@ -140,12 +142,13 @@ where
 }
 
 /// Let a read the turn stopped waiting for finish in its own task, capped at
-/// `cap`, and watch it so a panic or the cap is logged.
+/// `cap`, and watch it so a panic or the cap is logged. It counts as what the
+/// turn's reads count as: background when the turn is ([`keep_scope`]).
 fn detach<F>(read: F, cap: Duration)
 where
     F: Future<Output = UniversalResponse> + Send + 'static,
 {
-    let task = tokio::spawn(timeout(cap, read));
+    let task = tokio::spawn(keep_scope(timeout(cap, read)));
     tokio::spawn(async move {
         match task.await {
             Ok(Ok(_)) => {}
@@ -158,6 +161,20 @@ where
     });
 }
 
+/// Why a failed read missed: [`StaleReason::ReadLimit`] when
+/// [`provider_failure`] tagged it as a session-read cap's refusal, else
+/// [`StaleReason::Error`].
+fn missed_because(response: &UniversalResponse) -> StaleReason {
+    response
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get(META_READ_LIMIT_RETRY_AFTER_SECS))
+        .and_then(Value::as_u64)
+        .map_or(StaleReason::Error, |retry_after_secs| {
+            StaleReason::ReadLimit { retry_after_secs }
+        })
+}
+
 fn failure(message: &str) -> UniversalResponse {
     UniversalResponse {
         success: false,
@@ -165,33 +182,6 @@ fn failure(message: &str) -> UniversalResponse {
         error: Some(message.to_owned()),
         metadata: None,
     }
-}
-
-/// The `provider_unavailable` caveat for `what` (a profile, statistics, an
-/// activity), served from the copy `backend` last answered at `synced_at`
-/// (`null` when the platform holds no sync time for it).
-#[must_use]
-pub(super) fn caveat(
-    backend: &str,
-    what: &str,
-    reason: StaleReason,
-    synced_at: Option<DateTime<Utc>>,
-) -> Value {
-    let name = user_facing_name(backend);
-    let when = synced_at.map_or_else(
-        || "last synced".to_owned(),
-        |at| format!("last synced ({})", at.format("%Y-%m-%d %H:%M UTC")),
-    );
-    json!({
-        "provider": name,
-        "reason": reason.as_str(),
-        "last_synced_at": synced_at.map(|at| at.to_rfc3339()),
-        "note": format!(
-            "{name} could not be read just now, so the {what} above is as it was {when}: \
-             anything that changed since is missing, and its connection is intact, so do not \
-             ask the athlete to reconnect it. Answer from it. {UNREAD_PROVIDER_DIRECTIVE}"
-        ),
-    })
 }
 
 /// The failure a live read reports when rendering its answer failed.
@@ -210,13 +200,30 @@ pub(super) fn failed_read(error: &ProtocolError) -> UniversalResponse {
 /// The model reads the error's tool-facing message ([`AppError::tool_message`]),
 /// which names the provider the athlete knows and never a backend, a service
 /// or a request id; an operator reads the whole error in the log line.
+///
+/// A session-read cap's refusal (carnet#1661) is tagged with its wait under
+/// [`META_READ_LIMIT_RETRY_AFTER_SECS`], so a copy standing in says the live
+/// reads are used up; it was logged once already, on the usage target.
 pub(super) fn provider_failure(context: &str, error: &AppError) -> UniversalResponse {
-    warn!(context, error = %error, "provider read failed");
-    tagged(
+    let mut response = tagged(
         failure(&format!("{context}: {}", error.tool_message())),
         error.provider_auth_required_provider().as_deref(),
-    )
+    );
+    if session_read_cap(error).is_none() {
+        warn!(context, error = %error, "provider read failed");
+        return response;
+    }
+    debug!(context, error = %error, "provider read refused by the session-read cap");
+    response.metadata.get_or_insert_with(HashMap::new).insert(
+        META_READ_LIMIT_RETRY_AFTER_SECS.to_owned(),
+        json!(error.retry_after_secs().unwrap_or(0)),
+    );
+    response
 }
+
+/// The metadata key a failed read's response carries a session-read cap's
+/// wait under ([`provider_failure`]).
+const META_READ_LIMIT_RETRY_AFTER_SECS: &str = "read_limit_retry_after_secs";
 
 fn tagged(mut response: UniversalResponse, provider: Option<&str>) -> UniversalResponse {
     if let Some(provider) = provider {
@@ -226,13 +233,6 @@ fn tagged(mut response: UniversalResponse, provider: Option<&str>) -> UniversalR
         )]));
     }
     response
-}
-
-/// Put `caveat` on a served response's payload.
-pub(super) fn attach_caveat(response: &mut UniversalResponse, caveat: Value) {
-    if let Some(object) = response.result.as_mut().and_then(Value::as_object_mut) {
-        object.insert("provider_unavailable".to_owned(), caveat);
-    }
 }
 
 #[cfg(feature = "tools-data")]
@@ -318,6 +318,7 @@ mod tests {
     use pierre_core::errors::ErrorCode;
     #[cfg(feature = "tools-data")]
     use pierre_core::models::TenantId;
+    use pierre_services::provider_refresh::UNREAD_PROVIDER_DIRECTIVE;
     #[cfg(feature = "tools-data")]
     use serde_json::Map;
     use tokio::sync::oneshot;
@@ -426,6 +427,58 @@ mod tests {
         })
         .await;
         assert!(matches!(read, LiveRead::Missed(StaleReason::Error, _)));
+    }
+
+    /// A read the athlete's session-read cap refused misses for that reason,
+    /// with its wait, so the copy standing in says live reads are used up
+    /// rather than that the provider failed (carnet#1661).
+    #[tokio::test]
+    async fn a_capped_read_is_a_read_limit_miss_with_its_wait() {
+        let mut capped = AppError::new(
+            ErrorCode::ExternalRateLimited,
+            "Strava has been read as often as Dravr allows for now",
+        );
+        capped.details = Some(Box::new(json!({
+            "refused_before_send": true,
+            "retry_after_secs": 420,
+            "session_read_cap": "asked",
+        })));
+        let read = read_within(Duration::from_secs(5), TEST_CAP, async move {
+            provider_failure("Failed to fetch athlete profile", &capped)
+        })
+        .await;
+        let LiveRead::Missed(reason, failed) = read else {
+            panic!("a capped read is a miss: {read:?}");
+        };
+        assert_eq!(
+            reason,
+            StaleReason::ReadLimit {
+                retry_after_secs: 420
+            },
+            "bug: a capped read is missed for another reason, or without its wait"
+        );
+        assert!(
+            failed
+                .error
+                .as_deref()
+                .is_some_and(|said| said.contains("as often as Dravr allows")),
+            "the model reads the cap's own message: {failed:?}"
+        );
+        let note = caveat("strava", "profile", reason, None);
+        assert_eq!(
+            note["reason"], "read_limit",
+            "bug: a capped read's copy is not tagged read_limit: {note}"
+        );
+        assert_eq!(
+            note["retry_after_secs"], 420,
+            "bug: the caveat does not carry the refusal's wait: {note}"
+        );
+        assert!(
+            note["note"]
+                .as_str()
+                .is_some_and(|text| text.contains("about 7 min")),
+            "bug: the caveat does not say when live reads resume: {note}"
+        );
     }
 
     #[tokio::test]

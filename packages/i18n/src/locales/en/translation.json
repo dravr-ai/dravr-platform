@@ -1582,7 +1582,6 @@
       "providers": "These providers will be disconnected: {0}",
       "email_mismatch": "That email does not match your account. Send `/deleteaccount` to see what to type.",
       "dm_only": "Send `/deleteaccount` to me in a direct message, so your email is not posted here.",
-      "operator": "An operator account is removed by another operator.",
       "blocked": "Your account cannot be deleted yet. Other people rely on these:\n{0}\n\nHand them over or remove them, then try again.",
       "done": "Your account and all its data were deleted. Thank you for training with Dravr.",
       "failed": "Your account could not be deleted. Try again in a moment.",

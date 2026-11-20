@@ -18,6 +18,7 @@ use pierre_providers::core::{
     ActivityQueryParams, CredentialKind, OAuth2Credentials, TokenRefreshCallback,
 };
 use pierre_providers::registry::ProviderRegistry;
+use pierre_providers::request_budget::in_background;
 use pierre_services::scrape_session::StoredSession;
 use secrecy::ExposeSecret;
 use tracing::{info, warn};
@@ -66,7 +67,9 @@ pub(crate) fn spawn_activity_prefetch(
         return prefetch_in_flight(user_id, tenant_id, provider_name);
     };
     let wait = ticket.wait();
-    tokio::spawn(prefetch_activities(
+    // The prefetch fills the store ahead of the athlete's first look: its
+    // session reads count as background (carnet#1661).
+    tokio::spawn(in_background(prefetch_activities(
         Arc::clone(&resources.provider_registry),
         Arc::clone(&resources.cache),
         PrefetchTarget {
@@ -77,7 +80,7 @@ pub(crate) fn spawn_activity_prefetch(
             persist_rotated: persist_rotated(resources, stored),
         },
         ticket,
-    ));
+    )));
     Some(wait)
 }
 
@@ -227,7 +230,8 @@ async fn fetch_prefetch_window(
         expires_at: None,
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
-        request_budget: None,
+        // Every read of the athlete's session spends their session reads.
+        request_budget: registry.session_read_budget(provider_name, user_id),
     };
     provider
         .set_credentials(credentials)

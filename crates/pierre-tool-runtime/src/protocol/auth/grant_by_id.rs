@@ -11,9 +11,10 @@
 //! its streams, the gear the detail carries) is a different call on the same
 //! provider handle, so it falls back here: [`GrantByIdFallback`] wraps the
 //! session and, when one of those reads fails the way a list read falls back
-//! for ([`error_falls_back`]), makes it once more through the grant. A
-//! session the read found dead is flagged for its sign-in exactly as a list
-//! read flags it (`activity_fetch::flag_refusal`), whether the grant then
+//! for ([`error_falls_back`]), or the athlete's session-read cap refused it
+//! ([`capped_session_falls_back`], carnet#1661), makes it once more through
+//! the grant. A session the read found dead is flagged for its sign-in
+//! exactly as a list read flags it (`activity_fetch::flag_refusal`), whether the grant then
 //! answers or not.
 //!
 //! What the grant answers is Strava API data, and the activity it returns
@@ -45,13 +46,14 @@ use pierre_providers::core::{
     TokenRefreshCallback,
 };
 use pierre_providers::delegation::CoachRoster;
+use pierre_providers::request_budget::session_read_cap;
 use tokio::sync::OnceCell;
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::AuthService;
 use crate::activity_fetch::flag_refusal;
-use crate::activity_fetch::sync_verdict::error_falls_back;
+use crate::activity_fetch::sync_verdict::{capped_session_falls_back, error_falls_back};
 
 /// The grant a [`GrantByIdFallback`] reads through, authenticated only when
 /// a by-id read of the session first fails.
@@ -117,7 +119,10 @@ impl GrantByIdFallback {
         failed: &AppError,
         started_at: DateTime<Utc>,
     ) -> Option<&dyn FitnessProvider> {
-        if !error_falls_back(failed) {
+        // A capped read of the session asks the grant too (carnet#1661): it
+        // was refused before anything was sent, and its refusal was logged.
+        let capped = capped_session_falls_back(failed, self.session.name());
+        if !(capped || error_falls_back(failed)) {
             return None;
         }
         let GrantSource {
@@ -136,13 +141,7 @@ impl GrantByIdFallback {
             started_at,
         )
         .await;
-        warn!(
-            user_id = %user_id,
-            grant = %grant,
-            activity_id = %id,
-            cause = %failed,
-            "by-id read of the session failed; reading it through its grant"
-        );
+        log_falling_back(capped, *user_id, grant, id, failed);
         let authenticated = self
             .grant
             .get_or_try_init(|| async {
@@ -163,6 +162,41 @@ impl GrantByIdFallback {
                 None
             }
         }
+    }
+}
+
+/// Log that a by-id read of `id` the session answered with `failed` is read
+/// through `grant`: a warning for a failed read, information for one the
+/// athlete's session-read cap refused (`capped`), which the limiter logged
+/// once already, on the usage target (carnet#1661).
+fn log_falling_back(capped: bool, user_id: Uuid, grant: &str, id: &str, failed: &AppError) {
+    if capped {
+        info!(
+            user_id = %user_id,
+            grant = %grant,
+            activity_id = %id,
+            "by-id read of the session capped; reading it through its grant"
+        );
+    } else {
+        warn!(
+            user_id = %user_id,
+            grant = %grant,
+            activity_id = %id,
+            cause = %failed,
+            "by-id read of the session failed; reading it through its grant"
+        );
+    }
+}
+
+/// The error a by-id read answers when the grant asked in the session's
+/// place failed with `grant_error`: a session-read cap's refusal stands, so
+/// a stored copy may still answer the read (carnet#1661); any other session
+/// failure gives way to the grant's.
+fn unanswered<T>(failed: AppError, grant_error: AppError) -> AppResult<T> {
+    if session_read_cap(&failed).is_some() {
+        Err(failed)
+    } else {
+        Err(grant_error)
     }
 }
 
@@ -196,8 +230,18 @@ impl FitnessProvider for GrantByIdFallback {
         self.session.bind_owner_stores(stores);
     }
 
+    /// The session's profile; a read its session-read cap refused is asked
+    /// of the grant (carnet#1661), any other failure stands.
     async fn get_athlete(&self) -> AppResult<Athlete> {
-        self.session.get_athlete().await
+        let started_at = Utc::now();
+        let failed = match self.session.get_athlete().await {
+            Err(e) if capped_session_falls_back(&e, self.session.name()) => e,
+            read => return read,
+        };
+        match self.grant_for("athlete", &failed, started_at).await {
+            Some(grant) => grant.get_athlete().await.or_else(|e| unanswered(failed, e)),
+            None => Err(failed),
+        }
     }
 
     async fn get_activities(
@@ -233,7 +277,10 @@ impl FitnessProvider for GrantByIdFallback {
             read => return read,
         };
         match self.grant_for(id, &failed, started_at).await {
-            Some(grant) => grant.get_activity(id).await,
+            Some(grant) => grant
+                .get_activity(id)
+                .await
+                .or_else(|e| unanswered(failed, e)),
             None => Err(failed),
         }
     }
@@ -245,7 +292,10 @@ impl FitnessProvider for GrantByIdFallback {
             read => return read,
         };
         match self.grant_for(id, &failed, started_at).await {
-            Some(grant) => grant.get_activity_detailed(id).await,
+            Some(grant) => grant
+                .get_activity_detailed(id)
+                .await
+                .or_else(|e| unanswered(failed, e)),
             None => Err(failed),
         }
     }
@@ -261,7 +311,10 @@ impl FitnessProvider for GrantByIdFallback {
             read => return read,
         };
         match self.grant_for(id, &failed, started_at).await {
-            Some(grant) => grant.get_activity_with_streams(id).await,
+            Some(grant) => grant
+                .get_activity_with_streams(id)
+                .await
+                .or_else(|e| unanswered(failed, e)),
             None => Err(failed),
         }
     }
@@ -273,7 +326,10 @@ impl FitnessProvider for GrantByIdFallback {
             read => return read,
         };
         match self.grant_for(id, &failed, started_at).await {
-            Some(grant) => grant.get_activity_streams(id).await,
+            Some(grant) => grant
+                .get_activity_streams(id)
+                .await
+                .or_else(|e| unanswered(failed, e)),
             None => Err(failed),
         }
     }
@@ -364,5 +420,48 @@ impl FitnessProvider for GrantByIdFallback {
         self.session
             .delete_planned_sessions(provider_event_ids)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_core::errors::{AppError, ErrorCode};
+    use serde_json::json;
+
+    use super::unanswered;
+
+    /// A session-read cap's refusal, as the limiter marks it.
+    fn capped() -> AppError {
+        let mut error = AppError::new(
+            ErrorCode::ExternalRateLimited,
+            "Strava has been read as often as Dravr allows for now",
+        );
+        error.details = Some(Box::new(json!({
+            "refused_before_send": true,
+            "retry_after_secs": 300,
+            "session_read_cap": "asked",
+        })));
+        error
+    }
+
+    #[test]
+    fn a_capped_read_the_grant_did_not_answer_keeps_its_refusal() {
+        let grant_error = AppError::external_service("strava", "502 from the API");
+        let kept: Result<(), AppError> = unanswered(capped(), grant_error.clone());
+        let kept = kept.expect_err("an unanswered read is an error");
+        assert_eq!(
+            kept.retry_after_secs(),
+            Some(300),
+            "bug: the grant's failure hid the cap's refusal, so no stored copy can stand in"
+        );
+        let other: Result<(), AppError> = unanswered(
+            AppError::new(ErrorCode::ExternalServiceUnavailable, "the browser wedged"),
+            grant_error,
+        );
+        assert_eq!(
+            other.expect_err("an unanswered read is an error").code,
+            ErrorCode::ExternalServiceError,
+            "any other session failure gives way to the grant's, as before"
+        );
     }
 }

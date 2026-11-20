@@ -15,6 +15,7 @@ use pierre_core::errors::AppResult;
     feature = "provider-coros",
     feature = "provider-garmin",
     feature = "provider-intervals-icu",
+    feature = "provider-sciotte",
     feature = "provider-strava",
     feature = "provider-terra",
     feature = "provider-wahoo",
@@ -24,6 +25,7 @@ use tokio::sync::RwLock;
 use tracing::error;
 use uuid::Uuid;
 
+use super::session_read::{self, SESSION_READ_BACKENDS};
 use super::{
     budget_refusal, is_background, Holder, ProviderRateLimiter, RateLimitStatus, SESSION_BACKENDS,
 };
@@ -31,6 +33,7 @@ use super::{
     feature = "provider-coros",
     feature = "provider-garmin",
     feature = "provider-intervals-icu",
+    feature = "provider-sciotte",
     feature = "provider-strava",
     feature = "provider-terra",
     feature = "provider-wahoo",
@@ -42,7 +45,8 @@ use crate::core::OAuth2Credentials;
 ///
 /// The shared windows of the OAuth app that signs them, those its provider
 /// keeps for a personal API key, the walk windows of the app a signed-in
-/// session's detail walk is counted in, or an athlete's context-read windows.
+/// session's detail walk is counted in, an athlete's context-read windows,
+/// or the session-read windows every read of an athlete's session spends.
 #[derive(Clone)]
 pub struct RequestBudget {
     limiter: Arc<ProviderRateLimiter>,
@@ -95,9 +99,10 @@ impl RequestBudget {
             Some(Holder::App { app, daily_limit } | Holder::Session { app, daily_limit }) => {
                 (app.clone(), *daily_limit)
             }
-            Some(Holder::ApiKey { .. } | Holder::SessionContext { .. }) | None => {
-                (server_app.to_owned(), None)
-            }
+            Some(
+                Holder::ApiKey { .. } | Holder::SessionContext { .. } | Holder::SessionRead { .. },
+            )
+            | None => (server_app.to_owned(), None),
         };
         Some(Self {
             limiter: Arc::clone(limiter),
@@ -125,6 +130,25 @@ impl RequestBudget {
         })
     }
 
+    /// The budget every read of `user_id`'s signed-in session at `backend`
+    /// is counted in: that athlete's own session-read windows at that
+    /// backend, sized by their tier ([`super::session_read`]). `None` for a
+    /// backend that is not one of the [`SESSION_READ_BACKENDS`].
+    #[must_use]
+    pub fn for_session_read(
+        limiter: &Arc<ProviderRateLimiter>,
+        backend: &str,
+        user_id: Uuid,
+    ) -> Option<Self> {
+        SESSION_READ_BACKENDS.contains(&backend).then(|| Self {
+            limiter: Arc::clone(limiter),
+            holder: Holder::SessionRead {
+                backend: backend.to_owned(),
+                user_id,
+            },
+        })
+    }
+
     /// Admit one request to `provider`, or refuse it with
     /// [`ErrorCode::ExternalRateLimited`](pierre_core::errors::ErrorCode::ExternalRateLimited)
     /// and the wait until the spent window resets.
@@ -139,9 +163,13 @@ impl RequestBudget {
     pub async fn admit(&self, provider: &str) -> AppResult<()> {
         match self.limiter.acquire_for(provider, &self.holder).await {
             Ok(RateLimitStatus::Allowed) => Ok(()),
-            Ok(RateLimitStatus::Exceeded { retry_after }) => {
-                Err(budget_refusal(provider, retry_after))
-            }
+            Ok(RateLimitStatus::Exceeded { retry_after }) => match &self.holder {
+                Holder::SessionRead { backend, user_id } => {
+                    let disabled = self.limiter.session_reads_disabled(*user_id).await;
+                    Err(session_read::refusal(backend, retry_after, disabled))
+                }
+                _ => Err(budget_refusal(provider, retry_after)),
+            },
             Err(e) if is_background() => Err(e),
             Err(e) => {
                 error!(provider, app = self.holder.app(), error = %e, "provider request budget could not be counted; the request is sent uncounted");
@@ -180,6 +208,7 @@ impl fmt::Debug for RequestBudget {
     feature = "provider-coros",
     feature = "provider-garmin",
     feature = "provider-intervals-icu",
+    feature = "provider-sciotte",
     feature = "provider-strava",
     feature = "provider-terra",
     feature = "provider-wahoo",

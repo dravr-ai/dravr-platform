@@ -44,7 +44,7 @@ permissions:
 jobs:
   verify:
     name: Verify the deployed revision is healthy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # One verification at a time, a deploy's or a manual one.
     concurrency:

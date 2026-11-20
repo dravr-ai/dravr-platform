@@ -37,7 +37,7 @@ use pierre_database::repositories::{SyncCursorRow, WorkerRunRepository};
 use pierre_database::{AuthRepos, FitnessRepos, RepositoryRegistry};
 use pierre_providers::backend_resolver::{pushed_backend_for, sync_backend};
 use pierre_providers::credential_kind;
-use pierre_providers::request_budget::RequestBudget;
+use pierre_providers::request_budget::{ProviderRateLimiter, RequestBudget};
 use pierre_providers::sciotte_provider::SciotteReads;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -123,6 +123,9 @@ pub struct PierreSyncStorage {
     /// The scrape-session rows handed out to syncs, which a session rotated
     /// on a read is written back over ([`SessionRows`]).
     session_rows: SessionRows,
+    /// What every daily-summary read of a scrape session is admitted against
+    /// (carnet#1661); `None` reads uncounted. Shared with the provider registry.
+    read_budget: Option<Arc<ProviderRateLimiter>>,
     /// The full registry, for the WHOOP owner-authorization read (the notice
     /// flag and the account's acceptance live outside both views) and for the
     /// delegated wellness pass's links and worker ledger. Shared with the
@@ -281,8 +284,17 @@ impl PierreSyncStorage {
             auth: repos.auth_repos(),
             refresher: OnceLock::new(),
             session_rows: SessionRows::new(Arc::clone(&repos.oauth_tokens)),
+            read_budget: None,
             registry: Arc::clone(repos),
         }
+    }
+
+    /// This adapter, its scrape sessions' daily-summary reads admitted against
+    /// each athlete's session-read windows in `limiter`.
+    #[must_use]
+    pub fn with_read_budget(mut self, limiter: Arc<ProviderRateLimiter>) -> Self {
+        self.read_budget = Some(limiter);
+        self
     }
 
     /// Inject the OAuth refresh bridge once the server runtime exists.
@@ -320,10 +332,10 @@ impl PierreSyncStorage {
         sciotte: Option<SciotteReads>,
         origins: WellnessOrigins<'_>,
     ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
-        let reader: Arc<dyn DailySummaryReader> = Arc::new(SciotteServiceReader::new(
-            sciotte,
-            self.session_rows.clone(),
-        ));
+        let reader: Arc<dyn DailySummaryReader> = Arc::new(
+            SciotteServiceReader::new(sciotte, self.session_rows.clone())
+                .with_read_budget(self.read_budget.clone()),
+        );
         self.build_orchestrator_with_reader(&reader, origins)
     }
 

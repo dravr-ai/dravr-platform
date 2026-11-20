@@ -1582,7 +1582,6 @@
       "providers": "Se desconectarán estos proveedores: {0}",
       "email_mismatch": "Ese correo no coincide con tu cuenta. Envía `/deleteaccount` para ver qué escribir.",
       "dm_only": "Envíame `/deleteaccount` por mensaje directo, para que tu correo no se publique aquí.",
-      "operator": "Una cuenta de operador la elimina otro operador.",
       "blocked": "Tu cuenta aún no se puede eliminar. Otras personas dependen de esto:\n{0}\n\nTransfiérelo o elimínalo y vuelve a intentarlo.",
       "done": "Tu cuenta y todos sus datos se eliminaron. Gracias por entrenar con Dravr.",
       "failed": "No se pudo eliminar tu cuenta. Inténtalo de nuevo en un momento.",

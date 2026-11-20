@@ -1,16 +1,22 @@
-// ABOUTME: Barrage's part of the athlete's export: their activity records and erasures, in every tenant they belong to
-// ABOUTME: Written as two sections of the export's tables, just before cached_activities, a row at a time
+// ABOUTME: Barrage's part of the athlete's export: their activity records, erasures and record_log, in every tenant they belong to
+// ABOUTME: Written as three sections of the export's tables, just before cached_activities, a row at a time
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use dravr_barrage::export::{self as barrage_export, ERASED_TABLE, RECORDS_TABLE};
+use dravr_barrage::export::{
+    self as barrage_export, ERASED_TABLE, RECORDS_TABLE, RECORD_LOG_TABLE,
+};
+use dravr_barrage::record_log::checkpoint::LogProof;
+use dravr_barrage::record_log::entry::LogEntry;
+use dravr_barrage::record_log::{all_entries, athlete_proof, RecordLogKey};
 use dravr_barrage::store::{ActivityRecordStore, ErasedActivity};
 use dravr_barrage::{BarrageError, Scope};
-use futures_util::stream::{BoxStream, StreamExt};
+use futures_util::stream::{self, BoxStream, StreamExt};
 use futures_util::TryStreamExt;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{UserExportRepository, UserExportTable, USER_EXPORT_TABLES};
+use pierre_services::barrage_keys::CheckpointKey;
 use serde::Serialize;
 use serde_json::Value;
 use tracing::warn;
@@ -32,6 +38,9 @@ pub(super) struct ExportSources<'src> {
     pub(super) tenants: &'src [TenantId],
     /// The latest originals bundle's view, or `null`.
     pub(super) originals: Value,
+    /// The key this deployment signs `record_log` checkpoints with; `None`
+    /// while it signs none, and the log's proof is then `null`.
+    pub(super) checkpoint_key: Option<&'src CheckpointKey>,
 }
 
 /// One section of `tables`, in the order the document writes them.
@@ -43,6 +52,9 @@ pub(super) enum Section {
     Records,
     /// `barrage.erased_activities`.
     Erased,
+    /// `barrage.record_log`: the athlete's log, how each record pairs with
+    /// it, and the signed checkpoint's proof.
+    Log,
 }
 
 impl Section {
@@ -51,16 +63,17 @@ impl Section {
             Self::Platform(table) => table.name,
             Self::Records => RECORDS_TABLE,
             Self::Erased => ERASED_TABLE,
+            Self::Log => RECORD_LOG_TABLE,
         }
     }
 
-    /// Every section: the platform's tables, barrage's two just before
+    /// Every section: the platform's tables, barrage's three just before
     /// [`BARRAGE_BEFORE`].
     pub(super) fn all() -> Vec<Self> {
-        let mut sections = Vec::with_capacity(USER_EXPORT_TABLES.len() + 2);
+        let mut sections = Vec::with_capacity(USER_EXPORT_TABLES.len() + 3);
         for table in USER_EXPORT_TABLES {
             if table.name == BARRAGE_BEFORE {
-                sections.extend([Self::Records, Self::Erased]);
+                sections.extend([Self::Records, Self::Erased, Self::Log]);
             }
             sections.push(Self::Platform(table));
         }
@@ -81,6 +94,42 @@ struct ErasedRow {
     erased: ErasedActivity,
 }
 
+/// One tenant's log as the document writes it.
+///
+/// Every entry, the key each record's entries carry (the record is in
+/// `barrage.activity_records`), and the proof against the newest signed
+/// checkpoint holding the athlete (`null` before any, or while this
+/// deployment signs none). A verifier rebuilds the athlete's tree from
+/// `entries`, checks the leaf's path to the note's root and the note's
+/// Ed25519 signature (`dravr_barrage::record_log::checkpoint::verify_export`,
+/// or any C2SP signed-note verifier for the note).
+#[derive(Serialize)]
+struct LogRow {
+    tenant_id: Uuid,
+    entries: Vec<LogEntry>,
+    log_keys: Vec<RecordLogKey>,
+    proof: Option<LogProof>,
+}
+
+/// `scope`'s log row.
+async fn log_row(sources: &ExportSources<'_>, scope: Scope) -> Result<LogRow, BarrageError> {
+    let log = sources.records;
+    let entries = all_entries(log, &scope).await?;
+    let log_keys = barrage_export::export_log_keys(log, scope)
+        .try_collect()
+        .await?;
+    let proof = match sources.checkpoint_key {
+        Some(key) => athlete_proof(log, &scope, &key.name, &key.public_key).await?,
+        None => None,
+    };
+    Ok(LogRow {
+        tenant_id: scope.tenant_id.0,
+        entries,
+        log_keys,
+        proof,
+    })
+}
+
 /// Write barrage's `section` as `"name":[row,…]`, each tenant's rows in turn,
 /// a row at a time, each in barrage's own public shape.
 pub(super) async fn write_barrage<S: ChunkSink>(
@@ -95,7 +144,10 @@ pub(super) async fn write_barrage<S: ChunkSink>(
     let mut first = true;
     for tenant in sources.tenants {
         let scope = scope_of(*tenant, user_id);
-        let more = if matches!(section, Section::Erased) {
+        let more = if matches!(section, Section::Log) {
+            let row = stream::once(log_row(sources, scope));
+            write_rows(name, row.boxed(), &mut first, writer, summary).await
+        } else if matches!(section, Section::Erased) {
             let rows = barrage_export::export_erased(sources.records, scope);
             let rows = rows.map_ok(move |erased| ErasedRow {
                 tenant_id: scope.tenant_id.0,
@@ -163,6 +215,7 @@ mod tests {
     use dravr_barrage::store::memory::MemoryActivityRecordStore;
     use dravr_barrage::{ActivityId, ActivityRecord, Provenance, SourceKey};
     use pierre_core::models::{ActivityBuilder, SportType};
+    use pierre_services::barrage_keys::memory_records;
     use serde_json::json;
 
     use super::super::tests::{collector, document, sources, Collector, FakeRepository, ROOMY};
@@ -226,6 +279,85 @@ mod tests {
             .unwrap_or_else(|| panic!("{key} is in the document"))
     }
 
+    /// The log section carries every entry, the record-to-entry keys, and a
+    /// proof that verifies against the signed checkpoint, as an athlete's
+    /// verifier would check it.
+    #[tokio::test]
+    async fn the_exported_log_verifies_against_its_signed_checkpoint() {
+        use dravr_barrage::digest::Sha256;
+        use dravr_barrage::keyed::Signer;
+        use dravr_barrage::record_log::checkpoint::{verify_export, Anchor};
+        use dravr_barrage::record_log::cut_checkpoint;
+        use pierre_services::barrage_keys::{CheckpointKey, LocalSigner};
+        use ring::signature::{UnparsedPublicKey, ED25519};
+
+        let repository = FakeRepository {
+            rows_per_table: 0,
+            row_bytes: 4,
+            failing: None,
+        };
+        let records = memory_records();
+        let tenant = TenantId::from_uuid(Uuid::new_v4());
+        let user_id = Uuid::new_v4();
+        barrage_history(&records, tenant, user_id, 3).await;
+        let signer = LocalSigner::random().unwrap();
+        let anchor = Anchor {
+            seq: 2,
+            hash: Sha256::of(b"receipt 2"),
+        };
+        cut_checkpoint(&records, &signer, anchor, "test", Utc::now())
+            .await
+            .unwrap()
+            .expect("a checkpoint is cut");
+        let key = CheckpointKey {
+            name: signer.key_name().to_owned(),
+            public_key: signer.public_key(),
+        };
+        let mut sink = collector();
+        write_export(
+            ExportSources {
+                repository: &repository,
+                records: &records,
+                tenants: &[tenant],
+                originals: Value::Null,
+                checkpoint_key: Some(&key),
+            },
+            user_id,
+            &mut sink,
+            ROOMY,
+        )
+        .await;
+
+        let doc = document(&sink);
+        let rows = doc["tables"][RECORD_LOG_TABLE].as_array().unwrap();
+        assert_eq!(rows.len(), 1, "bug: one log row per tenant");
+        let entries: Vec<LogEntry> = serde_json::from_value(rows[0]["entries"].clone()).unwrap();
+        let proof: LogProof = serde_json::from_value(rows[0]["proof"].clone()).unwrap();
+        assert_eq!(entries.len(), 3, "bug: every put is exported");
+        assert_eq!(
+            rows[0]["log_keys"].as_array().map(Vec::len),
+            Some(3),
+            "bug: a record cannot be paired with its entries"
+        );
+        let verify = |key: &[u8; 32], message: &[u8], sig: &[u8; 64]| {
+            UnparsedPublicKey::new(&ED25519, key)
+                .verify(message, sig)
+                .is_ok()
+        };
+        let verified = verify_export(&entries, &proof, &verify).unwrap();
+        assert_eq!(
+            verified.anchored, 3,
+            "bug: the checkpoint does not cover the log"
+        );
+
+        let mut forged = entries;
+        forged[1].content = Some(Sha256::of(b"rewritten"));
+        assert!(
+            verify_export(&forged, &proof, &verify).is_err(),
+            "bug: a rewritten entry still verifies"
+        );
+    }
+
     #[tokio::test]
     async fn barrages_sections_sit_just_before_the_projection_they_feed() {
         let repository = FakeRepository {
@@ -233,7 +365,7 @@ mod tests {
             row_bytes: 4,
             failing: None,
         };
-        let records = MemoryActivityRecordStore::new();
+        let records = memory_records();
         let tenant = TenantId::from_uuid(Uuid::new_v4());
         let user_id = Uuid::new_v4();
         barrage_history(&records, tenant, user_id, 3).await;
@@ -244,6 +376,7 @@ mod tests {
                 records: &records,
                 tenants: &[tenant],
                 originals: json!({ "bundle_id": "b" }),
+                checkpoint_key: None,
             },
             user_id,
             &mut sink,
@@ -299,7 +432,7 @@ mod tests {
             row_bytes: 4,
             failing: None,
         };
-        let records = MemoryActivityRecordStore::new();
+        let records = memory_records();
         let tenant = TenantId::from_uuid(Uuid::new_v4());
         let user_id = Uuid::new_v4();
         barrage_history(&records, tenant, user_id, 200).await;
@@ -318,6 +451,7 @@ mod tests {
                 records: &records,
                 tenants: &[tenant],
                 originals: Value::Null,
+                checkpoint_key: None,
             },
             user_id,
             &mut sink,

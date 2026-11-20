@@ -18,8 +18,9 @@ use pierre_core::models::agents::Agent;
 use pierre_core::models::groups::{CoachingGroup, CreateGroupRequest, GroupInviteKind};
 use pierre_core::models::{AddMessageParams, ConversationRecord, TenantId, User};
 use pierre_core::transport::TransportPolicy;
+use pierre_core::usage_log::{self, LimitHit};
 use pierre_groups::creation_policy::{
-    check_create_group_permission, creator_coaches_group, may_coach_group,
+    check_create_group_permission, creator_coaches_group, may_coach_group, refuses_group_coaching,
     GROUP_CREATION_POLICY_KEY,
 };
 use pierre_groups::strategies::tier::tier_strategy_for;
@@ -280,13 +281,18 @@ impl CommandHandler for GroupCreateHandler {
             return Err(e);
         }
 
-        // The tenant plan's tier, resolved as the REST route resolves it; a
-        // member cap of zero is a plan without group coaching, and is answered
-        // here in the caller's locale rather than as the service's
-        // PermissionDenied error.
+        // The tenant plan's tier, resolved as the REST route resolves it. A
+        // plan without group coaching is refused by the one gate every
+        // creation path asks, and answered here in the caller's locale rather
+        // than as the service's PermissionDenied error.
         let plan = repos.tenants.get_by_id(ctx.tenant_id).await?.plan;
         let plan_tier = tier_strategy_for(&plan);
-        if plan_tier.max_members_per_group() == 0 {
+        if refuses_group_coaching(
+            plan_tier.as_ref(),
+            ctx.user_id,
+            ctx.tenant_id,
+            &ctx.channel_type,
+        ) {
             return Ok(CommandResponse::text(reg.render(
                 KEY_GROUP_CREATE_UNAVAILABLE,
                 locale,
@@ -493,7 +499,16 @@ impl GroupJoinHandler {
         {
             return Ok(Some(JoinRefusal::AlreadyMember));
         }
-        if repos.groups.count_members(&group_id).await? >= i64::from(group.max_members) {
+        let members = repos.groups.count_members(&group_id).await?;
+        if members >= i64::from(group.max_members) {
+            usage_log::limit_reached(&LimitHit {
+                user_id: &ctx.user_id.to_string(),
+                tenant_id: Some(&ctx.tenant_id.to_string()),
+                limit_type: "group_members",
+                current: members,
+                limit: i64::from(group.max_members),
+                surface: &ctx.channel_type,
+            });
             return Ok(Some(JoinRefusal::Full));
         }
         Ok(None)

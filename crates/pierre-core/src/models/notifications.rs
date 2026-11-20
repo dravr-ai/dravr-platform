@@ -45,6 +45,10 @@ pub enum NotificationScreen {
     /// chat, named by the notification's `id`: where a member answers the
     /// coaching-platform link the group's coach proposed.
     GroupInfo,
+    /// The athlete's privacy settings, opened on one data access request
+    /// named by the notification's `id`: where a due-soon or overdue
+    /// reminder's request, its letter and its steps live (carnet#1659).
+    Privacy,
 }
 
 impl NotificationScreen {
@@ -57,6 +61,7 @@ impl NotificationScreen {
             Self::Coach,
             Self::Connections,
             Self::GroupInfo,
+            Self::Privacy,
         ]
     }
 
@@ -69,6 +74,7 @@ impl NotificationScreen {
             Self::Coach => "coach",
             Self::Connections => "connections",
             Self::GroupInfo => "group_info",
+            Self::Privacy => "privacy",
         }
     }
 
@@ -91,6 +97,65 @@ impl NotificationScreen {
             // the info over it.
             Self::Coach | Self::GroupInfo => "chat",
             Self::Connections => "connections",
+            // The privacy settings pane holds the data access requests; the
+            // clients open the one a payload names in `id`, and the pane
+            // alone for a payload that names none.
+            Self::Privacy => "privacy",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::NotificationScreen;
+
+    #[test]
+    fn every_screen_travels_as_its_serde_token() -> Result<(), serde_json::Error> {
+        for &screen in NotificationScreen::all() {
+            let wire = serde_json::to_value(screen)?;
+            assert_eq!(wire, screen.as_str(), "{screen:?} travels as its token");
+            let back: NotificationScreen = serde_json::from_value(wire)?;
+            assert_eq!(
+                back, screen,
+                "bug: {screen:?} does not parse back from its token"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn all_lists_each_screen_once() {
+        let tokens: HashSet<&str> = NotificationScreen::all()
+            .iter()
+            .map(|screen| screen.as_str())
+            .collect();
+        assert_eq!(
+            tokens.len(),
+            NotificationScreen::all().len(),
+            "bug: all() lists a screen twice, or two screens share a token"
+        );
+    }
+
+    #[test]
+    fn a_data_access_reminder_opens_the_privacy_pane() {
+        // The pane holds the athlete's data access requests (carnet#1659).
+        // `privacy` is a wire value: every shipped client parses it from a
+        // delivered notification, so it is pinned as a literal.
+        assert!(
+            NotificationScreen::all().contains(&NotificationScreen::Privacy),
+            "bug: the privacy screen is missing from all(), so the catalogue omits it"
+        );
+        assert_eq!(
+            NotificationScreen::Privacy.as_str(),
+            "privacy",
+            "bug: the privacy screen's wire token moved"
+        );
+        assert_eq!(
+            NotificationScreen::Privacy.surface(),
+            "privacy",
+            "bug: the privacy screen does not open the privacy surface"
+        );
     }
 }

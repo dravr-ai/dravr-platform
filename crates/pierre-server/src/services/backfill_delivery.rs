@@ -13,23 +13,35 @@
 //! to by persisting a turn into the thread the client already reads. The
 //! caller decides which applies and what the notice says — these two types
 //! only carry it there, so the decision and the mechanics stay separable.
+//!
+//! The caller also checks the channel's window before it hands a notice to
+//! [`ChannelDelivery`] ([`ResolvedRoute::window_open`]), the check the
+//! check-in and the commitment verdict pass: a notice the channel may not
+//! carry unprompted goes to the app instead (carnet#1672).
 
 use pierre_core::transport::TransportPolicy;
 use std::iter::once;
 
+use chrono::{DateTime, Utc};
 use dravr_canot::channel::MessagingChannel;
 use dravr_canot::turn::ConversationTurnId;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_BACKFILL_PUSH_BODY, KEY_BACKFILL_PUSH_TITLE,
 };
-use pierre_core::models::messaging::{ChannelConfig, ChannelType, MessageContent, OutgoingMessage};
+use pierre_core::models::messaging::{
+    ChannelConfig, ChannelType, DeliveryReceipt, MessageContent, OutgoingMessage,
+};
 use pierre_core::models::{AddMessageParams, TenantId};
 use pierre_database::RepositoryRegistry;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::services::adapter_resolver::AdapterResolver;
+use crate::services::commitment_reporter::channel_allows_proactive;
 use crate::services::messaging_ingress::block_render::{channel_ceiling, fan_out, RenderedReply};
+use crate::services::messaging_ingress::outbound_persist::{
+    persist_outbound_row, OutboundRowParams,
+};
 use crate::services::messaging_ingress::outbound_retry::{
     enqueue_failed_outbound, FailedOutbound, TranscriptRecord,
 };
@@ -41,6 +53,23 @@ use pierre_notifications::{
 };
 #[cfg(feature = "client-notifications")]
 use std::sync::Arc;
+
+/// What `messaging.proactive_held` and a notice's ledger rows call a
+/// backfill-completion notice: the answer to a question a background read
+/// held up, or the one line saying its data landed.
+pub(crate) const PURPOSE_BACKFILL_COMPLETE: &str = "backfill_complete";
+
+/// What `messaging.proactive_held` and a notice's ledger rows call a
+/// provider-reconnect notice.
+pub(crate) const PURPOSE_PROVIDER_REAUTH: &str = "provider_reauth";
+
+/// Whether `channel` takes a free-form send outside its window and fails it
+/// only afterwards: `WhatsApp` answers HTTP 200 and reports error 131047 in a
+/// status webhook. A proactive notice sent there leaves a ledger row per
+/// message ([`NoticeLedger`]) so that webhook can find it.
+pub(crate) fn reports_window_failure_late(channel: ChannelType) -> bool {
+    matches!(channel, ChannelType::WhatsApp)
+}
 
 /// Routing pieces resolved for a proactive notice: where to deliver it plus
 /// which tenant owns the channel config/adapter.
@@ -65,14 +94,73 @@ pub(crate) struct ResolvedRoute {
     /// session lookup, warmed-cache read, and chat re-entry all stay on the
     /// user's own tenant.
     pub channel_tenant_id: TenantId,
+    /// The athlete's last inbound message on the session, which opens the
+    /// channel's window for a message they did not ask for.
+    pub last_inbound: Option<DateTime<Utc>>,
+}
+
+impl ResolvedRoute {
+    /// Whether the channel may be written to unprompted on this route at
+    /// `now` — [`channel_allows_proactive`], the check the check-in and the
+    /// commitment verdict pass: Meta's 24-hour window on `WhatsApp` and
+    /// Messenger, always on the bot channels.
+    pub(crate) fn window_open(&self, now: DateTime<Utc>) -> bool {
+        channel_allows_proactive(self.channel_type, self.last_inbound, now)
+    }
+}
+
+/// Where the messages of one proactive notice a channel took are recorded:
+/// one outbound `messaging_messages` row each, keyed by the channel's own id
+/// for it and stamped with the notice's purpose. A delivery failure the
+/// channel reports afterwards names only that id; the row leads it back to
+/// the notice, its athlete and its thread.
+pub(crate) struct NoticeLedger<'send> {
+    /// Repository registry — the message log the rows land in.
+    pub repos: &'send RepositoryRegistry,
+    /// The session's own tenant, which the rows are filed under.
+    pub session_tenant_id: TenantId,
+    /// The messaging session the notice was sent on.
+    pub session_id: &'send str,
+    /// Channel slug for the rows.
+    pub channel: &'send str,
+    /// What the notice says.
+    pub purpose: &'send str,
+    /// The assistant chat row the notice is stored as in the conversation,
+    /// when it is: a re-delivery then has nothing to write.
+    pub chat_message_id: Option<&'send str>,
+}
+
+impl NoticeLedger<'_> {
+    /// Record one message of the notice the channel took, under the id its
+    /// receipt carries. Best-effort, logged by the shared insert.
+    pub(crate) async fn record(&self, outgoing: &OutgoingMessage, receipt: &DeliveryReceipt) {
+        persist_outbound_row(
+            self.repos.messaging.as_ref(),
+            &OutboundRowParams {
+                session_tenant_id: self.session_tenant_id,
+                session_id: self.session_id,
+                channel: self.channel,
+                receipt_id: receipt.channel_message_id.as_deref(),
+                delivered: true,
+                chat_message_id: self.chat_message_id,
+                proactive_purpose: Some(self.purpose),
+            },
+            outgoing,
+        )
+        .await;
+    }
 }
 
 /// Sends a proactive notice out through a messaging channel's adapter.
 pub(crate) struct ChannelDelivery<'a> {
-    /// Repository registry — the retry queue for a dropped notice.
+    /// Repository registry — the retry queue for a dropped notice, and the
+    /// ledger for one a channel fails afterwards.
     pub repos: &'a RepositoryRegistry,
     /// Resolves `(tenant, channel)` to an adapter plus its config.
     pub resolver: &'a dyn AdapterResolver,
+    /// What the notice says, as `messaging.proactive_held` and its ledger
+    /// rows name it.
+    pub purpose: &'a str,
 }
 
 impl ChannelDelivery<'_> {
@@ -88,12 +176,17 @@ impl ChannelDelivery<'_> {
     /// message each, exactly as the live reply path orders them. Every part
     /// carries one fresh proactive turn id, not the originating turn's, so a
     /// split notice still reads as one turn in the transcript.
+    ///
+    /// `chat_message_id` is the assistant row the notice is already stored as
+    /// in the conversation (an agent answer the platform post wrote), `None`
+    /// for a templated notice the conversation does not hold.
     pub(crate) async fn send(
         &self,
         route: ResolvedRoute,
         user_id: Uuid,
         tenant_id: TenantId,
         reply: RenderedReply,
+        chat_message_id: Option<&str>,
     ) -> bool {
         let ResolvedRoute {
             session_id,
@@ -102,6 +195,7 @@ impl ChannelDelivery<'_> {
             recipient,
             channel_user_id: _,
             channel_tenant_id,
+            last_inbound: _,
         } = route;
 
         let turn_id = ConversationTurnId::new();
@@ -151,33 +245,63 @@ impl ChannelDelivery<'_> {
             expires_at: None,
             reauth: None,
         };
-        self.send_parts(parts, adapter.as_ref(), &channel_config, &failed)
-            .await
+        let ledger = reports_window_failure_late(channel_type).then(|| NoticeLedger {
+            repos: self.repos,
+            session_tenant_id: tenant_id,
+            session_id: &session_id,
+            channel: &channel_str,
+            purpose: self.purpose,
+            chat_message_id,
+        });
+        self.send_parts(
+            parts,
+            adapter.as_ref(),
+            &channel_config,
+            &failed,
+            ledger.as_ref(),
+        )
+        .await
     }
 
     /// Send the parts in order, stopping at the first failure. Returns whether
     /// every part went out.
     ///
-    /// LIMITATION(registre#1672): `send_parts` skips the 24-hour window check, and Meta reports 131047 asynchronously, so an out-of-window `WhatsApp` notice is accepted, then fails unqueued.
-    ///
-    /// Path parity with the synchronous reply: a failed channel send (e.g. Meta
-    /// `WhatsApp` error 131047, out-of-24h-window/template-required) is
-    /// persisted + queued for the background retry worker, never silently
-    /// dropped. The message row lands on the user/session tenant, the queue row
-    /// on the bot/channel-owner tenant so the worker resolves the right channel
+    /// The window is checked before a notice gets here: the caller sends a
+    /// proactive notice only on a route whose window is open
+    /// ([`ResolvedRoute::window_open`]) and delivers it in the app otherwise.
+    /// What fails here fails synchronously — a network error, a rate limit, a
+    /// 5xx — and is persisted and queued for the background retry worker,
+    /// never silently dropped, exactly as the synchronous reply does. The
+    /// message row lands on the user/session tenant, the queue row on the
+    /// bot/channel-owner tenant so the worker resolves the right channel
     /// config on re-send. The parts after the failure are queued too: sending
     /// them now would put a continuation in front of its own opening.
+    ///
+    /// `WhatsApp`'s out-of-window refusal (error 131047) never arrives here:
+    /// Meta accepts the send with HTTP 200 and fails it afterwards in a status
+    /// webhook, and a free-form re-send outside the window would fail the same
+    /// way, so the retry queue is no answer to it. On such a channel each part
+    /// the channel took is recorded in `ledger` instead, which is how that
+    /// webhook finds the notice and re-delivers it in the app
+    /// ([`crate::services::messaging_ingress::window_failure`]).
     async fn send_parts(
         &self,
         parts: Vec<OutgoingMessage>,
         adapter: &dyn MessagingChannel,
         channel_config: &ChannelConfig,
         failed: &FailedOutbound<'_>,
+        ledger: Option<&NoticeLedger<'_>>,
     ) -> bool {
         let mut remaining = parts.into_iter();
         while let Some(outgoing) = remaining.next() {
-            let Err(e) = adapter.send(&outgoing, channel_config).await else {
-                continue;
+            let e = match adapter.send(&outgoing, channel_config).await {
+                Ok(receipt) => {
+                    if let Some(ledger) = ledger {
+                        ledger.record(&outgoing, &receipt).await;
+                    }
+                    continue;
+                }
+                Err(e) => e,
             };
             warn!(error = %e, channel = %failed.channel, "Failed to send a proactive notice on channel");
             for dropped in once(outgoing).chain(remaining.by_ref()) {
@@ -243,6 +367,7 @@ impl InAppDelivery<'_> {
         if self
             .persist(user_id, tenant_id, conversation_id, body, count)
             .await
+            .is_some()
         {
             self.push_app_notification(user_id, tenant_id, locale, count, self.transport_policy)
                 .await;
@@ -252,8 +377,8 @@ impl InAppDelivery<'_> {
     /// Persist the notice into a first-party conversation without the app
     /// push [`Self::deliver`] raises after it: for a notice that loaded no
     /// activities, which the push's "N activities loaded" would misstate.
-    /// The stored turn and its unread badge are the delivery. `false`
-    /// (logged) when the turn could not be stored.
+    /// The stored turn and its unread badge are the delivery. Answers the
+    /// stored turn's id; `None` (logged) when it could not be stored.
     pub(crate) async fn persist(
         &self,
         user_id: Uuid,
@@ -261,7 +386,7 @@ impl InAppDelivery<'_> {
         conversation_id: &str,
         body: String,
         count: usize,
-    ) -> bool {
+    ) -> Option<String> {
         let transport_policy = self.transport_policy;
         let owner = user_id.to_string();
         let params = AddMessageParams {
@@ -282,15 +407,19 @@ impl InAppDelivery<'_> {
             about_user_id: None,
             turn_attempted_write: None,
         };
-        if let Err(e) = self.repos.chat.add_message(&params).await {
-            warn!(error = %e, "Backfill push: failed to persist the in-app completion turn");
-            return false;
+        match self.repos.chat.add_message(&params).await {
+            Ok(stored) => {
+                info!(
+                    count,
+                    "Delivered a proactive notice into the in-app conversation"
+                );
+                Some(stored.id)
+            }
+            Err(e) => {
+                warn!(error = %e, "Proactive notice: failed to persist the in-app turn");
+                None
+            }
         }
-        info!(
-            count,
-            "Delivered backfill-ready notice into the in-app conversation"
-        );
-        true
     }
 
     /// Raise only the app notification, for a notice the chat pipeline has

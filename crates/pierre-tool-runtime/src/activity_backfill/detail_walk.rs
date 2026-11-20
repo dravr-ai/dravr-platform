@@ -70,9 +70,24 @@
 //! told once, in their personal thread, how many activities had their
 //! efforts read, when that is any
 //! ([`BackfillNotifier::push_detail_walk_complete`](crate::runtime::BackfillNotifier::push_detail_walk_complete)).
+//!
+//! **Track walks** (carnet#1679). A kept detail read keeps the route it
+//! carried as the ride's track, but a ride a detail read reached before
+//! that holds its efforts and no track, and is no walk's candidate. A
+//! [`BackfillJobKind::TrackWalk`] reads each such ride once more through the
+//! same step, newest first, over the whole stored history: a ride a copy of
+//! which holds its efforts while none holds a settled track
+//! ([`track_unsettled`](pierre_services::activity_track::track_unsettled)).
+//! Its reads are the detail walk's own, in the same day budget; a step waits
+//! while a detail walk is owed through the backend, so the rides no detail
+//! read ever reached go first. It is asked once per session connection
+//! ([`ask_track_walk`]), tells nobody when it ends, and keeps no tried range:
+//! its cursor passes each ride once, and a walk that ended short is asked
+//! again from it.
 
 mod candidates;
 mod step;
+mod track;
 
 use std::sync::Arc;
 
@@ -98,6 +113,7 @@ use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
 use candidates::{tried_by, Athlete, UnreadActivity};
 pub(super) use step::run_detail_walk;
+pub use track::{ask_track_walk, TrackWalkAsked};
 
 /// Activities whose efforts one step reads, at most: the whole seconds it
 /// takes stop once they hold this many.
@@ -310,7 +326,7 @@ async fn ask_once(
     ask: DetailWalkAsk<'_>,
 ) -> Option<DetailWalkAsked> {
     let user_id = athlete.user_id;
-    let Ok(row) = walk_row(athlete, backend).await else {
+    let Ok(row) = walk_row(athlete, backend, BackfillJobKind::DetailWalk).await else {
         return Some(DetailWalkAsked::NotRecorded);
     };
     if let Some(row) = row
@@ -475,19 +491,23 @@ async fn record_walk(
 /// The detail walk owed for `backend`, if one is; `Err` (logged) when the
 /// ledger could not be read.
 async fn owed_walk(athlete: &Athlete<'_>, backend: &str) -> Result<Option<DetailWalkRow>, ()> {
-    Ok(walk_row(athlete, backend)
+    Ok(walk_row(athlete, backend, BackfillJobKind::DetailWalk)
         .await?
         .filter(|row| row.state == BackfillJobState::Owed))
 }
 
-/// The detail walk filed under `backend`, owed or ended, if one is; `Err`
+/// The `kind` walk filed under `backend`, owed or ended, if one is; `Err`
 /// (logged) when the ledger could not be read.
-async fn walk_row(athlete: &Athlete<'_>, backend: &str) -> Result<Option<DetailWalkRow>, ()> {
+async fn walk_row(
+    athlete: &Athlete<'_>,
+    backend: &str,
+    kind: BackfillJobKind,
+) -> Result<Option<DetailWalkRow>, ()> {
     match athlete
         .runtime
         .repos()
         .activity_backfill_jobs
-        .detail_walk_row(athlete.user_id, athlete.tenant_id, backend)
+        .detail_walk_row(athlete.user_id, athlete.tenant_id, backend, kind)
         .await
     {
         Ok(row) => Ok(row),
@@ -572,7 +592,7 @@ pub async fn detail_walk_pending(
     let row = runtime
         .repos()
         .activity_backfill_jobs
-        .detail_walk_row(user_id, tenant_id, backend)
+        .detail_walk_row(user_id, tenant_id, backend, BackfillJobKind::DetailWalk)
         .await?;
     let Some(row) = row.filter(|row| row.state == BackfillJobState::Owed) else {
         return Ok(None);

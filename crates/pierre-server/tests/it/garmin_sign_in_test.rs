@@ -28,6 +28,7 @@ use crate::common;
 use crate::helpers::axum_test::AxumTestRequest;
 use crate::helpers::sciotte_mock::seed_scrape_session;
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -37,18 +38,21 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, Utc};
+use pierre_config::admin_types::{ConfigScope, UpdateConfigRequest};
 use pierre_config::environment::{ProviderEndpointOverride, ServerConfig};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{
-    Activity, ActivityBuilder, ConnectionStatus, ConnectionType, SportType, TenantId, User,
-    UserOAuthToken, PERMISSION_WITHDRAWN,
+    Activity, ActivityBuilder, ConnectionStatus, ConnectionType, SessionReadCap, SportType,
+    TenantId, User, UserOAuthToken, UserTier, PERMISSION_WITHDRAWN,
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_dev_fixture::garmin::{self, GarminFixture, GarminFixtureConfig};
+use pierre_mcp_server::config::admin::service::UpdateConfigContext;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_routes_auth::AuthRoutes;
+use pierre_runtime_context::ConfigLookupScope;
 use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use pierre_tool_runtime::activity_fetch::fetch_provider_activities;
 use pierre_tool_runtime::protocol::AuthService;
@@ -334,7 +338,83 @@ pub(crate) async fn athlete(resources: &Arc<ServerContext>) -> (Uuid, User, Tena
     .await
     .unwrap();
     let token = common::generate_test_token(resources, &user).await;
+    lift_session_read_caps(resources, user_id).await;
     (user_id, user, tenant, token)
+}
+
+/// Lift `user_id`'s session-read caps (carnet#1661) to their ceilings.
+///
+/// These fixtures walk a whole year of a Garmin session in one go; the
+/// Starter caps would spread it over days. A cap of its own is tested in
+/// `sciotte_read_caps_config_test`.
+pub(crate) async fn lift_session_read_caps(resources: &Arc<ServerContext>, user_id: Uuid) {
+    let mut parameters = HashMap::new();
+    for cap in SessionReadCap::ALL {
+        let ceiling = session_read_ceiling(resources, cap).await;
+        parameters.insert(cap.config_key(&UserTier::Starter), json!(ceiling));
+    }
+    set_session_read_caps(resources, user_id, parameters).await;
+}
+
+/// Set `user_id`'s own Starter session-read caps to `parameters` (key to
+/// value), as `pierre-cli config set --user` does.
+pub(crate) async fn set_session_read_caps(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    parameters: HashMap<String, Value>,
+) {
+    let user = user_id.to_string();
+    let response = resources
+        .agent
+        .admin_config
+        .as_ref()
+        .expect("the test server runs the admin config")
+        .update_config(
+            &UpdateConfigRequest {
+                parameters,
+                reason: Some("history walk fixture".to_owned()),
+            },
+            UpdateConfigContext {
+                admin_user_id: &user,
+                admin_email: "walk-fixture@example.com",
+                scope: ConfigScope::User(&user),
+                ip_address: None,
+                user_agent: None,
+            },
+        )
+        .await
+        .expect("the caps are written");
+    assert!(
+        response.success,
+        "the caps were refused: {:?}",
+        response.validation_errors
+    );
+}
+
+/// The highest value the admin catalog accepts for the Starter `cap`: what
+/// `pierre-cli config set` may raise it to.
+pub(crate) async fn session_read_ceiling(
+    resources: &Arc<ServerContext>,
+    cap: SessionReadCap,
+) -> u32 {
+    let key = cap.config_key(&UserTier::Starter);
+    let catalog = resources
+        .agent
+        .admin_config
+        .as_ref()
+        .expect("the test server runs the admin config")
+        .get_catalog(ConfigLookupScope::global())
+        .await
+        .expect("the catalog is read");
+    catalog
+        .categories
+        .iter()
+        .flat_map(|category| &category.parameters)
+        .find(|parameter| parameter.key == key)
+        .and_then(|parameter| parameter.valid_range.as_ref())
+        .and_then(|range| range.max.as_u64())
+        .and_then(|max| u32::try_from(max).ok())
+        .unwrap_or_else(|| panic!("{key} is in the catalog with a ceiling"))
 }
 
 /// A live Garmin grant and its connection, as the OAuth callback leaves them.

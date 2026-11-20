@@ -79,8 +79,6 @@ use super::registry::PromptSource;
 /// first entry of [`SUPPORTED_LOCALES`] rather than its own literal, so the
 /// default follows the one list instead of drifting from it — currently
 /// French, because the majority user base is francophone.
-///
-/// LIMITATION(registre#1669): `DEFAULT_LOCALE` is the language of every pre-link messaging prompt (`otp.rs`, `linking.rs`), so an unlinked English speaker reads French.
 pub const DEFAULT_LOCALE: &str = SUPPORTED_LOCALES[0];
 
 // ── Chat pipeline keys ────────────────────────────────────────────────────
@@ -270,6 +268,12 @@ pub const KEY_AGENT_SCOPE_CARVE_OUT_RECIPES: &str = "messaging.scope.carve_out.r
 /// Key: short placeholder shown in-channel (Telegram/Slack/Discord) while
 /// the LLM is still generating the reply — e.g. "thinking…" / "réflexion…".
 pub const KEY_THINKING_PLACEHOLDER: &str = "messaging.thinking_placeholder";
+/// Key: reply to a voice note, a photo without a caption, or another media
+/// message the agent cannot read yet.
+///
+/// Sent instead of silence and never forwarded to the model: the platform
+/// downloads no media, so the only thing it can say is that it reads text.
+pub const KEY_MEDIA_TEXT_ONLY: &str = "messaging.media_text_only";
 /// Key: reply for unmatched slash commands.
 ///
 /// Fires when the user types a `/something` prefix that doesn't match any
@@ -708,8 +712,11 @@ pub const KEY_PROVIDER_REAUTH_SERVED_NO_LINK: &str = "messaging.provider.reauth_
 /// The sentence ([`KEY_PROVIDER_REAUTH_REQUIRED`]) already carries the URL as
 /// text for channels that only autolink. Where buttons render, the same URL
 /// also rides a `url` `CardAction` labelled with this string, so the athlete
-/// taps instead of copying. `{0}` = provider display name.
-pub const KEY_PROVIDER_RECONNECT_BUTTON: &str = "messaging.provider.reconnect_button";
+/// taps instead of copying. The Card's title names the provider, so the label
+/// is the bare verb and takes no placeholder: a provider name overflows
+/// `WhatsApp`'s 20-character `cta_url` label for `Intervals.icu` and in
+/// Spanish. Every locale fits 20 characters.
+pub const KEY_PROVIDER_RECONNECT_CTA: &str = "messaging.provider.reconnect_cta";
 
 // ── /status command keys ──────────────────────────────────────────────────
 

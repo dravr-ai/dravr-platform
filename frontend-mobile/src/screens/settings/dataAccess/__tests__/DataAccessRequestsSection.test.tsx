@@ -65,14 +65,14 @@ const LETTER = {
 
 const globalMutationError = jest.fn();
 
-function renderSection() {
+function renderSection(props: React.ComponentProps<typeof DataAccessRequestsSection> = {}) {
   const client = new QueryClient({
     mutationCache: new MutationCache({ onError: globalMutationError }),
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <DataAccessRequestsSection />
+      <DataAccessRequestsSection {...props} />
     </QueryClientProvider>,
   );
 }
@@ -81,6 +81,29 @@ describe('DataAccessRequestsSection (mobile)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockApi.letter.mockResolvedValue(LETTER);
+  });
+
+  it('opens the request a reminder names, once the list has it (carnet#1659)', async () => {
+    const sent = { ...DRAFT, status: 'sent' as const, sent_on: '2026-11-10', due_on: '2026-12-10' };
+    mockApi.list.mockResolvedValue([{ ...DRAFT, id: 'r0', controller: 'Other Co' }, sent]);
+    const onRequestOpened = jest.fn();
+    renderSection({ openRequestId: 'r1', onRequestOpened });
+
+    expect(await screen.findByTestId('data-access-detail-status')).toHaveTextContent('Sent');
+    expect(screen.getByTestId('data-access-row-r1').props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true }),
+    );
+    expect(onRequestOpened).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens nothing for a reminder whose request is gone', async () => {
+    mockApi.list.mockResolvedValue([DRAFT]);
+    const onRequestOpened = jest.fn();
+    renderSection({ openRequestId: 'deleted', onRequestOpened });
+
+    expect(await screen.findByTestId('data-access-row-r1')).toBeTruthy();
+    expect(screen.queryByTestId('data-access-detail-status')).toBeNull();
+    expect(onRequestOpened).not.toHaveBeenCalled();
   });
 
   it('says there are no requests yet and opens the import screen from the fallback note', async () => {

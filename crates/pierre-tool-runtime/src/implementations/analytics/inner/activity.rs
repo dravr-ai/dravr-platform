@@ -13,6 +13,9 @@ use crate::implementations::last_known::{self, LiveRead};
 use crate::implementations::provider_context_reads::{
     read_activity_context, source_label, ContextLimits, CONTEXT_READ_BUDGET,
 };
+use crate::implementations::stored_copy::{
+    activities_or_stored, attach_caveat, caveat, with_caveat, Reader, Served,
+};
 use crate::implementations::stored_physiology::stored_hr_zones;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::{by_id_reader, resolve_provider_for_request};
@@ -25,7 +28,7 @@ use dravr_cageux::physiological_constants::business_thresholds::{
 };
 use dravr_cageux::zones::{HrIntensity, HrZones};
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
-use pierre_core::errors::ErrorCode;
+use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
@@ -41,10 +44,14 @@ use uuid::Uuid;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 
 /// The athlete's heart-rate zones as this tool reads them: the zones, or why
 /// there are none.
 type AthleteHrZones = Result<HrZones, HrZonesUnavailable>;
+
+/// How many of the connection's recent workouts a missed activity id lists.
+const MISSED_ID_RECENT_LIMIT: usize = 5;
 
 /// Generate insights and recommendations from activity data
 ///
@@ -182,12 +189,16 @@ fn create_intelligence_response(
     )
 }
 
-/// The activity an analysis is asked for, and the provider it is read from as
-/// the athlete knows it.
+/// The activity an analysis is asked for, whose it is, and the provider it is
+/// read from as the athlete knows it.
 #[derive(Debug, Clone, Copy)]
 struct Asked<'req> {
     /// The provider's id for the activity.
     activity_id: &'req str,
+    /// The athlete, for the response metadata.
+    user_uuid: Uuid,
+    /// The request's tenant, for the response metadata.
+    tenant_id: Option<&'req str>,
     /// The provider's name for the athlete (`Strava`), labelling its figures.
     source: &'req str,
     /// How the provider's own figures are read beside the activity; `None`
@@ -205,33 +216,35 @@ struct Asked<'req> {
 /// * `provider` - Configured activity provider
 /// * `reader` - The reader of the copy standing for the activity's workout,
 ///   when it is not `provider` (an export or upload the athlete brought in)
-/// * `activity_id` - Activity identifier to fetch
-/// * `user_uuid` - User UUID for response metadata
-/// * `tenant_id` - Optional tenant identifier
+/// * `asked` - The activity to fetch, whose it is, and how its context is read
+/// * `recent` - The connection's recent workouts, awaited only when the id
+///   misses; a stored copy standing in for them carries its caveat
 ///
 /// # Returns
 /// `UniversalResponse` with intelligence or error
 async fn fetch_and_analyze_activity(
-    provider: Box<dyn FitnessProvider>,
+    provider: &dyn FitnessProvider,
     reader: Option<Box<dyn FitnessProvider>>,
     asked: Asked<'_>,
-    user_uuid: Uuid,
-    tenant_id: Option<String>,
     hr_zones: &AthleteHrZones,
     output_format: OutputFormat,
+    recent: impl Future<Output = AppResult<Served<Vec<Activity>>>> + Send,
 ) -> Result<UniversalResponse, ProtocolError> {
     let Asked {
         activity_id,
+        user_uuid,
+        tenant_id,
         source,
         context,
     } = asked;
-    let target = reader.as_deref().unwrap_or_else(|| provider.as_ref());
+    let tenant_id = tenant_id.map(str::to_owned);
+    let target = reader.as_deref().unwrap_or(provider);
     // The provider's own zones and best efforts are read beside the activity,
     // from the provider that owns the id: never from the copy an upload
     // stands in with, whose id is not the provider's.
     let context_read = async {
         let limits = context.filter(|_| reader.is_none())?;
-        read_activity_context(provider.as_ref(), source, activity_id, limits).await
+        read_activity_context(provider, source, activity_id, limits).await
     };
     let (fetched, provider_context) = tokio::join!(target.get_activity(activity_id), context_read);
     match fetched {
@@ -261,12 +274,14 @@ async fn fetch_and_analyze_activity(
                 // Activity not found - fetch recent activities to show valid IDs
                 // The connection's recent workouts, each recording of one
                 // merged into its session as the activity list shows it.
-                let recent = provider
-                    .get_activities(Some(5), None)
-                    .await
-                    .map(|rows| merge_duplicates(rows, &DedupConfig::from_env()).0);
+                let recent = recent.await.map(|served| {
+                    served.map(|rows| merge_duplicates(rows, &DedupConfig::from_env()).0)
+                });
                 match recent {
-                    Ok(activities) if !activities.is_empty() => {
+                    Ok(Served {
+                        value: activities,
+                        caveat,
+                    }) if !activities.is_empty() => {
                         let activity_list: Vec<String> = activities
                             .iter()
                             .map(|a| {
@@ -308,7 +323,7 @@ async fn fetch_and_analyze_activity(
                             available_activities: activity_list,
                         });
 
-                        return apply_format_typed(
+                        let formatted = apply_format_typed(
                             UniversalResponse {
                                 success: true,
                                 result: None,
@@ -318,6 +333,7 @@ async fn fetch_and_analyze_activity(
                             analysis,
                             output_format,
                         );
+                        return with_caveat(formatted, caveat);
                     }
                     Ok(_) => {
                         return Ok(UniversalResponse {
@@ -425,6 +441,7 @@ pub(crate) fn handle_get_activity_intelligence(
                 // activity's cached row answers, with a caveat.
                 let read = {
                     let (id, tenant) = (activity_id.to_owned(), request.tenant_id.clone());
+                    let runtime = Arc::clone(&executor.resources);
                     let zones = hr_zones.clone();
                     let registry = executor.resources.provider_registry();
                     let source = source_label(registry, &provider_name);
@@ -437,21 +454,28 @@ pub(crate) fn handle_get_activity_intelligence(
                         ai_scope::first_party_only_read(registry.as_ref(), provider.name(), None)
                             .is_ok();
                     async move {
+                        // A missed id lists the recent workouts; a read the
+                        // session-read cap refused lists the stored ones
+                        // (carnet#1661).
+                        let store = Reader::new(&runtime, user_uuid, tenant.as_deref());
+                        let recent =
+                            activities_or_stored(store, provider.as_ref(), MISSED_ID_RECENT_LIMIT);
                         fetch_and_analyze_activity(
-                            provider,
+                            provider.as_ref(),
                             reader,
                             Asked {
                                 activity_id: &id,
+                                user_uuid,
+                                tenant_id: tenant.as_deref(),
                                 source: &source,
                                 context: served.then_some(ContextLimits {
                                     time: CONTEXT_READ_BUDGET,
                                     budget: context_budget.as_ref(),
                                 }),
                             },
-                            user_uuid,
-                            tenant,
                             &zones,
                             output_format,
+                            recent,
                         )
                         .await
                         .unwrap_or_else(|e| last_known::failed_read(&e))
@@ -565,10 +589,7 @@ impl CachedRead<'_> {
             analysis,
             self.output_format,
         )?;
-        last_known::attach_caveat(
-            &mut served,
-            last_known::caveat(&backend, "activity", reason, synced_at),
-        );
+        attach_caveat(&mut served, caveat(&backend, "activity", reason, synced_at));
         Ok(Some(served))
     }
 }
@@ -781,21 +802,28 @@ mod tests {
                 default_scopes: Vec::new(),
             },
         };
+        let recent = async {
+            provider
+                .get_activities(Some(MISSED_ID_RECENT_LIMIT), None)
+                .await
+                .map(Served::live)
+        };
         let response = fetch_and_analyze_activity(
-            Box::new(provider),
+            &provider,
             None,
             Asked {
                 activity_id: "unknown",
+                user_uuid: Uuid::new_v4(),
+                tenant_id: None,
                 source: "Garmin",
                 context: None,
             },
-            Uuid::new_v4(),
-            None,
             &Err(HrZonesUnavailable::MissingHeartRates {
                 resting_hr: true,
                 max_hr: true,
             }),
             OutputFormat::Json,
+            recent,
         )
         .await
         .unwrap();

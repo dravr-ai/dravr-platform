@@ -28,7 +28,7 @@ use chrono::{DateTime, Duration, Utc};
 use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::BlobKey;
 use dravr_barrage::digest::Sha256;
-use dravr_barrage::store::memory::{MemoryActivityRecordStore, MemoryImportJobStore};
+use dravr_barrage::store::memory::MemoryImportJobStore;
 use dravr_barrage::store::{BarrageStores, PageReq, RecordQuery};
 use dravr_barrage::{BarrageError, Scope, SourceKey};
 use futures_util::stream::{self, BoxStream, StreamExt};
@@ -52,6 +52,7 @@ use pierre_mcp_server::services::archive_import::{ArchiveImports, ImportWiring};
 use pierre_mcp_server::services::retention_sweep_worker::retention_sweeper;
 use pierre_providers::upload_provider::file_sha256;
 use pierre_services::admin_ops::AccountCaller;
+use pierre_services::barrage_keys::memory_records;
 use pierre_services::live_activities::WriteOrigin;
 use pierre_services::stored_health;
 use pierre_services::user_removal::{remove_user, UserRemoval};
@@ -108,7 +109,7 @@ impl ExportFetcher for FixtureFetcher {
 pub(crate) fn imports_serving(export: Vec<u8>) -> (ArchiveImports, BarrageStores) {
     let stores = BarrageStores {
         blobs: Arc::new(MemoryBlobStore::new()),
-        records: Arc::new(MemoryActivityRecordStore::new()),
+        records: Arc::new(memory_records()),
         jobs: Arc::new(MemoryImportJobStore::new()),
     };
     let imports = ArchiveImports::new(ImportWiring {

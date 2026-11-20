@@ -17,6 +17,13 @@ use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
+use dravr_barrage::digest::Sha256 as BarrageSha256;
+use dravr_barrage::keyed::Signer;
+use dravr_barrage::record::{StreamsState, SummaryWindow, TotalsFrom};
+use dravr_barrage::record_log::checkpoint::{verify_note, Anchor};
+use dravr_barrage::record_log::{merkle, RecordLog};
+use dravr_barrage::store::ActivityRecordStore;
+use dravr_barrage::{ActivityId, ActivityRecord, Provenance, Scope, SourceKey};
 use pierre_auth::dto::auth::{LoginRequest, RegisterRequest};
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
@@ -31,8 +38,8 @@ use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{CoachingGroup, GroupDigestMode, GroupRespondMode};
 use pierre_core::models::{
-    ConnectionType, DataSource, DeviceType, StoredSleepSession, Tenant, TenantId, User,
-    UserOAuthToken, UserStatus,
+    ActivityBuilder, ConnectionType, DataSource, DeviceType, SportType, StoredSleepSession, Tenant,
+    TenantId, User, UserOAuthToken, UserStatus,
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
@@ -49,13 +56,16 @@ use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::admin_ops::AccountCaller;
 use pierre_services::analytics::{cache_user_email, resolve_user_email};
+use pierre_services::barrage_keys::{memory_records, LocalSigner};
 use pierre_services::import_tombstones::clear_by_operator;
 use pierre_services::provider_revocation::{DisconnectReason, RevocationOutcome};
+use pierre_services::record_log_worker::RecordLogWorker;
 use pierre_services::user_removal::{
     remove_user, ProviderDisconnector, RemovalReport, UserRemoval,
 };
 use pierre_services::webhook_owner::{resolve_webhook_owner, WebhookTarget};
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
+use ring::signature::{UnparsedPublicKey, ED25519};
 use secrecy::SecretString;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -846,4 +856,221 @@ async fn served_receipts(
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
     serde_json::from_value(body["data"]["receipts"].clone()).unwrap()
+}
+
+/// A deletion writes each tombstone with its keyed digest beside the plain
+/// one; a row an older binary wrote without it still refuses its identity,
+/// and the backfill keys it once (carnet#1542).
+#[tokio::test]
+async fn a_tombstone_is_keyed_and_a_legacy_unkeyed_one_still_refuses() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let (deleted, tenant_id, _) = seed_athlete(repos, "keyed").await;
+    connect_strava(repos, deleted, tenant_id, STRAVA_ATHLETE).await;
+    removed(
+        remove_user(
+            repos,
+            Some(&ConfirmsRevocation),
+            None,
+            None,
+            &acting_on(repos, &AccountCaller::account_holder(deleted), deleted).await,
+        )
+        .await
+        .unwrap(),
+    );
+    let unkeyed = "SELECT COUNT(*) FROM import_tombstones WHERE identity_key IS NULL";
+    let keyed_as_hash = "SELECT COUNT(*) FROM import_tombstones WHERE identity_key = identity_hash";
+    assert_eq!(
+        scalar(&resources, unkeyed, None).await,
+        0,
+        "bug: a tombstone written unkeyed"
+    );
+    assert_eq!(
+        scalar(&resources, keyed_as_hash, None).await,
+        0,
+        "bug: the key is the plain hash"
+    );
+
+    execute(
+        &resources,
+        "UPDATE import_tombstones SET identity_key = NULL",
+    )
+    .await;
+    let target = resolve_webhook_owner(repos, "strava", STRAVA_ATHLETE)
+        .await
+        .unwrap();
+    assert!(
+        matches!(target, WebhookTarget::Tombstoned { .. }),
+        "bug: an unkeyed tombstone no longer refuses its provider account: {target:?}"
+    );
+    let keyed = repos
+        .import_tombstones
+        .backfill_identity_keys(100)
+        .await
+        .unwrap();
+    assert_eq!(
+        keyed, 2,
+        "bug: the backfill keys the provider account and the email"
+    );
+    assert_eq!(
+        repos
+            .import_tombstones
+            .backfill_identity_keys(100)
+            .await
+            .unwrap(),
+        0,
+        "bug: the backfill keys a tombstone twice"
+    );
+    let target = resolve_webhook_owner(repos, "strava", STRAVA_ATHLETE)
+        .await
+        .unwrap();
+    assert!(
+        matches!(target, WebhookTarget::Tombstoned { .. }),
+        "bug: a backfilled key does not match its identity: {target:?}"
+    );
+}
+
+/// The `record_log` worker anchors the receipt chain's head as leaf 0 of a
+/// signed checkpoint, records the anchor, and the admin ledger serves it; an
+/// account the platform no longer holds loses its log (carnet#1542).
+#[tokio::test]
+async fn a_checkpoint_anchors_the_receipt_chain_head() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    for label in ["anchor-a", "anchor-b"] {
+        let (user_id, _, _) = seed_athlete(repos, label).await;
+        removed(
+            remove_user(
+                repos,
+                None,
+                None,
+                None,
+                &acting_on(repos, &AccountCaller::account_holder(user_id), user_id).await,
+            )
+            .await
+            .unwrap(),
+        );
+    }
+    let (athlete, athlete_tenant, _) = seed_athlete(repos, "anchor-kept").await;
+    let records = Arc::new(memory_records());
+    let kept = Scope::new(Uuid::from(athlete_tenant), athlete);
+    let orphan = Scope::new(Uuid::new_v4(), Uuid::new_v4());
+    for scope in [kept, orphan] {
+        let id = ActivityId::parse("anchor-ride").unwrap();
+        let record = anchor_ride(scope, id);
+        records.upsert(&scope, &[record]).await.unwrap();
+    }
+    let signer = Arc::new(LocalSigner::random().unwrap());
+    let worker = RecordLogWorker::new(
+        records.clone(),
+        Arc::clone(&repos.import_tombstones),
+        Arc::clone(&repos.account_deletion),
+        Arc::clone(&repos.users),
+        Some(signer.clone()),
+    );
+
+    let tick = worker.run().await.unwrap();
+    assert_eq!(
+        tick.orphans_swept, 1,
+        "bug: a log of no account outlives it"
+    );
+    assert!(
+        records.log_head(&orphan).await.unwrap().is_none(),
+        "bug: the orphan's log head survives the sweep"
+    );
+    let anchor = tick.anchored.expect("a checkpoint is cut and anchored");
+    let chain = receipts(repos).await;
+    let head = chain.last().unwrap();
+    assert_eq!(
+        (anchor.receipt_seq, &anchor.receipt_hash),
+        (head.seq, &head.hash),
+        "bug: the anchor is not the chain head"
+    );
+
+    let (checkpoint, _, leaves) = records.athlete_checkpoint(&kept).await.unwrap().unwrap();
+    let anchor_leaf = Anchor {
+        seq: u64::try_from(head.seq).unwrap(),
+        hash: BarrageSha256::parse_hex(&head.hash).unwrap(),
+    }
+    .leaf();
+    assert_eq!(leaves[0], anchor_leaf, "bug: the chain head is not leaf 0");
+    let path = merkle::inclusion_proof(0, &leaves).unwrap();
+    assert!(
+        merkle::verify_inclusion(0, checkpoint.size, &anchor_leaf, &path, &checkpoint.root),
+        "bug: the chain head is not proven under the signed root"
+    );
+    let verify = |key: &[u8; 32], message: &[u8], sig: &[u8; 64]| {
+        UnparsedPublicKey::new(&ED25519, key)
+            .verify(message, sig)
+            .is_ok()
+    };
+    let note = verify_note(
+        &anchor.note,
+        signer.key_name(),
+        &signer.public_key(),
+        &verify,
+    )
+    .unwrap();
+    assert_eq!(
+        note.root, checkpoint.root,
+        "bug: the note signs another tree"
+    );
+
+    let context = admin_context(&resources);
+    let response = handle_list_deletion_receipts(
+        State(context),
+        Extension(admin_token(true)),
+        Query(ReceiptPageQuery::default()),
+    )
+    .await
+    .unwrap();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        body["data"]["anchor"]["receipt_seq"],
+        json!(head.seq),
+        "bug: the admin ledger serves another anchor"
+    );
+    assert_eq!(
+        body["data"]["anchor"]["checkpoint_id"],
+        json!(checkpoint.id),
+        "bug: the admin ledger names another checkpoint"
+    );
+
+    let again = worker.run().await.unwrap();
+    assert_eq!(
+        again.anchored, None,
+        "bug: an unchanged tree is signed again"
+    );
+}
+
+/// One archive ride of `scope`.
+fn anchor_ride(scope: Scope, id: ActivityId) -> ActivityRecord {
+    let start = Utc::now() - Duration::days(1);
+    let activity = ActivityBuilder::new(
+        id.as_str(),
+        "Ride",
+        SportType::Ride,
+        start,
+        3600,
+        "strava_archive",
+    )
+    .distance_meters(30_000.0)
+    .build();
+    let provenance = Provenance {
+        source: SourceKey::StravaArchive,
+        import_id: None,
+        source_activity_id: id.as_str().to_owned(),
+        source_athlete_id: None,
+        ingested_at: start,
+        original: None,
+        original_sha256: None,
+        session_index: None,
+        streams_state: StreamsState::None,
+        source_gear: None,
+        importer_version: None,
+        summary_window: SummaryWindow::default(),
+        totals_from: TotalsFrom::default(),
+    };
+    ActivityRecord::try_new(scope, id, provenance, activity).unwrap()
 }

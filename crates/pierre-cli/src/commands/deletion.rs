@@ -11,7 +11,10 @@
 //! the one before it, each `prev_hash` is the previous `hash`, and each `hash`
 //! is the one the receipt's own fields produce. It prints the head, which an
 //! operator records somewhere the database cannot reach, and on a broken
-//! chain names the first broken link and exits non-zero.
+//! chain names the first broken link and exits non-zero. It then checks the
+//! newest anchor, the receipt a signed `record_log` checkpoint holds: that
+//! receipt must be the chain's own, or the chain was cut or rewritten below
+//! what a signature outside the database vouches for (carnet#1542).
 //!
 //! `tombstones` lists the import tombstones deleted accounts left, and
 //! `clear-tombstone` clears one as the operator, when the person who holds
@@ -20,7 +23,7 @@
 use clap::Subcommand;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{
-    verify_receipt_chain, ChainVerification, DeletionReceipt, ImportTombstone,
+    verify_receipt_chain, ChainVerification, DeletionReceipt, ImportTombstone, ReceiptAnchor,
 };
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -93,17 +96,24 @@ pub(crate) async fn dispatch(command: DeletionCommand) -> AppResult<()> {
     match command {
         DeletionCommand::VerifyReceipts { server, token } => {
             let client = admin_client(server, token)?;
-            let receipts = fetch_receipts(&client).await?;
+            let (receipts, anchor) = fetch_receipts(&client).await?;
             let verification = verify_receipt_chain(&receipts);
             for line in verification_lines(&verification) {
                 println!("{line}");
             }
-            verification.first_break.map_or(Ok(()), |fault| {
-                Err(AppError::internal(format!(
+            let anchored = anchor_lines(anchor.as_ref(), &receipts);
+            for line in &anchored.lines {
+                println!("{line}");
+            }
+            if let Some(fault) = verification.first_break {
+                return Err(AppError::internal(format!(
                     "deletion receipt chain broken at seq {}: {}",
                     fault.seq, fault.reason
-                )))
-            })
+                )));
+            }
+            anchored
+                .fault
+                .map_or(Ok(()), |fault| Err(AppError::internal(fault)))
         }
         DeletionCommand::Tombstones {
             include_cleared,
@@ -154,9 +164,12 @@ pub(crate) async fn dispatch(command: DeletionCommand) -> AppResult<()> {
     }
 }
 
-/// Every receipt, page after page, in `seq` order.
-async fn fetch_receipts(client: &RemoteClient) -> AppResult<Vec<DeletionReceipt>> {
+/// Every receipt, page after page, in `seq` order, and the newest anchor.
+async fn fetch_receipts(
+    client: &RemoteClient,
+) -> AppResult<(Vec<DeletionReceipt>, Option<ReceiptAnchor>)> {
     let mut receipts: Vec<DeletionReceipt> = Vec::new();
+    let mut anchor = None;
     loop {
         let after = receipts.last().map_or(0, |r| r.seq);
         let body = client
@@ -165,10 +178,13 @@ async fn fetch_receipts(client: &RemoteClient) -> AppResult<Vec<DeletionReceipt>
             ))
             .await?;
         let page = receipts_from(&body)?;
+        if receipts.is_empty() {
+            anchor = anchor_from(&body)?;
+        }
         let full = page.len() >= RECEIPT_PAGE;
         receipts.extend(page);
         if !full {
-            return Ok(receipts);
+            return Ok((receipts, anchor));
         }
     }
 }
@@ -209,6 +225,61 @@ fn tombstones_from(body: &Value) -> AppResult<Vec<ImportTombstone>> {
         .pointer("/data/tombstones")
         .ok_or_else(|| shape_error(route, "no data.tombstones list"))?;
     Vec::deserialize(tombstones).map_err(|e| shape_error(route, &e.to_string()))
+}
+
+/// The anchor in a `/admin/deletion-receipts` answer; `None` when it is
+/// `null` (no checkpoint yet) or the server predates anchors.
+///
+/// # Errors
+/// Returns an external-service error when `data.anchor` is not an anchor.
+fn anchor_from(body: &Value) -> AppResult<Option<ReceiptAnchor>> {
+    match body.pointer("/data/anchor") {
+        None | Some(Value::Null) => Ok(None),
+        Some(anchor) => ReceiptAnchor::deserialize(anchor)
+            .map(Some)
+            .map_err(|e| shape_error("/admin/deletion-receipts", &e.to_string())),
+    }
+}
+
+/// What `verify-receipts` prints about the anchor, and the fault when the
+/// anchored receipt is not the chain's own: the chain was rewritten or cut
+/// below what a signed checkpoint holds.
+struct AnchorCheck {
+    lines: Vec<String>,
+    fault: Option<String>,
+}
+
+fn anchor_lines(anchor: Option<&ReceiptAnchor>, receipts: &[DeletionReceipt]) -> AnchorCheck {
+    let Some(anchor) = anchor else {
+        return AnchorCheck {
+            lines: vec!["Anchor: no signed checkpoint holds the chain yet.".to_owned()],
+            fault: None,
+        };
+    };
+    let mut lines = vec![format!(
+        "Anchor: seq {}  hash {}  under signed checkpoint {} (tree of {}, root {})",
+        anchor.receipt_seq,
+        anchor.receipt_hash,
+        anchor.checkpoint_id,
+        anchor.tree_size,
+        anchor.tree_root
+    )];
+    let held = anchor.receipt_seq == 0
+        || receipts
+            .iter()
+            .any(|r| r.seq == anchor.receipt_seq && r.hash == anchor.receipt_hash);
+    let fault = if held {
+        lines.push("Anchor matches the chain.".to_owned());
+        None
+    } else {
+        let fault = format!(
+            "the signed checkpoint anchors receipt {} with hash {}, which the chain does not hold",
+            anchor.receipt_seq, anchor.receipt_hash
+        );
+        lines.push(format!("Anchor MISMATCH: {fault}"));
+        Some(fault)
+    };
+    AnchorCheck { lines, fault }
 }
 
 /// What `verify-receipts` prints for `verification`.
@@ -273,7 +344,10 @@ mod tests {
 
     use pierre_database::repositories::{verify_receipt_chain, DeletionReceipt, GENESIS_HASH};
 
-    use super::{receipts_from, verification_lines};
+    use chrono::Utc;
+    use pierre_database::repositories::ReceiptAnchor;
+
+    use super::{anchor_from, anchor_lines, receipts_from, verification_lines};
 
     /// Two receipts sealed the way the server seals them.
     fn sealed_pair() -> Vec<DeletionReceipt> {
@@ -323,6 +397,50 @@ mod tests {
             lines[2].starts_with("First broken link: seq 2 (receipt r-2)"),
             "{}",
             lines[2]
+        );
+    }
+
+    #[test]
+    fn an_anchor_the_chain_does_not_hold_is_a_fault() {
+        let receipts = sealed_pair();
+        let mut anchor = ReceiptAnchor {
+            receipt_seq: 2,
+            receipt_hash: receipts[1].hash.clone(),
+            checkpoint_id: 9,
+            tree_size: 3,
+            tree_root: "ab".to_owned(),
+            note: "note".to_owned(),
+            anchored_at: Utc::now(),
+        };
+        assert!(
+            anchor_lines(Some(&anchor), &receipts).fault.is_none(),
+            "bug: the chain's own head reads as a mismatch"
+        );
+        anchor.receipt_hash = "f".repeat(64);
+        let check = anchor_lines(Some(&anchor), &receipts);
+        assert!(
+            check.fault.is_some(),
+            "bug: a rewritten head passes its anchor"
+        );
+        assert!(
+            check.lines[1].starts_with("Anchor MISMATCH"),
+            "bug: a mismatch is not printed: {:?}",
+            check.lines
+        );
+        let body = json!({ "data": { "receipts": [], "anchor": anchor } });
+        assert_eq!(
+            anchor_from(&body).unwrap(),
+            Some(anchor),
+            "bug: the served anchor does not round-trip"
+        );
+        assert_eq!(
+            anchor_from(&json!({ "data": { "anchor": null } })).unwrap(),
+            None,
+            "bug: no checkpoint yet reads as an anchor"
+        );
+        assert!(
+            anchor_lines(None, &receipts).fault.is_none(),
+            "bug: no checkpoint yet is a fault"
         );
     }
 

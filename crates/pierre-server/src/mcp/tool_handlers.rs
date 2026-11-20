@@ -20,6 +20,7 @@ use pierre_core::models::{ConversationTurnId, UserTier};
 use pierre_core::models::{OAuthNotification, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
+use pierre_core::usage_log::{self, LimitHit};
 use pierre_database::backends::NotificationRepository;
 use pierre_mcp_schema::{McpError, McpResponse};
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
@@ -498,14 +499,14 @@ impl ToolHandlers {
             .await
         {
             Ok(check) if !check.allowed => {
-                warn!(
-                    tenant_id,
+                usage_log::limit_reached(&LimitHit {
                     user_id,
-                    current = check.current,
-                    limit = check.limit,
-                    counter_type,
-                    "Activity quota exceeded"
-                );
+                    tenant_id: Some(tenant_id),
+                    limit_type: counter_type,
+                    current: check.current,
+                    limit: check.limit,
+                    surface: "mcp",
+                });
                 Some(Self::build_rate_limit_error(
                     request_id,
                     &AppError::quota_exceeded(

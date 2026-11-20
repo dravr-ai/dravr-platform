@@ -65,3 +65,4 @@ mod user_preferences_test;
 mod user_tier_overrides_test;
 mod users_is_admin_follows_role_test;
 mod weather_cache_test;
+mod wellness_resume_day_test;

@@ -46,7 +46,7 @@ vi.mock('../../services/api', () => ({
   pierreApi: { adapter: { authStorage: mockAuthStorage } },
 }))
 
-const GROUP_REFUSAL = 'Group coaching requires a Professional or Enterprise plan'
+const GROUP_REFUSAL = 'Your plan does not include group coaching'
 const INSUFFICIENT_SCOPE_CHALLENGE =
   'Bearer resource_metadata="https://x/.well-known/oauth-protected-resource", ' +
   'error="insufficient_scope", scope="fitness:write"'

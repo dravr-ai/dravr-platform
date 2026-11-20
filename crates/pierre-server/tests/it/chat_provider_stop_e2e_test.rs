@@ -29,12 +29,14 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{
     FILTERED_REPLY_FINISH_REASON, STOP_CAVEAT_SEPARATOR, TRUNCATED_REPLY_FINISH_REASON,
 };
+use pierre_core::usage_log;
 use pierre_llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole, StreamChunk,
     TokenUsage,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
+use pierre_test_support::log_capture::{capture_target, drain};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use reqwest::Client;
 use serde_json::{json, Value};
@@ -133,6 +135,8 @@ struct Harness {
     base_url: String,
     token: String,
     conversation_id: String,
+    /// The athlete the turns are sent as.
+    user_id: String,
 }
 
 impl Harness {
@@ -147,7 +151,7 @@ impl Harness {
             axum::serve(listener, app).await.expect("serve");
         });
         let base_url = format!("http://{addr}");
-        let (_user, token) = common::create_test_tenant_with_provider(&resources, email)
+        let (user, token) = common::create_test_tenant_with_provider(&resources, email)
             .await
             .expect("create user + token + provider");
         let client = Client::builder().no_gzip().build().expect("client");
@@ -173,6 +177,7 @@ impl Harness {
             base_url,
             token,
             conversation_id,
+            user_id: user.id.to_string(),
         }
     }
 
@@ -199,7 +204,9 @@ fn caveat(key: &str) -> String {
     MessagingStringsRegistry::new().get(key, "en")
 }
 
-#[tokio::test(flavor = "multi_thread")]
+// Current-thread, so the served turn runs on the thread the usage-line
+// capture is installed on.
+#[tokio::test]
 async fn a_truncated_reply_is_flagged_stamped_and_replayed_without_its_caveat() {
     let provider = Arc::new(ScriptedStopProvider::new(
         "length",
@@ -208,7 +215,47 @@ async fn a_truncated_reply_is_flagged_stamped_and_replayed_without_its_caveat() 
     let requests = Arc::clone(&provider.requests);
     let harness = Harness::start(provider, "provider-stop-truncated@example.com").await;
 
+    let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
     let turn = harness.send(GENERAL_QUESTION).await;
+    drop(usage_guard);
+
+    // The cut reply is logged against the athlete, with the completion
+    // tokens the provider spent before its own cap stopped it (carnet#1630).
+    let lines: Vec<_> = drain(&usage_lines)
+        .into_iter()
+        .filter(|line| line.get("event").map(String::as_str) == Some(usage_log::REPLY_CUT_SHORT))
+        .collect();
+    assert_eq!(
+        lines.len(),
+        1,
+        "one cut-short line per truncated turn: {lines:?}"
+    );
+    let line = &lines[0];
+    assert_eq!(
+        line.get("user_id").map(String::as_str),
+        Some(harness.user_id.as_str()),
+        "the line names the athlete whose reply was cut: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit_type").map(String::as_str),
+        Some("max_tokens"),
+        "the line names the provider output cap: {line:?}"
+    );
+    assert_eq!(
+        line.get("current").map(String::as_str),
+        Some("11"),
+        "the completion tokens the scripted provider reported: {line:?}"
+    );
+    assert_eq!(
+        line.get("limit").map(String::as_str),
+        Some("0"),
+        "the platform sets no max_tokens, so the cap is unknown: {line:?}"
+    );
+    assert_eq!(
+        line.get("surface").map(String::as_str),
+        Some("chat"),
+        "the cut was met in chat: {line:?}"
+    );
 
     // The athlete reads the fragment AND is told it is one.
     let expected = format!(

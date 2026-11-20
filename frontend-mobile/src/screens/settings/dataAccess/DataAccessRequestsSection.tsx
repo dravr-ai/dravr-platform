@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
@@ -20,12 +20,39 @@ const SHORT_DATE: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short',
 
 type Pane = { kind: 'none' } | { kind: 'new' } | { kind: 'edit'; id: string } | { kind: 'view'; id: string };
 
-export function DataAccessRequestsSection(): React.JSX.Element {
+interface DataAccessRequestsSectionProps {
+  /**
+   * The request a reminder opens (carnet#1659): shown once the list has
+   * loaded, once per request.
+   */
+  openRequestId?: string | null;
+  /** Called once that request is open. */
+  onRequestOpened?: () => void;
+}
+
+export function DataAccessRequestsSection({
+  openRequestId = null,
+  onRequestOpened,
+}: DataAccessRequestsSectionProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
   const { requests, isLoading, isError } = useDataAccessRequests();
   const [pane, setPane] = useState<Pane>({ kind: 'none' });
+  const openedRequest = useRef<string | null>(null);
+
+  // A reminder's request opens once the list has it, and only once: the
+  // route param outlives the tap. One the athlete has since deleted opens
+  // nothing — the list is what is left to show.
+  useEffect(() => {
+    if (openRequestId === null || requests === undefined) return;
+    if (openedRequest.current === openRequestId) return;
+    openedRequest.current = openRequestId;
+    if (requests.some((request) => request.id === openRequestId)) {
+      setPane({ kind: 'view', id: openRequestId });
+      onRequestOpened?.();
+    }
+  }, [openRequestId, requests, onRequestOpened]);
 
   const shown = pane.kind === 'edit' || pane.kind === 'view' ? requests?.find((r) => r.id === pane.id) : undefined;
 

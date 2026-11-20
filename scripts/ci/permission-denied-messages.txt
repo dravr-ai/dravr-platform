@@ -40,9 +40,10 @@ crates/pierre-core/src/error_helpers.rs:User state error: {message}
 crates/pierre-core/src/errors/mod.rs:Permission denied for '{tool_name}': {reason}
 crates/pierre-core/src/errors/mod.rs:Tool '{tool_name}' is not available for this tenant
 crates/pierre-core/src/errors/mod.rs:Tool '{tool_name}' requires admin privileges
+crates/pierre-groups/src/athlete_billing.rs:Your plan does not include group coaching
 crates/pierre-groups/src/creation_policy.rs:Group creation is not enabled for your account.
 crates/pierre-groups/src/creation_policy.rs:Group creation requires admin privileges. Contact your tenant administrator.
-crates/pierre-groups/src/service.rs:Group coaching requires a Professional or Enterprise plan
+crates/pierre-groups/src/service.rs:Your plan does not include group coaching
 crates/pierre-middleware/src/admin_guard.rs:Admin privileges required
 crates/pierre-middleware/src/auth.rs:A personal MCP token is accepted only by the MCP endpoint
 crates/pierre-middleware/src/auth.rs:This access token was delegated to an application and is accepted only by the MCP and A2A endpoints

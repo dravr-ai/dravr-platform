@@ -32,7 +32,6 @@ use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::Router;
 use chrono::{Duration as ChronoDuration, NaiveTime, Utc};
-use dravr_barrage::store::memory::MemoryActivityRecordStore;
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{ActivityId, LiveSource, Scope, SourceKey};
 use dravr_cageux::visitor::NormalizedPowerCalculator;
@@ -53,6 +52,7 @@ use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
 use pierre_providers::spi::{GarminDescriptor, ProviderDescriptor};
 use pierre_providers::upload_provider::file_sha256;
 use pierre_routes_auth::AuthRoutes;
+use pierre_services::barrage_keys::memory_records;
 use pierre_test_support::activity_fields::missing;
 use pierre_test_support::fit::{power as fit_power, FitWorkout};
 use pierre_tool_runtime::implementations::activity_summary::ActivitySummary;
@@ -1938,7 +1938,7 @@ async fn a_long_rides_power_comes_from_its_file() {
     let start = Utc::now() - ChronoDuration::days(3);
     let file = FitWorkout::ride(start, 120).with_power().encode();
     let (base, _hits) = mock_garmin_files(file).await;
-    let records: Arc<dyn ActivityRecordStore> = Arc::new(MemoryActivityRecordStore::new());
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
     let resources = context_over(Some(&base), Arc::clone(&records)).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
     push(
@@ -2353,7 +2353,7 @@ async fn an_older_push_retried_after_a_newer_one_leaves_the_newer_values() {
 
 #[tokio::test]
 async fn a_details_batch_retried_after_a_newer_summary_still_gives_the_ride_its_power() {
-    let records: Arc<dyn ActivityRecordStore> = Arc::new(MemoryActivityRecordStore::new());
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
     let resources = context_over(None, Arc::clone(&records)).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
     let start = recent_start();

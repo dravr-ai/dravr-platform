@@ -23,9 +23,19 @@ interface SettingsShellProps {
   onSelect: (id: SettingsTab) => void;
   /** Back to the menu, where the list is hidden behind the open section. */
   onBack: () => void;
+  /** The data access request a reminder opens in the privacy section, once. */
+  dataAccessRequest?: string | null;
+  /** Called once that request is open, or found gone. */
+  onDataAccessRequestOpened?: () => void;
 }
 
-export default function SettingsShell({ tab, onSelect, onBack }: SettingsShellProps) {
+export default function SettingsShell({
+  tab,
+  onSelect,
+  onBack,
+  dataAccessRequest = null,
+  onDataAccessRequestOpened,
+}: SettingsShellProps) {
   const { t } = useTranslation();
   const { user, logout, viewMode } = useAuth();
   const { flags } = useFeatureFlags();
@@ -76,7 +86,13 @@ export default function SettingsShell({ tab, onSelect, onBack }: SettingsShellPr
           )}
           <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
             <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-              <UserSettings key={openTab} initialTab={openTab} hideTabNav />
+              <UserSettings
+                key={openTab}
+                initialTab={openTab}
+                hideTabNav
+                dataAccessRequest={dataAccessRequest}
+                onDataAccessRequestOpened={onDataAccessRequestOpened}
+              />
             </Suspense>
           </div>
         </div>

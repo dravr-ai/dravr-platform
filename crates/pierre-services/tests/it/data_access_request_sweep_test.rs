@@ -300,3 +300,50 @@ async fn a_moved_due_date_is_reminded_again() {
         due_soon[0].1
     );
 }
+
+#[tokio::test]
+async fn a_reminder_opens_its_request_in_the_privacy_pane() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let service = notifications(&db);
+    let ana = athlete(repos, "ana").await;
+    let today = day(2026, 11, 18);
+    let due_soon = insert(repos, ana, DataAccessStatus::Sent, day(2026, 11, 20)).await;
+    let overdue = insert(repos, ana, DataAccessStatus::Sent, day(2026, 11, 10)).await;
+    assert_eq!(
+        sweep(repos, &service, today, morning(today))
+            .await
+            .unwrap()
+            .sent,
+        2,
+        "bug: both stages were due"
+    );
+
+    let (rows, _, _) = service
+        .list_notifications(ana.0, CommereTenantId(ana.1.as_uuid()), 50, 0, None, false)
+        .await
+        .unwrap();
+    for (event, request) in [
+        (NotificationEvent::DataAccessRequestDueSoon, &due_soon),
+        (NotificationEvent::DataAccessRequestOverdue, &overdue),
+    ] {
+        let row = rows
+            .iter()
+            .find(|row| row.notification_type == event.wire())
+            .unwrap_or_else(|| panic!("bug: no {event:?} reminder was stored"));
+        let data = row
+            .data
+            .as_ref()
+            .expect("bug: the reminder carries no data");
+        // carnet#1659: a tap lands on that request, not the notification centre.
+        assert_eq!(
+            data["screen"], "privacy",
+            "bug: the {event:?} reminder names no screen: {data}"
+        );
+        assert_eq!(
+            data["id"],
+            request.id.to_string(),
+            "bug: the {event:?} reminder does not name its request: {data}"
+        );
+    }
+}

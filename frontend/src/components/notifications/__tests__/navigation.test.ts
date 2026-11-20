@@ -34,6 +34,13 @@ describe('webNotificationRoute', () => {
     );
   });
 
+  it('opens a data access reminder on its request in the privacy pane', () => {
+    expect(webNotificationRoute({ screen: 'privacy', id: 'req-42' })).toBe(
+      'settings/privacy/data-access/req-42',
+    );
+    expect(webNotificationRoute({ screen: 'privacy' })).toBe('settings/privacy');
+  });
+
   it('opens nothing for a group info payload that names no room', () => {
     expect(webNotificationRoute({ screen: 'group_info' })).toBeNull();
     expect(webNotificationRoute({ screen: 'group_info', id: 7 })).toBeNull();

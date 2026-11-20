@@ -207,6 +207,7 @@ import { IconRail, type ModeSwitch } from "./layout/IconRail";
 import { ArrowLeftRight } from "lucide-react";
 import SettingsShell from "./settings/SettingsShell";
 import { SETTINGS_TABS, type SettingsTab } from "./settings/settingsTabs";
+import { parseSettingsSubview } from "./settings/settingsRoute";
 import {
   clearSessionRoute,
   markCurrentSessionRoute,
@@ -489,9 +490,17 @@ export default function Dashboard({
 
   // The open settings section, from `#settings/<section>`; `null` is the
   // menu alone on a narrow screen and the first section on a wide one.
+  const initialSettings =
+    initialTabSeg === "settings" ? parseSettingsSubview(initialSubSeg) : null;
   const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(
-    initialTabSeg === "settings"
-      ? parseSettingsTab(initialSubSeg, isAdminUser)
+    initialSettings ? parseSettingsTab(initialSettings.pane, isAdminUser) : null,
+  );
+  // The data access request a reminder opens in the privacy pane, from
+  // `#settings/privacy/data-access/<id>` (carnet#1659). It opens once: the
+  // route keeps only the pane, so Back never reopens the request.
+  const [dataAccessRequest, setDataAccessRequest] = useState<string | null>(
+    settingsTab === "privacy"
+      ? (initialSettings?.dataAccessRequest ?? null)
       : null,
   );
 
@@ -636,8 +645,10 @@ export default function Dashboard({
           ? open
           : activity,
       );
-      const pane =
-        tab === "settings" ? parseSettingsTab(sub, isAdminUser) : null;
+      const settingsSub = tab === "settings" ? parseSettingsSubview(sub) : null;
+      const pane = settingsSub
+        ? parseSettingsTab(settingsSub.pane, isAdminUser)
+        : null;
       // A refused section changes no state when the menu is already open, so this
       // hash needs the same replace as the rewritten tab above.
       if (
@@ -649,6 +660,9 @@ export default function Dashboard({
         writeSessionRoute(tab, "replace");
       }
       setSettingsTab(pane);
+      setDataAccessRequest(
+        pane === "privacy" ? (settingsSub?.dataAccessRequest ?? null) : null,
+      );
       setFeedbackAbout(tab === FEEDBACK_TAB ? parseFeedbackAbout(sub) : null);
     },
     [isAdminUser],
@@ -2132,6 +2146,8 @@ export default function Dashboard({
               tab={settingsTab}
               onSelect={setSettingsTab}
               onBack={() => setSettingsTab(null)}
+              dataAccessRequest={dataAccessRequest}
+              onDataAccessRequestOpened={() => setDataAccessRequest(null)}
             />
           )}
           {activeTab === FEEDBACK_TAB && (

@@ -756,6 +756,9 @@ module "backend" {
       # Cloud KMS KEK resource id (not a secret — key material never leaves KMS).
       # GcpKmsKekProvider wraps/unwraps the DEK against this key (ADR-017).
       PIERRE_KMS_KEY_RESOURCE = module.kms.key_resource
+      # The Ed25519 key record_log checkpoints are signed with (carnet#1542);
+      # without it a KMS deployment cuts no checkpoint.
+      PIERRE_CHECKPOINT_SIGNING_KEY = module.kms.checkpoint_signing_key_version
     },
   )
 

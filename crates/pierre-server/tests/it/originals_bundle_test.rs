@@ -41,6 +41,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::handlers::types::ResetAccountRequest;
 use pierre_routes_admin::handlers::user_removal::handle_reset_user;
 use pierre_routes_auth::AuthRoutes;
+use pierre_services::barrage_keys::memory_records;
 use pierre_services::originals_seal::unseal;
 use pierre_test_support::server::create_test_admin_user;
 use secrecy::{ExposeSecret, SecretString};
@@ -69,7 +70,7 @@ struct Setup {
 
 impl Setup {
     async fn new() -> Self {
-        let records = Arc::new(MemoryActivityRecordStore::new());
+        let records = Arc::new(memory_records());
         let blobs = Arc::new(MemoryBlobStore::new());
         let resources =
             create_test_server_resources_with_records_and_blobs(records.clone(), blobs.clone())

@@ -19,10 +19,15 @@ postgresql = ["pierre-database/postgresql", "sqlx/postgres"]
 # HTTP share. Opt-in, so a consumer that never reads a stream does not build an
 # HTTP client.
 sse = ["dep:futures-util", "dep:reqwest", "dep:serde_json"]
+# The group-tier fixture (`group_tier`): a plan without group coaching, for the
+# suites that drive group creation. Opt-in, so a consumer that never creates a
+# group does not build `pierre-groups`.
+groups = ["dep:pierre-groups"]
 
 [dependencies]
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
 chrono = { version = "0.4", features = ["serde"] }
 futures-util = { version = "0.3", optional = true }
 reqwest = { version = "0.12", features = ["stream"], default-features = false, optional = true }
@@ -32,6 +37,7 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite"], default
 # "sync" backs the OnceCell holding the migrated SQLite image; "net", "io-util",
 # "rt", "time" and "macros" back the fault proxy's relay.
 tokio = { version = "1.54", features = ["sync", "net", "io-util", "rt", "time", "macros"] }
+tracing = "0.1"
 uuid = { version = "1.29", features = ["v4"] }
 
 [lints]

@@ -79,7 +79,10 @@
 //! session walk is also capped at [`SESSION_WALK_BURST_CALLS`] pages in 15
 //! minutes. The session's live provider context reads (carnet#1622) are
 //! counted in windows of their own, per athlete ([`context_read`]); no other
-//! read a session makes is counted.
+//! read a session makes is counted in walk or context windows. Every read
+//! of a session, walk and context reads included, is also counted in the
+//! athlete's own session-read windows at that backend, by tier
+//! ([`session_read`], carnet#1661).
 
 use std::fmt;
 use std::future::Future;
@@ -381,6 +384,8 @@ pub struct ProviderRateLimiter {
     /// Map of `provider_name` -> the most requests one athlete's detail walk
     /// may make in a day: the providers with detail-walk windows.
     detail_walks: DashMap<String, u32>,
+    /// The resolver of each athlete's session-read caps, and its answers.
+    session_reads: SessionReadState,
 }
 
 impl fmt::Debug for ProviderRateLimiter {
@@ -417,6 +422,9 @@ enum Holder {
     /// `backend`: counted in that athlete's own windows alone
     /// ([`context_read`]).
     SessionContext { backend: String, user_id: Uuid },
+    /// Every read of `user_id`'s signed-in session at `backend`: counted in
+    /// that athlete's session-read windows alone ([`session_read`]).
+    SessionRead { backend: String, user_id: Uuid },
 }
 
 impl Holder {
@@ -424,7 +432,7 @@ impl Holder {
     fn app(&self) -> Option<&str> {
         match self {
             Self::App { app, .. } | Self::Session { app, .. } => Some(app),
-            Self::ApiKey { .. } | Self::SessionContext { .. } => None,
+            Self::ApiKey { .. } | Self::SessionContext { .. } | Self::SessionRead { .. } => None,
         }
     }
 }
@@ -552,6 +560,7 @@ impl ProviderRateLimiter {
             grant_counts: DashMap::new(),
             api_key_budgets,
             detail_walks,
+            session_reads: SessionReadState::default(),
         }
     }
 
@@ -591,8 +600,13 @@ impl ProviderRateLimiter {
         let windows = self
             .task_windows(provider, holder, share, background, now)
             .await?;
-        let status = self.take(&windows, now).await?;
-        if let RateLimitStatus::Exceeded { retry_after } = &status {
+        let Some((refusing, retry_after)) = self.take(&windows, now).await? else {
+            return Ok(RateLimitStatus::Allowed);
+        };
+        if let Holder::SessionRead { backend, user_id } = holder {
+            self.log_session_read_refusal(backend, *user_id, &windows, refusing, retry_after, now)
+                .await;
+        } else {
             // No app: the windows spent are a personal API key's, or an athlete's
             // context reads'.
             let app = holder.app();
@@ -612,7 +626,7 @@ impl ProviderRateLimiter {
                 );
             }
         }
-        Ok(status)
+        Ok(RateLimitStatus::Exceeded { retry_after })
     }
 
     /// The windows a request to `provider` counted for `holder` is taken
@@ -629,10 +643,18 @@ impl ProviderRateLimiter {
     ) -> AppResult<Vec<Window>> {
         let windows = self.windows_for(provider, holder, share).await;
         Ok(match detail_walk_athlete() {
-            // A context read is counted in its athlete's own windows alone.
-            _ if matches!(holder, Holder::SessionContext { .. }) => windows,
+            // A context read, and any session read, is counted in its
+            // athlete's own windows alone.
+            _ if matches!(
+                holder,
+                Holder::SessionContext { .. } | Holder::SessionRead { .. }
+            ) =>
+            {
+                windows
+            }
             Some(user_id) => self.with_detail_walk_windows(provider, holder, user_id, windows),
-            // A session read outside the walk is not counted: only its walk is.
+            // A session read outside the walk is not counted in the app's walk
+            // windows: only its walk is. Its session-read windows are its own.
             None if matches!(holder, Holder::Session { .. }) => Vec::new(),
             None if background => {
                 self.with_detail_walk_reserved(provider, windows, now)
@@ -739,6 +761,9 @@ impl ProviderRateLimiter {
             Holder::SessionContext { backend, user_id } => {
                 return context_read::context_read_windows(backend, *user_id);
             }
+            Holder::SessionRead { backend, user_id } => {
+                return self.session_read_windows(backend, *user_id).await;
+            }
         };
         budgets
             .into_iter()
@@ -752,11 +777,16 @@ impl ProviderRateLimiter {
 
     /// Take one request from every one of `windows` that holds fewer than
     /// its share of its budget; when one does not, give back the windows
-    /// already taken and say how long until that one resets, all counted in
-    /// the buckets that hold `now`.
-    async fn take(&self, windows: &[Window], now: DateTime<Utc>) -> AppResult<RateLimitStatus> {
+    /// already taken and say which one refused, by its place in `windows`,
+    /// and how long until it resets, all counted in the buckets that hold
+    /// `now`. `None` when every window took the request.
+    async fn take(
+        &self,
+        windows: &[Window],
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<(usize, Duration)>> {
         let mut taken: Vec<(&str, String)> = Vec::with_capacity(windows.len());
-        for window in windows {
+        for (index, window) in windows.iter().enumerate() {
             let period = budget_period(now, window.budget.window);
             let landed = self
                 .counters
@@ -779,11 +809,9 @@ impl ProviderRateLimiter {
             }
             let (_, end_ms) = bucket_bounds(now, window.budget.window);
             let retry_ms = u64::try_from(end_ms - now.timestamp_millis()).unwrap_or(0);
-            return Ok(RateLimitStatus::Exceeded {
-                retry_after: Duration::from_millis(retry_ms),
-            });
+            return Ok(Some((index, Duration::from_millis(retry_ms))));
         }
-        Ok(RateLimitStatus::Allowed)
+        Ok(None)
     }
 
     /// Replace `provider`'s budgets with `budgets`, each `(max_calls,
@@ -813,11 +841,13 @@ mod detail_walk;
 mod grant_pool;
 pub use context_read::{context_read_counter_key, CONTEXT_READ_BURST_CALLS};
 mod handle;
+mod session_read;
 use grant_pool::GrantPool;
 #[cfg(any(
     feature = "provider-coros",
     feature = "provider-garmin",
     feature = "provider-intervals-icu",
+    feature = "provider-sciotte",
     feature = "provider-strava",
     feature = "provider-terra",
     feature = "provider-wahoo",
@@ -825,6 +855,11 @@ use grant_pool::GrantPool;
 ))]
 pub(crate) use handle::carried_by;
 pub use handle::{admit, RequestBudget};
+use session_read::SessionReadState;
+pub use session_read::{
+    in_wellness_first_fill, keep_scope, minutes_until, session_read_cap, session_read_counter_key,
+    session_read_disabled, with_brand, AthleteReadCaps, SessionReadKind, SessionReadLimits,
+};
 
 #[cfg(test)]
 mod tests {

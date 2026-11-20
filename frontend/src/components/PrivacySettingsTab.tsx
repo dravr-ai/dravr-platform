@@ -15,7 +15,17 @@ import AiConsentSettings from './settings/AiConsentSettings';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '@pierre/i18n';
 
-export default function PrivacySettingsTab() {
+interface PrivacySettingsTabProps {
+  /** The data access request a reminder opens, once (carnet#1659). */
+  dataAccessRequest?: string | null;
+  /** Called once that request is open, or found gone. */
+  onDataAccessRequestOpened?: () => void;
+}
+
+export default function PrivacySettingsTab({
+  dataAccessRequest = null,
+  onDataAccessRequestOpened,
+}: PrivacySettingsTabProps) {
   const { t } = useTranslation();
   const { user, updateUser } = useAuth();
   const [enabled, setEnabled] = useState(false);
@@ -133,7 +143,10 @@ export default function PrivacySettingsTab() {
         </div>
       </Section>
       <DataExportSection />
-      <DataAccessRequestsSection />
+      <DataAccessRequestsSection
+        openRequestId={dataAccessRequest}
+        onRequestOpened={onDataAccessRequestOpened}
+      />
       <AccountDeletionSection />
     </div>
   );

@@ -56,11 +56,11 @@ const LETTER = {
   mailto: 'mailto:privacy@acme.example?subject=x&body=y',
 };
 
-function renderSection() {
+function renderSection(props: Parameters<typeof DataAccessRequestsSection>[0] = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <DataAccessRequestsSection />
+      <DataAccessRequestsSection {...props} />
     </QueryClientProvider>,
   );
 }
@@ -69,6 +69,28 @@ describe('DataAccessRequestsSection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.letter.mockResolvedValue(LETTER);
+  });
+
+  it("opens the request a reminder names, once the list has it (carnet#1659)", async () => {
+    const sent = { ...DRAFT, status: 'sent' as const, sent_on: '2026-11-10', due_on: '2026-12-10' };
+    api.list.mockResolvedValue([{ ...DRAFT, id: 'r0', controller: 'Other Co' }, sent]);
+    const onRequestOpened = vi.fn();
+    renderSection({ openRequestId: 'r1', onRequestOpened });
+
+    expect(await screen.findByTestId('data-access-detail-status')).toHaveTextContent('Sent');
+    expect(screen.getByTestId('data-access-row-r1')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByTestId('data-access-row-r0')).not.toHaveAttribute('aria-current');
+    expect(onRequestOpened).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens nothing for a reminder whose request is gone, and lets it go', async () => {
+    api.list.mockResolvedValue([DRAFT]);
+    const onRequestOpened = vi.fn();
+    renderSection({ openRequestId: 'deleted', onRequestOpened });
+
+    expect(await screen.findByTestId('data-access-list')).toBeInTheDocument();
+    await waitFor(() => expect(onRequestOpened).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('data-access-detail')).not.toBeInTheDocument();
   });
 
   it('says there are no requests yet, and links the import screen as the first path', async () => {

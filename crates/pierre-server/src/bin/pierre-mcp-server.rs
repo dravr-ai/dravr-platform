@@ -18,6 +18,7 @@
 
 use clap::{error::ErrorKind, Parser};
 use dravr_barrage::blob::BlobStore;
+use dravr_barrage::keyed::Signer;
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_tronc::mcp::transport::stdio;
 use pierre_auth::auth::AuthManager;
@@ -525,6 +526,16 @@ async fn create_server(
         .await
         .map_err(|reason| AppError::internal(format!("activity record store: {reason}")))?;
     let live_records = Arc::clone(&barrage.records);
+    // The record_log checkpoint signer (carnet#1542): the Cloud KMS key, a
+    // local key without KMS, or none on a KMS deployment that names no key.
+    // An in-memory database starts no record_log worker, so it publishes no
+    // key that would sign nothing.
+    let checkpoint_signer = if config.database.url.is_memory() {
+        None
+    } else {
+        use pierre_services::barrage_keys::{checkpoint_signer, PlatformKeyed};
+        checkpoint_signer(&PlatformKeyed::of(&database)).await?
+    };
     let (blobs, archive_imports) = select_original_stores(&barrage, &config.database.url).await;
 
     let resources_instance = ServerContext::new(
@@ -570,7 +581,12 @@ async fn create_server(
         );
     }
 
-    let resources = spawn_background_workers(resources_instance, live_records, blobs.ok());
+    let resources = spawn_background_workers(
+        resources_instance,
+        live_records,
+        blobs.ok(),
+        checkpoint_signer,
+    );
 
     server_lifecycle::notify_started();
 
@@ -616,6 +632,7 @@ fn spawn_background_workers(
     resources_instance: ServerContext,
     live_records: Arc<dyn ActivityRecordStore>,
     blobs: Option<Arc<dyn BlobStore>>,
+    checkpoint_signer: Option<Arc<dyn Signer>>,
 ) -> Arc<ServerContext> {
     let resources = Arc::new(resources_instance);
 
@@ -732,7 +749,27 @@ fn spawn_background_workers(
     // activity_retention.*` holds. Both start unset, so nothing expires (D9).
     {
         use pierre_mcp_server::start_retention_sweep_worker;
-        start_retention_sweep_worker(&resources, live_records, blobs);
+        start_retention_sweep_worker(&resources, Arc::clone(&live_records), blobs);
+    }
+
+    // Start the record_log worker (carnet#1542): keys erasures and
+    // tombstones, baselines unlogged records, sweeps orphaned logs, and,
+    // with a signer, cuts the hourly checkpoint anchoring the deletion
+    // receipt chain. Skipped for an in-memory database like the other
+    // ledger workers.
+    if !resources.common.config.database.url.is_memory() {
+        use pierre_services::record_log_worker::{start_record_log_worker, RecordLogWorker};
+        let repos = &resources.common.repos;
+        start_record_log_worker(
+            Arc::new(RecordLogWorker::new(
+                live_records,
+                Arc::clone(&repos.import_tombstones),
+                Arc::clone(&repos.account_deletion),
+                Arc::clone(&repos.users),
+                checkpoint_signer,
+            )),
+            Arc::clone(&repos.worker_runs),
+        );
     }
 
     // Start the Firebase identity deletion sweeper (carnet#798): retries, with

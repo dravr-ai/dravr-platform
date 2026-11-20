@@ -24,6 +24,9 @@ pub mod column_decode;
 /// A row's own uuid column, bound the way each backend's schema stores it.
 pub(crate) mod uuid_column;
 
+/// Keyed digests under the platform's Index key.
+pub mod keyed;
+
 /// Repository trait definitions for each database domain.
 pub mod repositories;
 

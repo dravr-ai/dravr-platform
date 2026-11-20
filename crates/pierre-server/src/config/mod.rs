@@ -19,6 +19,8 @@ use tracing::{debug, info};
 pub mod admin;
 /// HTTP routes for configuration management
 pub mod routes;
+/// The athlete's sciotte session-read caps, resolved from the admin config
+pub mod sciotte_read_caps;
 
 /// Initialize all configurations
 ///

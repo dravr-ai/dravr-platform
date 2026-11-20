@@ -106,10 +106,11 @@ pub async fn refresh_stale_head(
         "activity head is stale; re-reading the recent window before grounding"
     );
     let budget = RefreshConfig::default().wait_for_refresh_timeout();
-    let Some(live) =
-        refresh_head_within_budget(runtime, provider_slug, user_id, tenant_id, budget).await
-    else {
-        return Some(StaleReason::Timeout);
+    let live = match refresh_head_within_budget(runtime, provider_slug, user_id, tenant_id, budget)
+        .await
+    {
+        Ok(live) => live,
+        Err(behind) => return Some(behind),
     };
 
     merge_live_head(served, live);

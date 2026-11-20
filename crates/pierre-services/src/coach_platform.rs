@@ -366,14 +366,17 @@ impl CoachPlatform for ApiCoachPlatform {
 }
 
 /// `credentials`, built from the coach's stored `token`, counted against
-/// the key's own windows when the token is a personal API key.
+/// the key's own windows when the token is a personal API key, and against
+/// the coach's session-read windows when it is a scraper session.
 ///
 /// The windows are the ones its provider keeps for each key, under the
 /// provider's id for the account the key belongs to: a coach's key reads
 /// every athlete who shares with the coach, and every one of those reads
-/// spends the one key's budget. Any other credential is returned as it is.
+/// spends the one key's budget. A coach's session is read as the coach, so
+/// every member read through it spends the coach's own session reads
+/// (carnet#1661). Any other credential is returned as it is.
 #[must_use]
-pub fn with_key_budget(
+pub fn with_request_budget(
     registry: &ProviderRegistry,
     token: &UserOAuthToken,
     mut credentials: OAuth2Credentials,
@@ -382,6 +385,8 @@ pub fn with_key_budget(
         if let Some(account) = token.provider_user_id.as_deref() {
             credentials.request_budget = registry.api_key_budget(account);
         }
+    } else if let Some(budget) = registry.session_read_budget(&token.provider, token.user_id) {
+        credentials.request_budget = Some(budget);
     }
     credentials
 }
@@ -434,7 +439,7 @@ pub(crate) async fn live_api_roster(
 ) -> AppResult<(CoachRoster, EmailBinding)> {
     let provider = read.registry.create_provider(platform.backend())?;
     provider
-        .set_credentials(with_key_budget(read.registry, read.token, credentials))
+        .set_credentials(with_request_budget(read.registry, read.token, credentials))
         .await?;
     let roster = match provider.read_coach_roster().await {
         Ok(roster) => roster,
@@ -861,7 +866,7 @@ mod tests {
             .expect("count the spent window");
 
         let stored_key = token(API_KEY_TOKEN_TYPE, Some("i100"));
-        let key = with_key_budget(
+        let key = with_request_budget(
             &registry,
             &stored_key,
             IntervalsIcuPlatform
@@ -877,7 +882,8 @@ mod tests {
         assert_eq!(refused.code, ErrorCode::ExternalRateLimited);
 
         let stored_grant = token("Bearer", Some("i100"));
-        let grant = with_key_budget(&registry, &stored_grant, stored_credentials(&stored_grant));
+        let grant =
+            with_request_budget(&registry, &stored_grant, stored_credentials(&stored_grant));
         assert!(grant.request_budget.is_none());
     }
 

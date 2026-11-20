@@ -25,6 +25,7 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use pierre_core::models::{ProviderConnection, TenantId};
 use pierre_providers::core::ActivityQueryParams;
+use pierre_providers::request_budget::in_background;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -68,13 +69,15 @@ pub fn spawn_commitment_activity_refresh(
         }
     }
 
-    tokio::spawn(async move {
+    // The commitment sweep's refresh: nobody waits on it, so its session
+    // reads count as background (carnet#1661).
+    tokio::spawn(in_background(async move {
         run_commitment_refresh(&runtime, user_id, tenant_id, window_start_ts).await;
         IN_FLIGHT_REFRESHES
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&key);
-    });
+    }));
     true
 }
 

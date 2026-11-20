@@ -72,6 +72,7 @@ mod provider_thresholds;
 pub mod route_geometry;
 /// The season walk's topic table and next-topic policy.
 pub mod season;
+mod sender_locale;
 mod sleep;
 /// An athlete's physiology anchors per sport family, and the `AthleteAnchors`
 /// the workout families resolve on.
@@ -185,6 +186,7 @@ pub use sport_anchors::{
 
 // User domain
 pub use invitation::{InvitationKind, PreApprovedEmail, UserInvitation};
+pub use sender_locale::{locale_from_language_tag, whatsapp_sender_locale};
 pub use user::{
     default_locale, locale_from_accept_language, normalize_email, page_locale, roster_display_name,
     supported_ui_locale, CoachingPersona, ColorScheme, OperatorRosterGrant, PhysiologicalSex, User,
@@ -334,7 +336,10 @@ pub mod usage;
 
 /// Tier-keyed quota configuration (Starter / Professional / Enterprise).
 pub mod tier_quota;
-pub use tier_quota::{TierQuotaConfig, ENTERPRISE, PROFESSIONAL, STARTER};
+pub use tier_quota::{
+    SessionReadCap, SessionReadCaps, TierQuotaConfig, ENTERPRISE, PROFESSIONAL,
+    SESSION_READ_CAPS_CATEGORY, STARTER,
+};
 
 /// Stripe-backed subscription domain model.
 pub mod subscription;

@@ -356,6 +356,48 @@ LAST_EXIT="$code"
 expect_contains "a remote session names the lane that checks instead" "runs this check on the push"
 expect_exit "a remote session does not fail on the missing tool" 0
 
+# 18. Tier 1e trusts a cloud clippy verdict only for HEAD's exact tree. With no
+#     record it compiles locally. The fixture has no pierre_mcp_server, so the
+#     local compile fails, and that failure is the proof it ran. With a workspace
+#     CLEAN pinned to HEAD's tree, it skips the compile and passes.
+echo "  case 18: changed server test, with and without a cloud verdict"
+dir="$(make_repo)"
+cp "$SCRIPT_DIR/remote-clippy-verdict.sh" "$dir/scripts/ci/remote-clippy-verdict.sh"
+git -C "$dir" add -A
+git -C "$dir" commit -qm "verdict script"
+run_change "$dir" crates/pierre-server/tests/it/probe.rs "#[test] fn probe() {}"
+# The compile line prints only past the cargo-version check, which a fixture with
+# no rust-toolchain.toml may stop at. Either way the tier ran its local path.
+expect_contains "no verdict runs the tier" "Tier 1e: Changed server-test clippy"
+expect_absent "no verdict skips nothing" "skipped: cloud clippy CLEAN"
+expect_exit "the local compile's failure fails the push" 1
+dir="$(make_repo)"
+cp "$SCRIPT_DIR/remote-clippy-verdict.sh" "$dir/scripts/ci/remote-clippy-verdict.sh"
+require_fixture "$dir"
+mkdir -p "$dir/crates/pierre-server/tests/it"
+printf '#[test] fn probe() {}\n' >"$dir/crates/pierre-server/tests/it/probe.rs"
+git -C "$dir" add -A
+git -C "$dir" commit -qm "change server test"
+printf 'verdict=CLEAN\nscope=workspace\ntree=%s\n' "$(git -C "$dir" rev-parse 'HEAD^{tree}')" \
+  >"$(git -C "$dir" rev-parse --absolute-git-dir)/remote-clippy-verdict"
+code=0
+( cd "$dir" && env -u CLAUDE_CODE_REMOTE -u CLAUDE_CODE_REMOTE_SESSION_ID \
+    PATH="$dir/.stubbin:$PATH" "$UNDER_TEST" ) >"$OUT" 2>&1 || code=$?
+LAST_EXIT="$code"
+expect_contains "a CLEAN for HEAD's tree skips the local compile" "skipped: cloud clippy CLEAN (workspace) covers HEAD's tree"
+expect_absent "a covered push compiles nothing" "  cargo clippy -p pierre_mcp_server --test"
+expect_absent "a covered push gets no clippy advice" "NOT COVERED HERE — clippy"
+expect_exit "a covered push passes" 0
+# With no verdict, the closing advice names the cloud run, never a local cargo clippy.
+dir="$(make_repo)"
+cp "$SCRIPT_DIR/remote-clippy-verdict.sh" "$dir/scripts/ci/remote-clippy-verdict.sh"
+git -C "$dir" add -A
+git -C "$dir" commit -qm "verdict script"
+run_change "$dir" crates/probe/src/lib.rs "pub fn probe() {}"
+expect_contains "uncovered clippy advice names the cloud run" ".claude/skills/remote-work/remote-work.sh prepare"
+expect_contains "the advice names the crate the push reaches" "this push reaches: probe"
+expect_absent "the advice prints no local clippy command" "cargo clippy -p probe"
+
 echo ""
 if [ "$failures" -ne 0 ]; then
   echo "❌ $failures tier-selection fixture case(s) failed"

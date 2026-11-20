@@ -11,6 +11,14 @@
 //! provider keeps syncing for now. A grant only it writes beside a session
 //! that serves (Garmin's) is told the reads go on and links its own
 //! authorization instead (JF's directive 8).
+//!
+//! A chat whose window is closed is sent none of it (carnet#1672): a linked
+//! chat is left to the notice's app half, and the conversation that asked is
+//! answered in the app with the linkless sentence — once while it stands, as
+//! the thread's latest assistant turn or for a day after it was written. A
+//! turn the platform runs on its own (a check-in, a landing reaction) reads
+//! the provider too, and on a dead session each one would otherwise add the
+//! same sentence to the thread.
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_contremaitre::messaging_strings::{
@@ -21,22 +29,36 @@ use pierre_contremaitre::reauth_strings::{
     KEY_PROVIDER_REAUTH_GRANT_WRITES, KEY_PROVIDER_REAUTH_GRANT_WRITES_NO_LINK,
 };
 use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
+use pierre_database::backends::MessagingRepository;
 use pierre_database::repositories::shorten_url;
 use pierre_middleware::provider_link_token::{
     mint_connect_oauth_init_url, mint_hosted_signin_url, PROVIDER_LINK_TOKEN_TTL_MINUTES,
 };
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
-use tracing::warn;
+use pierre_services::messaging_broadcast::LinkedChannelTarget;
+use serde_json::Value;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::ServerBackfillNotifier;
+use crate::services::backfill_delivery::{InAppDelivery, ResolvedRoute, PURPOSE_PROVIDER_REAUTH};
+use crate::services::post_delivery::{report_held, HELD_WINDOW_CLOSED};
 
 /// How long a reconnect link must still have to run for a queued notice to be
 /// sent with it. A retry that would hand the athlete a link with less time
 /// than this left is given up instead: a link that dies before they read it
 /// is worse than the app notice they already have.
 const RECONNECT_LINK_MIN_REMAINING_MINUTES: i64 = 60;
+
+/// How many of a conversation's newest rows are read to find a reconnect
+/// sentence still standing there.
+const REAUTH_NOTE_LOOKBACK: i64 = 20;
+
+/// How long a reconnect sentence written in the app stands: the same one is
+/// not written into that conversation again within it.
+const REAUTH_NOTE_QUIET: Duration = Duration::hours(24);
 
 /// How long a grant's authorization link must still have to run for a
 /// queued notice to be sent with it. The link lasts an hour
@@ -191,6 +213,134 @@ impl ServerBackfillNotifier {
                 KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
             )
         }
+    }
+
+    /// The DM session of the linked chat `target`, stored under the
+    /// athlete's own tenant, never the bot's: when they last wrote there.
+    /// `None` (logged on error) when they never have.
+    pub(super) async fn linked_session(
+        &self,
+        tenant_id: TenantId,
+        target: &LinkedChannelTarget,
+    ) -> Option<Value> {
+        let db: &dyn MessagingRepository = self.repos.messaging.as_ref();
+        db.get_session_by_channel_identity(
+            tenant_id,
+            &target.channel_type.to_string(),
+            &target.recipient_id,
+            None,
+        )
+        .await
+        .inspect_err(|e| warn!(error = %e, "Reconnect notice: linked chat session lookup failed"))
+        .ok()
+        .flatten()
+    }
+
+    /// Answer the conversation that asked with the reconnect sentence in the
+    /// app, for a route whose window is closed: the channel would refuse it
+    /// unprompted (carnet#1672).
+    ///
+    /// The linkless sentence — the athlete reconnects from the app's
+    /// settings — so no one-time link is minted for a message that never
+    /// travels. Stored without the completion push's app notification, whose
+    /// "N activities loaded" would misstate it: the turn's unread badge is the
+    /// ping, as the reconnect notice's own app half is.
+    ///
+    /// Written once while it stands ([`Self::reauth_note_standing`]): an
+    /// automatic turn on a dead session asks again without the athlete doing
+    /// anything, and the hold is still reported each time.
+    pub(super) async fn reauth_in_app(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        conversation_id: &str,
+        provider: &str,
+        route: &ResolvedRoute,
+    ) {
+        info!(
+            channel = %route.channel_str,
+            provider = %provider,
+            "Reauth nudge: the channel's window is closed; answering in the app"
+        );
+        report_held(
+            tenant_id,
+            route.channel_type,
+            PURPOSE_PROVIDER_REAUTH,
+            HELD_WINDOW_CLOSED,
+        );
+        let locale = self.resolve_locale(user_id, tenant_id, None).await;
+        let display =
+            backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
+        let (_, bare_key) = self.reauth_keys(user_id, tenant_id, provider).await;
+        let body = self.strings.render(bare_key, &locale, &[display]);
+        if self
+            .reauth_note_standing(user_id, tenant_id, conversation_id, &body, Utc::now())
+            .await
+        {
+            info!(provider = %provider, "Reauth nudge: the same sentence still stands in the app; not written again");
+            return;
+        }
+        // A provider's name and a pointer to settings: no data of any session.
+        InAppDelivery {
+            repos: &self.repos,
+            strings: &self.strings,
+            #[cfg(feature = "client-notifications")]
+            notifications: self.notifications.as_ref(),
+            transport_policy: TransportPolicy::AnyTransport,
+        }
+        .persist(user_id, tenant_id, conversation_id, body, 0)
+        .await;
+    }
+
+    /// Whether `body` already stands in `conversation_id` at `now`: among the
+    /// thread's newest [`REAUTH_NOTE_LOOKBACK`] rows, it is the latest
+    /// assistant turn, or one written within [`REAUTH_NOTE_QUIET`]. The
+    /// sentence names its provider's brand, so an equal body tells the athlete
+    /// the same thing whichever of that brand's backends asked. A thread that
+    /// cannot be read answers `false`, and the sentence is written.
+    async fn reauth_note_standing(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        conversation_id: &str,
+        body: &str,
+        now: DateTime<Utc>,
+    ) -> bool {
+        let recent = match self
+            .repos
+            .chat
+            .get_recent_messages(
+                conversation_id,
+                &user_id.to_string(),
+                tenant_id,
+                REAUTH_NOTE_LOOKBACK,
+                TransportPolicy::FirstPartyOnly,
+            )
+            .await
+        {
+            Ok(recent) => recent,
+            Err(e) => {
+                warn!(error = %e, "Reauth nudge: the conversation could not be read; writing the sentence");
+                return false;
+            }
+        };
+        // Oldest first: the latest assistant turn is the last one.
+        let assistant: Vec<_> = recent
+            .iter()
+            .rev()
+            .filter(|message| message.role == "assistant")
+            .collect();
+        if assistant
+            .first()
+            .is_some_and(|latest| latest.content == body)
+        {
+            return true;
+        }
+        assistant.iter().any(|message| {
+            message.content == body
+                && DateTime::parse_from_rfc3339(&message.created_at)
+                    .is_ok_and(|at| now - at.with_timezone(&Utc) < REAUTH_NOTE_QUIET)
+        })
     }
 
     /// The reconnect notice for one linked chat on `channel`, in `locale`.

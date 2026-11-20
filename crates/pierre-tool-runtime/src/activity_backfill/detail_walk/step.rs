@@ -1,5 +1,5 @@
-// ABOUTME: One step of a detail walk: read its activities through the backend, store each beside its row, settle the row
-// ABOUTME: A spent budget pauses it, a dead credential ends it incomplete, its end is told once in the personal thread
+// ABOUTME: One step of a detail or track walk: read its activities through the backend, store each beside its row, settle the row
+// ABOUTME: A spent budget pauses it, a dead credential ends it incomplete, a detail walk's end is told once in the personal thread
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,7 +11,9 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::Activity;
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_database::repositories::{DetailWalkEnd, JobLease, JobProgressStep};
+use pierre_database::repositories::{
+    BackfillJobKind, BackfillJobState, DetailWalkEnd, JobLease, JobProgressStep,
+};
 use pierre_providers::ai_scope;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::one_activity_key;
@@ -19,10 +21,10 @@ use pierre_providers::request_budget::{in_detail_walk, RequestBudget};
 use pierre_providers::CoreFitnessProvider;
 use tracing::{info, instrument, warn};
 
-use super::candidates::{take_seconds, Athlete, Unread};
+use super::candidates::{take_seconds, Athlete, Reading, Unread, Want};
 use super::{session_walk_budget, walk_daily_calls, walk_keys, walk_row};
 use crate::activity_backfill::owed_write::{land_owed, Landed};
-use crate::activity_backfill::pause::retry_at_ms;
+use crate::activity_backfill::pause::paused_by;
 use crate::activity_backfill::{
     keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms, ActivityBackfillJob,
     MAX_BACKFILL_ATTEMPTS,
@@ -53,11 +55,15 @@ enum Step {
     /// The step's row is no longer its own: it records nothing on it but
     /// what it stored ([`credit_stored`]).
     Stopped { step: JobProgressStep },
+    /// A track walk's step read nothing: a detail walk is owed through the
+    /// same backend, and the activities no detail read reached go first.
+    Deferred,
 }
 
-/// Run one step of the detail walk `job` is, and settle its row. A walk the
-/// ledger could not record runs nothing: no step writes without a row to
-/// guard its writes by, and the next ask records it again.
+/// Run one step of the walk `job` is, a detail walk or a track walk (what
+/// each reads an activity for is [`Want::of`] its kind), and settle its row.
+/// A walk the ledger could not record runs nothing: no step writes without a
+/// row to guard its writes by, and the next ask records it again.
 #[instrument(
     skip_all,
     name = "detail_walk",
@@ -158,24 +164,34 @@ async fn walk_step(
         tenant_id: job.tenant_id,
     };
     let keys = walk_keys(&job.provider_name);
-    // The range an earlier walk tried, which this one reads nothing of
-    // again, is on the walk's own row.
-    let Ok(row) = walk_row(&athlete, &job.provider_name).await else {
+    let want = Want::of(job.kind);
+    // A detail walk's row holds the range an earlier walk tried, which this
+    // one reads nothing of again; a track walk waits while one is owed.
+    let Ok(row) = walk_row(&athlete, &job.provider_name, BackfillJobKind::DetailWalk).await else {
         return Step::Failed {
             step: progress.step(),
         };
     };
-    *asked_ms = row.as_ref().map(|row| row.created_at_ms);
-    let tried = row.and_then(|row| row.tried);
-    let Ok(taken) = take_seconds(
-        &athlete,
-        &keys,
-        (floor, cursor),
-        job.walk_sport.as_deref(),
-        tried.as_ref(),
-    )
-    .await
-    else {
+    let tried = match want {
+        Want::Efforts => {
+            *asked_ms = row.as_ref().map(|row| row.created_at_ms);
+            row.and_then(|row| row.tried)
+        }
+        Want::Track
+            if row
+                .as_ref()
+                .is_some_and(|row| row.state == BackfillJobState::Owed) =>
+        {
+            return Step::Deferred;
+        }
+        Want::Track => None,
+    };
+    let reading = Reading {
+        want,
+        sport: job.walk_sport.as_deref(),
+        tried: tried.as_ref(),
+    };
+    let Ok(taken) = take_seconds(&athlete, &keys, (floor, cursor), reading).await else {
         return Step::Failed {
             step: progress.step(),
         };
@@ -268,7 +284,7 @@ enum Read {
     /// The backend answered that it cannot be read ([`answered_unreadable`]),
     /// or no row stands to store it beside: it is walked past.
     Skipped,
-    /// A spent budget refused the read: until when ([`retry_at_ms`]).
+    /// A spent budget refused the read: until when ([`paused_by`]).
     Paused(i64),
     /// The backend's credential is dead.
     AuthRequired,
@@ -300,15 +316,18 @@ fn read_failed(job: &ActivityBackfillJob, id: &str, e: &AppError) -> Read {
 /// says nothing about the activity, so the step stops at it and the walk
 /// reads it again.
 fn failure_read(e: &AppError) -> Read {
-    if e.code == ErrorCode::ExternalRateLimited {
-        Read::Paused(retry_at_ms(e))
-    } else if e.provider_auth_required_provider().is_some() {
-        Read::AuthRequired
-    } else if answered_unreadable(e) {
-        Read::Skipped
-    } else {
-        Read::Failed
-    }
+    paused_by(e).map_or_else(
+        || {
+            if e.provider_auth_required_provider().is_some() {
+                Read::AuthRequired
+            } else if answered_unreadable(e) {
+                Read::Skipped
+            } else {
+                Read::Failed
+            }
+        },
+        Read::Paused,
+    )
 }
 
 /// Whether `error` is the backend's answer that this one activity cannot
@@ -436,6 +455,14 @@ async fn settle(
     let ledger = &job.resources.repos().activity_backfill_jobs;
     let lease = held.lease;
     match step {
+        Step::Walked { step, ended: true } if job.kind == BackfillJobKind::TrackWalk => log_write(
+            "the track walk passed its floor; it is kept as walked",
+            ledger
+                .end_history_walk(lease, step)
+                .await
+                .map(|ended| ended.is_some()),
+            job,
+        ),
         Step::Walked { step, ended: true } => end_walk(job, held, step).await,
         Step::Walked { step, ended: false } => {
             record(job, held, "a step landed; the next reads below it", step).await;
@@ -481,6 +508,14 @@ async fn settle(
             "a step failed; the sweep retries it a lease from now",
             ledger
                 .release_backfill_job_lease(lease, now_ms().saturating_add(lease_ms()))
+                .await,
+            job,
+        ),
+        // The claim is given back uncounted: waiting is no failed attempt.
+        Step::Deferred => log_write(
+            "a detail walk is owed through the backend; the track walk waits for it",
+            ledger
+                .release_backfill_job_claim(lease, Some(now_ms().saturating_add(lease_ms())))
                 .await,
             job,
         ),

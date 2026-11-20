@@ -59,6 +59,9 @@ pub mod keyset;
 #[cfg(feature = "gcp-kms")]
 pub mod gcp_kms;
 
+/// GCP Cloud KMS Ed25519 signer for `record_log` checkpoints (carnet#1542)
+pub mod gcp_kms_signer;
+
 /// OAuth 2.0 client (Pierre as client to fitness providers)
 pub mod oauth2_client;
 

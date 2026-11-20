@@ -19,12 +19,13 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
+use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::{ActivityFetchFailure, ActivityFetchFailureRecord};
 use pierre_providers::connect_prefetch::{ConnectPrefetches, PrefetchKey};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
-use pierre_providers::request_budget::{is_background, refused_before_send};
+use pierre_providers::request_budget::{is_background, refused_before_send, session_read_cap};
 use pierre_providers::sciotte_error::is_coach_account_refusal;
 use tracing::field::Empty;
 use tracing::{error, info, instrument, warn, Span};
@@ -415,6 +416,9 @@ pub(super) async fn record_head_attempt(
     let failure = match read {
         Ok(head) => head.verdict.failure(),
         Err(e) if e.provider_auth_required_provider().is_some() => None,
+        // A session-read cap's refusal says nothing of the provider: the
+        // athlete's live reads are used up, and the usage line logged it.
+        Err(e) if session_read_cap(e).is_some() => None,
         Err(_) => Some(ActivityFetchFailure::FetchError),
     };
     let Some(failure) = failure else {
@@ -462,6 +466,23 @@ pub(crate) fn error_falls_back(error: &AppError) -> bool {
     !(is_coach_account_refusal(error)
         || refused_before_send(error)
         || held_to_background_share(error))
+}
+
+/// Whether a read of `backend` the athlete's session-read cap refused
+/// (carnet#1661) is asked of the Strava grant behind that session, though
+/// [`error_falls_back`] holds every other limiter refusal back.
+///
+/// The grant has a request budget of its own and costs the session nothing,
+/// so every capped read of the athlete's Strava session asks it first, asked
+/// or background, before any stored copy answers. A background read of the
+/// grant is still held to the background share of the grant's app windows
+/// (`request_budget::BACKGROUND_SHARE_PERCENT`), so a capped walk goes on
+/// through the grant only as far as that share lets it. Garmin's grant is
+/// push-only: a capped Garmin, COROS or `TrainingPeaks` session has no grant
+/// to ask.
+#[must_use]
+pub(crate) fn capped_session_falls_back(error: &AppError, backend: &str) -> bool {
+    backend == oauth_providers::SCIOTTE && session_read_cap(error).is_some()
 }
 
 /// Whether `error` is a rate-limit refusal of work nobody waits on
@@ -796,7 +817,7 @@ mod tests {
     use pierre_providers::sciotte_error::coach_account_error;
     use serde_json::json;
 
-    use super::{error_falls_back, falls_back, HeadRead, HeadVerdict};
+    use super::{capped_session_falls_back, error_falls_back, falls_back, HeadRead, HeadVerdict};
 
     fn head(verdict: HeadVerdict) -> HeadRead {
         HeadRead {
@@ -810,6 +831,20 @@ mod tests {
     fn budget_refusal() -> AppError {
         let mut error = AppError::new(ErrorCode::ExternalRateLimited, "strava budget spent");
         error.details = Some(Box::new(json!({ "refused_before_send": true })));
+        error
+    }
+
+    /// A session-read cap's refusal of `kind`, as the limiter marks it.
+    fn session_read_refusal(kind: &str) -> AppError {
+        let mut error = AppError::new(
+            ErrorCode::ExternalRateLimited,
+            "Strava has been read as often as Dravr allows for now",
+        );
+        error.details = Some(Box::new(json!({
+            "refused_before_send": true,
+            "retry_after_secs": 600,
+            "session_read_cap": kind,
+        })));
         error
     }
 
@@ -866,6 +901,47 @@ mod tests {
         assert!(
             !in_background(async { error_falls_back(&provider_429) }).await,
             "bug: a background read fell back instead of deferring"
+        );
+    }
+    /// A capped read of the athlete's Strava session asks the Strava grant,
+    /// asked or background; every other limiter refusal stays held
+    /// (carnet#1661).
+    #[tokio::test]
+    async fn a_capped_strava_session_read_asks_its_grant() {
+        let asked = session_read_refusal("asked");
+        assert!(
+            !error_falls_back(&asked),
+            "bug: the generic rule let a limiter refusal fall back"
+        );
+        assert!(
+            capped_session_falls_back(&asked, "sciotte"),
+            "bug: a capped Strava session read the athlete waits on skipped its grant"
+        );
+        for backend in ["sciotte_garmin", "sciotte_coros", "sciotte_trainingpeaks"] {
+            assert!(
+                !capped_session_falls_back(&asked, backend),
+                "bug: a capped {backend} session read asked a grant it does not have"
+            );
+        }
+        let background = session_read_refusal("background");
+        assert!(
+            in_background(async { capped_session_falls_back(&background, "sciotte") }).await,
+            "bug: a capped background Strava session read skipped its grant"
+        );
+        assert!(
+            in_background(async { capped_session_falls_back(&asked, "sciotte") }).await,
+            "bug: background work behind a capped Strava session skipped its grant"
+        );
+        assert!(
+            !capped_session_falls_back(&budget_refusal(), "sciotte"),
+            "bug: the app budget's refusal asked the grant"
+        );
+        assert!(
+            !capped_session_falls_back(
+                &AppError::new(ErrorCode::ExternalRateLimited, "429 from Strava"),
+                "sciotte"
+            ),
+            "a provider 429 falls back by the generic rule, not this one"
         );
     }
 }

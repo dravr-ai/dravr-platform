@@ -26,6 +26,14 @@
 //! credentials instead of an empty day), and a load-shed is
 //! [`ScraperError::Busy`] carrying the service's own wait.
 //!
+//! Every read is first admitted against its owner's session-read windows at
+//! the session's backend (carnet#1661), the athlete whose row the session was
+//! handed out of. A refusal is [`ScraperError::Busy`] with the wait: the one
+//! error that stops enforme's day loop, so the days read before it are kept
+//! and the next sync resumes from the refused day. Inside [`capped_scope`]
+//! the first refused day is recorded, so a copy that reads a fixed window
+//! (a history walk's wellness) resumes from it rather than from its start.
+//!
 //! A session the service refused is not read again in the same sync
 //! ([`RefusedSessionReader`]). enforme reads each data type on its own, so a
 //! dead session was asked once per data type, and once more after the
@@ -43,16 +51,67 @@ use pierre_core::constants::oauth::providers::TOKEN_TYPE_SESSION;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
 use pierre_database::repositories::{OAuthTokenRepository, ProviderConnectionRepository};
+use pierre_providers::request_budget::{
+    self, refused_before_send, session_read_disabled, ProviderRateLimiter, RequestBudget,
+};
 use pierre_providers::sciotte_error::{require_client, shed_retry_after_secs, to_app_error};
 use pierre_providers::sciotte_provider::SciotteReads;
 use pierre_providers::sciotte_session::{read_imported_persisting, store_over_row};
 use pierre_providers::token_writeback::{self, StoredTokenRow};
 use secrecy::ExposeSecret;
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::future::Future;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use tracing::warn;
+use tracing::{debug, warn};
 use uuid::Uuid;
+
+tokio::task_local! {
+    /// The first read the running task's session-read caps refused, inside
+    /// [`capped_scope`].
+    static CAPPED_DAY: Cell<Option<CappedDay>>;
+}
+
+/// The first day whose read an athlete's session-read caps refused, and how
+/// long until the refusing window ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CappedDay {
+    /// The day that was not read.
+    pub day: NaiveDate,
+    /// Seconds until the refusing window ends.
+    pub retry_after_secs: u64,
+}
+
+/// Run `work`, and say which day its reads were first refused by a
+/// session-read cap, if any was.
+///
+/// enforme reads a window oldest day first and stops at that refusal, in
+/// the task that awaits it, so no day after it was read: a copy of the
+/// window resumes there. The scope is a task-local; reads `work` spawns onto
+/// other tasks are not seen.
+pub async fn capped_scope<F: Future>(work: F) -> (F::Output, Option<CappedDay>) {
+    CAPPED_DAY
+        .scope(Cell::new(None), async move {
+            let output = work.await;
+            (output, CAPPED_DAY.with(Cell::get))
+        })
+        .await
+}
+
+/// Record `capped` in the running [`capped_scope`] when it is the first
+/// refusal there; outside one, nothing is recorded.
+fn note_capped(capped: CappedDay) {
+    let noted = CAPPED_DAY.try_with(|first| {
+        if first.get().is_none() {
+            first.set(Some(capped));
+        }
+    });
+    if noted.is_err() {
+        // Outside a scope there is nobody to tell: the refusal stands as Busy.
+        debug!(day = %capped.day, "a session-read refusal outside a capped scope");
+    }
+}
 
 /// The token rows the health sync handed a scrape session out of.
 ///
@@ -133,6 +192,28 @@ impl SessionRows {
         if let Some(replaced) = replaced {
             refused.remove(&replaced.session_id);
         }
+    }
+
+    /// The athlete and backend of the handed-out row carrying the session
+    /// `session_id`: whose session-read windows a read of it spends. When an
+    /// admin's clone puts the session on several rows, the holder with the
+    /// lowest user id is named (logged), the same one on every read, so the
+    /// read is still counted once and always in the same windows.
+    fn owner_of(&self, session_id: &str) -> Option<(Uuid, String)> {
+        let mut owners: Vec<(Uuid, String)> = self
+            .lock()
+            .iter()
+            .filter(|(_, held)| held.session_id == session_id)
+            .map(|((user_id, _, backend), _)| (*user_id, backend.clone()))
+            .collect();
+        if owners.len() > 1 {
+            debug!(
+                holders = owners.len(),
+                "an admin's clone shares a sciotte session; its read is counted for the lowest user id"
+            );
+        }
+        owners.sort_unstable();
+        owners.into_iter().next()
     }
 
     /// Record that a read found the session `session_id` dead.
@@ -255,6 +336,9 @@ impl DailySummaryReader for RefusedSessionReader {
 pub struct SciotteServiceReader {
     reads: Option<SciotteReads>,
     rows: SessionRows,
+    /// What each read is admitted against; `None` reads uncounted. Shared
+    /// with the provider registry.
+    read_budget: Option<Arc<ProviderRateLimiter>>,
 }
 
 impl fmt::Debug for SciotteServiceReader {
@@ -270,7 +354,54 @@ impl SciotteServiceReader {
     /// rotated on a read is written back over the row `rows` handed it out of.
     #[must_use]
     pub const fn new(reads: Option<SciotteReads>, rows: SessionRows) -> Self {
-        Self { reads, rows }
+        Self {
+            reads,
+            rows,
+            read_budget: None,
+        }
+    }
+
+    /// This reader, each read admitted against the session-read windows in
+    /// `limiter` of the athlete whose row the session was handed out of;
+    /// `None` reads uncounted.
+    #[must_use]
+    pub fn with_read_budget(mut self, limiter: Option<Arc<ProviderRateLimiter>>) -> Self {
+        self.read_budget = limiter;
+        self
+    }
+
+    /// Admit the read of `session`'s `day` against its owner's session-read
+    /// windows: [`ScraperError::Busy`] with the wait when they refuse it,
+    /// the day recorded for [`capped_scope`] unless the refusing cap is `0`
+    /// ([`session_read_disabled`]): a copy cannot resume from a day no window
+    /// will ever read, so it fails instead. A session no handed-out row
+    /// carries has no owner to count it for.
+    async fn admit(&self, session: &AuthSession, day: NaiveDate) -> ScraperResult<()> {
+        let Some(limiter) = &self.read_budget else {
+            return Ok(());
+        };
+        let Some((user_id, backend)) = self.rows.owner_of(&session.session_id) else {
+            debug!("a daily-summary read of a session no handed-out row carries goes uncounted");
+            return Ok(());
+        };
+        let budget = RequestBudget::for_session_read(limiter, &backend, user_id);
+        request_budget::admit(budget.as_ref(), &backend)
+            .await
+            .map_err(|e| match e.retry_after_secs() {
+                Some(retry_after_secs) if refused_before_send(&e) => {
+                    if !session_read_disabled(&e) {
+                        note_capped(CappedDay {
+                            day,
+                            retry_after_secs,
+                        });
+                    }
+                    ScraperError::Busy {
+                        reason: e.message,
+                        retry_after_secs,
+                    }
+                }
+                _ => scraper_error(e),
+            })
     }
 }
 
@@ -288,6 +419,7 @@ impl DailySummaryReader for SciotteServiceReader {
                 .map(|reads| reads.for_session(&session.session_id)),
         )
         .map_err(scraper_error)?;
+        self.admit(session, date).await?;
         read_imported_persisting(
             remote,
             session,
@@ -342,5 +474,184 @@ pub fn scraper_error(error: AppError) -> ScraperError {
     }
     ScraperError::Internal {
         reason: error.message,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use pierre_core::constants::oauth::providers::SCIOTTE_GARMIN;
+    use pierre_core::models::{SessionReadCaps, UserTier};
+    use pierre_providers::request_budget::{
+        budget_period, session_read_counter_key, ONE_DAY, PLATFORM_SCOPE,
+    };
+    use pierre_test_support::db::create_test_db;
+    use secrecy::SecretString;
+
+    use super::*;
+
+    const SESSION_ID: &str = "sess-1661";
+
+    /// The `n`th day of November 2026.
+    fn november(n: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 11, n)
+            .unwrap_or_else(|| panic!("bug: November 2026 has no day {n}"))
+    }
+
+    fn session() -> AuthSession {
+        serde_json::from_value(serde_json::json!({
+            "session_id": SESSION_ID,
+            "cookies": [],
+            "created_at": "2026-11-19T00:00:00Z"
+        }))
+        .unwrap_or_else(|e| panic!("bug: the session fixture does not parse: {e}"))
+    }
+
+    /// `user_id`'s Garmin session row, as the scraper login stores it.
+    fn garmin_session_row(user_id: Uuid) -> UserOAuthToken {
+        let now = Utc::now();
+        UserOAuthToken {
+            id: Uuid::new_v4().to_string(),
+            user_id,
+            tenant_id: TenantId::generate().to_string(),
+            provider: SCIOTTE_GARMIN.to_owned(),
+            access_token: SecretString::from(
+                serde_json::to_string(&session())
+                    .unwrap_or_else(|e| panic!("bug: the session does not serialize: {e}")),
+            ),
+            refresh_token: None,
+            token_type: TOKEN_TYPE_SESSION.to_owned(),
+            expires_at: None,
+            scope: None,
+            provider_user_id: None,
+            oauth_app_client_id: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_days_read_spends_its_owners_garmin_session_reads_and_a_spent_day_is_busy() {
+        let db = create_test_db()
+            .await
+            .unwrap_or_else(|e| panic!("test db: {e}"));
+        let repos = db.repositories();
+        let limiter = Arc::new(ProviderRateLimiter::new(
+            Arc::clone(&repos.usage_counters),
+            Arc::clone(&repos.provider_connections),
+        ));
+        let rows = SessionRows::new(Arc::clone(&repos.oauth_tokens));
+        let athlete = Uuid::new_v4();
+        rows.remember(&garmin_session_row(athlete));
+        let reader = SciotteServiceReader::new(None, rows).with_read_budget(Some(limiter));
+
+        // Health sync is background work: counted under the athlete's own
+        // background key at sciotte_garmin.
+        request_budget::in_background(reader.admit(&session(), november(1)))
+            .await
+            .unwrap_or_else(|e| panic!("bug: the first day's read was refused: {e}"));
+        let key = session_read_counter_key(SCIOTTE_GARMIN, "background", athlete);
+        let period = budget_period(Utc::now(), ONE_DAY);
+        let spent = repos
+            .usage_counters
+            .get_counter(PLATFORM_SCOPE, PLATFORM_SCOPE, &key, &period)
+            .await
+            .map_or(0, |counter| counter.value);
+        assert_eq!(spent, 1, "bug: a day's read is not counted for its owner");
+
+        // The background day spent: the next read is Busy, with the wait.
+        let day = i64::from(SessionReadCaps::for_tier(&UserTier::Starter).background_daily);
+        repos
+            .usage_counters
+            .increment_counter(PLATFORM_SCOPE, PLATFORM_SCOPE, &key, &period, day)
+            .await
+            .unwrap_or_else(|e| panic!("bug: the day could not be spent: {e}"));
+        let refused = request_budget::in_background(reader.admit(&session(), november(1))).await;
+        let Err(ScraperError::Busy {
+            retry_after_secs, ..
+        }) = refused
+        else {
+            panic!("bug: a spent day is not Busy: {refused:?}");
+        };
+        assert!(
+            retry_after_secs > 0,
+            "bug: the refusal carries no wait for enforme to resume after"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_capped_scope_names_the_first_refused_day_and_its_wait() {
+        let db = create_test_db()
+            .await
+            .unwrap_or_else(|e| panic!("test db: {e}"));
+        let repos = db.repositories();
+        let limiter = Arc::new(ProviderRateLimiter::new(
+            Arc::clone(&repos.usage_counters),
+            Arc::clone(&repos.provider_connections),
+        ));
+        let rows = SessionRows::new(Arc::clone(&repos.oauth_tokens));
+        let athlete = Uuid::new_v4();
+        rows.remember(&garmin_session_row(athlete));
+        let reader = SciotteServiceReader::new(None, rows).with_read_budget(Some(limiter));
+
+        // A first fill's day spent but for one read: day 3 reads, days 4 and
+        // 5 are refused, and the scope names day 4, the first.
+        let key = session_read_counter_key(SCIOTTE_GARMIN, "wellness_first_fill", athlete);
+        let period = budget_period(Utc::now(), ONE_DAY);
+        let allowance =
+            i64::from(SessionReadCaps::for_tier(&UserTier::Starter).wellness_first_fill_daily);
+        repos
+            .usage_counters
+            .increment_counter(PLATFORM_SCOPE, PLATFORM_SCOPE, &key, &period, allowance - 1)
+            .await
+            .unwrap_or_else(|e| panic!("bug: the day could not be spent: {e}"));
+        let ((third, fourth, fifth), capped) =
+            capped_scope(request_budget::in_wellness_first_fill(async {
+                (
+                    reader.admit(&session(), november(3)).await,
+                    reader.admit(&session(), november(4)).await,
+                    reader.admit(&session(), november(5)).await,
+                )
+            }))
+            .await;
+        assert!(third.is_ok(), "bug: the day's last read was refused");
+        assert!(
+            matches!(fourth, Err(ScraperError::Busy { .. }))
+                && matches!(fifth, Err(ScraperError::Busy { .. })),
+            "bug: a read past the first fill's day was not Busy: {fourth:?} {fifth:?}"
+        );
+        let capped = capped.unwrap_or_else(|| panic!("bug: the scope recorded no refused day"));
+        assert_eq!(
+            capped.day,
+            november(4),
+            "bug: the scope names a refused day other than the first"
+        );
+        assert!(
+            capped.retry_after_secs > 0,
+            "bug: the recorded refusal carries no wait"
+        );
+
+        // Nothing of that refusal leaks into the next scope.
+        let ((), clean) = capped_scope(async {}).await;
+        assert_eq!(clean, None, "bug: a scope with no refusal names a day");
+    }
+
+    #[tokio::test]
+    async fn a_session_no_row_carries_is_read_uncounted() {
+        let db = create_test_db()
+            .await
+            .unwrap_or_else(|e| panic!("test db: {e}"));
+        let repos = db.repositories();
+        let limiter = Arc::new(ProviderRateLimiter::new(
+            Arc::clone(&repos.usage_counters),
+            Arc::clone(&repos.provider_connections),
+        ));
+        let reader =
+            SciotteServiceReader::new(None, SessionRows::new(Arc::clone(&repos.oauth_tokens)))
+                .with_read_budget(Some(limiter));
+        assert!(
+            reader.admit(&session(), november(1)).await.is_ok(),
+            "bug: a session with no owner was refused"
+        );
     }
 }

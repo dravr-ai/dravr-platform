@@ -38,7 +38,6 @@ use dravr_barrage::blob::{
 };
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::parse::fit::FitFileError;
-use dravr_barrage::store::memory::MemoryActivityRecordStore;
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{BarrageError, Scope};
 use futures_util::stream::BoxStream;
@@ -54,6 +53,7 @@ use pierre_mcp_server::services::activity_upload::MAX_UPLOAD_BYTES;
 use pierre_mcp_server::services::retention_sweep_worker::retention_sweeper;
 use pierre_providers::originals::OriginalsStore;
 use pierre_providers::upload_provider::file_sha256;
+use pierre_services::barrage_keys::memory_records;
 use pierre_test_support::fit::{bloated_file, course_file, FitWorkout};
 use pierre_tool_runtime::protocol::{
     is_no_provider_refusal, UniversalRequest, UniversalToolExecutor,
@@ -403,7 +403,7 @@ async fn an_upload_is_its_uploaders_alone_in_the_tenant_it_was_made_in() {
 
 #[tokio::test]
 async fn retention_never_expires_an_uploaded_workout() {
-    let records: Arc<dyn ActivityRecordStore> = Arc::new(MemoryActivityRecordStore::new());
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
     let resources = common::create_test_server_resources_with_config_and_records(
         common::test_server_config(),
         Arc::clone(&records),

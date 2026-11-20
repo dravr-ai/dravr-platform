@@ -59,7 +59,7 @@ env:
 jobs:
   benchmark:
     name: Run Benchmarks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.event_name == 'schedule' || inputs.flamegraph != true
     # A backstop, not a performance budget. One side alone landed in 31-51 min;
     # the base and the head share a target directory, so the second build
@@ -159,7 +159,7 @@ jobs:
 
   flamegraph:
     name: Tool-Dispatch Flamegraphs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.event_name == 'workflow_dispatch' && inputs.flamegraph == true
     # Same backstop, same reason. Manual-dispatch only, so a hang here is
     # likelier to go unwatched than one on a push.

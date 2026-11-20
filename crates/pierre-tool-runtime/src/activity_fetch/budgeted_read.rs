@@ -13,6 +13,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::BackfillJobKind;
 use pierre_providers::core::ActivityQueryParams;
+use pierre_providers::request_budget::session_read_cap;
 use pierre_providers::{ai_scope, CoreFitnessProvider};
 use tokio::sync::oneshot::{self, error::RecvError};
 use tokio::time::{self, Instant};
@@ -23,7 +24,7 @@ use super::pushed::serving_slug;
 use super::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
 use super::{
     read_cached_page, read_live_window, serve_after_failed_read, serve_flagged_session,
-    serve_stale_activities, stale_head_params, FailedRead,
+    serve_stale_activities, stale_head_params, FailedRead, StaleReason,
 };
 use crate::activity_backfill::live_read::{
     start_live_read, Authenticated, JoinedRead, LiveReadOutput, LiveReadStart,
@@ -447,24 +448,31 @@ fn answered(
 /// awaited [`super::refresh_head`] inline, so a slow scrape held the whole
 /// call. It is a [`BackfillJobKind::LiveRead`] job no conversation waits on:
 /// past the budget the read runs on and its write-through lands for the next
-/// turn, silently; `None` tells the caller the head it serves is behind. A
-/// read that failed is answered from the cache, as [`super::refresh_head`]'s
-/// is, and a flagged scrape session is not read at all. Run unfiltered and
-/// filtered here, for the reason [`read_live_window_within_budget`] gives.
+/// turn, silently; [`StaleReason::Timeout`] tells the caller the head it
+/// serves is behind. A read that failed is answered from the cache, as
+/// [`super::refresh_head`]'s is, and a flagged scrape session is not read at
+/// all. A read the athlete's session-read cap refused (carnet#1661) answers
+/// [`StaleReason::ReadLimit`]: the cache the caller serves is the copy, and
+/// live reads resume when the reason says. Run unfiltered and filtered here,
+/// for the reason [`read_live_window_within_budget`] gives.
+///
+/// # Errors
+///
+/// Why the head the caller serves is behind.
 pub async fn refresh_head_within_budget(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
     user_id: Uuid,
     tenant_id: TenantId,
     budget: Duration,
-) -> Option<Vec<Activity>> {
+) -> Result<Vec<Activity>, StaleReason> {
     let attempt_started_at = Utc::now();
     let provider_slug = &serving_slug(runtime, provider_slug, user_id, Some(tenant_id)).await;
     let params = stale_head_params();
     if let Some(served) =
         serve_flagged_session(runtime, provider_slug, user_id, Some(tenant_id), &params).await
     {
-        return served;
+        return served.ok_or(StaleReason::Timeout);
     }
     let read = OwnedLiveRead {
         provider_slug: provider_slug.clone(),
@@ -475,7 +483,14 @@ pub async fn refresh_head_within_budget(
         conversation_id: None,
         ask: None,
     };
-    let landed = head_within_budget(runtime, read, budget).await?;
+    let landed = head_within_budget(runtime, read, budget)
+        .await
+        .ok_or(StaleReason::Timeout)?;
+    if let Err(e) = &landed.read {
+        if session_read_cap(e).is_some() {
+            return Err(StaleReason::of_failure(e));
+        }
+    }
     let failed = FailedRead {
         provider_slug,
         user_id,
@@ -483,8 +498,10 @@ pub async fn refresh_head_within_budget(
         params: &params,
         attempt_started_at,
     };
-    let rows = served_head(runtime, failed, landed.read).await?;
-    Some(ai_scope::filter_activities(
+    let rows = served_head(runtime, failed, landed.read)
+        .await
+        .ok_or(StaleReason::Timeout)?;
+    Ok(ai_scope::filter_activities(
         runtime.provider_registry().as_ref(),
         rows,
     ))
