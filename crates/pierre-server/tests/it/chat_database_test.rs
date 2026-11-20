@@ -227,6 +227,7 @@ async fn test_list_rows_carry_agent_group_preview_and_unread() {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             },

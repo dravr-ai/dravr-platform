@@ -343,6 +343,7 @@ mod group_digest_room_tests {
                     is_active: true,
                     channel_type: chat.map(|(channel, _)| channel.to_owned()),
                     channel_chat_id: chat.map(|(_, chat_id)| chat_id.to_owned()),
+                    chat_connection: None,
                     created_at: now,
                     updated_at: now,
                 },
@@ -1318,6 +1319,7 @@ mod group_digest_room_tests {
             is_active: true,
             channel_type: Some("telegram".to_owned()),
             channel_chat_id: Some("-1".to_owned()),
+            chat_connection: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

@@ -322,6 +322,7 @@ async fn a_room_created_without_an_agent_stays_unbound() {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },

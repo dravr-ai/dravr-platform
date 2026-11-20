@@ -1509,6 +1509,7 @@ async fn a_room_entry_copied_from_a_stamped_reply_keeps_its_place_withheld_over_
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },

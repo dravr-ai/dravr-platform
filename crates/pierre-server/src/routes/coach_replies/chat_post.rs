@@ -219,16 +219,14 @@ async fn post_into_group_chat(
     let Some(channel) = group.channel_type.as_deref() else {
         return false;
     };
-    let Some((channel_type, chat_id)) = proactive_chat(group) else {
+    let Some(chat) = proactive_chat(group) else {
         info!(group_id = %group.id, channel = %channel, "correction: the group's chat takes no post the platform starts; it is in the group thread only");
         return false;
     };
-    let Ok(tenant) = TenantId::parse_str(&group.tenant_id) else {
-        warn!(group_id = %group.id, "correction: the group's tenant is not a uuid; not posted to its chat");
-        return false;
-    };
     let text = correction_text(registry, locale, names, outcome);
-    let parts = poster.post(tenant, channel_type, chat_id, &text).await;
+    let parts = poster
+        .post(chat.tenant_id, chat.channel, chat.chat_id, &text)
+        .await;
     if parts > 0 {
         info!(group_id = %group.id, channel = %channel, parts, "correction: posted into the group's chat");
     }
@@ -294,6 +292,7 @@ mod tests {
             is_active: true,
             channel_type: channel.map(|(c, _)| c.to_owned()),
             channel_chat_id: channel.map(|(_, id)| id.to_owned()),
+            chat_connection: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

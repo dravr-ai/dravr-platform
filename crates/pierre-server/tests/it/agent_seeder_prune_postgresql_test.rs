@@ -243,6 +243,7 @@ async fn test_pg_merged_agent_hands_over_and_orphan_group_blocks() {
         is_active: true,
         channel_type: None,
         channel_chat_id: None,
+        chat_connection: None,
         created_at: now,
         updated_at: now,
     };

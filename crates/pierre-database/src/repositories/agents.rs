@@ -15,8 +15,9 @@ use pierre_core::models::agents::{
     UpdateAgentRequest,
 };
 use pierre_core::models::groups::{
-    CoachingGroup, GroupInvite, GroupMember, GroupRole, GroupSetupTimeline, GroupSummary,
-    GroupTranscriptEntry, NewGroupTranscriptEntry, RoomTranscriptEntry, UpdateGroupRequest,
+    CoachingGroup, ConnectGroupChat, GroupChatConnectCode, GroupChatConnectOutcome, GroupInvite,
+    GroupMember, GroupRole, GroupSetupTimeline, GroupSummary, GroupTranscriptEntry,
+    NewGroupTranscriptEntry, ReleasedGroupChat, RoomTranscriptEntry, UpdateGroupRequest,
 };
 
 use pierre_core::models::AgentRuntimeContext;
@@ -348,18 +349,81 @@ pub trait CoachingGroupRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<Option<CoachingGroup>>;
 
-    /// Look up the active group bound to a specific messaging chat.
+    /// Look up the active group bound to a specific messaging chat, served
+    /// by the bot of `tenant_id`.
     ///
-    /// Returns `Some(group)` if a `coaching_groups` row was created from
-    /// this chat (Telegram group, Slack channel, Discord channel) and is
-    /// still active. Returns `None` for unknown chats or REST-created
-    /// (web/mobile) groups that have no channel binding.
+    /// Returns `Some(group)` if a `coaching_groups` row is bound to this chat
+    /// (Telegram group, Slack channel, Discord channel) and is still active:
+    /// one the chat created, which lives under its bot's tenant, or one
+    /// connected to it from the web app, which records that tenant as
+    /// [`GroupChatConnection::channel_tenant_id`]. Returns `None` for unknown
+    /// chats.
+    ///
+    /// [`GroupChatConnection::channel_tenant_id`]: pierre_core::models::groups::GroupChatConnection::channel_tenant_id
     async fn get_group_by_channel(
         &self,
         tenant_id: TenantId,
         channel_type: &str,
         channel_chat_id: &str,
     ) -> AppResult<Option<CoachingGroup>>;
+
+    // -- Connecting a group to a chat from the web app (carnet#1683) --
+
+    /// Store a freshly minted connect code.
+    async fn create_chat_connect_code(
+        &self,
+        code: &GroupChatConnectCode,
+        now: DateTime<Utc>,
+    ) -> AppResult<()>;
+
+    /// The connect code `code` when the bot of `channel_tenant_id` may still
+    /// redeem it on `channel_type` at `now`: unspent and unexpired. Reading
+    /// never spends it.
+    async fn live_chat_connect_code(
+        &self,
+        code: &str,
+        channel_type: &str,
+        channel_tenant_id: TenantId,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<GroupChatConnectCode>>;
+
+    /// Spend the code and bind the group to the chat, in one transaction.
+    ///
+    /// Releases `release_group_id` from the chat first when it is named,
+    /// and forgets that the chat was released by an earlier disconnect.
+    /// Every refusal leaves everything as it was, the code unspent included,
+    /// except [`GroupChatConnectOutcome::CodeSpent`], where it already was.
+    async fn connect_group_chat(
+        &self,
+        connect: &ConnectGroupChat<'_>,
+    ) -> AppResult<GroupChatConnectOutcome>;
+
+    /// Clear the group's chat binding, whichever way it was made, and record
+    /// the chat as released so its next message creates no group. Returns
+    /// the binding removed, `None` when the group was bound to no chat.
+    async fn disconnect_group_chat(
+        &self,
+        group_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<ReleasedGroupChat>>;
+
+    /// Whether the chat was released by a disconnect and not connected since.
+    async fn is_group_chat_released(
+        &self,
+        channel_tenant_id: TenantId,
+        channel_type: &str,
+        channel_chat_id: &str,
+    ) -> AppResult<bool>;
+
+    /// Record that a non-member sender in the group's chat was told how to
+    /// join. `true` the first time, `false` when they already were.
+    async fn record_chat_invite_prompt(
+        &self,
+        group_id: Uuid,
+        channel_type: &str,
+        channel_user_id: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<bool>;
 
     /// List groups the user belongs to (as member, admin, or owner).
     /// Membership-based lookup — no tenant filter since members join cross-tenant.

@@ -416,6 +416,7 @@ impl GroupService {
             is_active: true,
             channel_type: None,
             channel_chat_id: None,
+            chat_connection: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
@@ -492,6 +493,7 @@ impl GroupService {
             is_active: true,
             channel_type: Some(spec.channel_type.to_owned()),
             channel_chat_id: Some(spec.channel_chat_id.to_owned()),
+            chat_connection: None,
             created_at: now,
             updated_at: now,
         };

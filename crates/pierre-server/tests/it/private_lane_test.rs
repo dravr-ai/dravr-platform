@@ -291,6 +291,7 @@ async fn create_group(
                 is_active: true,
                 channel_type: channel.map(|(c, _)| c.to_owned()),
                 channel_chat_id: channel.map(|(_, id)| id.to_owned()),
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },

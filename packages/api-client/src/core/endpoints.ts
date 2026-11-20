@@ -235,6 +235,11 @@ export const ENDPOINTS = {
      * coachless group
      */
     COACH: (id: string) => `/api/groups/${id}/coach`,
+    /**
+     * The group's room in a chat app's group chat: GET reads it, POST mints a
+     * one-time connect code, DELETE disconnects it (owner or human coach)
+     */
+    CHAT_CONNECTION: (id: string) => `/api/groups/${id}/chat-connection`,
     /** The invite the server holds for the caller: PUT holds a code, GET reads it */
     HELD_INVITE: '/api/user/group-invite',
     /** Join the group of the invite the server holds for the caller */

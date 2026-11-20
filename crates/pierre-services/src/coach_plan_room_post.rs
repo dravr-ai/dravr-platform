@@ -44,7 +44,6 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::civil_time::weekday_short;
 use pierre_core::models::groups::{CoachingGroup, NewGroupTranscriptEntry, TranscriptSpeaker};
-use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;
 use pierre_core::untrusted::{self, ROSTER_NAME_MAX_CHARS};
 use pierre_database::RepositoryRegistry;
@@ -360,14 +359,13 @@ async fn coached_group(
 
 /// Post `text` into `group`'s bound chat; whether any of it arrived.
 async fn post_in_chat(poster: &dyn GroupChatPoster, group: &CoachingGroup, text: &str) -> bool {
-    let Some((channel, chat_id)) = proactive_chat(group) else {
+    let Some(chat) = proactive_chat(group) else {
         return false;
     };
-    let Ok(tenant) = TenantId::parse_str(&group.tenant_id) else {
-        warn!(group_id = %group.id, "plan room post: the group's tenant is not a uuid; not posted to its chat");
-        return false;
-    };
-    let parts = poster.post(tenant, channel, chat_id, text).await;
+    let channel = chat.channel;
+    let parts = poster
+        .post(chat.tenant_id, channel, chat.chat_id, text)
+        .await;
     if parts > 0 {
         info!(group_id = %group.id, channel = %channel, parts, "plan room post: posted into the group's chat");
     }

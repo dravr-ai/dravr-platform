@@ -949,6 +949,7 @@ impl RoomE2e {
             is_active: true,
             channel_type: Some("telegram".to_owned()),
             channel_chat_id: Some(chat_id.to_string()),
+            chat_connection: None,
             created_at: now,
             updated_at: now,
         };

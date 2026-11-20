@@ -375,6 +375,7 @@ async fn bound_room_group(
                 is_active: true,
                 channel_type: Some("telegram".to_owned()),
                 channel_chat_id: Some("-100123".to_owned()),
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },

@@ -1291,6 +1291,35 @@ pub const KEY_GROUP_DIGEST_USAGE: &str = "commands.group.digest_usage";
 /// Key: the weekly digest is off — the `/group digest` reply and `/group
 /// status` line for that mode, with how to turn it on.
 pub const KEY_GROUP_DIGEST_STATUS_OFF: &str = "commands.group.digest_status.off";
+/// Key: posted into a chat once it is connected to a group from the web app
+/// (carnet#1683). `{0}` = group name.
+pub const KEY_GROUP_CHAT_CONNECTED: &str = "humanCoach.groupChat.connected";
+/// Key: a connect code redeemed in the chat that already is the group's
+/// room. `{0}` = group name.
+pub const KEY_GROUP_CHAT_ALREADY_CONNECTED: &str = "humanCoach.groupChat.already_connected";
+/// Key: a connect code that is unknown, expired or spent. No placeholder.
+pub const KEY_GROUP_CHAT_CODE_INVALID: &str = "humanCoach.groupChat.code_invalid";
+/// Key: a connect code redeemed by someone who neither owns nor coaches the
+/// group. No placeholder.
+pub const KEY_GROUP_CHAT_NOT_MANAGER: &str = "humanCoach.groupChat.not_manager";
+/// Key: the group is already connected to another chat (one chat app per
+/// group). `{0}` = group name.
+pub const KEY_GROUP_CHAT_GROUP_CONNECTED_ELSEWHERE: &str =
+    "humanCoach.groupChat.group_connected_elsewhere";
+/// Key: the chat belongs to another group the sender does not own. No
+/// placeholder.
+pub const KEY_GROUP_CHAT_CHAT_TAKEN: &str = "humanCoach.groupChat.chat_taken";
+/// Key: a connect code sent by a chat identity linked to no Dravr account.
+/// `{0}` = chat app name.
+pub const KEY_GROUP_CHAT_NOT_LINKED: &str = "humanCoach.groupChat.not_linked";
+/// Key: the group a connect code named was archived. No placeholder.
+pub const KEY_GROUP_CHAT_GROUP_GONE: &str = "humanCoach.groupChat.group_gone";
+/// Key: told once to a sender in a connected chat who is not a member of its
+/// group. `{0}` = group name, `{1}` = chat app name.
+pub const KEY_GROUP_CHAT_NON_MEMBER_PROMPT: &str = "humanCoach.groupChat.non_member_prompt";
+/// Key: posted into a chat when its group disconnects it from the web app.
+/// `{0}` = group name.
+pub const KEY_GROUP_CHAT_DISCONNECTED: &str = "humanCoach.groupChat.disconnected";
 /// Key: the weekly digest is posted into the group's chat — the `/group
 /// digest` reply and `/group status` line for that mode, with how to change it.
 pub const KEY_GROUP_DIGEST_STATUS_CHAT: &str = "commands.group.digest_status.chat";

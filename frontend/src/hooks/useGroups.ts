@@ -43,6 +43,9 @@ export const {
   useCoachConsents,
   useSetCoachConsents,
   useEndDelegatedConnection,
+  useGroupChatConnection,
+  useCreateGroupChatConnection,
+  useDeleteGroupChatConnection,
 } = createGroupHooks(groupsApi, WEB_GROUP_FRESHNESS);
 
 /**

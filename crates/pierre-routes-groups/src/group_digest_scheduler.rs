@@ -173,6 +173,11 @@ pub struct DigestRoom<'a> {
     pub channel: ChannelType,
     /// The channel-native id of the group's chat.
     pub chat_id: &'a str,
+    /// The tenant whose bot serves the chat: the group's own for a chat that
+    /// created its group, the recorded one for a chat connected from the web
+    /// app (carnet#1683). Posts go through its channel configuration, and the
+    /// room's language is read from the links stored under it.
+    pub tenant_id: TenantId,
 }
 
 /// What one sweep hands every group it visits.
@@ -308,8 +313,12 @@ pub fn digest_room(group: &CoachingGroup) -> Option<DigestRoom<'_>> {
     if group.digest_mode != GroupDigestMode::Chat {
         return None;
     }
-    let (channel, chat_id) = group_chat_poster::proactive_chat(group)?;
-    Some(DigestRoom { channel, chat_id })
+    let chat = group_chat_poster::proactive_chat(group)?;
+    Some(DigestRoom {
+        channel: chat.channel,
+        chat_id: chat.chat_id,
+        tenant_id: chat.tenant_id,
+    })
 }
 
 /// Process every active group for one eligible tenant.
@@ -407,7 +416,7 @@ async fn process_group<C>(
     )))
     .await;
     outcome.groups_reported += 1;
-    let posted = post_digest_to_room(sweep, tenant_id, group, &audience, &snapshots, outcome).await;
+    let posted = post_digest_to_room(sweep, group, &audience, &snapshots, outcome).await;
 
     // The week closes as soon as the chat has been tried, before the managers
     // are told: a crash in the managers' fan-out then costs their copies, never
@@ -618,7 +627,6 @@ async fn claim_week(
 /// arrived.
 async fn post_digest_to_room<C>(
     sweep: &Sweep<'_, C>,
-    tenant_id: TenantId,
     group: &CoachingGroup,
     audience: &Audience,
     snapshots: &[MemberFitnessSnapshot],
@@ -630,7 +638,7 @@ where
     let Some(room) = digest_room(group) else {
         return false;
     };
-    let posted = post_to_room(sweep, tenant_id, group, room, audience, snapshots, outcome).await;
+    let posted = post_to_room(sweep, group, room, audience, snapshots, outcome).await;
     if posted {
         outcome.room_posts += 1;
     }
@@ -642,7 +650,6 @@ where
 /// counts as an error, so a room that refuses every week shows in the sweep.
 async fn post_to_room<C>(
     sweep: &Sweep<'_, C>,
-    tenant_id: TenantId,
     group: &CoachingGroup,
     room: DigestRoom<'_>,
     audience: &Audience,
@@ -659,7 +666,7 @@ where
     let params = room_digest_params(ctx.group_service(), group, &audience.members, snapshots);
     let locale = room_locale(
         MiddlewareCtx::repos(ctx),
-        tenant_id,
+        room.tenant_id,
         group,
         room.channel,
         audience,
@@ -676,7 +683,7 @@ where
         );
 
     let parts = poster
-        .post(tenant_id, room.channel, room.chat_id, &text)
+        .post(room.tenant_id, room.channel, room.chat_id, &text)
         .await;
     if parts == 0 {
         outcome.errors += 1;
@@ -805,8 +812,9 @@ async fn room_locale(
 
 /// One person's language on the group's channel: their locale override for
 /// that channel, else the locale on their profile, else the default — the
-/// chain the messaging ingress resolves. The links are read under the group's
-/// tenant, which owns the channel and every link made through it.
+/// chain the messaging ingress resolves. The links are read under the tenant
+/// serving the group's chat, which owns the channel and every link made
+/// through it.
 async fn member_locale(
     messaging: &dyn MessagingRepository,
     tenant_id: TenantId,
@@ -1094,6 +1102,7 @@ mod tests {
             is_active: true,
             channel_type: None,
             channel_chat_id: None,
+            chat_connection: None,
             created_at: now,
             updated_at: now,
         };

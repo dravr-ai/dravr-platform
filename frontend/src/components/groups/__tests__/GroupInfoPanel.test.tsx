@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import GroupInfoPanel from '../GroupInfoPanel';
@@ -15,12 +15,14 @@ import type {
   CoachConsentsResponse,
   CoachingGroup,
   DelegatedConnection,
+  GroupChatConnectCode,
+  GroupChatConnection,
   GroupMember,
   WorkoutPlan,
 } from '@pierre/shared-types';
 import { i18n } from '@pierre/i18n';
 import { UnitsContext } from '@pierre/ui-logic';
-import type { DistanceUnit } from '@pierre/chat-utils';
+import { formatMessageTime, type DistanceUnit } from '@pierre/chat-utils';
 
 const CALLER_ID = 'user-caller';
 const OTHER_ID = 'user-other';
@@ -40,6 +42,39 @@ function coachConsents(overrides: Partial<CoachConsentsResponse> = {}): CoachCon
     wellness_read_supported: false,
     wellness_read_skipped: null,
     wellness_notice_due: false,
+    ...overrides,
+  };
+}
+
+/** The room's chat-app connection: none, and the caller may not change it, unless overridden. */
+function chatConnection(overrides: Partial<GroupChatConnection> = {}): GroupChatConnection {
+  return {
+    connected: false,
+    channel: null,
+    chat_title: null,
+    connected_at: null,
+    can_manage: false,
+    ...overrides,
+  };
+}
+
+/** A connected room, as the server reads it back once the bot joined the chat. */
+const CONNECTED: Partial<GroupChatConnection> = {
+  connected: true,
+  channel: 'telegram',
+  chat_title: 'Sunday Riders',
+  connected_at: '2026-11-19T10:00:00Z',
+};
+
+/** A connect code that is still good for ten minutes. */
+function connectCode(overrides: Partial<GroupChatConnectCode> = {}): GroupChatConnectCode {
+  return {
+    channel: 'telegram',
+    code: 'K7Q2ZP',
+    deep_link_url: 'https://t.me/dravr_bot?startgroup=K7Q2ZP',
+    command: '/group link K7Q2ZP',
+    qr_svg: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+    expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
     ...overrides,
   };
 }
@@ -98,6 +133,9 @@ vi.mock('../../../services/api', () => ({
     getCoachConsents: vi.fn(),
     updateCoachConsents: vi.fn(),
     endDelegatedConnection: vi.fn(),
+    getChatConnection: vi.fn(),
+    createChatConnection: vi.fn(),
+    deleteChatConnection: vi.fn(),
   },
   // The seat block's coaching-platform rows reach these only when tapped.
   oauthApi: {
@@ -298,6 +336,7 @@ describe('GroupInfoPanel', () => {
       total: 0,
       viewer: 'member',
     });
+    vi.mocked(groupsApi.getChatConnection).mockResolvedValue(chatConnection());
   });
 
   it('names the group, its description and its roster size', async () => {
@@ -1801,5 +1840,235 @@ describe('GroupInfoPanel', () => {
     await screen.findByText('Marathon Squad');
     expect(groupsApi.getCoachConsents).not.toHaveBeenCalled();
     expect(screen.queryByTestId('coach-consents')).toBeNull();
+  });
+
+  describe('the chat app the room is connected to (carnet#1683)', () => {
+    const en = i18n.getFixedT('en');
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** Answer the connection read from a flag the test flips, as the server would after a write. */
+    function connectionFrom(state: { connected: boolean }, canManage: boolean) {
+      vi.mocked(groupsApi.getChatConnection).mockImplementation(async () =>
+        chatConnection(state.connected ? { ...CONNECTED, can_manage: canManage } : { can_manage: canManage }),
+      );
+    }
+
+    async function startConnecting(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(await screen.findByTestId('group-chat-connect'));
+      await user.click(screen.getByTestId('group-chat-choose-telegram'));
+    }
+
+    it('offers the owner a way to connect a chat app: Telegram now, WhatsApp shown as coming', async () => {
+      vi.mocked(groupsApi.getChatConnection).mockResolvedValue(chatConnection({ can_manage: true }));
+      const user = userEvent.setup();
+      renderPanel();
+
+      const section = await screen.findByTestId('group-chat-connection');
+      expect(within(section).getByTestId('group-chat-not-connected')).toHaveTextContent(
+        en('humanCoach.groupChat.web.notConnected'),
+      );
+      await user.click(within(section).getByTestId('group-chat-connect'));
+      expect(within(section).getByTestId('group-chat-choose-telegram')).toBeEnabled();
+      const whatsapp = within(section).getByTestId('group-chat-choose-whatsapp');
+      expect(whatsapp).toBeDisabled();
+      expect(whatsapp).toHaveTextContent(en('humanCoach.groupChat.web.comingSoon'));
+      // Choosing is not connecting: no code is made until Telegram is picked.
+      expect(groupsApi.createChatConnection).not.toHaveBeenCalled();
+    });
+
+    it('hands the manager the deep link, the command to type and the expiry, without a QR on a narrow screen', async () => {
+      vi.mocked(groupsApi.getChatConnection).mockResolvedValue(chatConnection({ can_manage: true }));
+      const code = connectCode();
+      vi.mocked(groupsApi.createChatConnection).mockResolvedValue(code);
+      const user = userEvent.setup();
+      renderPanel();
+
+      await startConnecting(user);
+
+      const pending = await screen.findByTestId('group-chat-pending');
+      expect(groupsApi.createChatConnection).toHaveBeenCalledWith(GROUP_ID, { channel: 'telegram' });
+      const open = within(pending).getByTestId('group-chat-open-app');
+      expect(open).toHaveAttribute('href', 'https://t.me/dravr_bot?startgroup=K7Q2ZP');
+      expect(open).toHaveTextContent('Open Telegram');
+      expect(within(pending).getByTestId('group-chat-command')).toHaveTextContent('/group link K7Q2ZP');
+      expect(within(pending).getByTestId('group-chat-expiry')).toHaveTextContent(
+        en('humanCoach.groupChat.web.expiresAt', { time: formatMessageTime(code.expires_at, 'en') }),
+      );
+      expect(within(pending).queryByTestId('group-chat-qr')).toBeNull();
+
+      await user.click(within(pending).getByTestId('group-chat-copy-command'));
+      expect(await navigator.clipboard.readText()).toBe('/group link K7Q2ZP');
+    });
+
+    it('adds the QR on a wide screen, where the chat app runs on another device', async () => {
+      const wide = vi.spyOn(window, 'matchMedia').mockImplementation(
+        (query: string) =>
+          ({
+            matches: query === '(min-width: 1024px)',
+            media: query,
+            onchange: null,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            addListener: () => {},
+            removeListener: () => {},
+            dispatchEvent: () => false,
+          }) as MediaQueryList,
+      );
+      try {
+        vi.mocked(groupsApi.getChatConnection).mockResolvedValue(chatConnection({ can_manage: true }));
+        vi.mocked(groupsApi.createChatConnection).mockResolvedValue(connectCode());
+        const user = userEvent.setup();
+        renderPanel();
+
+        await startConnecting(user);
+
+        const qr = await screen.findByTestId('group-chat-qr');
+        expect(within(qr).getByRole('img')).toHaveAttribute(
+          'src',
+          `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg"></svg>')}`,
+        );
+      } finally {
+        wide.mockRestore();
+      }
+    });
+
+    it('reads the connection again while the code is out and turns to the chat once the bot joins', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const state = { connected: false };
+      connectionFrom(state, true);
+      vi.mocked(groupsApi.createChatConnection).mockResolvedValue(connectCode());
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderPanel();
+
+      await startConnecting(user);
+      await screen.findByTestId('group-chat-pending');
+      const readsBefore = vi.mocked(groupsApi.getChatConnection).mock.calls.length;
+
+      // The bot joins on the manager's phone; only the next read can tell this screen.
+      state.connected = true;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000);
+      });
+
+      const row = await screen.findByTestId('group-chat-connected');
+      expect(vi.mocked(groupsApi.getChatConnection).mock.calls.length).toBeGreaterThan(readsBefore);
+      expect(within(row).getByTestId('group-chat-title')).toHaveTextContent('Sunday Riders');
+      expect(screen.queryByTestId('group-chat-pending')).toBeNull();
+    });
+
+    it('says a code expired and makes a new one on request', async () => {
+      vi.mocked(groupsApi.getChatConnection).mockResolvedValue(chatConnection({ can_manage: true }));
+      vi.mocked(groupsApi.createChatConnection)
+        .mockResolvedValueOnce(connectCode({ expires_at: new Date(Date.now() - 1_000).toISOString() }))
+        .mockResolvedValueOnce(connectCode({ code: 'M4X9TB', command: '/group link M4X9TB' }));
+      const user = userEvent.setup();
+      renderPanel();
+
+      await startConnecting(user);
+
+      const expired = await screen.findByTestId('group-chat-expired');
+      expect(expired).toHaveTextContent(en('humanCoach.groupChat.web.expired'));
+      expect(screen.queryByTestId('group-chat-open-app')).toBeNull();
+      await user.click(within(expired).getByTestId('group-chat-new-code'));
+      expect(await screen.findByTestId('group-chat-command')).toHaveTextContent('/group link M4X9TB');
+      expect(groupsApi.createChatConnection).toHaveBeenCalledTimes(2);
+    });
+
+    it('shows the chat a peer connected meanwhile when making a code is refused as already connected', async () => {
+      const state = { connected: false };
+      connectionFrom(state, true);
+      vi.mocked(groupsApi.createChatConnection).mockImplementation(async () => {
+        state.connected = true;
+        throw { response: { status: 409, data: { message: 'The group is already connected to a chat' } } };
+      });
+      const user = userEvent.setup();
+      renderPanel();
+
+      await startConnecting(user);
+
+      expect(await screen.findByTestId('group-chat-connected')).toHaveTextContent('Sunday Riders');
+      expect(await screen.findByText(en('humanCoach.groupChat.web.alreadyConnected'))).toBeInTheDocument();
+      expect(screen.queryByTestId('group-chat-pending')).toBeNull();
+    });
+
+    it('shows the manager the connected chat and disconnects it only after a confirm', async () => {
+      const state = { connected: true };
+      connectionFrom(state, true);
+      vi.mocked(groupsApi.deleteChatConnection).mockImplementation(async () => {
+        state.connected = false;
+      });
+      const user = userEvent.setup();
+      renderPanel();
+
+      const row = await screen.findByTestId('group-chat-connected');
+      expect(within(row).getByTestId('group-chat-title')).toHaveTextContent('Sunday Riders');
+      expect(within(row).getByTestId('group-chat-connected-to')).toHaveTextContent(
+        en('humanCoach.groupChat.web.connectedTo', { app: 'Telegram' }),
+      );
+      await user.click(within(row).getByTestId('group-chat-disconnect'));
+      expect(groupsApi.deleteChatConnection).not.toHaveBeenCalled();
+
+      const confirm = await screen.findByRole('dialog');
+      await user.click(within(confirm).getByRole('button', { name: 'Disconnect' }));
+      await waitFor(() => expect(groupsApi.deleteChatConnection).toHaveBeenCalledWith(GROUP_ID));
+      // Read again after the write: the owner is offered the connect again.
+      expect(await screen.findByTestId('group-chat-not-connected')).toBeInTheDocument();
+      expect(screen.queryByTestId('group-chat-connected')).toBeNull();
+    });
+
+    it("offers the group's coach the connect when the server says they manage it, member or not", async () => {
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(
+        sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach', owner_id: OTHER_ID }),
+      );
+      vi.mocked(groupsApi.listMembers).mockResolvedValue({
+        members: [member({ id: 'membership-2', user_id: OTHER_ID, role: 'owner', display_name: 'Alice Runner' })],
+      });
+      vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+      vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+      vi.mocked(groupsApi.getChatConnection).mockResolvedValue(chatConnection({ can_manage: true }));
+      renderPanel();
+
+      expect(await screen.findByTestId('group-chat-connect')).toBeInTheDocument();
+    });
+
+    it('shows a member the connected chat read-only, with no way to disconnect or connect it', async () => {
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID }));
+      vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
+      vi.mocked(groupsApi.getChatConnection).mockResolvedValue(chatConnection(CONNECTED));
+      renderPanel();
+
+      const row = await screen.findByTestId('group-chat-connected');
+      expect(within(row).getByTestId('group-chat-title')).toHaveTextContent('Sunday Riders');
+      expect(within(row).getByTestId('group-chat-connected-to')).toHaveTextContent(
+        en('humanCoach.groupChat.web.connectedTo', { app: 'Telegram' }),
+      );
+      expect(screen.queryByTestId('group-chat-disconnect')).toBeNull();
+      expect(screen.queryByTestId('group-chat-connect')).toBeNull();
+    });
+
+    it('names an untitled chat by its app', async () => {
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID }));
+      vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
+      vi.mocked(groupsApi.getChatConnection).mockResolvedValue(chatConnection({ ...CONNECTED, chat_title: null }));
+      renderPanel();
+
+      expect(await screen.findByTestId('group-chat-title')).toHaveTextContent(
+        en('humanCoach.groupChat.web.untitledChat', { app: 'Telegram' }),
+      );
+    });
+
+    it('shows a member nothing while no chat is connected', async () => {
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID }));
+      vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
+      renderPanel();
+
+      await screen.findByTestId('group-info-more');
+      await waitFor(() => expect(groupsApi.getChatConnection).toHaveBeenCalledWith(GROUP_ID));
+      await act(async () => {});
+      expect(screen.queryByTestId('group-chat-connection')).toBeNull();
+    });
   });
 });

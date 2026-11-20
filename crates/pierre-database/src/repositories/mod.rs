@@ -123,6 +123,8 @@ pub mod first_run_progress;
 pub mod fitness_config;
 /// `GarminPushInboxRepository`: every batch Garmin pushes, written before the 200.
 pub mod garmin_push_inbox;
+/// Shared statements for connecting a group to a messaging chat from the web app (carnet#1683).
+pub(crate) mod group_chat_connect_sql;
 /// Shared statements for a group's weekly digest lease, run by the coaching-group repository body.
 pub(crate) mod group_digest_sql;
 /// Shared statements for group invites, run by the coaching-group repository body.

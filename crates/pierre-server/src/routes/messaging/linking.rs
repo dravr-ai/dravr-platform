@@ -35,6 +35,7 @@ use super::templates;
 use crate::mcp::resources::ServerContext;
 use destination::build_linking_url;
 pub(crate) use destination::can_complete_a_link;
+pub(crate) use destination::telegram_add_to_group_url;
 use link_account::resolve_user_from_form;
 pub(crate) use oauth_link::complete_app_link;
 use oauth_link::{
@@ -132,7 +133,7 @@ pub(crate) struct ChannelLinkResponse {
 /// Resolve tenant via the canonical resolver. Verifies membership when
 /// `active_tenant_id` is claimed; errors if the user has no tenants.
 /// No user-id fallback.
-async fn resolve_tenant_id(
+pub(crate) async fn resolve_tenant_id(
     auth: &AuthResult,
     resources: &Arc<ServerContext>,
 ) -> Result<TenantId, AppError> {
@@ -154,7 +155,7 @@ pub(crate) fn generate_link_code() -> String {
 /// failure. Only deep-link channels (Telegram / `WhatsApp`) get a QR — it bridges the
 /// desktop→phone gap when the user onboards on a laptop but runs the chat app only
 /// on their phone. Failure is non-fatal: the tappable `linking_url` still works.
-fn qr_svg_for(url: &str) -> Option<String> {
+pub(crate) fn qr_svg_for(url: &str) -> Option<String> {
     use qrcode::render::svg;
     use qrcode::QrCode;
     let code = QrCode::new(url.as_bytes()).ok()?;

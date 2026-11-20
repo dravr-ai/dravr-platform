@@ -534,6 +534,7 @@ async fn a_group_member_reads_the_groups_agent_in_their_own_language() {
                 is_active: true,
                 channel_type: None,
                 channel_chat_id: None,
+                chat_connection: None,
                 created_at: now,
                 updated_at: now,
             },

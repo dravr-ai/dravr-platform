@@ -84,6 +84,7 @@ fn group_bound_to_telegram(tenant_id: TenantId, owner_id: Uuid, agent_id: &str) 
         is_active: true,
         channel_type: Some("telegram".to_owned()),
         channel_chat_id: Some("-100888555".to_owned()),
+        chat_connection: None,
         created_at: now,
         updated_at: now,
     }
