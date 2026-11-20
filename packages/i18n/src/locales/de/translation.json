@@ -2121,7 +2121,7 @@
     "unlinked": "{{platform}}-Verknüpfung beendet",
     "waitingFor": "Wartet auf Bestätigung von {{member}}",
     "wellnessAppsGranted": "Teilt Schlaf, HRV, Ruhepuls, Gewicht, Tagesform und Tagesnotizen",
-    "wellnessAppsHint": "{{coach}} liest sie über Dravr und über die KI-Tools, die {{coach}} mit Dravr verbindet, egal aus welcher App sie kommen. Beim Ausschalten endet dieser Zugriff, und Dravr entfernt nur, was es über das {{platform}}-Konto von {{coach}} synchronisiert hat; was deine eigenen Apps synchronisieren, bleibt in deinem Konto.",
+    "wellnessAppsHint": "{{coach}} liest sie über Dravr und über die KI-Tools, die {{coach}} mit Dravr verbindet, egal aus welcher App sie kommen. Beim Ausschalten endet dieser Zugriff, und Dravr entfernt nur, was es über das {{platform}}-Konto von {{coach}} synchronisiert hat; was deine eigenen Apps synchronisieren, bleibt in deinem Konto. Deine täglichen Notizen erreichen diese KI-Tools nur, solange du intime Gesundheitsdaten unter Datenschutz und Daten erlaubst.",
     "wellnessAppsLabel": "{{coach}} deinen Schlaf, deine HRV, deinen Ruhepuls, dein Gewicht, deine Tagesform und deine Tagesnotizen aus deinen verbundenen Apps sehen lassen",
     "wellnessAppsRevokeBody": "{{coach}} sieht deinen Schlaf, deine HRV, deinen Ruhepuls, dein Gewicht, deine Tagesform und deine Tagesnotizen nicht mehr. Dravr entfernt, was es über das {{platform}}-Konto von {{coach}} synchronisiert hat; was deine eigenen Apps synchronisieren, bleibt in deinem Konto.",
     "wellnessReadOwnSource": "Wellness-Daten kommen aus der eigenen Garmin- oder WHOOP-Verbindung",
@@ -2930,6 +2930,7 @@
     "requestAccessFailed": "Wir konnten deine Anfrage nicht senden. Bitte versuche es erneut.",
     "reply_corrected": "{0} hat Dravrs Antwort an {1} korrigiert („{2}“):\n\n{3}",
     "reads_served_to_assistant": "gelesen von einem KI-Tool, das dein Coach mit Dravr verbindet",
+    "reads_support_read": "gelesen vom KI-Tool des Dravr-Supports, während er deinem Coach half",
     "planPublishedRoomPost": "{0} hat eine Änderung an deinem Plan veröffentlicht: {1}.",
     "planPublishedRoomPostMore": "+{0} weitere",
     "planPublishedRoomPostNew": "{0} hat deinen neuen Plan veröffentlicht.",
@@ -3009,7 +3010,8 @@
       "sourceGroupHealth": "Die Gesundheitshinweise der Gruppe",
       "sourceWeeklyDigest": "Die Wochenzusammenfassung der Gruppe",
       "sourcePhysiologyView": "Deine Schwellen, in den Gruppeninfos",
-      "servedToAssistant": "Gelesen von einem KI-Tool, das dein Coach mit Dravr verbindet. Das Unternehmen, das es betreibt, hat diese Daten erhalten."
+      "servedToAssistant": "Gelesen von einem KI-Tool, das dein Coach mit Dravr verbindet. Das Unternehmen, das es betreibt, hat diese Daten erhalten.",
+      "supportRead": "Gelesen vom KI-Tool des Dravr-Supports, während er deinem Coach half."
     },
     "shareTraining": "Mein Training mit meinem Coach teilen",
     "shareTrainingHint": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten im Chat dieser Gruppe. KI-Tools, die dein Coach mit Dravr verbindet, etwa Claude, können dein Training und deinen Plan ebenfalls lesen. Schaltest du dies aus, endet beides. Gilt nur für diese Gruppe.",

@@ -2121,7 +2121,7 @@
     "unlinked": "Ligação ao {{platform}} terminada",
     "waitingFor": "A aguardar a confirmação de {{member}}",
     "wellnessAppsGranted": "Partilha sono, VFC, frequência cardíaca em repouso, peso, prontidão e notas diárias",
-    "wellnessAppsHint": "{{coach}} lê-os através do Dravr e das ferramentas de IA que {{coach}} liga ao Dravr, seja qual for a aplicação de onde vêm. Desativar termina esse acesso e remove apenas o que o Dravr sincronizou através da conta {{platform}} de {{coach}}; o que as tuas próprias aplicações sincronizam fica na tua conta.",
+    "wellnessAppsHint": "{{coach}} lê-os através do Dravr e das ferramentas de IA que {{coach}} liga ao Dravr, seja qual for a aplicação de onde vêm. Desativar termina esse acesso e remove apenas o que o Dravr sincronizou através da conta {{platform}} de {{coach}}; o que as tuas próprias aplicações sincronizam fica na tua conta. Suas notas diárias chegam a essas ferramentas de IA só enquanto você permitir os registros de saúde íntima em Privacidade e dados.",
     "wellnessAppsLabel": "Deixar {{coach}} ver o teu sono, VFC, frequência cardíaca em repouso, peso, prontidão e notas diárias das tuas aplicações ligadas",
     "wellnessAppsRevokeBody": "{{coach}} deixa de ver o teu sono, VFC, frequência cardíaca em repouso, peso, prontidão e notas diárias. O Dravr remove o que sincronizou através da conta {{platform}} de {{coach}}; o que as tuas próprias aplicações sincronizam fica na tua conta.",
     "wellnessReadOwnSource": "Os dados de bem-estar vêm da própria ligação Garmin ou WHOOP",
@@ -2930,6 +2930,7 @@
     "requestAccessFailed": "Não conseguimos enviar o teu pedido. Tenta de novo.",
     "reply_corrected": "{0} corrigiu a resposta do Dravr a {1} («{2}»):\n\n{3}",
     "reads_served_to_assistant": "lido por uma ferramenta de IA que o teu treinador liga ao Dravr",
+    "reads_support_read": "lido pela ferramenta de IA do suporte do Dravr enquanto ajudava o teu treinador",
     "planPublishedRoomPost": "{0} publicou uma atualização do teu plano: {1}.",
     "planPublishedRoomPostMore": "+{0} a mais",
     "planPublishedRoomPostNew": "{0} publicou o teu novo plano.",
@@ -3009,7 +3010,8 @@
       "sourceGroupHealth": "Os alertas de saúde do grupo",
       "sourceWeeklyDigest": "O resumo semanal do grupo",
       "sourcePhysiologyView": "Os teus limiares, em Informações do grupo",
-      "servedToAssistant": "Lido por uma ferramenta de IA que o teu treinador liga ao Dravr. A empresa que a opera recebeu estes dados."
+      "servedToAssistant": "Lido por uma ferramenta de IA que o teu treinador liga ao Dravr. A empresa que a opera recebeu estes dados.",
+      "supportRead": "Lido pela ferramenta de IA do suporte do Dravr enquanto ajudava o teu treinador."
     },
     "shareTraining": "Partilhar o meu treino com o meu coach",
     "shareTrainingHint": "O teu coach vê o teu treino, o teu plano e as tuas mensagens no chat deste grupo. As ferramentas de IA que o teu coach liga ao Dravr, como o Claude, também podem ler o teu treino e o teu plano. Desativar esta opção interrompe ambos. Aplica-se apenas a este grupo.",
