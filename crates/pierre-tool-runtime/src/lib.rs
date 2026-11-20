@@ -151,6 +151,8 @@ pub mod scopes;
 /// Guardian security classification: the blast-radius axis every tool declares
 /// (`SecurityLabels` + the `RuntimeTool` supertrait) for the dispatch-time guard.
 pub mod security;
+/// An admin's support session through their own assistant over MCP and A2A (carnet#1511)
+pub mod support_session;
 /// Cooperative cancel flag for tool calls running behind an MCP task handle.
 pub mod task_cancellation;
 /// The one predicate deciding which tools a caller is offered and may call: scope, transport, role (carnet#1511).

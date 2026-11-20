@@ -27,7 +27,17 @@ pub struct ImpersonationSession {
     pub is_active: bool,
     /// Record creation timestamp
     pub created_at: DateTime<Utc>,
+    /// The assistant connection the session was started through over MCP or
+    /// A2A, and the only one it changes: an OAuth application's client id,
+    /// or [`API_KEY_BINDING`] for the admin's API keys. `None` for a session
+    /// the admin console started on the web (carnet#1511).
+    #[serde(default)]
+    pub bound_client: Option<String>,
 }
+
+/// [`ImpersonationSession::bound_client`] of a session an admin started
+/// through one of their API keys.
+pub const API_KEY_BINDING: &str = "api_key";
 
 impl ImpersonationSession {
     /// Create a new impersonation session
@@ -43,6 +53,22 @@ impl ImpersonationSession {
             ended_at: None,
             is_active: true,
             created_at: now,
+            bound_client: None,
+        }
+    }
+
+    /// A session an admin's assistant starts through the connection
+    /// `bound_client` names ([`Self::bound_client`]).
+    #[must_use]
+    pub fn bound_to(
+        impersonator_id: Uuid,
+        target_user_id: Uuid,
+        reason: Option<String>,
+        bound_client: String,
+    ) -> Self {
+        Self {
+            bound_client: Some(bound_client),
+            ..Self::new(impersonator_id, target_user_id, reason)
         }
     }
 

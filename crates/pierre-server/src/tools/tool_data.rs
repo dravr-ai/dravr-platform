@@ -332,6 +332,8 @@ const TOOL_DATA: &[(&str, ToolData)] = &[
     ("admin_assign_agent", ToolData::own(&[])),
     ("admin_unassign_agent", ToolData::own(&[])),
     ("admin_list_agent_assignments", ToolData::own(&[])),
+    ("admin_impersonate_start", ToolData::own(&[])),
+    ("admin_impersonate_end", ToolData::own(&[])),
 ];
 
 /// Declare [`TOOL_DATA`] on the tools this build registered.

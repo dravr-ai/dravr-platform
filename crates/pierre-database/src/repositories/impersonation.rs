@@ -26,6 +26,14 @@ pub trait ImpersonationRepository: Send + Sync {
     async fn get_session(&self, session_id: &str) -> AppResult<Option<ImpersonationSession>>;
     /// Get active impersonation session where user is impersonator or target
     async fn get_active_session(&self, user_id: Uuid) -> AppResult<Option<ImpersonationSession>>;
+    /// The newest open session `impersonator_id` started through the
+    /// assistant connection `bound_client` names
+    /// ([`ImpersonationSession::bound_client`]); never a web session.
+    async fn get_active_bound_session(
+        &self,
+        impersonator_id: Uuid,
+        bound_client: &str,
+    ) -> AppResult<Option<ImpersonationSession>>;
     /// End an impersonation session
     async fn end_session(&self, session_id: &str) -> AppResult<()>;
     /// End all active impersonation sessions for an impersonator
@@ -50,12 +58,13 @@ pub struct SessionCursor {
     pub id: String,
 }
 
-/// The eight columns every read of `impersonation_sessions` returns, in the
+/// The nine columns every read of `impersonation_sessions` returns, in the
 /// order the macro's `session_from_row` reads them. One list, so a column
 /// added to [`ImpersonationSession`] reaches every read at once.
 macro_rules! session_columns {
     () => {
-        "id, impersonator_id, target_user_id, reason, started_at, ended_at, is_active, created_at"
+        "id, impersonator_id, target_user_id, reason, started_at, ended_at, is_active, created_at, \
+         bound_client"
     };
 }
 
@@ -71,7 +80,7 @@ macro_rules! session_columns {
 pub(crate) const CREATE_SESSION_SQL: &str = concat!(
     "INSERT INTO impersonation_sessions (",
     session_columns!(),
-    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
 );
 
 /// One session by its id.
@@ -88,6 +97,16 @@ pub(crate) const GET_ACTIVE_SESSION_SQL: &str = concat!(
     session_columns!(),
     " FROM impersonation_sessions \
      WHERE (impersonator_id = $1 OR target_user_id = $1) AND is_active = TRUE \
+     ORDER BY started_at DESC LIMIT 1"
+);
+
+/// The newest open session an admin started through one assistant
+/// connection.
+pub(crate) const GET_ACTIVE_BOUND_SESSION_SQL: &str = concat!(
+    "SELECT ",
+    session_columns!(),
+    " FROM impersonation_sessions \
+     WHERE impersonator_id = $1 AND bound_client = $2 AND is_active = TRUE \
      ORDER BY started_at DESC LIMIT 1"
 );
 
@@ -158,6 +177,9 @@ macro_rules! impl_impersonation_repository {
                 created_at: row
                     .try_get("created_at")
                     .map_err(|e| session_column_error("created_at", e))?,
+                bound_client: row
+                    .try_get("bound_client")
+                    .map_err(|e| session_column_error("bound_client", e))?,
             })
         }
 
@@ -173,6 +195,7 @@ macro_rules! impl_impersonation_repository {
                     .bind(session.ended_at)
                     .bind(session.is_active)
                     .bind(session.created_at)
+                    .bind(session.bound_client.as_deref())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -208,6 +231,25 @@ macro_rules! impl_impersonation_repository {
                     .map_err(|e| {
                         AppError::database(format!(
                             "Failed to get active impersonation session: {e}"
+                        ))
+                    })?;
+
+                row.as_ref().map(session_from_row).transpose()
+            }
+
+            async fn get_active_bound_session(
+                &self,
+                impersonator_id: Uuid,
+                bound_client: &str,
+            ) -> AppResult<Option<ImpersonationSession>> {
+                let row = sqlx::query(GET_ACTIVE_BOUND_SESSION_SQL)
+                    .bind($ids::bind(impersonator_id))
+                    .bind(bound_client)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to get the active bound impersonation session: {e}"
                         ))
                     })?;
 

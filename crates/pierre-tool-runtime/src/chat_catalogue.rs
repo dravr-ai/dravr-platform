@@ -344,6 +344,7 @@ pub fn offered_schemas(
                             role: CallerRole::default(),
                             grant,
                             transport,
+                            support_session: false,
                         },
                     )
                     .is_none()

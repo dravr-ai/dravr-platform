@@ -98,6 +98,15 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
         }
     }
 
+    /// Whether the tool carries the user's whole record away (an export), so
+    /// that an admin's support session is withheld it
+    /// ([`crate::tool_access::withheld`]): support may see what it needs to
+    /// help, never take the whole record with it. A tool opts in through
+    /// [`declare_security!`](crate::declare_security)'s `export` arm.
+    fn exports_record(&self) -> bool {
+        false
+    }
+
     /// Whether the tool can only fail on a deployment holding no USDA key
     /// ([`crate::deployment_tools`]). A tool opts in through
     /// [`declare_security!`](crate::declare_security)'s `food_database` arm.
@@ -154,7 +163,8 @@ pub enum Audience {
 /// only, whoever asks. `; coach` declares that the tool serves a human coach
 /// ([`Audience::Coach`], [`RuntimeTool::audience`]). `; food_database`
 /// declares that the tool needs the deployment's USDA key
-/// ([`RuntimeTool::requires_food_database`]).
+/// ([`RuntimeTool::requires_food_database`]). `; export` declares that the
+/// tool carries the user's whole record away ([`RuntimeTool::exports_record`]).
 ///
 /// `#[macro_export]` so the three pierre-server endurance tools (and test
 /// fakes) can classify themselves too — `$crate` resolves to
@@ -175,6 +185,17 @@ macro_rules! declare_security {
             }
 
             fn requires_food_database(&self) -> bool {
+                true
+            }
+        }
+    };
+    ($t:ty => empty ; export $(,)?) => {
+        impl $crate::security::RuntimeTool for $t {
+            fn security_class(&self) -> $crate::security::SecurityLabels {
+                $crate::security::SecurityLabels::empty()
+            }
+
+            fn exports_record(&self) -> bool {
                 true
             }
         }

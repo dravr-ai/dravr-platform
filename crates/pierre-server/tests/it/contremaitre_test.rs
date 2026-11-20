@@ -749,6 +749,8 @@ const EXPECTED_TOOLS: &[&str] = &[
     "admin_create_system_agent",
     "admin_delete_system_agent",
     "admin_get_system_agent",
+    "admin_impersonate_end",
+    "admin_impersonate_start",
     "admin_list_agent_assignments",
     "admin_list_system_agents",
     "admin_unassign_agent",

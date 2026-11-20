@@ -25,12 +25,19 @@
 //! by that door through [`record_refused_admin_call`], so every admin-only
 //! call over those transports is on the trail.
 //!
+//! **In an admin's support session** ([`crate::support_session`],
+//! carnet#1511) every call from outside is recorded the same way, whatever
+//! the tool: the row's actor is the admin, and its metadata names the user
+//! the session acts as and the session. A row that cannot be written
+//! refuses the call, a plain read included.
+//!
 //! Calls from Dravr's own surfaces (the web and mobile apps, messaging) are
 //! not recorded here: the admin's own session already answers for them. A
 //! call that declared no transport is recorded, as the AI gates treat it as
 //! external (`ai_scope::result_exposure`); its row names the transport
 //! [`UNDECLARED_TRANSPORT`](pierre_core::transport::UNDECLARED_TRANSPORT).
 
+use pierre_auth::auth::ImpersonationGrant;
 use pierre_core::transport::Transport;
 use pierre_database::repositories::{
     AdminAuditRepository, AuditOutcome, AuditSource, NewAuditEvent, SettledAuditEvent,
@@ -76,14 +83,17 @@ impl UniversalExecutor {
         request: &UniversalRequest,
     ) -> Result<Option<StartedAdminCall>, ProtocolError> {
         let transport = ai_scope::effective_transport(self.transport);
-        if !is_admin_only(self.resources.as_ref(), &request.tool_name) || !recorded_over(transport)
-        {
+        let support = self.support_session.as_ref();
+        let recorded =
+            support.is_some() || is_admin_only(self.resources.as_ref(), &request.tool_name);
+        if !recorded || !recorded_over(transport) {
             return Ok(None);
         }
         start(
             self.resources.repos().admin_audit.as_ref(),
             request,
             transport,
+            support,
         )
         .await
         .map(Some)
@@ -185,10 +195,15 @@ async fn start(
     trail: &dyn AdminAuditRepository,
     request: &UniversalRequest,
     transport: Option<Transport>,
+    support: Option<&ImpersonationGrant>,
 ) -> Result<StartedAdminCall, ProtocolError> {
-    let actor = Uuid::parse_str(&request.user_id).ok();
+    // In a support session the admin acted, as the user.
+    let actor = support.map_or_else(
+        || Uuid::parse_str(&request.user_id).ok(),
+        |grant| Some(grant.impersonator_id),
+    );
     let label = Transport::label_of(transport);
-    let event = event_of(
+    let mut event = event_of(
         &request.tool_name,
         &request.protocol,
         actor,
@@ -196,6 +211,14 @@ async fn start(
         transport,
         AuditOutcome::Started,
     );
+    if let Some(grant) = support {
+        event.summary = format!(
+            "{} called over {label} in a support session",
+            request.tool_name
+        );
+        event.metadata["target"] = json!({ "user_id": request.user_id });
+        event.metadata["impersonation_session_id"] = json!(grant.session_id);
+    }
     match trail.record(&event).await {
         Ok(id) => Ok(StartedAdminCall {
             id,

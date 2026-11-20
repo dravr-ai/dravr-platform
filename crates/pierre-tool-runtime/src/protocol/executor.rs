@@ -454,6 +454,7 @@ impl UniversalExecutor {
             },
             grant: &self.scopes,
             transport,
+            support_session: self.support_session.is_some(),
         };
         let answer = withheld(tool, &caller).or_else(|| {
             if self.caller_writes_reply {
@@ -1206,6 +1207,12 @@ const fn counts_as_write(writes_data: bool, labels: SecurityLabels) -> bool {
     writes_data || labels.is_irreversible()
 }
 
+/// The refusal of an export in an admin's support session: support may see
+/// what it needs to help, never carry the whole record away (as the REST
+/// export refuses it, data_export.rs).
+pub const SUPPORT_SESSION_EXPORT_REFUSED: &str =
+    "An admin acting as this account cannot export its record; only the account's owner can";
+
 /// The refusal [`withheld`]'s answer renders at the dispatch chokepoint.
 ///
 /// - The grant does not cover the tool: a [`ProtocolError`], because this is
@@ -1250,5 +1257,15 @@ fn render_withheld(
             })
         }
         Withheld::Role(Audience::Coach | Audience::Athlete) => Ok(coach_role_refusal(tool_name)),
+        Withheld::SupportSession => {
+            warn!(
+                tool_name = %tool_name,
+                "export denied in an admin's support session at the dispatch chokepoint"
+            );
+            Err(ProtocolError::PermissionDenied {
+                tool_name: tool_name.to_owned(),
+                reason: SUPPORT_SESSION_EXPORT_REFUSED.to_owned(),
+            })
+        }
     }
 }

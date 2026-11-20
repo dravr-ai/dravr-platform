@@ -29,11 +29,11 @@ use crate::{A2ARequest, A2AResponse, JSONRPC_VERSION};
 use chrono::SecondsFormat;
 use pierre_core::models::a2a::user_task_key;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
-use pierre_core::models::TenantId;
 use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::McpAuthMiddleware;
 use pierre_runtime_context::A2ACtx;
+use pierre_tool_runtime::context::SUPPORT_SESSION;
 use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::protocol::trust_labels::{self, TRUST_LABELS_META_KEY};
 use pierre_tool_runtime::protocol::{
@@ -41,6 +41,7 @@ use pierre_tool_runtime::protocol::{
     UniversalResponse, UniversalToolExecutor,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::support_session::{self, END_TOOL, SUPPORT_BINDING};
 use pierre_tool_runtime::tool_access::{self, Caller, CallerRole};
 use std::fmt;
 // Trait methods dispatched through repos.a2a Arc<dyn Trait>;
@@ -56,6 +57,8 @@ mod finalize;
 mod params;
 mod principal;
 mod push_config;
+/// An admin's support session through their agent, as A2A serves it (carnet#1511)
+mod support;
 mod tasks;
 mod text_turn;
 use principal::AuthPrincipal;
@@ -441,10 +444,17 @@ impl A2AServer {
 
         let mut card = AgentCard::new(resources.ctx.oauth2_server_config());
         let registry = resources.tool_runtime.tool_registry();
+        // A live support session lists the user's skills, and the one that
+        // ends it (carnet#1511).
+        let acting = match Self::acting_for(resources.ctx.as_ref(), &principal, "").await {
+            Ok(acting) => acting,
+            Err(reason) => return Self::a2a_error(-32000, reason, request.id),
+        };
         let caller = Caller {
-            role: CallerRole::resolve(resources.ctx.repos(), principal.user_id).await,
-            grant: &principal.scopes,
+            role: CallerRole::resolve(resources.ctx.repos(), acting.user_id).await,
+            grant: &acting.scopes,
             transport: Some(Transport::A2a),
+            support_session: acting.support.is_some(),
         };
         card.skills.retain(|skill| {
             registry
@@ -455,6 +465,9 @@ impl A2AServer {
             card.skills.iter().map(|skill| skill.id.clone()).collect(); // Safe: String ownership for dedup set
         let mut schemas = registry.all_schemas();
         tool_access::retain_offered(registry, &mut schemas, &caller);
+        if acting.support.is_some() {
+            schemas.extend(registry.list_schemas_by_name_set(&[END_TOOL.to_owned()]));
+        }
         deployment_tools::retain_answerable(
             registry,
             &mut schemas,
@@ -954,9 +967,13 @@ impl A2AServer {
         tool_name: &str,
         tool_params: Value,
     ) -> Result<(Value, Option<Value>), SendFailure> {
-        let user_id = principal.user_id;
+        // A live support session runs the call as its user (carnet#1511).
+        let acting = Self::acting_for(ctx.as_ref(), principal, tool_name)
+            .await
+            .map_err(SendFailure::text)?;
+        let user_id = acting.user_id;
         // Resolve tenant context — required for all A2A tool execution.
-        let tenant = principal.active_tenant_id.map(TenantId::from_uuid);
+        let tenant = acting.tenant;
         let tenant_context =
             match extract_tenant_context_internal(ctx.repos(), user_id, tenant).await {
                 Ok(Some(context)) => context,
@@ -978,10 +995,6 @@ impl A2AServer {
         // The unified executor: Guardian chokepoint and admin/tenant context as on MCP and
         // chat, under the client's own grant (unbound, it refuses). A2A is outside Dravr's
         // own surfaces (carnet#724), and the agent's reply goes unchecked (carnet#852).
-        let executor = UniversalToolExecutor::new(tool_runtime.clone()) // Safe: Arc clone
-            .with_scopes(principal.scopes.clone())
-            .with_transport(Transport::A2a)
-            .with_caller_writing_reply();
         let request = UniversalRequest {
             tool_name: tool_name.to_owned(),
             parameters: tool_params,
@@ -989,8 +1002,27 @@ impl A2AServer {
             protocol: "a2a".to_owned(),
             tenant_id: Some(tenant_context.tenant_id.to_string()),
         };
+        // Built inside the session's scope: the executor reads the session
+        // when it is built, and carries it into the tool body.
+        let binding = support_session::binding_of(false, principal.credential_client.as_deref());
+        let session = acting
+            .support
+            .as_ref()
+            .map(support_session::LiveSupport::grant);
+        let scopes = acting.scopes;
+        let run = async {
+            UniversalToolExecutor::new(tool_runtime.clone()) // Safe: Arc clone
+                .with_scopes(scopes)
+                .with_transport(Transport::A2a)
+                .with_caller_writing_reply()
+                .execute_tool(request)
+                .await
+        };
+        let executed = SUPPORT_BINDING
+            .scope(binding, SUPPORT_SESSION.scope(session, run))
+            .await;
 
-        match executor.execute_tool(request).await {
+        match executed {
             Ok(response) if response.success => {
                 let labels = trust_labels::labels_of(&response).cloned();
                 let result = response

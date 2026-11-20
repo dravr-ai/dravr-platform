@@ -37,6 +37,11 @@
 //!    an external transport only, because in Dravr's own app the tool's own
 //!    gates decide (a peer reads a group member there too).
 //!
+//! In an admin's support session ([`crate::support_session`]) the caller is
+//! the user the session acts as, and the tools that carry the user's whole
+//! record away ([`RuntimeTool::exports_record`]) are withheld on top: support
+//! may see what it needs to help, never take the whole record with it.
+//!
 //! The `athlete` argument, with which a coach names one coached athlete on a
 //! read, is offered externally to a coach alone, and never on a tool that
 //! writes: carnet#1533 refuses every external write that names an athlete
@@ -124,6 +129,9 @@ pub struct Caller<'a> {
     /// The transport the call is served over; `None` is external, as
     /// everywhere a transport is read.
     pub transport: Option<Transport>,
+    /// The call is made in an admin's support session, acting as the user
+    /// (carnet#1511, carnet#1634).
+    pub support_session: bool,
 }
 
 impl Caller<'_> {
@@ -142,6 +150,9 @@ pub enum Withheld {
     Transport,
     /// The caller lacks the role the tool's audience needs.
     Role(Audience),
+    /// The tool carries the user's whole record away, and the caller is an
+    /// admin's support session.
+    SupportSession,
 }
 
 /// The first reason `tool` is withheld from `caller`, or `None` when it is
@@ -153,6 +164,7 @@ pub fn withheld(tool: &dyn RuntimeTool, caller: &Caller<'_>) -> Option<Withheld>
             surface: tool.reach(),
             audience: tool.audience(),
             capabilities: tool.capabilities(),
+            exports_record: tool.exports_record(),
         },
         caller,
     )
@@ -164,12 +176,16 @@ struct Declared {
     surface: ToolReach,
     audience: Audience,
     capabilities: ToolCapabilities,
+    exports_record: bool,
 }
 
 /// [`withheld`] over what a tool declares.
 fn decide(tool: Declared, caller: &Caller<'_>) -> Option<Withheld> {
     if let Some(missing) = missing_scope(caller.grant, tool.capabilities) {
         return Some(Withheld::Scope(missing));
+    }
+    if caller.support_session && tool.exports_record {
+        return Some(Withheld::SupportSession);
     }
     if caller.is_external() {
         let lifted = match tool.surface {
@@ -270,6 +286,7 @@ mod tests {
             surface,
             audience,
             capabilities,
+            exports_record: false,
         }
     }
 
@@ -293,6 +310,7 @@ mod tests {
             role,
             grant,
             transport: Some(transport),
+            support_session: false,
         }
     }
 
@@ -411,6 +429,7 @@ mod tests {
             role: ATHLETE,
             grant: &READ_ONLY,
             transport: None,
+            support_session: false,
         };
         assert_eq!(
             decide(roster, &undeclared),
@@ -464,5 +483,26 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_support_session_is_withheld_the_tools_that_carry_the_record_away() {
+        let export = Declared {
+            exports_record: true,
+            ..tool(ToolReach::AnyTransport, Audience::Athlete, READ)
+        };
+        let every = OAuthScope::delegable_grant();
+        let mut in_session = caller(ATHLETE, &every, Transport::McpHttp);
+        assert_eq!(decide(export, &in_session), None, "the user's own call");
+        in_session.support_session = true;
+        assert_eq!(decide(export, &in_session), Some(Withheld::SupportSession));
+        assert_eq!(
+            decide(
+                tool(ToolReach::AnyTransport, Audience::Athlete, READ),
+                &in_session
+            ),
+            None,
+            "everything else the user sees is served"
+        );
     }
 }

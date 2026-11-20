@@ -170,6 +170,7 @@ mod tests {
                 role: CallerRole::default(),
                 grant: &grant,
                 transport: Some(Transport::McpHttp),
+                support_session: false,
             };
             let mut schemas = registry.all_schemas();
             retain_offered(&registry, &mut schemas, &athlete);

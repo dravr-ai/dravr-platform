@@ -399,5 +399,5 @@ pub fn create_endurance_export_tools() -> Vec<Box<dyn RuntimeTool>> {
 // tools read training data — the snapshot of the athlete the call reads (the
 // caller, or a coached athlete for a coach's read), the dossier of the caller
 // alone — internal, reversible, no egress.
-pierre_tool_runtime::declare_security!(ExportLatestSnapshotTool => empty);
-pierre_tool_runtime::declare_security!(ExportDossierTool => empty);
+pierre_tool_runtime::declare_security!(ExportLatestSnapshotTool => empty; export);
+pierre_tool_runtime::declare_security!(ExportDossierTool => empty; export);

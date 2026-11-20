@@ -877,6 +877,7 @@ mod subject_plan_routes_test;
 mod subject_thread_files_nothing_test;
 mod subject_thread_test;
 mod subscriptions_repository_test;
+mod support_session_assistant_test;
 mod surface_capabilities_route_test;
 mod surface_profile_test;
 mod sync_failure_notice_test;

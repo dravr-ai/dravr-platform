@@ -46,6 +46,10 @@ pub(super) struct AuthPrincipal {
     /// client-credentials token, which acts as its registering user in that
     /// user's own tenant.
     pub(super) active_tenant_id: Option<Uuid>,
+    /// The OAuth application a user token was issued to, which an admin's
+    /// support session through this agent is bound to (carnet#1511). `None`
+    /// for a client-credentials token: a machine client never holds `admin`.
+    pub(super) credential_client: Option<String>,
 }
 
 /// A call refused before it reached its handler, and whom its credential
@@ -205,6 +209,7 @@ impl A2AServer {
                 client_id: None,
                 scopes: admitted.scopes,
                 active_tenant_id: Some(active_tenant_id),
+                credential_client: admitted.client_id,
             });
         }
 
@@ -276,6 +281,7 @@ impl A2AServer {
             client_id: Some(client.id),
             scopes,
             active_tenant_id: None,
+            credential_client: None,
         })
     }
 

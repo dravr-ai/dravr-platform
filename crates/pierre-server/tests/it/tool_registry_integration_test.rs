@@ -798,6 +798,7 @@ async fn test_list_tools_carries_every_declared_output_schema() {
         role: CallerRole::resolve(&resources.common.repos, user_id).await,
         grant: &grant,
         transport: Some(Transport::McpHttp),
+        support_session: false,
     };
     let mut declared: Vec<&str> = registry
         .tool_names()

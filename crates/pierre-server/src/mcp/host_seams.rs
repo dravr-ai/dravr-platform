@@ -50,13 +50,14 @@ use pierre_core::transport::Transport;
 use pierre_database::repositories::CoachTools;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::rate_limiting::report_request_operation;
-use pierre_tool_runtime::context::AuthMethod;
+use pierre_tool_runtime::context::{AuthMethod, SUPPORT_SESSION};
 use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::protocol::provider_offer::accept_no_provider_answer;
 use pierre_tool_runtime::protocol::{record_refused_admin_call, RefusedAdminCall};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::scopes::missing_scope;
+use pierre_tool_runtime::support_session::{END_TOOL, SUPPORT_BINDING};
 use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
 use pierre_tool_runtime::tool_access::{self, Caller, CallerRole};
 use serde_json::{Map, Value};
@@ -80,6 +81,8 @@ use crate::constants::protocol::{server_name_multitenant, SERVER_VERSION};
 
 /// RFC 6750 / RFC 9728 challenges and the transport refusal an auth failure maps to
 mod auth_challenge;
+/// An admin's support session through their assistant, as `/mcp` serves it (carnet#1511)
+mod support;
 
 use auth_challenge::{auth_refusal, insufficient_scope_challenge};
 
@@ -716,6 +719,18 @@ impl PierreToolDispatcher {
 impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
     async fn list_tools(&self, state: &Arc<dyn ToolRuntime>, ctx: &ToolContext) -> Vec<Tool> {
         record_caller(ctx);
+        // A support session started through this connection lists the user's
+        // tools, and the one that ends it (carnet#1511). A session that cannot
+        // be read lists nothing rather than the admin's own tools.
+        let support = match support::live(&self.resources, ctx).await {
+            Ok(support) => support,
+            Err(e) => {
+                error!(error = %e, "tools/list: the support-session lookup failed; listing nothing");
+                return Vec::new();
+            }
+        };
+        let as_user = support.as_ref().map(|live| support::as_user(ctx, live));
+        let ctx = as_user.as_ref().unwrap_or(ctx);
         let tenant_id = ctx.tenant_id.as_deref().and_then(parse_tenant_id);
         let user_id = ctx.user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
         let mut schemas = match (tenant_id, user_id) {
@@ -750,8 +765,18 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
                 role: CallerRole::resolve(&self.resources.common.repos, user_id).await,
                 grant: &granted,
                 transport: Some(Transport::McpHttp),
+                support_session: support.is_some(),
             };
             tool_access::retain_offered(&self.resources.mcp.tool_registry, &mut schemas, &caller);
+        }
+        if support.is_some() {
+            schemas.extend(
+                self.resources
+                    .mcp
+                    .tool_registry
+                    .list_schemas_by_name_set(&[END_TOOL.to_owned()]),
+            );
+            schemas.sort_by(|a, b| a.name.cmp(&b.name));
         }
 
         // A guided flow does not narrow this listing: it is the same whether or
@@ -793,6 +818,42 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
             return CallToolOutcome::UnknownTool;
         }
 
+        // A support session started through this connection serves the call
+        // as the user, inside the session (carnet#1511); the two session
+        // tools run as the admin. The connection is declared either way, for
+        // the session tools to bind to.
+        let binding = support::binding(ctx);
+        let (call_ctx, session) = match support::live(&self.resources, ctx).await {
+            Ok(Some(live)) if !support::runs_as_admin(name) => {
+                (support::as_user(ctx, &live), Some(live.grant()))
+            }
+            Ok(_) => (ctx.clone(), None),
+            Err(e) => {
+                error!(tool = name, error = %e, "tools/call: the support-session lookup failed");
+                return CallToolOutcome::Immediate(Box::new(ToolResponse::error(
+                    "Whether this connection is in a support session could not be read; please \
+                     retry"
+                        .to_owned(),
+                )));
+            }
+        };
+        let ctx = &call_ctx;
+        let dispatch = |resources: Arc<ServerContext>, state: Arc<dyn ToolRuntime>| {
+            SUPPORT_BINDING.scope(
+                binding.clone(),
+                SUPPORT_SESSION.scope(
+                    session.clone(),
+                    run_dispatch(
+                        resources,
+                        state,
+                        ctx.clone(),
+                        name.to_owned(),
+                        arguments.clone(),
+                    ),
+                ),
+            )
+        };
+
         // The asynchronous path is opt-in twice over: the client must declare
         // the tasks extension on this request, and the tool must have declared
         // task support on its own definition. Everything else answers inline.
@@ -809,14 +870,7 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         };
         if !(ctx.supports_tasks() && declares_tasks) {
             return CallToolOutcome::Immediate(Box::new(
-                run_dispatch(
-                    self.resources.clone(),
-                    state.clone(),
-                    ctx.clone(),
-                    name.to_owned(),
-                    arguments,
-                )
-                .await,
+                dispatch(self.resources.clone(), state.clone()).await,
             ));
         }
 
@@ -832,13 +886,7 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         let mut work = tokio::spawn(
             scoped_with_cancel_flag(
                 cancel_flag.clone(),
-                run_dispatch(
-                    self.resources.clone(),
-                    state.clone(),
-                    ctx.clone(),
-                    name.to_owned(),
-                    arguments,
-                ),
+                dispatch(self.resources.clone(), state.clone()),
             )
             .in_current_span(),
         );
