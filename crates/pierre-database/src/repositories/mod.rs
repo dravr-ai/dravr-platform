@@ -131,6 +131,8 @@ pub(crate) mod group_digest_sql;
 pub(crate) mod group_invite_sql;
 /// Shared statements for group memberships, run by the coaching-group repository body.
 pub(crate) mod group_member_sql;
+/// Shared statements for coaching groups, run by the coaching-group repository body.
+pub(crate) mod group_sql;
 /// Shared statements for a coaching group's room transcript.
 pub(crate) mod group_transcript;
 /// Repository traits for coaching harness memory (Tier 0 foundations).
