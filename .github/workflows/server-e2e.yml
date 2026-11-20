@@ -687,22 +687,25 @@ jobs:
             sleep 1
           done
 
-          # GET /mcp/tools answers exactly like JSON-RPC tools/list: the public
-          # profile every external client is offered, a global admin included,
-          # which is what the generated types describe. An admin's tenant is on
-          # the top plan, so no plan leaves a tool out. The server has applied
-          # the migrations by now, so the CLI can write to the same on-disk
-          # database.
+          # GET /mcp/tools answers exactly like JSON-RPC tools/list, by role
+          # (carnet#1511): the generated types describe what a human coach
+          # with demo members is offered (Q15: the directory reviewer's
+          # listing), so the generator signs in as the coach the coach-home
+          # seeder makes, never as an admin, who is listed every tool. The
+          # server has applied the migrations by now, so the CLI can write to
+          # the same on-disk database.
           ./target/release/pierre-cli user create \
             --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" --force
+          ./target/release/pierre-cli seed coach-home \
+            --coach-email "$SDK_COACH_EMAIL" --model sdk-types-ci
 
           # Sign in as the mobile app does: hosted login page, authorization
           # code, PKCE (the password grant is gone, carnet#787).
-          PIERRE_ADMIN_TOKEN="$(printf '%s\n' "$ADMIN_PASSWORD" \
-            | scripts/auth/first-party-sign-in.sh http://localhost:8081 "$ADMIN_EMAIL" - \
+          PIERRE_ADMIN_TOKEN="$(printf '%s\n' "$SDK_COACH_PASSWORD" \
+            | scripts/auth/first-party-sign-in.sh http://localhost:8081 "$SDK_COACH_EMAIL" - \
             | jq -r '.access_token // empty')"
           if [ -z "$PIERRE_ADMIN_TOKEN" ]; then
-            echo "::error::Failed to mint an admin token for SDK type generation"
+            echo "::error::Failed to mint the coach token for SDK type generation"
             kill $SERVER_PID 2>/dev/null || true
             exit 1
           fi
@@ -730,6 +733,10 @@ jobs:
           DATABASE_URL: "sqlite:./sdk-types-ci.db?mode=rwc"
           ADMIN_EMAIL: "sdk-types-ci@pierre.dev"
           ADMIN_PASSWORD: "SdkTypesCi123!"
+          # The coach-home seeder's coach and its dev-fixture password
+          # (pierre-seeders coach_home.rs, COACH_PASSWORD).
+          SDK_COACH_EMAIL: "coachhome@pierre.dev"
+          SDK_COACH_PASSWORD: "CoachHome1234"
           AUTO_APPROVE_USERS: "true"
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_RSA_KEY_SIZE: "2048"

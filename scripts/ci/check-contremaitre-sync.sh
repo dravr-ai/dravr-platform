@@ -392,11 +392,13 @@ else
         # /mcp serves the registry minus the tools kept to Dravr's own surfaces
         # (declare_security! first_party_only). The admin tools/list fixture is
         # that whole set as a group's coach is offered it, checked against src.
-        # The SDK is generated from the public profile: what a caller who coaches
-        # no group is offered, a global admin included, which leaves out the
-        # coach-only tools (carnet#1426). mcp_surface_fixture_test pins both
+        # The SDK is generated from a human coach's account (carnet#1511, Q15:
+        # the types match the listing the directory reviewer, a coach with
+        # demo members, is shown): the athlete tools, the coach tools and the
+        # coach's `athlete` argument. An admin is listed every tool, so the
+        # generator never signs in as one. mcp_surface_fixture_test pins both
         # fixtures to the live wire, and the types are compared against the
-        # public one.
+        # coach's.
         if [[ ! -f "$TS_FILE" ]]; then
             echo -e "${RED}❌ ${TS_FILE} not found — this check is stale.${NC}"
             TOOL_DRIFT=true
@@ -431,9 +433,10 @@ else
             fi
             PUBLIC_TOOLS="$(printf '%s\n' "$PUBLIC_SCAN" | sort -u)"
             PUBLIC_COUNT="$(printf '%s\n' "$PUBLIC_TOOLS" | grep -c . || true)"
-            TS_DIFF="$(comm -3 <(printf '%s\n' "$PUBLIC_TOOLS") <(printf '%s\n' "$TS_TOOLS") || true)"
-            if [[ -n "$TS_DIFF" || "$TS_HEADER" != "$PUBLIC_COUNT" ]]; then
-                echo -e "${RED}❌ SDK type drift: ${TS_FILE} does not match the ${PUBLIC_COUNT} tools /mcp offers the public profile (header says '${TS_HEADER}').${NC}"
+            SERVED_COUNT="$(printf '%s\n' "$SERVED_TOOLS" | grep -c . || true)"
+            TS_DIFF="$(comm -3 <(printf '%s\n' "$SERVED_TOOLS") <(printf '%s\n' "$TS_TOOLS") || true)"
+            if [[ -n "$TS_DIFF" || "$TS_HEADER" != "$SERVED_COUNT" ]]; then
+                echo -e "${RED}❌ SDK type drift: ${TS_FILE} does not match the ${SERVED_COUNT} tools /mcp offers a human coach (header says '${TS_HEADER}').${NC}"
                 [[ -n "$TS_DIFF" ]] && printf '%s\n' "$TS_DIFF" | sed 's/^/   /'
                 echo -e "${YELLOW}   Regenerate against a running server: cd packages/mcp-types && bun run generate${NC}"
                 TOOL_DRIFT=true
@@ -445,7 +448,7 @@ else
             echo -e "${YELLOW}   and regenerated SDK types in the SAME change — else main reds post-merge.${NC}"
             FAILED=true
         else
-            echo -e "${GREEN}✅ MCP tool list: ${SRC_COUNT} tools match EXPECTED_TOOLS and the count assertion; the SDK types match the ${PUBLIC_COUNT} tools of the public profile.${NC}"
+            echo -e "${GREEN}✅ MCP tool list: ${SRC_COUNT} tools match EXPECTED_TOOLS and the count assertion; the SDK types match the ${SERVED_COUNT} tools a human coach is offered.${NC}"
         fi
     fi
 fi
