@@ -103,12 +103,13 @@ pub(super) async fn handle_logout(
     );
 
     // Logout fires before the channel link is re-resolved, so the only
-    // identity in scope is the channel `sender_id`; it is the raw distinct_id
-    // the provider hashes (matching the pre-link identity used elsewhere).
+    // identity in scope is the channel `sender_id`. The event carries the
+    // pre-link identity hash, never the sender id, and lands in Cloud Logging
+    // only.
     info!(
         target: "notify",
         event = "messaging.session_dropped",
-        user_id = %sender_id,
+        user_id = %super::pre_link_identity(channel, sender_id),
         tenant_id = %tenant_id,
         channel = %channel,
         reason = "logout",

@@ -49,6 +49,10 @@ const STRIPPED_KEYS: &[&str] = &[
     "cloud_trace_id",
     // The operator behind an impersonated request: operator identity.
     "impersonator_id",
+    // A channel identity derives from the sender's phone number or channel
+    // user id, and an unkeyed hash of a phone number is reversible, so it
+    // never goes to PostHog (carnet#1680).
+    "channel_identity",
 ];
 
 /// Catalogued events kept out of `PostHog` (Slack still carries them).
