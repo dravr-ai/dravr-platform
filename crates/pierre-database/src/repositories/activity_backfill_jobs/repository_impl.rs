@@ -547,6 +547,45 @@ macro_rules! impl_activity_backfill_job_repository {
                 Ok(reopened.rows_affected() == 1)
             }
 
+            async fn fail_history_walk(
+                &self,
+                lease: &JobLease,
+                ended_at_ms: i64,
+            ) -> AppResult<bool> {
+                let ended =
+                    sqlx::query($crate::repositories::activity_backfill_jobs::FAIL_HISTORY_WALK_SQL)
+                        .bind(&lease.id)
+                        .bind(&lease.token)
+                        .bind(incomplete_outcome())
+                        .bind(ended_at_ms)
+                        .execute(self.pool())
+                        .await
+                        .map_err(|e| AppError::database(format!("Failed to end history walk: {e}")))?;
+                Ok(ended.rows_affected() == 1)
+            }
+
+            async fn resume_incomplete_history_walk(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                ended_by_ms: i64,
+            ) -> AppResult<bool> {
+                let resumed = sqlx::query(
+                    $crate::repositories::activity_backfill_jobs::RESUME_INCOMPLETE_HISTORY_WALK_SQL,
+                )
+                .bind(user_id.to_string())
+                .bind(tenant_id)
+                .bind(provider)
+                .bind(BackfillJobKind::HistoryWalk.as_str())
+                .bind(incomplete_outcome())
+                .bind(ended_by_ms)
+                .execute(self.pool())
+                .await
+                .map_err(|e| AppError::database(format!("Failed to resume history walk: {e}")))?;
+                Ok(resumed.rows_affected() == 1)
+            }
+
             async fn settle_purged_history_walk(
                 &self,
                 user_id: Uuid,

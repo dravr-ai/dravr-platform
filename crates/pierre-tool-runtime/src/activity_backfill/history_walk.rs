@@ -88,6 +88,11 @@
 //! depth ask reads as done, and the athlete is told once, in their personal
 //! thread, how far back their history now reaches (B4).
 //!
+//! A step below the head whose capture fell short of its window lands what
+//! it read and reads on below it ([`land`]). A walk that still ends
+//! incomplete is resumed from its cursor when asked again, a day after a
+//! failing end at the soonest ([`resume`]).
+//!
 //! A session walked beside a push-fed grant (Garmin) also copies the year of
 //! wellness before the grant once its activities are in ([`wellness`]).
 
@@ -97,7 +102,7 @@ use std::time::{Duration as StdDuration, Instant};
 use chrono::{DateTime, Utc};
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Activity, TenantId};
+use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::{
     BackfillCoverage, BackfillJobKind, JobFloor, JobLease, JobProgressStep, ReopenFrom, WalkHandOff,
@@ -113,17 +118,21 @@ use tokio::time;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
+use land::StepSpan;
+
 use super::{
-    capture_with_head, keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms, owed_write,
-    pause::paused_by, provider_tenant_id_str, spawn_activity_backfill, warm_training_history,
-    ActivityBackfillJob, BackfillFetch, MAX_BACKFILL_ATTEMPTS,
+    keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms, pause::paused_by,
+    provider_tenant_id_str, spawn_activity_backfill, ActivityBackfillJob, MAX_BACKFILL_ATTEMPTS,
 };
-use crate::activity_fetch::write_through::WriteThrough;
 use crate::implementations::data_helpers::historical_backfill_fetch_limit;
 use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::{HistoryWalkCompletion, ToolRuntime, WalkTrigger};
 
+/// What a step does with what it read, a capture short of its window included
+mod land;
+/// An incomplete walk asked again: resumed from its cursor, after its back-off
+mod resume;
 /// What a walk copies on top of the activities: the wellness before a push grant
 mod wellness;
 
@@ -169,7 +178,9 @@ const SECS_PER_MONTH: i64 = 2_629_746;
 /// athlete connects is a source of its own, walked on its first ask. The
 /// one exception is a session walked alone while no API grant stood beside
 /// it: once one does, the walk is reopened for the grant's phase below what
-/// the session reached ([`walk_hand_off`]).
+/// the session reached ([`walk_hand_off`]). A walk that ended incomplete is
+/// resumed from where it stopped rather than started over
+/// ([`resume::resume_incomplete`]).
 pub async fn start_history_walk(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -219,9 +230,39 @@ pub async fn start_history_walk(
     started
 }
 
+/// Owe again, from its cursor, the walk of `backend` that ended incomplete
+/// ([`resume::resume_incomplete`]), when no other walk of the pair stands
+/// beside it ([`walk_across_pair`]); whether it is owed again. Nothing else
+/// is asked: a connection with no walk, or one owed, walked or purged, is
+/// left as it stands, and no fresh walk is started. A session's head refresh
+/// asks it (`activity_backfill::after_refresh`), so a session walk no
+/// connect, first sync or depth miss asks again still resumes once its
+/// back-off is over.
+pub(crate) async fn resume_incomplete_walk(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+    trigger: WalkTrigger,
+) -> bool {
+    match walk_across_pair(runtime.repos(), user_id, tenant_id, backend).await {
+        Ok(PairWalk::Open) => {
+            resume::resume_incomplete(runtime, user_id, tenant_id, backend, trigger).await
+                == Some(true)
+        }
+        Ok(_) => false,
+        Err(e) => {
+            warn!(user_id = %user_id, backend, error = %e, ?trigger, "History walk: the ledger could not be read; no incomplete walk is resumed");
+            false
+        }
+    }
+}
+
 /// What a walk of the pair already filed answers an ask to walk `backend`
 /// with ([`walk_across_pair`]); `None` when none stands in its way and a
-/// walk starts. One owed under any key is that walk; one that walked
+/// walk starts, save the walk under `backend` that ended incomplete, which is
+/// resumed from its cursor ([`resume::resume_incomplete`]). One owed under
+/// any key is that walk; one that walked
 /// `backend` to the end holds all there is, save the API phase a session
 /// walked alone owes a grant that connected since. One a purge left owed a
 /// reopen is resolved here once no step holds it ([`resolve_purged_walk`]),
@@ -234,7 +275,9 @@ async fn walk_of_pair(
     trigger: WalkTrigger,
 ) -> Option<bool> {
     match walk_across_pair(runtime.repos(), user_id, tenant_id, backend).await {
-        Ok(PairWalk::Open) => None,
+        Ok(PairWalk::Open) => {
+            resume::resume_incomplete(runtime, user_id, tenant_id, backend, trigger).await
+        }
         Ok(PairWalk::Walked) => {
             Some(reopen_for_grant(runtime, user_id, tenant_id, backend, trigger).await)
         }
@@ -429,6 +472,10 @@ enum Step {
     AuthRequired,
     /// A transient failure: nothing of the step is recorded.
     Failed,
+    /// A step below the head read nothing and fell short of its window, at
+    /// the oldest row the walk stored ([`land::read_nothing`]): a failure
+    /// while attempts remain, the end of what the source gives once spent.
+    FellShort(JobProgressStep),
     /// The step's row was no longer its own when it came to write, or a
     /// purge of its key landed while it wrote: nothing of its page that a
     /// purge reached is in the store ([`owed_write`]).
@@ -528,6 +575,11 @@ async fn settle_step(
     attempt_started_at: DateTime<Utc>,
 ) -> bool {
     let ledger = &job.resources.repos().activity_backfill_jobs;
+    // A step that fell short on every attempt reached what its source gives.
+    let step = match step {
+        Step::FellShort(step) if attempts >= MAX_BACKFILL_ATTEMPTS => Step::Ended(step),
+        step => step,
+    };
     match step {
         // The coverage follows the row: a step whose phase a purge reset
         // claims no depth for what it read.
@@ -574,15 +626,16 @@ async fn settle_step(
                 job,
             )
         }
+        // Stamped: a re-ask waits out its back-off ([`resume`]).
         Step::Failed if attempts >= MAX_BACKFILL_ATTEMPTS => log_write(
             "failed on its last attempt; the walk ends incomplete",
-            ledger.end_backfill_job_incomplete(lease).await,
+            ledger.fail_history_walk(lease, now_ms()).await,
             job,
         ),
         // Given back with its retry due a lease from now, as a failed live
         // read's is: the sweep waits as long as it did while the lease ran
         // out, and a step whose phase a purge reset meanwhile hears so.
-        Step::Failed => log_write(
+        Step::Failed | Step::FellShort(_) => log_write(
             "a step failed; the sweep retries it a lease from now",
             ledger
                 .release_backfill_job_lease(lease, now_ms().saturating_add(lease_ms()))
@@ -870,7 +923,8 @@ fn months_between(top: i64, bottom: i64) -> i64 {
 }
 
 /// One session step: [`SCIOTTE_WALK_STEP_MONTHS`] below the cursor in one
-/// request. Finding nothing there ends the walk.
+/// request. Finding nothing there ends the walk, unless the capture fell
+/// short of its window ([`land::read_nothing`]).
 async fn session_step(
     job: &ActivityBackfillJob,
     executor: &UniversalExecutor,
@@ -903,9 +957,7 @@ async fn session_step(
         Err(e) => return failed_read(job, &e),
     };
     if activities.is_empty() {
-        let mut step = no_step(bottom);
-        step.units_done = months_between(cursor.top, bottom);
-        return Step::Ended(step);
+        return land::read_nothing(job, provider, cursor, bottom).await;
     }
     let span = StepSpan {
         read: &read,
@@ -915,7 +967,7 @@ async fn session_step(
         started,
         lease,
     };
-    land(job, executor, provider, activities, span).await
+    land::land(job, executor, provider, activities, span).await
 }
 
 /// One API step: a year at a time below the cursor, until a window lands
@@ -968,7 +1020,7 @@ async fn api_step(
                 lease,
             };
             return with_floor(
-                land(job, executor, provider, activities, span).await,
+                land::land(job, executor, provider, activities, span).await,
                 learned,
             );
         }
@@ -1043,89 +1095,6 @@ fn failed_read(job: &ActivityBackfillJob, error: &AppError) -> Step {
     } else {
         Step::Failed
     }
-}
-
-/// The span one step read.
-#[derive(Debug, Clone, Copy)]
-struct StepSpan<'step> {
-    /// The request that returned the rows.
-    read: &'step ActivityQueryParams,
-    /// The newest instant the step covers (unix seconds).
-    top: i64,
-    /// The oldest instant the request covered.
-    bottom: i64,
-    /// Where the step started.
-    cursor: Cursor,
-    /// When the step started, for its seconds per month.
-    started: Instant,
-    /// The lease the step holds its row under; none for a walk the ledger
-    /// could not record.
-    lease: Option<&'step JobLease>,
-}
-
-/// Write a step's `activities` through the store while its row is still its
-/// own ([`owed_write::land_owed`]), and say where the next step starts: below
-/// the oldest activity when the request filled its limit (more lies in its
-/// window), else below the window.
-async fn land(
-    job: &ActivityBackfillJob,
-    executor: &UniversalExecutor,
-    provider: &dyn CoreFitnessProvider,
-    activities: Vec<Activity>,
-    span: StepSpan<'_>,
-) -> Step {
-    let fetched = activities.len();
-    let activities = match capture_with_head(job, provider, activities) {
-        BackfillFetch::Activities(activities) => activities,
-        BackfillFetch::AuthRequired => return Step::AuthRequired,
-        BackfillFetch::Failed => return Step::Failed,
-        BackfillFetch::Paused(until_ms) => return Step::Paused(until_ms),
-    };
-    let oldest = activities
-        .iter()
-        .map(|activity| activity.start_date().timestamp())
-        .min()
-        .unwrap_or(span.bottom);
-    let write = WriteThrough {
-        read: span.read,
-        // A walk copies the past: it lands no new session.
-        announces_sessions: false,
-    };
-    let landed = match owed_write::land_owed(job, executor, &activities, write, span.lease).await {
-        owed_write::Landed::Rows(landed) => landed,
-        owed_write::Landed::Kept => {
-            warm_training_history(job).await;
-            return Step::Kept;
-        }
-        owed_write::Landed::Stopped => return Step::Stopped,
-        owed_write::Landed::Failed => return Step::Failed,
-    };
-    warm_training_history(job).await;
-    let next = if fetched >= span.cursor.limit && oldest < span.top {
-        oldest
-    } else {
-        span.bottom
-    };
-    let months = months_between(span.top, next);
-    let step = JobProgressStep {
-        before_ts: next,
-        units_done: months,
-        rows_landed: i64::try_from(landed).unwrap_or(i64::MAX),
-        secs_per_unit: secs_per_month(span.started, months),
-        floor: None,
-    };
-    if next <= span.cursor.floor {
-        Step::Ended(step)
-    } else {
-        Step::Walked(step)
-    }
-}
-
-/// The seconds one month of a step took, or `None` for a step that covered
-/// less than a month, which measures nothing.
-fn secs_per_month(started: Instant, months: i64) -> Option<f64> {
-    let months = i32::try_from(months).ok().filter(|months| *months > 0)?;
-    Some(started.elapsed().as_secs_f64() / f64::from(months))
 }
 
 /// Record how deep the walk has reached under its key, so the historical

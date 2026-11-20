@@ -623,6 +623,210 @@ async fn a_restart_mid_api_phase_resumes_the_grant_not_the_session() {
     assert_eq!(told[0].2, 4, "bug: the post counts both phases");
 }
 
+/// Walk the session, then the API phase until a spent budget pauses it, and
+/// end the walk there incomplete, as a step failing on every attempt does,
+/// a day and an hour ago: past its back-off. Returns the walk's cursor and
+/// the session reads made so far.
+async fn incomplete_in_the_api_phase(fx: &Fixture) -> (i64, usize) {
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await,
+        "bug: a Strava athlete holding a session is walked"
+    );
+    let deadline = Instant::now() + WALK_DEADLINE;
+    while fx.strava.listings().is_empty() || fx.progress().await.rows_landed < 3 {
+        assert!(Instant::now() < deadline, "the API phase never started");
+        fx.sweep(false).await;
+    }
+    for _ in 0..3 {
+        fx.sweep(false).await;
+    }
+    assert_eq!(
+        fx.state().await,
+        Some(BackfillJobState::Owed),
+        "the API phase is paused, owed"
+    );
+    let ended_ms = Utc::now().timestamp_millis() - 25 * 3_600_000;
+    let sql = "UPDATE activity_backfill_jobs SET outcome = 'incomplete', ended_at_ms = $2, \
+               leased_until_ms = 0, lease_token = NULL WHERE user_id = $1";
+    match fx.resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query(sql)
+                .bind(fx.user_id.to_string())
+                .bind(ended_ms)
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => {
+            sqlx::query(sql)
+                .bind(fx.user_id.to_string())
+                .bind(ended_ms)
+                .execute(pg.pool())
+                .await
+                .unwrap();
+        }
+    }
+    let cursor = fx
+        .resources
+        .common
+        .repos
+        .activity_backfill_jobs
+        .detail_walk_row(
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::SCIOTTE,
+            BackfillJobKind::HistoryWalk,
+        )
+        .await
+        .unwrap()
+        .and_then(|row| row.before_ts)
+        .expect("the API phase holds a cursor");
+    (cursor, fx.session.read_count())
+}
+
+/// The grant beside the session's walk read for the walk's API phase, as the
+/// ledger holds it.
+async fn walk_backend(fx: &Fixture) -> Option<String> {
+    fx.resources
+        .common
+        .repos
+        .activity_backfill_jobs
+        .history_walk_row(fx.user_id, fx.tenant, oauth_providers::SCIOTTE)
+        .await
+        .unwrap()
+        .and_then(|row| row.walk_backend)
+}
+
+/// A walk that ended incomplete in its API phase is asked again: it resumes
+/// that phase through its grant, below the cursor it stopped at, keeping its
+/// counters — never the session from the top.
+#[tokio::test]
+async fn an_incomplete_api_phase_resumes_through_its_grant_below_its_cursor() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 16, true).await;
+    fx.strava.serve(vec![
+        session_oldest - YEAR / 2,
+        session_oldest - 3 * YEAR / 2,
+    ]);
+    fx.strava.created(now - 5 * YEAR);
+    let (cursor, session_reads) = incomplete_in_the_api_phase(&fx).await;
+    let listed = fx.strava.listings().len();
+
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::DepthMissing
+        )
+        .await,
+        "bug: an incomplete walk is asked again"
+    );
+    assert_eq!(
+        fx.state().await,
+        Some(BackfillJobState::Owed),
+        "bug: the resumed walk is owed"
+    );
+    assert_eq!(
+        walk_backend(&fx).await.as_deref(),
+        Some(oauth_providers::STRAVA),
+        "bug: the resumed walk dropped its API phase"
+    );
+
+    fx.walk_to_the_end().await;
+    assert_eq!(
+        fx.state().await,
+        Some(BackfillJobState::Walked),
+        "bug: the resumed API phase reaches the end of the history"
+    );
+    assert_eq!(
+        fx.session.read_count(),
+        session_reads,
+        "bug: the resumed walk read the session from the top"
+    );
+    let resumed = fx.strava.listings();
+    assert!(
+        resumed.len() > listed
+            && resumed[listed..]
+                .iter()
+                .all(|(_, before)| before.is_some_and(|before| before <= cursor)),
+        "bug: the resumed API phase pages below its cursor: {resumed:?}"
+    );
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        2,
+        "bug: the resumed API phase lands the rest"
+    );
+    assert_eq!(
+        fx.progress().await.rows_landed,
+        4,
+        "bug: the progress covers both phases across the resume"
+    );
+}
+
+/// A walk that ended incomplete in its API phase while its grant is no
+/// longer live is not owed again: an ask would page a dead grant. It waits,
+/// reading nothing, until that grant is live beside the session again.
+#[tokio::test]
+async fn an_incomplete_api_phase_waits_for_its_grant_to_be_live() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 16, true).await;
+    fx.strava.serve(vec![
+        session_oldest - YEAR / 2,
+        session_oldest - 3 * YEAR / 2,
+    ]);
+    fx.strava.created(now - 5 * YEAR);
+    let (_cursor, session_reads) = incomplete_in_the_api_phase(&fx).await;
+    let listed = fx.strava.listings().len();
+    fx.resources
+        .common
+        .repos
+        .provider_connections
+        .mark_needs_reauth(
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            Some("invalid_grant"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        !start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::DepthMissing
+        )
+        .await,
+        "bug: an API phase whose grant is dead was owed again"
+    );
+    fx.sweep(true).await;
+    assert_eq!(
+        fx.state().await,
+        Some(BackfillJobState::Incomplete),
+        "bug: the walk waiting on its grant is no longer incomplete"
+    );
+    assert_eq!(
+        (fx.session.read_count(), fx.strava.listings().len()),
+        (session_reads, listed),
+        "bug: an ask for a walk waiting on its grant read something"
+    );
+}
+
 /// A session with no grant beside it ends the walk after its empty step:
 /// no API is asked anything, and the athlete is told once. When a grant
 /// connects later, the walked session is reopened for the API phase below

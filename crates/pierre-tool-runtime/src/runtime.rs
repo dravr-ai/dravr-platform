@@ -116,10 +116,11 @@ impl<'job> BackfillCompletion<'job> {
     }
 }
 
-/// What asked for a history walk
-/// (`activity_backfill::history_walk::start_history_walk`): it changes
-/// nothing of what the walk does, and is logged so a walk can be traced to
-/// its ask.
+/// What asked for a history walk, logged so a walk can be traced to its ask.
+///
+/// It changes nothing of what the walk does, whether it was asked through
+/// `activity_backfill::history_walk::start_history_walk` or resumed alone
+/// through `resume_incomplete_walk`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WalkTrigger {
     /// The athlete just connected the provider: a sign-in stored a session,
@@ -134,6 +135,11 @@ pub enum WalkTrigger {
     /// A step of the walk found its phase taken by a purge while it ran, and
     /// asked again once it stopped: a grant connected meanwhile reopens it.
     PhaseReset,
+    /// The head refresh of a session the walk windows count succeeded (the
+    /// capture sweep, or a chat turn's live read of its list head): its walk
+    /// that ended incomplete is resumed from its cursor, and no other walk
+    /// is asked.
+    HeadRefreshed,
 }
 
 /// A history walk that reached the end of the athlete's history

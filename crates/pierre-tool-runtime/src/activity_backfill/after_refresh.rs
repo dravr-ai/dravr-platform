@@ -1,4 +1,4 @@
-// ABOUTME: The walks a session's head refresh asks: its tag walk and its track walk, each once per connection
+// ABOUTME: The walks a session's head refresh asks: its incomplete history walk resumed, then its tag and track walks
 // ABOUTME: Asked by the capture sweep's refresh, and off the turn by a chat read that carried the session's list head
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,23 +13,35 @@ use pierre_providers::request_budget;
 use tracing::warn;
 use uuid::Uuid;
 
-use super::{detail_walk, tag_walk, ActivityBackfillJob};
+use super::{detail_walk, history_walk, tag_walk, ActivityBackfillJob};
 use crate::activity_fetch::sync_verdict::{self, HeadRead, HeadVerdict};
-use crate::runtime::ToolRuntime;
+use crate::runtime::{ToolRuntime, WalkTrigger};
 
-/// A connection whose head just refreshed has a live session: ask for its
-/// tag walk, which fills the tags and gear id of the stored history the head
-/// read never carries, once per connection and only after its history walk
-/// ended ([`tag_walk::ask_tag_walk`]), and for its track walk, which reads
-/// once more the rides a detail read reached before it kept their route
-/// ([`detail_walk::ask_track_walk`]). A backend that is no counted session is asked
-/// neither.
+/// A session whose head just refreshed is live: first owe again, from its
+/// cursor, its history walk that ended incomplete, once that walk's failing
+/// end is a day old ([`history_walk::resume_incomplete_walk`]); no other
+/// history walk is started or touched. Then ask for its tag walk, which
+/// fills the tags and gear id of the stored history the head read never
+/// carries, once per connection and only after its history walk ended
+/// ([`tag_walk::ask_tag_walk`]), and for its track walk, which reads once
+/// more the rides a detail read reached before it kept their route
+/// ([`detail_walk::ask_track_walk`]). A backend that is no session the walk
+/// windows count ([`detail_walk::session_walk_window`]), a grant among them,
+/// is asked none of the three.
 pub(crate) async fn ask_walks_after_refresh(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
 ) {
+    if detail_walk::session_walk_window(runtime, user_id, tenant_id, backend)
+        .await
+        .is_none()
+    {
+        return;
+    }
+    let trigger = WalkTrigger::HeadRefreshed;
+    history_walk::resume_incomplete_walk(runtime, user_id, tenant_id, backend, trigger).await;
     tag_walk::ask_tag_walk(runtime, user_id, tenant_id, backend).await;
     detail_walk::ask_track_walk(runtime, user_id, tenant_id, backend).await;
 }

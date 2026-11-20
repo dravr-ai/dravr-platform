@@ -78,3 +78,23 @@ pub(crate) const PURGED_HISTORY_WALKS_SQL: &str = "SELECT user_id, tenant_id, pr
      WHERE kind = $1 AND outcome = $2 AND leased_until_ms <= $3 \
      ORDER BY created_at_ms ASC \
      LIMIT $4";
+
+/// Ends a history walk whose last attempt failed, while it is owed: the row
+/// is kept, released, as incomplete (`$3`), stamped with when it ended
+/// (`$4`), which holds a re-ask off ([`RESUME_INCOMPLETE_HISTORY_WALK_SQL`]).
+pub(crate) const FAIL_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET outcome = $3, ended_at_ms = $4, leased_until_ms = 0, lease_token = NULL \
+     WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
+
+/// Owes again the history walk (`$4`) of the pair in the tenant that ended
+/// incomplete (`$5`), from where it stopped: its cursor, floor, phase,
+/// counters and wellness day are kept, its attempts start over and its retry
+/// is due at once, so the resume sweep runs its next step. Only once its
+/// failing end is at or before `$6`; an end stamped with no time (a
+/// credential that died, or a row ended before ends were stamped) is due at
+/// once.
+pub(crate) const RESUME_INCOMPLETE_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET outcome = NULL, ended_at_ms = NULL, attempts = 0, leased_until_ms = 0, \
+         lease_token = NULL, next_attempt_ms = 0 \
+     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4 \
+       AND outcome = $5 AND (ended_at_ms IS NULL OR ended_at_ms <= $6)";

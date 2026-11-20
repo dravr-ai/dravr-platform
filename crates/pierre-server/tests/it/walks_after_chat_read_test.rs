@@ -1,19 +1,23 @@
 // ABOUTME: A chat turn whose live read of a sciotte session carried the list head asks the session's walks
-// ABOUTME: Once per connection, off the turn; a head-less, later-page, grant-served or grant read asks nothing
+// ABOUTME: Its incomplete history walk resumes from its cursor past the back-off; a head-less, grant-served or grant read asks nothing
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The walks a chat read asks (carnet#1679).
+//! The walks a chat read asks (carnet#1679, carnet#1698).
 //
 // This `//!` precedes the module-level `#![cfg]` so the docs survive a build
 // without the features.
 //
 // The capture sweep asks a session's tag walk and track walk once its head
 // refresh succeeds. A session the sweep passes over was never asked, so a
-// chat turn's own live read of the session's head asks them too. The
-// scraper and Strava's API are one loopback stand-in (a test double, per the
-// repo's mock rule) that counts the list reads each serves.
+// chat turn's own live read of the session's head asks them too. Before
+// them it resumes, from its cursor, the session's history walk that ended
+// incomplete, once its failing end is a day old: nothing else asks such a
+// walk again on its own. A grant is no session the walks count, so its read
+// resumes nothing. The scraper and Strava's API are one loopback stand-in
+// (a test double, per the repo's mock rule) that counts the list reads each
+// serves.
 #![cfg(all(
     feature = "provider-strava",
     feature = "provider-sciotte",
@@ -28,6 +32,8 @@ use crate::common;
 use crate::detail_walk_edges_test::{accept_walk_rows, refuse_walk_rows_on};
 use crate::helpers::strava_grant::hold_strava_grant;
 use crate::history_walk_api_test::with_window;
+use crate::history_walk_resume_test::update_walk_row;
+use crate::history_walk_test::job_row;
 use crate::track_walk_test::session_athlete;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -43,7 +49,9 @@ use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::TenantId;
-use pierre_database::repositories::BackfillJobKind;
+use pierre_database::repositories::{
+    ActivityBackfillJobRow, BackfillJobKind, BackfillJobState, DetailWalkRow,
+};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::activity_backfill::detail_walk::{self, TrackWalkAsked};
 use pierre_tool_runtime::activity_backfill::tag_walk::{self, TagWalkAsked};
@@ -455,5 +463,199 @@ async fn a_failed_ask_leaves_the_turn_answered() {
     assert_eq!(
         track, None,
         "bug: the refused track walk was recorded anyway"
+    );
+}
+
+/// An hour in ms: inside the day a failing walk's end holds re-asks off for.
+const INSIDE_THE_BACK_OFF_MS: i64 = 3_600_000;
+
+/// A day and an hour in ms: past that day.
+const PAST_THE_BACK_OFF_MS: i64 = 25 * 3_600_000;
+
+/// File for the athlete a history walk of `backend` that ended incomplete at
+/// `ended_at_ms` (`None`: its credential died, no end stamped), its cursor
+/// six years back, sixty months and seven rows done; the cursor.
+async fn incomplete_walk(
+    resources: &Arc<ServerContext>,
+    (user_id, tenant): (Uuid, TenantId),
+    backend: &str,
+    ended_at_ms: Option<i64>,
+) -> i64 {
+    let row = ActivityBackfillJobRow {
+        provider: backend.to_owned(),
+        ..job_row(user_id, tenant, 0)
+    };
+    assert!(
+        resources
+            .common
+            .repos
+            .activity_backfill_jobs
+            .record_backfill_job(&row)
+            .await
+            .unwrap(),
+        "bug: the ledger records the walk"
+    );
+    let cursor = (Utc::now() - ChronoDuration::days(6 * 365)).timestamp();
+    update_walk_row(
+        resources,
+        user_id,
+        "UPDATE activity_backfill_jobs SET outcome = 'incomplete', before_ts = $2, \
+         months_done = 60, rows_landed = 7, ended_at_ms = $3, leased_until_ms = 0, \
+         lease_token = NULL WHERE user_id = $1",
+        &[cursor, ended_at_ms.unwrap_or_default()],
+    )
+    .await;
+    if ended_at_ms.is_none() {
+        update_walk_row(
+            resources,
+            user_id,
+            "UPDATE activity_backfill_jobs SET ended_at_ms = NULL WHERE user_id = $1",
+            &[],
+        )
+        .await;
+    }
+    cursor
+}
+
+/// The athlete's history walk of `backend` as it stands.
+async fn history_walk(
+    resources: &Arc<ServerContext>,
+    (user_id, tenant): (Uuid, TenantId),
+    backend: &str,
+) -> DetailWalkRow {
+    resources
+        .common
+        .repos
+        .activity_backfill_jobs
+        .detail_walk_row(user_id, tenant, backend, BackfillJobKind::HistoryWalk)
+        .await
+        .unwrap()
+        .expect("bug: the history walk's row is kept")
+}
+
+/// Wait until the athlete's history walk of the session is owed again; it.
+async fn walk_owed_again(
+    resources: &Arc<ServerContext>,
+    athlete: (Uuid, TenantId),
+) -> DetailWalkRow {
+    let deadline = Instant::now() + ASKED_DEADLINE;
+    loop {
+        let row = history_walk(resources, athlete, SESSION).await;
+        if row.state == BackfillJobState::Owed {
+            return row;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "bug: a chat read of the session's list head did not resume its incomplete history walk"
+        );
+        time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A chat read of the session's list head resumes the session's history walk
+/// that ended incomplete a day ago, and the one whose credential died (no
+/// end stamped): each is owed again from its cursor, with its counters,
+/// never from the head. One that ended an hour ago waits out its day: the
+/// read asks its walks (the track walk, asked last, is recorded) and leaves
+/// it incomplete where it stopped.
+#[tokio::test]
+async fn a_chat_read_that_carried_the_list_head_resumes_an_incomplete_history_walk() {
+    let (url, _stand_in) = spawn_stand_in().await;
+    let resources = server(&url).await;
+    let past = session_athlete(&resources, "chat-resume-past").await;
+    let unstamped = session_athlete(&resources, "chat-resume-unstamped").await;
+    let inside = session_athlete(&resources, "chat-resume-inside").await;
+    let now_ms = Utc::now().timestamp_millis();
+    let past_cursor = incomplete_walk(
+        &resources,
+        past,
+        SESSION,
+        Some(now_ms - PAST_THE_BACK_OFF_MS),
+    )
+    .await;
+    let unstamped_cursor = incomplete_walk(&resources, unstamped, SESSION, None).await;
+    let inside_cursor = incomplete_walk(
+        &resources,
+        inside,
+        SESSION,
+        Some(now_ms - INSIDE_THE_BACK_OFF_MS),
+    )
+    .await;
+
+    for (athlete, cursor) in [(past, past_cursor), (unstamped, unstamped_cursor)] {
+        assert_eq!(
+            turn(&resources, athlete, SESSION, 10).await,
+            [SESSION_RIDE],
+            "bug: the turn did not serve the session's ride"
+        );
+        let row = walk_owed_again(&resources, athlete).await;
+        assert_eq!(
+            row.before_ts,
+            Some(cursor),
+            "bug: the resumed walk starts over from the head"
+        );
+        assert_eq!(
+            (row.progress.units_done, row.progress.rows_landed),
+            (60, 7),
+            "bug: the resumed walk dropped its counters"
+        );
+    }
+
+    assert_eq!(
+        turn(&resources, inside, SESSION, 10).await,
+        [SESSION_RIDE],
+        "bug: the turn did not serve the session's ride"
+    );
+    let deadline = Instant::now() + ASKED_DEADLINE;
+    while walks_recorded(&resources, inside, SESSION).await[1].is_none() {
+        assert!(
+            Instant::now() < deadline,
+            "bug: the read never asked the session's track walk"
+        );
+        time::sleep(Duration::from_millis(50)).await;
+    }
+    let row = history_walk(&resources, inside, SESSION).await;
+    assert_eq!(
+        (row.state, row.before_ts),
+        (BackfillJobState::Incomplete, Some(inside_cursor)),
+        "bug: a walk inside its back-off was owed again, or lost its cursor"
+    );
+}
+
+/// A grant is no session the walk windows count: a chat read of a
+/// grant-only athlete's list head leaves that grant's history walk that
+/// ended incomplete a day ago where it stopped. Only a counted session's
+/// head refresh resumes a walk; a grant's walk is asked again by a connect,
+/// a first sync or a depth miss.
+#[tokio::test]
+async fn a_chat_read_of_a_grant_alone_leaves_its_incomplete_history_walk() {
+    let (url, stand_in) = spawn_stand_in().await;
+    let resources = server(&url).await;
+    let grant_only = grant_athlete(&resources).await;
+    let now_ms = Utc::now().timestamp_millis();
+    let cursor = incomplete_walk(
+        &resources,
+        grant_only,
+        oauth_providers::STRAVA,
+        Some(now_ms - PAST_THE_BACK_OFF_MS),
+    )
+    .await;
+
+    assert_eq!(
+        turn(&resources, grant_only, oauth_providers::STRAVA, 10).await,
+        [GRANT_RIDE],
+        "bug: the grant-only athlete's turn did not serve the grant's ride"
+    );
+    assert_eq!(
+        stand_in.grant_lists.load(Ordering::SeqCst),
+        1,
+        "bug: the turn did not read the grant's list live"
+    );
+    time::sleep(SETTLE).await;
+    let row = history_walk(&resources, grant_only, oauth_providers::STRAVA).await;
+    assert_eq!(
+        (row.state, row.before_ts),
+        (BackfillJobState::Incomplete, Some(cursor)),
+        "bug: a grant's head read resumed its incomplete history walk"
     );
 }

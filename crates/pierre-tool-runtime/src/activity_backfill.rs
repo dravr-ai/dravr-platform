@@ -169,6 +169,9 @@ pub const BACKFILL_LEASE_RENEWAL: StdDuration = StdDuration::from_mins(2);
 /// How many runs one job gets — the spawn plus two resumes — before the
 /// ledger stops offering it. A job that keeps dying is a provider that keeps
 /// failing, and the athlete's next ask starts a fresh one.
+///
+/// A history walk that ended incomplete is resumed from its cursor instead
+/// (`history_walk::resume`).
 pub const MAX_BACKFILL_ATTEMPTS: i64 = 3;
 
 /// The tenant string provider authentication takes for a job's tenant.

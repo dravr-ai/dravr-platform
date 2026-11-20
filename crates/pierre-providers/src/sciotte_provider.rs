@@ -883,8 +883,8 @@ impl FitnessProvider for SciotteProvider {
         } else {
             warn!(
                 count = activities.len(),
-                "Sciotte scrape completed without the list head: the fresh-head fetch failed, \
-                 so the newest activities may be missing from this capture"
+                "Sciotte scrape fell short of its window: the fresh-head fetch or a later page \
+                 or month failed, so activities the request covers may be missing from this capture"
             );
         }
         Ok(activities)

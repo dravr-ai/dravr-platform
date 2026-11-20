@@ -94,6 +94,12 @@ pub(crate) struct ScraperSwitch {
     pub(crate) fail_summaries: Arc<AtomicBool>,
     /// The daily-summary read of this one day answers a server error.
     pub(crate) fail_summary_on: Arc<Mutex<Option<NaiveDate>>>,
+    /// The instant (unix seconds) the month walk fails at, as a scrape that
+    /// read the months above it and then failed on one does: a read reaching
+    /// below it answers only what lies at or above it, short of its window
+    /// (`head_complete` false), and one whose `before` is at or below it
+    /// fails on its first month.
+    pub(crate) short_below: Arc<Mutex<Option<i64>>>,
 }
 
 /// A stand-in for the scraper service over a Garmin account holding a run
@@ -201,11 +207,21 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
                         }
                         let after = query_bound(&query, "after");
                         let before = query_bound(&query, "before");
+                        let cut = *scraper.switch.short_below.lock().unwrap();
+                        if cut.is_some_and(|cut| before.is_some_and(|before| before <= cut)) {
+                            return (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(json!({ "error": "internal", "message": "first month failed" })),
+                            );
+                        }
+                        let short = cut
+                            .filter(|cut| after.is_none_or(|after| after < *cut));
                         let activities: Vec<Value> = account
                             .iter()
                             .filter(|(_, _, start)| {
                                 after.is_none_or(|after| start.timestamp() >= after)
                                     && before.is_none_or(|before| start.timestamp() < before)
+                                    && short.is_none_or(|cut| start.timestamp() >= cut)
                             })
                             .map(|(id, sport, start)| workout(id, sport, &start.to_rfc3339()))
                             .collect();
@@ -214,7 +230,7 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
                             Json(json!({
                                 "count": activities.len(),
                                 "activities": activities,
-                                "head_complete": true
+                                "head_complete": short.is_none()
                             })),
                         )
                     }
@@ -811,7 +827,8 @@ async fn a_reconnected_grants_pushed_days_are_never_overwritten_by_the_walk() {
 /// session, the athlete's primary source (carnet#1494), is flagged and its
 /// reconnect told once, as every background read of it is. The grant stands
 /// and the session is kept (B1); once the athlete signs in again, the next
-/// walk replaces the incomplete row and lands.
+/// ask resumes the incomplete walk at once (a dead credential holds no
+/// back-off) and it lands.
 #[tokio::test]
 async fn a_session_expiring_mid_walk_ends_incomplete_and_asks_for_its_sign_in() {
     let switch = ScraperSwitch::default();
@@ -861,7 +878,7 @@ async fn a_session_expiring_mid_walk_ends_incomplete_and_asks_for_its_sign_in() 
     );
 
     // "Continue": the athlete signs in again on a session that lives, and
-    // the next walk replaces the incomplete row and lands.
+    // the next ask resumes the incomplete walk and it lands.
     switch.expired.store(false, Ordering::SeqCst);
     let (status, body) = sign_in(&resources, &token).await;
     assert_eq!(status, 200, "{body}");
