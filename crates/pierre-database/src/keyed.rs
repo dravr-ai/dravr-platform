@@ -141,27 +141,27 @@ mod tests {
         let rotated = keys(&[1, 2], 2);
         let domain = KeyedDomain::ImportTombstone;
 
-        let under_v1 = index_mac(&old, domain, b"ab").unwrap();
-        let under_k2 = index_mac(&rotated, domain, b"ab").unwrap();
-        assert_eq!(index_version_of(&under_v1), 1);
+        let before_rotation = index_mac(&old, domain, b"ab").unwrap();
+        let after_rotation = index_mac(&rotated, domain, b"ab").unwrap();
+        assert_eq!(index_version_of(&before_rotation), 1);
         assert_eq!(
-            index_version_of(&under_k2),
+            index_version_of(&after_rotation),
             2,
             "bug: a write is not under the primary"
         );
 
         let [primary, other] = index_lookup(&rotated, domain, b"ab").unwrap();
         assert_eq!(
-            primary, under_k2,
+            primary, after_rotation,
             "bug: a lookup does not bind the digest a write stores"
         );
         assert_eq!(
-            other, under_v1,
+            other, before_rotation,
             "bug: a digest written before the rotation no longer matches"
         );
         assert_eq!(
             index_lookup(&old, domain, b"ab").unwrap(),
-            [under_v1.clone(), under_v1],
+            [before_rotation.clone(), before_rotation],
             "with one live key a lookup binds the primary twice"
         );
     }
