@@ -608,6 +608,7 @@ async fn a_coachs_reads_are_listed_to_the_athlete_at_the_minute_in_utc() {
                 class,
                 read_at: instant(&at),
                 transport: None,
+                impersonator: None,
             })
             .await
             .unwrap();

@@ -36,6 +36,7 @@ use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::coach_read_retention::purge_expired_coach_reads;
 use pierre_test_support::delegation::add_group_member;
+use pierre_tool_runtime::context::SUPPORT_SESSION;
 use pierre_tool_runtime::protocols::{UniversalResponse, UniversalToolExecutor};
 use serde_json::{json, Value};
 use sqlx::Row;
@@ -46,6 +47,7 @@ use crate::coach_athlete_reads_test::{
     fixture, ok, person, refused_reason, Fixture, Person, ATHLETE_STREAM_RUN, UPLOAD,
 };
 use crate::common;
+use crate::helpers::impersonation::support_grant;
 
 /// The athlete's roster name, as a coach names them.
 const MEMBER: &str = "Mira";
@@ -176,6 +178,7 @@ impl Fixture {
                 class: CoachReadClass::Training,
                 read_at: Utc::now() - ago,
                 transport: None,
+                impersonator: None,
             })
             .await
             .unwrap();
@@ -197,6 +200,7 @@ async fn a_daily_read_is_recorded_once_per_utc_day_and_a_per_read_one_each_time(
         class: CoachReadClass::Training,
         read_at,
         transport: None,
+        impersonator: None,
     };
     let reads = &f.repos().coach_data_reads;
     assert!(
@@ -1284,5 +1288,84 @@ async fn a_read_served_to_the_coachs_outside_assistant_is_marked_on_every_surfac
             .iter()
             .all(|read| read["served_to_assistant"] == false),
         "bug: a read with no recorded transport is never marked: {body}"
+    );
+}
+
+// ── Reads Dravr support made acting as the coach (carnet#1511) ───────────
+
+/// A read the admin's assistant makes while acting as the coach in a support
+/// session records the admin, and the athlete's record says it was support's;
+/// the coach's own read beside it is never marked.
+#[tokio::test]
+async fn a_read_in_a_support_session_is_recorded_and_listed_as_supports() {
+    let f = fixture().await;
+    ok(
+        f.call(
+            &f.mcp_executor(),
+            f.coach,
+            "get_activities",
+            json!({ "athlete": MEMBER }),
+        )
+        .await,
+        "the coach's own get_activities over MCP",
+    );
+    let support = support_grant(&f.res, f.coach.id).await;
+    let admin = support.impersonator_id;
+    let served = SUPPORT_SESSION
+        .scope(Some(support), async {
+            f.call(
+                &f.mcp_executor(),
+                f.coach,
+                "get_training_history",
+                json!({ "athlete": MEMBER }),
+            )
+            .await
+        })
+        .await;
+    ok(served, "get_training_history in the admin's support session");
+
+    let mut recorded: Vec<(String, Option<Uuid>)> = f
+        .recorded()
+        .await
+        .into_iter()
+        .map(|read| (read.tool, read.impersonator))
+        .collect();
+    recorded.sort();
+    assert_eq!(
+        recorded,
+        vec![
+            ("get_activities".to_owned(), None),
+            ("get_training_history".to_owned(), Some(admin)),
+        ],
+        "bug: only the support session's read names the admin"
+    );
+
+    let (status, body) = f.get_reads(f.athlete, f.group).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mut listed: Vec<(String, bool)> = body["reads"]
+        .as_array()
+        .expect("a reads array")
+        .iter()
+        .map(|read| {
+            (
+                read["tool"].as_str().unwrap_or_default().to_owned(),
+                read["support_read"]
+                    .as_bool()
+                    .unwrap_or_else(|| panic!("bug: every read carries the mark: {read}")),
+            )
+        })
+        .collect();
+    listed.sort();
+    assert_eq!(
+        listed,
+        vec![
+            ("get_activities".to_owned(), false),
+            ("get_training_history".to_owned(), true),
+        ],
+        "bug: the athlete's record marks the support read alone: {body}"
+    );
+    assert!(
+        !body.to_string().contains(&admin.to_string()),
+        "bug: the athlete's record never names the admin: {body}"
     );
 }

@@ -264,6 +264,11 @@ export interface CoachRead {
    * connects to Dravr from outside it, whose company received the data.
    */
   served_to_assistant: boolean;
+  /**
+   * Whether a Dravr admin made the read acting as the coach in a support
+   * session, rather than the coach.
+   */
+  support_read: boolean;
 }
 
 /**

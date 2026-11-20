@@ -30,6 +30,7 @@ const TWO_READS: CoachReads = {
       data_class: 'wellness',
       read_at: '2026-11-12T14:05:00Z',
       served_to_assistant: true,
+      support_read: false,
     },
     {
       coach_name: null,
@@ -37,6 +38,7 @@ const TWO_READS: CoachReads = {
       data_class: 'training',
       read_at: '2026-11-10T08:30:00Z',
       served_to_assistant: false,
+      support_read: false,
     },
   ],
 };
@@ -107,12 +109,33 @@ describe('CoachReadLog', () => {
     expect(within(own).queryByTestId('coach-read-served-to-assistant')).toBeNull();
   });
 
+  // carnet#1511: a read Dravr support made acting as the coach says so, and
+  // never as the coach's own AI tool.
+  it("says a read was support's, in place of the coach's AI tool line", async () => {
+    mockGetCoachReads.mockResolvedValue({
+      retention_months: 12,
+      reads: [
+        { coach_name: 'Casey Coach', tool: 'get_activities', data_class: 'training', read_at: '2026-11-12T14:05:00Z', served_to_assistant: true, support_read: true },
+        { coach_name: 'Casey Coach', tool: 'get_activities', data_class: 'training', read_at: '2026-11-11T09:00:00Z', served_to_assistant: true, support_read: false },
+      ],
+    });
+    const { findAllByTestId } = renderLog();
+
+    const [support, coach] = await findAllByTestId('coach-read-row');
+    expect(textOf(within(support).getByTestId('coach-read-support'))).toBe(
+      i18n.t('humanCoach.readLog.supportRead'),
+    );
+    expect(within(support).queryByTestId('coach-read-served-to-assistant')).toBeNull();
+    expect(within(coach).queryByTestId('coach-read-support')).toBeNull();
+    expect(within(coach).getByTestId('coach-read-served-to-assistant')).toBeTruthy();
+  });
+
   it('words a read made outside a tool call instead of showing its label', async () => {
     mockGetCoachReads.mockResolvedValue({
       retention_months: 12,
       reads: [
-        { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false },
-        { coach_name: 'Casey Coach', tool: 'roster', data_class: 'training', read_at: '2026-11-11T09:00:00Z', served_to_assistant: false },
+        { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false, support_read: false },
+        { coach_name: 'Casey Coach', tool: 'roster', data_class: 'training', read_at: '2026-11-11T09:00:00Z', served_to_assistant: false, support_read: false },
       ],
     });
     const { findAllByTestId } = renderLog();

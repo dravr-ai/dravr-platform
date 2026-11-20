@@ -164,6 +164,9 @@ pub struct NewCoachDataRead<'read> {
     /// `None` when the read declared no transport, which is stored under its
     /// own label ([`UNDECLARED_TRANSPORT`]).
     pub transport: Option<Transport>,
+    /// The admin whose support session made the read while acting as the
+    /// coach; `None` for a read the coach made themselves.
+    pub impersonator: Option<Uuid>,
 }
 
 /// One recorded read, as the athlete lists it.
@@ -181,6 +184,9 @@ pub struct CoachDataRead {
     pub read_at: DateTime<Utc>,
     /// What the row says the read was served over.
     pub transport: RecordedTransport,
+    /// The admin whose support session made the read while acting as the
+    /// coach; `None` for the coach's own read.
+    pub impersonator: Option<Uuid>,
 }
 
 /// What a recorded read says it was served over.
@@ -266,6 +272,9 @@ pub trait CoachDataReadRepository: Send + Sync {
 /// [`UNDECLARED_TRANSPORT`] when it declared none). `NULL` is left to the
 /// rows recorded before the column.
 ///
+/// `$11` is the admin whose support session made the read, `NULL` for the
+/// coach's own.
+///
 /// `$9`, the `read_day`, is the UTC day of a read recorded once a day and
 /// `NULL` for one recorded each time. The conflict target is the unique
 /// index `idx_coach_data_reads_daily`, which holds the day: a repeat that day
@@ -274,8 +283,8 @@ pub trait CoachDataReadRepository: Send + Sync {
 pub(crate) const RECORD_COACH_READ_SQL: &str = r"
             INSERT INTO coach_data_reads
                 (id, tenant_id, user_id, coach_user_id, group_id, tool_name, data_class, read_at,
-                 read_day, transport)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                 read_day, transport, impersonator_user_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (tenant_id, user_id, coach_user_id, group_id, tool_name, data_class, read_day)
             DO NOTHING
             ";
@@ -288,7 +297,8 @@ pub(crate) fn read_day(read: &NewCoachDataRead<'_>) -> String {
 
 /// The athlete's reads in one group under their tenant, newest first.
 pub(crate) const LIST_COACH_READS_SQL: &str = r"
-            SELECT coach_user_id, group_id, tool_name, data_class, read_at, transport
+            SELECT coach_user_id, group_id, tool_name, data_class, read_at, transport,
+                   impersonator_user_id
             FROM coach_data_reads
             WHERE tenant_id = $1 AND user_id = $2 AND group_id = $3
             ORDER BY read_at DESC
@@ -329,6 +339,7 @@ macro_rules! impl_coach_data_read_repository {
                     .bind(read.read_at)
                     .bind(None::<String>)
                     .bind(Transport::label_of(read.transport))
+                    .bind($ids::bind_opt(read.impersonator))
                     .execute(self.pool())
                     .await
                     .map_err(|e| coach_read_error("record", e))?;
@@ -350,6 +361,7 @@ macro_rules! impl_coach_data_read_repository {
                     .bind(read.read_at)
                     .bind(Some(read_day(read)))
                     .bind(Transport::label_of(read.transport))
+                    .bind($ids::bind_opt(read.impersonator))
                     .execute(self.pool())
                     .await
                     .map_err(|e| coach_read_error("record", e))?;
@@ -394,6 +406,7 @@ macro_rules! impl_coach_data_read_repository {
                                 .try_get("read_at")
                                 .map_err(|e| coach_read_error("decode", e))?,
                             transport: parse_transport(transport.as_deref())?,
+                            impersonator: $ids::read_opt(row, "impersonator_user_id")?,
                         })
                     })
                     .collect()
