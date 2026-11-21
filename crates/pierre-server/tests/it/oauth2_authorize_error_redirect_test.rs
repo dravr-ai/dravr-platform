@@ -215,7 +215,10 @@ async fn admin_is_dropped_from_a_non_admins_request_never_refused() {
         page.contains(r#"name="scope" value="fitness:read""#),
         "the form carries the request without admin: {page}"
     );
-    assert!(!page.contains("<li>admin"), "admin is never a scope line: {page}");
+    assert!(
+        !page.contains("<li>admin"),
+        "admin is never a scope line: {page}"
+    );
     assert!(
         !page.contains("admin_access"),
         "a non-admin is never offered Admin access: {page}"

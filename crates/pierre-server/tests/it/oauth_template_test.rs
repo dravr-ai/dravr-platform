@@ -34,9 +34,8 @@ static STRINGS: LazyLock<MessagingStringsRegistry> = LazyLock::new(MessagingStri
 /// The catalogue with the Admin access box's lines, which are authored in
 /// dravr-contremaitre and not pinned yet: the admin line is shown inside the
 /// box, and the box only with its lines (carnet#1511, step 12).
-static STRINGS_WITH_ADMIN_BOX: LazyLock<MessagingStringsRegistry> = LazyLock::new(|| {
-    with_admin_access_lines(MessagingStringsRegistry::new())
-});
+static STRINGS_WITH_ADMIN_BOX: LazyLock<MessagingStringsRegistry> =
+    LazyLock::new(|| with_admin_access_lines(MessagingStringsRegistry::new()));
 
 /// A catalogue line's positional slot.
 static SLOT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\{\d+\}").unwrap());

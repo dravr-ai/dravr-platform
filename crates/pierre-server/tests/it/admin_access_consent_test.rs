@@ -79,7 +79,9 @@ const PROPOSED_LINES: [(&str, &str); 5] = [
 
 /// `registry` with the box's proposed English lines, as a runtime sync would
 /// deliver them once dravr-contremaitre carries them.
-pub(crate) fn with_admin_access_lines(registry: MessagingStringsRegistry) -> MessagingStringsRegistry {
+pub(crate) fn with_admin_access_lines(
+    registry: MessagingStringsRegistry,
+) -> MessagingStringsRegistry {
     for (key, line) in PROPOSED_LINES {
         registry.update(key, "en", line.to_owned(), format!("proposed-{key}"));
     }
@@ -108,7 +110,10 @@ fn a2a_resource(resources: &Arc<ServerContext>) -> String {
 }
 
 /// The OAuth routes as the server mounts them, over `strings`.
-fn oauth2_routes_with(resources: &Arc<ServerContext>, strings: MessagingStringsRegistry) -> axum::Router {
+fn oauth2_routes_with(
+    resources: &Arc<ServerContext>,
+    strings: MessagingStringsRegistry,
+) -> axum::Router {
     let context = OAuth2Context {
         database: resources.agent.database.clone(),
         oauth2_server: resources.common.repos.oauth2_server.clone(),
@@ -247,7 +252,12 @@ async fn consent_page(
     resource: Option<&str>,
 ) -> String {
     let page = authorize(resources, client_id, session, scope, resource).await;
-    assert_eq!(page.status(), 200, "the screen is shown: {}", page.body_text());
+    assert_eq!(
+        page.status(),
+        200,
+        "the screen is shown: {}",
+        page.body_text()
+    );
     page.body_text()
 }
 
@@ -305,10 +315,16 @@ fn code_of(response: &AxumTestResponse) -> String {
         .unwrap()
         .query_pairs()
         .find(|(key, _)| key == "code")
-        .map_or_else(|| panic!("a code: {location}"), |(_, code)| code.into_owned())
+        .map_or_else(
+            || panic!("a code: {location}"),
+            |(_, code)| code.into_owned(),
+        )
 }
 
-async fn token_request(resources: &Arc<ServerContext>, fields: &[(&str, &str)]) -> AxumTestResponse {
+async fn token_request(
+    resources: &Arc<ServerContext>,
+    fields: &[(&str, &str)],
+) -> AxumTestResponse {
     AxumTestRequest::post("/oauth2/token")
         .form(&fields)
         .send(oauth2_routes(resources))
@@ -508,7 +524,11 @@ async fn drop_audit_trail(resources: &Arc<ServerContext>) {
 
 /// Move the start of `client_id`'s refresh families back to `started`, as
 /// if their first token had been minted then.
-async fn family_started_at(resources: &Arc<ServerContext>, client_id: &str, started: chrono::DateTime<Utc>) {
+async fn family_started_at(
+    resources: &Arc<ServerContext>,
+    client_id: &str,
+    started: chrono::DateTime<Utc>,
+) {
     const STATEMENT: &str =
         "UPDATE oauth2_refresh_tokens SET family_created_at = $1 WHERE client_id = $2";
     match resources.agent.database.backend() {
@@ -583,7 +603,14 @@ async fn an_admin_is_offered_an_unticked_box_naming_the_redirect_host_in_bold() 
     let (client_id, _) = register(&resources).await;
     let (_admin, session) = member(&resources, true).await;
 
-    let page = consent_page(&resources, &client_id, &session, None, Some(&mcp_resource(&resources))).await;
+    let page = consent_page(
+        &resources,
+        &client_id,
+        &session,
+        None,
+        Some(&mcp_resource(&resources)),
+    )
+    .await;
 
     let input = page
         .split("<input type=\"checkbox\" name=\"admin_access\"")
@@ -654,7 +681,10 @@ async fn a_non_admin_never_sees_the_box_and_no_crafted_request_or_form_grants_ad
         !page.contains("name=\"admin_access\""),
         "bug: a non-admin is offered Admin access: {page}"
     );
-    assert!(!page.contains("<li>admin"), "bug: admin listed as a scope: {page}");
+    assert!(
+        !page.contains("<li>admin"),
+        "bug: admin listed as a scope: {page}"
+    );
     assert_eq!(
         hidden(&page, "scope"),
         "fitness:read",
@@ -702,7 +732,10 @@ async fn a_non_admin_never_sees_the_box_and_no_crafted_request_or_form_grants_ad
         );
     }
     assert!(
-        !listed(&resources, &access_token).await.iter().any(|tool| tool == "admin_list_system_agents"),
+        !listed(&resources, &access_token)
+            .await
+            .iter()
+            .any(|tool| tool == "admin_list_system_agents"),
         "bug: an admin tool listed to a non-admin"
     );
 }
@@ -714,8 +747,23 @@ async fn an_admin_always_sees_the_screen_and_an_athlete_with_a_remembered_grant_
     let resource = mcp_resource(&resources);
 
     let (_athlete, athlete_session) = member(&resources, false).await;
-    approve(&resources, &client.0, &athlete_session, None, Some(&resource), false).await;
-    let again = authorize(&resources, &client.0, &athlete_session, None, Some(&resource)).await;
+    approve(
+        &resources,
+        &client.0,
+        &athlete_session,
+        None,
+        Some(&resource),
+        false,
+    )
+    .await;
+    let again = authorize(
+        &resources,
+        &client.0,
+        &athlete_session,
+        None,
+        Some(&resource),
+    )
+    .await;
     assert_eq!(
         again.status(),
         303,
@@ -724,14 +772,30 @@ async fn an_admin_always_sees_the_screen_and_an_athlete_with_a_remembered_grant_
     );
 
     let (_admin, admin_session) = member(&resources, true).await;
-    approve(&resources, &client.0, &admin_session, None, Some(&resource), false).await;
+    approve(
+        &resources,
+        &client.0,
+        &admin_session,
+        None,
+        Some(&resource),
+        false,
+    )
+    .await;
     let again = authorize(&resources, &client.0, &admin_session, None, Some(&resource)).await;
     assert_eq!(
         again.status(),
         200,
         "bug: an admin's grant was renewed without the screen (Q20)"
     );
-    approve(&resources, &client.0, &admin_session, None, Some(&resource), true).await;
+    approve(
+        &resources,
+        &client.0,
+        &admin_session,
+        None,
+        Some(&resource),
+        true,
+    )
+    .await;
     let again = authorize(&resources, &client.0, &admin_session, None, Some(&resource)).await;
     assert_eq!(
         again.status(),
@@ -843,8 +907,14 @@ async fn an_unticked_box_grants_no_admin_and_the_admin_tools_stay_withheld() {
     let client = register(&resources).await;
     let (admin, session) = member(&resources, true).await;
 
-    let (access_token, _refresh, scope) =
-        connect(&resources, (&client.0, &client.1), &session, &mcp_resource(&resources), false).await;
+    let (access_token, _refresh, scope) = connect(
+        &resources,
+        (&client.0, &client.1),
+        &session,
+        &mcp_resource(&resources),
+        false,
+    )
+    .await;
 
     assert!(!scope_names(&scope).contains(&"admin"), "{scope}");
     let tools = listed(&resources, &access_token).await;
@@ -870,8 +940,14 @@ async fn a_ticked_box_lists_and_runs_every_admin_tool_over_mcp_each_call_on_the_
     let client = register(&resources).await;
     let (admin, session) = member(&resources, true).await;
 
-    let (access_token, _refresh, scope) =
-        connect(&resources, (&client.0, &client.1), &session, &mcp_resource(&resources), true).await;
+    let (access_token, _refresh, scope) = connect(
+        &resources,
+        (&client.0, &client.1),
+        &session,
+        &mcp_resource(&resources),
+        true,
+    )
+    .await;
 
     assert!(
         scope_names(&scope).contains(&"admin"),
@@ -900,7 +976,10 @@ async fn a_ticked_box_lists_and_runs_every_admin_tool_over_mcp_each_call_on_the_
     }
 
     let (status, body) = call_mcp(&resources, &access_token, "admin_list_system_agents").await;
-    assert!(succeeded(status, &body), "bug: the admin tool runs: {status} {body}");
+    assert!(
+        succeeded(status, &body),
+        "bug: the admin tool runs: {status} {body}"
+    );
     let (status, body) = call_mcp(&resources, &access_token, "browse_agent_store").await;
     assert!(
         succeeded(status, &body),
@@ -991,18 +1070,30 @@ async fn a_refresh_family_holding_admin_stops_a_day_after_its_first_token() {
     let resources = resources().await;
     let client = register(&resources).await;
     let (_admin, session) = member(&resources, true).await;
-    let (_access, first_refresh, _scope) =
-        connect(&resources, (&client.0, &client.1), &session, &mcp_resource(&resources), true).await;
+    let (_access, first_refresh, _scope) = connect(
+        &resources,
+        (&client.0, &client.1),
+        &session,
+        &mcp_resource(&resources),
+        true,
+    )
+    .await;
 
     // Within the day the family rotates, its successor cut at the day's end.
     family_started_at(&resources, &client.0, Utc::now() - Duration::hours(23)).await;
-    let (_access, second_refresh, scope) = issued(&refresh(&resources, (&client.0, &client.1), &first_refresh).await);
+    let (_access, second_refresh, scope) =
+        issued(&refresh(&resources, (&client.0, &client.1), &first_refresh).await);
     assert!(scope_names(&scope).contains(&"admin"), "{scope}");
 
     // Past the day, however recent the last rotation, the family is done.
     family_started_at(&resources, &client.0, Utc::now() - Duration::hours(25)).await;
     let refused = refresh(&resources, (&client.0, &client.1), &second_refresh).await;
-    assert_eq!(refused.status(), 400, "bug: an admin family past its day refreshed: {}", refused.body_text());
+    assert_eq!(
+        refused.status(),
+        400,
+        "bug: an admin family past its day refreshed: {}",
+        refused.body_text()
+    );
     let error: Value = serde_json::from_str(&refused.body_text()).unwrap();
     assert_eq!(error["error"], "invalid_grant", "{error}");
 }
@@ -1012,7 +1103,14 @@ async fn an_admin_familys_first_refresh_token_expires_within_the_day() {
     let resources = resources().await;
     let client = register(&resources).await;
     let (_admin, session) = member(&resources, true).await;
-    connect(&resources, (&client.0, &client.1), &session, &mcp_resource(&resources), true).await;
+    connect(
+        &resources,
+        (&client.0, &client.1),
+        &session,
+        &mcp_resource(&resources),
+        true,
+    )
+    .await;
 
     let expiries = refresh_expiries(&resources, &client.0).await;
     assert_eq!(expiries.len(), 1, "one refresh token was stored");
@@ -1021,7 +1119,6 @@ async fn an_admin_familys_first_refresh_token_expires_within_the_day() {
         "bug: an admin family's first token outlives the day: {}",
         expiries[0]
     );
-
 }
 
 #[tokio::test]
@@ -1031,9 +1128,18 @@ async fn a_demoted_admins_refresh_drops_admin_for_good() {
     member(&resources, true).await;
     let client = register(&resources).await;
     let (admin, session) = member(&resources, true).await;
-    let (_access, refresh_token, scope) =
-        connect(&resources, (&client.0, &client.1), &session, &mcp_resource(&resources), true).await;
-    assert!(scope_names(&scope).contains(&"admin"), "the admin ticked the box: {scope}");
+    let (_access, refresh_token, scope) = connect(
+        &resources,
+        (&client.0, &client.1),
+        &session,
+        &mcp_resource(&resources),
+        true,
+    )
+    .await;
+    assert!(
+        scope_names(&scope).contains(&"admin"),
+        "the admin ticked the box: {scope}"
+    );
 
     resources
         .common
@@ -1049,7 +1155,10 @@ async fn a_demoted_admins_refresh_drops_admin_for_good() {
         "bug: a demoted admin's refresh kept admin: {scope}"
     );
     assert!(
-        !listed(&resources, &access_token).await.iter().any(|tool| tool == "admin_list_system_agents"),
+        !listed(&resources, &access_token)
+            .await
+            .iter()
+            .any(|tool| tool == "admin_list_system_agents"),
         "bug: an admin tool listed to a demoted admin"
     );
 
@@ -1084,20 +1193,32 @@ async fn validate_and_refresh_refuses_an_admin_grant_and_rotates_nothing() {
     let resources = resources().await;
     let client = register(&resources).await;
     let (_admin, session) = member(&resources, true).await;
-    let (access_token, refresh_token, _scope) =
-        connect(&resources, (&client.0, &client.1), &session, &mcp_resource(&resources), true).await;
+    let (access_token, refresh_token, _scope) = connect(
+        &resources,
+        (&client.0, &client.1),
+        &session,
+        &mcp_resource(&resources),
+        true,
+    )
+    .await;
 
     // A leaked refresh token and any expired token of the admin's: this
     // route authenticates no client, so it mints nothing for admin (M3).
     let response = AxumTestRequest::post("/oauth2/validate-and-refresh")
-        .header("authorization", &format!("Bearer {}", expired(&resources, &access_token)))
+        .header(
+            "authorization",
+            &format!("Bearer {}", expired(&resources, &access_token)),
+        )
         .json(&json!({ "refresh_token": refresh_token }))
         .send(oauth2_routes(&resources))
         .await;
     assert_eq!(response.status(), 200, "{}", response.body_text());
     let verdict: Value = response.json();
     assert_eq!(verdict["status"], "invalid", "{verdict}");
-    assert_eq!(verdict["reason"], ADMIN_REFRESHES_AT_TOKEN_ENDPOINT, "{verdict}");
+    assert_eq!(
+        verdict["reason"], ADMIN_REFRESHES_AT_TOKEN_ENDPOINT,
+        "{verdict}"
+    );
     assert!(
         verdict["access_token"].is_null() && verdict["refresh_token"].is_null(),
         "bug: validate-and-refresh minted for an admin grant: {verdict}"
@@ -1125,7 +1246,10 @@ async fn registration_and_client_credentials_still_refuse_admin() {
             MAX_PENDING_REGISTRATIONS,
         )
         .await;
-    assert!(refused.is_err(), "bug: a registration asking for admin was accepted");
+    assert!(
+        refused.is_err(),
+        "bug: a registration asking for admin was accepted"
+    );
 
     let client = register(&resources).await;
     let response = token_request(

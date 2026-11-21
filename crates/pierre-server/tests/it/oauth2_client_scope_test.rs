@@ -515,7 +515,9 @@ async fn a_refresh_family_holding_admin_with_no_recorded_start_mints_nothing() {
             client_id: client.client_id,
             client_secret: client.client_secret,
             scope: None,
-            refresh_token: Some(SecretString::from("legacy-refresh-token-with-admin-no-start")),
+            refresh_token: Some(SecretString::from(
+                "legacy-refresh-token-with-admin-no-start",
+            )),
             code_verifier: None,
             resource: None,
         })

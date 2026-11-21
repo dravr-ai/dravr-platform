@@ -875,7 +875,9 @@ mod support_session_assistant_tests {
         );
         // Nor can the revoked grant's token, still good for its hour, start
         // a session again.
-        let restarted = world.start(&grant.bearer, "casey@support-session.test").await;
+        let restarted = world
+            .start(&grant.bearer, "casey@support-session.test")
+            .await;
         assert_eq!(
             restarted["result"]["isError"], true,
             "bug: a revoked grant starts no session: {restarted}"
@@ -975,7 +977,9 @@ mod support_session_assistant_tests {
     async fn a_refresh_in_flight_never_ends_the_support_session() {
         let world = world().await;
         let grant = world.admin_grant().await;
-        world.start(&grant.bearer, "casey@support-session.test").await;
+        world
+            .start(&grant.bearer, "casey@support-session.test")
+            .await;
         let session = world
             .bound(&BoundCredential::Grant(grant.family.clone()))
             .await
