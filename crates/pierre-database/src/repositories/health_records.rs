@@ -137,7 +137,7 @@ pub struct ClinicalRecordWrite {
 }
 
 /// One stored clinical record.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredClinicalRecord {
     /// The row's id.
     pub id: String,
@@ -729,9 +729,7 @@ macro_rules! impl_health_record_repository {
                         .bind(now)
                         .execute(self.pool())
                         .await
-                        .map_err(|e| {
-                            AppError::database(format!("upsert_clinical_records: {e}"))
-                        })?;
+                        .map_err(|e| AppError::database(format!("upsert_clinical_records: {e}")))?;
                     written += done.rows_affected();
                 }
                 Ok(written)

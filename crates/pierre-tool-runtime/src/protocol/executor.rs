@@ -776,12 +776,12 @@ impl UniversalExecutor {
         let member_read = subject.as_ref().map(ReadSubject::athlete);
         // An outside client reaches a tool reading T2/T3 streams only under
         // the athlete's tier consent (`tier_gate`, carnet#1544).
-        let tier = self
+        let tiers = self
             .resources
             .tool_registry()
             .tool_data(&tool_name)
-            .and_then(ToolData::tier);
-        let execute = tier_gate::gated(&tool_name, tier, async move {
+            .map_or_else(Vec::new, ToolData::tiers);
+        let execute = tier_gate::gated(&tool_name, &tiers, async move {
             // What the call derives from here on is the athlete's (carnet#1174),
             // and so is every attribution what it serves owes (carnet#1464).
             match member_read {

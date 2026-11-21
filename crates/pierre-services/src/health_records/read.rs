@@ -24,6 +24,8 @@
 //! no one. Glucose is read from both stores: barrage's timed readings (the
 //! `BloodGlucose` series) and each day's `health_snapshots.blood_glucose`.
 
+use std::fmt;
+
 use chrono::{DateTime, NaiveDate, Utc};
 use dravr_barrage::Tier;
 use dravr_riviere::SeriesType;
@@ -89,7 +91,7 @@ pub struct CoachReach {
 }
 
 /// One clinical record as a read serves it.
-#[derive(Debug, Clone, PartialEq, Serialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 pub struct ServedClinicalRecord {
     /// The record's id.
     pub id: String,
@@ -359,8 +361,8 @@ pub struct RecordsRead<'read> {
     pub project: RowProjection<StoredHealthMetrics>,
 }
 
-impl std::fmt::Debug for RecordsRead<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for RecordsRead<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RecordsRead")
             .field("user_id", &self.user_id)
             .field("view", &self.view)
@@ -375,7 +377,11 @@ impl RecordsRead<'_> {
     /// # Errors
     ///
     /// The store's error.
-    pub async fn read(&self, kind: RecordKind, window: RecordWindow) -> AppResult<HealthRecordsPage> {
+    pub async fn read(
+        &self,
+        kind: RecordKind,
+        window: RecordWindow,
+    ) -> AppResult<HealthRecordsPage> {
         let owner = (self.user_id, self.tenant);
         match kind {
             RecordKind::Labs | RecordKind::Clinical => Ok(HealthRecordsPage {
@@ -411,13 +417,15 @@ impl RecordsRead<'_> {
                 let since = window
                     .since
                     .unwrap_or_else(|| until - chrono::Duration::days(GLUCOSE_DEFAULT_DAYS));
-                glucose_page(
+                // Two stored reads in one future: boxed, so every caller's
+                // future stays small.
+                Box::pin(glucose_page(
                     self.repos,
                     self.terms,
                     owner,
                     (since, until),
                     (self.coach, self.project),
-                )
+                ))
                 .await
             }
         }
@@ -462,7 +470,10 @@ mod tests {
         assert!(!reaches(Tier::T3, granted), "bug: a coach reached T3");
         assert!(!reaches(Tier::T2, not_granted), "bug: T2 without the grant");
         // Outside any gate (the athlete's own read) every tier is read.
-        assert!(reaches(Tier::T2, granted), "bug: the grant was not honoured");
+        assert!(
+            reaches(Tier::T2, granted),
+            "bug: the grant was not honoured"
+        );
         assert!(reaches(Tier::T3, None), "bug: the athlete's own T3 read");
     }
 }

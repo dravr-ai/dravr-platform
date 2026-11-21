@@ -52,7 +52,9 @@ use dravr_barrage::{
     WellnessRecords,
 };
 use pierre_core::models::{Activity, DataSource, DeviceType, TenantId};
-use pierre_database::repositories::{ActivityStreamsWrite, PurgeReason, RecordFiling, StreamOrigin};
+use pierre_database::repositories::{
+    ActivityStreamsWrite, PurgeReason, RecordFiling, StreamOrigin,
+};
 use pierre_database::RepositoryRegistry;
 use pierre_services::activity_cache_sink::{
     project_cached_activities, projection_error, retract_activities, scope_ids, LiveCacheSink,

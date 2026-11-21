@@ -99,7 +99,6 @@ use pierre_middleware::McpAuthMiddleware;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 use pierre_providers::originals::OriginalsStore;
-use pierre_services::lab_document_model::LabReaderModel;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_runtime_context::ProviderConnectLog;
 #[cfg(feature = "client-messaging")]
@@ -108,6 +107,7 @@ use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::group_chat_poster::GroupChatPoster;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
+use pierre_services::lab_document_model::LabReaderModel;
 use pierre_services::live_activities::LiveActivityStore;
 use pierre_services::originals_bundle::OriginalsBundleService;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;

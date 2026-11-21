@@ -23,7 +23,9 @@
 pub mod read;
 
 use chrono::{DateTime, NaiveDate, Utc};
-use dravr_barrage::{ClinicalResource, GlucoseReading, SelfReport, WellnessRecords};
+use dravr_barrage::{
+    ClinicalResource, GlucoseReading, Locator, ReadingEngine, SelfReport, WellnessRecords,
+};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{ClinicalRecordWrite, RecordFiling, SelfReportWrite};
 use pierre_database::RepositoryRegistry;
@@ -158,7 +160,11 @@ pub fn clinical_write(
         record_id: record.id.clone(),
         resource_type: record.resource_type.clone(),
         tier: wire_name(&record.tier)?,
-        sensitivity_class: record.sensitivity_class.as_ref().map(wire_name).transpose()?,
+        sensitivity_class: record
+            .sensitivity_class
+            .as_ref()
+            .map(wire_name)
+            .transpose()?,
         fhir_version: record.fhir_version.clone(),
         resource: json_text(&record.resource)?,
         stripped: json_text(&record.stripped)?,
@@ -167,8 +173,8 @@ pub fn clinical_write(
         derivation: wire_name(&record.derivation)?,
         review_state: wire_name(&record.review_state)?,
         checks: json_text(&record.checks)?,
-        locator: record.locator.map(|locator| locator.to_text()),
-        read_by: record.read_by.as_ref().map(|engine| engine.label()),
+        locator: record.locator.map(Locator::to_text),
+        read_by: record.read_by.as_ref().map(ReadingEngine::label),
         effective_at: effective_at(record),
         lab_document_id: lab_document_id.map(str::to_owned),
     })
@@ -197,7 +203,10 @@ pub async fn store_sensitive(
         ..SensitiveStored::default()
     };
     WellnessStore::new(repos)
-        .store_series(filing.data_source_id, IntradaySeries::blood_glucose(readings))
+        .store_series(
+            filing.data_source_id,
+            IntradaySeries::blood_glucose(readings),
+        )
         .await?;
     let reports = wellness
         .self_reports
