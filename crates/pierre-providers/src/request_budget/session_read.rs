@@ -456,7 +456,8 @@ mod tests {
     use pierre_core::errors::ErrorCode;
     use pierre_database::RepositoryRegistry;
     use pierre_test_support::db::create_test_db;
-    use tracing::{callsite, subscriber};
+    use tracing::subscriber::{self, NoSubscriber};
+    use tracing::Dispatch;
     use tracing_subscriber::fmt;
 
     use super::super::{
@@ -534,6 +535,21 @@ mod tests {
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone()
         }
+    }
+
+    /// Keep a second dispatcher registered for the rest of the test binary.
+    ///
+    /// While exactly one dispatcher is registered, `tracing-core` computes a
+    /// callsite's interest from the dispatcher of whichever thread registers
+    /// it, without taking its lock. A sibling test reaching the usage log site
+    /// first, on a thread with no subscriber, then caches it as "never" for
+    /// every thread, and the line this test holds a subscriber for is dropped.
+    /// With a second one always registered, every registration is computed
+    /// from the registered dispatchers, under the lock that installing the
+    /// test's subscriber also takes.
+    fn register_a_second_dispatcher() {
+        static SECOND: OnceLock<Dispatch> = OnceLock::new();
+        SECOND.get_or_init(|| Dispatch::new(NoSubscriber::default()));
     }
 
     /// Log lines written while a test holds the subscriber.
@@ -808,6 +824,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_refusal_is_marked_and_logged_once_on_the_usage_target() {
+        register_a_second_dispatcher();
         let (repos, limiter) = limiter().await;
         let athlete = Uuid::new_v4();
         let asked = session_read_counter_key(STRAVA_SESSION, "asked", athlete);
@@ -820,10 +837,6 @@ mod tests {
             .with_writer(move || writer.clone())
             .finish();
         let capturing = subscriber::set_default(subscriber);
-        // Another test thread can reach the log site first, with no
-        // subscriber, and cache its interest as "never": rebuild it now that
-        // this thread's subscriber is set, or the line is dropped.
-        callsite::rebuild_interest_cache();
         let refused = read_budget(&limiter, STRAVA_SESSION, athlete)
             .admit(STRAVA_SESSION)
             .await
