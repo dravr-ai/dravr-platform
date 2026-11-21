@@ -16,11 +16,10 @@ use axum::{
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
-use chrono::Utc;
+use crate::services::conversation_title::fresh_title_fallback;
 use pierre_auth::auth::AuthResult;
 use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, WelcomeTarget};
 use pierre_chat_pipeline::SurfaceId;
-use pierre_contremaitre::messaging_strings::KEY_NEW_CONVERSATION_TITLE_PREFIX;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{ConversationRecord, TenantId};
 use pierre_database::repositories::NewConversation;
@@ -30,10 +29,10 @@ use pierre_runtime_context::AdminConfigLookup;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::agents::{require_bindable_agent, require_room_agent};
 use pierre_services::conversation_forge::{
-    counterpart_title, create_conversation_slot, dated_title, open_group_room_slot,
-    resolve_conversation_model, selected_or_system_agent, RoomOrigin, SlotQuota,
+    counterpart_title, create_conversation_slot, open_group_room_slot, resolve_conversation_model,
+    selected_or_system_agent, RoomOrigin, SlotQuota,
 };
-use pierre_services::locale::{resolve_user_locale, user_locale};
+use pierre_services::locale::resolve_user_locale;
 use pierre_tool_runtime::derived_content;
 
 use super::common::{
@@ -183,26 +182,7 @@ pub(super) async fn create_for(
     let title = match request.title.as_deref().map(str::trim) {
         Some(typed) if !typed.is_empty() => typed.to_owned(),
         _ => {
-            let user = resources
-                .common
-                .repos
-                .users
-                .get_global(auth.user_id)
-                .await
-                .ok()
-                .flatten();
-            let locale = user_locale(user.as_ref());
-            let prefix = resources.mcp.messaging_strings_registry.render(
-                KEY_NEW_CONVERSATION_TITLE_PREFIX,
-                &locale,
-                &[],
-            );
-            let stamp = dated_title(
-                &prefix,
-                &locale,
-                user.as_ref().and_then(|u| u.timezone.as_deref()),
-                Utc::now(),
-            );
+            let stamp = fresh_title_fallback(resources, &user_id_str).await;
             counterpart_title(
                 &resources.common.repos,
                 tenant_id,

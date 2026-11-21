@@ -41,6 +41,10 @@ const OVERPASS_ENDPOINTS: &[&str] = &[
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ];
 
+/// The path an Overpass instance answers queries at, under an origin a
+/// deployment names.
+const INTERPRETER_PATH: &str = "/api/interpreter";
+
 /// Seconds the Overpass server is told it may spend on a query, written into
 /// every query's `[timeout:N]` header.
 ///
@@ -274,6 +278,19 @@ impl EndpointWalk {
     }
 }
 
+/// The instances a client at `origin` walks: see [`OverpassClient::at`].
+fn endpoints_at(origin: Option<&str>) -> Vec<String> {
+    origin.map_or_else(
+        || OVERPASS_ENDPOINTS.iter().map(|s| (*s).to_owned()).collect(),
+        |origin| {
+            vec![format!(
+                "{}{INTERPRETER_PATH}",
+                origin.trim_end_matches('/')
+            )]
+        },
+    )
+}
+
 /// Sends one Overpass query to the public instances until one answers.
 #[derive(Debug)]
 pub(super) struct OverpassClient {
@@ -283,11 +300,18 @@ pub(super) struct OverpassClient {
 }
 
 impl OverpassClient {
-    /// A client over the public instances with production time limits.
-    pub(super) fn public() -> Self {
+    /// A client with production time limits over the instances `origin`
+    /// names.
+    ///
+    /// No origin is the public instances, `overpass-api.de` first: what a
+    /// deployment asks. An origin, a scheme and authority, is the single
+    /// instance queried at its `/api/interpreter`; the slashes it ends in are
+    /// dropped first. A test configuration names a refused or loopback one,
+    /// so no query leaves the machine (carnet#1626).
+    pub(super) fn at(origin: Option<&str>) -> Self {
         Self {
             client: shared_client(),
-            endpoints: OVERPASS_ENDPOINTS.iter().map(|s| (*s).to_owned()).collect(),
+            endpoints: endpoints_at(origin),
             timing: OverpassTiming::PRODUCTION,
         }
     }
@@ -595,6 +619,30 @@ mod tests {
             !hosts.iter().any(|host| host == "overpass.kumi.systems"),
             "overpass.kumi.systems aliases overpass.private.coffee: {hosts:?}"
         );
+    }
+
+    #[test]
+    fn no_origin_is_the_public_instances_and_an_origin_is_the_only_one() {
+        assert_eq!(
+            endpoints_at(None),
+            OVERPASS_ENDPOINTS
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect::<Vec<_>>(),
+            "bug: no origin no longer walks every public instance"
+        );
+        assert_eq!(
+            endpoints_at(None).first().map(String::as_str),
+            Some("https://overpass-api.de/api/interpreter"),
+            "a deployment asks the main instance first"
+        );
+        for written in ["http://127.0.0.1:9", "http://127.0.0.1:9//"] {
+            assert_eq!(
+                endpoints_at(Some(written)),
+                ["http://127.0.0.1:9/api/interpreter"],
+                "bug: the origin {written} is not the single instance asked"
+            );
+        }
     }
 
     #[test]

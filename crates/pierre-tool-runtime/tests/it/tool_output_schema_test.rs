@@ -38,12 +38,12 @@ use pierre_core::models::{
 use pierre_fitness_compute::weather::WeatherDifficulty;
 use pierre_providers::field_support::FieldMode;
 use pierre_providers::precedence::wellness_source;
-use pierre_providers::ProviderRegistry;
 use pierre_services::athlete_loops::Effort;
 use pierre_services::athlete_places::HomeState;
 use pierre_services::coach_roster::RosterAthleteStatus;
 use pierre_services::continuous_series::SourceSeries;
 use pierre_services::plan_calendar_push::PushReport;
+use pierre_test_support::providers::offline_provider_registry;
 use pierre_tool_runtime::activity_query::{
     parse_query, AppliedQuery, GroupKey, KeyValue, MetricValues, QueryAnswer, QueryGroup,
     UnknownCounts,
@@ -1068,7 +1068,11 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
                 delegated_by: None,
                 // The real dictionary, both modes, so the schema is checked
                 // against what the tool sends.
-                fields: dictionary(&ProviderRegistry::new(), "strava", Some(FieldMode::Mirror)),
+                fields: dictionary(
+                    &offline_provider_registry(),
+                    "strava",
+                    Some(FieldMode::Mirror),
+                ),
             },
         ),
         (
@@ -1121,7 +1125,7 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
                             backend: "delegated".to_owned(),
                             delegated_by: Some("Casey Coach".to_owned()),
                             fields: dictionary(
-                                &ProviderRegistry::new(),
+                                &offline_provider_registry(),
                                 "trainingpeaks",
                                 Some(FieldMode::Mirror),
                             ),

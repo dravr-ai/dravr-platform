@@ -21,7 +21,6 @@ use pierre_core::errors::ErrorCode;
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::garmin_provider::GarminProvider;
-use pierre_providers::registry::{get_supported_providers, global_registry};
 use pierre_providers::request_budget::{ProviderRateLimiter, RequestBudget, ONE_DAY};
 use pierre_test_support::db::create_test_db;
 use secrecy::{ExposeSecret, SecretString};
@@ -271,7 +270,7 @@ async fn test_garmin_provider_refresh_token_not_needed() {
 #[test]
 fn test_garmin_in_provider_registry() {
     ensure_http_clients_initialized();
-    let registry = global_registry();
+    let registry = common::offline_provider_registry();
     // Verify Garmin is in the list of all providers using the registry
     let all_providers = registry.supported_providers();
     assert!(all_providers.contains(&oauth_providers::GARMIN));
@@ -281,7 +280,7 @@ fn test_garmin_in_provider_registry() {
 #[test]
 fn test_garmin_provider_factory() {
     ensure_http_clients_initialized();
-    let registry = global_registry();
+    let registry = common::offline_provider_registry();
 
     // Verify Garmin is supported
     assert!(registry.is_supported(oauth_providers::GARMIN));
@@ -296,7 +295,7 @@ fn test_garmin_provider_factory() {
 
 #[test]
 fn test_garmin_in_supported_providers_list() {
-    let supported = get_supported_providers();
+    let supported = common::offline_provider_registry().supported_providers();
     assert!(supported.contains(&oauth_providers::GARMIN));
 }
 

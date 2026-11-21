@@ -137,7 +137,7 @@ async fn setup_over(base_url: &str, config: ServerConfig) -> Fixture {
         .await
         .expect("store the athlete's locale");
 
-    let mut config = offline_provider_config(INTERVALS_ICU);
+    let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
     base_url.clone_into(&mut config.api_base_url);
     let mut registry = offline_provider_registry();
     registry.set_default_config(INTERVALS_ICU, config);

@@ -249,11 +249,11 @@ mod groups_ctx_impl {
     }
 }
 
-// `CommandCtx` is gated on `client-messaging` because the trait is consumed
+// `CommandCtx` is gated on `slash-commands` because the trait is consumed
 // only by `pierre-commands`, which is itself an optional dep behind that
 // flag. With the flag off the slash-command dispatcher / handlers never link,
 // so the impl carries no value.
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 mod command_ctx_impl {
     use super::ServerContext;
     use crate::config::admin::AdminConfigService;

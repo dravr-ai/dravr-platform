@@ -113,7 +113,7 @@ async fn setup_linked_user(base_url: String) -> LinkedUser {
         )
         .unwrap();
 
-    let mut config = offline_provider_config(INTERVALS_ICU);
+    let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
     config.api_base_url = base_url;
     let mut registry = offline_provider_registry();
     registry.set_default_config(INTERVALS_ICU, config);

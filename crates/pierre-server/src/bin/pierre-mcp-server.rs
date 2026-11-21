@@ -602,7 +602,7 @@ async fn create_server(
 /// rather than booting into a mode that would enqueue turns nowhere.
 #[cfg(feature = "client-messaging")]
 fn select_turn_runner(timeouts: &ServerTimeouts) -> Arc<TurnRunner> {
-    use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
+    use pierre_mcp_server::services::turn_runner::turn_watchdog;
     use std::process;
 
     let runner = TurnRunner::from_env(turn_watchdog(timeouts)).unwrap_or_else(|e| {

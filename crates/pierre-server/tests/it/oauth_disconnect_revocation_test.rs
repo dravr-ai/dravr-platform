@@ -14,7 +14,7 @@ use std::time::Duration as StdDuration;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use chrono::{DateTime, Duration, Utc};
 use pierre_auth::oauth2_client::OAuth2Config;
-use pierre_config::environment::{ProviderEndpointOverride, ServerConfig};
+use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserOAuthToken,
     UserStatus,
@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 use crate::common::{
     create_test_server_resources, create_test_server_resources_with_config, set_provider_endpoints,
-    test_server_config_with_app,
+    test_server_config, test_server_config_with_app,
 };
 
 /// A server whose own `provider` app holds these credentials, its token and
@@ -52,6 +52,23 @@ async fn server_revoking_at(
         provider,
         ProviderEndpointOverride {
             token_url: Some(token_url),
+            revoke_url: Some(revoke_url),
+            ..ProviderEndpointOverride::default()
+        },
+    );
+    create_test_server_resources_with_config(config)
+        .await
+        .unwrap()
+}
+
+/// A server with no Strava app of its own, revoking Strava grants at
+/// `revoke_url`.
+async fn strava_revoking_at(revoke_url: String) -> Arc<ServerContext> {
+    let mut config = test_server_config();
+    set_provider_endpoints(
+        &mut config,
+        "strava",
+        ProviderEndpointOverride {
             revoke_url: Some(revoke_url),
             ..ProviderEndpointOverride::default()
         },
@@ -408,13 +425,11 @@ async fn assert_locally_disconnected(
     );
 }
 
-/// The service under test, with the revocation endpoints the
-/// `ServerConfig` carries (Strava, Garmin) pointed wherever the
-/// caller mutated them. The harness builds `ServerConfig::default()` and
-/// never reads `*_REVOKE_URL`, so this is the same knob the env var turns in
-/// a deployment.
-fn oauth_service(resources: &Arc<ServerContext>, config: ServerConfig) -> OAuthService {
-    OAuthService::new(resources.data(), Arc::new(config))
+/// The service under test, revoking at the endpoints the context's provider
+/// registry holds: where [`server_revoking_at`] pointed them, the refused
+/// origin otherwise.
+fn oauth_service(resources: &Arc<ServerContext>) -> OAuthService {
+    OAuthService::new(resources.data(), Arc::clone(&resources.common.config))
 }
 
 fn client_credentials(client_id: &str, client_secret: &str) -> OAuth2Config {
@@ -438,16 +453,22 @@ fn client_credentials(client_id: &str, client_secret: &str) -> OAuth2Config {
 #[tokio::test]
 async fn disconnect_revokes_upstream_and_deletes_provider_data() {
     // Client credentials resolve through the server's own app, as the real
-    // authorize/exchange path resolves them. (The revocation URL itself is
-    // injected via ServerConfig below.)
+    // authorize/exchange path resolves them, and the revocation endpoint
+    // through the provider registry, as every Strava call's does.
     let (revoke_url, captured) = capture_one_request().await;
-    let resources = create_test_server_resources_with_config(test_server_config_with_app(
+    let mut config =
+        test_server_config_with_app("strava", "revoke-test-client", "revoke-test-secret");
+    set_provider_endpoints(
+        &mut config,
         "strava",
-        "revoke-test-client",
-        "revoke-test-secret",
-    ))
-    .await
-    .unwrap();
+        ProviderEndpointOverride {
+            revoke_url: Some(revoke_url.clone()),
+            ..ProviderEndpointOverride::default()
+        },
+    );
+    let resources = create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
     let (user_id, tenant_id) = seed_user_with_tenant(&resources).await;
 
     resources
@@ -491,13 +512,7 @@ async fn disconnect_revokes_upstream_and_deletes_provider_data() {
         .await
         .unwrap();
 
-    // The test harness builds `ServerConfig::default()` (it never reads env),
-    // so aim the revocation endpoint at the stub through the config the
-    // service actually consults — the same knob STRAVA_REVOKE_URL turns in a
-    // real deployment.
-    let mut config = (*resources.common.config).clone();
-    config.external_services.strava_api.revoke_url = revoke_url.clone();
-    let oauth_service = OAuthService::new(resources.data(), Arc::new(config));
+    let oauth_service = oauth_service(&resources);
     oauth_service
         .disconnect_provider(
             user_id,
@@ -605,7 +620,7 @@ async fn disconnect_whoop_deregisters_user_and_survives_upstream_failure() {
         format!("{}/developer/v2/user/access", upstream.base_url),
     )
     .await;
-    let service = oauth_service(&resources, (*resources.common.config).clone());
+    let service = oauth_service(&resources);
 
     // 1. A live access token is spent as-is.
     let (user_id, tenant_id) = seed_connected(
@@ -731,8 +746,9 @@ async fn disconnect_whoop_deregisters_user_and_survives_upstream_failure() {
 /// `DELETE /wellness-api/rest/user/registration` with the access token as
 /// `Bearer`, refreshed first when expired. The `garmin` OAuth backend is
 /// exercised through `revoke_for_disconnect` directly, with the endpoints the
-/// `ServerConfig` carries (`GARMIN_REVOKE_URL` / `GARMIN_TOKEN_URL` in a
-/// deployment); the card's own disconnect is pinned below.
+/// provider registry holds (`PIERRE_GARMIN_REVOKE_URL` /
+/// `PIERRE_GARMIN_TOKEN_URL` in a deployment); the card's own disconnect is
+/// pinned below.
 #[tokio::test]
 async fn garmin_backend_deregisters_user_with_bearer_delete() {
     let mut upstream = ScriptedUpstream::serve(vec![
@@ -741,19 +757,15 @@ async fn garmin_backend_deregisters_user_with_bearer_delete() {
         OK_204.to_owned(),
     ])
     .await;
-    let resources = create_test_server_resources_with_config(test_server_config_with_app(
+    let resources = server_revoking_at(
         "garmin",
         "garmin-test-client",
         "garmin-test-secret",
-    ))
-    .await
-    .unwrap();
-    let mut config = (*resources.common.config).clone();
-    config.external_services.garmin_api.revoke_url =
-        format!("{}/wellness-api/rest/user/registration", upstream.base_url);
-    config.external_services.garmin_api.token_url =
-        format!("{}/di-oauth2-service/oauth/token", upstream.base_url);
-    let service = oauth_service(&resources, config);
+        format!("{}/di-oauth2-service/oauth/token", upstream.base_url),
+        format!("{}/wellness-api/rest/user/registration", upstream.base_url),
+    )
+    .await;
+    let service = oauth_service(&resources);
 
     assert_eq!(
         revocation_shape(&service, "garmin"),
@@ -761,7 +773,7 @@ async fn garmin_backend_deregisters_user_with_bearer_delete() {
             revoke_url: format!("{}/wellness-api/rest/user/registration", upstream.base_url),
             token_url: format!("{}/di-oauth2-service/oauth/token", upstream.base_url),
         }),
-        "the Garmin arm reads its endpoints from the Garmin API config"
+        "the Garmin arm reads its endpoints from the provider registry"
     );
 
     // 1. Live token: one DELETE, bearer-authenticated, no body.
@@ -820,19 +832,15 @@ async fn garmin_backend_deregisters_user_with_bearer_delete() {
 #[tokio::test]
 async fn disconnecting_the_garmin_card_deregisters_a_garmin_api_connection() {
     let mut upstream = ScriptedUpstream::serve(vec![OK_204.to_owned()]).await;
-    let resources = create_test_server_resources_with_config(test_server_config_with_app(
+    let resources = server_revoking_at(
         "garmin",
         "garmin-test-client",
         "garmin-test-secret",
-    ))
-    .await
-    .unwrap();
-    let mut config = (*resources.common.config).clone();
-    config.external_services.garmin_api.revoke_url =
-        format!("{}/wellness-api/rest/user/registration", upstream.base_url);
-    config.external_services.garmin_api.token_url =
-        format!("{}/di-oauth2-service/oauth/token", upstream.base_url);
-    let service = oauth_service(&resources, config);
+        format!("{}/di-oauth2-service/oauth/token", upstream.base_url),
+        format!("{}/wellness-api/rest/user/registration", upstream.base_url),
+    )
+    .await;
+    let service = oauth_service(&resources);
 
     let (user_id, tenant_id) = seed_connected(
         &resources,
@@ -917,11 +925,8 @@ async fn terra_backend_deauthenticates_user_with_developer_headers() {
 #[tokio::test]
 async fn local_only_backends_send_nothing_upstream() {
     let mut strava_upstream = ScriptedUpstream::serve(vec![OK_200.to_owned()]).await;
-    let resources = create_test_server_resources().await.unwrap();
-    let mut config = (*resources.common.config).clone();
-    config.external_services.strava_api.revoke_url =
-        format!("{}/oauth/revoke", strava_upstream.base_url);
-    let service = oauth_service(&resources, config);
+    let resources = strava_revoking_at(format!("{}/oauth/revoke", strava_upstream.base_url)).await;
+    let service = oauth_service(&resources);
 
     for backend in [
         "sciotte",
@@ -1020,11 +1025,8 @@ async fn local_only_backends_send_nothing_upstream() {
 #[tokio::test]
 async fn disconnect_by_sciotte_clears_a_native_strava_grant() {
     let strava_upstream = ScriptedUpstream::serve(vec![OK_200.to_owned()]).await;
-    let resources = create_test_server_resources().await.unwrap();
-    let mut config = (*resources.common.config).clone();
-    config.external_services.strava_api.revoke_url =
-        format!("{}/oauth/revoke", strava_upstream.base_url);
-    let service = oauth_service(&resources, config);
+    let resources = strava_revoking_at(format!("{}/oauth/revoke", strava_upstream.base_url)).await;
+    let service = oauth_service(&resources);
 
     // A native Strava OAuth grant — no sciotte row anywhere.
     let (user_id, tenant_id) = seed_connected(
@@ -1060,11 +1062,8 @@ async fn disconnect_by_sciotte_clears_a_native_strava_grant() {
 #[tokio::test]
 async fn repeat_disconnect_and_unconnected_provider_still_succeed() {
     let strava_upstream = ScriptedUpstream::serve(vec![OK_200.to_owned()]).await;
-    let resources = create_test_server_resources().await.unwrap();
-    let mut config = (*resources.common.config).clone();
-    config.external_services.strava_api.revoke_url =
-        format!("{}/oauth/revoke", strava_upstream.base_url);
-    let service = oauth_service(&resources, config);
+    let resources = strava_revoking_at(format!("{}/oauth/revoke", strava_upstream.base_url)).await;
+    let service = oauth_service(&resources);
 
     let (user_id, tenant_id) = seed_connected(
         &resources,
@@ -1137,7 +1136,7 @@ async fn disconnect_wahoo_deletes_the_athletes_permissions() {
         format!("{}/v1/permissions", upstream.base_url),
     )
     .await;
-    let service = oauth_service(&resources, (*resources.common.config).clone());
+    let service = oauth_service(&resources);
     let (user_id, tenant_id) = seed_connected(
         &resources,
         "wahoo",

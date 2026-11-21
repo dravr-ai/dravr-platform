@@ -6,9 +6,9 @@
 
 //! OAuth provider constants
 //!
-//! Note: For dynamic provider discovery, prefer using `ProviderRegistry::supported_providers()`
-//! instead of the static `all()` function. The registry respects feature flags and includes
-//! externally registered providers.
+//! Which providers a build serves is the provider registry's answer
+//! (`ProviderRegistry::supported_providers()`), which respects feature flags
+//! and includes externally registered providers.
 
 use serde::Serialize;
 
@@ -614,35 +614,6 @@ pub const SYNTHETIC_SLEEP: &str = "synthetic_sleep";
 #[must_use]
 pub fn is_credential_free(provider: &str) -> bool {
     matches!(provider, SYNTHETIC | SYNTHETIC_SLEEP)
-}
-
-/// Get statically-known OAuth providers
-///
-/// **Deprecated**: Use `crate::providers::get_supported_providers()` instead,
-/// which respects feature flags and includes externally registered providers.
-#[must_use]
-#[deprecated(
-    since = "0.2.0",
-    note = "Use crate::providers::get_supported_providers() for dynamic provider discovery"
-)]
-pub const fn all() -> &'static [&'static str] {
-    // This is a compile-time constant, so we include all potential providers
-    // For runtime checking, use the registry
-    &["strava", "garmin", "whoop", "coros", "synthetic", "sciotte"]
-}
-
-/// Check if a provider is statically known
-///
-/// **Deprecated**: Use `crate::providers::is_provider_supported()` instead,
-/// which respects feature flags and includes externally registered providers.
-#[must_use]
-#[deprecated(
-    since = "0.2.0",
-    note = "Use crate::providers::is_provider_supported() for dynamic provider validation"
-)]
-#[allow(deprecated)]
-pub fn is_supported(provider: &str) -> bool {
-    all().contains(&provider)
 }
 
 /// Token type recorded in `user_oauth_tokens.token_type` for sciotte

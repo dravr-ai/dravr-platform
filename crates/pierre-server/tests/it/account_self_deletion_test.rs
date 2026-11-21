@@ -44,13 +44,16 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::common::{create_test_server_resources_with_config, test_server_config_with_app};
+use crate::common::{
+    create_test_server_resources_with_config, set_provider_endpoints, test_server_config_with_app,
+};
 use crate::helpers::identity_toolkit_stub::{
     Answer, IdentityToolkitStub, ACCESS_TOKEN, PROJECT as FIREBASE_PROJECT,
 };
 use crate::helpers::notify_capture::{capture_logs, named};
 use pierre_auth::config::oauth::FirebaseConfig;
 use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
+use pierre_config::environment::ProviderEndpointOverride;
 use pierre_database::repositories::PendingFirebaseDeletion;
 use pierre_services::firebase_identity_outbox::{
     sweep_firebase_identity_deletions, ALERT_AFTER_ATTEMPTS,
@@ -133,19 +136,22 @@ impl Setup {
 
     /// A server whose Identity Toolkit answers every delete with `answer`.
     async fn with_firebase(answer: Answer) -> Self {
-        let resources = create_test_server_resources_with_config(test_server_config_with_app(
-            "strava",
-            CLIENT_ID,
-            CLIENT_SECRET,
-        ))
-        .await
-        .unwrap();
         let stub = RevokeStub::start().await;
+        let mut config = test_server_config_with_app("strava", CLIENT_ID, CLIENT_SECRET);
+        set_provider_endpoints(
+            &mut config,
+            "strava",
+            ProviderEndpointOverride {
+                revoke_url: Some(stub.url.clone()),
+                ..ProviderEndpointOverride::default()
+            },
+        );
+        let resources = create_test_server_resources_with_config(config)
+            .await
+            .unwrap();
         let firebase = IdentityToolkitStub::answering(answer);
         let mut context = resources.auth_routes_context();
         let mut config = (*context.config).clone();
-        stub.url
-            .clone_into(&mut config.external_services.strava_api.revoke_url);
         let firebase_config = firebase.serve().await;
         config.firebase = firebase_config.clone();
         context.config = Arc::new(config);

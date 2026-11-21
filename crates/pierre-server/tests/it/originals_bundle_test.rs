@@ -49,7 +49,7 @@ use serde_json::{json, Value};
 use tokio::time;
 use uuid::Uuid;
 
-use crate::admin_user_removal_test::{admin_context, super_admin_token, RevokeStub};
+use crate::admin_user_removal_test::{admin_context, super_admin_token};
 use crate::common::create_test_server_resources_with_records_and_blobs;
 use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 
@@ -852,9 +852,8 @@ async fn an_account_reset_takes_the_bundle_row_and_blob() {
         "the bundle is stored before the reset"
     );
 
-    let stub = RevokeStub::start().await;
     let response = handle_reset_user(
-        State(admin_context(&setup.resources, &stub.url)),
+        State(admin_context(&setup.resources)),
         Extension(super_admin_token()),
         Path(ana.id.to_string()),
         Json(ResetAccountRequest {

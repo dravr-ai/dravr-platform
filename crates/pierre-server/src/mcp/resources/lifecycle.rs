@@ -37,9 +37,9 @@ use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::oauth2_server::KnownDeviceKey;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_cache::Cache;
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 use pierre_commands as commands;
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 use pierre_commands::{
     account::LogoutHandler,
     account_deletion::DeleteAccountHandler,
@@ -80,7 +80,7 @@ use pierre_providers::originals::OriginalsStore;
 use pierre_services::provider_purge::ProviderPurgeService;
 use pierre_services::{barrage_live_store::live_store, originals_bundle::OriginalsBundleService};
 
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 use dravr_canot::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
 use dravr_canot::ChannelRegistry;
@@ -138,17 +138,19 @@ use pierre_sse::SseManager;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "health-sync")]
+use secrecy::SecretString;
+#[cfg(feature = "slash-commands")]
 use std::collections::HashMap;
 // Only `CommandRegistries` carries a HashSet, and that whole type is
-// client-messaging-gated.
-#[cfg(feature = "client-messaging")]
+// slash-commands-gated.
+#[cfg(feature = "slash-commands")]
 use std::collections::HashSet;
 // Its one reader is the commands-directory override, which is
-// client-messaging-gated like the catalogue it points at.
-#[cfg(feature = "client-messaging")]
+// slash-commands-gated like the catalogue it points at.
+#[cfg(feature = "slash-commands")]
 use std::env;
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(feature = "protocol-rest")]
@@ -162,7 +164,7 @@ use tracing::{error, info, warn};
 /// definitions, the handlers keyed by command name, the argument signatures
 /// `/help` renders beside each, and the names of the commands that act on
 /// their caller alone. `None` in a host built without the catalogue.
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 type CommandRegistries = (
     Option<Arc<CommandRegistry>>,
     Option<Arc<CommandHandlerRegistry>>,
@@ -421,7 +423,7 @@ impl ServerContext {
         ));
 
         // Load messaging slash commands + handlers (see `build_command_registries`).
-        #[cfg(feature = "client-messaging")]
+        #[cfg(feature = "slash-commands")]
         let (command_registry, command_handler_registry, command_arg_specs, personal_commands) =
             Self::build_command_registries();
 
@@ -509,6 +511,7 @@ impl ServerContext {
             Self::init_health_sync(
                 &repos,
                 &provider_registry,
+                config.webhooks.whoop_secret.as_ref(),
                 &request_limiter,
                 &sse_manager,
                 SyncFailureNotices::new(
@@ -573,13 +576,13 @@ impl ServerContext {
             pruning_abort_handle,
             #[cfg(feature = "tools-groups")]
             group_service,
-            #[cfg(feature = "client-messaging")]
+            #[cfg(feature = "slash-commands")]
             command_registry,
-            #[cfg(feature = "client-messaging")]
+            #[cfg(feature = "slash-commands")]
             command_handler_registry,
-            #[cfg(feature = "client-messaging")]
+            #[cfg(feature = "slash-commands")]
             command_arg_specs,
-            #[cfg(feature = "client-messaging")]
+            #[cfg(feature = "slash-commands")]
             personal_commands,
         };
 
@@ -751,7 +754,7 @@ impl ServerContext {
     ///
     /// `PIERRE_COMMANDS_DIR` overrides the default CWD-relative `commands/`
     /// lookup so tests and non-default deployments can point at an absolute path.
-    #[cfg(feature = "client-messaging")]
+    #[cfg(feature = "slash-commands")]
     fn build_command_registries() -> CommandRegistries {
         let commands_dir_override = env::var("PIERRE_COMMANDS_DIR").ok();
         let commands_dir = commands_dir_override
@@ -946,6 +949,7 @@ impl ServerContext {
     fn init_health_sync(
         repos: &Arc<RepositoryRegistry>,
         provider_registry: &ProviderRegistry,
+        whoop_webhook_secret: Option<&SecretString>,
         request_limiter: &Arc<ProviderRateLimiter>,
         sse_manager: &Arc<SseManager>,
         notices: SyncFailureNotices,
@@ -961,7 +965,8 @@ impl ServerContext {
         // The wellness readers ask Intervals.icu and WHOOP at the API the
         // provider registry names for each, as the activity and link calls
         // do. A build that registers no provider for one of them reads none
-        // of its wellness.
+        // of its wellness. WHOOP's webhooks are verified against the secret
+        // the configuration read at startup, the one the route checks.
         // Every daily-summary read of a scrape session spends its owner's
         // session reads (carnet#1661).
         let adapter =
@@ -970,6 +975,7 @@ impl ServerContext {
             .build_orchestrator(
                 provider_registry.sciotte_reads().cloned(),
                 WellnessOrigins::named_by(provider_registry),
+                whoop_webhook_secret,
             )
             .map_err(|e| {
                 AppError::internal(format!("health sync providers could not be built: {e}"))

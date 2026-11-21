@@ -599,9 +599,9 @@ export FITNESS_WEATHER_WIND_THRESHOLD="15.0"
 # Whether an activity list is given the ambient temperature its source left
 # out, asked of the weather vendor. Read once at startup; on unless "false".
 export FITNESS_WEATHER_ENABLED="true"
-export FITNESS_WEATHER_CACHE_DURATION_HOURS="24"
-export FITNESS_WEATHER_REQUEST_TIMEOUT_SECONDS="10"
-export FITNESS_WEATHER_RATE_LIMIT_PER_MINUTE="60"
+# Route discovery's Overpass instance, a scheme and authority. Unset, the
+# public instances are asked, overpass-api.de first; leave it unset.
+# export OVERPASS_API_BASE="http://127.0.0.1:9"
 
 # Personal Records Configuration
 export FITNESS_PR_PACE_IMPROVEMENT_THRESHOLD="5.0"

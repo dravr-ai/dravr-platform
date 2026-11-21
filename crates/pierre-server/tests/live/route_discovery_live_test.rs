@@ -58,7 +58,8 @@ async fn discover_with_retry(
     radius_meters: u32,
 ) -> AppResult<Vec<DiscoveredRoute>> {
     let _gate = OVERPASS_GATE.lock().await;
-    let service = RouteDiscoveryService::with_defaults();
+    // The public instances a deployment asks.
+    let service = RouteDiscoveryService::new(None);
     let mut attempt = 1;
     loop {
         let result = service

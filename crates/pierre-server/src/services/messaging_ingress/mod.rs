@@ -54,7 +54,6 @@ pub mod resume;
 pub(crate) mod window_failure;
 /// The messaging background workers started once per process.
 pub mod workers;
-pub use dispatch::turn_watchdog;
 pub use dispatch::{classify_channel_config, ChannelConfigLookup};
 pub(crate) use dispatch::{dispatch_and_respond, TurnClose};
 pub(crate) use resume::start_turn;
@@ -109,7 +108,6 @@ use otp::{apply_conversation_recipient, handle_logout, handle_otp_flow, is_logou
 use prelink::prelink_locale;
 /// Re-exported alongside [`start_otp_flow`], and for the same reason.
 pub use session::create_link_and_prompt;
-pub(crate) use session::fresh_title_fallback;
 use session::{resolve_linked_session, ChannelChatRef};
 #[cfg(feature = "client-messaging")]
 pub use slash::{room_reply_thread_anchor, slash_reply_should_be_private};

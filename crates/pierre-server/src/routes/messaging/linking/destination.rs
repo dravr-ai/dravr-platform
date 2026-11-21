@@ -130,7 +130,7 @@ fn username_in_get_me(body: &serde_json::Value) -> Result<String, AppError> {
 }
 
 /// Meta's Graph API, at the version dravr-canot's `WhatsApp` transport sends
-/// through. `META_GRAPH_API_BASE` overrides it, the way `STRAVA_API_BASE`
+/// through. `META_GRAPH_API_BASE` overrides it, the way `PIERRE_STRAVA_API_BASE_URL`
 /// overrides Strava's: a server setting, never something a request supplies.
 const DEFAULT_GRAPH_API_BASE: &str = "https://graph.facebook.com/v22.0";
 

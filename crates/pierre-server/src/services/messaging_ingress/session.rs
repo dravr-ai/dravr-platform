@@ -15,18 +15,17 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::routes::messaging::linking::generate_link_code;
+use crate::services::conversation_title::fresh_title_fallback;
 use pierre_contremaitre::messaging_strings::{
     format_template, KEY_LINK_FALLBACK_PROMPT, KEY_LINK_INITIAL_PROMPT,
-    KEY_NEW_CONVERSATION_TITLE_PREFIX,
 };
 use pierre_core::errors::AppError;
 use pierre_middleware::redaction::mask_recipient;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::conversation_forge::{
-    agent_title, dated_title, forge_conversation, resolve_conversation_model, selected_agent_id,
+    agent_title, forge_conversation, resolve_conversation_model, selected_agent_id,
     selected_or_system_agent_for, ForgeAgent, ForgeParams, SlotQuota,
 };
-use pierre_services::locale::user_locale;
 use pierre_services::messaging_broadcast::proactive_text;
 use pierre_services::messaging_group_bind::{
     refresh_channel_group_title, resolve_or_create_channel_group, ChannelChatBinding,
@@ -272,35 +271,6 @@ pub(super) async fn forge_fresh_session_conversation(
     .await?;
     db.set_session_conversation(session_id, &new_id).await?;
     Ok(new_id)
-}
-
-/// The dated stamp a forged thread falls back to when it has neither a room
-/// nor an agent to be named after, in the athlete's stored language and
-/// timezone.
-pub(crate) async fn fresh_title_fallback(resources: &ServerContext, user_id: &str) -> String {
-    let user = match Uuid::parse_str(user_id) {
-        Ok(id) => resources
-            .common
-            .repos
-            .users
-            .get_global(id)
-            .await
-            .ok()
-            .flatten(),
-        Err(_) => None,
-    };
-    let locale = user_locale(user.as_ref());
-    let prefix = resources.mcp.messaging_strings_registry.render(
-        KEY_NEW_CONVERSATION_TITLE_PREFIX,
-        &locale,
-        &[],
-    );
-    dated_title(
-        &prefix,
-        &locale,
-        user.as_ref().and_then(|u| u.timezone.as_deref()),
-        Utc::now(),
-    )
 }
 
 /// Whether the sender of an unaddressed room message is mid guided walk on

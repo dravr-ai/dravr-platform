@@ -397,8 +397,15 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
 
             // One task, two reads at once: the Overpass walk, bounded by its
             // own few seconds, and the store's loops. Never spawned, so both
-            // run under this call's gate and provenance.
-            let service = RouteDiscoveryService::with_defaults();
+            // run under this call's gate and provenance. The instances are
+            // the ones the deployment configuration names.
+            let service = RouteDiscoveryService::new(
+                state
+                    .config()
+                    .external_services
+                    .overpass_api_base
+                    .as_deref(),
+            );
             let walk = service.discover_routes_for_sport(
                 &sport,
                 resolved.latitude,

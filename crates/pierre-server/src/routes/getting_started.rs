@@ -28,6 +28,7 @@ use chrono::{DateTime, Utc};
 use pierre_chat_pipeline::suggestions::report_getting_started_shown;
 use pierre_contremaitre::use_case_catalogue::UseCaseCatalogue;
 use pierre_core::errors::AppError;
+#[cfg(feature = "client-messaging")]
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
@@ -36,10 +37,12 @@ use pierre_services::first_run::{
     getting_started, observe_profile, ChatApp, FirstRun, GettingStartedRow, SheetAnswers,
 };
 use serde::Serialize;
+#[cfg(feature = "client-messaging")]
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::routes::chat::{client_surface, get_tenant_id};
+#[cfg(feature = "client-messaging")]
 use crate::routes::messaging::connectable_channels;
 
 /// One row of `GET /api/me/getting-started`.
@@ -124,7 +127,13 @@ pub async fn get_getting_started(
         observe_profile(repos, auth.user_id, tenant_id, &first_run, surface.as_str()).await;
         first_run = FirstRun::read(repos, tenant_id, auth.user_id).await?;
     }
+    #[cfg(feature = "client-messaging")]
     let chat_app = chat_app(&resources, tenant_id, auth.user_id).await?;
+    // A build without `client-messaging` compiles no channel adapter, so no
+    // app can be linked and the row is not offered: what
+    // `connectable_channels` answers for a channel whose adapter is absent.
+    #[cfg(not(feature = "client-messaging"))]
+    let chat_app = ChatApp::NotOffered;
     // The questions the wizard left to Home are read from the step rows the
     // sheets write, as the wizard's screens did (carnet#1530).
     let steps = repos
@@ -168,6 +177,7 @@ pub async fn get_getting_started(
 /// their links exists, else not yet. The links are the caller's across
 /// tenants, as `GET /api/messaging/links` lists them: a link made through the
 /// deployment bot lives under the bot's tenant.
+#[cfg(feature = "client-messaging")]
 async fn chat_app(
     resources: &Arc<ServerContext>,
     tenant_id: TenantId,

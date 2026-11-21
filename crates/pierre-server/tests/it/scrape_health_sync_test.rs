@@ -261,7 +261,7 @@ async fn a_coros_sync_stores_resting_hr_sleep_hrv_and_vo2max_as_coros() {
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(|p, d| Ok(coros_yesterday(p, d)));
     let orchestrator = storage
-        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
 
     let result = orchestrator
@@ -324,7 +324,7 @@ async fn a_garmin_sync_stores_the_night_the_morning_and_the_body_as_garmin() {
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (_fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
     let orchestrator = storage
-        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
 
     let result = orchestrator
@@ -379,7 +379,7 @@ async fn a_dead_coros_session_writes_nothing_and_keeps_no_cursor() {
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(dead_session);
     let orchestrator = storage
-        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
 
     let result = orchestrator
@@ -465,7 +465,7 @@ async fn a_flagged_coros_session_is_not_read_by_a_sync() {
         "bug: a flagged session hands out no credentials"
     );
     let orchestrator = storage
-        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
     drop(orchestrator.sync_user(&user_id.to_string(), "coros").await);
     assert!(
@@ -602,7 +602,7 @@ async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row
         Arc::clone(&repos),
         Some(
             storage
-                .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+                .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
                 .unwrap(),
         ),
         Arc::new(NoopNotifier),
@@ -872,7 +872,7 @@ fn refresh_service(
         Arc::clone(repos),
         Some(
             storage
-                .build_orchestrator_with_reader(reader, REFUSED_WELLNESS)
+                .build_orchestrator_with_reader(reader, REFUSED_WELLNESS, None)
                 .unwrap(),
         ),
         Arc::new(NoopNotifier),
@@ -1054,7 +1054,7 @@ async fn a_push_grant_stored_before_the_credential_read_ends_the_sync_as_a_stand
         "bug: the credential read says the pull stands down: {err}"
     );
     let err = storage
-        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap()
         .sync_user(&user, "garmin")
         .await
@@ -1250,7 +1250,7 @@ async fn the_history_walk_reads_the_session_beside_a_push_grant_for_the_days_bef
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
     let orchestrator = storage
-        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS, None)
         .unwrap();
 
     let today = Utc::now().date_naive();

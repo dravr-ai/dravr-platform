@@ -112,6 +112,9 @@ tokio = { version = "1.54", features = ["macros", "rt-multi-thread"] }
 # The tool-call span's test reads its fields the way the GCP formatter does,
 # through pierre-logging's span field storage.
 pierre-logging = { version = "0.3.0", path = "../pierre-logging" }
+# The offline provider registry the tests read provider terms off, every
+# endpoint the server calls refused.
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["providers"] }
 # Captures the warning a zero destructive budget logs, so its unit test reads
 # the line whichever layer set the budget.
 # Same spec the chat pipeline's log-asserting tests use.

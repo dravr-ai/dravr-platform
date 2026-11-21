@@ -29,6 +29,13 @@ use pierre_core::models::messaging::ChannelType;
 #[cfg(feature = "client-messaging")]
 use crate::mcp::resources::ServerContext;
 
+/// Slack's own origin, a scheme and authority: where the server's requests
+/// that build no `SlackClient` go when the adapter factory names no origin
+/// for Slack, as in a deployment — Socket Mode's `apps.connections.open` and
+/// an `OpenID` Connect link's code exchange and identity read.
+#[cfg(feature = "client-messaging")]
+pub(crate) const SLACK_API_ORIGIN: &str = "https://slack.com";
+
 /// The origin `resources`' adapter factory names for the server's own
 /// Slack calls: `None` in a deployment, which is Slack's own host.
 #[cfg(feature = "client-messaging")]

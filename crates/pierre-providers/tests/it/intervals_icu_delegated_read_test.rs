@@ -21,11 +21,11 @@ use pierre_providers::delegation::{
     is_athlete_off_roster, is_coach_credential_expired, is_settings_not_shared,
 };
 use pierre_providers::errors::{AppError, ErrorCode};
-use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::models::{
     PlannedSession, PlannedSessionKind, RosterAccess, RosterAthlete, SportType,
 };
 use pierre_providers::ProviderRegistry;
+use pierre_test_support::providers::{offline_provider_config, offline_provider_registry};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -212,8 +212,8 @@ async fn spawn_api(seen: Seen) -> String {
 
 /// A registry whose Intervals.icu calls go to `base_url`.
 fn registry(base_url: String) -> ProviderRegistry {
-    let mut registry = ProviderRegistry::new();
-    let mut config = default_config();
+    let mut registry = offline_provider_registry();
+    let mut config = offline_provider_config("intervals_icu").unwrap();
     config.api_base_url = base_url;
     registry.set_default_config("intervals_icu", config);
     registry
@@ -638,7 +638,7 @@ async fn an_oauth_grant_cannot_list_a_coachs_athletes() {
 
 #[tokio::test]
 async fn a_provider_with_no_roster_says_so() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     let provider = registry
         .create_provider("strava")
         .expect("Strava is registered");

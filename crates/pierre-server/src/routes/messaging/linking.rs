@@ -33,6 +33,7 @@ mod oauth_link;
 
 use super::templates;
 use crate::mcp::resources::ServerContext;
+use crate::services::ops_slack::SLACK_API_ORIGIN;
 use destination::build_linking_url;
 pub(crate) use destination::can_complete_a_link;
 pub(crate) use destination::telegram_add_to_group_url;
@@ -785,9 +786,6 @@ async fn exchange_oauth_identity(
     )
     .await
 }
-
-/// Slack's own origin, where an `OpenID` Connect link is exchanged.
-const SLACK_API_ORIGIN: &str = "https://slack.com";
 
 /// Discord's own origin, where an `OAuth2` link is exchanged.
 const DISCORD_API_ORIGIN: &str = "https://discord.com";

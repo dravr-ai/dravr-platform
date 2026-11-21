@@ -72,7 +72,7 @@ dravr-sciotte = { workspace = true, optional = true, features = ["client"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util"] }
 base64 = "0.22"
 # The request budget suite counts in a real usage_counters table.
-pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["providers"] }
 # Only `IamError`: the sciotte error mapping's unit test builds the client's
 # identity-token failure, whose cause the sciotte client does not re-export.
 dravr-tronc = { workspace = true, features = ["google-iam"] }

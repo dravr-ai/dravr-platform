@@ -23,11 +23,17 @@ sse = ["dep:futures-util", "dep:reqwest", "dep:serde_json"]
 # suites that drive group creation. Opt-in, so a consumer that never creates a
 # group does not build `pierre-groups`.
 groups = ["dep:pierre-groups"]
+# The offline provider registry (`providers`): every provider's server-called
+# endpoints at the refused origin. Opt-in, so a consumer that builds no
+# registry does not build the providers.
+providers = ["dep:pierre-config", "dep:pierre-providers", "dep:url"]
 
 [dependencies]
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
+pierre-config = { version = "0.3.0", path = "../pierre-config", optional = true }
+pierre-providers = { version = "0.3.0", path = "../pierre-providers", optional = true }
 chrono = { version = "0.4", features = ["serde"] }
 futures-util = { version = "0.3", optional = true }
 reqwest = { version = "0.12", features = ["stream"], default-features = false, optional = true }
@@ -39,6 +45,7 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite"], default
 tokio = { version = "1.54", features = ["sync", "net", "io-util", "rt", "time", "macros"] }
 tracing = "0.1"
 uuid = { version = "1.29", features = ["v4"] }
+url = { version = "2.5", optional = true }
 
 [lints]
 workspace = true

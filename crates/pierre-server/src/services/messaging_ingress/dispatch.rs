@@ -6,10 +6,9 @@
 
 use std::fmt;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use dravr_canot::turn::ConversationTurnId as CanotTurnId;
-use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -51,6 +50,7 @@ use super::turn_guard::{
 use super::{build_messaging_profile, outbound_retry, PendingDispatch};
 use crate::services::conversation_turn_lock::{acquire_turn_lock, evict_idle_turn_lock};
 use crate::services::failed_turn_notice::{close_failed_turn, TurnThread};
+use crate::services::turn_runner::turn_watchdog;
 use pierre_chat_pipeline::turn_stop::TurnStop;
 use pierre_services::onboarding_gate::user_has_connected_provider;
 use pierre_services::user_status_gate::messaging_key_for_status;
@@ -256,40 +256,6 @@ pub(super) fn reply_message(
         ),
         thread_id: dispatch.thread_id.clone(),
     }
-}
-
-/// Default wall-clock ceiling on one messaging turn.
-///
-/// Not a latency target — it is the ceiling above every bound the turn runs
-/// under, so that reaching it means the turn found something with no bound of
-/// its own. The deepest of those is the whole-turn ACP prompt cap
-/// (`EMBACLE_ACP_PROMPT_TIMEOUT_SECS`, 300s on dev), and a turn legitimately
-/// opens more than one ACP session: the tool loop runs in one, the final
-/// answer in another, and embacle retries an empty answer on a third. Three
-/// full-length prompts plus delivery is the honest worst case a healthy turn
-/// can reach, so the ceiling sits just above it.
-///
-/// The cost of setting it too low is worse than setting it too high: too low
-/// replaces an answer that was still coming with a notice saying it is not,
-/// while too high only delays a placeholder that was already going to close.
-const DEFAULT_TURN_WATCHDOG_SECS: u64 = 960;
-
-/// The per-turn watchdog, as the server's config holds it
-/// (`MESSAGING_TURN_WATCHDOG_SECS`, else [`DEFAULT_TURN_WATCHDOG_SECS`]).
-///
-/// Operator-set for the same reason its siblings under it are
-/// (`EMBACLE_ACP_PROMPT_TIMEOUT_SECS`, `EMBACLE_ACP_MESSAGE_TIMEOUT_SECS`):
-/// the number that is right depends on the deployed provider chain, and
-/// re-tuning it should not need a binary. Zero or unparseable is read as unset
-/// rather than disarming the watchdog — an unbounded turn is the defect this
-/// exists to end.
-#[must_use]
-pub fn turn_watchdog(timeouts: &ServerTimeouts) -> Duration {
-    Duration::from_secs(
-        timeouts
-            .turn_watchdog_secs
-            .unwrap_or(DEFAULT_TURN_WATCHDOG_SECS),
-    )
 }
 
 /// Log the pipeline failure, track analytics, and send a localized

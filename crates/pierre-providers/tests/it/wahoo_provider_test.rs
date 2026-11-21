@@ -24,6 +24,7 @@ use pierre_providers::pagination::PaginationParams;
 use pierre_providers::wahoo_plan::opaque_id;
 use pierre_providers::wahoo_provider::WahooProvider;
 use pierre_providers::{ProviderRegistry, TokenRefreshCallback};
+use pierre_test_support::providers::offline_provider_config;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::select;
@@ -137,11 +138,7 @@ async fn stub(script: Vec<(&'static str, &'static str)>) -> (String, JoinHandle<
 const TOKEN: &str = "wahoo-access-token";
 
 async fn provider(base_url: &str) -> WahooProvider {
-    let registry = ProviderRegistry::new();
-    let mut config: ProviderConfig = registry
-        .default_config("wahoo")
-        .cloned()
-        .expect("wahoo is registered");
+    let mut config: ProviderConfig = offline_provider_config("wahoo").unwrap();
     config.api_base_url = base_url.to_owned();
     let provider = WahooProvider::with_config(config);
     provider
@@ -468,11 +465,7 @@ async fn a_dropped_refresh_still_writes_the_rotated_pair_back() {
         r#"{"access_token":"rotated-access","refresh_token":"rotated-refresh","expires_in":7200}"#,
     )])
     .await;
-    let registry = ProviderRegistry::new();
-    let mut config: ProviderConfig = registry
-        .default_config("wahoo")
-        .cloned()
-        .expect("wahoo is registered");
+    let mut config: ProviderConfig = offline_provider_config("wahoo").unwrap();
     config.token_url = format!("{base}/oauth/token");
     let provider = WahooProvider::with_config(config);
     provider
@@ -547,6 +540,8 @@ async fn a_dropped_refresh_still_writes_the_rotated_pair_back() {
 
 #[test]
 fn wahoo_is_registered_with_its_calendar_and_its_terms() {
+    // The real registry: its endpoints are what this pins, and nothing here
+    // calls them.
     let registry = ProviderRegistry::new();
     let caps = registry.get_capabilities("wahoo").expect("registered");
     assert!(caps.supports_calendar_write());

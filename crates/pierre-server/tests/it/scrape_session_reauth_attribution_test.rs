@@ -425,7 +425,7 @@ mod health_sync {
             .as_ref()
             .expect("health sync is wired");
         let orchestrator = storage
-            .build_orchestrator_with_reader(reader, REFUSED_WELLNESS)
+            .build_orchestrator_with_reader(reader, REFUSED_WELLNESS, None)
             .unwrap();
         // Failed or refused, the outcome is the flag and the reads below.
         drop(

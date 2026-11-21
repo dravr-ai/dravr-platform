@@ -12,7 +12,6 @@ use chrono::Utc;
 use pierre_core::models::SportType;
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
-use pierre_providers::registry::{get_supported_providers, global_registry};
 use pierre_providers::whoop_provider::WhoopProvider;
 use secrecy::SecretString;
 
@@ -260,7 +259,7 @@ async fn test_whoop_provider_refresh_token_not_needed() {
 #[test]
 fn test_whoop_in_provider_registry() {
     ensure_http_clients_initialized();
-    let registry = global_registry();
+    let registry = common::offline_provider_registry();
     // Verify WHOOP is in the list of all providers using the registry
     let all_providers = registry.supported_providers();
     assert!(all_providers.contains(&oauth_providers::WHOOP));
@@ -270,7 +269,7 @@ fn test_whoop_in_provider_registry() {
 #[test]
 fn test_whoop_provider_factory() {
     ensure_http_clients_initialized();
-    let registry = global_registry();
+    let registry = common::offline_provider_registry();
 
     // Verify WHOOP is supported
     assert!(registry.is_supported(oauth_providers::WHOOP));
@@ -285,7 +284,7 @@ fn test_whoop_provider_factory() {
 
 #[test]
 fn test_whoop_in_supported_providers_list() {
-    let supported = get_supported_providers();
+    let supported = common::offline_provider_registry().supported_providers();
     assert!(supported.contains(&oauth_providers::WHOOP));
 }
 
@@ -362,7 +361,7 @@ fn test_sport_type_conversion_basic() {
 #[test]
 fn test_whoop_provider_has_full_health_capabilities() {
     ensure_http_clients_initialized();
-    let registry = global_registry();
+    let registry = common::offline_provider_registry();
 
     // WHOOP should have full health capabilities
     assert!(registry.supports_sleep(oauth_providers::WHOOP));

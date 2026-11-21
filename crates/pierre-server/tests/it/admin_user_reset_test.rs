@@ -60,9 +60,9 @@ use uuid::Uuid;
 
 use crate::admin_user_removal_test::{
     admin_context, assert_one_strava_revocation, blockers_of, body_json, connect_strava,
-    conversation_mid_walk, facts_of, join_group, manage_users_token, resources, seed_agent,
-    seed_group, seed_onboarded_user, seed_user, strava_token, super_admin_token, RevokeStub,
-    ENV_CLIENT_ID, ENV_CLIENT_SECRET,
+    conversation_mid_walk, facts_of, join_group, manage_users_token, resources,
+    resources_revoking_at, seed_agent, seed_group, seed_onboarded_user, seed_user, strava_token,
+    super_admin_token, RevokeStub, ENV_CLIENT_ID, ENV_CLIENT_SECRET,
 };
 use crate::archive_import_test::{
     call, import_export, imports_serving, seed_athlete, strava_export, Athlete,
@@ -207,9 +207,9 @@ async fn seed_lived_in_account(
 
 #[tokio::test]
 async fn reset_wipes_everything_the_account_owns_and_keeps_the_account() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id, thread) = seed_lived_in_account(repos, "reset-all").await;
     let (other_id, other_tenant, _) = seed_lived_in_account(repos, "reset-bystander").await;
     let before = repos.users.get_global(user_id).await.unwrap().unwrap();
@@ -218,13 +218,9 @@ async fn reset_wipes_everything_the_account_owns_and_keeps_the_account() {
         "the seed must reach the wiped tables"
     );
 
-    let response = reset(
-        admin_context(&resources, &stub.url),
-        super_admin_token(),
-        user_id,
-    )
-    .await
-    .expect("reset handler");
+    let response = reset(admin_context(&resources), super_admin_token(), user_id)
+        .await
+        .expect("reset handler");
     assert_eq!(response.status(), StatusCode::OK);
     let body = body_json(response).await;
 
@@ -381,18 +377,14 @@ async fn reset_wipes_everything_the_account_owns_and_keeps_the_account() {
 
 #[tokio::test]
 async fn a_manage_users_token_cannot_reset_an_account() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-forbidden").await;
 
-    let response = reset(
-        admin_context(&resources, &stub.url),
-        manage_users_token(),
-        user_id,
-    )
-    .await
-    .expect("a refusal is a response");
+    let response = reset(admin_context(&resources), manage_users_token(), user_id)
+        .await
+        .expect("a refusal is a response");
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let body = body_json(response).await;
     assert_eq!(body["success"], false, "{body}");
@@ -423,19 +415,15 @@ async fn a_manage_users_token_cannot_reset_an_account() {
 /// refuses with 409 naming it, before any provider is disconnected.
 #[tokio::test]
 async fn an_active_group_the_account_owns_refuses_the_reset_and_disconnects_nothing() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-owner").await;
     seed_group(repos, user_id, tenant_id, "Sunday long run").await;
 
-    let response = reset(
-        admin_context(&resources, &stub.url),
-        super_admin_token(),
-        user_id,
-    )
-    .await
-    .expect("a refusal is a response");
+    let response = reset(admin_context(&resources), super_admin_token(), user_id)
+        .await
+        .expect("a refusal is a response");
     assert_eq!(response.status(), StatusCode::CONFLICT);
     let body = body_json(response).await;
     let blockers = blockers_of(&body);
@@ -473,9 +461,9 @@ async fn an_active_group_the_account_owns_refuses_the_reset_and_disconnects_noth
 /// wipe still commits.
 #[tokio::test]
 async fn a_provider_this_build_cannot_revoke_is_kept_and_named() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id, _) = seed_user(repos, "reset-unrevocable").await;
     connect_strava(repos, user_id, tenant_id, None).await;
     repos
@@ -498,13 +486,9 @@ async fn a_provider_this_build_cannot_revoke_is_kept_and_named() {
         .await
         .unwrap();
 
-    let response = reset(
-        admin_context(&resources, &stub.url),
-        super_admin_token(),
-        user_id,
-    )
-    .await
-    .expect("reset handler");
+    let response = reset(admin_context(&resources), super_admin_token(), user_id)
+        .await
+        .expect("reset handler");
     assert_eq!(response.status(), StatusCode::OK);
     let body = body_json(response).await;
 
@@ -528,10 +512,10 @@ async fn a_provider_this_build_cannot_revoke_is_kept_and_named() {
 /// A reset of an unknown account is a 404 that touches nothing.
 #[tokio::test]
 async fn resetting_an_unknown_account_is_not_found() {
-    let resources = resources().await;
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
     let error = reset(
-        admin_context(&resources, &stub.url),
+        admin_context(&resources),
         super_admin_token(),
         Uuid::new_v4(),
     )
@@ -545,9 +529,9 @@ async fn resetting_an_unknown_account_is_not_found() {
 /// its secret no longer obtains a token. Another user's registration stays.
 #[tokio::test]
 async fn reset_removes_the_oauth_registration_of_an_a2a_client_the_account_registered() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, _, _) = seed_user(repos, "reset-a2a-owner").await;
     let (bystander_id, _, _) = seed_user(repos, "reset-a2a-bystander").await;
     let register = |owner| {
@@ -565,13 +549,9 @@ async fn reset_removes_the_oauth_registration_of_an_a2a_client_the_account_regis
     let credentials = register(user_id).await.unwrap();
     let kept = register(bystander_id).await.unwrap();
 
-    let response = reset(
-        admin_context(&resources, &stub.url),
-        super_admin_token(),
-        user_id,
-    )
-    .await
-    .expect("reset handler");
+    let response = reset(admin_context(&resources), super_admin_token(), user_id)
+        .await
+        .expect("reset handler");
     assert_eq!(response.status(), StatusCode::OK, "the reset succeeds");
     let body = body_json(response).await;
     assert_eq!(body["data"]["rows_changed"]["oauth2_clients"], 1, "{body}");
@@ -694,20 +674,16 @@ async fn seed_archived_group_on_a_private_agent(
 /// blocks nothing and goes too.
 #[tokio::test]
 async fn an_archived_group_only_the_account_used_is_wiped_with_its_private_agent() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-archived").await;
     let (group_id, invite_id) =
         seed_archived_group_on_a_private_agent(repos, user_id, tenant_id, None).await;
 
-    let response = reset(
-        admin_context(&resources, &stub.url),
-        super_admin_token(),
-        user_id,
-    )
-    .await
-    .expect("reset handler");
+    let response = reset(admin_context(&resources), super_admin_token(), user_id)
+        .await
+        .expect("reset handler");
     let status = response.status();
     let body = body_json(response).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -738,9 +714,9 @@ async fn an_archived_group_only_the_account_used_is_wiped_with_its_private_agent
 /// reset keeps it, so the private agent it names still refuses the reset.
 #[tokio::test]
 async fn an_archived_group_a_former_member_joined_is_kept_and_its_agent_blocks() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-archived-kept").await;
     let (member_id, member_tenant, _) = seed_user(repos, "reset-archived-member").await;
     let (group_id, _) = seed_archived_group_on_a_private_agent(
@@ -751,13 +727,9 @@ async fn an_archived_group_a_former_member_joined_is_kept_and_its_agent_blocks()
     )
     .await;
 
-    let response = reset(
-        admin_context(&resources, &stub.url),
-        super_admin_token(),
-        user_id,
-    )
-    .await
-    .expect("a refusal is a response");
+    let response = reset(admin_context(&resources), super_admin_token(), user_id)
+        .await
+        .expect("a refusal is a response");
     assert_eq!(response.status(), StatusCode::CONFLICT);
     let body = body_json(response).await;
     assert!(
@@ -868,9 +840,9 @@ async fn verdict_without_a_thread(
 /// else's thread it took part in. The other person's thread and reply stay.
 #[tokio::test]
 async fn reset_wipes_the_accounts_verdicts_and_ratings_outside_its_own_threads() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-verdicts").await;
     let (peer_id, _, _) = seed_user(repos, "reset-verdicts-peer").await;
     let user = user_id.to_string();
@@ -903,13 +875,9 @@ async fn reset_wipes_the_accounts_verdicts_and_ratings_outside_its_own_threads()
     assert_eq!(count_for(&resources, RATINGS_OF, &user).await, 1);
     assert_eq!(count_for(&resources, VERDICTS_OF, &user).await, 1);
 
-    let response = reset(
-        admin_context(&resources, &stub.url),
-        super_admin_token(),
-        user_id,
-    )
-    .await
-    .expect("reset handler");
+    let response = reset(admin_context(&resources), super_admin_token(), user_id)
+        .await
+        .expect("reset handler");
     let status = response.status();
     let body = body_json(response).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -948,9 +916,9 @@ async fn reset_wipes_the_accounts_verdicts_and_ratings_outside_its_own_threads()
 /// participant posted and their seat, while the account's unshared threads go.
 #[tokio::test]
 async fn a_thread_the_account_shared_is_kept_with_what_the_others_posted() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-shared-thread").await;
     let (peer_id, _, _) = seed_user(repos, "reset-shared-thread-peer").await;
     let user = user_id.to_string();
@@ -969,13 +937,9 @@ async fn a_thread_the_account_shared_is_kept_with_what_the_others_posted() {
         .unwrap();
     post_reply(repos, tenant_id, &shared, &peer).await;
 
-    let response = reset(
-        admin_context(&resources, &stub.url),
-        super_admin_token(),
-        user_id,
-    )
-    .await
-    .expect("reset handler");
+    let response = reset(admin_context(&resources), super_admin_token(), user_id)
+        .await
+        .expect("reset handler");
     let status = response.status();
     let body = body_json(response).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -1028,9 +992,9 @@ async fn a_thread_the_account_shared_is_kept_with_what_the_others_posted() {
 /// participant, so it refuses the reset like any other shared agent.
 #[tokio::test]
 async fn a_private_agent_a_shared_thread_runs_on_refuses_the_reset() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-shared-agent").await;
     let (peer_id, _, _) = seed_user(repos, "reset-shared-agent-peer").await;
     let user = user_id.to_string();
@@ -1054,13 +1018,9 @@ async fn a_private_agent_a_shared_thread_runs_on_refuses_the_reset() {
         .await
         .unwrap();
 
-    let response = reset(
-        admin_context(&resources, &stub.url),
-        super_admin_token(),
-        user_id,
-    )
-    .await
-    .expect("a refusal is a response");
+    let response = reset(admin_context(&resources), super_admin_token(), user_id)
+        .await
+        .expect("a refusal is a response");
     let status = response.status();
     let body = body_json(response).await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
@@ -1134,12 +1094,12 @@ fn scope_of(athlete: &Athlete) -> Scope {
 /// from.
 #[tokio::test]
 async fn reset_erases_the_activity_stores_provider_reads_where_imports_do_not_run() {
-    let resources = resources().await;
+    let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
     assert!(
         !resources.common.archive_imports.is_enabled(),
         "test setup: imports do not run here"
     );
-    let stub = RevokeStub::start().await;
     let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-live-store").await;
     let live = &resources.common.live_activities;
@@ -1165,13 +1125,9 @@ async fn reset_erases_the_activity_stores_provider_reads_where_imports_do_not_ru
         .unwrap();
     assert_eq!(kept.stored, 1, "test setup: the store holds the read");
 
-    let response = reset(
-        admin_context(&resources, &stub.url),
-        super_admin_token(),
-        user_id,
-    )
-    .await
-    .expect("reset handler");
+    let response = reset(admin_context(&resources), super_admin_token(), user_id)
+        .await
+        .expect("reset handler");
     assert_eq!(
         response.status(),
         StatusCode::OK,
@@ -1210,13 +1166,12 @@ async fn reset_erases_the_imported_history_at_once_and_spares_what_comes_after()
     let resources = common::create_test_server_resources_with_archive_imports(imports)
         .await
         .expect("a server context");
-    let stub = RevokeStub::start().await;
     let athlete = seed_athlete(&resources, "reset-archive").await;
     import_export(&resources, &athlete).await;
     let before = upload_ride(&resources, &athlete, 10).await;
 
     let response = reset(
-        admin_context(&resources, &stub.url),
+        admin_context(&resources),
         super_admin_token(),
         athlete.user_id,
     )
@@ -1276,7 +1231,6 @@ async fn reset_ends_an_import_still_running() {
     let resources = common::create_test_server_resources_with_archive_imports(imports)
         .await
         .expect("a server context");
-    let stub = RevokeStub::start().await;
     let athlete = seed_athlete(&resources, "reset-running-import").await;
     let (started, waiting) = call(
         &resources,
@@ -1290,7 +1244,7 @@ async fn reset_ends_an_import_still_running() {
     assert_eq!(waiting["status"], "awaiting_link", "{waiting}");
 
     let response = reset(
-        admin_context(&resources, &stub.url),
+        admin_context(&resources),
         super_admin_token(),
         athlete.user_id,
     )
@@ -1321,15 +1275,15 @@ async fn reset_ends_an_import_still_running() {
 /// will refuse; an account with nothing shared names none.
 #[tokio::test]
 async fn the_user_read_names_what_would_refuse_a_reset() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-read-blockers").await;
     let (free_id, _) = seed_onboarded_user(repos, "reset-read-free").await;
     seed_group(repos, user_id, tenant_id, "Track Tuesdays").await;
 
     let read = |id: Uuid| {
-        let context = admin_context(&resources, &stub.url);
+        let context = admin_context(&resources);
         async move {
             let response = handle_get_user(
                 State(context),

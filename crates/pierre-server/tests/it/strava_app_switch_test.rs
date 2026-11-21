@@ -281,6 +281,7 @@ async fn service_pointed_at(base: &str) -> (Arc<ServerContext>, OAuthService) {
         "strava",
         ProviderEndpointOverride {
             token_url: Some(format!("{base}/oauth/token")),
+            revoke_url: Some(format!("{base}/oauth/revoke")),
             ..ProviderEndpointOverride::default()
         },
     );
@@ -288,9 +289,7 @@ async fn service_pointed_at(base: &str) -> (Arc<ServerContext>, OAuthService) {
     let resources = common::create_test_server_resources_with_config(config)
         .await
         .unwrap();
-    let mut config = (*resources.common.config).clone();
-    config.external_services.strava_api.revoke_url = format!("{base}/oauth/revoke");
-    let service = OAuthService::new(resources.data(), Arc::new(config));
+    let service = OAuthService::new(resources.data(), Arc::clone(&resources.common.config));
     (resources, service)
 }
 

@@ -27,7 +27,9 @@
 
 use crate::admin_role_rules_test::reset_tokens_issued_for;
 use crate::admin_token_routes_test::{bearer, mint, mint_bound};
-use crate::admin_user_removal_test::{chokepoint, connect_strava, resources, RevokeStub};
+use crate::admin_user_removal_test::{
+    chokepoint, connect_strava, resources_revoking_at, RevokeStub,
+};
 use crate::common::generate_test_token;
 use crate::helpers::axum_test::AxumTestRequest;
 
@@ -137,6 +139,11 @@ impl Op {
 /// The server under test, its Strava revocation stub, and who asks.
 struct Desk {
     resources: Arc<ServerContext>,
+    /// Where the context's Strava revocations go, confirming each.
+    #[expect(
+        dead_code,
+        reason = "held, never read: a dropped stub closes its queue and stops answering"
+    )]
     stub: RevokeStub,
     /// A `ManageUsers` token bound to the desk's tenant, without the
     /// super-admin flag.
@@ -154,8 +161,8 @@ struct Desk {
 
 impl Desk {
     async fn open() -> Self {
-        let resources = resources().await;
         let stub = RevokeStub::start().await;
+        let resources = resources_revoking_at(&stub.url).await;
         let (standing, desk_tenant) = seed(&resources, UserRole::Admin, UserStatus::Active).await;
         let scoped = mint_bound(
             &resources,
@@ -212,7 +219,7 @@ impl Desk {
             app_behavior: resources.common.config.app_behavior.clone(),
         });
         if wired {
-            context.provider_disconnector = Some(chokepoint(resources, &self.stub.url));
+            context.provider_disconnector = Some(chokepoint(resources));
         }
         context
     }

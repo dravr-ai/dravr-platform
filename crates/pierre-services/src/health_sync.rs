@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fmt;
@@ -323,6 +323,10 @@ impl PierreSyncStorage {
     /// is built on the hosts dravr-enforme would pick by itself
     /// (carnet#1615).
     ///
+    /// WHOOP's webhooks are verified against `whoop_webhook_secret`, the
+    /// server configuration's `webhooks.whoop_secret`; `None` verifies no
+    /// event.
+    ///
     /// # Errors
     ///
     /// When a provider's HTTP client cannot be built: enforme bounds every
@@ -331,17 +335,19 @@ impl PierreSyncStorage {
         self: &Arc<Self>,
         sciotte: Option<SciotteReads>,
         origins: WellnessOrigins<'_>,
+        whoop_webhook_secret: Option<&SecretString>,
     ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
         let reader: Arc<dyn DailySummaryReader> = Arc::new(
             SciotteServiceReader::new(sciotte, self.session_rows.clone())
                 .with_read_budget(self.read_budget.clone()),
         );
-        self.build_orchestrator_with_reader(&reader, origins)
+        self.build_orchestrator_with_reader(&reader, origins, whoop_webhook_secret)
     }
 
     /// Build a `SyncOrchestrator` backed by this adapter whose scrape-backed
-    /// providers read their daily summaries through `reader`, and whose
-    /// Intervals.icu and WHOOP wellness are read at `origins`
+    /// providers read their daily summaries through `reader`, whose
+    /// Intervals.icu and WHOOP wellness are read at `origins`, and whose
+    /// WHOOP webhooks are verified against `whoop_webhook_secret`
     /// ([`Self::build_orchestrator`]).
     ///
     /// # Errors
@@ -351,6 +357,7 @@ impl PierreSyncStorage {
         self: &Arc<Self>,
         reader: &Arc<dyn DailySummaryReader>,
         origins: WellnessOrigins<'_>,
+        whoop_webhook_secret: Option<&SecretString>,
     ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
         let storage = Arc::clone(self);
         // A session the scraper refused is read no more in the same sync.
@@ -371,7 +378,7 @@ impl PierreSyncStorage {
         });
 
         let config = dravr_enforme::SyncConfig::from_env();
-        let providers = wellness_origin::sync_providers(&reader, origins)?;
+        let providers = wellness_origin::sync_providers(&reader, origins, whoop_webhook_secret)?;
 
         Ok(Arc::new(dravr_enforme::SyncOrchestrator::new(
             deps, providers, config,

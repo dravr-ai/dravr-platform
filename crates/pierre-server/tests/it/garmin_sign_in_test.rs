@@ -872,7 +872,6 @@ pub(crate) async fn server_with_garmin_oauth(scraper: &str) -> Arc<ServerContext
             ..ProviderEndpointOverride::default()
         },
     );
-    config.external_services.garmin_api.base_url = format!("{fixture_base}/wellness-api/rest");
     let fixture = GarminFixture::try_new(GarminFixtureConfig {
         push: None,
         files_base: format!("{fixture_base}/wellness-api/rest"),

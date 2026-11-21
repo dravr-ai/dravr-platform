@@ -1019,50 +1019,6 @@ pub fn global_registry() -> Arc<ProviderRegistry> {
         .clone() // Safe: Arc clone for provider registry access
 }
 
-/// Convenience function to create a provider using the global registry
-///
-/// For test isolation, prefer creating a local `ProviderRegistry` instance and calling
-/// `registry.create_provider()` instead of using this global function.
-///
-/// # Errors
-///
-/// Returns an error if the provider is not supported or no default configuration exists.
-pub fn create_provider(provider_name: &str) -> AppResult<Box<dyn FitnessProvider>> {
-    global_registry().create_provider(provider_name)
-}
-
-/// Convenience function to create a tenant provider using the global registry
-///
-/// For test isolation, prefer creating a local `ProviderRegistry` instance and calling
-/// `registry.create_tenant_provider()` instead of using this global function.
-///
-/// # Errors
-///
-/// Returns an error if the provider is not supported or no default configuration exists.
-pub fn create_tenant_provider(
-    provider_name: &str,
-    tenant_id: TenantId,
-    user_id: Uuid,
-) -> AppResult<Box<dyn FitnessProvider>> {
-    global_registry().create_tenant_provider(provider_name, tenant_id, user_id)
-}
-
-/// Convenience function to check if a provider is supported
-///
-/// Uses the global registry. For test isolation, create a local `ProviderRegistry` instance.
-#[must_use]
-pub fn is_provider_supported(provider_name: &str) -> bool {
-    global_registry().is_supported(provider_name)
-}
-
-/// Convenience function to get all supported providers
-///
-/// Uses the global registry. For test isolation, create a local `ProviderRegistry` instance.
-#[must_use]
-pub fn get_supported_providers() -> Vec<&'static str> {
-    global_registry().supported_providers()
-}
-
 /// Create a new provider registry with external provider bundles
 ///
 /// This function creates a new registry instance with both built-in providers

@@ -113,13 +113,7 @@ async fn test_oauth_authorization_url_generation() {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
             ..Default::default()
         },
         app_behavior: AppBehaviorConfig {
@@ -422,13 +416,7 @@ async fn test_oauth_state_validation() {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
             ..Default::default()
         },
         app_behavior: AppBehaviorConfig {
@@ -600,13 +588,7 @@ async fn test_connection_status_no_providers() {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
             ..Default::default()
         },
         app_behavior: AppBehaviorConfig {
@@ -816,13 +798,7 @@ async fn test_invalid_provider_error() {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
             ..Default::default()
         },
         app_behavior: AppBehaviorConfig {
@@ -995,13 +971,7 @@ async fn test_disconnect_provider() {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
             ..Default::default()
         },
         app_behavior: AppBehaviorConfig {
@@ -1307,13 +1277,7 @@ async fn test_oauth_urls_contain_required_parameters() {
             },
         },
         external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig {
-                base_url: "https://www.strava.com/api/v3".to_owned(),
-                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-                token_url: "https://www.strava.com/oauth/token".to_owned(),
-                revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-                ..Default::default()
-            },
+            strava_api: StravaApiConfig::default(),
             ..Default::default()
         },
         app_behavior: AppBehaviorConfig {

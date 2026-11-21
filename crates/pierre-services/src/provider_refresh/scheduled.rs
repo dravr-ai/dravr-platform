@@ -1158,7 +1158,7 @@ mod tests {
         let notifier: Arc<dyn SyncNotifier> = Arc::new(NoStreams);
         let notices = SyncFailureNotices::new(Arc::clone(&repos.provider_connections), None);
         let unregistered = whoop_orchestrator(&repos, StallsFor::default());
-        let registered = storage.build_orchestrator(None, WellnessOrigins::default());
+        let registered = storage.build_orchestrator(None, WellnessOrigins::default(), None);
         for (orchestrator, told) in [(registered.unwrap(), false), (unregistered, true)] {
             let (athlete, tenant) = create_push_fed_athlete(&repos).await.unwrap();
             let user = ConnectedUser {

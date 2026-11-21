@@ -61,10 +61,15 @@
 //! configuration names a refused one, and each path is driven below on a
 //! context whose configuration names a stand-in that must be asked.
 //!
-//! What is still one call away: Slack, from the Socket Mode service
-//! (`services/slack_socket.rs`). It opens its connection at `slack.com`
-//! and builds its adapter itself, beside the context's factory. Only the
-//! server binary starts it, when `SLACK_APP_TOKEN` is set.
+//! Its fourth pass (carnet#1626) took out the last two. Route discovery
+//! asked the public Overpass instances from a client it built itself; it
+//! now asks the origin `external_services.overpass_api_base` names, the
+//! public instances when none is named, and a test configuration names a
+//! refused one. Slack Socket Mode (`services/slack_socket.rs`) opened its
+//! connection at `slack.com` and answered through an adapter it built
+//! beside the context's factory; it now opens it at the origin the factory
+//! names for Slack and answers through an adapter the factory builds. Each
+//! is driven below against a stand-in that must be asked.
 //!
 //! What the trap cannot see: a client built with `.no_proxy()`, which
 //! ignores the proxy variables by construction (dravr-tronc's A2A push and
@@ -112,7 +117,7 @@ use dravr_meteo::InMemoryStore;
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::ToolContext;
 use hmac::{Hmac, Mac};
-use pierre_config::environment::{GarminApiConfig, ServerConfig, StravaApiConfig};
+use pierre_config::environment::ServerConfig;
 use pierre_config::utils::http_client::shared_client;
 use pierre_contremaitre::notify_routing::NOTIFY_ROUTING_PROVIDER;
 use pierre_core::config::fitness::WeatherApiConfig;
@@ -131,7 +136,7 @@ use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::routes::feedback::FeedbackRoutes;
 use pierre_mcp_server::routes::messaging::MessagingRoutes;
 use pierre_mcp_server::services::channel_menus::ChannelMenuTargets;
-use pierre_mcp_server::start_discord_gateway;
+use pierre_mcp_server::{start_discord_gateway, start_slack_socket_mode};
 use pierre_notifications::models::NotificationCategory;
 use pierre_notifications::{
     EventDispatch, NotificationEvent, PushTier, TenantId as NotificationTenantId,
@@ -769,6 +774,26 @@ fn unnamed_weather_faults(resources: &ServerContext, context: &str) -> Vec<Strin
     wrong
 }
 
+/// What is wrong with the route discovery of a context whose test named no
+/// Overpass stand-in: it must ask a loopback origin, never the public
+/// instances a configuration without one asks.
+fn unnamed_overpass_faults(resources: &ServerContext, context: &str) -> Vec<String> {
+    let origin = resources
+        .common
+        .config
+        .external_services
+        .overpass_api_base
+        .as_deref();
+    match origin {
+        Some(base) if !base.is_empty() && !leaves_the_machine(base) => Vec::new(),
+        other => vec![format!(
+            "{context}: route discovery asks {}. Every test context's is a refused origin \
+             unless the test stands one in (`common::refuse_real_overpass_origin`).",
+            other.unwrap_or("the public Overpass instances, for want of an origin")
+        )],
+    }
+}
+
 /// Run the registered tool `name` on `resources` as `athlete`, the way a
 /// transport dispatches it.
 async fn run_registered_tool(
@@ -915,6 +940,106 @@ async fn drive_the_weather_clients(asked: &Asked) -> Vec<String> {
     // The same list with the backfill turned off asks nobody.
     wrong.extend(drive_a_backfill_turned_off().await);
 
+    let calls = watch_for_real_host_calls(asked).await;
+    if !calls.is_empty() {
+        wrong.push(format!(
+            "{} requests to a real host were asked for: {calls:?}",
+            calls.len()
+        ));
+    }
+    wrong
+}
+
+/// Build a context whose configuration names a loopback stand-in for
+/// Overpass, search routes by coordinates, and return what went wrong: the
+/// stand-in must be asked at `/api/interpreter`, and the trap nothing.
+async fn drive_route_discovery_at_a_stand_in(asked: &Asked) -> Vec<String> {
+    let mut wrong = Vec::new();
+    let (origin, stand_in) = stand_in_answering(r#"{"elements":[]}"#).await;
+    let mut config = test_server_config();
+    config.external_services.overpass_api_base = Some(origin.clone());
+    let resources = create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
+    if resources
+        .common
+        .config
+        .external_services
+        .overpass_api_base
+        .as_deref()
+        != Some(origin.as_str())
+    {
+        wrong.push("the context lost the Overpass stand-in its configuration named".to_owned());
+    }
+    let athlete = upload_a_ride_and_list_it(&resources, "egress-guard-overpass@example.com").await;
+    // Coordinates no other search in this binary asks, so the process-wide
+    // route cache holds no answer for them.
+    let answer = run_registered_tool(
+        &resources,
+        &athlete,
+        "discover_routes",
+        json!({ "latitude": 46.02, "longitude": -74.21 }),
+    )
+    .await;
+    let seen = stand_in.lock().unwrap().clone();
+    if !seen
+        .iter()
+        .any(|line| line.starts_with("POST /api/interpreter "))
+    {
+        wrong.push(format!(
+            "discover_routes did not ask the Overpass origin the configuration names (it \
+             answered {answer:?}); the stand-in was asked: {seen:?}"
+        ));
+    }
+    let calls = watch_for_real_host_calls(asked).await;
+    if !calls.is_empty() {
+        wrong.push(format!(
+            "{} requests to a real host were asked for: {calls:?}",
+            calls.len()
+        ));
+    }
+    wrong
+}
+
+/// Start Slack Socket Mode with an app token exported, on a context whose
+/// adapter factory names a stand-in for Slack, and return what went wrong:
+/// the stand-in must be asked to open the connection, and the trap nothing.
+///
+/// The stand-in refuses the open, so the service never dials a socket; it
+/// retries on the stand-in for as long as this binary runs.
+async fn start_slack_socket_mode_at_a_stand_in(asked: &Asked) -> Vec<String> {
+    let mut wrong = Vec::new();
+    let (origin, stand_in) = stand_in_for_slack().await;
+    let resources = create_test_server_resources_on_adapters(Arc::new(OpsSlackAt {
+        origin,
+        offline: OfflineSendAdapters::default(),
+    }))
+    .await
+    .unwrap();
+    // Read once, when the service starts.
+    env::set_var("SLACK_APP_TOKEN", "xapp-egress-guard-socket");
+    start_slack_socket_mode(&resources);
+    env::remove_var("SLACK_APP_TOKEN");
+    let opened = || {
+        stand_in
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|line| line.starts_with("POST /api/apps.connections.open "))
+    };
+    for _ in 0..50 {
+        if opened() {
+            break;
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
+    if !opened() {
+        wrong.push(format!(
+            "Slack Socket Mode did not open its connection where the adapter factory names \
+             Slack; the stand-in was asked: {:?}",
+            stand_in.lock().unwrap()
+        ));
+    }
     let calls = watch_for_real_host_calls(asked).await;
     if !calls.is_empty() {
         wrong.push(format!(
@@ -1100,6 +1225,10 @@ async fn drive_the_non_channel_hosts(resources: &Arc<ServerContext>, asked: &Ask
         resources,
         "the context every suite builds",
     ));
+    wrong.extend(unnamed_overpass_faults(
+        resources,
+        "the context every suite builds",
+    ));
     let athlete = upload_a_ride_and_list_it(resources, "egress-guard-weather@example.com").await;
     if athlete.listed.len() != 1 {
         wrong.push("the agent's activity list did not list the uploaded ride".to_owned());
@@ -1122,6 +1251,27 @@ async fn drive_the_non_channel_hosts(resources: &Arc<ServerContext>, asked: &Ask
     if !refused_there {
         wrong.push(format!(
             "a forecast on a refused origin was not asked for and refused: {forecast:?}"
+        ));
+    }
+
+    // Overpass, from a route search by coordinates: asked at the refused
+    // origin, so the trap below must not see it.
+    let routes = run_registered_tool(
+        resources,
+        &athlete,
+        "discover_routes",
+        json!({ "latitude": 45.51, "longitude": -73.61 }),
+    )
+    .await;
+    if routes.is_error
+        && routes
+            .structured_content
+            .as_ref()
+            .is_some_and(|answer| answer.to_string().contains("parameter"))
+    {
+        wrong.push(format!(
+            "the route search was turned down at the door, so Overpass was never asked: \
+             {routes:?}"
         ));
     }
 
@@ -1539,7 +1689,7 @@ struct OnlyIn {
 /// The check reads lines, not syntax: a constructor reached through a
 /// renamed import (`use … as`), split from its type by a line break, or
 /// written `<Type>::new` passes unseen.
-const SANCTIONED_CALLS: [OnlyIn; 17] = [
+const SANCTIONED_CALLS: [OnlyIn; 18] = [
     // dravr-enforme's sync providers come with a WHOOP and an Intervals.icu
     // reader on hosts of its own; `wellness_origin` is where both are
     // replaced by readers on the APIs the provider registry names.
@@ -1631,6 +1781,17 @@ const SANCTIONED_CALLS: [OnlyIn; 17] = [
         instead: "`ToolRuntime::weather`, the clients the context built from its deployment \
                   configuration",
     },
+    // Route discovery, on the Overpass origin a configuration names: the
+    // tool hands it the context's, and the one offline suite a refused one.
+    OnlyIn {
+        calls: &[concat!("RouteDiscoveryService::", "new")],
+        sanctioned: &[
+            ("pierre-tool-runtime/src/implementations/routes.rs", 1),
+            ("pierre-server/tests/it/route_discovery_test.rs", 1),
+        ],
+        instead: "`discover_routes`, which asks the Overpass origin the context's deployment \
+                  configuration names",
+    },
     OnlyIn {
         // The server's client and the notifier test of pierre-logging.
         calls: &[concat!("SlackClient::", "with_api_origin")],
@@ -1683,14 +1844,13 @@ const SANCTIONED_CALLS: [OnlyIn; 17] = [
             concat!("MessengerChannel::", "new"),
             concat!("MessengerTransport::", "new"),
         ],
-        // Slack Socket Mode parses its frames with two bare transports and
-        // answers through a bare adapter. Only the server binary starts it,
-        // and only when `SLACK_APP_TOKEN` is exported: no context a test
-        // builds reaches it. The suites below parse, verify and register
-        // with theirs and send nothing; the offline factory seeds the bot
+        // Slack Socket Mode parses its frames with two bare transports,
+        // which send nothing; it answers through an adapter the context's
+        // factory builds. The suites below parse, verify and register with
+        // theirs and send nothing; the offline factory seeds the bot
         // identity cache with one.
         sanctioned: &[
-            ("pierre-server/src/services/slack_socket.rs", 3),
+            ("pierre-server/src/services/slack_socket.rs", 2),
             ("pierre-server/tests/helpers/offline_channel.rs", 1),
             ("pierre-server/tests/it/live_incident_eval_test.rs", 1),
             (
@@ -2107,27 +2267,9 @@ async fn link_intervals_icu_and_let_the_backfill_run(asked: &Asked) -> Vec<Strin
     wrong
 }
 
-/// Every URL of the context's Strava and Garmin API configuration the server
-/// itself calls (API, token, revocation) that names a real host. The
-/// authorize URL is where the athlete's browser goes, never the server.
-fn real_external_service_urls(resources: &ServerContext) -> Vec<String> {
-    let services = &resources.common.config.external_services;
-    [
-        ("strava_api.base_url", &services.strava_api.base_url),
-        ("strava_api.token_url", &services.strava_api.token_url),
-        ("strava_api.revoke_url", &services.strava_api.revoke_url),
-        ("garmin_api.base_url", &services.garmin_api.base_url),
-        ("garmin_api.token_url", &services.garmin_api.token_url),
-        ("garmin_api.revoke_url", &services.garmin_api.revoke_url),
-    ]
-    .into_iter()
-    .filter(|(_, url)| leaves_the_machine(url))
-    .map(|(field, url)| format!("{field} = {url}"))
-    .collect()
-}
-
 /// Store a live Strava grant for a fresh account and withdraw it as a
-/// disconnect does, at the revocation URL the context's configuration names.
+/// disconnect does, at the revocation URL the context's provider registry
+/// names.
 async fn revoke_a_strava_grant(resources: &Arc<ServerContext>) -> RevocationOutcome {
     let (user_id, _, tenant) = create_test_user_with_plan(
         &resources.agent.database,
@@ -2157,26 +2299,12 @@ async fn revoke_a_strava_grant(resources: &Arc<ServerContext>) -> RevocationOutc
 }
 
 /// Build a context on a configuration written out by hand the way some
-/// twenty suites write theirs, naming Strava's and Garmin's real API, token
-/// and revocation URLs and carrying Resend credentials, then drive what
-/// reads them. Returns what went wrong.
+/// twenty suites write theirs, carrying Resend credentials and the weather
+/// and Overpass vendors' own hosts, then drive what reads them. Returns what
+/// went wrong.
 async fn drive_a_context_on_a_hand_written_configuration(asked: &Asked) -> Vec<String> {
     let mut wrong = Vec::new();
     let mut config = test_server_config();
-    config.external_services.strava_api = StravaApiConfig {
-        base_url: "https://www.strava.com/api/v3".to_owned(),
-        auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
-        token_url: "https://www.strava.com/oauth/token".to_owned(),
-        revoke_url: "https://www.strava.com/oauth/revoke".to_owned(),
-        ..StravaApiConfig::default()
-    };
-    config.external_services.garmin_api = GarminApiConfig {
-        base_url: "https://apis.garmin.com/wellness-api/rest".to_owned(),
-        auth_url: "https://connect.garmin.com/oauth2Confirm".to_owned(),
-        token_url: "https://diauth.garmin.com/di-oauth2-service/oauth/token".to_owned(),
-        revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration".to_owned(),
-        ..GarminApiConfig::default()
-    };
     // Outside CI mode these two build the server's Resend client.
     config.app_behavior.ci_mode = false;
     config.resend_api_key = Some(SecretString::from("re_egress_guard_key"));
@@ -2184,10 +2312,16 @@ async fn drive_a_context_on_a_hand_written_configuration(asked: &Asked) -> Vec<S
     // The weather configuration a deployment runs: the vendors' own hosts,
     // with the activity list's temperature backfill on.
     config.fitness.weather_api = Some(WeatherApiConfig::default());
+    // And Overpass's main instance, named outright.
+    config.external_services.overpass_api_base = Some("https://overpass-api.de".to_owned());
     let resources = create_test_server_resources_with_config(config)
         .await
         .unwrap();
     wrong.extend(unnamed_weather_faults(
+        &resources,
+        "a context on a hand-written configuration",
+    ));
+    wrong.extend(unnamed_overpass_faults(
         &resources,
         "a context on a hand-written configuration",
     ));
@@ -2204,25 +2338,7 @@ async fn drive_a_context_on_a_hand_written_configuration(asked: &Asked) -> Vec<S
     ));
     drop(without);
 
-    let real = real_external_service_urls(&resources);
-    if !real.is_empty() {
-        wrong.push(format!(
-            "the context's Strava and Garmin API configuration names real hosts: {real:?}. \
-             Every test context's are refused (`common::refuse_real_external_service_urls`)."
-        ));
-    }
-    if resources
-        .common
-        .config
-        .external_services
-        .strava_api
-        .auth_url
-        != "https://www.strava.com/oauth/authorize"
-    {
-        wrong.push("the authorize URL, which only a browser follows, was rewritten".to_owned());
-    }
-
-    // The revocation a disconnect makes, at the URL the configuration names.
+    // The revocation a disconnect makes, at the URL the registry names.
     let outcome = revoke_a_strava_grant(&resources).await;
     if !matches!(outcome, RevocationOutcome::Unconfirmed(_)) {
         wrong.push(format!(
@@ -2683,6 +2799,10 @@ async fn drive_a_context_read_from_the_environment(asked: &Asked) -> Vec<String>
         &resources,
         "a context read from the environment",
     ));
+    wrong.extend(unnamed_overpass_faults(
+        &resources,
+        "a context read from the environment",
+    ));
     let real = real_provider_endpoints(&resources);
     if !real.is_empty() {
         wrong.push(format!(
@@ -2963,6 +3083,24 @@ async fn a_test_built_context_calls_no_real_host() {
          weather vendor: {wrong:#?}"
     );
 
+    // Route discovery, on a context whose configuration names a stand-in
+    // for Overpass.
+    let wrong = drive_route_discovery_at_a_stand_in(&asked).await;
+    assert!(
+        wrong.is_empty(),
+        "a context that names an Overpass origin is one route search away from \
+         a public Overpass instance: {wrong:#?}"
+    );
+
+    // Slack Socket Mode, on a context whose adapter factory names a stand-in
+    // for Slack.
+    let wrong = start_slack_socket_mode_at_a_stand_in(&asked).await;
+    assert!(
+        wrong.is_empty(),
+        "Slack Socket Mode on a test-built context opens its connection at \
+         slack.com: {wrong:#?}"
+    );
+
     // What a channel adapter calls while it parses an inbound update, which
     // no wrapper around its sends intercepts.
     let wrong = tap_a_telegram_button(&asked).await;
@@ -3005,7 +3143,16 @@ async fn a_test_built_context_calls_no_real_host() {
         "the startup reader captures the exported bot token"
     );
     // It carries the deployment's weather configuration too: the vendors'
-    // own hosts, and the backfill switch the environment sets.
+    // own hosts, and the backfill switch the environment sets. The reader
+    // loads it rather than taking `ServerConfig::default()`'s, which is the
+    // refused origin with the backfill off.
+    assert!(
+        ServerConfig::default()
+            .fitness
+            .weather_api
+            .is_some_and(|api| !api.enabled && api.base_url == ServerConfig::REFUSED_ORIGIN),
+        "premise: a configuration built by hand asks no weather vendor"
+    );
     let weather_api = from_env.fitness.weather_api.as_ref();
     assert!(
         weather_api.is_some_and(|api| {

@@ -18,7 +18,7 @@ use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
+use pierre_mcp_server::services::turn_runner::turn_watchdog;
 use std::collections::{BTreeSet, HashSet};
 use std::env;
 use std::sync::Arc;

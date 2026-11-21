@@ -17,7 +17,6 @@ use chrono::Utc;
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::coros_provider::CorosProvider;
-use pierre_providers::registry::{get_supported_providers, global_registry};
 use secrecy::SecretString;
 
 fn ensure_http_clients_initialized() {
@@ -190,8 +189,7 @@ fn test_coros_provider_endpoints() {
 #[test]
 fn test_coros_registered_in_registry() {
     ensure_http_clients_initialized();
-    let _registry = global_registry();
-    let providers = get_supported_providers();
+    let providers = common::offline_provider_registry().supported_providers();
 
     assert!(
         providers.contains(&oauth_providers::COROS),
@@ -202,7 +200,7 @@ fn test_coros_registered_in_registry() {
 #[test]
 fn test_coros_provider_capabilities() {
     ensure_http_clients_initialized();
-    let registry = global_registry();
+    let registry = common::offline_provider_registry();
 
     // Sleep and recovery come from synced rows. The COROS health sync reads
     // the Training Hub session on `sciotte_coros`; the partner API this
