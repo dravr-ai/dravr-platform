@@ -319,6 +319,8 @@ fn record_of(
         importer_version: None,
         summary_window: SummaryWindow::default(),
         totals_from: TotalsFrom::default(),
+        legacy_id: None,
+        legacy_original: None,
     };
     ActivityRecord::try_new(scope, id, provenance, activity.clone())
         .map_err(|e| warn!(activity_id = activity.id(), error = %e, "activity not kept"))
@@ -359,6 +361,8 @@ fn bare_record(
         importer_version: None,
         summary_window: SummaryWindow::default(),
         totals_from: TotalsFrom::default(),
+        legacy_id: None,
+        legacy_original: None,
     };
     ActivityRecord::try_new(scope, id, provenance, activity).map_err(|e| store_error(source, &e))
 }

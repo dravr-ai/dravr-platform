@@ -43,6 +43,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, TimeDelta, Utc};
 use dravr_barrage::blob::{BlobKey, BlobStore, DownloadTarget};
+use dravr_barrage::digest::Sha256;
 use dravr_barrage::export::{
     self, BundleFile, BundleFileKind, BundleOwner, BundleReport, BundleSeal,
 };
@@ -286,11 +287,28 @@ fn text<'row>(row: &'row Value, column: &str) -> Option<&'row str> {
     row.get(column).and_then(Value::as_str)
 }
 
-/// The upload key `row` names: its tenant, the athlete and a digest, keyed
-/// as the originals store keys every upload.
-fn upload_key(row: &Value, user_id: Uuid, digest_column: &str) -> Option<BlobKey> {
+/// The uploaded file `row` names: its tenant, the athlete and a digest, keyed
+/// as the originals store keys every upload. The bundle checks the bytes
+/// against the row's digest column, the digest of the bytes whatever the
+/// key's name.
+fn upload_file(
+    row: &Value,
+    user_id: Uuid,
+    digest_column: &str,
+    kind: BundleFileKind,
+    media_type: Option<String>,
+) -> Option<BundleFile> {
     let tenant = TenantId::parse_str(text(row, "tenant_id")?).ok()?;
-    originals::upload_key(&tenant, user_id, text(row, digest_column)?).ok()
+    let digest = text(row, digest_column)?;
+    let key = originals::upload_key(&tenant, user_id, digest).ok()?;
+    let sha256 = Sha256::parse_hex(digest).ok()?;
+    Some(BundleFile {
+        key,
+        sha256,
+        kind,
+        media_type,
+        records: Vec::new(),
+    })
 }
 
 impl OriginalsBundleService {
@@ -490,14 +508,7 @@ impl OriginalsBundleService {
         self.walk(
             user_id,
             "uploaded_activity_files",
-            |row| {
-                upload_key(row, user_id, "file_sha256").map(|key| BundleFile {
-                    key,
-                    kind: BundleFileKind::Upload,
-                    media_type: None,
-                    records: Vec::new(),
-                })
-            },
+            |row| upload_file(row, user_id, "file_sha256", BundleFileKind::Upload, None),
             &mut files,
         )
         .await?;
@@ -505,12 +516,13 @@ impl OriginalsBundleService {
             user_id,
             "feedback_messages",
             |row| {
-                upload_key(row, user_id, "image_sha256").map(|key| BundleFile {
-                    key,
-                    kind: BundleFileKind::FeedbackImage,
-                    media_type: text(row, "image_media_type").map(str::to_owned),
-                    records: Vec::new(),
-                })
+                upload_file(
+                    row,
+                    user_id,
+                    "image_sha256",
+                    BundleFileKind::FeedbackImage,
+                    text(row, "image_media_type").map(str::to_owned),
+                )
             },
             &mut files,
         )

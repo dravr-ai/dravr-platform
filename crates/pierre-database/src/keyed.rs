@@ -21,7 +21,9 @@
 //! Index family it carries the version that made it (`k{N}:` before the
 //! base64), and a stored digest is never recomputed. A read binds both of
 //! [`index_lookup`]'s digests, so one written under the key being retired
-//! still matches.
+//! still matches. The one decoded form is [`index_identity`]: the raw MAC of
+//! a name or an id that never moves, under the family's first version, which
+//! carries no version tag.
 //!
 //! **Retirement is carnet#1347's to settle**: erasures and tombstones never
 //! expire, so a version these digests use must not be disabled while they
@@ -29,7 +31,9 @@
 //! it (open question 5 of the owl phase 3 plan). On main the key never
 //! retires.
 
-use pierre_core::errors::AppResult;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
+use pierre_core::errors::{AppError, AppResult};
 
 use crate::backends::shared::encryption::HasEncryption;
 
@@ -93,8 +97,40 @@ pub fn index_lookup(
     Ok([primary.clone(), primary])
 }
 
+/// The raw 32-byte MAC of `message` in `domain` under the Index family's
+/// **first** version.
+///
+/// For a name or an id that never moves (barrage's `Keyed::identity`: keyed
+/// original names, keyed Apple ids, the local checkpoint seed).
+///
+/// Unlike [`index_mac`], an identity must not follow the primary: a name made
+/// once is found again after any rotation, so no stored name is recomputed.
+/// On main the Index key is the blind-index key pinned to DEK v1, which is
+/// that first version; carnet#1347 maps this onto its version 1, whatever its
+/// primary, and never retires it. A rotation therefore does not re-protect
+/// identities: JF accepted that cost on carnet#1542 (2026-11-20). The
+/// backend's base64 digest is decoded, so a versioned (`k{N}:`) digest is
+/// refused rather than read as an identity.
+///
+/// # Errors
+/// The backend's HMAC failure, or a digest that is not 32 base64 bytes.
+pub fn index_identity(
+    keys: &dyn HasEncryption,
+    domain: KeyedDomain,
+    message: &[u8],
+) -> AppResult<[u8; 32]> {
+    let digest = keys.hash_token_for_storage(&keyed_message(domain, message))?;
+    BASE64
+        .decode(&digest)
+        .ok()
+        .and_then(|raw| <[u8; 32]>::try_from(raw).ok())
+        .ok_or_else(|| AppError::internal("The Index key's digest is not 32 base64 bytes"))
+}
+
 #[cfg(test)]
 mod tests {
+    use ring::hmac;
+
     use super::*;
 
     struct Echo;
@@ -132,6 +168,44 @@ mod tests {
             (a.as_str(), b.as_str()),
             (mac.as_str(), mac.as_str()),
             "bug: a lookup does not bind the digest a write stores"
+        );
+    }
+
+    /// The backend's shape: a base64 HMAC-SHA256 under one key.
+    struct Hmac;
+
+    impl HasEncryption for Hmac {
+        fn encrypt_data_with_aad(&self, data: &str, _aad: &str) -> AppResult<String> {
+            Ok(data.to_owned())
+        }
+
+        fn decrypt_data_with_aad(&self, encrypted: &str, _aad: &str) -> AppResult<String> {
+            Ok(encrypted.to_owned())
+        }
+
+        fn hash_token_for_storage(&self, token: &str) -> AppResult<String> {
+            let key = hmac::Key::new(hmac::HMAC_SHA256, b"index key");
+            Ok(BASE64.encode(hmac::sign(&key, token.as_bytes()).as_ref()))
+        }
+    }
+
+    #[test]
+    fn an_identity_is_the_raw_mac_a_keyed_digest_encodes() {
+        let domain = KeyedDomain::Barrage("barrage.blob_name");
+        let identity = index_identity(&Hmac, domain, b"ab").unwrap();
+        assert_eq!(
+            BASE64.encode(identity),
+            index_mac(&Hmac, domain, b"ab").unwrap(),
+            "bug: an identity is not the Index key's MAC of the keyed message"
+        );
+        assert_ne!(
+            index_identity(&Hmac, KeyedDomain::CheckpointSeed, b"ab").unwrap(),
+            identity,
+            "bug: two domains share an identity"
+        );
+        assert!(
+            index_identity(&Echo, domain, b"ab").is_err(),
+            "bug: a digest that is not 32 base64 bytes reads as an identity"
         );
     }
 }

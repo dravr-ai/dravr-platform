@@ -410,6 +410,8 @@ fn barrage_record(
         importer_version: None,
         summary_window: SummaryWindow::default(),
         totals_from: TotalsFrom::default(),
+        legacy_id: None,
+        legacy_original: None,
     };
     ActivityRecord::try_new(scope, ActivityId::parse(id).unwrap(), provenance, activity).unwrap()
 }
