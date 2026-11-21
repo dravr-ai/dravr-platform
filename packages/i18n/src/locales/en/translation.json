@@ -3668,6 +3668,7 @@
     },
     "turn_interrupted": "My reply was cut off before it reached you — I have nothing to give you on this one. Send your question again and I'll pick it back up.",
     "turn_stopped": "Reply stopped.",
+    "turn_unavailable": "I can't answer right now: the service I rely on to reply is briefly unavailable, and the team has been notified. Your question is saved. Try again in a few minutes.",
     "unknown_command": "Unknown command. Type /help to see the available commands.",
     "verification": {
       "block_fallback": "I started to answer, but a couple of the claims I was about to make didn't match the evidence I trust. Let me reword that — can you ask me again with a bit more context on what you're trying to figure out?",

@@ -3668,6 +3668,7 @@
     },
     "turn_interrupted": "Ma réponse a été interrompue avant de t'arriver — je n'ai rien à te donner sur ce coup-là. Renvoie ta question et je reprends.",
     "turn_stopped": "Réponse arrêtée.",
+    "turn_unavailable": "Je ne peux pas te répondre pour l'instant : le service dont j'ai besoin pour répondre est momentanément indisponible, et l'équipe est prévenue. Ta question est enregistrée. Réessaie dans quelques minutes.",
     "unknown_command": "Commande inconnue. Tape /help pour voir la liste des commandes disponibles.",
     "verification": {
       "block_fallback": "J'ai commencé à répondre, mais quelques-unes des affirmations que j'allais faire ne correspondaient pas aux sources que je considère fiables. Laisse-moi reformuler — peux-tu me reposer la question avec un peu plus de contexte sur ce que tu cherches à comprendre?",

@@ -3668,6 +3668,7 @@
     },
     "turn_interrupted": "A minha resposta foi interrompida antes de te chegar — não tenho nada para te dar desta vez. Envia de novo a tua pergunta e retomo.",
     "turn_stopped": "Resposta interrompida.",
+    "turn_unavailable": "Não consigo responder-te agora: o serviço de que preciso para responder está momentaneamente indisponível, e a equipa já foi avisada. A tua pergunta ficou guardada. Tenta de novo daqui a uns minutos.",
     "unknown_command": "Comando desconhecido. Escreve /help para ver os comandos disponíveis.",
     "verification": {
       "block_fallback": "Comecei a responder, mas algumas das afirmações que iria fazer não correspondiam às fontes em que confio. Deixa-me reformular — podes perguntar de novo com um pouco mais de contexto sobre o que queres entender?",

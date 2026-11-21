@@ -3668,6 +3668,7 @@
     },
     "turn_interrupted": "Meine Antwort wurde abgebrochen, bevor sie bei dir ankam — ich habe diesmal nichts für dich. Schick deine Frage noch einmal und ich mache weiter.",
     "turn_stopped": "Antwort gestoppt.",
+    "turn_unavailable": "Ich kann dir gerade nicht antworten: Der Dienst, den ich zum Antworten brauche, ist kurzzeitig nicht verfügbar, und das Team ist informiert. Deine Frage ist gespeichert. Versuch es in ein paar Minuten noch einmal.",
     "unknown_command": "Unbekannter Befehl. Tippe /help für die Liste der verfügbaren Befehle.",
     "verification": {
       "block_fallback": "Ich habe angefangen zu antworten, aber einige der geplanten Aussagen passten nicht zu den Quellen, denen ich vertraue. Lass mich umformulieren — kannst du deine Frage noch einmal stellen, mit etwas mehr Kontext zu dem, was du verstehen willst?",
