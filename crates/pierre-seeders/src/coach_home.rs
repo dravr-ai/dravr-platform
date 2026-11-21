@@ -1117,7 +1117,7 @@ mod tests {
             .collect();
         let calculator = TrainingLoadCalculator::from_config(AlgorithmConfig::default(), as_of);
         let load = AthleteInputs::default()
-            .training_load(&calculator, &activities)
+            .training_load(calculator, &activities)
             .unwrap();
         FormReading::from_training_load(&load)
     }

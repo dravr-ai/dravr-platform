@@ -93,7 +93,8 @@ pub const fn warmup_days(ctl_window_days: i64) -> i64 {
 pub struct AthleteInputs {
     /// Functional Threshold Power (watts) for power-based TSS.
     pub ftp_watts: Option<f64>,
-    /// Lactate Threshold Heart Rate (bpm) for HR-based TSS (Banister TRIMP).
+    /// Lactate Threshold Heart Rate (bpm) for heart-rate TSS, read on the
+    /// heart-rate reserve with [`Self::resting_hr`].
     pub lthr: Option<f64>,
     /// Maximum heart rate (bpm).
     pub max_hr: Option<f64>,
@@ -101,6 +102,12 @@ pub struct AthleteInputs {
     pub resting_hr: Option<f64>,
     /// Body weight (kg).
     pub weight_kg: Option<f64>,
+    /// Critical power (watts): a ride's FTP stand-in when the profile has no
+    /// FTP and the provider recorded none.
+    pub critical_power_watts: Option<f64>,
+    /// Threshold pace (seconds per km): what a run's pace is scored against.
+    /// Without it, a run is scored by its session RPE or not at all.
+    pub threshold_pace_s_per_km: Option<f64>,
 }
 
 impl AthleteInputs {
@@ -115,8 +122,9 @@ impl AthleteInputs {
     /// The LTHR is [`UserPhysiologicalProfile::lactate_threshold_hr`]: the
     /// measured `threshold_hr` first, else the estimate from the lactate
     /// threshold (a fraction of `VO2max`) and max HR. No profile gives
-    /// [`Self::default`], and the engine falls back to pace- or
-    /// duration-based stress, which it reports as such.
+    /// [`Self::default`]: a session is then scored by what it carries alone
+    /// (the provider's TSS, a run's session RPE, another session's duration),
+    /// or left out.
     #[must_use]
     pub fn from_profile(profile: Option<&UserPhysiologicalProfile>) -> Self {
         profile.map_or_else(Self::default, |p| Self {
@@ -125,7 +133,21 @@ impl AthleteInputs {
             max_hr: p.max_hr.map(f64::from),
             resting_hr: p.resting_hr.map(f64::from),
             weight_kg: p.weight,
+            critical_power_watts: p
+                .critical_power_watts
+                .as_ref()
+                .map(|cp| f64::from(cp.value)),
+            threshold_pace_s_per_km: p.threshold_pace_sec_per_km,
         })
+    }
+
+    /// `calculator` scoring against these thresholds' critical power and
+    /// threshold pace, which cageux reads off the calculator rather than the
+    /// per-call arguments.
+    fn calibrated(&self, calculator: TrainingLoadCalculator) -> TrainingLoadCalculator {
+        calculator
+            .with_critical_power(self.critical_power_watts)
+            .with_threshold_pace(self.threshold_pace_s_per_km)
     }
 
     /// CTL, ATL and TSB of `activities` by `calculator`, each session's stress
@@ -136,10 +158,10 @@ impl AthleteInputs {
     /// algorithm refuses its parameters.
     pub fn training_load(
         &self,
-        calculator: &TrainingLoadCalculator,
+        calculator: TrainingLoadCalculator,
         activities: &[Activity],
     ) -> IntelligenceResult<TrainingLoad> {
-        calculator.calculate_training_load(
+        self.calibrated(calculator).calculate_training_load(
             activities,
             self.ftp_watts,
             self.lthr,
@@ -158,10 +180,10 @@ impl AthleteInputs {
     #[must_use]
     pub fn daily_tss(
         &self,
-        calculator: &TrainingLoadCalculator,
+        calculator: TrainingLoadCalculator,
         activities: &[Activity],
     ) -> BTreeMap<NaiveDate, f64> {
-        calculator.daily_tss(
+        self.calibrated(calculator).daily_tss(
             activities,
             self.ftp_watts,
             self.lthr,
@@ -220,8 +242,9 @@ pub fn compute_training_history(
     // stress.
     let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone(), to)
         .in_zone(resolve_zone(user_timezone));
+    let algorithm = calculator.algorithm();
     let daily_tss: BTreeMap<NaiveDate, f64> = inputs
-        .daily_tss(&calculator, activities)
+        .daily_tss(calculator, activities)
         .range(warmup..=to)
         .map(|(day, tss)| (*day, *tss))
         .collect();
@@ -233,7 +256,7 @@ pub fn compute_training_history(
         .map(|day| (day, daily_tss.get(&day).copied().unwrap_or(0.0)))
         .collect();
 
-    let load = load_series(&calculator.algorithm(), &daily_tss, from, to)?;
+    let load = load_series(&algorithm, &daily_tss, from, to)?;
 
     // Track the index of the first day with non-zero load so derived
     // metrics (ACWR, monotony, strain, ramp_rate) only fire once we have

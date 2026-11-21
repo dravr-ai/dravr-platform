@@ -121,7 +121,12 @@ fn the_scoring_window_does_not_truncate_chronic_load() {
     let activities = newest_first((0..40).map(|i| run(120 - i * 3, 3600)).collect());
     let config = AlgorithmConfig::default();
 
-    let athlete = AthleteInputs::default();
+    // A run is scored against the athlete's own threshold pace: without one
+    // (and no heart-rate thresholds or session RPE) it carries no stress.
+    let athlete = AthleteInputs {
+        threshold_pace_s_per_km: Some(300.0),
+        ..AthleteInputs::default()
+    };
     let wide = calculate_fitness_metrics(
         &activities,
         "all_time",

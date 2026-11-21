@@ -338,6 +338,10 @@ pub mod mobility;
 #[cfg(feature = "tools-nutrition")]
 pub mod nutrition;
 
+/// Argument parsing for the nutrition tools.
+#[cfg(feature = "tools-nutrition")]
+mod nutrition_args;
+
 /// The medical-flag gate on prescriptive nutrition figures, shared by the
 /// nutrition, recipe and recommendation tools.
 #[cfg(any(

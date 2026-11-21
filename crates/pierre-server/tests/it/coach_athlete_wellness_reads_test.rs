@@ -93,8 +93,10 @@ pub(crate) fn wellness_reads() -> Vec<(&'static str, Value)> {
         "weight_kg": 60.0, "height_cm": 168.0, "age": 31, "gender": "female",
         "activity_level": "very_active", "training_goal": "endurance_performance"
     });
-    let timing =
-        json!({ "workout_intensity": "high", "weight_kg": 60.0, "daily_protein_g": 110.0 });
+    let timing = json!({
+        "workout_intensity": "high", "weight_kg": 60.0, "daily_protein_g": 110.0,
+        "session_minutes": 90, "hours_before": 2
+    });
     vec![
         ("get_sleep_sessions", json!({})),
         ("get_recovery_metrics", json!({})),
@@ -120,12 +122,19 @@ fn external_wellness_reads() -> Vec<(&'static str, Value)> {
         .collect()
 }
 
-/// `who`'s physiology: training numbers with their wellness anchors.
-fn physiology(who: Person, wellness: Wellness, ftp: u32) -> UserPhysiologicalProfile {
+/// `who`'s physiology: training numbers with their wellness anchors, and
+/// the threshold heart rate their runs are scored against when they saved one.
+fn physiology(
+    who: Person,
+    wellness: Wellness,
+    ftp: u32,
+    threshold_hr: Option<u16>,
+) -> UserPhysiologicalProfile {
     let mut profile = UserPhysiologicalProfile::new(who.id, SportType::Run);
     profile.ftp_watts = Some(ftp);
     profile.vo2_max = Some(55.0);
     profile.max_hr = Some(190);
+    profile.threshold_hr = threshold_hr;
     profile.age = Some(31);
     profile.resting_hr = Some(wellness.resting_hr);
     profile.weight = Some(wellness.weight_kg);
@@ -274,14 +283,22 @@ pub(crate) async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) 
 /// Phase 1's fixture, with each person's wellness and physiology filed.
 pub(crate) async fn world() -> Fixture {
     let f = fixture().await;
-    for (who, wellness, ftp) in [
-        (f.athlete, ATHLETE_WELLNESS, ATHLETE_FTP),
-        (f.coach, COACH_WELLNESS, 301),
+    // Heart-rate TSS reads a run against the threshold on the heart-rate
+    // reserve. The coach saved one, so their run carries training stress; the
+    // athlete saved none, so theirs carry none and their form reads as no
+    // chronic history: their training load and the coach's always differ.
+    for (who, wellness, ftp, threshold_hr) in [
+        (f.athlete, ATHLETE_WELLNESS, ATHLETE_FTP, None),
+        (f.coach, COACH_WELLNESS, 301, Some(165)),
     ] {
         file_wellness(&f, who, wellness).await;
         f.repos()
             .user_physiological_profile
-            .upsert_user_physiological_profile(who.tenant, who.id, &physiology(who, wellness, ftp))
+            .upsert_user_physiological_profile(
+                who.tenant,
+                who.id,
+                &physiology(who, wellness, ftp, threshold_hr),
+            )
             .await
             .unwrap();
     }
@@ -473,8 +490,8 @@ async fn the_nutrition_targets_read_the_athletes_medical_flag_under_their_grant(
 
 // ── No side effect on the athlete's account ──────────────────────────────
 
-/// A night poor enough, after the athlete's dense block of runs, to score
-/// their recovery under the threshold at which their own read notifies them.
+/// A night poor enough to score the athlete's recovery under the threshold at
+/// which their own read notifies them.
 #[cfg(feature = "client-notifications")]
 fn low_recovery() -> Value {
     json!({
@@ -488,9 +505,7 @@ fn low_recovery() -> Value {
             "awake_hours": 4.0,
             "efficiency_percent": 10.0,
             "hrv_rmssd_ms": 18.0
-        },
-        "baseline_hrv": 70.0,
-        "recent_hrv_values": [66.0, 71.0, 69.0]
+        }
     })
 }
 

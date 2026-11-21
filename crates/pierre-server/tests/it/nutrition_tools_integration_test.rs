@@ -217,11 +217,27 @@ async fn test_calculate_daily_nutrition_female_weight_loss() -> Result<()> {
         "BMR should be < 1600"
     );
 
-    // Weight loss should have elevated protein
-    let protein_pct = result["protein_percent"].as_f64().unwrap();
+    // Weight loss raises protein above the same athlete's maintenance target
+    let maintenance = executor
+        .execute_tool(create_test_request(
+            "calculate_daily_nutrition",
+            json!({
+                "weight_kg": 60.0,
+                "height_cm": 165.0,
+                "age": 28,
+                "gender": "female",
+                "activity_level": "lightly_active",
+                "training_goal": "maintenance"
+            }),
+        ))
+        .await?
+        .result
+        .unwrap();
+    let protein = result["protein_g"].as_f64().unwrap();
+    let maintenance_protein = maintenance["protein_g"].as_f64().unwrap();
     assert!(
-        protein_pct >= 18.0,
-        "Weight loss should have elevated protein %"
+        protein >= maintenance_protein,
+        "Weight loss should not lower protein: {protein}g vs {maintenance_protein}g"
     );
 
     Ok(())
@@ -239,7 +255,9 @@ async fn test_calculate_daily_nutrition_endurance_athlete() -> Result<()> {
             "age": 25,
             "gender": "male",
             "activity_level": "very_active",
-            "training_goal": "endurance_performance"
+            "training_goal": "endurance_performance",
+            "training_minutes": 120,
+            "training_intensity": "hard"
         }),
     );
 
@@ -248,11 +266,20 @@ async fn test_calculate_daily_nutrition_endurance_athlete() -> Result<()> {
     assert!(response.success, "Tool should succeed");
     let result = response.result.unwrap();
 
-    // Endurance athletes need high carbs
+    // Two hours at threshold is the endurance row, 6-10 g/kg: 420-700 g at 70 kg
+    assert_eq!(
+        result["carbohydrate_load"], "high",
+        "two hours at threshold is the endurance row: {result}"
+    );
+    assert_eq!(
+        result["carbs_g_range"],
+        json!([420.0, 700.0]),
+        "6-10 g/kg at 70 kg: {result}"
+    );
     let carbs = result["carbs_g"].as_f64().unwrap();
     assert!(
-        carbs >= 400.0,
-        "Endurance athlete should have high carbs: {carbs}g"
+        (carbs - 560.0).abs() < 1e-9,
+        "Carbohydrate is the middle of the day's row: {carbs}g"
     );
 
     // High TDEE for very active
@@ -400,7 +427,9 @@ async fn test_get_nutrient_timing_high_intensity() -> Result<()> {
         json!({
             "weight_kg": 75.0,
             "daily_protein_g": 150.0,
-            "workout_intensity": "high"
+            "workout_intensity": "high",
+            "session_minutes": 90,
+            "hours_before": 2
         }),
     );
 
@@ -411,9 +440,20 @@ async fn test_get_nutrient_timing_high_intensity() -> Result<()> {
 
     // Verify pre-workout recommendations
     assert!(result["pre_workout"].is_object(), "Should have pre_workout");
+    // Two hours before a 90-minute session: 2 g/kg, inside the 1-4 g/kg band
     assert!(
-        result["pre_workout"]["carbs_g"].as_f64().unwrap() >= 40.0,
-        "High intensity needs substantial pre-workout carbs"
+        (result["pre_workout"]["carbs_g"].as_f64().unwrap() - 150.0).abs() < 1e-9,
+        "2 g/kg at 75 kg is 150 g"
+    );
+    assert!(
+        (result["pre_workout"]["timing_hours_before"]
+            .as_f64()
+            .unwrap()
+            - 2.0)
+            .abs()
+            < 1e-9,
+        "the plan reports the athlete's own two-hour gap: {}",
+        result["pre_workout"]
     );
 
     // Verify post-workout recommendations
@@ -458,7 +498,9 @@ async fn test_get_nutrient_timing_low_intensity() -> Result<()> {
         json!({
             "weight_kg": 60.0,
             "daily_protein_g": 100.0,
-            "workout_intensity": "low"
+            "workout_intensity": "low",
+            "session_minutes": 90,
+            "hours_before": 2
         }),
     );
 
@@ -467,11 +509,11 @@ async fn test_get_nutrient_timing_low_intensity() -> Result<()> {
     assert!(response.success, "Tool should succeed");
     let result = response.result.unwrap();
 
-    // Low intensity should have smaller pre-workout carbs
-    let pre_workout_carbs = result["pre_workout"]["carbs_g"].as_f64().unwrap();
+    // An easy session takes no set pre-workout amount
     assert!(
-        pre_workout_carbs < 40.0,
-        "Low intensity should have fewer pre-workout carbs: {pre_workout_carbs}"
+        result["pre_workout"]["carbs_g"].is_null(),
+        "Low intensity gets food guidance, not an amount: {}",
+        result["pre_workout"]
     );
 
     Ok(())
@@ -486,7 +528,9 @@ async fn test_get_nutrient_timing_moderate_intensity() -> Result<()> {
         json!({
             "weight_kg": 70.0,
             "daily_protein_g": 140.0,
-            "workout_intensity": "moderate"
+            "workout_intensity": "moderate",
+            "session_minutes": 45,
+            "hours_before": 2
         }),
     );
 
@@ -495,11 +539,11 @@ async fn test_get_nutrient_timing_moderate_intensity() -> Result<()> {
     assert!(response.success, "Tool should succeed");
     let result = response.result.unwrap();
 
-    // Moderate intensity should have balanced recommendations
-    let pre_workout_carbs = result["pre_workout"]["carbs_g"].as_f64().unwrap();
+    // A session of an hour or less takes no set pre-workout amount
     assert!(
-        (50.0..=60.0).contains(&pre_workout_carbs),
-        "Moderate intensity should have ~52g carbs: {pre_workout_carbs}"
+        result["pre_workout"]["carbs_g"].is_null(),
+        "A 45-minute session gets food guidance, not an amount: {}",
+        result["pre_workout"]
     );
 
     Ok(())
@@ -540,6 +584,28 @@ async fn test_get_nutrient_timing_missing_intensity() -> Result<()> {
     let result = executor.execute_tool(request).await;
 
     assert!(result.is_err(), "Should fail without workout_intensity");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_get_nutrient_timing_missing_session_length() -> Result<()> {
+    let executor = create_nutrition_test_executor().await?;
+
+    // The session's length is required: the amount depends on it
+    let request = create_test_request(
+        "get_nutrient_timing",
+        json!({
+            "weight_kg": 75.0,
+            "daily_protein_g": 150.0,
+            "workout_intensity": "high",
+            "hours_before": 2
+        }),
+    );
+
+    let result = executor.execute_tool(request).await;
+
+    assert!(result.is_err(), "Should fail without session_minutes");
 
     Ok(())
 }

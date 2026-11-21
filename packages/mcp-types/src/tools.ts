@@ -89,14 +89,8 @@ export interface AnalyzePerformanceTrendsParams {
  */
 export interface AnalyzeSleepQualityParams {
 
-  /** User's baseline HRV (RMSSD, ms) for comparison */
-  baseline_hrv?: number;
-
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
-
-  /** Array of recent HRV values (RMSSD, ms) for trend analysis */
-  recent_hrv_values?: number[];
 
   /** Manual sleep data, used instead of a fetch when no `sleep_provider` is named. Fields: date (YYYY-MM-DD or RFC 3339) and duration_hours (required), deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms, resting_hr_bpm, provider_score */
   sleep_data?: Record<string, any>;
@@ -209,14 +203,8 @@ export interface CalculateRecoveryScoreParams {
   /** Activity source for training load (strava, garmin, coros, whoop, intervals_icu, terra); omit to auto-select */
   activity_provider?: string;
 
-  /** User's baseline HRV (RMSSD, ms) */
-  baseline_hrv?: number;
-
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
-
-  /** Array of recent HRV values (RMSSD, ms) */
-  recent_hrv_values?: number[];
 
   /** Manual sleep data, used instead of a fetch when no `sleep_provider` is named. Fields: date (YYYY-MM-DD or RFC 3339) and duration_hours (required), deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms, resting_hr_bpm, provider_score */
   sleep_data?: Record<string, any>;
@@ -1728,12 +1716,6 @@ export interface SuggestRestDayParams {
 
   /** Activity source for training load (strava, garmin, coros, whoop, intervals_icu, terra); omit to auto-select */
   activity_provider?: string;
-
-  /** User's baseline HRV (RMSSD, ms) */
-  baseline_hrv?: number;
-
-  /** Recent HRV values (RMSSD, ms) for trend analysis */
-  recent_hrv_values?: number[];
 
   /** Manual data for last night's sleep, used instead of a fetch when no `sleep_provider` is named. Fields: date (YYYY-MM-DD or RFC 3339) and duration_hours (required), deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms, resting_hr_bpm, provider_score */
   sleep_data?: Record<string, any>;

@@ -398,7 +398,10 @@ async fn a_flagged_athlete_still_gets_input_errors() -> Result<()> {
 // ============================================================================
 
 fn timing_params() -> Value {
-    json!({ "workout_intensity": "high", "weight_kg": 70.0, "daily_protein_g": 126.0 })
+    json!({
+        "workout_intensity": "high", "weight_kg": 70.0, "daily_protein_g": 126.0,
+        "session_minutes": 90, "hours_before": 2
+    })
 }
 
 #[tokio::test]

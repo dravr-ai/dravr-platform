@@ -29,7 +29,7 @@ use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, ConversationSubject, DailyTrainingState, SportType,
-    TenantId, TenantPlan, TimeSeriesData, ToolCatalogEntry, ToolCategory,
+    TenantId, TenantPlan, TimeSeriesData, ToolCatalogEntry, ToolCategory, UserPhysiologicalProfile,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -123,6 +123,21 @@ fn samples() -> TimeSeriesData {
         grade_smooth: None,
         moving: None,
     }
+}
+
+/// `who`'s heart-rate thresholds, which score their runs: heart-rate TSS
+/// reads the session on the heart-rate reserve, so it needs the resting heart
+/// rate as well as the threshold.
+async fn save_thresholds(repos: &RepositoryRegistry, who: Person) {
+    let mut profile = UserPhysiologicalProfile::new(who.id, SportType::Run);
+    profile.threshold_hr = Some(165);
+    profile.max_hr = Some(190);
+    profile.resting_hr = Some(50);
+    repos
+        .user_physiological_profile
+        .upsert_user_physiological_profile(who.tenant, who.id, &profile)
+        .await
+        .unwrap();
 }
 
 /// The athlete's twelve uploaded runs, one with recorded samples, and the
@@ -222,6 +237,8 @@ pub(crate) async fn fixture_on(res: Arc<ServerContext>) -> Fixture {
     let repos = &res.common.repos;
     let group = coached_group(repos, coach, athlete).await;
     seed_sessions(repos, coach, athlete).await;
+    save_thresholds(repos, coach).await;
+    save_thresholds(repos, athlete).await;
     let thread = open_thread(repos, coach, athlete, group).await;
     Fixture {
         res,

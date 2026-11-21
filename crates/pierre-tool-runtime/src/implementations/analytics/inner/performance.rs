@@ -186,7 +186,7 @@ fn calculate_prediction_confidence(
     // Sort oldest-first — EMA calculation requires chronological order
     owned_activities.sort_by_key(Activity::start_date);
     let calculator = TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, now);
-    let ctl_score = if let Ok(training_load) = athlete.training_load(&calculator, &owned_activities)
+    let ctl_score = if let Ok(training_load) = athlete.training_load(calculator, &owned_activities)
     {
         if training_load.ctl > 80.0 {
             2 // High training load

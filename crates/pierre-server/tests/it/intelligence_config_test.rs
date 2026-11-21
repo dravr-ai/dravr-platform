@@ -396,11 +396,22 @@ fn test_sleep_recovery_hrv_config_validation() {
     let config = IntelligenceConfig::default();
     let hrv = &config.sleep_recovery.hrv;
 
-    // Test HRV thresholds are reasonable
-    assert!(hrv.rmssd_decrease_concern_threshold < 0.0); // Negative indicates decrease
-    assert!(hrv.rmssd_increase_good_threshold > 0.0); // Positive indicates increase
-    assert!(hrv.baseline_deviation_concern_percent > 0.0);
-    assert!(hrv.baseline_deviation_concern_percent < 50.0); // Should be reasonable percentage
+    // The 7-day ln RMSSD mean against a 28-day baseline ± 0.5 SD, judged once
+    // the week has three valid nights (Vesterinen 2016, Javaloyes 2019,
+    // Plews 2014)
+    assert!(
+        (hrv.swc_sd_multiplier - 0.5).abs() < f64::EPSILON,
+        "cageux's HRV band moved off the published 0.5 baseline SD: {}",
+        hrv.swc_sd_multiplier
+    );
+    assert_eq!(
+        hrv.min_valid_nights_per_week, 3,
+        "cageux's weekly minimum moved off the published three valid nights"
+    );
+    assert_eq!(
+        hrv.baseline_days, 28,
+        "cageux's HRV baseline moved off the published 28 days"
+    );
 }
 
 #[test]
