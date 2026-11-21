@@ -28,9 +28,9 @@
 //! dravr-contremaitre first and reach this crate with the pin; until then every
 //! one of them reads empty, and a box whose lines read empty is neither shown
 //! nor honoured ([`offered_in`]): an admin is never handed an unlabelled choice
-//! that grants admin. When the catalogue carries them, these keys move to
-//! `pierre_contremaitre::consent_strings` as `KEY_CONSENT_ADMIN_ACCESS_*` and
-//! join `CONSENT_SCREEN_KEYS`, in the commit that moves the pin.
+//! that grants admin. Their keys are already in `CONSENT_SCREEN_KEYS`, ahead
+//! of the catalogue, so the pin that brings them never ships a consent line
+//! the consent version does not cover.
 
 use std::collections::HashMap;
 use std::iter;
@@ -38,7 +38,12 @@ use std::iter;
 use pierre_auth::oauth2_server::cimd::is_metadata_document_id;
 use pierre_auth::oauth2_server::client_registration::redirects_to_loopback;
 use pierre_auth::oauth2_server::endpoints::{AdminAccess, CheckedAuthorization};
-use pierre_contremaitre::consent_strings::KEY_CONSENT_ROLE_ADMIN;
+use pierre_contremaitre::consent_strings::{
+    ADMIN_ACCESS_KEY_GOES_TO as KEY_GOES_TO,
+    ADMIN_ACCESS_KEY_GOES_TO_TWO_HOSTS as KEY_GOES_TO_TWO_HOSTS, ADMIN_ACCESS_KEY_HINT as KEY_HINT,
+    ADMIN_ACCESS_KEY_LABEL as KEY_LABEL, ADMIN_ACCESS_KEY_THIS_COMPUTER as KEY_THIS_COMPUTER,
+    KEY_CONSENT_ROLE_ADMIN,
+};
 use pierre_core::html::escape_html_attribute;
 use pierre_core::models::User;
 use tracing::info;
@@ -46,21 +51,6 @@ use url::Url;
 
 use super::consent_text::ConsentText;
 use super::pages::redirect_host;
-
-/// The box's label, "Admin access". No format placeholders.
-const KEY_LABEL: &str = "oauth.consent.adminAccessLabel";
-/// Who sees the box, that it is asked every time, and where to withdraw it.
-/// No format placeholders.
-const KEY_HINT: &str = "oauth.consent.adminAccessHint";
-/// Where the admin access goes: `{0}`, the redirect host in bold, or the
-/// phrase for a program on this computer.
-const KEY_GOES_TO: &str = "oauth.consent.adminAccessGoesTo";
-/// Where the admin access goes when the client's metadata document is on
-/// another host: `{0}` as above, `{1}` that host in bold.
-const KEY_GOES_TO_TWO_HOSTS: &str = "oauth.consent.adminAccessGoesToTwoHosts";
-/// "an app on this computer", which `{0}` reads for a loopback redirect. No
-/// format placeholders.
-const KEY_THIS_COMPUTER: &str = "oauth.consent.adminAccessThisComputer";
 
 /// Every line the box shows of its own.
 pub(super) const ADMIN_ACCESS_KEYS: [&str; 5] = [
@@ -193,7 +183,10 @@ mod tests {
 
     #[test]
     fn the_same_host_is_compared_without_its_port_or_case() {
-        assert!(same_host("claude.ai", "https://Claude.ai:443/api/mcp/auth_callback"));
+        assert!(same_host(
+            "claude.ai",
+            "https://Claude.ai:443/api/mcp/auth_callback"
+        ));
         assert!(!same_host("claude.ai", "https://evil.example/callback"));
     }
 }
