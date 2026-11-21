@@ -79,9 +79,9 @@ use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_providers::originals::OriginalsStore;
 use pierre_runtime_context::ProviderConnectLog;
 use pierre_services::barrage_live_store::{live_store, BarrageLiveStore};
+use pierre_services::lab_document_model::LabReaderModel;
 use pierre_services::live_activities::LiveActivityStore;
 use pierre_services::originals_bundle::OriginalsBundleService;
-use pierre_services::lab_document_model::LabReaderModel;
 use pierre_services::provider_purge::ProviderPurgeService;
 
 #[cfg(feature = "slash-commands")]

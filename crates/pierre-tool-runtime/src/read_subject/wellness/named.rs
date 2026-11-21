@@ -59,7 +59,7 @@ fn not_named(health_records: bool) -> String {
 /// Whether the in-flight coach's read may keep the athlete's health records
 /// (T2): their `coach_sensitive_t2_read` stands and has not lapsed. Their own
 /// consent to AI use of those records is applied apart, by the tier gate.
-fn health_records_named() -> bool {
+pub(crate) fn health_records_named() -> bool {
     scoped_read_subject()
         .is_some_and(|subject| subject.access.consents.sensitive_t2_standing(Utc::now()))
 }

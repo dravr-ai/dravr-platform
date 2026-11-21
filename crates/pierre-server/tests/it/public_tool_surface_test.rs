@@ -25,6 +25,7 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::Router;
 use chrono::{DateTime, Duration, NaiveTime, TimeZone, Utc};
+use pierre_core::constants::oauth::providers::SENSITIVE_T2;
 use pierre_core::models::{DataSource, DeviceType, StoredHealthMetrics, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, TransportPolicy};
@@ -35,6 +36,7 @@ use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_memory::{FactKind, FactSource};
 use pierre_providers::ai_scope;
 use pierre_services::parq;
+use pierre_services::provider_notice::grant_ai_consent;
 use pierre_test_support::fit::FitWorkout;
 use pierre_tool_runtime::first_party_tools::FIRST_PARTY_SURFACE_ERROR_CODE;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
@@ -656,4 +658,58 @@ async fn a_deep_upload_history_reads_its_rows_over_mcp() {
     );
     assert_eq!(result["coverage"]["complete"], true, "{answer}");
     assert!(result["coverage"]["note"].is_null(), "{answer}");
+}
+
+/// carnet#1544, slice 2: `get_health_records` declares a T2 stream, so an
+/// outside client is refused it for every kind, even with both of the
+/// athlete's tier consents given, and told the records are not served over
+/// this interface; Dravr's own agent reads it.
+#[tokio::test]
+async fn an_mcp_client_is_refused_every_kind_of_health_record() {
+    let res = common::create_test_server_resources().await.unwrap();
+    let who = athlete(&res).await;
+    allow_outside_memory(&res.common.repos, who.tenant.as_uuid(), who.id).await;
+    grant_ai_consent(
+        &res.common.repos,
+        who.tenant.as_uuid(),
+        who.id,
+        SENSITIVE_T2,
+        "Health records",
+    )
+    .await
+    .unwrap();
+    let app = ProviderToolRouter::build_http_app(&res);
+    let authorization = grant(&res, &who);
+
+    for kind in ["labs", "clinical", "glucose", "self_reports"] {
+        let answer = mcp_call(
+            &app,
+            &authorization,
+            "get_health_records",
+            json!({ "kind": kind }),
+        )
+        .await;
+        assert_eq!(
+            answer["result"]["isError"], true,
+            "bug: {kind} was served over MCP: {answer}"
+        );
+        // An error result carries its payload as the second content part.
+        let refusal: Value = serde_json::from_str(
+            answer["result"]["content"][1]["text"]
+                .as_str()
+                .unwrap_or("null"),
+        )
+        .unwrap();
+        assert_eq!(
+            refusal["error_code"], "sensitive_tier_withheld",
+            "{kind}: {answer}"
+        );
+        assert_eq!(
+            refusal["tier"], "T2",
+            "{kind}: the lowest refused tier: {answer}"
+        );
+    }
+
+    let own = in_app(&res, &who, "get_health_records", json!({ "kind": "labs" })).await;
+    assert!(own.success, "bug: Dravr's own agent was refused: {own:?}");
 }

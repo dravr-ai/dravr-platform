@@ -33,6 +33,7 @@
   "get_connection_status",
   "get_data_freshness",
   "get_food_details",
+  "get_health_records",
   "get_health_snapshots",
   "get_heart_rate_series",
   "get_planned_workouts",

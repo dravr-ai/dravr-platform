@@ -278,9 +278,11 @@ async fn test_configuration_tools_count_in_total() {
     // 2026-11-17: query_activities added (117→118, total 123→124) — every
     // count, total and breakdown over a period from one read of the store,
     // carnet#1485.
+    // 2026-11-21: get_health_records added (118→119, total 124→125) — the
+    // T2–T3 records every import stores, each row by its own tier, carnet#1544.
     assert_eq!(
-        fitness_tools, 118,
-        "Expected exactly 118 non-configuration tools"
+        fitness_tools, 119,
+        "Expected exactly 119 non-configuration tools"
     );
     // 2026-09-04: estimate_vo2max added (104→105, total 110→111) — the field-test
     // capture path for VO2max, closing carnet#265.
@@ -288,5 +290,5 @@ async fn test_configuration_tools_count_in_total() {
     // lactate step-test capture path, carnet#357.
     // 2026-09-07: recommend_plan_flavour added (106→107, total 112→113) — the
     // profile through the selection rule and the season it implies, carnet#343.
-    assert_eq!(tools.len(), 124, "Expected total of 124 tools"); // 118 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 125, "Expected total of 125 tools"); // 119 non-configuration + 6 configuration
 }

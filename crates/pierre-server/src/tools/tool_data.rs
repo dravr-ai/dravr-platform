@@ -23,8 +23,9 @@
 //! labelled only when it served an item anyway, and then at T3.
 
 use dravr_barrage::Stream::{
-    ActivityDaily, Body, CardioDaily, CardioRaw, Fitness, Profile, RecoveryDaily, RestrictedNotes,
-    Sleep, TrainingLoad, Workout, WorkoutRaw, WorkoutRoute,
+    ActivityDaily, Body, CardioDaily, CardioRaw, ClinicalRaw, Fitness, Labs, Profile,
+    RecoveryDaily, RestrictedClinical, RestrictedNotes, RestrictedSelfReport, Sleep, TrainingLoad,
+    Workout, WorkoutRaw, WorkoutRoute,
 };
 use pierre_tool_runtime::read_subject::DataClass::{NoSubject, Training, Wellness};
 use pierre_tool_runtime::registry::ToolRegistry;
@@ -175,6 +176,16 @@ const TOOL_DATA: &[(&str, ToolData)] = &[
     (
         "get_health_snapshots",
         ToolData::of(Wellness, &[CardioDaily, Body]),
+    ),
+    // The T2–T3 records every import stores (carnet#1544): a T2 stream, so
+    // the dispatch gate refuses it to every outside client until grants carry
+    // authorization details.
+    (
+        "get_health_records",
+        ToolData::of(
+            Wellness,
+            &[Labs, ClinicalRaw, RestrictedClinical, RestrictedSelfReport],
+        ),
     ),
     (
         "get_heart_rate_series",

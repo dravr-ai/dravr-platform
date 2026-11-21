@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 81
+// Tool count: 82
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -578,6 +578,28 @@ export interface GetFoodDetailsParams {
 
   /** USDA FoodData Central ID of the food item */
   fdc_id: number;
+}
+
+
+/**
+ * Get the athlete's health records: lab results, clinical records, self-measured glucose or cycle tracking, as far as they allowed AI to read them
+ */
+export interface GetHealthRecordsParams {
+
+  /** RFC3339 end; defaults to now. */
+  end?: string;
+
+  /** 'json' (default) or 'toon' (compact). */
+  format?: string;
+
+  /** Which records: labs (lab results), clinical (conditions, medications and other clinical records), glucose (self-measured readings and each day's value, mg/dL) or self_reports (cycle tracking). One of: labs, clinical, glucose, self_reports. */
+  kind: string;
+
+  /** At most this many records, 1 to 200 (default 50) */
+  limit?: number;
+
+  /** RFC3339 start; defaults to 30 days before `end`; a range longer than 366 days keeps its most recent 366. */
+  start?: string;
 }
 
 
@@ -1957,6 +1979,7 @@ export const TOOL_NAMES = [
   "get_connection_status",
   "get_data_freshness",
   "get_food_details",
+  "get_health_records",
   "get_health_snapshots",
   "get_heart_rate_series",
   "get_planned_workouts",
@@ -2049,6 +2072,7 @@ export interface ToolParamsMap {
   "get_connection_status": GetConnectionStatusParams;
   "get_data_freshness": GetDataFreshnessParams;
   "get_food_details": GetFoodDetailsParams;
+  "get_health_records": GetHealthRecordsParams;
   "get_health_snapshots": GetHealthSnapshotsParams;
   "get_heart_rate_series": GetHeartRateSeriesParams;
   "get_planned_workouts": GetPlannedWorkoutsParams;

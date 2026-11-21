@@ -12402,6 +12402,359 @@
       }
     },
     {
+      "name": "get_health_records",
+      "description": "Get the athlete's health records: lab results, clinical records, self-measured glucose or cycle tracking, as far as they allowed AI to read them",
+      "inputSchema": {
+        "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
+          "end": {
+            "description": "RFC3339 end; defaults to now.",
+            "type": "string"
+          },
+          "format": {
+            "description": "'json' (default) or 'toon' (compact).",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Which records: labs (lab results), clinical (conditions, medications and other clinical records), glucose (self-measured readings and each day's value, mg/dL) or self_reports (cycle tracking). One of: labs, clinical, glucose, self_reports.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "At most this many records, 1 to 200 (default 50)",
+            "type": "integer"
+          },
+          "start": {
+            "description": "RFC3339 start; defaults to 30 days before `end`; a range longer than 366 days keeps its most recent 366.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "GlucoseDay": {
+            "description": "One day's glucose, as a source synced it.",
+            "properties": {
+              "date": {
+                "description": "The day.",
+                "format": "date",
+                "type": "string"
+              },
+              "mg_dl": {
+                "description": "The day's reading, mg/dL.",
+                "format": "double",
+                "type": "number"
+              },
+              "source": {
+                "description": "The source it came from.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "date",
+              "mg_dl",
+              "source"
+            ],
+            "type": "object"
+          },
+          "GlucoseReadingOut": {
+            "description": "One timed glucose reading.",
+            "properties": {
+              "at": {
+                "description": "When it was measured.",
+                "format": "date-time",
+                "type": "string"
+              },
+              "mg_dl": {
+                "description": "The reading, mg/dL.",
+                "format": "double",
+                "type": "number"
+              },
+              "source": {
+                "description": "The source it came from.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "at",
+              "mg_dl",
+              "source"
+            ],
+            "type": "object"
+          },
+          "HealthRecordsResult": {
+            "description": "What `get_health_records` answers with.",
+            "properties": {
+              "daily": {
+                "description": "Each day's glucose, for `glucose`.",
+                "items": {
+                  "$ref": "#/$defs/GlucoseDay"
+                },
+                "type": "array"
+              },
+              "end": {
+                "description": "Its end, RFC 3339.",
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/RecordKind",
+                "description": "The kind read."
+              },
+              "readings": {
+                "description": "Timed glucose readings, for `glucose`.",
+                "items": {
+                  "$ref": "#/$defs/GlucoseReadingOut"
+                },
+                "type": "array"
+              },
+              "records": {
+                "description": "Clinical records, for `labs` and `clinical`.",
+                "items": {
+                  "$ref": "#/$defs/ServedClinicalRecord"
+                },
+                "type": "array"
+              },
+              "self_reports": {
+                "description": "Self-reports, for `self_reports`.",
+                "items": {
+                  "$ref": "#/$defs/ServedSelfReport"
+                },
+                "type": "array"
+              },
+              "start": {
+                "description": "The window read, RFC 3339.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "start",
+              "end"
+            ],
+            "type": "object"
+          },
+          "RecordKind": {
+            "description": "The kinds of health record a read asks for.",
+            "oneOf": [
+              {
+                "const": "labs",
+                "description": "Lab results: FHIR Observations, a lab document's among them.",
+                "type": "string"
+              },
+              {
+                "const": "clinical",
+                "description": "Every other clinical record: conditions, medications, reports.",
+                "type": "string"
+              },
+              {
+                "const": "glucose",
+                "description": "Self-measured glucose: the timed readings and each day's value.",
+                "type": "string"
+              },
+              {
+                "const": "self_reports",
+                "description": "Cycle tracking and the other self-reports.",
+                "type": "string"
+              }
+            ]
+          },
+          "ServedClinicalRecord": {
+            "description": "One clinical record as a read serves it.",
+            "properties": {
+              "derivation": {
+                "description": "How it came from its file (`verbatim`, `parsed`, `extracted`).",
+                "type": "string"
+              },
+              "effective_at": {
+                "description": "When it was effective.",
+                "format": "date-time",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "flat": {
+                "description": "Its codes and numbers, for an Observation."
+              },
+              "id": {
+                "description": "The record's id.",
+                "type": "string"
+              },
+              "read_by": {
+                "description": "The engine that read it from a document.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "resource": {
+                "description": "The resource as read (the athlete's read) or without free text."
+              },
+              "resource_type": {
+                "description": "The FHIR `resourceType`.",
+                "type": "string"
+              },
+              "sensitivity_class": {
+                "description": "Why a code raised it to T3, when one did.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "description": "The source it came from (an import's key, or `lab_document`).",
+                "type": "string"
+              },
+              "tier": {
+                "description": "Its tier (`T2`, `T3`).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "resource_type",
+              "tier",
+              "source",
+              "resource",
+              "derivation"
+            ],
+            "type": "object"
+          },
+          "ServedSelfReport": {
+            "description": "One self-report as a read serves it.",
+            "properties": {
+              "cycle_start": {
+                "description": "The start of a cycle.",
+                "type": "boolean"
+              },
+              "end": {
+                "description": "When it ends.",
+                "format": "date-time",
+                "type": "string"
+              },
+              "id": {
+                "description": "The record's id.",
+                "type": "string"
+              },
+              "kind": {
+                "description": "What it records.",
+                "type": "string"
+              },
+              "source": {
+                "description": "The source it came from.",
+                "type": "string"
+              },
+              "start": {
+                "description": "When it starts.",
+                "format": "date-time",
+                "type": "string"
+              },
+              "unit": {
+                "description": "Its unit.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "value": {
+                "description": "A measured value.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "value_code": {
+                "description": "A coded value.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "start",
+              "end",
+              "cycle_start",
+              "source"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "$ref": "#/$defs/HealthRecordsResult",
+            "description": "`format=json`, the default: the tool's own shape, unchanged."
+          },
+          {
+            "description": "`format=toon`: the payload rendered as one compact TOON string.",
+            "properties": {
+              "format": {
+                "description": "Always `toon`.",
+                "type": "string"
+              },
+              "toon": {
+                "description": "The rendered payload.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "toon",
+              "format"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
+            "properties": {
+              "format": {
+                "description": "Always `json`.",
+                "type": "string"
+              },
+              "format_error": {
+                "description": "Why TOON rendering failed.",
+                "type": "string"
+              },
+              "format_fallback": {
+                "description": "Always true; present so the fallback is detectable on its own.",
+                "type": "boolean"
+              },
+              "result": {
+                "$ref": "#/$defs/HealthRecordsResult",
+                "description": "The payload, unformatted."
+              }
+            },
+            "required": [
+              "result",
+              "format",
+              "format_fallback",
+              "format_error"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
+        "title": "Formatted",
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Get health records",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "get_health_snapshots",
       "description": "Get stored wellness snapshots (body composition, vitals) and daily steps, energy, intensity minutes",
       "inputSchema": {

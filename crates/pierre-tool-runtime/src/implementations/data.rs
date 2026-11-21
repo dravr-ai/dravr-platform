@@ -76,6 +76,7 @@ use crate::implementations::fitness_support::{
     AnalysisType, CachedActivitiesParams, CachedDetail, PaginationInfo,
 };
 use crate::implementations::handler_bridge;
+use crate::implementations::health_records::GetHealthRecordsTool;
 use crate::implementations::planned_workouts::GetPlannedWorkoutsTool;
 use crate::implementations::segments::GetSegmentHistoryTool;
 use crate::implementations::stored_data::{
@@ -1153,6 +1154,7 @@ pub fn create_data_tools() -> Vec<Box<dyn RuntimeTool>> {
         Box::new(GetSleepSessionsTool),
         Box::new(GetRecoveryMetricsTool),
         Box::new(GetHealthSnapshotsTool),
+        Box::new(GetHealthRecordsTool),
         Box::new(ListDataSourcesTool),
         Box::new(GetHeartRateSeriesTool),
         Box::new(GetSegmentHistoryTool),

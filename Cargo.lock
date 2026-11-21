@@ -1350,8 +1350,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.28.0"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.28.0#805b254ce75e7395badcfa4be066cc03cc9729e3"
+version = "0.28.2"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.28.2#14695c4c5658fd9ae5efc415561e998cf67f39c7"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
