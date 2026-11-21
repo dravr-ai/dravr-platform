@@ -134,7 +134,9 @@ impl McpTool<dyn ToolRuntime> for AdminImpersonateStartTool {
     }
 
     fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::ADMIN_ONLY
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::ADMIN_ONLY
+            | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(
@@ -198,7 +200,9 @@ impl McpTool<dyn ToolRuntime> for AdminImpersonateEndTool {
     }
 
     fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::ADMIN_ONLY
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::ADMIN_ONLY
+            | ToolCapabilities::WRITES_DATA
     }
 
     async fn execute(

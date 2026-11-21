@@ -82,10 +82,10 @@ async function startServer(config) {
     throw new Error('Pierre server binary not found. Please run: cargo build --bin pierre-mcp-server');
   }
 
-  // Default to the shared file-backed test DB (NOT in-memory): the global-admin
-  // promotion runs pierre-cli as a SEPARATE process, which can only reach a
-  // file-backed DB. An in-memory default silently skips promotion → the test
-  // user stays non-admin → tools/list returns the tenant-filtered subset.
+  // Default to the shared file-backed test DB (NOT in-memory): the coach seed
+  // runs pierre-cli as a SEPARATE process, which can only reach a file-backed
+  // DB. An in-memory default skips the seed → the test user is a plain athlete
+  // → tools/list returns the athlete's subset.
   const databaseUrl = config.database || TestConfig.testDatabase;
   const encryptionKey = config.encryptionKey || 'rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo=';
   const env = {
@@ -223,28 +223,28 @@ function runPierreCli(cliPath, args, databaseUrl, encryptionKey) {
 }
 
 /**
- * Promote an already-registered user to a GLOBAL admin on the top plan via
- * pierre-cli.
- *
- * `tools/list` on /mcp is the public profile for every caller, a global admin
- * included, narrowed by the tenant's plan: a tool the plan does not cover is
- * left out rather than offered and refused. Registration gives the user a
- * personal tenant on the starter plan, and `user create --force` on an existing
- * user keeps that tenant, so the plan is raised to enterprise here — the plan a
- * freshly created admin's tenant gets, and the one `packages/mcp-types` is
- * generated against. Catalog-completeness assertions compare against that
- * generated roster. The CLI writes directly to the shared file-backed SQLite DB
- * the server reads; both writes land before the user first lists tools, so the
- * server's tenant tool cache never holds the starter plan.
- *
- * No-op for in-memory databases, which are private to the server process and
- * unreachable from a separate CLI invocation.
+ * The coach-home seeder's coach password (pierre-seeders coach_home.rs,
+ * COACH_PASSWORD): a dev-fixture value, never a real credential.
  */
-async function promoteUserToGlobalAdmin(email, password, databaseUrl, encryptionKey) {
+const SEEDED_COACH_PASSWORD = 'CoachHome1234';
+
+/**
+ * Seed `email` as a human coach with demo members via pierre-cli, the account
+ * `packages/mcp-types` is generated from (server-e2e.yml, SDK_COACH_EMAIL).
+ *
+ * `tools/list` on /mcp is listed by role (carnet#1511): an admin is offered
+ * every tool, the first-party-only ones included, and a coach the coach's
+ * list, which is what the generated types describe. So the suite signs in as
+ * a coach the seeder creates, on the plan the seeder gives it, exactly as the
+ * generator does. The CLI writes directly to the shared file-backed SQLite DB
+ * the server reads, before the coach first lists tools.
+ *
+ * Returns false for in-memory databases, which are private to the server
+ * process and unreachable from a separate CLI invocation.
+ */
+async function seedCoach(email, databaseUrl, encryptionKey) {
   if (!databaseUrl || databaseUrl.includes(':memory:')) {
-    console.warn(
-      `⚠️ DATABASE_URL is in-memory (${databaseUrl}); cannot promote ${email} to global admin from CLI`
-    );
+    console.warn(`⚠️ DATABASE_URL is in-memory (${databaseUrl}); cannot seed ${email} as a coach from CLI`);
     return false;
   }
 
@@ -255,17 +255,11 @@ async function promoteUserToGlobalAdmin(email, password, databaseUrl, encryption
 
   await runPierreCli(
     cliPath,
-    ['user', 'create', '--email', email, '--password', password, '--force'],
+    ['seed', 'coach-home', '--coach-email', email, '--model', 'sdk-test'],
     databaseUrl,
     encryptionKey
   );
-  await runPierreCli(
-    cliPath,
-    ['tenant', 'set-plan', '--email', email, '--plan', 'enterprise'],
-    databaseUrl,
-    encryptionKey
-  );
-  console.log(`🔑 Promoted ${email} to global admin on the enterprise plan (full tool roster)`);
+  console.log(`🧑‍🏫 Seeded ${email} as a coach with demo members (the generated roster)`);
   return true;
 }
 
@@ -295,43 +289,41 @@ async function issueApiKey(baseUrl, sessionToken) {
 }
 
 /**
- * Register a test user, promote it to a global admin, and login to get a real
- * RS256 JWT token. The server uses RS256 (RSA) JWT validation, so test tokens
- * must come from the actual server login endpoint rather than being locally
- * generated. The promotion to a global admin on the enterprise plan makes
- * tools/list return the generated roster (see promoteUserToGlobalAdmin).
+ * Seed a coach with demo members and login to get a real RS256 JWT token. The
+ * server uses RS256 (RSA) JWT validation, so test tokens must come from the
+ * actual server login endpoint rather than being locally generated. The coach
+ * is offered the generated roster (see seedCoach). With an in-memory database
+ * the CLI cannot reach, a plain registered user is used instead.
  */
 async function registerAndGetToken(port, databaseUrl, encryptionKey) {
   const baseUrl = `http://localhost:${port}`;
   const testEmail = `sdk-test-${Date.now()}@example.com`;
-  const testPassword = 'SdkTestPassword123!';
+  let testPassword = SEEDED_COACH_PASSWORD;
 
-  // Register user (may be auto-approved or pending depending on config)
-  try {
-    const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: testEmail,
-        password: testPassword,
-        display_name: 'SDK Test User'
-      })
-    });
+  if (!(await seedCoach(testEmail, databaseUrl, encryptionKey))) {
+    testPassword = 'SdkTestPassword123!';
+    try {
+      const registerResponse = await fetch(`${baseUrl}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: testEmail,
+          password: testPassword,
+          display_name: 'SDK Test User'
+        })
+      });
 
-    if (registerResponse.ok) {
-      const registered = await registerResponse.json();
-      console.log(`📋 Registered ${testEmail} (user_status=${registered.user_status})`);
-    } else {
-      const errorText = await registerResponse.text();
-      console.warn(`⚠️ Registration returned ${registerResponse.status}: ${errorText}`);
+      if (registerResponse.ok) {
+        const registered = await registerResponse.json();
+        console.log(`📋 Registered ${testEmail} (user_status=${registered.user_status})`);
+      } else {
+        const errorText = await registerResponse.text();
+        console.warn(`⚠️ Registration returned ${registerResponse.status}: ${errorText}`);
+      }
+    } catch (error) {
+      console.warn(`⚠️ Registration failed: ${error.message}`);
     }
-  } catch (error) {
-    console.warn(`⚠️ Registration failed: ${error.message}`);
   }
-
-  // Promote to a global admin on the top plan so tools/list returns the
-  // generated roster.
-  await promoteUserToGlobalAdmin(testEmail, testPassword, databaseUrl, encryptionKey);
 
   // Sign in as the mobile app does — hosted login page, authorization code,
   // PKCE (the password grant is gone, carnet#787) — for an RS256 session JWT.
@@ -400,7 +392,7 @@ module.exports = {
   registerAndGetToken,
   issueApiKey,
   findPierreCli,
-  promoteUserToGlobalAdmin,
+  seedCoach,
   waitForHealth,
   sleep
 };

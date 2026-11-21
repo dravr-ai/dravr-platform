@@ -10,11 +10,10 @@
 const path = require('path');
 const os = require('os');
 
-// File-backed (not in-memory) SQLite DB so pierre-cli can promote the registered
-// test user to a global admin and raise its tenant to the enterprise plan in the
-// SAME database the server reads. tools/list is the public profile narrowed by
-// the tenant's plan, so only the top plan lists the generated roster. An
-// in-memory DB is private to the server process and unreachable from the CLI.
+// File-backed (not in-memory) SQLite DB so pierre-cli can seed the test coach,
+// with demo members, in the SAME database the server reads. tools/list is
+// listed by role, and a coach is offered the generated roster. An in-memory DB
+// is private to the server process and unreachable from the CLI.
 const TEST_DB_FILE = path.join(os.tmpdir(), 'pierre-sdk-test.db');
 
 /**
