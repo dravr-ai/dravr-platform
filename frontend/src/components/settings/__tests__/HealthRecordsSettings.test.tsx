@@ -9,6 +9,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { i18n } from '@pierre/i18n';
+import { formatDate } from '@pierre/chat-utils';
 import type { FlatObservation, HealthRecordsPage, LabDocumentView, LabRecord } from '@pierre/shared-types';
 import HealthRecordsSettings from '../HealthRecordsSettings';
 
@@ -198,6 +199,16 @@ describe('HealthRecordsSettings', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(i18n.t('healthRecords.deleted'));
   });
 
+  it('says a failed read failed, never that nothing waits', async () => {
+    getReview.mockRejectedValue(new Error('offline'));
+    listLabDocuments.mockRejectedValue(new Error('offline'));
+    renderPane();
+    expect(await screen.findByTestId('health-records-review-failed')).toHaveTextContent(i18n.t('healthRecords.failed'));
+    expect(await screen.findByTestId('health-records-documents-failed')).toBeInTheDocument();
+    expect(screen.queryByTestId('health-records-review-empty')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('health-records-documents-empty')).not.toBeInTheDocument();
+  });
+
   it('says when no report was uploaded and nothing waits', async () => {
     pending = [];
     listLabDocuments.mockResolvedValue([]);
@@ -238,7 +249,7 @@ describe('HealthRecordsSettings', () => {
           resourceType: 'Observation',
           tier: 't2',
           sensitivityClass: null,
-          effectiveAt: null,
+          effectiveAt: '2026-05-05T00:00:00Z',
           source: 'upload',
           resource: {},
           flat: FLAT,
@@ -252,5 +263,8 @@ describe('HealthRecordsSettings', () => {
     expect(row).toHaveTextContent('Hemoglobin');
     expect(row).toHaveTextContent('150 g/L');
     expect(row).toHaveTextContent('(135–175)');
+    // A lab date is a day, stored at midnight UTC: it is said as that day wherever the athlete is.
+    expect(row).toHaveTextContent(formatDate('2026-05-05T00:00:00Z', i18n.language, 'UTC'));
+    expect(formatDate('2026-05-05T00:00:00Z', i18n.language, 'UTC')).toContain('5');
   });
 });

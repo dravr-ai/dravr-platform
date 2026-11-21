@@ -10,6 +10,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react-nativ
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
 import { i18n } from '@pierre/i18n';
+import { formatDate } from '@pierre/chat-utils';
 import type { FlatObservation, HealthRecordsPage, LabDocumentView, LabRecord } from '@pierre/shared-types';
 import { HealthRecordsScreen } from '../HealthRecordsScreen';
 import { healthRecordsApi } from '../../../services/api';
@@ -181,6 +182,41 @@ describe('HealthRecordsScreen', () => {
     fireEvent.press(screen.getByTestId('health-records-upload'));
     await waitFor(() => expect(DocumentPicker.getDocumentAsync).toHaveBeenCalled());
     expect(api.uploadLabDocument).not.toHaveBeenCalled();
+  });
+
+  it('says a failed read failed, never that nothing waits', async () => {
+    api.getReview.mockRejectedValue(new Error('offline'));
+    api.listLabDocuments.mockRejectedValue(new Error('offline'));
+    renderScreen();
+    expect(await screen.findByTestId('health-records-review-failed')).toHaveTextContent(i18n.t('healthRecords.failed'));
+    expect(await screen.findByTestId('health-records-documents-failed')).toBeTruthy();
+    expect(screen.queryByTestId('health-records-review-empty')).toBeNull();
+    expect(screen.queryByTestId('health-records-documents-empty')).toBeNull();
+  });
+
+  it('says a served lab result on the day it was taken', async () => {
+    api.listRecords.mockResolvedValue({
+      ...EMPTY_PAGE,
+      records: [
+        {
+          id: 'served-1',
+          resourceType: 'Observation',
+          tier: 't2',
+          sensitivityClass: null,
+          effectiveAt: '2026-05-05T00:00:00Z',
+          source: 'upload',
+          resource: {},
+          flat: FLAT,
+          derivation: 'confirmed',
+          readBy: 'rules',
+        },
+      ],
+    });
+    renderScreen();
+    const row = await screen.findByTestId('health-record-served-1');
+    expect(row).toHaveTextContent(
+      `Hemoglobin150 g/L (135–175) · ${formatDate('2026-05-05T00:00:00Z', i18n.language, 'UTC')}`,
+    );
   });
 
   it('deletes a lab report', async () => {

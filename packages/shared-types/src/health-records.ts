@@ -227,10 +227,14 @@ export function parseFlatObservation(body: unknown): FlatObservation | null {
   };
 }
 
-/** A `flat` column: `null` when none was stored or it did not parse server-side. */
-function parseOptionalFlat(value: unknown): FlatObservation | null | undefined {
+/**
+ * A `flat` column: `null` when none was stored, and when it holds another
+ * shape — the server serves a column it cannot parse as `null` too, and the
+ * record stays readable by its resource either way.
+ */
+function parseOptionalFlat(value: unknown): FlatObservation | null {
   if (value === null || value === undefined) return null;
-  return parseFlatObservation(value) ?? undefined;
+  return parseFlatObservation(value);
 }
 
 function parseServedRecord(value: unknown): ServedClinicalRecord | null {
@@ -248,8 +252,7 @@ function parseServedRecord(value: unknown): ServedClinicalRecord | null {
     !('resource' in value) ||
     sensitivityClass === undefined ||
     effectiveAt === undefined ||
-    readBy === undefined ||
-    flat === undefined
+    readBy === undefined
   ) {
     return null;
   }
@@ -338,7 +341,6 @@ export function parseLabRecord(value: unknown): LabRecord | null {
       ? []
       : parseAll(value.checks, (check) => (typeof check === 'string' ? check : null));
   if (
-    flat === undefined ||
     locator === undefined ||
     decision === undefined ||
     effectiveAt === undefined ||

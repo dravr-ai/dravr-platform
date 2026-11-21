@@ -102,21 +102,23 @@ function ReviewRow({ record }: { record: LabRecord }) {
   );
 }
 
+/** A read still under way, or one that failed: neither is said as "none". */
+function ReadState({ isError, testID }: { isError: boolean; testID: string }) {
+  const { t } = useTranslation();
+  const colors = useThemeColors();
+  if (isError) return <EmptyState testID={`${testID}-failed`}>{t(HEALTH_RECORDS_KEYS.failed)}</EmptyState>;
+  return (
+    <View className="px-4 py-3">
+      <ActivityIndicator color={colors.tokens.primary} />
+    </View>
+  );
+}
+
 /** The served records of the chosen kind. */
 function RecordsOfKind({ kind }: { kind: HealthRecordKind }) {
   const { t, language } = useTranslation();
-  const colors = useThemeColors();
   const { data, isPending, isError } = useHealthRecords(kind);
-  if (isPending) {
-    return (
-      <View className="px-4 py-3">
-        <ActivityIndicator color={colors.tokens.primary} />
-      </View>
-    );
-  }
-  if (isError) {
-    return <EmptyState testID="health-records-failed">{t(HEALTH_RECORDS_KEYS.failed)}</EmptyState>;
-  }
+  if (isPending || isError) return <ReadState isError={isError} testID="health-records-served" />;
   const empty =
     data.records.length === 0 && data.selfReports.length === 0 && data.readings.length === 0 && data.daily.length === 0;
   if (empty) {
@@ -130,7 +132,7 @@ function RecordsOfKind({ kind }: { kind: HealthRecordKind }) {
           name={observationName(record.flat) ?? record.resourceType}
           figure={[
             figureOf(observationValue(record.flat), observationRange(record.flat)),
-            record.effectiveAt ? formatDate(record.effectiveAt, language) : null,
+            record.effectiveAt ? formatDate(record.effectiveAt, language, 'UTC') : null,
           ]
             .filter(Boolean)
             .join(' · ')}
@@ -185,8 +187,8 @@ export function HealthRecordsScreen(): React.JSX.Element {
   const documents = useLabDocuments(isAuthenticated);
   const deletion = useDeleteLabDocument();
   const [kind, setKind] = useState<HealthRecordKind>('labs');
-  const pending = review.data ?? [];
-  const reports = documents.data ?? [];
+  const pending = review.data;
+  const reports = documents.data;
   const outcome = uploader.outcome;
 
   const remove = (id: string) =>
@@ -253,10 +255,12 @@ export function HealthRecordsScreen(): React.JSX.Element {
 
           <Section
             title={t(HEALTH_RECORDS_KEYS.reviewTitle)}
-            description={pending.length > 0 ? t(HEALTH_RECORDS_KEYS.reviewHint) : undefined}
+            description={pending !== undefined && pending.length > 0 ? t(HEALTH_RECORDS_KEYS.reviewHint) : undefined}
             testID="health-records-review"
           >
-            {pending.length === 0 ? (
+            {pending === undefined ? (
+              <ReadState isError={review.isError} testID="health-records-review" />
+            ) : pending.length === 0 ? (
               <EmptyState testID="health-records-review-empty">{t(HEALTH_RECORDS_KEYS.reviewEmpty)}</EmptyState>
             ) : (
               pending.map((record) => <ReviewRow key={record.id} record={record} />)
@@ -264,7 +268,9 @@ export function HealthRecordsScreen(): React.JSX.Element {
           </Section>
 
           <Section title={t(HEALTH_RECORDS_KEYS.documentsTitle)} testID="health-records-documents">
-            {reports.length === 0 ? (
+            {reports === undefined ? (
+              <ReadState isError={documents.isError} testID="health-records-documents" />
+            ) : reports.length === 0 ? (
               <EmptyState testID="health-records-documents-empty">{t(HEALTH_RECORDS_KEYS.documentsEmpty)}</EmptyState>
             ) : (
               reports.map(({ document }) => (

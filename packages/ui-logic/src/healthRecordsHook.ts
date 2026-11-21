@@ -89,11 +89,26 @@ export function observationName(flat: FlatObservation | null): string | null {
   return flat?.display ?? flat?.code ?? null;
 }
 
-/** Its value with its unit (`150 g/L`), or its coded result; `null` when it holds neither. */
+function quantity(value: number | string, unit: string | null): string {
+  return unit ? `${value} ${unit}` : String(value);
+}
+
+/**
+ * Its value with its unit (`150 g/L`), else its coded result, else its
+ * components' values (`120 / 80 mm[Hg]`, a blood pressure); `null` when it
+ * holds none of them.
+ */
 export function observationValue(flat: FlatObservation | null): string | null {
   if (flat === null) return null;
-  if (flat.value !== null) return flat.unit ? `${flat.value} ${flat.unit}` : String(flat.value);
-  return flat.valueCode;
+  if (flat.value !== null) return quantity(flat.value, flat.unit);
+  if (flat.valueCode !== null) return flat.valueCode;
+  const parts = flat.components.flatMap((part) => (part.value === null ? [] : [{ value: part.value, unit: part.unit }]));
+  if (parts.length === 0) return null;
+  // One unit for every part is said once, after them all.
+  if (parts.every((part) => part.unit === parts[0].unit)) {
+    return quantity(parts.map((part) => part.value).join(' / '), parts[0].unit);
+  }
+  return parts.map((part) => quantity(part.value, part.unit)).join(' / ');
 }
 
 /** Its reference range (`135–175`, `≥ 35`, `≤ 5.2`), or `null` when the report printed none. */

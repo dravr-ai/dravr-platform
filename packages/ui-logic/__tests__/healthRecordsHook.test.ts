@@ -186,5 +186,18 @@ describe('observation words', () => {
     expect(observationRange({ ...FLAT, refLow: null })).toBe('≤ 175');
     expect(observationRange({ ...FLAT, refLow: null, refHigh: null })).toBeNull();
     expect(observationValue(null)).toBeNull();
+    const pressure = {
+      ...FLAT,
+      value: null,
+      unit: null,
+      components: [
+        { code: '8480-6', value: 120, unit: 'mm[Hg]' },
+        { code: '8462-4', value: 80, unit: 'mm[Hg]' },
+      ],
+    };
+    expect(observationValue(pressure)).toBe('120 / 80 mm[Hg]');
+    expect(
+      observationValue({ ...pressure, components: [pressure.components[0], { code: 'x', value: 5, unit: 'kg' }] }),
+    ).toBe('120 mm[Hg] / 5 kg');
   });
 });
