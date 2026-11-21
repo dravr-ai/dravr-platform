@@ -37,7 +37,7 @@ use dravr_barrage::import::ingest_reader::{LabDocumentModel, LabModelError, Mode
 use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
 use pierre_llm::config::LlmProviderType;
 use pierre_llm::{ChatMessage, ChatRequest, EmbacleProvider, LlmProvider};
-use tokio::time::timeout;
+use tokio::time;
 use tracing::{info, warn};
 
 /// The environment variable naming the lab reader's model.
@@ -199,7 +199,7 @@ impl LabDocumentModel for RecordedLabModel {
         // One user message: several embacle runners drop a system message.
         let prompt = format!("{}\n\n{}", request.prompt, request.document);
         let chat = ChatRequest::new(vec![ChatMessage::user(prompt)]).with_temperature(0.0);
-        let reply = timeout(
+        let reply = time::timeout(
             LAB_MODEL_TIMEOUT,
             complete_recorded(self.provider.as_ref(), &chat, self.recorder.as_ref()),
         )

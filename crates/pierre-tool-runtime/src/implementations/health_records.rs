@@ -126,7 +126,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthRecordsTool {
             ..Default::default()
         };
         answers_with::<Formatted<HealthRecordsResult>>(tool_definition(
-            "get_health_records",
+            NAME,
             "Get the athlete's health records: lab results, clinical records, self-measured \
              glucose or cycle tracking, as far as they allowed AI to read them",
             schema,

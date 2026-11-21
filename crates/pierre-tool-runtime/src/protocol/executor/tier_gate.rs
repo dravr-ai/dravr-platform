@@ -1,5 +1,5 @@
 // ABOUTME: The tier gate at dispatch — an outside client calls a tool reading T2/T3 streams only under the athlete's tier consent
-// ABOUTME: Its tier is the one its declared streams give (ToolData::tier); a refusal is an in-band tool error, tallied (carnet#1544)
+// ABOUTME: Every tier its declared streams reach is asked (ToolData::tiers); a refusal is an in-band tool error, tallied (carnet#1544)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,9 +10,9 @@
 //! A2A, an API key — reads the athlete's notes and their agent's memory only
 //! while the athlete gives `sensitive_t3`. The memory tools declare the
 //! `RestrictedNotes` stream (T3) in their [`ToolData`](crate::tool_data::ToolData),
-//! so a call whose tool's declared tier ([`ToolData::tier`](crate::tool_data::ToolData::tier),
-//! the trust label's tier too) is refused here before its body reads or
-//! writes anything, by the one tier rule
+//! so a call to a tool any of whose declared tiers
+//! ([`ToolData::tiers`](crate::tool_data::ToolData::tiers)) is unreadable is
+//! refused here before its body reads or writes anything, by the one tier rule
 //! ([`ai_scope::tier_readable`]): a T3 tool under the athlete's
 //! `sensitive_t3`, a T2 tool never, until grants carry details. A write tool
 //! declaring the stream is held to it alike. Dravr's own agent and the human

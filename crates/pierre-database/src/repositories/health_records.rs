@@ -951,6 +951,8 @@ mod tests {
 
     #[test]
     fn a_decision_is_stored_as_the_migration_checks_it() {
+        // The migration is the data under test: its CHECK constraint names the
+        // decisions the column admits, and this pins it to the enum's spelling.
         let migration = include_str!("../../../../migrations/20261121100000_health_records.sql");
         for decision in [ReviewDecision::Confirmed, ReviewDecision::Rejected] {
             assert!(

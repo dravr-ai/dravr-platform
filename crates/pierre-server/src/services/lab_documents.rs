@@ -16,7 +16,10 @@
 //! - **Bounds**: a body over [`MAX_LAB_DOCUMENT_BYTES`] is refused before it
 //!   is read, a body that does not start `%PDF-` is refused, one whose objects
 //!   nest past a bound is refused before the parser sees it (lopdf recurses
-//!   without a limit, and a stack overflow aborts the process), and a document
+//!   without a limit, and a stack overflow aborts the process), one whose
+//!   forms draw one another or whose pages' parents chain in a cycle or past
+//!   a bound is refused once loaded (pdf-extract follows both by recursion),
+//!   and a document
 //!   over [`MAX_LAB_DOCUMENT_PAGES`] pages or [`MAX_LAB_DOCUMENT_TEXT_BYTES`]
 //!   of text is refused once read. A PDF with no text layer (a scan) is kept,
 //!   marked `no_text`, and yields nothing: there is no OCR.
@@ -39,6 +42,7 @@ use chrono::Utc;
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::import::ingest_reader::{DocumentReading, LabDocument, LabDocumentReader};
 use dravr_barrage::Tier;
+use pdf_extract::Document;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConversationTurnId, DataSource, DeviceType, TenantId};
 use pierre_core::transport::Transport;
@@ -176,6 +180,20 @@ impl From<StoredClinicalRecord> for LabRecordView {
     }
 }
 
+/// Why the nesting guard refused a PDF, as the athlete is told.
+fn refusal_reason(refusal: NestingRefusal) -> String {
+    match refusal {
+        NestingRefusal::TooDeep => "its objects nest deeper than any report does",
+        NestingRefusal::UncheckedObjectStream => {
+            "it compresses its objects in a way that cannot be checked"
+        }
+        NestingRefusal::TooIndirect => {
+            "its pages or drawings refer to one another deeper than any report does"
+        }
+    }
+    .to_owned()
+}
+
 /// A PDF's text, page by page.
 ///
 /// # Errors
@@ -189,15 +207,17 @@ pub async fn pdf_text(bytes: Bytes) -> AppResult<Vec<String>> {
     // The extractor parses an untrusted file: off the async workers, and a
     // panic in it is the file's fault, not the server's.
     let pages = spawn_blocking(move || {
-        // lopdf recurses into nested objects with no limit, and a stack
-        // overflow aborts the process: the nesting is bounded before it
-        // parses anything (`nesting`).
-        nesting::check_nesting(&bytes).map_err(|refusal| match refusal {
-            NestingRefusal::TooDeep => "its objects nest deeper than any report does".to_owned(),
-            NestingRefusal::UncheckedObjectStream => {
-                "it compresses its objects in a way that cannot be checked".to_owned()
-            }
-        })?;
+        // lopdf recurses into nested objects, and pdf-extract into the forms
+        // a page draws and up its parents, and a stack overflow aborts the
+        // process: each is bounded before the text is read (`nesting`).
+        nesting::check_nesting(&bytes).map_err(refusal_reason)?;
+        let mut document = Document::load_mem(&bytes).map_err(|e| e.to_string())?;
+        // Read as pdf-extract reads it: an encrypted file under the empty
+        // password, so the forms checked are the ones it draws.
+        if document.is_encrypted() {
+            document.decrypt("").map_err(|e| e.to_string())?;
+        }
+        nesting::check_document(&document).map_err(refusal_reason)?;
         pdf_extract::extract_text_from_mem_by_pages(&bytes).map_err(|e| e.to_string())
     })
     .await
@@ -562,6 +582,39 @@ mod tests {
     async fn a_body_that_is_not_a_pdf_is_refused_before_it_is_parsed() {
         let refused = pdf_text(Bytes::from_static(b"PK\x03\x04 a zip")).await;
         assert!(refused.is_err(), "bug: a non-PDF body was read");
+    }
+
+    /// `document` as an upload's bytes.
+    fn uploaded(mut document: Document) -> Bytes {
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        Bytes::from(bytes)
+    }
+
+    #[tokio::test]
+    async fn a_form_that_draws_itself_is_refused_not_a_stack_overflow() {
+        // pdf-extract recurses into a form that draws itself until the
+        // thread's stack overflows, which aborts the process.
+        let refused = pdf_text(uploaded(nesting::tests::document(1, Some(0), false))).await;
+        let error = refused.expect_err("bug: a self-drawing form was read");
+        assert!(
+            error.message.contains("refer to one another"),
+            "bug: the refusal names the drawing: {}",
+            error.message
+        );
+    }
+
+    #[tokio::test]
+    async fn a_page_that_is_its_own_parent_is_refused_not_a_hang() {
+        // pdf-extract climbs a page's parents for its resources and never
+        // returns from one that is its own parent.
+        let refused = pdf_text(uploaded(nesting::tests::document(0, None, true))).await;
+        let error = refused.expect_err("bug: a self-parented page was read");
+        assert!(
+            error.message.contains("refer to one another"),
+            "bug: the refusal names the pages: {}",
+            error.message
+        );
     }
 
     #[tokio::test]
