@@ -212,7 +212,7 @@ pub fn calculate_fitness_metrics(
     // truncating its input does not narrow the answer, it misstates it
     // (registre#415).
     let calculator = TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, now);
-    let training_load = athlete.training_load(&calculator, &chronological).ok();
+    let training_load = athlete.training_load(calculator, &chronological).ok();
 
     let ctl = training_load.as_ref().map_or(0.0, |l| l.ctl);
     let atl = training_load.as_ref().map_or(0.0, |l| l.atl);

@@ -1149,21 +1149,9 @@
             "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
             "type": "string"
           },
-          "baseline_hrv": {
-            "description": "User's baseline HRV (RMSSD, ms) for comparison",
-            "type": "number"
-          },
           "format": {
             "description": "'json' (default) or 'toon' (compact).",
             "type": "string"
-          },
-          "recent_hrv_values": {
-            "description": "Array of recent HRV values (RMSSD, ms) for trend analysis",
-            "items": {
-              "description": "HRV RMSSD value in milliseconds",
-              "type": "number"
-            },
-            "type": "array"
           },
           "sleep_data": {
             "description": "Manual sleep data, used instead of a fetch when no `sleep_provider` is named. Fields: date (YYYY-MM-DD or RFC 3339) and duration_hours (required), deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms, resting_hr_bpm, provider_score",
@@ -1179,63 +1167,61 @@
       "outputSchema": {
         "$defs": {
           "HrvRecoveryStatus": {
-            "description": "HRV-based recovery status",
+            "description": "Where the week's HRV sits against the athlete's own normal range",
             "oneOf": [
               {
-                "const": "recovered",
-                "description": "Fully recovered (HRV above baseline)",
+                "const": "above_normal",
+                "description": "The 7-day mean is above the normal range. Not a sign of readiness: a\nraised HRV is also seen in functional overreaching (Le Meur et al.\n2013), so it is reported as a change, never as \"ready\"",
                 "type": "string"
               },
               {
                 "const": "normal",
-                "description": "Normal recovery state (HRV at baseline)",
+                "description": "The 7-day mean is inside the normal range",
                 "type": "string"
               },
               {
-                "const": "fatigued",
-                "description": "Fatigued (HRV below baseline)",
+                "const": "below_normal",
+                "description": "The 7-day mean is below the normal range: the cue the HRV-guided\ntrials acted on by easing the next session",
                 "type": "string"
               },
               {
-                "const": "highlyfatigued",
-                "description": "Highly fatigued (HRV significantly below baseline)",
+                "const": "insufficient",
+                "description": "Too few valid nights in the week or the baseline to judge",
                 "type": "string"
               }
             ]
           },
           "HrvTrend": {
-            "description": "HRV trend direction",
+            "description": "The latest night against the week's mean, on the baseline band",
             "oneOf": [
               {
-                "const": "improving",
-                "description": "HRV is improving over time",
+                "const": "rising",
+                "description": "The latest night is above the week's mean by more than the band",
                 "type": "string"
               },
               {
                 "const": "stable",
-                "description": "HRV is stable",
+                "description": "The latest night is within the band of the week's mean",
                 "type": "string"
               },
               {
-                "const": "declining",
-                "description": "HRV is declining over time",
+                "const": "falling",
+                "description": "The latest night is below the week's mean by more than the band",
                 "type": "string"
               }
             ]
           },
           "HrvTrendAnalysis": {
-            "description": "HRV trend analysis result",
+            "description": "HRV trend analysis result\n\nThe athlete's 7-day mean of nightly ln RMSSD against their own baseline:\nthe mean and SD of nightly ln RMSSD over the [`HrvConfig::baseline_days`]\nbefore the week, with a smallest-worthwhile-change band of\n[`HrvConfig::swc_sd_multiplier`] baseline SDs either side. Milliseconds are\nreported back as the exponential of the ln means (geometric means).\n\n[`HrvConfig::baseline_days`]: crate::config::intelligence::HrvConfig::baseline_days\n[`HrvConfig::swc_sd_multiplier`]: crate::config::intelligence::HrvConfig::swc_sd_multiplier",
             "properties": {
-              "baseline_deviation_percent": {
-                "description": "Change from baseline (percentage)",
-                "format": "double",
-                "type": [
-                  "number",
-                  "null"
-                ]
+              "baseline_nights": {
+                "description": "Valid nights in the baseline",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
               },
               "baseline_rmssd": {
-                "description": "Baseline HRV (30-day average, ms)",
+                "description": "Geometric mean RMSSD of the baseline nights (ms)",
                 "format": "double",
                 "type": [
                   "number",
@@ -1243,9 +1229,12 @@
                 ]
               },
               "current_rmssd": {
-                "description": "Current HRV RMSSD value (ms)",
+                "description": "The latest valid night's RMSSD in the week (ms)",
                 "format": "double",
-                "type": "number"
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
               "insights": {
                 "description": "Insights",
@@ -1254,25 +1243,55 @@
                 },
                 "type": "array"
               },
+              "normal_range_rmssd": {
+                "description": "The athlete's normal range: the baseline band, in ms (low, high)",
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  {
+                    "format": "double",
+                    "type": "number"
+                  }
+                ],
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
               "recovery_status": {
                 "$ref": "#/$defs/HrvRecoveryStatus",
-                "description": "Recovery status based on HRV"
+                "description": "Where the week sits against the athlete's normal range"
               },
               "trend": {
                 "$ref": "#/$defs/HrvTrend",
-                "description": "Trend direction"
+                "description": "The latest night against the week's mean, on the same band"
               },
-              "weekly_average_rmssd": {
-                "description": "7-day average HRV RMSSD (ms)",
+              "weekly_nights": {
+                "description": "Valid nights in the week",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "weekly_rmssd": {
+                "description": "Geometric mean RMSSD of the week's valid nights (ms)",
                 "format": "double",
-                "type": "number"
+                "type": [
+                  "number",
+                  "null"
+                ]
               }
             },
             "required": [
               "current_rmssd",
-              "weekly_average_rmssd",
+              "weekly_rmssd",
+              "weekly_nights",
               "baseline_rmssd",
-              "baseline_deviation_percent",
+              "normal_range_rmssd",
+              "baseline_nights",
               "recovery_status",
               "trend",
               "insights"
@@ -3522,21 +3541,9 @@
             "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
             "type": "string"
           },
-          "baseline_hrv": {
-            "description": "User's baseline HRV (RMSSD, ms)",
-            "type": "number"
-          },
           "format": {
             "description": "'json' (default) or 'toon' (compact).",
             "type": "string"
-          },
-          "recent_hrv_values": {
-            "description": "Array of recent HRV values (RMSSD, ms)",
-            "items": {
-              "description": "HRV RMSSD value in milliseconds",
-              "type": "number"
-            },
-            "type": "array"
           },
           "sleep_data": {
             "description": "Manual sleep data, used instead of a fetch when no `sleep_provider` is named. Fields: date (YYYY-MM-DD or RFC 3339) and duration_hours (required), deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms, resting_hr_bpm, provider_score",
@@ -3572,26 +3579,26 @@
             ]
           },
           "HrvRecoveryStatus": {
-            "description": "HRV-based recovery status",
+            "description": "Where the week's HRV sits against the athlete's own normal range",
             "oneOf": [
               {
-                "const": "recovered",
-                "description": "Fully recovered (HRV above baseline)",
+                "const": "above_normal",
+                "description": "The 7-day mean is above the normal range. Not a sign of readiness: a\nraised HRV is also seen in functional overreaching (Le Meur et al.\n2013), so it is reported as a change, never as \"ready\"",
                 "type": "string"
               },
               {
                 "const": "normal",
-                "description": "Normal recovery state (HRV at baseline)",
+                "description": "The 7-day mean is inside the normal range",
                 "type": "string"
               },
               {
-                "const": "fatigued",
-                "description": "Fatigued (HRV below baseline)",
+                "const": "below_normal",
+                "description": "The 7-day mean is below the normal range: the cue the HRV-guided\ntrials acted on by easing the next session",
                 "type": "string"
               },
               {
-                "const": "highlyfatigued",
-                "description": "Highly fatigued (HRV significantly below baseline)",
+                "const": "insufficient",
+                "description": "Too few valid nights in the week or the baseline to judge",
                 "type": "string"
               }
             ]
@@ -35707,18 +35714,6 @@
             "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
             "type": "string"
           },
-          "baseline_hrv": {
-            "description": "User's baseline HRV (RMSSD, ms)",
-            "type": "number"
-          },
-          "recent_hrv_values": {
-            "description": "Recent HRV values (RMSSD, ms) for trend analysis",
-            "items": {
-              "description": "HRV RMSSD value in milliseconds",
-              "type": "number"
-            },
-            "type": "array"
-          },
           "sleep_data": {
             "description": "Manual data for last night's sleep, used instead of a fetch when no `sleep_provider` is named. Fields: date (YYYY-MM-DD or RFC 3339) and duration_hours (required), deep_sleep_hours, rem_sleep_hours, light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms, resting_hr_bpm, provider_score",
             "type": "object"
@@ -35753,26 +35748,26 @@
             ]
           },
           "HrvRecoveryStatus": {
-            "description": "HRV-based recovery status",
+            "description": "Where the week's HRV sits against the athlete's own normal range",
             "oneOf": [
               {
-                "const": "recovered",
-                "description": "Fully recovered (HRV above baseline)",
+                "const": "above_normal",
+                "description": "The 7-day mean is above the normal range. Not a sign of readiness: a\nraised HRV is also seen in functional overreaching (Le Meur et al.\n2013), so it is reported as a change, never as \"ready\"",
                 "type": "string"
               },
               {
                 "const": "normal",
-                "description": "Normal recovery state (HRV at baseline)",
+                "description": "The 7-day mean is inside the normal range",
                 "type": "string"
               },
               {
-                "const": "fatigued",
-                "description": "Fatigued (HRV below baseline)",
+                "const": "below_normal",
+                "description": "The 7-day mean is below the normal range: the cue the HRV-guided\ntrials acted on by easing the next session",
                 "type": "string"
               },
               {
-                "const": "highlyfatigued",
-                "description": "Highly fatigued (HRV significantly below baseline)",
+                "const": "insufficient",
+                "description": "Too few valid nights in the week or the baseline to judge",
                 "type": "string"
               }
             ]

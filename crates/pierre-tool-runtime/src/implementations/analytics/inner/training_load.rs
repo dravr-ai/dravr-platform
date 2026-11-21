@@ -138,7 +138,7 @@ pub fn analyze_detailed_training_load(
 
     // The saved thresholds: when present, they enable power-based (FTP) or
     // HR-based (LTHR) TSS instead of the less accurate pace-based fallback.
-    let Ok(training_load) = params.training_load(&calculator, &sorted_activities) else {
+    let Ok(training_load) = params.training_load(calculator, &sorted_activities) else {
         return TrainingLoadResult::NoData(NoTrainingLoad {
             message: "Unable to calculate training load - insufficient activity data".to_owned(),
             providers_used,

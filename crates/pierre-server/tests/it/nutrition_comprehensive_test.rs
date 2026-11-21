@@ -22,10 +22,12 @@
 
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_cageux::nutrition_calculator::{
-    calculate_carb_needs, calculate_daily_nutrition_needs, calculate_fat_needs,
-    calculate_mifflin_st_jeor, calculate_nutrient_timing, calculate_protein_needs, calculate_tdee,
-    ActivityLevel, DailyNutritionParams, Gender, TrainingGoal, WorkoutIntensity,
+    calculate_daily_nutrition_needs, calculate_fat_needs, calculate_mifflin_st_jeor,
+    calculate_nutrient_timing, calculate_protein_needs, calculate_tdee, ActivityLevel,
+    DailyNutritionNeeds, DailyNutritionParams, Gender, PlannedSession, TrainingDay,
+    TrainingDayLoad, TrainingGoal, WorkoutIntensity,
 };
+use dravr_cageux::zones::HrIntensity;
 
 use crate::common;
 
@@ -310,97 +312,75 @@ fn test_protein_needs_consistency_across_weights() {
 // CARBOHYDRATE NEEDS TESTS
 // ============================================================================
 
-#[test]
-fn test_carb_needs_endurance_high() {
+/// Two hours at threshold.
+const THRESHOLD_DAY: TrainingDay = TrainingDay {
+    duration_seconds: 2 * 3600,
+    intensity: HrIntensity::Hard,
+};
+
+/// A 90-minute session eaten for two hours before.
+const SESSION: PlannedSession = PlannedSession {
+    minutes: 90,
+    hours_before: 2.0,
+};
+
+fn daily_needs_70kg(
+    activity_level: ActivityLevel,
+    training_goal: TrainingGoal,
+    training: Option<TrainingDay>,
+) -> DailyNutritionNeeds {
     common::init_server_config();
     let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
     let config = &loaded_config.nutrition;
+    let params = DailyNutritionParams {
+        weight_kg: 70.0,
+        height_cm: 175.0,
+        age: 30,
+        gender: Gender::Male,
+        activity_level,
+        training_goal,
+        training,
+    };
+    calculate_daily_nutrition_needs(
+        &params,
+        &config.bmr,
+        &config.activity_factors,
+        &config.macronutrients,
+    )
+    .unwrap()
+}
 
-    let carbs = calculate_carb_needs(
-        70.0,
+#[test]
+fn test_carb_needs_follow_the_days_training() {
+    // Two hours at threshold is the endurance row, 6-10 g/kg: 420-700 g at 70 kg.
+    let endurance = daily_needs_70kg(
+        ActivityLevel::ModeratelyActive,
+        TrainingGoal::EndurancePerformance,
+        Some(THRESHOLD_DAY),
+    );
+    assert_eq!(endurance.carbohydrate_load, TrainingDayLoad::High);
+    assert!((endurance.carbs_g_range.0 - 420.0).abs() < 1e-9);
+    assert!((endurance.carbs_g_range.1 - 700.0).abs() < 1e-9);
+
+    // The goal does not move it.
+    let maintenance = daily_needs_70kg(
+        ActivityLevel::ModeratelyActive,
+        TrainingGoal::Maintenance,
+        Some(THRESHOLD_DAY),
+    );
+    assert!((maintenance.carbs_g - endurance.carbs_g).abs() < 1e-9);
+}
+
+#[test]
+fn test_carb_needs_a_day_without_training_is_the_light_row() {
+    let rest = daily_needs_70kg(
         ActivityLevel::VeryActive,
         TrainingGoal::EndurancePerformance,
-        &config.macronutrients,
-    )
-    .unwrap();
-
-    // Endurance: 6-10 g/kg
-    // Expected: ~7 * 70 = 490g
-    assert!(
-        (420.0..=700.0).contains(&carbs),
-        "Carbs should be 420-700g for endurance"
+        None,
     );
-}
-
-#[test]
-fn test_carb_needs_weight_loss_lower() {
-    common::init_server_config();
-    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
-    let config = &loaded_config.nutrition;
-
-    let carbs = calculate_carb_needs(
-        80.0,
-        ActivityLevel::Sedentary,
-        TrainingGoal::WeightLoss,
-        &config.macronutrients,
-    )
-    .unwrap();
-
-    // Weight loss: lower carbs (2-3 g/kg)
-    assert!(
-        (160.0..=240.0).contains(&carbs),
-        "Carbs should be reduced for weight loss"
-    );
-}
-
-#[test]
-fn test_carb_needs_muscle_gain() {
-    common::init_server_config();
-    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
-    let config = &loaded_config.nutrition;
-
-    let carbs = calculate_carb_needs(
-        75.0,
-        ActivityLevel::VeryActive,
-        TrainingGoal::MuscleGain,
-        &config.macronutrients,
-    )
-    .unwrap();
-
-    // Muscle gain + VeryActive = carbs_moderate_activity_g_per_kg * 1.2
-    // Expected: 6.0 * 1.2 * 75 = 540g
-    assert!(
-        (carbs - 540.0).abs() < 1.0,
-        "Carbs should be approximately 540g for muscle gain (got {carbs}g)"
-    );
-}
-
-#[test]
-fn test_carb_needs_scales_with_activity() {
-    common::init_server_config();
-    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
-    let config = &loaded_config.nutrition;
-
-    // Higher activity should need more carbs
-    let carbs_sedentary = calculate_carb_needs(
-        70.0,
-        ActivityLevel::Sedentary,
-        TrainingGoal::Maintenance,
-        &config.macronutrients,
-    )
-    .unwrap();
-    let carbs_very_active = calculate_carb_needs(
-        70.0,
-        ActivityLevel::VeryActive,
-        TrainingGoal::Maintenance,
-        &config.macronutrients,
-    )
-    .unwrap();
-
-    assert!(
-        carbs_very_active > carbs_sedentary,
-        "Higher activity should need more carbs"
-    );
+    assert_eq!(rest.carbohydrate_load, TrainingDayLoad::Light);
+    assert!((rest.carbs_g_range.0 - 210.0).abs() < 1e-9);
+    assert!((rest.carbs_g_range.1 - 350.0).abs() < 1e-9);
 }
 
 // ============================================================================
@@ -416,14 +396,7 @@ fn test_fat_needs_balanced_macros() {
     let protein_g = 150.0; // 600 kcal
     let carbs_g = 300.0; // 1200 kcal
 
-    let fat = calculate_fat_needs(
-        tdee,
-        protein_g,
-        carbs_g,
-        TrainingGoal::Maintenance,
-        &config.macronutrients,
-    )
-    .unwrap();
+    let fat = calculate_fat_needs(tdee, protein_g, carbs_g, &config.macronutrients).unwrap();
 
     // Remaining calories: 2500 - 600 - 1200 = 700 kcal
     // Fat: 700 / 9 = ~78g
@@ -440,14 +413,7 @@ fn test_fat_needs_minimum_enforced() {
     let carbs_g = 200.0; // 800 kcal
 
     // This would leave negative calories for fat, should enforce minimum
-    let fat = calculate_fat_needs(
-        tdee,
-        protein_g,
-        carbs_g,
-        TrainingGoal::Maintenance,
-        &config.macronutrients,
-    )
-    .unwrap();
+    let fat = calculate_fat_needs(tdee, protein_g, carbs_g, &config.macronutrients).unwrap();
 
     // Minimum fat: 0.3g/kg * typical 70kg = ~21g minimum
     assert!(fat >= 20.0, "Fat should be at least 20g minimum");
@@ -462,14 +428,7 @@ fn test_fat_needs_high_tdee() {
     let protein_g = 180.0; // 720 kcal
     let carbs_g = 450.0; // 1800 kcal
 
-    let fat = calculate_fat_needs(
-        tdee,
-        protein_g,
-        carbs_g,
-        TrainingGoal::EndurancePerformance,
-        &config.macronutrients,
-    )
-    .unwrap();
+    let fat = calculate_fat_needs(tdee, protein_g, carbs_g, &config.macronutrients).unwrap();
 
     // Algorithm calculates fat as remainder calories / 9
     // But ensures minimum fat percentage is met
@@ -497,6 +456,7 @@ fn test_daily_nutrition_needs_male_maintenance() {
         gender: Gender::Male,
         activity_level: ActivityLevel::ModeratelyActive,
         training_goal: TrainingGoal::Maintenance,
+        training: None,
     };
 
     let result = calculate_daily_nutrition_needs(
@@ -540,6 +500,7 @@ fn test_daily_nutrition_needs_female_weight_loss() {
         gender: Gender::Female,
         activity_level: ActivityLevel::LightlyActive,
         training_goal: TrainingGoal::WeightLoss,
+        training: None,
     };
 
     let result = calculate_daily_nutrition_needs(
@@ -550,12 +511,22 @@ fn test_daily_nutrition_needs_female_weight_loss() {
     )
     .unwrap();
 
-    // Weight loss uses protein_athlete_g_per_kg (1.8)
-    // Actual protein percentage is ~18.96% based on complete macro calculation
+    // Weight loss raises protein above the same athlete's maintenance target
+    let maintenance = calculate_daily_nutrition_needs(
+        &DailyNutritionParams {
+            training_goal: TrainingGoal::Maintenance,
+            ..params
+        },
+        &config.bmr,
+        &config.activity_factors,
+        &config.macronutrients,
+    )
+    .unwrap();
     assert!(
-        result.macro_percentages.protein_percent >= 18.0,
-        "Weight loss should have elevated protein percentage (got {}%)",
-        result.macro_percentages.protein_percent
+        result.protein_g >= maintenance.protein_g,
+        "Weight loss should not lower protein ({}g vs {}g at maintenance)",
+        result.protein_g,
+        maintenance.protein_g
     );
 
     // Should have reasonable carbs (not too low)
@@ -575,6 +546,7 @@ fn test_daily_nutrition_needs_athlete_endurance() {
         gender: Gender::Male,
         activity_level: ActivityLevel::VeryActive,
         training_goal: TrainingGoal::EndurancePerformance,
+        training: Some(THRESHOLD_DAY),
     };
 
     let result = calculate_daily_nutrition_needs(
@@ -585,11 +557,10 @@ fn test_daily_nutrition_needs_athlete_endurance() {
     )
     .unwrap();
 
-    // Endurance should have high carbs (10 g/kg)
-    // Expected: 70 * 10 = 700g
+    // A threshold day is the endurance row, 6-10 g/kg: 560 g at its middle
     assert!(
-        result.carbs_g >= 700.0,
-        "Endurance athletes need high carbs (got {}g)",
+        (result.carbs_g - 560.0).abs() < 1e-9,
+        "Carbohydrate is the middle of the day's row (got {}g)",
         result.carbs_g
     );
 
@@ -619,14 +590,19 @@ fn test_nutrient_timing_high_intensity() {
         weight_kg,
         daily_protein_g,
         WorkoutIntensity::High,
+        SESSION,
         &config.nutrient_timing,
     )
     .unwrap();
 
-    // High intensity should have significant pre-workout carbs
+    // Two hours before a 90-minute session: 2 g/kg inside the 1-4 g/kg band
+    let carbs = timing
+        .pre_workout
+        .carbs_g
+        .expect("a 90-minute session gets an amount");
     assert!(
-        timing.pre_workout.carbs_g >= 40.0,
-        "High intensity needs more pre-workout carbs"
+        (carbs - 150.0).abs() < 1e-9,
+        "2 g/kg at 75 kg is 150 g (got {carbs}g)"
     );
 
     // Should have substantial post-workout nutrition
@@ -659,15 +635,13 @@ fn test_nutrient_timing_low_intensity() {
         weight_kg,
         daily_protein_g,
         WorkoutIntensity::Low,
+        SESSION,
         &config.nutrient_timing,
     )
     .unwrap();
 
-    // Low intensity should have smaller pre-workout needs
-    assert!(
-        timing.pre_workout.carbs_g < 40.0,
-        "Low intensity needs fewer pre-workout carbs"
-    );
+    // An easy session takes no set pre-workout amount
+    assert_eq!(timing.pre_workout.carbs_g, None);
 
     // Protein distribution should be spread throughout day
     assert!(
@@ -705,17 +679,21 @@ fn test_nutrient_timing_moderate_intensity() {
         weight_kg,
         daily_protein_g,
         WorkoutIntensity::Moderate,
+        SESSION,
         &config.nutrient_timing,
     )
     .unwrap();
 
-    // Moderate intensity = weight_kg * pre_workout_carbs_g_per_kg (0.75)
-    // Expected: 70 * 0.75 = 52.5g
+    // Two hours before a 90-minute session: 1 g/kg per hour of the gap, 140 g
+    let carbs = timing
+        .pre_workout
+        .carbs_g
+        .expect("a 90-minute session gets an amount");
     assert!(
-        (timing.pre_workout.carbs_g - 52.5).abs() < 1.0,
-        "Moderate intensity pre-workout carbs should be approximately 52.5g (got {}g)",
-        timing.pre_workout.carbs_g
+        (carbs - 140.0).abs() < 1e-9,
+        "Pre-workout carbs should be 140g (got {carbs}g)"
     );
+    assert!((timing.pre_workout.timing_hours_before - 2.0).abs() < f64::EPSILON);
 
     // Should have protein distribution
     assert!(
@@ -891,6 +869,7 @@ fn test_macro_percentages_always_sum_to_100() {
             gender,
             activity_level: activity,
             training_goal: goal,
+            training: None,
         };
 
         let result = calculate_daily_nutrition_needs(
@@ -931,6 +910,7 @@ fn test_nutrient_timing_all_intensity_levels() {
             weight_kg,
             daily_protein_g,
             intensity,
+            SESSION,
             &config.nutrient_timing,
         );
         assert!(
@@ -950,6 +930,7 @@ fn test_nutrient_timing_invalid_weight() {
         0.0,
         150.0,
         WorkoutIntensity::Moderate,
+        SESSION,
         &config.nutrient_timing,
     );
     assert!(result.is_err(), "Should reject zero weight");
@@ -958,6 +939,7 @@ fn test_nutrient_timing_invalid_weight() {
         -10.0,
         150.0,
         WorkoutIntensity::Moderate,
+        SESSION,
         &config.nutrient_timing,
     );
     assert!(result.is_err(), "Should reject negative weight");

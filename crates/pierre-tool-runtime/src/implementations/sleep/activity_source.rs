@@ -118,7 +118,7 @@ pub(super) async fn training_load_of(
         athlete_zone(executor.resources.repos(), user_uuid).await,
         Utc::now(),
     );
-    physio.training_load(&calculator, activities).map_err(|e| {
+    physio.training_load(calculator, activities).map_err(|e| {
         ProtocolError::InternalError(format!(
             "sleep_analyzer: Training load calculation failed: {e}"
         ))

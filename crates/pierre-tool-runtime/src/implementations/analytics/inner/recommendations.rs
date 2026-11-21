@@ -215,7 +215,7 @@ fn generate_training_plan_recommendations(
     // Calculate training load metrics
     let calculator =
         TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, Utc::now());
-    let training_load = athlete.training_load(&calculator, &sorted).ok();
+    let training_load = athlete.training_load(calculator, &sorted).ok();
 
     let mut recommendations = Vec::new();
     let mut priority = "medium";
@@ -439,7 +439,7 @@ fn generate_recovery_recommendations(
     // Calculate TSB (Training Stress Balance)
     let calculator =
         TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, Utc::now());
-    let training_load = athlete.training_load(&calculator, &sorted).ok();
+    let training_load = athlete.training_load(calculator, &sorted).ok();
 
     // Detect overtraining signals
     let overtraining_signals = PatternDetector::detect_overtraining_signals(activities, hr_zones);
@@ -716,7 +716,7 @@ fn generate_comprehensive_recommendations(
     // Comprehensive analysis using all available modules
     let calculator =
         TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, Utc::now());
-    let training_load = athlete.training_load(&calculator, &sorted).ok();
+    let training_load = athlete.training_load(calculator, &sorted).ok();
 
     let volume_pattern = PatternDetector::detect_volume_progression(activities);
     let intensity_pattern = PatternDetector::detect_hard_easy_pattern(activities, hr_zones);

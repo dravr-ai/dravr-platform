@@ -607,7 +607,7 @@ export FITNESS_WEATHER_ENABLED="true"
 export FITNESS_PR_PACE_IMPROVEMENT_THRESHOLD="5.0"
 
 # Algorithm Selection
-# export PIERRE_TSS_ALGORITHM="avg_power"     # Options: avg_power, normalized_power, hybrid
+# export PIERRE_TSS_ALGORITHM="hybrid"        # Options: hybrid (default), normalized_power, avg_power
 # export PIERRE_MAXHR_ALGORITHM="tanaka"      # Options: fox, tanaka, nes, gulati
 
 # ============================================================================
@@ -639,11 +639,6 @@ export FITNESS_PR_PACE_IMPROVEMENT_THRESHOLD="5.0"
 # export INTELLIGENCE_SLEEP_EFFICIENCY_EXCELLENT=""
 # export INTELLIGENCE_SLEEP_EFFICIENCY_GOOD=""
 # export INTELLIGENCE_SLEEP_EFFICIENCY_POOR=""
-
-# HRV Thresholds
-# export INTELLIGENCE_HRV_RMSSD_DECREASE_CONCERN=""
-# export INTELLIGENCE_HRV_RMSSD_INCREASE_GOOD=""
-# export INTELLIGENCE_HRV_BASELINE_DEVIATION_CONCERN=""
 
 # Recovery Scoring
 # export INTELLIGENCE_RECOVERY_EXCELLENT_THRESHOLD=""

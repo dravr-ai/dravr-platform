@@ -451,10 +451,13 @@ pub fn register_algorithm_selection<S: BuildHasher>(
         ParameterDefinition {
             key: "algorithm.tss".to_owned(),
             display_name: "TSS Calculation Method".to_owned(),
-            description: "Algorithm for Training Stress Score calculation".to_owned(),
+            description: "Power TSS method: hybrid (normalized power from the stream or the \
+                          provider, average power only when neither exists), normalized_power, \
+                          or avg_power"
+                .to_owned(),
             category: "algorithms".to_owned(),
             data_type: ConfigDataType::Enum,
-            default_value: serde_json::json!("avg_power"),
+            default_value: serde_json::json!("hybrid"),
             valid_range: None,
             enum_options: Some(vec![
                 "avg_power".to_owned(),

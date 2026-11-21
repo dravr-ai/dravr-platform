@@ -7,10 +7,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use chrono::{Duration, NaiveDate, Utc};
 use dravr_cageux::config::intelligence::{IntelligenceConfig, SleepRecoveryConfig};
 use dravr_cageux::sleep_analysis::{
-    HrvRecoveryStatus, HrvTrend, SleepAnalyzer, SleepData, SleepQualityCategory,
+    HrvRecoveryStatus, HrvTrend, NightlyHrv, SleepAnalyzer, SleepData, SleepQualityCategory,
 };
 
 /// Helper to get default test config
@@ -54,25 +54,6 @@ fn test_sleep_quality_calculation() {
     let quality = result.unwrap();
     assert!(quality.overall_score >= 80.0);
     assert_eq!(quality.quality_category, SleepQualityCategory::Excellent);
-}
-
-#[test]
-fn test_hrv_trend_analysis() {
-    let config = test_config();
-    let result = SleepAnalyzer::analyze_hrv_trends(
-        50.0,
-        &[48.0, 49.0, 47.0, 50.0, 51.0],
-        Some(45.0),
-        &config,
-    );
-    assert!(result.is_ok());
-
-    let analysis = result.unwrap();
-    // Current=50.0, weekly_avg=49.0, change=1.0ms (< 5.0ms threshold) → Normal status
-    // Baseline deviation: (50-45)/45*100 = 11.1% (< 15% concern threshold) → positive but not alarming
-    assert_eq!(analysis.recovery_status, HrvRecoveryStatus::Normal);
-    assert!((analysis.current_rmssd - 50.0).abs() < 0.001);
-    assert!((analysis.weekly_average_rmssd - 49.0).abs() < 0.001);
 }
 
 // ============================================================================
@@ -487,141 +468,65 @@ fn test_sleep_quality_with_provider_score() {
 // COMPREHENSIVE TESTS FOR HRV TREND ANALYSIS
 // ============================================================================
 
-#[test]
-fn test_hrv_analysis_empty_history() {
-    let config = test_config();
-    let result = SleepAnalyzer::analyze_hrv_trends(50.0, &[], Some(45.0), &config);
-    assert!(
-        result.is_ok(),
-        "Should handle empty HRV history by using current value as average"
-    );
+// cageux judges the week's ln RMSSD mean against the athlete's own 28-day
+// band; its reference tests pin the method. These check the platform's view
+// of it: the statuses the sleep tools report.
+
+fn as_of() -> NaiveDate {
+    NaiveDate::from_ymd_opt(2026, 11, 30).unwrap()
+}
+
+/// 28 baseline nights around 60 ms, then `week`, one night a day up to `as_of`.
+fn nights(week: &[f64]) -> Vec<NightlyHrv> {
+    let mut values: Vec<f64> = [60.0, 68.0, 54.0, 63.0, 70.0, 52.0, 58.0]
+        .iter()
+        .copied()
+        .cycle()
+        .take(28)
+        .collect();
+    values.extend_from_slice(week);
+    let first = as_of() - Duration::days(i64::try_from(values.len()).unwrap() - 1);
+    values
+        .iter()
+        .enumerate()
+        .map(|(i, &rmssd_ms)| NightlyHrv {
+            date: first + Duration::days(i64::try_from(i).unwrap()),
+            rmssd_ms,
+        })
+        .collect()
 }
 
 #[test]
-fn test_hrv_analysis_single_value() {
-    let config = test_config();
-    let result = SleepAnalyzer::analyze_hrv_trends(50.0, &[48.0], Some(45.0), &config);
-    assert!(result.is_ok(), "Should handle single historical value");
-    let analysis = result.unwrap();
-    assert!((analysis.weekly_average_rmssd - 48.0).abs() < 0.001);
-}
-
-#[test]
-fn test_hrv_analysis_negative_current() {
-    let config = test_config();
-    let result = SleepAnalyzer::analyze_hrv_trends(-10.0, &[48.0, 49.0], Some(45.0), &config);
-    assert!(result.is_err(), "Should error on negative current HRV");
-}
-
-#[test]
-fn test_hrv_analysis_zero_current() {
-    let config = test_config();
-    let result = SleepAnalyzer::analyze_hrv_trends(0.0, &[48.0, 49.0], Some(45.0), &config);
-    assert!(result.is_err(), "Should error on zero current HRV");
-}
-
-#[test]
-fn test_hrv_analysis_negative_baseline() {
-    let config = test_config();
-    let result = SleepAnalyzer::analyze_hrv_trends(50.0, &[48.0, 49.0], Some(-10.0), &config);
-    assert!(result.is_ok(), "Should handle negative baseline gracefully");
-}
-
-#[test]
-fn test_hrv_analysis_recovered_status() {
-    let config = test_config();
-    // Current 55.0, weekly avg 48.0, change = 7.0ms (> 5.0ms threshold)
-    let result = SleepAnalyzer::analyze_hrv_trends(55.0, &[48.0, 49.0, 47.0], Some(45.0), &config);
-    assert!(result.is_ok());
-    let analysis = result.unwrap();
-    assert_eq!(analysis.recovery_status, HrvRecoveryStatus::Recovered);
-}
-
-#[test]
-fn test_hrv_analysis_fatigued_status() {
-    let config = test_config();
-    // Current 42.0, weekly avg 48.0, baseline 45.0 → deviation -6.67% (between -5% and -15%)
-    let result = SleepAnalyzer::analyze_hrv_trends(42.0, &[48.0, 49.0, 47.0], Some(45.0), &config);
-    assert!(result.is_ok());
-    let analysis = result.unwrap();
-    assert_eq!(analysis.recovery_status, HrvRecoveryStatus::Fatigued);
-}
-
-#[test]
-fn test_hrv_analysis_highly_fatigued_with_low_baseline() {
-    let config = test_config();
-    // Current 30.0, baseline 50.0, deviation = -40% (< -15% threshold)
-    let result = SleepAnalyzer::analyze_hrv_trends(30.0, &[31.0, 32.0, 29.0], Some(50.0), &config);
-    assert!(result.is_ok());
-    let analysis = result.unwrap();
-    assert_eq!(analysis.recovery_status, HrvRecoveryStatus::HighlyFatigued);
-}
-
-#[test]
-fn test_hrv_analysis_no_baseline() {
-    let config = test_config();
-    let result = SleepAnalyzer::analyze_hrv_trends(50.0, &[48.0, 49.0, 47.0], None, &config);
-    assert!(result.is_ok());
-    let analysis = result.unwrap();
-    assert!(
-        analysis.baseline_deviation_percent.is_none(),
-        "Should have no baseline deviation when baseline not provided"
-    );
-}
-
-#[test]
-fn test_hrv_trend_improving() {
-    let config = test_config();
-    // Current 52.0, weekly avg 48.0, change = +8.3% (> 5%)
-    let result = SleepAnalyzer::analyze_hrv_trends(52.0, &[48.0, 47.0, 49.0], Some(45.0), &config);
-    assert!(result.is_ok());
-    let analysis = result.unwrap();
-    assert_eq!(analysis.trend, HrvTrend::Improving);
-}
-
-#[test]
-fn test_hrv_trend_declining() {
-    let config = test_config();
-    // Current 44.0, weekly avg 50.0, change = -12% (< -5%)
-    let result = SleepAnalyzer::analyze_hrv_trends(44.0, &[50.0, 51.0, 49.0], Some(50.0), &config);
-    assert!(result.is_ok());
-    let analysis = result.unwrap();
-    assert_eq!(analysis.trend, HrvTrend::Declining);
-}
-
-#[test]
-fn test_hrv_trend_stable() {
-    let config = test_config();
-    // Current 50.0, weekly avg 49.0, change = +2% (between -5% and 5%)
-    let result = SleepAnalyzer::analyze_hrv_trends(50.0, &[49.0, 48.0, 50.0], Some(48.0), &config);
-    assert!(result.is_ok());
-    let analysis = result.unwrap();
-    assert_eq!(analysis.trend, HrvTrend::Stable);
-}
-
-#[test]
-fn test_hrv_analysis_insights_generated() {
-    let config = test_config();
-    let result = SleepAnalyzer::analyze_hrv_trends(50.0, &[48.0, 49.0], Some(45.0), &config);
-    assert!(result.is_ok());
-    let analysis = result.unwrap();
+fn test_hrv_week_like_the_baseline_is_normal() {
+    let analysis = SleepAnalyzer::analyze_hrv_trends(
+        &nights(&[60.0, 68.0, 54.0, 63.0, 70.0, 52.0, 58.0]),
+        as_of(),
+        &test_config(),
+    )
+    .unwrap();
+    assert_eq!(analysis.recovery_status, HrvRecoveryStatus::Normal);
+    assert_eq!(analysis.weekly_nights, 7);
     assert!(!analysis.insights.is_empty(), "Should generate insights");
-    // Should mention current HRV and weekly average
-    assert!(analysis.insights[0].contains("Current HRV"));
 }
 
 #[test]
-fn test_hrv_analysis_extreme_values() {
-    let config = test_config();
-    // Test very high HRV (athletic recovery)
-    let result =
-        SleepAnalyzer::analyze_hrv_trends(120.0, &[115.0, 118.0, 116.0], Some(100.0), &config);
-    assert!(result.is_ok());
+fn test_hrv_week_below_the_band_is_below_normal() {
+    let analysis = SleepAnalyzer::analyze_hrv_trends(
+        &nights(&[50.0, 49.0, 52.0, 48.0, 51.0, 50.0, 49.0]),
+        as_of(),
+        &test_config(),
+    )
+    .unwrap();
+    assert_eq!(analysis.recovery_status, HrvRecoveryStatus::BelowNormal);
+}
 
-    // Test very low HRV (stress/overtraining)
-    let result = SleepAnalyzer::analyze_hrv_trends(20.0, &[22.0, 21.0, 23.0], Some(45.0), &config);
-    assert!(result.is_ok());
-    let analysis = result.unwrap();
-    // Should detect highly fatigued status
-    assert_eq!(analysis.recovery_status, HrvRecoveryStatus::HighlyFatigued);
+#[test]
+fn test_hrv_without_history_is_insufficient_not_normal() {
+    let lone_night = [NightlyHrv {
+        date: as_of(),
+        rmssd_ms: 50.0,
+    }];
+    let analysis = SleepAnalyzer::analyze_hrv_trends(&lone_night, as_of(), &test_config()).unwrap();
+    assert_eq!(analysis.recovery_status, HrvRecoveryStatus::Insufficient);
+    assert_eq!(analysis.trend, HrvTrend::Stable);
 }

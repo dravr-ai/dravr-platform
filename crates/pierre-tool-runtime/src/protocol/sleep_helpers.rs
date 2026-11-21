@@ -21,10 +21,12 @@
 //! only the rows each source's provider terms let the reader see reach the
 //! merge. A night is dated by the morning it ended on, in the athlete's zone.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use chrono::{Duration, NaiveDate, Utc};
-use dravr_cageux::sleep_analysis::SleepData;
+use dravr_cageux::config::intelligence::SleepRecoveryConfig;
+use dravr_cageux::error::IntelligenceError;
+use dravr_cageux::sleep_analysis::{HrvTrendAnalysis, NightlyHrv, SleepAnalyzer, SleepData};
 use pierre_core::models::{
     Merged, StoredRecoveryMetrics, StoredSleepSession, StoredSleepStageType, TenantId,
 };
@@ -101,6 +103,56 @@ pub async fn stored_sleep_nights(
         .collect();
     nights.reverse();
     Ok(nights)
+}
+
+/// The HRV trend of the night `sleep_data` describes: the athlete's own
+/// stored nightly RMSSD, judged by cageux as the week ending that night
+/// against the weeks before it ([`SleepAnalyzer::analyze_hrv_trends`]).
+///
+/// The nights come from the same source as the analysed one when a
+/// `source` is named, so two devices' RMSSD, which run at different levels,
+/// never share one baseline. The analysed night's own HRV joins the series
+/// when it is not a stored night (a `sleep_data` passed by hand); without a
+/// user there is no stored history and the week reads `insufficient`. `None`
+/// when that night carries no HRV, as before; a stored history too short to
+/// judge reads `insufficient`, never `normal`.
+///
+/// # Errors
+/// Returns cageux's error when the configured HRV band or windows are not
+/// positive.
+pub async fn hrv_trend(
+    executor: &UniversalToolExecutor,
+    user_uuid: Option<Uuid>,
+    tenant_id: Option<&str>,
+    source: Option<&str>,
+    sleep_data: &SleepData,
+    config: &SleepRecoveryConfig,
+) -> Result<Option<HrvTrendAnalysis>, IntelligenceError> {
+    let Some(rmssd) = sleep_data.hrv_rmssd_ms else {
+        return Ok(None);
+    };
+    let as_of = sleep_data.date.date_naive();
+    // The baseline, the week, and a night either side for the window's edges.
+    let days = config.hrv.baseline_days.saturating_add(8);
+    let stored = match user_uuid {
+        Some(user_uuid) => sleep_history_data(executor, user_uuid, tenant_id, source, days)
+            .await
+            .unwrap_or_else(|_| {
+                warn!("stored sleep unreadable; HRV trend judged on the analysed night alone");
+                Vec::new()
+            }),
+        None => Vec::new(),
+    };
+    let mut by_night: BTreeMap<NaiveDate, f64> = stored
+        .iter()
+        .filter_map(|(night, _)| Some((night.date.date_naive(), night.hrv_rmssd_ms?)))
+        .collect();
+    by_night.entry(as_of).or_insert(rmssd);
+    let nights: Vec<NightlyHrv> = by_night
+        .into_iter()
+        .map(|(date, rmssd_ms)| NightlyHrv { date, rmssd_ms })
+        .collect();
+    SleepAnalyzer::analyze_hrv_trends(&nights, as_of, config).map(Some)
 }
 
 /// Synced nights over the last `days` days as `SleepData`, newest first.

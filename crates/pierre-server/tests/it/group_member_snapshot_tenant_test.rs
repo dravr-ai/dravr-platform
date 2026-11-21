@@ -387,7 +387,7 @@ mod snapshot_tenant_tests {
             Utc::now().date_naive(),
         );
         let expected = AthleteInputs::from_profile(Some(&profile))
-            .training_load(&calculator, &rides)
+            .training_load(calculator, &rides)
             .unwrap()
             .ctl;
         assert!(

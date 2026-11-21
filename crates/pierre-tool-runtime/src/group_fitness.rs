@@ -664,7 +664,7 @@ fn build_snapshot_from_activities(
     let calculator = TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, now);
     let today = calculator.as_of();
     let algorithm = calculator.algorithm();
-    let daily = athlete.map(|athlete| athlete.daily_tss(&calculator, activities));
+    let daily = athlete.map(|athlete| athlete.daily_tss(calculator, activities));
     // Diagnoses a member with N workouts landing at an unexpectedly low
     // CTL/ATL (e.g. WHOOP entries with no distance or HR); cageux logs each
     // session it could not score.
@@ -1052,7 +1052,7 @@ mod tests {
             let config = AlgorithmConfig::default();
             let activities = hard_week_ending_yesterday(now, tz);
             let calculator = TrainingLoadCalculator::as_of_today(config.clone(), tz, now);
-            let daily = ada_thresholds().daily_tss(&calculator, &activities);
+            let daily = ada_thresholds().daily_tss(calculator, &activities);
             let expected = load_on(&config.training_load_algorithm(), &daily, here).unwrap();
             assert_eq!(snapshot.ctl, Some(expected.ctl), "{zone} at {now}");
             assert_eq!(snapshot.tsb, Some(expected.tsb), "{zone} at {now}");

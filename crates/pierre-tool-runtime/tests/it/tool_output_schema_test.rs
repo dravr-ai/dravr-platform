@@ -19,6 +19,7 @@
 
 use chrono::NaiveDate;
 use chrono_tz::America::Montreal;
+use dravr_cageux::nutrition_calculator::TrainingDayLoad;
 use dravr_meteo::{
     DummyWeatherProvider, GeocodeError, Geocoded, Geocoder, Place, PlaceQuery, WeatherError,
     WeatherProvider, WeatherQuery, WeatherSample,
@@ -638,7 +639,10 @@ fn calculate_daily_nutrition_declares_a_schema_that_accepts_its_payload() {
         tdee: 2740.0,
         protein_g: 150.0,
         carbs_g: 340.0,
+        carbs_g_range: (280.0, 400.0),
+        carbohydrate_load: TrainingDayLoad::Moderate,
         fat_g: 85.0,
+        energy_from_macros_kcal: 2740.0,
         protein_percent: 22.0,
         carbs_percent: 50.0,
         fat_percent: 28.0,
@@ -673,7 +677,7 @@ fn get_nutrient_timing_declares_a_schema_that_accepts_its_payload() {
     let sample = NutrientTimingResult {
         pre_workout: PreWorkoutTiming {
             timing_hours_before: 2.0,
-            carbs_g: 60.0,
+            carbs_g: Some(140.0),
             recommendations: vec!["Porridge and a banana".to_owned()],
         },
         post_workout: PostWorkoutTiming {
@@ -733,7 +737,10 @@ fn a_gated_nutrition_answer_is_one_arm_or_the_other() {
         tdee: 2740.0,
         protein_g: 150.0,
         carbs_g: 340.0,
+        carbs_g_range: (280.0, 400.0),
+        carbohydrate_load: TrainingDayLoad::Moderate,
         fat_g: 85.0,
+        energy_from_macros_kcal: 2740.0,
         protein_percent: 22.0,
         carbs_percent: 50.0,
         fat_percent: 28.0,

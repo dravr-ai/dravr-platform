@@ -27,6 +27,21 @@ fn test_config() -> SleepRecoveryConfig {
     IntelligenceConfig::default().sleep_recovery
 }
 
+/// A week judged `recovery_status` against a 60 ms baseline.
+fn hrv(recovery_status: HrvRecoveryStatus) -> HrvTrendAnalysis {
+    HrvTrendAnalysis {
+        current_rmssd: Some(58.0),
+        weekly_rmssd: Some(57.0),
+        weekly_nights: 7,
+        baseline_rmssd: Some(60.0),
+        normal_range_rmssd: Some((57.0, 63.0)),
+        baseline_nights: 28,
+        recovery_status,
+        trend: HrvTrend::Stable,
+        insights: vec![],
+    }
+}
+
 /// Helper to get default test algorithm (matches config weights)
 fn test_algorithm() -> RecoveryAggregationAlgorithm {
     let config = test_config();
@@ -168,50 +183,17 @@ fn test_form_scoring_without_chronic_base_is_neutral() {
 // ============================================================================
 
 #[test]
-fn test_hrv_scoring_highly_fatigued() {
-    let hrv = HrvTrendAnalysis {
-        current_rmssd: 30.0,
-        weekly_average_rmssd: 50.0,
-        baseline_rmssd: Some(45.0),
-        baseline_deviation_percent: Some(-40.0),
-        trend: HrvTrend::Declining,
-        recovery_status: HrvRecoveryStatus::HighlyFatigued,
-        insights: vec![],
-    };
-    let score = RecoveryCalculator::score_hrv(&hrv);
-    assert!(score < 30.0, "Highly fatigued HRV should score <30");
-}
-
-#[test]
-fn test_hrv_scoring_fatigued() {
-    let hrv = HrvTrendAnalysis {
-        current_rmssd: 42.0,
-        weekly_average_rmssd: 50.0,
-        baseline_rmssd: Some(45.0),
-        baseline_deviation_percent: Some(-16.0),
-        trend: HrvTrend::Declining,
-        recovery_status: HrvRecoveryStatus::Fatigued,
-        insights: vec![],
-    };
-    let score = RecoveryCalculator::score_hrv(&hrv);
+fn test_hrv_scoring_below_normal() {
+    let score = RecoveryCalculator::score_hrv(&hrv(HrvRecoveryStatus::BelowNormal)).unwrap();
     assert!(
         (30.0..60.0).contains(&score),
-        "Fatigued HRV should score 30-60"
+        "A week below the normal range should score 30-60"
     );
 }
 
 #[test]
 fn test_hrv_scoring_normal() {
-    let hrv = HrvTrendAnalysis {
-        current_rmssd: 50.0,
-        weekly_average_rmssd: 49.0,
-        baseline_rmssd: Some(45.0),
-        baseline_deviation_percent: Some(2.0),
-        trend: HrvTrend::Stable,
-        recovery_status: HrvRecoveryStatus::Normal,
-        insights: vec![],
-    };
-    let score = RecoveryCalculator::score_hrv(&hrv);
+    let score = RecoveryCalculator::score_hrv(&hrv(HrvRecoveryStatus::Normal)).unwrap();
     assert!(
         (60.0..85.0).contains(&score),
         "Normal HRV should score 60-85"
@@ -219,18 +201,20 @@ fn test_hrv_scoring_normal() {
 }
 
 #[test]
-fn test_hrv_scoring_recovered() {
-    let hrv = HrvTrendAnalysis {
-        current_rmssd: 58.0,
-        weekly_average_rmssd: 50.0,
-        baseline_rmssd: Some(45.0),
-        baseline_deviation_percent: Some(16.0),
-        trend: HrvTrend::Improving,
-        recovery_status: HrvRecoveryStatus::Recovered,
-        insights: vec![],
-    };
-    let score = RecoveryCalculator::score_hrv(&hrv);
-    assert!(score >= 85.0, "Recovered HRV should score >=85");
+fn test_hrv_scoring_above_normal_earns_no_readiness_bonus() {
+    assert_eq!(
+        RecoveryCalculator::score_hrv(&hrv(HrvRecoveryStatus::AboveNormal)),
+        RecoveryCalculator::score_hrv(&hrv(HrvRecoveryStatus::Normal)),
+        "a raised HRV is not read as extra recovery"
+    );
+}
+
+#[test]
+fn test_hrv_scoring_insufficient_is_left_out() {
+    assert_eq!(
+        RecoveryCalculator::score_hrv(&hrv(HrvRecoveryStatus::Insufficient)),
+        None
+    );
 }
 
 // ============================================================================
@@ -290,15 +274,7 @@ fn test_recovery_score_all_components() {
         insights: vec![],
         recommendations: vec![],
     };
-    let hrv = HrvTrendAnalysis {
-        current_rmssd: 55.0,
-        weekly_average_rmssd: 50.0,
-        baseline_rmssd: Some(45.0),
-        baseline_deviation_percent: Some(10.0),
-        trend: HrvTrend::Improving,
-        recovery_status: HrvRecoveryStatus::Recovered,
-        insights: vec![],
-    };
+    let hrv = hrv(HrvRecoveryStatus::AboveNormal);
 
     let result = RecoveryCalculator::calculate_recovery_score(
         &training_load,
@@ -373,15 +349,7 @@ fn test_recovery_score_all_poor() {
         insights: vec![],
         recommendations: vec![],
     };
-    let hrv = HrvTrendAnalysis {
-        current_rmssd: 25.0,
-        weekly_average_rmssd: 50.0,
-        baseline_rmssd: Some(50.0),
-        baseline_deviation_percent: Some(-50.0),
-        trend: HrvTrend::Declining,
-        recovery_status: HrvRecoveryStatus::HighlyFatigued,
-        insights: vec![],
-    };
+    let hrv = hrv(HrvRecoveryStatus::BelowNormal);
 
     let result = RecoveryCalculator::calculate_recovery_score(
         &training_load,
@@ -487,7 +455,6 @@ fn test_training_readiness_excellent_recovery() {
         90.0,                  // overall_score
         &load_at(100.0, 10.0), // fresh: +10% of CTL
         SleepQualityCategory::Excellent,
-        Some(HrvRecoveryStatus::Recovered),
         &config,
     );
     assert_eq!(
@@ -504,7 +471,6 @@ fn test_training_readiness_good_recovery() {
         75.0,                 // overall_score
         &load_at(100.0, 5.0), // +5% of CTL
         SleepQualityCategory::Good,
-        Some(HrvRecoveryStatus::Normal),
         &config,
     );
     assert_eq!(
@@ -521,7 +487,6 @@ fn test_training_readiness_fair_recovery() {
         60.0,                  // overall_score
         &load_at(100.0, -2.0), // balanced: -2% of CTL
         SleepQualityCategory::Fair,
-        Some(HrvRecoveryStatus::Normal),
         &config,
     );
     assert_eq!(
@@ -538,7 +503,6 @@ fn test_training_readiness_poor_recovery() {
         35.0,                   // overall_score
         &load_at(100.0, -15.0), // productive: -15% of CTL
         SleepQualityCategory::Poor,
-        Some(HrvRecoveryStatus::Fatigued),
         &config,
     );
     assert_eq!(
@@ -556,7 +520,6 @@ fn test_training_readiness_high_tsb_but_poor_sleep() {
         55.0,                  // overall_score - fair due to poor sleep
         &load_at(100.0, 12.0), // fresh: +12% of CTL
         SleepQualityCategory::Poor,
-        None,
         &config,
     );
     assert_eq!(
@@ -1144,15 +1107,7 @@ fn test_data_completeness_values() {
     assert!(recovery.components.sleep_score.is_some());
 
     // TSB + Sleep + HRV should be Full
-    let hrv = HrvTrendAnalysis {
-        current_rmssd: 50.0,
-        weekly_average_rmssd: 49.0,
-        baseline_rmssd: Some(45.0),
-        baseline_deviation_percent: Some(2.0),
-        trend: HrvTrend::Stable,
-        recovery_status: HrvRecoveryStatus::Normal,
-        insights: vec![],
-    };
+    let hrv = hrv(HrvRecoveryStatus::Normal);
     let result = RecoveryCalculator::calculate_recovery_score(
         &training_load,
         &sleep_quality,
