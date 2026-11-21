@@ -537,19 +537,25 @@ mod tests {
         }
     }
 
-    /// Keep a second dispatcher registered for the rest of the test binary.
+    /// Keep two inert dispatchers registered for the rest of the test binary.
     ///
-    /// While exactly one dispatcher is registered, `tracing-core` computes a
+    /// While at most one dispatcher is registered, `tracing-core` computes a
     /// callsite's interest from the dispatcher of whichever thread registers
     /// it, without taking its lock. A sibling test reaching the usage log site
     /// first, on a thread with no subscriber, then caches it as "never" for
     /// every thread, and the line this test holds a subscriber for is dropped.
-    /// With a second one always registered, every registration is computed
-    /// from the registered dispatchers, under the lock that installing the
-    /// test's subscriber also takes.
-    fn register_a_second_dispatcher() {
-        static SECOND: OnceLock<Dispatch> = OnceLock::new();
-        SECOND.get_or_init(|| Dispatch::new(NoSubscriber::default()));
+    /// The count is taken when a dispatcher registers, so it takes two to turn
+    /// that path off before the test's setup runs; from then on every
+    /// registration reads the registered dispatchers under the lock that
+    /// installing the test's subscriber also takes.
+    fn register_two_inert_dispatchers() {
+        static INERT: OnceLock<[Dispatch; 2]> = OnceLock::new();
+        INERT.get_or_init(|| {
+            [
+                Dispatch::new(NoSubscriber::default()),
+                Dispatch::new(NoSubscriber::default()),
+            ]
+        });
     }
 
     /// Log lines written while a test holds the subscriber.
@@ -824,7 +830,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_refusal_is_marked_and_logged_once_on_the_usage_target() {
-        register_a_second_dispatcher();
+        register_two_inert_dispatchers();
         let (repos, limiter) = limiter().await;
         let athlete = Uuid::new_v4();
         let asked = session_read_counter_key(STRAVA_SESSION, "asked", athlete);
