@@ -2583,7 +2583,56 @@
     "kindClinical": "Clinical records",
     "kindGlucose": "Glucose",
     "kindSelfReports": "Cycle tracking",
-    "dailyGlucose": "Daily value"
+    "dailyGlucose": "Daily value",
+    "deleteConfirmTitle": "Delete this lab report?",
+    "deleteConfirmBody": "The report and every result read from it are deleted, confirmed ones included. This cannot be undone.",
+    "checks": {
+      "date_missing": "No date was found for this result",
+      "flag_inconsistent": "The report's high or low flag does not match its reference range",
+      "flag_not_printed": "Outside the reference range, but the report shows no flag",
+      "implausible_value": "This value is outside what this test can measure",
+      "possible_lost_decimal": "The decimal point may have been misread",
+      "range_atypical": "The report's reference range is unusual for this test"
+    },
+    "selfReport": {
+      "kind": {
+        "menstrual_flow": "Menstrual flow",
+        "intermenstrual_bleeding": "Spotting",
+        "ovulation_test": "Ovulation test",
+        "cervical_mucus": "Cervical mucus",
+        "sexual_activity": "Sexual activity",
+        "contraceptive": "Contraceptive",
+        "pregnancy_test": "Pregnancy test",
+        "progesterone_test": "Progesterone test",
+        "pregnancy": "Pregnancy",
+        "lactation": "Breastfeeding",
+        "basal_body_temperature": "Basal body temperature",
+        "mindful_session": "Mindfulness session"
+      },
+      "value": {
+        "unspecified": "Not specified",
+        "none": "None",
+        "light": "Light",
+        "medium": "Medium",
+        "heavy": "Heavy",
+        "negative": "Negative",
+        "positive": "Positive",
+        "indeterminate": "Inconclusive",
+        "lh_surge": "LH surge",
+        "estrogen_surge": "Estrogen surge",
+        "dry": "Dry",
+        "sticky": "Sticky",
+        "creamy": "Creamy",
+        "watery": "Watery",
+        "egg_white": "Egg white",
+        "implant": "Implant",
+        "injection": "Injection",
+        "intrauterine_device": "IUD",
+        "intravaginal_ring": "Vaginal ring",
+        "oral": "Pill",
+        "patch": "Patch"
+      }
+    }
   },
   "home": {
     "plan": {

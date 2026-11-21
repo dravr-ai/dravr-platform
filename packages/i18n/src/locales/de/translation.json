@@ -2583,7 +2583,56 @@
     "kindClinical": "Klinische Unterlagen",
     "kindGlucose": "Blutzucker",
     "kindSelfReports": "Zyklustracking",
-    "dailyGlucose": "Tageswert"
+    "dailyGlucose": "Tageswert",
+    "deleteConfirmTitle": "Diesen Laborbericht löschen?",
+    "deleteConfirmBody": "Der Bericht und alle daraus gelesenen Werte werden gelöscht, auch die, die du bestätigt hast. Das lässt sich nicht rückgängig machen.",
+    "checks": {
+      "date_missing": "Für diesen Wert wurde kein Datum gefunden",
+      "flag_inconsistent": "Die Hoch- oder Tief-Markierung im Bericht passt nicht zu seinem Referenzbereich",
+      "flag_not_printed": "Außerhalb des Referenzbereichs, aber der Bericht zeigt keine Markierung",
+      "implausible_value": "Dieser Wert liegt außerhalb dessen, was dieser Test messen kann",
+      "possible_lost_decimal": "Das Dezimalkomma wurde womöglich falsch gelesen",
+      "range_atypical": "Der Referenzbereich im Bericht ist für diesen Test ungewöhnlich"
+    },
+    "selfReport": {
+      "kind": {
+        "menstrual_flow": "Menstruationsblutung",
+        "intermenstrual_bleeding": "Schmierblutung",
+        "ovulation_test": "Ovulationstest",
+        "cervical_mucus": "Zervixschleim",
+        "sexual_activity": "Sexuelle Aktivität",
+        "contraceptive": "Verhütung",
+        "pregnancy_test": "Schwangerschaftstest",
+        "progesterone_test": "Progesterontest",
+        "pregnancy": "Schwangerschaft",
+        "lactation": "Stillen",
+        "basal_body_temperature": "Basaltemperatur",
+        "mindful_session": "Achtsamkeitsübung"
+      },
+      "value": {
+        "unspecified": "Nicht angegeben",
+        "none": "Keine",
+        "light": "Leicht",
+        "medium": "Mittel",
+        "heavy": "Stark",
+        "negative": "Negativ",
+        "positive": "Positiv",
+        "indeterminate": "Nicht eindeutig",
+        "lh_surge": "LH-Anstieg",
+        "estrogen_surge": "Östrogenanstieg",
+        "dry": "Trocken",
+        "sticky": "Klebrig",
+        "creamy": "Cremig",
+        "watery": "Wässrig",
+        "egg_white": "Spinnbar",
+        "implant": "Implantat",
+        "injection": "Spritze",
+        "intrauterine_device": "Spirale",
+        "intravaginal_ring": "Vaginalring",
+        "oral": "Pille",
+        "patch": "Pflaster"
+      }
+    }
   },
   "home": {
     "plan": {

@@ -2583,7 +2583,56 @@
     "kindClinical": "Prontuários clínicos",
     "kindGlucose": "Glicemia",
     "kindSelfReports": "Acompanhamento do ciclo",
-    "dailyGlucose": "Valor do dia"
+    "dailyGlucose": "Valor do dia",
+    "deleteConfirmTitle": "Excluir este relatório de laboratório?",
+    "deleteConfirmBody": "O relatório e todos os resultados lidos dele são excluídos, inclusive os que você confirmou. Não é possível desfazer.",
+    "checks": {
+      "date_missing": "Nenhuma data encontrada para este resultado",
+      "flag_inconsistent": "A marcação de alto ou baixo do relatório não corresponde ao seu intervalo de referência",
+      "flag_not_printed": "Fora do intervalo de referência, mas o relatório não marca isso",
+      "implausible_value": "Este valor está fora do que este exame consegue medir",
+      "possible_lost_decimal": "A vírgula decimal pode ter sido lida errado",
+      "range_atypical": "O intervalo de referência do relatório é incomum para este exame"
+    },
+    "selfReport": {
+      "kind": {
+        "menstrual_flow": "Fluxo menstrual",
+        "intermenstrual_bleeding": "Escape",
+        "ovulation_test": "Teste de ovulação",
+        "cervical_mucus": "Muco cervical",
+        "sexual_activity": "Atividade sexual",
+        "contraceptive": "Anticoncepcional",
+        "pregnancy_test": "Teste de gravidez",
+        "progesterone_test": "Teste de progesterona",
+        "pregnancy": "Gravidez",
+        "lactation": "Amamentação",
+        "basal_body_temperature": "Temperatura basal",
+        "mindful_session": "Sessão de atenção plena"
+      },
+      "value": {
+        "unspecified": "Não especificado",
+        "none": "Nenhum",
+        "light": "Leve",
+        "medium": "Moderado",
+        "heavy": "Intenso",
+        "negative": "Negativo",
+        "positive": "Positivo",
+        "indeterminate": "Inconclusivo",
+        "lh_surge": "Pico de LH",
+        "estrogen_surge": "Pico de estrogênio",
+        "dry": "Seco",
+        "sticky": "Pegajoso",
+        "creamy": "Cremoso",
+        "watery": "Aquoso",
+        "egg_white": "Clara de ovo",
+        "implant": "Implante",
+        "injection": "Injeção",
+        "intrauterine_device": "DIU",
+        "intravaginal_ring": "Anel vaginal",
+        "oral": "Pílula",
+        "patch": "Adesivo"
+      }
+    }
   },
   "home": {
     "plan": {
