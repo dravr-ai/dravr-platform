@@ -1669,10 +1669,18 @@ jobs:
           # 107,847,984 bytes stripped, -1.55MiB, so about 121MB here. The
           # ceiling keeps Phil's ~1.5MB of headroom over that.
           #
-          # server-e2e.yml checks the thin binary against this ceiling
-          # scaled to that build (148), so a branch push that skips this job
-          # is still sized against it. Move both together.
-          MAX_SIZE_MB=122
+          # carnet#1702 (a plan saved in batches reaches the calendar once:
+          # the turn-end hand-off, no new dependency) read 123MB against 122
+          # (run 44944310962), with main exactly on 122 before it (run
+          # 44934381147) and the thin build at 150 against 151 (run
+          # 44944310948). ChefFamille chose to raise the shipped ceiling to
+          # 125 (2026-11-21), back to about 1.5MB of headroom, and to keep
+          # the thin ceiling at 151.
+          #
+          # server-e2e.yml checks the thin binary against its own ceiling
+          # (151), so a branch push that skips this job is still sized
+          # against it. Move both together.
+          MAX_SIZE_MB=125
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
           # can still cross the gap in a single change.
