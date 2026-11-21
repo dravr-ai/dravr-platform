@@ -12,11 +12,13 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use chrono::Utc;
+use pierre_auth::oauth2_server::endpoints::{AdminAccess, OAuth2AuthorizationServer};
 use pierre_auth::oauth2_server::models::{AuthorizeRequest, OAuth2Error};
 use pierre_core::models::{OAuthClientGrant, User, UserStatus};
 use tracing::{error, warn};
 use uuid::Uuid;
 
+use super::admin_access;
 use super::consent_text::ConsentText;
 use super::consent_version::{consent_version, ConsentSubject};
 use super::{OAuth2Context, OAuth2Routes};
@@ -126,6 +128,10 @@ impl OAuth2Routes {
         // The text the screen was rendered in for this user, which the
         // approval is recorded under.
         let text = ConsentText::for_reader(&context.strings, Some(&user.locale), &headers);
+        // Admin access, read from the box only for an admin now, on a request
+        // it may be granted on; the grant and the code carry the same scope.
+        let access = admin_access::decided(&form, &user, &checked, &text);
+        let scope = OAuth2AuthorizationServer::granted_scope(&checked, access);
 
         // A client first seen in this flow gets its row before the grant naming it.
         if let Err(error) = server.enroll_checked_client(&checked).await {
@@ -143,7 +149,7 @@ impl OAuth2Routes {
             &context,
             Approval {
                 client_id: &request.client_id,
-                scope: &checked.scope,
+                scope: &scope,
                 text: &text,
                 subject: ConsentSubject {
                     client_id: &request.client_id,
@@ -164,7 +170,8 @@ impl OAuth2Routes {
             );
         }
 
-        Self::mint_authorization_code(&context, request, user_id, tenant_id, redirect_uri).await
+        Self::mint_authorization_code(&context, request, user_id, tenant_id, redirect_uri, access)
+            .await
     }
 
     /// Record the athlete's approval of `scope`, the grant the authorization
@@ -290,7 +297,15 @@ impl OAuth2Routes {
             let text = Self::reader_text(context, headers).await;
             return Self::render_oauth_error_response(&error, &text);
         }
-        Self::mint_authorization_code(context, request, user_id, tenant_id, redirect_uri).await
+        Self::mint_authorization_code(
+            context,
+            request,
+            user_id,
+            tenant_id,
+            redirect_uri,
+            AdminAccess::Withheld,
+        )
+        .await
     }
 
     /// The account a session names.

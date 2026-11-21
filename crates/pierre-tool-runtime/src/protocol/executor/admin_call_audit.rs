@@ -25,6 +25,13 @@
 //! by that door through [`record_refused_admin_call`], so every admin-only
 //! call over those transports is on the trail.
 //!
+//! **A tool kept on Dravr's own surfaces** ([`ToolReach::FirstPartyOnly`])
+//! run from outside by a caller whose grant holds `admin` passes only through
+//! the admin exception of the access predicate (carnet#1511, Q25): an admin's
+//! API key, or an OAuth connection on which the admin ticked Admin access.
+//! Such a call is recorded the same way, before it runs, and a row that
+//! cannot be written refuses it.
+//!
 //! **In an admin's support session** ([`crate::support_session`],
 //! carnet#1511) every call from outside is recorded the same way, whatever
 //! the tool: the row's actor is the admin, and its metadata names the user
@@ -38,6 +45,7 @@
 //! [`UNDECLARED_TRANSPORT`](pierre_core::transport::UNDECLARED_TRANSPORT).
 
 use pierre_auth::auth::ImpersonationGrant;
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::repositories::{
     AdminAuditRepository, AuditOutcome, AuditSource, NewAuditEvent, SettledAuditEvent,
@@ -50,6 +58,7 @@ use super::UniversalExecutor;
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::runtime::ToolRuntime;
+use crate::security::ToolReach;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_providers::ai_scope;
 
@@ -84,8 +93,11 @@ impl UniversalExecutor {
     ) -> Result<Option<StartedAdminCall>, ProtocolError> {
         let transport = ai_scope::effective_transport(self.transport);
         let support = self.support_session.as_ref();
-        let recorded =
-            support.is_some() || is_admin_only(self.resources.as_ref(), &request.tool_name);
+        let runtime = self.resources.as_ref();
+        let recorded = support.is_some()
+            || is_admin_only(runtime, &request.tool_name)
+            || (self.scopes.contains(&OAuthScope::Admin)
+                && is_first_party_only(runtime, &request.tool_name));
         if !recorded || !recorded_over(transport) {
             return Ok(None);
         }
@@ -106,6 +118,15 @@ fn is_admin_only(runtime: &dyn ToolRuntime, tool_name: &str) -> bool {
         .tool_registry()
         .get(tool_name)
         .is_some_and(|tool| tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY))
+}
+
+/// Whether `tool_name` is a registered tool kept on Dravr's own surfaces,
+/// which reaches an outside caller only through the admin exception.
+fn is_first_party_only(runtime: &dyn ToolRuntime, tool_name: &str) -> bool {
+    runtime
+        .tool_registry()
+        .get(tool_name)
+        .is_some_and(|tool| tool.reach() == ToolReach::FirstPartyOnly)
 }
 
 /// Whether a call of an admin-only tool served over `transport` is recorded:

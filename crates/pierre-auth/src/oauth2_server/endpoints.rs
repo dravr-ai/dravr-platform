@@ -26,7 +26,9 @@ use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, DelegatedGrant};
 use crate::config::oauth::ClientRetentionConfig;
 use crate::config::OAuth2ServerConfig;
-use crate::refresh_rotation::{generate_refresh_token, refresh_token_lifetime};
+use crate::refresh_rotation::{
+    admin_family_first_expiry, generate_refresh_token, refresh_token_lifetime,
+};
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
@@ -40,6 +42,9 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+/// Admin access at consent: the one way a grant holds `admin` (carnet#1511)
+mod admin_grant;
+pub use admin_grant::{without_admin, AdminAccess};
 /// Access-token validation with refresh, `validate_and_refresh`
 mod first_party_code;
 mod grant_checks;
@@ -47,6 +52,7 @@ pub use grant_checks::TokenGrant;
 mod rotate_refresh;
 pub use first_party_code::RedeemedFirstPartyCode;
 mod validate_refresh;
+pub use validate_refresh::ADMIN_REFRESHES_AT_TOKEN_ENDPOINT;
 
 /// Parameters for authorization code generation
 struct AuthCodeParams<'a> {
@@ -78,6 +84,10 @@ pub struct CheckedAuthorization {
     /// [`OAuth2AuthorizationServer::enroll_checked_client`] stores it once an
     /// athlete is signed in
     pub unstored_client: Option<OAuth2Client>,
+    /// Whether an admin's Admin access may be granted on this request: it is
+    /// bound to the platform's own `/mcp` or `/a2a` resource. No resource, or
+    /// a satellite's, is never granted `admin`
+    pub admin_grantable: bool,
 }
 
 /// OAuth 2.0 Authorization Server
@@ -403,8 +413,11 @@ impl OAuth2AuthorizationServer {
         }
 
         // The grant this authorization issues (RFC 6749 Section 3.3), inside
-        // the client's registered scope.
-        let scope = Self::authorized_scope(client, request.scope.as_deref())?;
+        // the client's registered scope. `admin` is offered on the consent
+        // screen, never asked for, so a request naming it is checked without
+        // it rather than refused (carnet#1511, Q20).
+        let requested = without_admin(request.scope.as_deref());
+        let scope = Self::authorized_scope(client, requested.as_deref())?;
 
         check_code_challenge(request)?;
 
@@ -415,12 +428,14 @@ impl OAuth2AuthorizationServer {
             .as_deref()
             .map(|requested| bound_audience(&self.served(), requested))
             .transpose()?;
+        let admin_grantable = self.is_platform_resource(resource.as_deref());
         Ok(CheckedAuthorization {
             scope,
             resource,
             client_name: client.client_name.clone(),
             consent_every_time: redirects_to_any_local_process(client, &request.redirect_uri),
             unstored_client: None,
+            admin_grantable,
         })
     }
 
@@ -436,6 +451,22 @@ impl OAuth2AuthorizationServer {
         request: AuthorizeRequest,
         user_id: Option<Uuid>,     // From authentication
         tenant_id: Option<String>, // From JWT claims
+    ) -> Result<AuthorizeResponse, OAuth2Error> {
+        self.authorize_with_admin_access(request, user_id, tenant_id, AdminAccess::Withheld)
+            .await
+    }
+
+    /// [`Self::authorize`] for a request the user decided `access` on at the
+    /// consent screen: the code carries [`Self::granted_scope`].
+    ///
+    /// # Errors
+    /// As [`Self::authorize`].
+    pub async fn authorize_with_admin_access(
+        &self,
+        request: AuthorizeRequest,
+        user_id: Option<Uuid>,
+        tenant_id: Option<String>,
+        access: AdminAccess,
     ) -> Result<AuthorizeResponse, OAuth2Error> {
         let checked = self
             .check_authorize_request(&request)
@@ -465,13 +496,14 @@ impl OAuth2AuthorizationServer {
                 OAuth2Error::invalid_request("User does not belong to any tenant")
             })?
         };
+        let scope = Self::granted_scope(&checked, access);
         let auth_code = self
             .generate_authorization_code(AuthCodeParams {
                 client_id: &request.client_id,
                 user_id,
                 tenant_id: &tenant_id,
                 redirect_uri: &request.redirect_uri,
-                scope: Some(&checked.scope),
+                scope: Some(&scope),
                 state: request.state.as_deref(),
                 code_challenge: request.code_challenge.as_deref(),
                 code_challenge_method: request.code_challenge_method.as_deref(),
@@ -627,8 +659,14 @@ impl OAuth2AuthorizationServer {
         self.require_grant_tenant(auth_code.user_id, &auth_code.tenant_id)
             .await?;
 
-        // Generate JWT access token
-        let granted = Self::delegated_grant(auth_code.scope.as_deref());
+        // Generate JWT access token; `admin` only while the user is an admin
+        let granted = self
+            .delegated_grant_for(
+                auth_code.user_id,
+                auth_code.scope.as_deref(),
+                auth_code.resource.as_deref(),
+            )
+            .await;
         let access_token = self
             .generate_access_token(
                 &request.client_id,
@@ -651,6 +689,12 @@ impl OAuth2AuthorizationServer {
             OAuth2Error::server_error("Failed to generate secure refresh token")
         })?;
         let now = Utc::now();
+        // A family holding `admin` lives a day from this first token (Q20).
+        let expires_at = if granted.contains(&OAuthScope::Admin) {
+            admin_family_first_expiry(now, self.refresh_token_lifetime)
+        } else {
+            now + self.refresh_token_lifetime
+        };
 
         let refresh_token = super::models::OAuth2RefreshToken {
             token: SecretString::from(refresh_token_value.clone()), // Safe: Clone for storage
@@ -658,7 +702,7 @@ impl OAuth2AuthorizationServer {
             user_id: auth_code.user_id,
             tenant_id: auth_code.tenant_id.clone(), // Safe: Clone for tenant isolation
             scope: Self::rendered_scope(&granted),
-            expires_at: now + self.refresh_token_lifetime,
+            expires_at,
             created_at: now,
             revoked: false,
             family_id: Uuid::new_v4().to_string(),
@@ -753,7 +797,7 @@ impl OAuth2AuthorizationServer {
 
         // Consume the presented token and issue its successor; a replayed one
         // revokes its whole chain instead
-        let (old_refresh_token, new_refresh_token_value) = self
+        let (old_refresh_token, new_refresh_token_value, granted) = self
             .rotate_refresh_token(refresh_token_value.expose_secret(), &request.client_id)
             .await
             .map_err(|e| {
@@ -779,8 +823,7 @@ impl OAuth2AuthorizationServer {
             old_refresh_token.resource.as_deref(),
         )?;
 
-        // Generate new access token
-        let granted = Self::delegated_grant(old_refresh_token.scope.as_deref());
+        // Generate new access token, under the grant the rotation decided
         let access_token = self
             .generate_access_token(
                 &request.client_id,
@@ -1041,23 +1084,6 @@ impl OAuth2AuthorizationServer {
             .scope
             .as_deref()
             .map_or_else(OAuthScope::default_grant, OAuthScope::parse_granted)
-    }
-
-    /// The grant a token minted for a stored or requested `scope` carries: the
-    /// names this server defines, less any that cannot be delegated.
-    ///
-    /// Registration, authorization and the client-credentials grant already
-    /// refuse `admin`, so this bites only on a stored code or refresh token
-    /// that predates those checks. It keeps `admin` out of every delegated
-    /// token, and that is all it does: a route that reads no scope tells a
-    /// third party from the athlete by the client the token names
-    /// ([`Claims::is_session`](crate::auth::Claims::is_session)), not by the
-    /// token being narrower than the self grant.
-    fn delegated_grant(scope: Option<&str>) -> Vec<OAuthScope> {
-        OAuthScope::parse_granted(scope.unwrap_or_default())
-            .into_iter()
-            .filter(|scope| scope.is_delegable())
-            .collect()
     }
 
     /// A grant in the token response's `scope` form: absent when empty.

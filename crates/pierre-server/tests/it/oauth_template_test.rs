@@ -26,8 +26,17 @@ use pierre_routes_identity::{ConsentText, LoginPageLabels};
 use regex::Regex;
 use std::sync::LazyLock;
 
+use crate::admin_access_consent_test::with_admin_access_lines;
+
 /// The catalogue the consent pages read.
 static STRINGS: LazyLock<MessagingStringsRegistry> = LazyLock::new(MessagingStringsRegistry::new);
+
+/// The catalogue with the Admin access box's lines, which are authored in
+/// dravr-contremaitre and not pinned yet: the admin line is shown inside the
+/// box, and the box only with its lines (carnet#1511, step 12).
+static STRINGS_WITH_ADMIN_BOX: LazyLock<MessagingStringsRegistry> = LazyLock::new(|| {
+    with_admin_access_lines(MessagingStringsRegistry::new())
+});
 
 /// A catalogue line's positional slot.
 static SLOT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\{\d+\}").unwrap());
@@ -1300,7 +1309,7 @@ fn consent_for_role(role: pierre_routes_identity::ConsentRole, locale: &str) -> 
         account_email: "coach@example.test",
         switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
         first_party_only_sources: &["Strava"],
-        text: &ConsentText::new(&STRINGS, locale),
+        text: &ConsentText::new(&STRINGS_WITH_ADMIN_BOX, locale),
         role,
     })
 }

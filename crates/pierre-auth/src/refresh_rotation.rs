@@ -24,6 +24,10 @@
 //!   from its first token, however often it rotates: a forgotten connection
 //!   eventually asks its athlete to consent again. A family with no recorded
 //!   start is a legacy one and has no absolute limit.
+//! - A family holding `admin` lives [`ADMIN_FAMILY_MAX_HOURS`] from its first
+//!   token, rotations included, and a family holding `admin` with no recorded
+//!   start is not continued at all (carnet#1511, Q20): an admin's connection
+//!   asks for its Admin access again every day.
 
 use std::future::Future;
 
@@ -95,6 +99,32 @@ pub(crate) fn successor_expiry(
     (deadline > now).then_some(sliding.min(deadline))
 }
 
+/// The absolute lifetime of an `OAuth2` refresh-token family whose grant holds
+/// `admin`, in hours, counted from the family's first token and unaffected by
+/// rotation (carnet#1511, Q20).
+pub const ADMIN_FAMILY_MAX_HOURS: i64 = 24;
+
+/// When the first refresh token of a family holding `admin`, issued at `now`,
+/// stops exchanging: the usual `lifetime`, cut at [`ADMIN_FAMILY_MAX_HOURS`].
+#[must_use]
+pub fn admin_family_first_expiry(now: DateTime<Utc>, lifetime: Duration) -> DateTime<Utc> {
+    (now + lifetime).min(now + Duration::hours(ADMIN_FAMILY_MAX_HOURS))
+}
+
+/// [`successor_expiry`] for a family whose grant holds `admin`: capped at
+/// [`ADMIN_FAMILY_MAX_HOURS`] from the family's first token, and `None` for a
+/// family with no recorded start, which has no deadline to keep and so is not
+/// continued.
+#[must_use]
+pub(crate) fn admin_successor_expiry(
+    now: DateTime<Utc>,
+    lifetime: Duration,
+    family_created_at: Option<DateTime<Utc>>,
+) -> Option<DateTime<Utc>> {
+    let deadline = family_created_at? + Duration::hours(ADMIN_FAMILY_MAX_HOURS);
+    (deadline > now).then_some((now + lifetime).min(deadline))
+}
+
 /// A fresh refresh token value: 32 bytes of OS randomness, base64url without
 /// padding, so it travels in a form field or a header unchanged.
 ///
@@ -148,6 +178,46 @@ mod tests {
         assert_eq!(
             successor_expiry(now, Duration::days(30), Some(started)),
             None
+        );
+    }
+
+    #[test]
+    fn an_admin_family_stops_a_day_after_its_first_token_whatever_its_rotations() {
+        let now = Utc::now();
+        let started = now - Duration::hours(ADMIN_FAMILY_MAX_HOURS - 1);
+        assert_eq!(
+            admin_successor_expiry(now, Duration::days(30), Some(started)),
+            Some(started + Duration::hours(ADMIN_FAMILY_MAX_HOURS)),
+            "bug: a rotation renewed an admin family past its day"
+        );
+        let expired = now - Duration::hours(ADMIN_FAMILY_MAX_HOURS + 1);
+        assert_eq!(
+            admin_successor_expiry(now, Duration::days(30), Some(expired)),
+            None,
+            "bug: an admin family past its day was continued"
+        );
+    }
+
+    #[test]
+    fn an_admin_family_with_no_recorded_start_is_not_continued() {
+        assert_eq!(
+            admin_successor_expiry(Utc::now(), Duration::days(30), None),
+            None,
+            "bug: an admin family with no start was given the legacy family's open end"
+        );
+    }
+
+    #[test]
+    fn an_admin_familys_first_token_lives_a_day_at_most() {
+        let now = Utc::now();
+        assert_eq!(
+            admin_family_first_expiry(now, Duration::days(30)),
+            now + Duration::hours(ADMIN_FAMILY_MAX_HOURS)
+        );
+        assert_eq!(
+            admin_family_first_expiry(now, Duration::hours(2)),
+            now + Duration::hours(2),
+            "a shorter configured lifetime still applies"
         );
     }
 }

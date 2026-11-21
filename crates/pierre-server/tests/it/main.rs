@@ -54,6 +54,7 @@ mod activity_live_read_join_test;
 mod activity_query_test;
 mod activity_streams_transport_test;
 mod activity_summary_enrichment_test;
+mod admin_access_consent_test;
 mod admin_analytics_test;
 mod admin_audit_trail_test;
 mod admin_auth_test;

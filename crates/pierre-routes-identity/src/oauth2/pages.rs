@@ -12,19 +12,20 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use pierre_auth::oauth2_server::{
-    endpoints::OAuth2AuthorizationServer,
+    endpoints::{without_admin, OAuth2AuthorizationServer},
     models::{AuthorizeRequest, OAuth2Error},
 };
 use pierre_contremaitre::consent_strings::{
     KEY_CONSENT_ALLOW, KEY_CONSENT_DENY, KEY_CONSENT_FIRST_PARTY_ONLY, KEY_CONSENT_LEAD,
     KEY_CONSENT_LIST_PAIR, KEY_CONSENT_PRIVACY_POLICY, KEY_CONSENT_RETURNS_TO,
-    KEY_CONSENT_REVOKE_ANYTIME, KEY_CONSENT_ROLE_ADMIN, KEY_CONSENT_ROLE_COACH,
+    KEY_CONSENT_REVOKE_ANYTIME, KEY_CONSENT_ROLE_COACH,
     KEY_CONSENT_SCOPES_TITLE, KEY_CONSENT_SIGNED_IN_AS, KEY_CONSENT_TERMS, KEY_CONSENT_TITLE,
     KEY_CONSENT_USE_ANOTHER_ACCOUNT, KEY_ERROR_TITLE, KEY_ERROR_TRY_AGAIN,
 };
 use pierre_core::html::{escape_html_attribute, oauth_error_page, with_hosted_page_css};
 use url::Url;
 
+use super::admin_access::admin_access_box;
 use super::consent_copy::{
     client_span, express_consent_line, health_line, outside_quebec_line, trust_line, ClientTrust,
 };
@@ -129,7 +130,9 @@ pub struct ConsentHtmlParams<'a> {
 pub struct ConsentRole {
     /// A human coach who leads an active group, by the one coach rule.
     pub coach: bool,
-    /// An admin.
+    /// An admin, on a request Admin access may be granted on (bound to the
+    /// platform's own resource): offered the unticked Admin access box, with
+    /// the admin line inside it.
     pub admin: bool,
 }
 
@@ -299,10 +302,13 @@ impl OAuth2Routes {
     /// Render the consent page `template` lays out for `params`.
     pub(super) fn consent_html_from(template: &str, params: ConsentHtmlParams<'_>) -> String {
         let text = params.text;
-        let displayed_scope = if params.scope.is_empty() {
+        // `admin` is never a scope the screen lists or the form echoes: it is
+        // the Admin access box, offered to an admin alone.
+        let requested = without_admin(Some(params.scope)).unwrap_or_default();
+        let displayed_scope = if requested.is_empty() {
             OAuth2AuthorizationServer::default_scope_display()
         } else {
-            params.scope.to_owned()
+            requested
         };
         // Each scope becomes a list item; its text is HTML-escaped before the
         // (literal) <li> markup is substituted into the template.
@@ -363,6 +369,14 @@ impl OAuth2Routes {
             .replace(
                 "{{EXPRESS_CONSENT_LINE}}",
                 &express_consent_line(params.client_label, text),
+            )
+            .replace(
+                "{{ADMIN_ACCESS}}",
+                &if params.role.admin {
+                    admin_access_box(&client, params.client_id, params.redirect_uri, text)
+                } else {
+                    String::new()
+                },
             )
             .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
             .replace(
@@ -472,21 +486,17 @@ impl OAuth2Routes {
     }
 }
 
-/// The lines `role` adds to the screen, naming `client`, which is already
-/// markup: the coach line, then the admin line.
+/// The line `role` adds to the disclosures, naming `client`, which is already
+/// markup: the coach line. The admin line is inside the Admin access box,
+/// since it says what ticking the box gives.
 fn role_lines(role: ConsentRole, client: &str, text: &ConsentText<'_>) -> String {
-    [
-        (role.coach, KEY_CONSENT_ROLE_COACH),
-        (role.admin, KEY_CONSENT_ROLE_ADMIN),
-    ]
-    .into_iter()
-    .filter(|(shown, _)| *shown)
-    .fold(String::new(), |mut lines, (_, key)| {
-        lines.push_str(r#"<p class="disclosure">"#);
-        lines.push_str(&text.html(key, &[client]));
-        lines.push_str("</p>");
-        lines
-    })
+    if !role.coach {
+        return String::new();
+    }
+    format!(
+        r#"<p class="disclosure">{}</p>"#,
+        text.html(KEY_CONSENT_ROLE_COACH, &[client])
+    )
 }
 
 /// The consent screen's line naming the services whose data stays inside
@@ -520,7 +530,7 @@ pub(super) fn first_party_only_line(
 /// by the same WHATWG URL rules browsers apply, so a `\` or a user-info
 /// part cannot make the screen name one host while the browser goes to
 /// another. A URI with no host (`urn:ietf:wg:oauth:2.0:oob`) is shown whole.
-fn redirect_host(redirect_uri: &str) -> String {
+pub(super) fn redirect_host(redirect_uri: &str) -> String {
     Url::parse(redirect_uri)
         .ok()
         .and_then(|url| {

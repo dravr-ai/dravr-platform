@@ -10,9 +10,9 @@
 //! web console's support session, over MCP and A2A, under the same rules:
 //!
 //! - **Who.** An admin whose connection's grant holds `admin`: their own API
-//!   key, or an OAuth connection whose grant holds it, which none does while
-//!   `admin` is not delegable (`OAuthScope::is_delegable`). Never of another
-//!   admin, never of themselves. The two
+//!   key, or an OAuth connection on which they ticked Admin access at consent
+//!   (the only way an OAuth grant holds it; `admin_grant` in pierre-auth).
+//!   Never of another admin, never of themselves. The two
 //!   tools that start and end it are `ADMIN_ONLY`, so the one access
 //!   predicate ([`crate::tool_access`]) refuses them to anyone else.
 //! - **Bound to the connection that started it** ([`SUPPORT_BINDING`]): an
