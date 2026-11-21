@@ -14,7 +14,9 @@
 //! pending the athlete's review, stored as `lab_document` records.
 //!
 //! - **Bounds**: a body over [`MAX_LAB_DOCUMENT_BYTES`] is refused before it
-//!   is read, a body that does not start `%PDF-` is refused, and a document
+//!   is read, a body that does not start `%PDF-` is refused, one whose objects
+//!   nest past a bound is refused before the parser sees it (lopdf recurses
+//!   without a limit, and a stack overflow aborts the process), and a document
 //!   over [`MAX_LAB_DOCUMENT_PAGES`] pages or [`MAX_LAB_DOCUMENT_TEXT_BYTES`]
 //!   of text is refused once read. A PDF with no text layer (a scan) is kept,
 //!   marked `no_text`, and yields nothing: there is no OCR.
@@ -57,6 +59,11 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
+
+/// The nesting guard in front of the PDF parser.
+mod nesting;
+
+use nesting::NestingRefusal;
 
 /// The largest lab report an upload may hold.
 pub const MAX_LAB_DOCUMENT_BYTES: usize = 10 * 1024 * 1024;
@@ -181,10 +188,21 @@ pub async fn pdf_text(bytes: Bytes) -> AppResult<Vec<String>> {
     }
     // The extractor parses an untrusted file: off the async workers, and a
     // panic in it is the file's fault, not the server's.
-    let pages = spawn_blocking(move || pdf_extract::extract_text_from_mem_by_pages(&bytes))
-        .await
-        .map_err(|_| AppError::invalid_input("The PDF could not be read"))?
-        .map_err(|e| AppError::invalid_input(format!("The PDF could not be read: {e}")))?;
+    let pages = spawn_blocking(move || {
+        // lopdf recurses into nested objects with no limit, and a stack
+        // overflow aborts the process: the nesting is bounded before it
+        // parses anything (`nesting`).
+        nesting::check_nesting(&bytes).map_err(|refusal| match refusal {
+            NestingRefusal::TooDeep => "its objects nest deeper than any report does".to_owned(),
+            NestingRefusal::UncheckedObjectStream => {
+                "it compresses its objects in a way that cannot be checked".to_owned()
+            }
+        })?;
+        pdf_extract::extract_text_from_mem_by_pages(&bytes).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|_| AppError::invalid_input("The PDF could not be read"))?
+    .map_err(|why| AppError::invalid_input(format!("The PDF could not be read: {why}")))?;
     if pages.len() > MAX_LAB_DOCUMENT_PAGES {
         return Err(AppError::invalid_input(format!(
             "A lab report is read up to {MAX_LAB_DOCUMENT_PAGES} pages; this one has {}",

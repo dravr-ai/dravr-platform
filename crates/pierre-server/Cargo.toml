@@ -235,7 +235,10 @@ dravr-cageux = { workspace = true }
 dravr-barrage = { workspace = true, features = ["sqlite", "blob-fs", "blob-gcs"] }
 # The text of an uploaded lab report, page by page, for barrage's lab reader (carnet#1544):
 # its rules read the line layout pdf-extract keeps (lopdf's own text loses it).
-pdf-extract = "0.10"
+pdf-extract = "0.12"
+# Inflates a PDF's object streams so the nesting guard sees every object before
+# lopdf parses it (lopdf recurses into dictionaries without a depth limit).
+flate2 = "1.1"
 pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
