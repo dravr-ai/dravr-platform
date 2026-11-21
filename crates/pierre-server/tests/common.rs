@@ -1629,6 +1629,7 @@ async fn create_test_server_resources_over(
                 live_records,
                 blobs,
                 lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: channel_adapters.unwrap_or_else(offline_adapters),
             },

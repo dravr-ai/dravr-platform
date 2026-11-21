@@ -324,6 +324,7 @@ async fn test_oauth_flow_through_mcp() {
                 live_records: None,
                 blobs: None,
                 lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -628,6 +629,7 @@ async fn test_oauth_callback_error_handling() {
                 live_records: None,
                 blobs: None,
                 lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -929,6 +931,7 @@ async fn test_oauth_state_csrf_protection() {
                 live_records: None,
                 blobs: None,
                 lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1093,6 +1096,7 @@ async fn test_connection_status_tracking() {
                 live_records: None,
                 blobs: None,
                 lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

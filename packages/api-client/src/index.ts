@@ -181,6 +181,8 @@ export type {
 export { createImportsApi } from './domains/imports';
 export { createDataExportApi } from './domains/dataExport';
 export type { DataExportApi, OriginalsBundle } from './domains/dataExport';
+// Not built by createPierreApi on the web: the web entry bundle has a gzip budget, and
+// only the lazy settings screen uses it (frontend/src/services/api/healthRecords.ts).
 export { createHealthRecordsApi, LAB_DOCUMENT_UPLOAD_TIMEOUT_MS } from './domains/healthRecords';
 export type { HealthRecordsApi, HealthRecordsWindow } from './domains/healthRecords';
 export { createDataAccessRequestsApi } from './domains/dataAccessRequests';
@@ -246,7 +248,6 @@ import { createAthleteApi } from './domains/athlete';
 import { createGearApi } from './domains/gear';
 import { createImportsApi } from './domains/imports';
 import { createDataExportApi } from './domains/dataExport';
-import { createHealthRecordsApi } from './domains/healthRecords';
 import { createDataAccessRequestsApi } from './domains/dataAccessRequests';
 export { createPersonasApi } from './domains/personas';
 export type { PersonasApi, PersonaCard, PersonaRule, PersonasResponse } from './domains/personas';
@@ -309,8 +310,6 @@ export interface PierreApiService {
   imports: ReturnType<typeof createImportsApi>;
   /** The originals bundle the data export leaves out: ask for it, follow it */
   dataExport: ReturnType<typeof createDataExportApi>;
-  /** The athlete's health records: served records by kind, the lab review queue, uploaded lab reports */
-  healthRecords: ReturnType<typeof createHealthRecordsApi>;
   /** Statutory access requests to a company: the letter the athlete sends, and its legal deadline */
   dataAccessRequests: ReturnType<typeof createDataAccessRequestsApi>;
   /** The « Style de coaching » cards, rendered from the live persona-contract registry */
@@ -372,7 +371,6 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
     gear: createGearApi(axios),
     imports: createImportsApi(axios),
     dataExport: createDataExportApi(axios),
-    healthRecords: createHealthRecordsApi(axios),
     dataAccessRequests: createDataAccessRequestsApi(axios),
     personas: createPersonasApi(axios),
     i18n: createI18nApi(axios),

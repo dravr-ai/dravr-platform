@@ -185,6 +185,7 @@ async fn test_oauth_authorization_url_generation() {
                 live_records: None,
                 blobs: None,
                 lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -489,6 +490,7 @@ async fn test_oauth_state_validation() {
                 live_records: None,
                 blobs: None,
                 lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -691,6 +693,7 @@ async fn test_connection_status_no_providers() {
                 live_records: None,
                 blobs: None,
                 lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -872,6 +875,7 @@ async fn test_invalid_provider_error() {
                 live_records: None,
                 blobs: None,
                 lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1046,6 +1050,7 @@ async fn test_disconnect_provider() {
                 live_records: None,
                 blobs: None,
                 lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1353,6 +1358,7 @@ async fn test_oauth_urls_contain_required_parameters() {
                 live_records: None,
                 blobs: None,
                 lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

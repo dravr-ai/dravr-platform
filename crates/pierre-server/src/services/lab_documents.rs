@@ -13,16 +13,20 @@
 //! barrage's lab reader turns that text into FHIR R4 Observations, each
 //! pending the athlete's review, stored as `lab_document` records.
 //!
+//! - **Isolation**: the PDF is untrusted, so it is parsed in the
+//!   `pierre-pdf-text` child process (`extractor`), bounded in time and
+//!   memory; whatever a file does to the parser ends the child, and the
+//!   upload is refused.
 //! - **Bounds**: a body over [`MAX_LAB_DOCUMENT_BYTES`] is refused before it
-//!   is read, a body that does not start `%PDF-` is refused, one whose objects
-//!   nest past a bound is refused before the parser sees it (lopdf recurses
-//!   without a limit, and a stack overflow aborts the process), one whose
-//!   forms draw one another or whose pages' parents chain in a cycle or past
-//!   a bound is refused once loaded (pdf-extract follows both by recursion),
-//!   and a document
-//!   over [`MAX_LAB_DOCUMENT_PAGES`] pages or [`MAX_LAB_DOCUMENT_TEXT_BYTES`]
-//!   of text is refused once read. A PDF with no text layer (a scan) is kept,
-//!   marked `no_text`, and yields nothing: there is no OCR.
+//!   is read and a body that does not start `%PDF-` before the child runs.
+//!   The child refuses a document whose forms draw one another or whose
+//!   pages' parents chain in a cycle or past a bound (pdf-extract follows
+//!   both by recursion), and one over [`MAX_LAB_DOCUMENT_PAGES`] pages or
+//!   [`MAX_LAB_DOCUMENT_TEXT_BYTES`] of text. The athlete is told the bound
+//!   they passed, or one fixed sentence for every other refusal; the reason
+//!   is logged against the file's SHA-256, never its content. A PDF with no
+//!   text layer (a scan) is kept, marked `no_text`, and yields nothing: there
+//!   is no OCR.
 //! - **The same file twice** is not read again: the answer is the first
 //!   document and its records as they stand, a rejected one still rejected.
 //! - **The model**: barrage's rules read unless `LAB_READER_MODEL` names a
@@ -35,6 +39,8 @@
 //!
 //! [`OriginalsStore::put_named_file`]: pierre_providers::originals::OriginalsStore::put_named_file
 
+use std::io;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -42,14 +48,15 @@ use chrono::Utc;
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::import::ingest_reader::{DocumentReading, LabDocument, LabDocumentReader};
 use dravr_barrage::Tier;
-use pdf_extract::Document;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConversationTurnId, DataSource, DeviceType, TenantId};
 use pierre_core::transport::Transport;
 use pierre_database::repositories::{
     LabDocumentWrite, RecordFiling, StoredClinicalRecord, StoredLabDocument, LAB_DOCUMENT_PROVIDER,
+    LAB_DOCUMENT_SOURCE_MARKER,
 };
 use pierre_llm::call_record::LlmCallRecorder;
+use pierre_pdf_text::Refusal;
 use pierre_providers::ai_scope;
 use pierre_providers::originals::LAB_DOCUMENT_MEDIA_TYPE;
 use pierre_services::health_records::clinical_write;
@@ -58,31 +65,28 @@ use pierre_services::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use pierre_services::provider_notice::under_ai_consent;
 use pierre_services::wellness_store::WellnessStore;
 use serde::Serialize;
-use tokio::task::spawn_blocking;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 
-/// The nesting guard in front of the PDF parser.
-mod nesting;
+/// The child process a PDF is parsed in.
+mod extractor;
 
-use nesting::NestingRefusal;
+use extractor::ExtractFailure;
 
 /// The largest lab report an upload may hold.
-pub const MAX_LAB_DOCUMENT_BYTES: usize = 10 * 1024 * 1024;
+pub const MAX_LAB_DOCUMENT_BYTES: usize = pierre_pdf_text::MAX_PDF_BYTES;
 
 /// The most pages a lab report is read for.
-pub const MAX_LAB_DOCUMENT_PAGES: usize = 200;
+pub const MAX_LAB_DOCUMENT_PAGES: usize = pierre_pdf_text::MAX_PAGES;
 
 /// The most text a lab report is read for.
-pub const MAX_LAB_DOCUMENT_TEXT_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_LAB_DOCUMENT_TEXT_BYTES: usize = pierre_pdf_text::MAX_TEXT_BYTES;
 
-/// What every PDF starts with.
-const PDF_MAGIC: &[u8] = b"%PDF-";
-
-/// The `source` marker of the data source lab records are filed under.
-const LAB_DOCUMENT_SOURCE_MARKER: &str = "upload";
+/// What the athlete is told when a file is refused for anything but a bound:
+/// it names no parser and no internal reason, which are logged instead.
+pub const UNREADABLE_LAB_DOCUMENT: &str = "This file could not be read as a lab report";
 
 /// A lab document's row status once its text was read.
 const STATUS_READ: &str = "read";
@@ -180,61 +184,75 @@ impl From<StoredClinicalRecord> for LabRecordView {
     }
 }
 
-/// Why the nesting guard refused a PDF, as the athlete is told.
-fn refusal_reason(refusal: NestingRefusal) -> String {
-    match refusal {
-        NestingRefusal::TooDeep => "its objects nest deeper than any report does",
-        NestingRefusal::UncheckedObjectStream => {
-            "it compresses its objects in a way that cannot be checked"
+/// What the athlete is told for `failure`: the bound they passed, or
+/// [`UNREADABLE_LAB_DOCUMENT`].
+fn refusal_message(failure: &ExtractFailure) -> String {
+    match failure {
+        ExtractFailure::Refused(Refusal::TooLarge) => format!(
+            "A lab report is read up to {} MB",
+            MAX_LAB_DOCUMENT_BYTES / (1024 * 1024)
+        ),
+        ExtractFailure::Refused(Refusal::TooManyPages) => {
+            format!("A lab report is read up to {MAX_LAB_DOCUMENT_PAGES} pages")
         }
-        NestingRefusal::TooIndirect => {
-            "its pages or drawings refer to one another deeper than any report does"
+        ExtractFailure::Refused(Refusal::TooMuchText) => {
+            "This PDF holds more text than a lab report is read for".to_owned()
         }
+        ExtractFailure::Refused(Refusal::Unreadable | Refusal::TooIndirect)
+        | ExtractFailure::Unavailable(_)
+        | ExtractFailure::TimedOut
+        | ExtractFailure::Ended(_)
+        | ExtractFailure::Malformed => UNREADABLE_LAB_DOCUMENT.to_owned(),
     }
-    .to_owned()
 }
 
-/// A PDF's text, page by page.
+/// The `pierre-pdf-text` binary beside the running server, where the image
+/// and every cargo build of the server put it, or why it is not there.
 ///
 /// # Errors
 ///
-/// [`AppError::invalid_input`] for a body that is not a readable PDF, or one
-/// over the page or text bounds.
-pub async fn pdf_text(bytes: Bytes) -> AppResult<Vec<String>> {
-    if !bytes.starts_with(PDF_MAGIC) {
-        return Err(AppError::invalid_input("A lab report must be a PDF file"));
+/// Why no binary is beside the server.
+pub fn pdf_text_bin_beside_server() -> Result<PathBuf, String> {
+    extractor::beside_server()
+}
+
+/// The text of the PDF `bytes` the athlete uploaded as `file_sha256`, page
+/// by page, read in the `pierre-pdf-text` child process `program`.
+///
+/// # Errors
+///
+/// [`AppError::invalid_input`] for a body that is not a readable PDF within
+/// the bounds, or that the child failed on; [`AppError::internal`] when the
+/// child cannot be started.
+async fn pdf_text(
+    program: &Result<PathBuf, String>,
+    bytes: Bytes,
+    file_sha256: &str,
+) -> AppResult<Vec<String>> {
+    if !bytes.starts_with(pierre_pdf_text::PDF_MAGIC) {
+        return Err(AppError::invalid_input(UNREADABLE_LAB_DOCUMENT));
     }
-    // The extractor parses an untrusted file: off the async workers, and a
-    // panic in it is the file's fault, not the server's.
-    let pages = spawn_blocking(move || {
-        // lopdf recurses into nested objects, and pdf-extract into the forms
-        // a page draws and up its parents, and a stack overflow aborts the
-        // process: each is bounded before the text is read (`nesting`).
-        nesting::check_nesting(&bytes).map_err(refusal_reason)?;
-        let mut document = Document::load_mem(&bytes).map_err(|e| e.to_string())?;
-        // Read as pdf-extract reads it: an encrypted file under the empty
-        // password, so the forms checked are the ones it draws.
-        if document.is_encrypted() {
-            document.decrypt("").map_err(|e| e.to_string())?;
-        }
-        nesting::check_document(&document).map_err(refusal_reason)?;
-        pdf_extract::extract_text_from_mem_by_pages(&bytes).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|_| AppError::invalid_input("The PDF could not be read"))?
-    .map_err(|why| AppError::invalid_input(format!("The PDF could not be read: {why}")))?;
-    if pages.len() > MAX_LAB_DOCUMENT_PAGES {
-        return Err(AppError::invalid_input(format!(
-            "A lab report is read up to {MAX_LAB_DOCUMENT_PAGES} pages; this one has {}",
-            pages.len()
-        )));
+    let extracted = match program {
+        Ok(program) => extractor::extract(program, bytes.to_vec()).await,
+        Err(reason) => Err(ExtractFailure::Unavailable(io::Error::new(
+            io::ErrorKind::NotFound,
+            reason.clone(),
+        ))),
+    };
+    let failure = match extracted {
+        Ok(pages) => return Ok(pages),
+        Err(failure) => failure,
+    };
+    if let ExtractFailure::Unavailable(error) = &failure {
+        error!(
+            file_sha256,
+            error = %error,
+            "The PDF child process could not be started; no lab report can be read"
+        );
+        return Err(AppError::internal(UNREADABLE_LAB_DOCUMENT));
     }
-    if pages.iter().map(String::len).sum::<usize>() > MAX_LAB_DOCUMENT_TEXT_BYTES {
-        return Err(AppError::invalid_input(
-            "This PDF holds more text than a lab report is read for",
-        ));
-    }
-    Ok(pages)
+    warn!(file_sha256, failure = %failure, "A lab report was refused");
+    Err(AppError::invalid_input(refusal_message(&failure)))
 }
 
 /// Whether the athlete's lab report may be read by a model: the tier rule,
@@ -446,7 +464,7 @@ pub async fn upload_lab_document(
         return view_of(resources, &tenant_id, user_id, held, false).await;
     }
     let size_bytes = u64::try_from(body.len()).unwrap_or(u64::MAX);
-    let pages = pdf_text(body.clone()).await?;
+    let pages = pdf_text(&resources.common.pdf_text_bin, body.clone(), &file_sha256).await?;
     let page_count = u32::try_from(pages.len()).unwrap_or(u32::MAX);
     resources
         .common
@@ -576,50 +594,43 @@ pub async fn delete_lab_document(
 
 #[cfg(test)]
 mod tests {
+    use std::process::ExitStatus;
+
     use super::*;
 
     #[tokio::test]
-    async fn a_body_that_is_not_a_pdf_is_refused_before_it_is_parsed() {
-        let refused = pdf_text(Bytes::from_static(b"PK\x03\x04 a zip")).await;
-        assert!(refused.is_err(), "bug: a non-PDF body was read");
+    async fn a_body_that_is_not_a_pdf_is_refused_before_the_child_runs() {
+        let refused = pdf_text(
+            &Err("not needed".to_owned()),
+            Bytes::from_static(b"PK\x03\x04 a zip"),
+            "sha",
+        )
+        .await;
+        let error = refused.expect_err("bug: a non-PDF body was read");
+        assert_eq!(error.message, UNREADABLE_LAB_DOCUMENT);
     }
 
-    /// `document` as an upload's bytes.
-    fn uploaded(mut document: Document) -> Bytes {
-        let mut bytes = Vec::new();
-        document.save_to(&mut bytes).unwrap();
-        Bytes::from(bytes)
-    }
-
-    #[tokio::test]
-    async fn a_form_that_draws_itself_is_refused_not_a_stack_overflow() {
-        // pdf-extract recurses into a form that draws itself until the
-        // thread's stack overflows, which aborts the process.
-        let refused = pdf_text(uploaded(nesting::tests::document(1, Some(0), false))).await;
-        let error = refused.expect_err("bug: a self-drawing form was read");
+    #[test]
+    fn every_refusal_but_a_bound_reads_the_same_fixed_sentence() {
+        let fixed = [
+            ExtractFailure::Refused(Refusal::Unreadable),
+            ExtractFailure::Refused(Refusal::TooIndirect),
+            ExtractFailure::Unavailable(io::Error::other("gone")),
+            ExtractFailure::TimedOut,
+            ExtractFailure::Ended(ExitStatus::default()),
+            ExtractFailure::Malformed,
+        ];
+        for failure in &fixed {
+            assert_eq!(
+                refusal_message(failure),
+                UNREADABLE_LAB_DOCUMENT,
+                "bug: {failure:?} told the athlete more than the fixed sentence"
+            );
+        }
+        let pages = refusal_message(&ExtractFailure::Refused(Refusal::TooManyPages));
         assert!(
-            error.message.contains("refer to one another"),
-            "bug: the refusal names the drawing: {}",
-            error.message
+            pages.contains(&MAX_LAB_DOCUMENT_PAGES.to_string()),
+            "bug: the page bound is not named: {pages}"
         );
-    }
-
-    #[tokio::test]
-    async fn a_page_that_is_its_own_parent_is_refused_not_a_hang() {
-        // pdf-extract climbs a page's parents for its resources and never
-        // returns from one that is its own parent.
-        let refused = pdf_text(uploaded(nesting::tests::document(0, None, true))).await;
-        let error = refused.expect_err("bug: a self-parented page was read");
-        assert!(
-            error.message.contains("refer to one another"),
-            "bug: the refusal names the pages: {}",
-            error.message
-        );
-    }
-
-    #[tokio::test]
-    async fn a_truncated_pdf_is_refused_not_a_panic() {
-        let refused = pdf_text(Bytes::from_static(b"%PDF-1.7\n1 0 obj <<")).await;
-        assert!(refused.is_err(), "bug: a broken PDF was read");
     }
 }

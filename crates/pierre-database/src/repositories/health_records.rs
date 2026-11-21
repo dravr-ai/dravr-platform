@@ -34,6 +34,9 @@ use uuid::Uuid;
 /// The provider key a record read from an uploaded lab document is filed under.
 pub const LAB_DOCUMENT_PROVIDER: &str = "lab_document";
 
+/// The `source` marker of the data source lab records are filed under.
+pub const LAB_DOCUMENT_SOURCE_MARKER: &str = "upload";
+
 /// The most rows one list returns.
 pub const MAX_HEALTH_RECORDS_PAGE: u32 = 200;
 
@@ -257,6 +260,17 @@ pub struct LabDocumentWrite {
     pub received_at: DateTime<Utc>,
 }
 
+/// Where a lab document's PDF is kept: whose upload, under which hash.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabDocumentFile {
+    /// The tenant it was uploaded in.
+    pub tenant_id: TenantId,
+    /// The athlete who uploaded it.
+    pub user_id: Uuid,
+    /// The SHA-256 its bytes are kept under.
+    pub file_sha256: String,
+}
+
 /// One stored lab document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredLabDocument {
@@ -416,6 +430,14 @@ pub trait HealthRecordRepository: Send + Sync {
         user_id: Uuid,
         id: &str,
     ) -> AppResult<bool>;
+
+    /// Every lab document's file, in every tenant: what a purge of the
+    /// [`LAB_DOCUMENT_PROVIDER`] provider deletes from the blob store before
+    /// its rows go.
+    ///
+    /// # Errors
+    /// Returns a database error when the read fails.
+    async fn list_every_lab_document_file(&self) -> AppResult<Vec<LabDocumentFile>>;
 }
 
 /// Store one self-report, replacing the row its record id holds.
@@ -579,6 +601,11 @@ pub(crate) const DELETE_LAB_DOCUMENT_RECORDS_SQL: &str = r"
 /// One of the athlete's lab documents.
 pub(crate) const DELETE_LAB_DOCUMENT_SQL: &str = r"
     DELETE FROM lab_documents WHERE tenant_id = $1 AND user_id = $2 AND id = $3";
+
+/// Every lab document's file, its owner ids as text on both engines.
+pub(crate) const LIST_EVERY_LAB_DOCUMENT_FILE_SQL: &str = r"
+    SELECT CAST(tenant_id AS TEXT) AS tenant_id, CAST(user_id AS TEXT) AS user_id, file_sha256
+    FROM lab_documents ORDER BY tenant_id, user_id, id";
 
 /// A count read back from a row, as the domain holds it.
 pub(crate) fn stored_count(value: i64) -> u32 {
@@ -922,6 +949,28 @@ macro_rules! impl_health_record_repository {
                     .await
                     .map_err(|e| AppError::database(format!("delete_lab_document commit: {e}")))?;
                 Ok(done.rows_affected() > 0)
+            }
+
+            async fn list_every_lab_document_file(&self) -> AppResult<Vec<LabDocumentFile>> {
+                let rows = sqlx::query(LIST_EVERY_LAB_DOCUMENT_FILE_SQL)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("list_every_lab_document_file: {e}")))?;
+                let column = health_column("lab_documents");
+                let id = |row: &$row, name: &str| -> AppResult<Uuid> {
+                    let text: String = row.try_get(name).map_err(&column)?;
+                    Uuid::parse_str(&text)
+                        .map_err(|e| AppError::database(format!("Invalid lab_documents {name}: {e}")))
+                };
+                rows.iter()
+                    .map(|row| {
+                        Ok(LabDocumentFile {
+                            tenant_id: TenantId::from_uuid(id(row, "tenant_id")?),
+                            user_id: id(row, "user_id")?,
+                            file_sha256: row.try_get("file_sha256").map_err(&column)?,
+                        })
+                    })
+                    .collect()
             }
         }
     };

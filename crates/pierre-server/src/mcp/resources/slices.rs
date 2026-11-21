@@ -121,6 +121,7 @@ use pierre_tool_runtime::tool_selection::ToolSelectionService;
 #[cfg(feature = "slash-commands")]
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(feature = "client-messaging")]
 use std::sync::OnceLock;
@@ -181,6 +182,9 @@ pub struct CommonSlice {
     /// The model the lab reader reads uploaded lab reports with, or none (the
     /// rules read): `LAB_READER_MODEL`, chosen once at boot (carnet#1544).
     pub lab_reader: LabReaderModel,
+    /// The `pierre-pdf-text` binary uploaded lab reports are read with, or
+    /// why none was found: chosen once at boot (carnet#1544).
+    pub pdf_text_bin: Result<PathBuf, String>,
     /// Client for the photograveur press service.
     ///
     /// Disabled when `PHOTOGRAVEUR_URL` is unset, so a stack without the

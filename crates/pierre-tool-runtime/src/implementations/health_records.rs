@@ -47,9 +47,6 @@ use crate::implementations::stored_data::{date_range_properties, parse_date_rang
 use crate::read_subject;
 use crate::runtime::ToolRuntime;
 
-/// The tool's name.
-const NAME: &str = "get_health_records";
-
 /// How many records a call returns when it names no limit.
 const DEFAULT_LIMIT: u32 = 50;
 
@@ -126,7 +123,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthRecordsTool {
             ..Default::default()
         };
         answers_with::<Formatted<HealthRecordsResult>>(tool_definition(
-            NAME,
+            "get_health_records",
             "Get the athlete's health records: lab results, clinical records, self-measured \
              glucose or cycle tracking, as far as they allowed AI to read them",
             schema,
@@ -172,7 +169,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthRecordsTool {
             };
             match Box::pin(read.read(kind, window)).await {
                 Ok(page) => ok_typed(
-                    NAME,
+                    "get_health_records",
                     apply_format(
                         HealthRecordsResult {
                             kind,

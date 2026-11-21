@@ -109,6 +109,7 @@ impl McpTestSetup {
                     live_records: None,
                     blobs: None,
                     lab_reader: None,
+                    pdf_text_bin: None,
                     #[cfg(feature = "client-messaging")]
                     channel_adapters: common::offline_adapters(),
                 },
@@ -1021,6 +1022,7 @@ async fn setup_with_admin_flag(
                 live_records: None,
                 blobs: None,
                 lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

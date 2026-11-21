@@ -21,7 +21,7 @@ const uploadLabDocument = vi.fn();
 const listLabDocuments = vi.fn();
 const deleteLabDocument = vi.fn();
 
-vi.mock('../../../services/api', () => ({
+vi.mock('../../../services/api/healthRecords', () => ({
   healthRecordsApi: {
     listRecords: (...a: unknown[]) => listRecords(...a),
     getReview: (...a: unknown[]) => getReview(...a),

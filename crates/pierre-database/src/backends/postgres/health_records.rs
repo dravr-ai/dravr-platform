@@ -14,11 +14,11 @@ use uuid::Uuid;
 use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::health_records::{
     impl_health_record_repository, stored_count, ClinicalRecordWrite, ClinicalSelection,
-    HealthRecordRepository, LabDocumentWrite, RecordFiling, RecordWindow, ReviewDecision,
+    HealthRecordRepository, LabDocumentFile, LabDocumentWrite, RecordFiling, RecordWindow, ReviewDecision,
     SelfReportWrite, StoredClinicalRecord, StoredLabDocument, StoredSelfReport,
     DECIDE_CLINICAL_RECORD_SQL, DELETE_LAB_DOCUMENT_RECORDS_SQL, DELETE_LAB_DOCUMENT_SQL,
     FIND_LAB_DOCUMENT_BY_FILE_SQL, GET_LAB_DOCUMENT_SQL, INSERT_LAB_DOCUMENT_SQL,
-    LIST_LAB_DOCUMENTS_SQL, LIST_LAB_DOCUMENT_RECORDS_SQL, LIST_PENDING_CLINICAL_SQL,
+    LIST_EVERY_LAB_DOCUMENT_FILE_SQL, LIST_LAB_DOCUMENTS_SQL, LIST_LAB_DOCUMENT_RECORDS_SQL, LIST_PENDING_CLINICAL_SQL,
     LIST_SELF_REPORTS_SQL, LIST_SERVED_CLINICAL_SQL, UPSERT_CLINICAL_RECORD_SQL,
     UPSERT_SELF_REPORT_SQL,
 };

@@ -255,6 +255,7 @@ jobs:
         run: |
           strip target/${{ matrix.target }}/release-lto/pierre-mcp-server || true
           strip target/${{ matrix.target }}/release-lto/pierre-cli || true
+          strip target/${{ matrix.target }}/release-lto/pierre-pdf-text || true
 
       - name: Create package directory structure (Unix)
         if: matrix.os != 'windows-latest'
@@ -266,6 +267,7 @@ jobs:
           # Copy binaries
           cp target/${{ matrix.target }}/release-lto/pierre-mcp-server "dist/${PACKAGE_NAME}/bin/"
           cp target/${{ matrix.target }}/release-lto/pierre-cli "dist/${PACKAGE_NAME}/bin/"
+          cp target/${{ matrix.target }}/release-lto/pierre-pdf-text "dist/${PACKAGE_NAME}/bin/"
 
           # Copy documentation
           cp README.md "dist/${PACKAGE_NAME}/"
@@ -306,6 +308,7 @@ jobs:
           # Copy binaries
           Copy-Item "target\${{ matrix.target }}\release-lto\pierre-mcp-server.exe" "dist\${PACKAGE_NAME}\bin\"
           Copy-Item "target\${{ matrix.target }}\release-lto\pierre-cli.exe" "dist\${PACKAGE_NAME}\bin\"
+          Copy-Item "target\${{ matrix.target }}\release-lto\pierre-pdf-text.exe" "dist\${PACKAGE_NAME}\bin\"
 
           # Copy documentation
           Copy-Item "README.md" "dist\${PACKAGE_NAME}\"

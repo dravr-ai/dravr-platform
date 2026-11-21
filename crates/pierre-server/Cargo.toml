@@ -20,6 +20,15 @@ name = "pierre-mcp-server"
 path = "src/bin/pierre-mcp-server.rs"
 bench = false
 
+# The child process an uploaded lab report's text is read in (carnet#1544): the
+# server spawns it and never runs the PDF parser itself. Built with the server
+# so every `--bin` build, integration test and image carries it beside the
+# server binary, where the server looks for it.
+[[bin]]
+name = "pierre-pdf-text"
+path = "src/bin/pierre-pdf-text.rs"
+bench = false
+
 # [[bin]]
 # name = "auth-setup"
 # path = "src/bin/auth_setup.rs"
@@ -233,12 +242,12 @@ dravr-cageux = { workspace = true }
 # stores for local runs, the Fs blob store locally and GCS when deployed, and
 # Postgres (schema `barrage`) under the `postgresql` feature.
 dravr-barrage = { workspace = true, features = ["sqlite", "blob-fs", "blob-gcs"] }
-# The text of an uploaded lab report, page by page, for barrage's lab reader (carnet#1544):
-# its rules read the line layout pdf-extract keeps (lopdf's own text loses it).
-pdf-extract = "0.12"
-# Inflates a PDF's object streams so the nesting guard sees every object before
-# lopdf parses it (lopdf recurses into dictionaries without a depth limit).
-flate2 = "1.1"
+# The text of an uploaded lab report (carnet#1544), read in the `pierre-pdf-text`
+# child process; the server binary uses only its outcome type and bounds.
+pierre-pdf-text = { version = "0.3.0", path = "../pierre-pdf-text" }
+# The `pierre-pdf-text` binary's capped allocator: an allocation past the bound
+# ends the child, never the server.
+cap = "0.1"
 pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
@@ -257,7 +266,7 @@ photograveur = { workspace = true }
 dravr-tronc = { workspace = true, features = ["notifications", "google-iam", "service-client", "http-client"] }
 dravr-enforme = { workspace = true, optional = true, features = ["provider-whoop"] }
 
-tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync", "process"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 # Derives the JSON Schemas the endurance tools declare as their outputSchema.
 schemars = "1.2"
@@ -300,6 +309,8 @@ tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 # PostHog capture API is called directly via the existing reqwest 0.12 dependency.
 
 [dev-dependencies]
+# Compresses the decompression bomb lab_document_test hands the PDF child.
+flate2 = "1.1"
 # The archive import suite writes the synthetic export archives it imports.
 zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2"] }
 # Property tests for the webhook parsers and signature check (carnet#1143).

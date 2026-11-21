@@ -16,6 +16,8 @@
 //! barrage's lab reader, and its result count checked against owl's truth.
 
 use std::fmt::Write as _;
+use std::io::Write as _;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
@@ -26,9 +28,13 @@ use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
 use pierre_core::constants::oauth::providers::SENSITIVE_T2;
 use pierre_core::models::TenantId;
-use pierre_database::repositories::{ClinicalSelection, RecordWindow, ReviewDecision};
+use pierre_database::repositories::{
+    ClinicalSelection, PurgeReason, RecordWindow, ReviewDecision, LAB_DOCUMENT_PROVIDER,
+};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
-use pierre_mcp_server::services::lab_documents::{delete_lab_document, upload_lab_document};
+use pierre_mcp_server::services::lab_documents::{
+    delete_lab_document, upload_lab_document, UNREADABLE_LAB_DOCUMENT,
+};
 use pierre_services::lab_document_model::LabReaderModel;
 use pierre_services::provider_notice::grant_ai_consent;
 use serde_json::Value;
@@ -72,6 +78,7 @@ async fn context(model: LabReaderModel) -> Arc<ServerContext> {
             ServerContextOptions {
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 lab_reader: Some(model),
+                pdf_text_bin: Some(env!("CARGO_BIN_EXE_pierre-pdf-text").into()),
                 blobs: Some(Ok(Arc::new(MemoryBlobStore::default()))),
                 ..ServerContextOptions::testing(common::offline_adapters())
             },
@@ -358,34 +365,54 @@ async fn the_model_reads_only_under_sensitive_t2_and_a_failing_one_leaves_the_ru
     );
 }
 
-/// A one-page PDF whose page dictionary nests `levels` dictionaries deep: the
-/// shape that overflows lopdf's stack and aborts the process.
-fn nested_pdf(levels: usize) -> Bytes {
-    let mut pdf = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec();
-    pdf.extend(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
-    pdf.extend(b"3 0 obj\n<< /Type /Page /Parent 2 0 R /X ");
-    pdf.extend(b"<< /A ".repeat(levels));
-    pdf.push(b'1');
-    pdf.extend(b" >>".repeat(levels));
-    pdf.extend(b" >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n");
-    Bytes::from(pdf)
+/// A one-page PDF whose font's `/ToUnicode` map is a 1.2 KB stream, Flate
+/// twice, that inflates to 640 MiB of zeros. Nothing the server's pre-check
+/// reads (the page tree, page content, forms) is hostile, so the bomb goes
+/// off inside pdf-extract, when it loads the font.
+const DECOMPRESSION_BOMB: &[u8] = include_bytes!("../fixtures/owl-labs/tounicode-bomb.pdf");
+
+#[test]
+fn the_pdf_child_ends_itself_at_its_memory_cap() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pierre-pdf-text"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(DECOMPRESSION_BOMB)
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success() && output.stdout.is_empty(),
+        "bug: the bomb was answered: {:?}",
+        output.status
+    );
+    assert!(
+        stderr.contains("memory allocation of"),
+        "bug: the child ended without its allocation cap refusing: {stderr}"
+    );
 }
 
 #[tokio::test]
-async fn a_deeply_nested_pdf_is_refused_cleanly_instead_of_aborting() {
+async fn a_decompression_bomb_is_refused_and_the_server_reads_on() {
     let resources = context(LabReaderModel::rules()).await;
-    let athlete = seed_athlete(&resources, "lab-nested").await;
+    let athlete = seed_athlete(&resources, "lab-bomb").await;
     let refused = upload_lab_document(
         &resources,
         athlete.tenant,
         athlete.user_id,
-        nested_pdf(20_000),
+        Bytes::from_static(DECOMPRESSION_BOMB),
     )
     .await;
-    let error = refused.expect_err("bug: a nesting that aborts lopdf was parsed");
-    assert!(
-        error.message.contains("nest"),
-        "bug: the refusal says why: {error:?}"
+    let error = refused.expect_err("bug: a decompression bomb was read");
+    assert_eq!(
+        error.message, UNREADABLE_LAB_DOCUMENT,
+        "bug: the athlete was told more than the fixed sentence"
     );
     let held = resources
         .common
@@ -395,4 +422,84 @@ async fn a_deeply_nested_pdf_is_refused_cleanly_instead_of_aborting() {
         .await
         .unwrap();
     assert!(held.is_empty(), "bug: a refused file was stored");
+    let read = upload_lab_document(
+        &resources,
+        athlete.tenant,
+        athlete.user_id,
+        Bytes::from_static(REPORT),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        read.records.len(),
+        truth_count(),
+        "bug: the next report was not read after the refusal"
+    );
 }
+
+#[tokio::test]
+async fn a_truncated_pdf_is_refused_with_the_fixed_sentence() {
+    let resources = context(LabReaderModel::rules()).await;
+    let athlete = seed_athlete(&resources, "lab-truncated").await;
+    let refused = upload_lab_document(
+        &resources,
+        athlete.tenant,
+        athlete.user_id,
+        Bytes::from_static(b"%PDF-1.7\n1 0 obj <<"),
+    )
+    .await;
+    let error = refused.expect_err("bug: a truncated PDF was read");
+    assert_eq!(
+        error.message, UNREADABLE_LAB_DOCUMENT,
+        "bug: the refusal names more than the fixed sentence"
+    );
+}
+
+#[tokio::test]
+async fn purging_the_lab_document_source_deletes_the_documents_and_their_pdfs() {
+    let resources = context(LabReaderModel::rules()).await;
+    let athlete = seed_athlete(&resources, "lab-purge").await;
+    let (tenant, user) = (athlete.tenant, athlete.user_id);
+    let stored = upload_lab_document(&resources, tenant, user, Bytes::from_static(REPORT))
+        .await
+        .unwrap();
+    let file = Sha256::of(REPORT).to_hex();
+    assert!(!stored.records.is_empty(), "bug: the report was not read");
+    let purge = resources
+        .common
+        .provider_purge
+        .purge_user_provider_data(user, &tenant, LAB_DOCUMENT_PROVIDER, PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    assert!(purge.total() > 0, "bug: the purge removed nothing");
+    let repos = &resources.common.repos;
+    assert!(
+        repos
+            .health_records
+            .list_lab_documents(&tenant, user)
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: a lab document outlived its source's purge"
+    );
+    assert!(
+        repos
+            .health_records
+            .list_lab_document_records(&tenant, user, &stored.document.id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: a record read from a purged document survived"
+    );
+    assert_eq!(
+        resources
+            .common
+            .originals
+            .get_named_file(&tenant, user, &file)
+            .await
+            .unwrap(),
+        None,
+        "bug: the purged document's PDF is still kept"
+    );
+}
+

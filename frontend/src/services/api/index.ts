@@ -47,8 +47,6 @@ export const gearApi = pierreApi.gear;
 // Importing the athlete's own history from a service's export.
 export const importsApi = pierreApi.imports;
 export const originalsApi = pierreApi.dataExport;
-// The athlete's health records: served records by kind, the lab review queue, uploaded lab reports.
-export const healthRecordsApi = pierreApi.healthRecords;
 // The athlete's statutory access requests to a company: the letter they send and its legal deadline.
 export const dataAccessRequestsApi = pierreApi.dataAccessRequests;
 

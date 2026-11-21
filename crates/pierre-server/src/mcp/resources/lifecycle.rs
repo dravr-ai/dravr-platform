@@ -17,6 +17,7 @@ use crate::services::archive_import::ArchiveImports;
 use crate::services::backfill_notifier::ServerBackfillNotifier;
 #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
 use crate::services::group_chat_poster::ServerGroupChatPoster;
+use crate::services::lab_documents::pdf_text_bin_beside_server;
 use crate::services::originals::blob_store_when_unset;
 use crate::services::photograveur_client::PhotograveurClient;
 #[cfg(feature = "client-messaging")]
@@ -242,12 +243,22 @@ impl ServerContext {
         let live = live_store(Arc::clone(&activity_records), blobs.clone().ok(), &repos);
         let connect_log: Arc<dyn ProviderConnectLog> = Arc::<BarrageLiveStore>::clone(&live);
         let live_activities: Arc<dyn LiveActivityStore> = live;
-        let provider_purge = ProviderPurgeService::shared(&repos, Arc::clone(&live_activities));
         let originals_bundles = OriginalsBundleService::over(&activity_records, &blobs, &repos);
         let originals = Arc::new(OriginalsStore::new(
             blobs,
             Arc::clone(&repos.uploaded_activity_files),
         ));
+        let provider_purge = ProviderPurgeService::shared(
+            &repos,
+            Arc::clone(&live_activities),
+            Arc::clone(&originals),
+        );
+        let pdf_text_bin = options
+            .pdf_text_bin
+            .map_or_else(pdf_text_bin_beside_server, Ok);
+        if let Err(reason) = &pdf_text_bin {
+            warn!(reason = %reason, "No lab report can be read: the PDF child binary is missing");
+        }
         let lab_reader = match options.lab_reader {
             Some(model) => model,
             None => LabReaderModel::from_env().await,
@@ -572,6 +583,7 @@ impl ServerContext {
             connect_log,
             originals,
             lab_reader,
+            pdf_text_bin,
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
             photograveur: Arc::new(PhotograveurClient::from_env()),
             config,

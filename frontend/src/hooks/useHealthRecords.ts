@@ -5,7 +5,7 @@
 // ABOUTME: Every write rereads every health records read; the API is reached when a hook runs, so importing it touches no client
 
 import { createHealthRecordsHooks } from '@pierre/ui-logic';
-import { healthRecordsApi } from '../services/api';
+import { healthRecordsApi } from '../services/api/healthRecords';
 
 export const {
   useHealthRecords,

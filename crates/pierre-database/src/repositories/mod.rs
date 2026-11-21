@@ -373,9 +373,10 @@ pub use group_chat_connect::GroupChatConnectRepository;
 pub use harness_memory::*;
 pub use health::*;
 pub use health_records::{
-    ClinicalRecordWrite, ClinicalSelection, HealthRecordRepository, LabDocumentWrite, RecordFiling,
+    ClinicalRecordWrite, ClinicalSelection, HealthRecordRepository, LabDocumentFile,
+    LabDocumentWrite, RecordFiling,
     RecordWindow, ReviewDecision, SelfReportWrite, StoredClinicalRecord, StoredLabDocument,
-    StoredSelfReport, LAB_DOCUMENT_PROVIDER, MAX_HEALTH_RECORDS_PAGE,
+    StoredSelfReport, LAB_DOCUMENT_PROVIDER, LAB_DOCUMENT_SOURCE_MARKER, MAX_HEALTH_RECORDS_PAGE,
 };
 pub use impersonation::*;
 pub use import_tombstones::{

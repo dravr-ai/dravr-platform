@@ -19,6 +19,12 @@
 //! not keep (an imported archive, or a key it does not know) is purged from
 //! the tables alone. Wellness-only purges never reach the store, which holds
 //! activities.
+//!
+//! A purge of the `lab_document` provider ([`LAB_DOCUMENT_PROVIDER`]) deletes
+//! the PDFs the athlete uploaded first, from the originals store, then the
+//! tables delete the documents' rows with the records read from them: bytes
+//! first, so a failure leaves the rows for a retried purge to find, as
+//! deleting one lab document does.
 
 use std::fmt;
 use std::sync::Arc;
@@ -27,9 +33,11 @@ use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
-    ProviderDataPurge, ProviderDataRepository, ProviderPurge, PurgeReason,
+    HealthRecordRepository, ProviderDataPurge, ProviderDataRepository, ProviderPurge, PurgeReason,
+    LAB_DOCUMENT_PROVIDER,
 };
 use pierre_database::RepositoryRegistry;
+use pierre_providers::originals::OriginalsStore;
 use tracing::info;
 use uuid::Uuid;
 
@@ -40,6 +48,8 @@ use crate::live_activities::LiveActivityStore;
 pub struct ProviderPurgeService {
     data: Arc<dyn ProviderDataRepository>,
     live: Arc<dyn LiveActivityStore>,
+    health_records: Arc<dyn HealthRecordRepository>,
+    originals: Arc<OriginalsStore>,
 }
 
 impl fmt::Debug for ProviderPurgeService {
@@ -50,17 +60,44 @@ impl fmt::Debug for ProviderPurgeService {
 }
 
 impl ProviderPurgeService {
-    /// The purge over `repos`' provider data and the live store `live`, as
-    /// every holder of the port takes it.
+    /// The purge over `repos`' provider data, the live store `live` and the
+    /// uploaded files in `originals`, as every holder of the port takes it.
     #[must_use]
     pub fn shared(
         repos: &RepositoryRegistry,
         live: Arc<dyn LiveActivityStore>,
+        originals: Arc<OriginalsStore>,
     ) -> Arc<dyn ProviderPurge> {
         Arc::new(Self {
             data: Arc::clone(&repos.provider_data),
             live,
+            health_records: Arc::clone(&repos.health_records),
+            originals,
         })
+    }
+
+    /// Delete the PDFs of the athlete's lab documents when `provider` is
+    /// [`LAB_DOCUMENT_PROVIDER`], before the tables delete their rows.
+    async fn delete_lab_files(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        if provider != LAB_DOCUMENT_PROVIDER {
+            return Ok(());
+        }
+        let documents = self
+            .health_records
+            .list_lab_documents(tenant_id, user_id)
+            .await?;
+        for document in &documents {
+            self.originals
+                .delete_named_file(tenant_id, user_id, &document.file_sha256)
+                .await?;
+        }
+        info!(%user_id, %tenant_id, files = documents.len(), "Deleted the purged lab documents' files");
+        Ok(())
     }
 
     /// Delete the store's records of `provider` for the athlete, when it is
@@ -91,6 +128,7 @@ impl ProviderPurge for ProviderPurgeService {
         provider: &str,
         reason: PurgeReason,
     ) -> AppResult<ProviderDataPurge> {
+        self.delete_lab_files(user_id, tenant_id, provider).await?;
         let purge = self
             .data
             .purge_user_provider_data(user_id, tenant_id, provider, reason)
@@ -107,6 +145,7 @@ impl ProviderPurge for ProviderPurgeService {
         provider: &str,
         reason: PurgeReason,
     ) -> AppResult<ProviderDataPurge> {
+        self.delete_lab_files(user_id, tenant_id, provider).await?;
         self.data
             .purge_user_provider_wellness(user_id, tenant_id, provider, reason)
             .await
@@ -136,6 +175,7 @@ impl ProviderPurge for ProviderPurgeService {
         source: &str,
         reason: PurgeReason,
     ) -> AppResult<ProviderDataPurge> {
+        self.delete_lab_files(user_id, tenant_id, provider).await?;
         self.data
             .purge_user_provider_source_wellness(user_id, tenant_id, provider, source, reason)
             .await
@@ -149,6 +189,7 @@ impl ProviderPurge for ProviderPurgeService {
         source: &str,
         reason: PurgeReason,
     ) -> AppResult<ProviderDataPurge> {
+        self.delete_lab_files(user_id, tenant_id, provider).await?;
         let purge = self
             .data
             .purge_user_provider_source_data(user_id, tenant_id, provider, source, reason)
@@ -159,6 +200,15 @@ impl ProviderPurge for ProviderPurgeService {
     }
 
     async fn purge_provider_data(&self, provider: &str) -> AppResult<ProviderDataPurge> {
+        if provider == LAB_DOCUMENT_PROVIDER {
+            let files = self.health_records.list_every_lab_document_file().await?;
+            for file in &files {
+                self.originals
+                    .delete_named_file(&file.tenant_id, file.user_id, &file.file_sha256)
+                    .await?;
+            }
+            info!(files = files.len(), "Deleted every lab document's file for the provider purge");
+        }
         let purge = self.data.purge_provider_data(provider).await?;
         if self.live.keeps(provider) {
             let athletes = self.live.delete_source_everywhere(provider).await?;
