@@ -1,20 +1,21 @@
-// ABOUTME: Privacy settings screen — analytics consent (GDPR), each provider's AI consent, data export, access requests and account deletion, as on web
+// ABOUTME: Privacy settings screen — analytics consent (GDPR), each provider's AI consent, health records, data export, access requests and account deletion, as on web
 // ABOUTME: Optimistic switch that writes through userApi.updateAnalyticsConsent and reverts when the write fails
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, Switch, Alert, type ScrollView } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MOBILE_DATA_ACCESS_REQUEST_PARAM } from '@pierre/shared-constants';
-import { PaneScrollView, Section, switchColors } from '../../components/ui';
+import { PaneScrollView, Row, Section, switchColors } from '../../components/ui';
 import { useMutation } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError } from '@pierre/ui-logic';
+import { HEALTH_RECORDS_KEYS, describeApiError } from '@pierre/ui-logic';
+import { HEALTH_RECORDS_ROUTE } from '../../navigation/routes';
 import { AccountDeletionSection } from './AccountDeletionSection';
 import { DataExportSection } from './DataExportSection';
 import { DataAccessRequestsSection } from './dataAccess/DataAccessRequestsSection';
@@ -44,6 +45,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
   const { t } = useTranslation();
   const colors = useThemeColors();
   const { user, updateUser } = useAuth();
+  const router = useRouter();
   // A data access reminder names its request (carnet#1659).
   const params = useLocalSearchParams<{ [MOBILE_DATA_ACCESS_REQUEST_PARAM]?: string }>();
   const openRequestId =
@@ -114,6 +116,20 @@ export function PrivacySettingsScreen(): React.JSX.Element {
           />
 
           <AiConsentSection />
+
+          {/* The athlete's health records: a screen of its own, as web renders it inline here */}
+          <Section
+            title={t(HEALTH_RECORDS_KEYS.title)}
+            description={t(HEALTH_RECORDS_KEYS.blurb)}
+            testID="privacy-section-health-records"
+          >
+            <Row
+              last
+              title={t(HEALTH_RECORDS_KEYS.recordsTitle)}
+              onPress={() => router.push(HEALTH_RECORDS_ROUTE as never)}
+              testID="privacy-health-records-button"
+            />
+          </Section>
 
           {/* Plain lines, not rows: they pay the pane's inset themselves. */}
           <Section title={t('app.whatWeCollect')} testID="privacy-section-collected">
