@@ -212,7 +212,8 @@ mod tests {
         let now = Utc::now();
         assert_eq!(
             admin_family_first_expiry(now, Duration::days(30)),
-            now + Duration::hours(ADMIN_FAMILY_MAX_HOURS)
+            now + Duration::hours(ADMIN_FAMILY_MAX_HOURS),
+            "bug: an admin family's first token outlived its day"
         );
         assert_eq!(
             admin_family_first_expiry(now, Duration::hours(2)),

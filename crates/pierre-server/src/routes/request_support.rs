@@ -20,7 +20,7 @@
 //!
 //! Authentication runs inside each handler's extractor, after every layer has
 //! entered, so this layer reads the session from the same credential
-//! ([`request_credential`]) through the admission's own derivation
+//! ([`extractors::request_credential`]) through the admission's own derivation
 //! ([`McpAuthMiddleware::support_session_of`]), which writes nothing: the
 //! handler's authentication stays the request's one admission. A credential
 //! that is no impersonation, or one the handler will refuse, declares no
@@ -35,7 +35,7 @@ use std::sync::Arc;
 use axum::extract::{Request, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use pierre_middleware::extractors::request_credential;
+use pierre_middleware::extractors;
 use pierre_middleware::McpAuthMiddleware;
 use pierre_tool_runtime::context::SUPPORT_SESSION;
 
@@ -46,7 +46,7 @@ pub async fn declare_support_session(
     request: Request,
     next: Next,
 ) -> Response {
-    let Some(credential) = request_credential(request.headers()) else {
+    let Some(credential) = extractors::request_credential(request.headers()) else {
         return next.run(request).await;
     };
     match auth.support_session_of(&credential).await {

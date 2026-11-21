@@ -523,7 +523,10 @@ async fn a_refresh_family_holding_admin_with_no_recorded_start_mints_nothing() {
         })
         .await
         .expect_err("an admin family with no start is not continued");
-    assert_eq!(refused.error, "invalid_grant");
+    assert_eq!(
+        refused.error, "invalid_grant",
+        "bug: a refused admin family is not invalid_grant"
+    );
 }
 
 // ============================================================================

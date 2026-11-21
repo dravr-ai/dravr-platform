@@ -42,8 +42,9 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-/// Admin access at consent: the one way a grant holds `admin` (carnet#1511)
+/// Minting the access token a grant is redeemed for, under its refresh family
 mod access_token;
+/// Admin access at consent: the one way a grant holds `admin` (carnet#1511)
 mod admin_grant;
 pub use admin_grant::{without_admin, AdminAccess};
 /// Access-token validation with refresh, `validate_and_refresh`

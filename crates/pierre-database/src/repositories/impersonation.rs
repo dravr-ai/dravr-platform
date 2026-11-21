@@ -144,12 +144,18 @@ pub(crate) const GET_ACTIVE_API_KEY_SESSION_SQL: &str = concat!(
 
 /// One token of a refresh family the user holds, unrevoked and unexpired at
 /// `$3`.
+///
+/// SECURITY: no `tenant_id` filter, by design. The family id is a server-minted
+/// UUID the caller holds only in its own signed token's `grant_id` claim, and
+/// the read is narrowed to that token's user, as the family-keyed statements
+/// in `tokens.rs` are.
 pub(crate) const GRANT_LIVE_SQL: &str = "SELECT family_id FROM oauth2_refresh_tokens \
      WHERE family_id = $1 AND user_id = $2 AND revoked = FALSE AND expires_at > $3 \
      LIMIT 1";
 
 /// One token of a refresh family the user holds, unexpired at `$3`. Every
-/// `oauth2_refresh_tokens` id column is `TEXT` on both backends.
+/// `oauth2_refresh_tokens` id column is `TEXT` on both backends. Unscoped by
+/// tenant for the reason [`GRANT_LIVE_SQL`] gives.
 pub(crate) const GRANT_UNEXPIRED_SQL: &str = "SELECT family_id FROM oauth2_refresh_tokens \
      WHERE family_id = $1 AND user_id = $2 AND expires_at > $3 \
      LIMIT 1";

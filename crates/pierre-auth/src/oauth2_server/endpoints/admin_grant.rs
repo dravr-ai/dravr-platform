@@ -149,7 +149,8 @@ mod tests {
     fn a_request_naming_admin_is_checked_as_if_it_had_not() {
         assert_eq!(
             without_admin(Some("fitness:read admin profile:read")).as_deref(),
-            Some("fitness:read profile:read")
+            Some("fitness:read profile:read"),
+            "bug: admin was kept, or another scope dropped with it"
         );
         assert_eq!(
             without_admin(Some("admin")).as_deref(),
@@ -158,9 +159,14 @@ mod tests {
         );
         assert_eq!(
             without_admin(Some("fitness:read")).as_deref(),
-            Some("fitness:read")
+            Some("fitness:read"),
+            "bug: a request without admin was changed"
         );
-        assert_eq!(without_admin(None), None);
+        assert_eq!(
+            without_admin(None),
+            None,
+            "bug: a request naming no scope was given one"
+        );
         assert_eq!(
             without_admin(Some("administrator")).as_deref(),
             Some("administrator"),
@@ -184,7 +190,8 @@ mod tests {
         let bound = checked("fitness:read profile:read", true);
         assert_eq!(
             OAuth2AuthorizationServer::granted_scope(&bound, AdminAccess::Ticked),
-            "fitness:read profile:read admin"
+            "fitness:read profile:read admin",
+            "bug: a ticked box on the platform's resource did not grant admin"
         );
         assert_eq!(
             OAuth2AuthorizationServer::granted_scope(&bound, AdminAccess::Withheld),
@@ -201,8 +208,14 @@ mod tests {
 
     #[test]
     fn a_stored_scope_holding_admin_is_told_apart() {
-        assert!(holds_admin(Some("fitness:read admin")));
-        assert!(!holds_admin(Some("fitness:read profile:read")));
-        assert!(!holds_admin(None));
+        assert!(
+            holds_admin(Some("fitness:read admin")),
+            "bug: a stored grant holding admin was not told apart"
+        );
+        assert!(
+            !holds_admin(Some("fitness:read profile:read")),
+            "bug: a grant without admin read as holding it"
+        );
+        assert!(!holds_admin(None), "bug: no stored scope read as admin");
     }
 }

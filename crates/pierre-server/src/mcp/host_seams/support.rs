@@ -20,7 +20,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::permissions::impersonation::BoundCredential;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
-use pierre_middleware::rate_limiting::request_credential;
+use pierre_middleware::rate_limiting;
 use pierre_tool_runtime::support_session::{
     self, grant_for_user, LiveSupport, END_TOOL, START_TOOL,
 };
@@ -33,7 +33,7 @@ use crate::mcp::resources::ServerContext;
 /// auth hook recorded it for this request. `None` outside an HTTP request,
 /// which starts and serves no session.
 pub(super) fn binding() -> Option<BoundCredential> {
-    request_credential()
+    rate_limiting::request_credential()
 }
 
 /// The support session live for the admin `ctx` names on the credential

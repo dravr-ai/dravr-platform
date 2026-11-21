@@ -34,15 +34,15 @@ mod support_session_assistant_tests {
     use chrono::{Duration, Utc};
     use pierre_auth::auth::{DelegatedGrant, IMPERSONATION_WRITE_REFUSED};
     use pierre_core::models::{OAuth2Client, OAuth2RefreshToken, OAuthClientGrant};
-    use pierre_core::permissions::impersonation::{BoundCredential, ImpersonationSession};
+    use pierre_core::permissions::impersonation::{
+        BoundCredential, ImpersonationSession, ENDED_ACTION, EXPIRED_ACTION, STARTED_ACTION,
+    };
     use pierre_core::permissions::scopes::OAuthScope;
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::repositories::admin_audit::AuditEventFilter;
     use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_tool_runtime::support_session::{
-        ENDED_ACTION, END_TOOL, EXPIRED_ACTION, STARTED_ACTION, START_TOOL,
-    };
+    use pierre_tool_runtime::support_session::{END_TOOL, START_TOOL};
     use secrecy::SecretString;
     use serde_json::{json, Value};
     use tower::ServiceExt;
@@ -711,7 +711,11 @@ mod support_session_assistant_tests {
             .bound(&BoundCredential::ApiKey(first.id.clone()))
             .await
             .expect("bound to the first key");
-        assert_eq!(session.api_key_id.as_deref(), Some(first.id.as_str()));
+        assert_eq!(
+            session.api_key_id.as_deref(),
+            Some(first.id.as_str()),
+            "bug: the session names another key than the one that started it"
+        );
         assert_eq!(
             session.grant_id, None,
             "bug: a key's session names no grant"
@@ -818,8 +822,15 @@ mod support_session_assistant_tests {
         assert!(row.ended_at.is_some(), "bug: the end is stamped");
         let ended = world.ended_rows(&session.id).await;
         assert_eq!(ended.len(), 1, "bug: the end is one audit row: {ended:#?}");
-        assert_eq!(ended[0]["metadata"]["api_key_id"], key.id);
-        assert_eq!(ended[0]["actor_user_id"], world.admin.id.to_string());
+        assert_eq!(
+            ended[0]["metadata"]["api_key_id"], key.id,
+            "bug: the end row names another key"
+        );
+        assert_eq!(
+            ended[0]["actor_user_id"],
+            world.admin.id.to_string(),
+            "bug: the end row names another actor than the admin"
+        );
 
         let (status, _) = world
             .post("/mcp", &key.bearer, rpc("tools/list", &json!({})))
@@ -862,7 +873,10 @@ mod support_session_assistant_tests {
         assert!(!row.is_active, "bug: revoking the family ends the session");
         let ended = world.ended_rows(&session.id).await;
         assert_eq!(ended.len(), 1, "bug: the end is one audit row: {ended:#?}");
-        assert_eq!(ended[0]["metadata"]["grant_id"], grant.family);
+        assert_eq!(
+            ended[0]["metadata"]["grant_id"], grant.family,
+            "bug: the end row names another grant"
+        );
 
         let listed = world.listed(&grant.bearer).await;
         assert!(
@@ -935,14 +949,17 @@ mod support_session_assistant_tests {
             .await
             .expect("live");
 
-        assert!(oauth
-            .revoke_client_grant(
-                &consent,
-                &world.admin.id.to_string(),
-                &world.admin.tenant.to_string(),
-            )
-            .await
-            .unwrap());
+        assert!(
+            oauth
+                .revoke_client_grant(
+                    &consent,
+                    &world.admin.id.to_string(),
+                    &world.admin.tenant.to_string(),
+                )
+                .await
+                .unwrap(),
+            "bug: the consent was not revoked"
+        );
         world
             .res
             .account_service()
@@ -958,7 +975,10 @@ mod support_session_assistant_tests {
         assert!(!row.is_active, "bug: revoking the consent ends the session");
         let ended = world.ended_rows(&session.id).await;
         assert_eq!(ended.len(), 1, "bug: the end is one audit row: {ended:#?}");
-        assert_eq!(ended[0]["metadata"]["grant_id"], grant.family);
+        assert_eq!(
+            ended[0]["metadata"]["grant_id"], grant.family,
+            "bug: the end row names another grant"
+        );
 
         let (status, body) = world
             .post("/mcp", &grant.bearer, rpc("tools/list", &json!({})))
@@ -1024,7 +1044,11 @@ mod support_session_assistant_tests {
             ))
             .unwrap();
         let response = world.app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "bug: the session's call was refused"
+        );
         let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let body = String::from_utf8_lossy(&bytes);
         assert!(
@@ -1062,7 +1086,11 @@ mod support_session_assistant_tests {
             !world.session(&withdrawn.id).await.is_active,
             "bug: the client's revocation ends the session"
         );
-        assert_eq!(world.ended_rows(&withdrawn.id).await.len(), 1);
+        assert_eq!(
+            world.ended_rows(&withdrawn.id).await.len(),
+            1,
+            "bug: the end is not one audit row"
+        );
 
         let grant = world.admin_grant().await;
         world
@@ -1072,12 +1100,19 @@ mod support_session_assistant_tests {
             .bound(&BoundCredential::Grant(grant.family.clone()))
             .await
             .expect("live");
-        assert!(oauth.delete_client(ADMIN_CLIENT).await.unwrap());
+        assert!(
+            oauth.delete_client(ADMIN_CLIENT).await.unwrap(),
+            "bug: the application was not deleted"
+        );
         assert!(
             !world.session(&deleted.id).await.is_active,
             "bug: deleting the application ends the session"
         );
-        assert_eq!(world.ended_rows(&deleted.id).await.len(), 1);
+        assert_eq!(
+            world.ended_rows(&deleted.id).await.len(),
+            1,
+            "bug: the end is not one audit row"
+        );
     }
 
     /// A grant that ran out while its access token still authenticates
@@ -1097,8 +1132,15 @@ mod support_session_assistant_tests {
 
         let listed = world.listed(&grant.bearer).await;
         assert!(listed.contains(START_TOOL), "the admin again: {listed:?}");
-        assert!(!world.session(&session.id).await.is_active);
-        assert_eq!(world.ended_rows(&session.id).await.len(), 1);
+        assert!(
+            !world.session(&session.id).await.is_active,
+            "bug: the session outlived its grant"
+        );
+        assert_eq!(
+            world.ended_rows(&session.id).await.len(),
+            1,
+            "bug: the end is not one audit row"
+        );
     }
 
     /// The same binding over `/a2a`: another grant of the same application
@@ -1142,8 +1184,15 @@ mod support_session_assistant_tests {
             .revoke_refresh_token_family(&grant.refresh)
             .await
             .unwrap();
-        assert!(!world.session(&session.id).await.is_active);
-        assert_eq!(world.ended_rows(&session.id).await.len(), 1);
+        assert!(
+            !world.session(&session.id).await.is_active,
+            "bug: the session outlived its grant"
+        );
+        assert_eq!(
+            world.ended_rows(&session.id).await.len(),
+            1,
+            "bug: the end is not one audit row"
+        );
         let roster = world
             .a2a(&grant.bearer, "get_roster_overview", json!({}))
             .await;

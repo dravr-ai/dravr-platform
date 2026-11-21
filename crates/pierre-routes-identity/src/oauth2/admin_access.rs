@@ -46,7 +46,7 @@ use pierre_contremaitre::consent_strings::{
 };
 use pierre_core::html::escape_html_attribute;
 use pierre_core::models::User;
-use tracing::info;
+use tracing::{info, warn};
 use url::Url;
 
 use super::consent_text::ConsentText;
@@ -92,7 +92,7 @@ pub(super) fn decided(
         return AdminAccess::Withheld;
     }
     if !(user.role.is_admin() && checked.admin_grantable && offered_in(text)) {
-        info!(user_id = %user.id, "consent form ticked Admin access for a user or request it is not offered to; not granted");
+        warn!(user_id = %user.id, "consent form ticked Admin access for a user or request it is not offered to; not granted");
         return AdminAccess::Withheld;
     }
     info!(user_id = %user.id, "admin granted Admin access at consent");
@@ -176,17 +176,25 @@ mod tests {
     fn a_document_host_is_read_only_from_a_metadata_url() {
         assert_eq!(
             document_host("https://claude.ai/oauth/mcp-oauth-client-metadata").as_deref(),
-            Some("claude.ai")
+            Some("claude.ai"),
+            "bug: a metadata document URL's host was not read"
         );
-        assert_eq!(document_host("3f1c6b2e-registered-client"), None);
+        assert_eq!(
+            document_host("3f1c6b2e-registered-client"),
+            None,
+            "bug: a registered client id was read as a metadata document"
+        );
     }
 
     #[test]
     fn the_same_host_is_compared_without_its_port_or_case() {
-        assert!(same_host(
-            "claude.ai",
-            "https://Claude.ai:443/api/mcp/auth_callback"
-        ));
-        assert!(!same_host("claude.ai", "https://evil.example/callback"));
+        assert!(
+            same_host("claude.ai", "https://Claude.ai:443/api/mcp/auth_callback"),
+            "bug: a port or a capital told the same host apart"
+        );
+        assert!(
+            !same_host("claude.ai", "https://evil.example/callback"),
+            "bug: another host read as the redirect host"
+        );
     }
 }
