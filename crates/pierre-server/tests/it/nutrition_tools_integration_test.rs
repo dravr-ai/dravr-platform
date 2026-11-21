@@ -267,8 +267,15 @@ async fn test_calculate_daily_nutrition_endurance_athlete() -> Result<()> {
     let result = response.result.unwrap();
 
     // Two hours at threshold is the endurance row, 6-10 g/kg: 420-700 g at 70 kg
-    assert_eq!(result["carbohydrate_load"], "high");
-    assert_eq!(result["carbs_g_range"], json!([420.0, 700.0]));
+    assert_eq!(
+        result["carbohydrate_load"], "high",
+        "two hours at threshold is the endurance row: {result}"
+    );
+    assert_eq!(
+        result["carbs_g_range"],
+        json!([420.0, 700.0]),
+        "6-10 g/kg at 70 kg: {result}"
+    );
     let carbs = result["carbs_g"].as_f64().unwrap();
     assert!(
         (carbs - 560.0).abs() < 1e-9,
@@ -444,7 +451,9 @@ async fn test_get_nutrient_timing_high_intensity() -> Result<()> {
             .unwrap()
             - 2.0)
             .abs()
-            < 1e-9
+            < 1e-9,
+        "the plan reports the athlete's own two-hour gap: {}",
+        result["pre_workout"]
     );
 
     // Verify post-workout recommendations

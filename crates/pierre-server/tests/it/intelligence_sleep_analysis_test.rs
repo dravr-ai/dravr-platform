@@ -504,8 +504,15 @@ fn test_hrv_week_like_the_baseline_is_normal() {
         &test_config(),
     )
     .unwrap();
-    assert_eq!(analysis.recovery_status, HrvRecoveryStatus::Normal);
-    assert_eq!(analysis.weekly_nights, 7);
+    assert_eq!(
+        analysis.recovery_status,
+        HrvRecoveryStatus::Normal,
+        "a week that repeats the baseline sits inside its band"
+    );
+    assert_eq!(
+        analysis.weekly_nights, 7,
+        "every night of the week is a valid night"
+    );
     assert!(!analysis.insights.is_empty(), "Should generate insights");
 }
 
@@ -517,7 +524,11 @@ fn test_hrv_week_below_the_band_is_below_normal() {
         &test_config(),
     )
     .unwrap();
-    assert_eq!(analysis.recovery_status, HrvRecoveryStatus::BelowNormal);
+    assert_eq!(
+        analysis.recovery_status,
+        HrvRecoveryStatus::BelowNormal,
+        "a week near 50 ms sits under a band around 60 ms"
+    );
 }
 
 #[test]
@@ -527,6 +538,14 @@ fn test_hrv_without_history_is_insufficient_not_normal() {
         rmssd_ms: 50.0,
     }];
     let analysis = SleepAnalyzer::analyze_hrv_trends(&lone_night, as_of(), &test_config()).unwrap();
-    assert_eq!(analysis.recovery_status, HrvRecoveryStatus::Insufficient);
-    assert_eq!(analysis.trend, HrvTrend::Stable);
+    assert_eq!(
+        analysis.recovery_status,
+        HrvRecoveryStatus::Insufficient,
+        "one night is too few to judge, never normal"
+    );
+    assert_eq!(
+        analysis.trend,
+        HrvTrend::Stable,
+        "no week to compare the night against reads as no trend"
+    );
 }

@@ -23,7 +23,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use chrono::{Duration, NaiveDate, Utc};
+use chrono::{Duration, NaiveDate, NaiveTime, Utc};
+use chrono_tz::Tz;
 use dravr_cageux::config::intelligence::SleepRecoveryConfig;
 use dravr_cageux::error::IntelligenceError;
 use dravr_cageux::sleep_analysis::{HrvTrendAnalysis, NightlyHrv, SleepAnalyzer, SleepData};
@@ -111,11 +112,12 @@ pub async fn stored_sleep_nights(
 ///
 /// The nights come from the same source as the analysed one when a
 /// `source` is named, so two devices' RMSSD, which run at different levels,
-/// never share one baseline. The analysed night's own HRV joins the series
-/// when it is not a stored night (a `sleep_data` passed by hand); without a
-/// user there is no stored history and the week reads `insufficient`. `None`
-/// when that night carries no HRV, as before; a stored history too short to
-/// judge reads `insufficient`, never `normal`.
+/// never share one baseline, and each is dated by the day it ended on in the
+/// athlete's zone, as cageux's `NightlyHrv` expects. The analysed night's own
+/// HRV joins the series when it is not a stored night (a `sleep_data` passed
+/// by hand); without a user there is no stored history and the week reads
+/// `insufficient`. `None` when that night carries no HRV; a stored history too
+/// short to judge reads `insufficient`, never `normal`.
 ///
 /// # Errors
 /// Returns cageux's error when the configured HRV band or windows are not
@@ -131,28 +133,81 @@ pub async fn hrv_trend(
     let Some(rmssd) = sleep_data.hrv_rmssd_ms else {
         return Ok(None);
     };
-    let as_of = sleep_data.date.date_naive();
     // The baseline, the week, and a night either side for the window's edges.
     let days = config.hrv.baseline_days.saturating_add(8);
-    let stored = match user_uuid {
-        Some(user_uuid) => sleep_history_data(executor, user_uuid, tenant_id, source, days)
-            .await
-            .unwrap_or_else(|_| {
-                warn!("stored sleep unreadable; HRV trend judged on the analysed night alone");
-                Vec::new()
-            }),
-        None => Vec::new(),
+    let (zone, mut by_night) = match user_uuid {
+        Some(user_uuid) => {
+            let zone = athlete_zone(executor.resources.repos(), user_uuid).await;
+            let stored =
+                stored_hrv_by_night(executor, user_uuid, tenant_id, source, days, zone).await;
+            (zone, stored)
+        }
+        None => (Tz::UTC, BTreeMap::new()),
     };
-    let mut by_night: BTreeMap<NaiveDate, f64> = stored
-        .iter()
-        .filter_map(|(night, _)| Some((night.date.date_naive(), night.hrv_rmssd_ms?)))
-        .collect();
+    let as_of = analysed_night_date(sleep_data, zone);
     by_night.entry(as_of).or_insert(rmssd);
     let nights: Vec<NightlyHrv> = by_night
         .into_iter()
         .map(|(date, rmssd_ms)| NightlyHrv { date, rmssd_ms })
         .collect();
     SleepAnalyzer::analyze_hrv_trends(&nights, as_of, config).map(Some)
+}
+
+/// The athlete's stored nightly HRV over the last `days` days, one reading
+/// per night, keyed by the night it is (the day it ended on in `zone`, as
+/// [`StoredSleepSession::night_date`] dates it): the night's own average HRV,
+/// else that morning's recovery reading, the way [`sleep_history_data`] fills
+/// a night. Empty when the rows cannot be read.
+async fn stored_hrv_by_night(
+    executor: &UniversalToolExecutor,
+    user_uuid: Uuid,
+    tenant_id: Option<&str>,
+    source: Option<&str>,
+    days: u32,
+    zone: Tz,
+) -> BTreeMap<NaiveDate, f64> {
+    let nights = match stored_sleep_nights(executor, user_uuid, tenant_id, source, days).await {
+        Ok(nights) => nights,
+        Err(unread) => {
+            warn!(
+                error = ?unread.error,
+                "stored sleep unreadable; HRV trend judged on the analysed night alone"
+            );
+            return BTreeMap::new();
+        }
+    };
+    let recovery = recovery_by_date(executor, user_uuid, tenant_id, source, days).await;
+    let mut by_night = BTreeMap::new();
+    // Newest first: a night two sessions share keeps the later one's reading.
+    for night in nights {
+        let day = night.record.night_date(&zone);
+        let hrv = night.record.avg_hrv.or_else(|| {
+            recovery
+                .get(&day)
+                .and_then(StoredRecoveryMetrics::daily_hrv)
+        });
+        if let Some(hrv) = hrv {
+            by_night.entry(day).or_insert(hrv);
+        }
+    }
+    by_night
+}
+
+/// The night `sleep_data` describes, dated as a stored night is: a night
+/// anchored at midnight UTC (a day summary, or a `sleep_data` dated by hand
+/// with a bare `YYYY-MM-DD`) is that date; otherwise the day its end falls on
+/// in `zone`, the end being its start plus the time asleep and awake.
+fn analysed_night_date(sleep_data: &SleepData, zone: Tz) -> NaiveDate {
+    if sleep_data.date.time() == NaiveTime::MIN {
+        return sleep_data.date.date_naive();
+    }
+    let hours_in_bed = sleep_data.duration_hours + sleep_data.awake_hours.unwrap_or(0.0);
+    // Bounded: a night in bed is under a day of seconds.
+    #[allow(clippy::cast_possible_truncation)]
+    let seconds_in_bed = (hours_in_bed.clamp(0.0, 24.0) * 3600.0).round() as i64;
+    (sleep_data.date + Duration::seconds(seconds_in_bed))
+        .with_timezone(&zone)
+        .date_naive()
 }
 
 /// Synced nights over the last `days` days as `SleepData`, newest first.

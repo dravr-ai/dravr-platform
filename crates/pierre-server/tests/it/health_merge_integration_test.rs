@@ -513,6 +513,57 @@ async fn a_named_sleep_provider_narrows_the_scoring_tools_to_that_source() -> Re
     Ok(())
 }
 
+/// The sleep tools judge HRV on the athlete's own stored nights, never on
+/// values the model passes: five weeks of nightly RMSSD from one source, a
+/// baseline around 60 ms and a last week near 50 ms, read as a week below
+/// the athlete's normal range, counted on every stored night.
+#[tokio::test]
+async fn the_sleep_tools_judge_hrv_on_the_athletes_stored_nights() -> Result<()> {
+    let executor = executor().await?;
+    let (user_id, tenant) = connected_user(&executor).await?;
+    let garmin_ds = data_source(&executor, user_id, &tenant, "garmin").await?;
+    // Newest first: the last week, then 28 baseline nights.
+    let week = [50.0, 49.0, 52.0, 48.0, 51.0, 50.0, 49.0];
+    let baseline = [60.0, 68.0, 54.0, 63.0, 70.0, 52.0, 58.0];
+    let rmssd = week.iter().chain(baseline.iter().cycle().take(28));
+    let nights = (0_i64..).zip(rmssd);
+    for (nights_ago, rmssd_ms) in nights {
+        let mut night = sleep(user_id, "garmin", &garmin_ds, 10 + 24 * nights_ago, 8);
+        night.avg_hrv = Some(*rmssd_ms);
+        executor
+            .resources
+            .repos()
+            .sleep
+            .upsert_sleep_session(&tenant, &night, Utc::now())
+            .await?;
+    }
+
+    let quality = executor
+        .execute_tool(request(
+            "analyze_sleep_quality",
+            json!({ "sleep_provider": "garmin" }),
+            user_id,
+            &tenant,
+        ))
+        .await?;
+    assert!(quality.success, "{:?}", quality.error);
+    let result = quality.result.unwrap();
+    let hrv = &result["hrv_analysis"];
+    assert_eq!(
+        hrv["weekly_nights"], 7,
+        "the week is the last seven stored nights: {hrv:#}"
+    );
+    assert_eq!(
+        hrv["baseline_nights"], 28,
+        "the baseline is the 28 stored nights before the week: {hrv:#}"
+    );
+    assert_eq!(
+        hrv["recovery_status"], "below_normal",
+        "a week near 50 ms sits under a baseline around 60 ms: {hrv:#}"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn the_athlete_note_reaches_the_tool_fenced_as_untrusted_text() -> Result<()> {
     let executor = executor().await?;

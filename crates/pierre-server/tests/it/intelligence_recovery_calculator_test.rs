@@ -213,7 +213,8 @@ fn test_hrv_scoring_above_normal_earns_no_readiness_bonus() {
 fn test_hrv_scoring_insufficient_is_left_out() {
     assert_eq!(
         RecoveryCalculator::score_hrv(&hrv(HrvRecoveryStatus::Insufficient)),
-        None
+        None,
+        "a week too thin to judge gives no HRV score, never a neutral one"
     );
 }
 

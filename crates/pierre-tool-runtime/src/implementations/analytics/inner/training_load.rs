@@ -136,8 +136,8 @@ pub fn analyze_detailed_training_load(
     let calculator =
         TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, Utc::now());
 
-    // The saved thresholds: when present, they enable power-based (FTP) or
-    // HR-based (LTHR) TSS instead of the less accurate pace-based fallback.
+    // The saved thresholds score each session: power against FTP or critical
+    // power, heart rate against LTHR, a run's pace against threshold pace.
     let Ok(training_load) = params.training_load(calculator, &sorted_activities) else {
         return TrainingLoadResult::NoData(NoTrainingLoad {
             message: "Unable to calculate training load - insufficient activity data".to_owned(),

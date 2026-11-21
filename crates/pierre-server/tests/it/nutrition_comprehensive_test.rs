@@ -358,9 +358,21 @@ fn test_carb_needs_follow_the_days_training() {
         TrainingGoal::EndurancePerformance,
         Some(THRESHOLD_DAY),
     );
-    assert_eq!(endurance.carbohydrate_load, TrainingDayLoad::High);
-    assert!((endurance.carbs_g_range.0 - 420.0).abs() < 1e-9);
-    assert!((endurance.carbs_g_range.1 - 700.0).abs() < 1e-9);
+    assert_eq!(
+        endurance.carbohydrate_load,
+        TrainingDayLoad::High,
+        "two hours at threshold is the endurance row"
+    );
+    assert!(
+        (endurance.carbs_g_range.0 - 420.0).abs() < 1e-9,
+        "6 g/kg at 70 kg is 420 g (got {}g)",
+        endurance.carbs_g_range.0
+    );
+    assert!(
+        (endurance.carbs_g_range.1 - 700.0).abs() < 1e-9,
+        "10 g/kg at 70 kg is 700 g (got {}g)",
+        endurance.carbs_g_range.1
+    );
 
     // The goal does not move it.
     let maintenance = daily_needs_70kg(
@@ -368,7 +380,12 @@ fn test_carb_needs_follow_the_days_training() {
         TrainingGoal::Maintenance,
         Some(THRESHOLD_DAY),
     );
-    assert!((maintenance.carbs_g - endurance.carbs_g).abs() < 1e-9);
+    assert!(
+        (maintenance.carbs_g - endurance.carbs_g).abs() < 1e-9,
+        "the goal does not move the day's carbohydrate ({}g vs {}g)",
+        maintenance.carbs_g,
+        endurance.carbs_g
+    );
 }
 
 #[test]
@@ -378,9 +395,21 @@ fn test_carb_needs_a_day_without_training_is_the_light_row() {
         TrainingGoal::EndurancePerformance,
         None,
     );
-    assert_eq!(rest.carbohydrate_load, TrainingDayLoad::Light);
-    assert!((rest.carbs_g_range.0 - 210.0).abs() < 1e-9);
-    assert!((rest.carbs_g_range.1 - 350.0).abs() < 1e-9);
+    assert_eq!(
+        rest.carbohydrate_load,
+        TrainingDayLoad::Light,
+        "a day without training is the table's light row, whatever the goal"
+    );
+    assert!(
+        (rest.carbs_g_range.0 - 210.0).abs() < 1e-9,
+        "3 g/kg at 70 kg is 210 g (got {}g)",
+        rest.carbs_g_range.0
+    );
+    assert!(
+        (rest.carbs_g_range.1 - 350.0).abs() < 1e-9,
+        "5 g/kg at 70 kg is 350 g (got {}g)",
+        rest.carbs_g_range.1
+    );
 }
 
 // ============================================================================
@@ -641,7 +670,10 @@ fn test_nutrient_timing_low_intensity() {
     .unwrap();
 
     // An easy session takes no set pre-workout amount
-    assert_eq!(timing.pre_workout.carbs_g, None);
+    assert_eq!(
+        timing.pre_workout.carbs_g, None,
+        "an easy session gets food guidance, not an amount"
+    );
 
     // Protein distribution should be spread throughout day
     assert!(
@@ -693,7 +725,11 @@ fn test_nutrient_timing_moderate_intensity() {
         (carbs - 140.0).abs() < 1e-9,
         "Pre-workout carbs should be 140g (got {carbs}g)"
     );
-    assert!((timing.pre_workout.timing_hours_before - 2.0).abs() < f64::EPSILON);
+    assert!(
+        (timing.pre_workout.timing_hours_before - 2.0).abs() < f64::EPSILON,
+        "the plan reports the athlete's own two-hour gap (got {}h)",
+        timing.pre_workout.timing_hours_before
+    );
 
     // Should have protein distribution
     assert!(

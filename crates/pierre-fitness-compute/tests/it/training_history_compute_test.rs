@@ -100,8 +100,7 @@ fn ctl_atl_tsb_monotonically_track_load() {
     // Fifty light days, then thirty at double the duration. cageux seeds each
     // load at the history's mean over its opening window, so a constant load
     // from the first day reads steady (CTL = ATL, TSB 0); the step up is what
-    // moves ATL ahead of CTL. (This test used to load the same hour every day
-    // from day 0 and pass on a TSB of -4e-14, floating-point noise.)
+    // moves ATL ahead of CTL.
     let activities: Vec<Activity> = (0..80)
         .map(|i| run_at(i, if i < 50 { 1800 } else { 3600 }, 165))
         .collect();
@@ -126,7 +125,11 @@ fn ctl_atl_tsb_monotonically_track_load() {
         prev_ctl = row.ctl;
     }
     // ATL moves faster than CTL after the step up → TSB clearly negative.
-    assert!(rows[10].tsb < -5.0, "tsb {}", rows[10].tsb);
+    assert!(
+        rows[10].tsb < -5.0,
+        "TSB ten days after the step up should be clearly negative: {}",
+        rows[10].tsb
+    );
     // Daily load is positive when activities are present.
     assert!(rows[15].daily_load > 0.0);
 }
