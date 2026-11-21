@@ -350,8 +350,7 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some(
-                    "Minutes of training in the day the targets are for, planned or done; \
-                     with training_intensity. Omit both for a day without training."
+                    "Training minutes that day, planned or done; omit both for a rest day"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -362,9 +361,7 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "That training's intensity: easy (heart-rate zones 1-2), moderate (zone 3), \
-                     hard (zone 4) or very_hard (zone 5+)"
-                        .to_owned(),
+                    "easy (HR zones 1-2), moderate (3), hard (4) or very_hard (5+)".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -382,11 +379,10 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
         );
         answers_with::<NutritionAnswer<DailyNutritionResult>>(tool_definition(
             "calculate_daily_nutrition",
-            "Calculate daily calorie and macronutrient needs from biometrics and goals, with \
-             carbohydrate set by the day's training (training_minutes, training_intensity) as \
-             a range. For an athlete with a medical/PAR-Q flag on file it returns qualitative \
-             `guidance` and `figures_withheld` instead of any amount: their clinician sets \
-             those.",
+            "Calculate daily calorie and macronutrient needs from biometrics and goals, \
+             carbohydrate from the day's training. For an athlete with a medical/PAR-Q flag on \
+             file it returns qualitative `guidance` and `figures_withheld` instead of any \
+             amount: their clinician sets those.",
             schema,
             annotations(
                 "Calculate daily nutrition",
@@ -502,7 +498,7 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
             "session_minutes".to_owned(),
             PropertySchema {
                 property_type: "number".to_owned(),
-                description: Some("Length of the session, minutes; ask the athlete".to_owned()),
+                description: Some("Session length, minutes".to_owned()),
                 ..Default::default()
             },
         );
@@ -510,10 +506,7 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
             "hours_before".to_owned(),
             PropertySchema {
                 property_type: "number".to_owned(),
-                description: Some(
-                    "Hours between eating and the start of the session, 0-24; ask the athlete"
-                        .to_owned(),
-                ),
+                description: Some("Hours from eating to the session start, 0-24".to_owned()),
                 ..Default::default()
             },
         );
@@ -529,11 +522,9 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
         );
         answers_with::<NutritionAnswer<NutrientTimingResult>>(tool_definition(
             "get_nutrient_timing",
-            "Get nutrient timing recommendations around one session, from its length and how \
-             long before it the athlete eats: 1-4 g/kg carbohydrate 1-4 h before a session over \
-             an hour, about 1 g/kg as a snack in the last hour, no set amount for a session of \
-             an hour or less or an easy one. For an athlete with a medical/PAR-Q flag on file it \
-             returns qualitative `guidance` and `figures_withheld` instead of any amount: their \
+            "Get nutrient timing around one session, from its length and how long before it the \
+             athlete eats. For an athlete with a medical/PAR-Q flag on file it returns \
+             qualitative `guidance` and `figures_withheld` instead of any amount: their \
              clinician sets those.",
             schema,
             annotations("Get nutrient timing", Effect::ReadOnly, Reach::Internal),
