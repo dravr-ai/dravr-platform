@@ -124,3 +124,4 @@ crates/pierre-tool-runtime/src/support_session.rs:A support session through an a
 crates/pierre-tool-runtime/src/support_session.rs:Admin privileges required for a support session
 crates/pierre-tool-runtime/src/support_session.rs:That user belongs to no tenant, so there is nothing to act as
 crates/pierre-tool-runtime/src/support_session.rs:The user this support session acts as belongs to no tenant
+crates/pierre-tool-runtime/src/support_session.rs:This connection's authorization was revoked or has run out: connect again to start a support session
