@@ -390,8 +390,7 @@ mod slack_sign_up_action {
     fn raised(events: &CapturedEvents, event: &str, user_id: Uuid) -> usize {
         let user_id = user_id.to_string();
         events
-            .lock()
-            .unwrap()
+            .events()
             .iter()
             .filter(|line| line.fields.get("event").is_some_and(|name| name == event))
             .filter(|line| line.fields.get("user_id") == Some(&user_id))

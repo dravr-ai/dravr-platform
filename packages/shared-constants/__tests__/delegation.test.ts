@@ -280,6 +280,10 @@ describe('what a member lets their coach do', () => {
       assistant_read: false,
       assistant_read_at: null,
       assistant_read_supported: false,
+      sensitive_t2_read: false,
+      sensitive_t2_read_at: null,
+      sensitive_t2_read_until: null,
+      sensitive_t2_read_supported: true,
     };
     expect(offeredConsents(consents)).toEqual(['calendar_write']);
     expect(consentNoteKey({ ...consents, wellness_read_supported: true, wellness_read_skipped: 'own_wellness_source' }, 'wellness_read')).toBe(

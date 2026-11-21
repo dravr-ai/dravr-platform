@@ -359,19 +359,6 @@ impl CatalogBuilder {
                     scientific_basis: Some("Jack Daniels Running Formula".into()),
                     requires_vo2_max: false,
                 },
-                ConfigParameter {
-                    key: "vo2.power_coefficient".into(),
-                    description: "Power at VO2 max coefficient (W per ml/kg/min)".to_owned(),
-                    data_type: ParameterType::Float,
-                    default_value: ConfigValue::Float(13.5),
-                    valid_range: Some(ConfigValue::FloatRange {
-                        min: 12.0,
-                        max: 15.0,
-                    }),
-                    units: Some("W/(ml/kg/min)".into()),
-                    scientific_basis: Some("Power-VO2 relationship studies".into()),
-                    requires_vo2_max: false,
-                },
             ],
         }
     }

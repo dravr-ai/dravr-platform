@@ -25,7 +25,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::mcp::resources::ServerContext;
-use crate::services::messaging_ingress::turn_watchdog;
+use crate::services::turn_runner::turn_watchdog;
 use chrono::Utc;
 use pierre_chat_pipeline::turn_stop::{awaiting_question, recent_rows};
 use pierre_core::errors::AppError;

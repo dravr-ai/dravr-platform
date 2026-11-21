@@ -95,6 +95,8 @@ export const QUERY_KEYS = {
   providers: {
     all: ['providers'] as const,
     status: () => ['providers-status'] as const,
+    /** The account's answer to one consent to AI use (`GET …/ai-consent`). */
+    aiConsent: (provider: string) => ['providers-ai-consent', provider] as const,
   },
 
   // ==================== HOME ====================

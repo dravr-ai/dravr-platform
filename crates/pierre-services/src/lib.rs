@@ -363,6 +363,9 @@ mod oauth_exchange_lookups;
 /// Redeeming a callback's state, the only path to a flow's mobile redirect URL
 mod oauth_state_redeem;
 
+/// Announcing a provider connect: the notify event and the athlete's log entry
+pub mod provider_connected;
+
 /// Upstream grant revocation + provider-data purge for the disconnect chokepoint
 pub mod provider_revocation;
 

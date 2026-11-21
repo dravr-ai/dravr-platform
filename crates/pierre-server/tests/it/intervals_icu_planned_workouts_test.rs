@@ -197,7 +197,7 @@ async fn serve(app: Router) -> String {
 /// the scraper service at `scraper_base`.
 async fn resources_against(intervals_base: String, scraper_base: &str) -> Arc<ServerContext> {
     let resources = create_test_server_resources().await.unwrap();
-    let mut config = offline_provider_config(INTERVALS_ICU);
+    let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
     config.api_base_url = intervals_base;
     // Built as the server builds its registry's sciotte client, so the
     // TrainingPeaks reads reach the scraper stand-in.

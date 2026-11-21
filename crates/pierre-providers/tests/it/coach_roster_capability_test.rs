@@ -28,9 +28,8 @@ use pierre_providers::errors::{AppError, AppResult, ErrorCode};
 use pierre_providers::models::{Activity, ActivityBuilder, Athlete, RosterAthlete, SportType};
 use pierre_providers::pagination::{CursorPage, PaginationParams};
 use pierre_providers::spi::{OAuthEndpoints, OAuthParams, OAuthRefresh};
-use pierre_providers::{
-    global_registry, ProviderCapabilities, ProviderDescriptor, ProviderRegistry,
-};
+use pierre_providers::{ProviderCapabilities, ProviderDescriptor, ProviderRegistry};
+use pierre_test_support::providers::offline_provider_registry;
 
 /// The stand-in coaching platform.
 const COACHHUB: &str = "coachhub";
@@ -211,7 +210,7 @@ impl DelegatedReads for Factory {
 /// count of providers its factories built.
 fn registry() -> (ProviderRegistry, Arc<AtomicUsize>) {
     let built = Arc::new(AtomicUsize::new(0));
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     for (name, capabilities, delegated) in [
         (
             COACHHUB,
@@ -351,7 +350,7 @@ async fn only_a_descriptor_declaring_the_roster_is_read_on_anyones_behalf() {
 
 #[test]
 fn every_built_in_coaching_platform_builds_its_delegated_reads() {
-    let registry = global_registry();
+    let registry = offline_provider_registry();
     for name in registry.coach_roster_providers() {
         if let Err(error) = registry.check_delegated_athlete(name, "1") {
             // An id the platform refuses is its own rule; a missing factory

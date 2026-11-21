@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests the member's "what your human coach can do" block on the phone — calendar and wellness consents on the relationship
-// ABOUTME: One switch at a time, a wellness revoke asks first, the widening notice's two answers, refusals worded from their reason
+// ABOUTME: One switch at a time, a wellness revoke asks first, the widening notice's answers, the health-records flag and its window
 
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
@@ -37,6 +37,10 @@ function consents(overrides: Partial<CoachConsentsResponse> = {}): CoachConsents
     assistant_read: false,
     assistant_read_at: null,
     assistant_read_supported: false,
+    sensitive_t2_read: false,
+    sensitive_t2_read_at: null,
+    sensitive_t2_read_until: null,
+    sensitive_t2_read_supported: true,
     ...overrides,
   };
 }
@@ -244,5 +248,45 @@ describe('CoachConsentsSection', () => {
     await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith('Error', 'That did not go through. Try again.'));
     // Refused, the switch reads as the consent stands on the server again.
     await waitFor(() => expect(getByTestId('coach-consent-wellness_read')).toHaveProp('value', false));
+  });
+
+  it('offers the health-records flag only while the member shares their wellness', async () => {
+    mockGet.mockResolvedValue(consents());
+    const { findByTestId, queryByTestId } = renderBlock();
+
+    await findByTestId('coach-consent-wellness_read');
+    expect(queryByTestId('coach-consent-sensitive-t2')).toBeNull();
+    expect(queryByTestId('coach-consent-sensitive-window')).toBeNull();
+  });
+
+  it('grants the health-records flag for 30 days, then revokes it', async () => {
+    mockGet.mockResolvedValue(consents({ wellness_read: true }));
+    mockUpdate.mockResolvedValue(
+      consents({ wellness_read: true, sensitive_t2_read: true, sensitive_t2_read_until: '2026-12-20T12:00:00Z' }),
+    );
+    const { findByTestId, getByTestId, findByText } = renderBlock();
+
+    const flag = await findByTestId('coach-consent-sensitive-t2');
+    expect(flag).toHaveProp('value', false);
+    expect(
+      await findByText('Let Casey Coach read your health records (lab results, clinical records, blood glucose)'),
+    ).toBeTruthy();
+    fireEvent.press(getByTestId('coach-consent-sensitive-thirty'));
+    expect(mockUpdate).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent(getByTestId('coach-consent-sensitive-t2'), 'valueChange', true);
+    });
+
+    await waitFor(() =>
+      expect(mockUpdate).toHaveBeenCalledWith(GROUP_ID, { sensitive_t2_read: true, sensitive_days: 30 }),
+    );
+    await waitFor(() => expect(getByTestId('coach-consent-sensitive-t2')).toHaveProp('value', true));
+
+    mockUpdate.mockResolvedValue(consents({ wellness_read: true }));
+    await act(async () => {
+      fireEvent(getByTestId('coach-consent-sensitive-t2'), 'valueChange', false);
+    });
+    await waitFor(() => expect(mockUpdate).toHaveBeenLastCalledWith(GROUP_ID, { sensitive_t2_read: false }));
+    await waitFor(() => expect(getByTestId('coach-consent-sensitive-t2')).toHaveProp('value', false));
   });
 });

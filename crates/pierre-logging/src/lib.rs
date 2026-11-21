@@ -596,6 +596,7 @@ impl LoggingConfig {
             config.host = host_identity().map(str::to_owned);
         }
 
+        // Slack's own host: no test runs the logging init.
         let slack = config.slack.as_ref().map(SlackClient::new);
         let email = config.email.as_ref().and_then(|c| {
             EmailClient::new(c)
@@ -712,6 +713,7 @@ impl LoggingConfig {
         let signing_secret = env::var("SLACK_SIGNING_SECRET")
             .ok()
             .filter(|s| !s.is_empty());
+        // Slack's own host: no test runs the logging init.
         Some(Arc::new(SlackClient::new(&SlackConfig {
             bot_token,
             error_channel,

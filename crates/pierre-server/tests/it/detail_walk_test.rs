@@ -1548,8 +1548,22 @@ struct WalkedOnce {
 }
 
 async fn walked_once(sport: Option<&'static str>) -> WalkedOnce {
+    walked_once_telling(sport, None).await
+}
+
+/// [`walked_once`], telling the athlete the walk's end through `notifier`
+/// when one is given.
+async fn walked_once_telling(
+    sport: Option<&'static str>,
+    notifier: Option<Arc<dyn BackfillNotifier>>,
+) -> WalkedOnce {
     let (api_base, mock) = mock_strava().await;
-    let resources = server(&api_base, 400).await;
+    let mut resources = server(&api_base, 400).await;
+    if let Some(notifier) = notifier {
+        let mut context = (*resources).clone();
+        context.mcp.backfill_notifier = Some(notifier);
+        resources = Arc::new(context);
+    }
     let (user_id, tenant) = strava_athlete(&resources).await;
     let now = Utc::now().timestamp();
     let starts = [now - 5 * DAY, now - 6 * DAY, now - 7 * DAY];
@@ -1693,6 +1707,76 @@ async fn a_walk_that_ended_over_a_week_ago_is_walked_afresh() {
         walked.state().await,
         Some(BackfillJobState::Owed),
         "bug: the fresh walk recorded over the stale one is not owed"
+    );
+}
+
+/// Tells a detail walk's end only once the test lets it: the run that
+/// ended stays in flight, its row already walked, until `release`.
+#[derive(Default)]
+struct HeldTelling {
+    /// Notified when the run starts telling the athlete.
+    entered: Notify,
+    /// Notified by the test to let it finish.
+    release: Notify,
+}
+
+#[async_trait]
+impl BackfillNotifier for HeldTelling {
+    async fn push_backfill_complete(&self, _: BackfillCompletion<'_>) {}
+
+    async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {
+        self.entered.notify_one();
+        self.release.notified().await;
+    }
+
+    async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
+
+    async fn push_reauth_to_linked_channels(
+        &self,
+        _: Uuid,
+        _: TenantId,
+        _: &str,
+        _: ReauthRetry,
+    ) -> usize {
+        0
+    }
+}
+
+/// A walk's row ends before its run gives the walk's key back: the run
+/// still tells the athlete. An ask then, over a window the ended walk no
+/// longer stands for, waits for the key and records its walk; it never
+/// comes back unrecorded because the run that ended had not let go yet.
+#[tokio::test]
+async fn an_ask_while_the_ended_walk_still_tells_the_athlete_records_its_walk() {
+    let held = Arc::new(HeldTelling::default());
+    let notifier: Arc<dyn BackfillNotifier> = held.clone();
+    let walked = walked_once_telling(None, Some(notifier)).await;
+    // The run is telling the athlete: its row ended walked, its key is held.
+    held.entered.notified().await;
+    let week_and_a_day_ms = 8 * DAY * 1_000;
+    alter_walk_row(
+        &walked.resources,
+        walked.user_id,
+        &format!("ended_at_ms = ended_at_ms - {week_and_a_day_ms}"),
+    )
+    .await;
+
+    let (asked, ()) = tokio::join!(walked.ask(walked.ask), async {
+        // The ask meets the held key before the run is let finish.
+        sleep(Duration::from_millis(200)).await;
+        held.release.notify_one();
+    });
+    assert_eq!(
+        asked,
+        DetailWalkAsked::Started { units_total: 1 },
+        "bug: an ask while the ended walk's run still told the athlete was not recorded"
+    );
+    assert_eq!(
+        walked.state().await,
+        Some(BackfillJobState::Owed),
+        "bug: the fresh walk recorded over the ended one is not owed"
     );
 }
 

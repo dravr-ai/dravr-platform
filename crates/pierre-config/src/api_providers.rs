@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::constants::api_provider_limits::{garmin, strava};
-use pierre_core::constants::oauth;
 use pierre_core::constants::rate_limits::{STRAVA_RATE_LIMIT_15MIN, STRAVA_RATE_LIMIT_DAILY};
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -23,6 +22,12 @@ pub struct ExternalServicesConfig {
     /// link asks the number it dials; `None` is the version dravr-canot's
     /// `WhatsApp` transport sends through.
     pub meta_graph_api_base: Option<String>,
+    /// The origin of the Overpass instance route discovery queries
+    /// (`OVERPASS_API_BASE`), a scheme and authority; `None` is the public
+    /// instances, `overpass-api.de` first. Nothing in a deployment sets it:
+    /// a test configuration names a refused or loopback origin, so no route
+    /// search leaves the machine.
+    pub overpass_api_base: Option<String>,
 }
 
 impl ExternalServicesConfig {
@@ -36,6 +41,9 @@ impl ExternalServicesConfig {
             meta_graph_api_base: env::var("META_GRAPH_API_BASE")
                 .ok()
                 .filter(|base| !base.is_empty()),
+            overpass_api_base: env::var("OVERPASS_API_BASE")
+                .ok()
+                .filter(|base| !base.trim_end_matches('/').is_empty()),
         }
     }
 }
@@ -107,21 +115,14 @@ fn read_urls_of(list: &str) -> Vec<String> {
         .collect()
 }
 
-/// Strava API configuration for OAuth and data fetching
+/// Strava request budgets and page sizes.
+///
+/// Strava's endpoints are not here: the provider registry holds them, with
+/// the deployment's `PIERRE_STRAVA_*_URL` overrides applied
+/// (`OAuthConfig::endpoints`), and every Strava call — the API, token
+/// exchanges, revocation — goes where it says.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StravaApiConfig {
-    /// Strava API base URL
-    pub base_url: String,
-    /// Strava auth URL
-    pub auth_url: String,
-    /// Strava token URL
-    pub token_url: String,
-    /// Strava token-revocation URL.
-    ///
-    /// The June-2026 `/oauth/revoke` endpoint (HTTP Basic auth with the
-    /// client credentials, `token` form param) — the legacy
-    /// `/oauth/deauthorize` retires 2027-06-01, so nothing may point at it.
-    pub revoke_url: String,
     /// Default activities per page when fetching
     pub default_activities_per_page: usize,
     /// Maximum activities per API request
@@ -137,10 +138,6 @@ impl StravaApiConfig {
     #[must_use]
     pub fn from_env() -> Self {
         Self {
-            base_url: env_var_or("STRAVA_API_BASE", "https://www.strava.com/api/v3"),
-            auth_url: env_var_or("STRAVA_AUTH_URL", "https://www.strava.com/oauth/authorize"),
-            token_url: env_var_or("STRAVA_TOKEN_URL", "https://www.strava.com/oauth/token"),
-            revoke_url: env_var_or("STRAVA_REVOKE_URL", "https://www.strava.com/oauth/revoke"),
             default_activities_per_page: env::var("STRAVA_DEFAULT_ACTIVITIES_PER_PAGE")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -161,21 +158,15 @@ impl StravaApiConfig {
     }
 }
 
-/// Garmin API configuration
+/// Garmin page sizes and request pacing.
+///
+/// Garmin's endpoints are not here: the provider registry holds them, with
+/// the deployment's `PIERRE_GARMIN_*_URL` overrides applied
+/// (`OAuthConfig::endpoints`), and every Garmin call — the API, token
+/// exchanges, deregistration, the push callback's origin check — goes where
+/// it says.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GarminApiConfig {
-    /// Garmin API base URL
-    pub base_url: String,
-    /// Garmin auth URL
-    pub auth_url: String,
-    /// Garmin token URL
-    pub token_url: String,
-    /// Garmin Health API user-deregistration URL.
-    ///
-    /// Garmin has no token-revocation endpoint; withdrawing consent is a
-    /// `DELETE` on the user's registration, authenticated with the user's
-    /// access token as `Bearer`.
-    pub revoke_url: String,
     /// Default activities per page when fetching
     pub default_activities_per_page: usize,
     /// Maximum activities per API request
@@ -193,10 +184,6 @@ impl GarminApiConfig {
     #[must_use]
     pub fn from_env() -> Self {
         Self {
-            base_url: env_var_or("GARMIN_API_BASE", oauth::GARMIN_API_BASE_URL),
-            auth_url: env_var_or("GARMIN_AUTH_URL", oauth::GARMIN_AUTH_URL),
-            token_url: env_var_or("GARMIN_TOKEN_URL", oauth::GARMIN_TOKEN_URL),
-            revoke_url: env_var_or("GARMIN_REVOKE_URL", oauth::GARMIN_DEREGISTRATION_URL),
             default_activities_per_page: env::var("GARMIN_DEFAULT_ACTIVITIES_PER_PAGE")
                 .ok()
                 .and_then(|s| s.parse().ok())
@@ -221,9 +208,4 @@ impl GarminApiConfig {
             .unwrap_or(garmin::ESTIMATED_RATE_LIMIT_BLOCK_DURATION_SECS),
         }
     }
-}
-
-/// Get environment variable or default value
-fn env_var_or(key: &str, default: &str) -> String {
-    env::var(key).unwrap_or_else(|_| default.to_owned())
 }

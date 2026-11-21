@@ -25,7 +25,6 @@ use pierre_evals::{ClaimSource, ConservativeStrategy, ExtractedClaim, Personaliz
 use pierre_fitness_compute::{compute_training_history, AthleteInputs};
 use pierre_memory::claims::{ClaimCategory, ClaimStatus};
 use pierre_providers::ai_scope;
-use pierre_providers::registry::global_registry;
 use pierre_services::athlete_snapshot::build_athlete_metrics;
 use uuid::Uuid;
 
@@ -115,7 +114,7 @@ async fn the_snapshot_carries_the_reading_the_tools_render() -> Result<()> {
 
     let metrics = build_athlete_metrics(
         repos,
-        global_registry().as_ref(),
+        &common::offline_provider_registry(),
         &AlgorithmConfig::default(),
         &TrainingZonesConfig::default(),
         tenant_id,
@@ -130,7 +129,7 @@ async fn the_snapshot_carries_the_reading_the_tools_render() -> Result<()> {
     // `get_training_history` read, banded by the row's own `form_reading`.
     let now = Utc::now();
     let stored = ai_scope::filter_activities(
-        global_registry().as_ref(),
+        &common::offline_provider_registry(),
         repos
             .activity_cache
             .get_cached_activities(

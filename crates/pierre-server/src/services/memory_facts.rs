@@ -20,15 +20,20 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use uuid::Uuid;
 
+use dravr_barrage::Stream;
+use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_middleware::extract_auth_from_headers;
+use pierre_providers::ai_scope;
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 use pierre_services::locale::resolve_user_locale;
 use pierre_services::memory_facts::{
     approve_user_fact, fact_kind_from_query, fact_status_from_query, forget_user_fact,
     list_user_facts, ApproveFact, FactListQuery, SentenceRenderer, DEFAULT_LIST_LIMIT,
 };
+use pierre_services::provider_notice::outside_client_reads;
 
 use crate::mcp::resources::ServerContext;
 
@@ -65,6 +70,7 @@ pub async fn get_facts_handler(
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
+    refuse_outside_memory_read(&resources, &auth, tenant_id.as_uuid()).await?;
     let data = resources.data();
     let limit = params.limit.unwrap_or(DEFAULT_LIST_LIMIT);
     let kind = fact_kind_from_query(params.kind.as_deref());
@@ -139,6 +145,8 @@ pub async fn approve_fact_handler(
 ) -> Result<Response, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
+    // Approving answers with the fact: a read of the memory like the list.
+    refuse_outside_memory_read(&resources, &auth, tenant_id.as_uuid()).await?;
     let data = resources.data();
     let locale = resolve_user_locale(resources.common.repos.users.as_ref(), auth.user_id).await;
 
@@ -159,4 +167,33 @@ pub async fn approve_fact_handler(
         )),
         ApproveFact::NotFound => Err(AppError::not_found(format!("Fact {fact_id}"))),
     }
+}
+
+/// Refuse an outside credential's read of the agent's memory while the
+/// athlete withholds `sensitive_t3`.
+///
+/// The agent's memory is the athlete's `RestrictedNotes` stream (T3), as the
+/// memory tools declare it: an outside credential reads it only while they
+/// give `sensitive_t3` (JF 2026-11-20, carnet#1544).
+async fn refuse_outside_memory_read(
+    resources: &ServerContext,
+    auth: &AuthResult,
+    tenant_id: Uuid,
+) -> Result<(), AppError> {
+    if ai_scope::served_outside(auth.acts_for_outside_client())
+        && !outside_client_reads(
+            &resources.common.repos,
+            tenant_id,
+            auth.user_id,
+            Stream::RestrictedNotes.tier(),
+        )
+        .await
+    {
+        return Err(AppError::new(
+            ErrorCode::PermissionDenied,
+            "The athlete keeps their agent's memory from outside AI apps. Only they can allow \
+             it, in Dravr under Settings, Privacy & Data, Sensitive health records.",
+        ));
+    }
+    Ok(())
 }

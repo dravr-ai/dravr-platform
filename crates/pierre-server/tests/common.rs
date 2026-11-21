@@ -58,8 +58,6 @@ use pierre_mcp_server::{
     utils,
 };
 use pierre_middleware::McpAuthMiddleware;
-use pierre_providers::core::ProviderConfig;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_services::admin_ops::{AccountCaller, ActingOn};
 #[cfg(feature = "client-messaging")]
 use pierre_services::channel_adapters::ChannelAdapterFactory;
@@ -83,7 +81,6 @@ use std::{
     time::Duration as StdDuration,
 };
 use tokio::{net::TcpListener as TokioTcpListener, task::JoinHandle, time::sleep as tokio_sleep};
-use url::{Host, Url};
 use uuid::Uuid;
 
 static INIT_LOGGER: Once = Once::new();
@@ -768,16 +765,17 @@ pub(crate) fn set_server_app(
     *slot = app;
 }
 
-/// Where a test server sends every call a test names no stand-in for: a
-/// loopback port nothing listens on (1 is reserved for TCPMUX, and no test
-/// binds it), so the connection is refused at once.
-///
-/// A registry built with no override holds each provider's real token, API
-/// and revocation URLs, and a test that stood one of them in still sent the
-/// others to the real host with its fixture credentials: a refresh answered
-/// by a stub was followed by a read of `api.prod.whoop.com`, and an expired
-/// Garmin grant was refreshed at `diauth.garmin.com` (carnet#1615).
-pub(crate) const REFUSED_ORIGIN: &str = "http://127.0.0.1:1";
+/// The offline provider registry and the refused origin it sends every
+/// server-called endpoint to, shared with the other crates' tests.
+#[allow(
+    unused_imports,
+    reason = "this file is a module of several test binaries, and not every one builds a registry; \
+              the file-wide `dead_code` allowance covers its own items the same way"
+)]
+pub(crate) use pierre_test_support::providers::{
+    leaves_the_machine, offline_provider_config, offline_provider_registry, offline_registry,
+    REFUSED_ORIGIN,
+};
 
 /// Where a suite that builds a sync orchestrator itself has it read the
 /// wellness dravr-enforme would read on a host of its own (Intervals.icu,
@@ -787,19 +785,6 @@ pub(crate) const REFUSED_WELLNESS: WellnessOrigins<'static> = WellnessOrigins {
     intervals_icu_api: Some(REFUSED_ORIGIN),
     whoop_api: Some(REFUSED_ORIGIN),
 };
-
-/// Whether a request to `url` would leave the machine: it names a host, and
-/// that host is neither `localhost` nor a loopback address. Empty text, or
-/// text that is no URL, names nothing a client can connect to.
-#[must_use]
-pub(crate) fn leaves_the_machine(url: &str) -> bool {
-    match Url::parse(url).ok().as_ref().and_then(Url::host) {
-        Some(Host::Domain(name)) => name != "localhost",
-        Some(Host::Ipv4(address)) => !address.is_loopback(),
-        Some(Host::Ipv6(address)) => !address.is_loopback(),
-        None => false,
-    }
-}
 
 /// The providers whose endpoints a server configuration can override, as the
 /// provider registry names them. `startup_channel_egress_test` reads every
@@ -842,44 +827,14 @@ pub(crate) fn refuse_unnamed_provider_endpoints(config: &mut ServerConfig) {
     }
 }
 
-/// Send every Strava and Garmin URL of `config.external_services` the server
-/// itself calls (API, token, revocation) that names a real host to
-/// [`REFUSED_ORIGIN`]. A URL a test pointed at a loopback stand-in, and one
-/// left empty, stay as they are; so does the authorize URL, which only the
-/// athlete's browser follows.
-///
-/// A disconnect revokes at these URLs and the Garmin webhook worker reads at
-/// them, not at the provider registry's, and some twenty suites write their
-/// configuration out by hand with the providers' real ones (carnet#1615).
-pub(crate) fn refuse_real_external_service_urls(config: &mut ServerConfig) {
-    for url in server_called_service_urls(config) {
-        if leaves_the_machine(url) {
-            REFUSED_ORIGIN.clone_into(url);
-        }
-    }
-}
-
-/// The Strava and Garmin URLs of `config.external_services` the server
-/// itself calls: API, token and revocation, never the authorize URL.
-fn server_called_service_urls(config: &mut ServerConfig) -> [&mut String; 6] {
-    let services = &mut config.external_services;
-    [
-        &mut services.strava_api.base_url,
-        &mut services.strava_api.token_url,
-        &mut services.strava_api.revoke_url,
-        &mut services.garmin_api.base_url,
-        &mut services.garmin_api.token_url,
-        &mut services.garmin_api.revoke_url,
-    ]
-}
-
 /// Send the weather calls of a context built on `config` to
 /// [`REFUSED_ORIGIN`], with the activity list's temperature backfill off,
 /// unless the test named a stand-in for the weather vendors.
 ///
-/// `FitnessConfig::default()` carries a `weather_api` at the vendors' own
-/// hosts with the backfill on, as a deployment runs, and none at all means
-/// the vendors' own hosts for the weather tools (carnet#1615). A `base_url`
+/// [`ServerConfig::default`] already carries that, but a configuration read
+/// with [`ServerConfig::from_env`] carries a `weather_api` at the vendors'
+/// own hosts with the backfill on, as a deployment runs, and none at all
+/// means the vendors' own hosts for the weather tools (carnet#1615). A `base_url`
 /// a test pointed at loopback ([`test_server_config_with_weather`]) stays as
 /// it is, with the `enabled` the test gave it.
 pub(crate) fn refuse_real_weather_origin(config: &mut ServerConfig) {
@@ -893,8 +848,24 @@ pub(crate) fn refuse_real_weather_origin(config: &mut ServerConfig) {
     *weather_api = Some(WeatherApiConfig {
         base_url: REFUSED_ORIGIN.to_owned(),
         enabled: false,
-        ..weather_api.take().unwrap_or_default()
     });
+}
+
+/// Send route discovery's Overpass queries of a context built on `config` to
+/// [`REFUSED_ORIGIN`], unless the test named a loopback stand-in.
+///
+/// No `overpass_api_base` is the public instances, as a deployment asks
+/// (carnet#1626), so a test configuration that names none, or a real host,
+/// is given the refused origin.
+pub(crate) fn refuse_real_overpass_origin(config: &mut ServerConfig) {
+    let origin = &mut config.external_services.overpass_api_base;
+    if origin
+        .as_deref()
+        .is_some_and(|base| !base.is_empty() && !leaves_the_machine(base))
+    {
+        return;
+    }
+    *origin = Some(REFUSED_ORIGIN.to_owned());
 }
 
 /// [`test_server_config`] with every weather vendor asked at `origin`, a
@@ -905,15 +876,14 @@ pub(crate) fn test_server_config_with_weather(origin: &str) -> ServerConfig {
     config.fitness.weather_api = Some(WeatherApiConfig {
         base_url: origin.to_owned(),
         enabled: true,
-        ..WeatherApiConfig::default()
     });
     config
 }
 
 /// Take out of `config` everything that could aim a test server's own
 /// request at a real host: the provider endpoints it names no stand-in for,
-/// the Strava and Garmin URLs that name one, the weather vendors' hosts, and
-/// the Resend credentials.
+/// the Strava and Garmin URLs that name one, the weather vendors' hosts, the
+/// Overpass instances, and the Resend credentials.
 ///
 /// The email service a context builds from Resend credentials sends on the
 /// server's shared HTTP client, to a host fixed inside dravr-tronc. A test
@@ -921,8 +891,8 @@ pub(crate) fn test_server_config_with_weather(origin: &str) -> ServerConfig {
 /// on.
 fn refuse_what_leaves_the_machine(config: &mut ServerConfig) {
     refuse_unnamed_provider_endpoints(config);
-    refuse_real_external_service_urls(config);
     refuse_real_weather_origin(config);
+    refuse_real_overpass_origin(config);
     config.resend_api_key = None;
 }
 
@@ -938,67 +908,6 @@ pub(crate) fn offline_config(config: Arc<ServerConfig>) -> Arc<ServerConfig> {
     let mut config = Arc::unwrap_or_clone(config);
     refuse_what_leaves_the_machine(&mut config);
     Arc::new(config)
-}
-
-/// A provider registry a suite builds itself, with every endpoint the server
-/// calls (token, API, revocation) that names a real host sent to
-/// [`REFUSED_ORIGIN`], as [`offline_config`] does for a context's.
-///
-/// `ProviderRegistry::new()` holds each provider's real endpoints, so a
-/// suite that built one and stood a single provider in was one refresh, read
-/// or disconnect from every other provider's real host. A suite names its
-/// stand-in on what this returns (`set_default_config`,
-/// `with_endpoint_overrides`); the authorize URL, which only the athlete's
-/// browser follows, keeps the provider's own. `startup_channel_egress_test`
-/// reads the test sources and fails on a registry built any other way
-/// (carnet#1615).
-#[must_use]
-pub(crate) fn offline_provider_registry() -> ProviderRegistry {
-    offline_registry(ProviderRegistry::new())
-}
-
-/// `registry` with every endpoint the server calls (token, API, revocation)
-/// that names a real host sent to [`REFUSED_ORIGIN`]; a loopback stand-in
-/// and the authorize URL stay as they are.
-///
-/// For a suite that registers a provider's real descriptor, or sets a
-/// configuration built from one, after [`offline_provider_registry`]: that
-/// puts the provider's real endpoints back, and this takes them out of the
-/// finished registry.
-#[must_use]
-pub(crate) fn offline_registry(mut registry: ProviderRegistry) -> ProviderRegistry {
-    for provider in registry.supported_providers() {
-        let Some(mut config) = registry.default_config(provider).cloned() else {
-            continue;
-        };
-        for url in [&mut config.token_url, &mut config.api_base_url] {
-            if leaves_the_machine(url) {
-                REFUSED_ORIGIN.clone_into(url);
-            }
-        }
-        if config.revoke_url.as_deref().is_some_and(leaves_the_machine) {
-            config.revoke_url = Some(REFUSED_ORIGIN.to_owned());
-        }
-        registry.set_default_config(provider, config);
-    }
-    registry
-}
-
-/// `provider`'s configuration as [`offline_provider_registry`] holds it, for
-/// a suite that points one endpoint at its stand-in and puts the
-/// configuration back with `set_default_config`: the endpoints it does not
-/// name stay refused, where the provider's own `default_config()` would
-/// bring its real token and revocation URLs back.
-///
-/// # Panics
-///
-/// Panics for a provider the registry does not carry.
-#[must_use]
-pub(crate) fn offline_provider_config(provider: &str) -> ProviderConfig {
-    offline_provider_registry()
-        .default_config(provider)
-        .cloned()
-        .unwrap_or_else(|| panic!("the provider registry carries no {provider}"))
 }
 
 /// The configuration a server reads from the process environment, for the
@@ -1024,16 +933,14 @@ pub(crate) fn server_config_from_env() -> AppResult<ServerConfig> {
     let mut config = ServerConfig::from_env()?;
     config.oauth.endpoints.clear();
     refuse_unnamed_provider_endpoints(&mut config);
-    // Whatever the shell names, loopback included: a test names its own.
-    for url in server_called_service_urls(&mut config) {
-        REFUSED_ORIGIN.clone_into(url);
-    }
     let services = &mut config.external_services;
     services.sciotte = SciotteServiceConfig::default();
     services.meta_graph_api_base = None;
+    services.overpass_api_base = None;
     // The environment names the weather vendors' own hosts, with the
     // activity list's temperature backfill on unless it says otherwise.
     refuse_real_weather_origin(&mut config);
+    refuse_real_overpass_origin(&mut config);
     config.webhooks.slack_bot_token = None;
     Ok(config)
 }

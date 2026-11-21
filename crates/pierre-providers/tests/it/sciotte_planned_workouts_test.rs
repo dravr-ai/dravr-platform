@@ -36,7 +36,6 @@ use pierre_providers::core::{
 };
 use pierre_providers::errors::ErrorCode;
 use pierre_providers::models::{SportType, WorkoutStep};
-use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::sciotte_provider::{
     startup_reads, SciotteGarminProviderFactory, SciotteProviderFactory, SciotteReads,
@@ -46,6 +45,7 @@ use pierre_providers::spi::{
     ProviderCapabilities, ProviderDescriptor, SciotteDescriptor, SciotteGarminDescriptor,
     SciotteTrainingPeaksDescriptor,
 };
+use pierre_test_support::providers::offline_provider_registry;
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -459,7 +459,7 @@ fn the_trainingpeaks_mirror_is_the_one_scraped_target_with_a_planned_calendar() 
         expected.insert(0, "intervals_icu");
     }
     assert_eq!(
-        global_registry().planned_workout_providers(),
+        offline_provider_registry().planned_workout_providers(),
         expected,
         "the registry lists exactly the providers that declare the capability"
     );

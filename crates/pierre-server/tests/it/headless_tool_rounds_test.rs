@@ -310,7 +310,8 @@ async fn a_retried_turn_writes_both_rounds_in_order() {
                 "tool_result".to_owned(),
                 format!("[Tool Result for get_activities]: {ACTIVITIES}"),
             ),
-        ]
+        ],
+        "the first pass's round and the retry's are both evidence, in the order they ran"
     );
 }
 
@@ -378,7 +379,7 @@ async fn the_round_names_the_member_the_turn_read() {
     assert_eq!(
         about,
         BTreeSet::from([Some(alice)]),
-        "both of the round's rows name the one member the turn read"
+        "the round's row names the one member the turn read"
     );
     assert!(
         two.rows().await.is_empty(),

@@ -33,6 +33,8 @@ use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use chrono::{Duration, Utc};
+use dravr_barrage::record_log::entry::EntryKind;
+use dravr_barrage::{LiveSource, Scope, SourceKey};
 #[cfg(feature = "health-sync")]
 use dravr_enforme::error::EnformeError;
 #[cfg(feature = "health-sync")]
@@ -281,6 +283,7 @@ async fn service_pointed_at(base: &str) -> (Arc<ServerContext>, OAuthService) {
         "strava",
         ProviderEndpointOverride {
             token_url: Some(format!("{base}/oauth/token")),
+            revoke_url: Some(format!("{base}/oauth/revoke")),
             ..ProviderEndpointOverride::default()
         },
     );
@@ -288,9 +291,7 @@ async fn service_pointed_at(base: &str) -> (Arc<ServerContext>, OAuthService) {
     let resources = common::create_test_server_resources_with_config(config)
         .await
         .unwrap();
-    let mut config = (*resources.common.config).clone();
-    config.external_services.strava_api.revoke_url = format!("{base}/oauth/revoke");
-    let service = OAuthService::new(resources.data(), Arc::new(config));
+    let service = OAuthService::new(resources.data(), Arc::clone(&resources.common.config));
     (resources, service)
 }
 
@@ -507,6 +508,36 @@ async fn a_reconnect_on_the_same_app_revokes_nothing() {
         "access-of-the-new-grant"
     );
     assert_eq!(token.oauth_app_client_id, None);
+}
+
+/// A completed callback logs one `connect` entry in the athlete's log, under
+/// the source the stored connection reads from (carnet#1542).
+#[tokio::test]
+async fn a_completed_callback_logs_the_connect_under_its_source() {
+    let (base, _mock) = mock_strava().await;
+    let (resources, service) = service_pointed_at(&base).await;
+    let (user_id, tenant) = athlete(&resources, "first-connect").await;
+
+    reconnect(&service, user_id, tenant).await;
+
+    let connects: Vec<_> = resources
+        .common
+        .activity_records
+        .log_entries(&Scope::new(tenant.as_uuid(), user_id), 0, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry.kind == EntryKind::Connect)
+        .collect();
+    let [connect] = connects.as_slice() else {
+        panic!("bug: the callback did not log exactly one connect: {connects:?}");
+    };
+    assert_eq!(
+        connect.source,
+        SourceKey::Live(LiveSource::Strava),
+        "bug: the connect was logged under the wrong source"
+    );
+    assert_eq!(connect.record_key, None, "a connect names no record");
 }
 
 /// A user in two tenants whose token a pool app issued in the second one

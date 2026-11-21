@@ -37,9 +37,10 @@ pub struct WebhookSecrets {
     #[serde(skip)]
     pub garmin_token: Option<SecretString>,
     /// `WHOOP_WEBHOOK_SECRET`: the WHOOP app's client secret its webhooks
-    /// are signed with. dravr-enforme's WHOOP provider reads the same
-    /// variable at startup to key its HMAC; the route refuses every event
-    /// while this is `None`, so a blank one never reaches it.
+    /// are signed with. The server's WHOOP sync provider is handed this one
+    /// to key its HMAC, and the route refuses every event while it is
+    /// `None`. dravr-enforme's own WHOOP provider, which reads the variable
+    /// itself, is replaced before it verifies anything.
     #[serde(skip)]
     pub whoop_secret: Option<SecretString>,
     /// `SLACK_SIGNING_SECRET`: the key Slack signs interactive actions with.

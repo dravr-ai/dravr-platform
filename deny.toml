@@ -2,6 +2,17 @@
 # ABOUTME: Replaces custom cargo-audit bash scripting with native cargo-deny tool
 
 # ============================================================================
+# Dependency graph - every feature, so the PostgreSQL build is judged too
+# ============================================================================
+# The default graph is the workspace's default features, which build SQLite
+# only: sqlx-postgres and everything behind the `postgresql` features never
+# reached a check, though the deployed server is built with them. Set here,
+# not as a flag, so every caller of `cargo deny` (the security-audit lane, the
+# weekly dependency check, lint-and-test.sh, a hand run) judges the same graph.
+[graph]
+all-features = true
+
+# ============================================================================
 # Advisory Database - Security Vulnerability Scanning
 # ============================================================================
 # Replaces: cargo audit --ignore RUSTSEC-2023-0071 --no-fetch --color always

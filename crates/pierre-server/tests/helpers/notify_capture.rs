@@ -1,5 +1,5 @@
-// ABOUTME: Test-side capture of `target: "notify"` events — the product-analytics chokepoint — or of every log line
-// ABOUTME: Installed per thread so a test asserts which events fired, how often, and with which fields
+// ABOUTME: The suites' view of `target: "notify"` events — the product-analytics chokepoint — or of every log line
+// ABOUTME: A thin reading of pierre_test_support::log_capture, which installs and collects every capture
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,18 +7,13 @@
 // Shared helpers compile into every integration-test binary; the ones that
 // do not assert on notify events see this module as dead.
 #![allow(dead_code)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::unwrap_used, clippy::panic)]
 
 use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
-use std::thread::{self, ThreadId};
 
-use tracing::field::{Field, Visit};
-use tracing::span::{Attributes, Id, Record};
-use tracing::subscriber::{set_default, DefaultGuard};
-use tracing::{Event, Level, Metadata, Subscriber};
-use tracing_core::span::Current;
+use pierre_test_support::log_capture::{self, CapturedEvent, CapturedLog};
+use tracing::subscriber::DefaultGuard;
+use tracing::Level;
 
 /// One `target: "notify"` event, with every field rendered as a string.
 ///
@@ -37,268 +32,102 @@ pub(crate) struct NotifyEvent {
 impl NotifyEvent {
     /// A field's rendered value; panics naming the event when it is absent.
     pub(crate) fn field(&self, name: &str) -> &str {
-        self.fields
-            .get(name)
-            .unwrap_or_else(|| panic!("event {} has no field {name}", self.event))
+        self.fields.get(name).map_or_else(
+            || panic!("event {} has no field {name}", self.event),
+            String::as_str,
+        )
     }
 }
 
-/// Every event captured since [`capture_notify`] installed the layer.
-pub(crate) type CapturedEvents = Arc<Mutex<Vec<NotifyEvent>>>;
-
-/// Every value recorded onto a span after it was created (`Span::record`),
-/// as `(field, value)` in the order recorded, since
-/// [`capture_logs_and_spans`] installed the subscriber.
-///
-/// The subscriber gives every span one id, so a value is not attributed to a
-/// span: these are the values the code under test recorded, whichever span
-/// was current.
-pub(crate) type RecordedSpanFields = Arc<Mutex<Vec<(String, String)>>>;
-
-#[derive(Clone, Default)]
-struct NotifyCapture {
-    events: CapturedEvents,
-    /// Record every event under its message, not only `target: "notify"`.
+/// What a capture installed by this module has seen: the `notify` events, or
+/// under [`capture_logs`] every line, each named.
+#[derive(Clone, Debug)]
+pub(crate) struct CapturedEvents {
+    log: CapturedLog,
     every_line: bool,
-    /// Span tracking, only under [`capture_logs_and_spans`].
-    spans: Option<SpanCapture>,
 }
 
-/// What [`capture_logs_and_spans`] keeps to see `Span::record` values.
-///
-/// `Span::record` on `Span::current()` reaches a subscriber only when the
-/// subscriber can say which span is current, so this mode mints an id per
-/// span and keeps the entered stack. The ids still never reach a registry:
-/// every span carries the dispatcher that created it, and this one looks
-/// nothing up in another.
-#[derive(Clone, Default)]
-struct SpanCapture {
-    fields: RecordedSpanFields,
-    tracking: Arc<Mutex<SpanTracking>>,
-}
-
-#[derive(Default)]
-struct SpanTracking {
-    /// The last id minted; ids start above the shared id `1`
-    last_id: u64,
-    metadata: HashMap<u64, &'static Metadata<'static>>,
-    /// Entered spans with the thread that entered them: sqlx enters a span it
-    /// was handed on its worker thread, and that span is never current on
-    /// the test's thread
-    entered: Vec<(ThreadId, u64)>,
-}
-
-#[derive(Debug, Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
+impl CapturedEvents {
+    /// The events captured so far, in the order emitted.
+    pub(crate) fn events(&self) -> Vec<NotifyEvent> {
+        self.log
+            .events()
+            .into_iter()
+            .filter_map(|event| self.named_view(event))
+            .collect()
     }
 
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-
-    fn record_i64(&mut self, field: &Field, value: i64) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-
-    fn record_u64(&mut self, field: &Field, value: u64) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-
-    fn record_bool(&mut self, field: &Field, value: bool) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-}
-
-/// A whole `Subscriber`, not a `Layer` over a `Registry`.
-///
-/// The distinction is load-bearing. `common::init_test_logging` installs a
-/// process-global `fmt` subscriber over its own `Registry`; layering this
-/// capture over a SECOND `Registry` as the thread-local default put two
-/// registries in one process with disjoint span-id spaces. sqlx-sqlite ships a
-/// `tracing::Span` to its worker thread with every command, and when the span
-/// is dropped there, tracing-subscriber closes its parent through whatever
-/// dispatcher is current on the DROPPING thread — the global registry, which
-/// has never seen that id — and panics `tried to drop a ref to Id(..), but no
-/// such span exists!`. That killed the sqlx worker and, behind a one-connection
-/// test pool, stalled the next acquire into a 500.
-///
-/// Capture never needed span storage: it reads events only. Owning no spans
-/// means no id can be minted here for another registry to choke on, and a
-/// foreign span closed on this thread reaches a `try_close` that does nothing.
-impl Subscriber for NotifyCapture {
-    fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
-        true
-    }
-
-    // One id for every span: nothing here looks a span up, and the id is never
-    // handed to a registry that would try to resolve it. Span capture alone
-    // mints its own ids, to know which span is current (see `SpanCapture`).
-    fn new_span(&self, span: &Attributes<'_>) -> Id {
-        let Some(spans) = &self.spans else {
-            return Id::from_u64(1);
-        };
-        let mut tracking = spans.tracking.lock().unwrap();
-        tracking.last_id = tracking.last_id.max(1) + 1;
-        let id = tracking.last_id;
-        tracking.metadata.insert(id, span.metadata());
-        Id::from_u64(id)
-    }
-
-    fn record(&self, _span: &Id, values: &Record<'_>) {
-        let Some(spans) = &self.spans else {
-            return;
-        };
-        let mut visitor = FieldVisitor::default();
-        values.record(&mut visitor);
-        spans.fields.lock().unwrap().extend(visitor.fields);
-    }
-
-    fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
-
-    fn enter(&self, span: &Id) {
-        if let Some(spans) = &self.spans {
-            spans
-                .tracking
-                .lock()
-                .unwrap()
-                .entered
-                .push((thread::current().id(), span.into_u64()));
+    fn named_view(&self, event: CapturedEvent) -> Option<NotifyEvent> {
+        if !self.every_line && event.target != "notify" {
+            return None;
         }
-    }
-
-    fn exit(&self, span: &Id) {
-        if let Some(spans) = &self.spans {
-            let mut tracking = spans.tracking.lock().unwrap();
-            let entry = (thread::current().id(), span.into_u64());
-            if let Some(at) = tracking
-                .entered
-                .iter()
-                .rposition(|entered| *entered == entry)
-            {
-                tracking.entered.remove(at);
-            }
-        }
-    }
-
-    fn current_span(&self) -> Current {
-        // Without span capture no span is ever current: `Span::current()`
-        // is disabled, exactly as under the trait's default answer.
-        let Some(spans) = &self.spans else {
-            return Current::none();
-        };
-        let tracking = spans.tracking.lock().unwrap();
-        let this_thread = thread::current().id();
-        tracking
-            .entered
-            .iter()
-            .rev()
-            .find(|(thread, _)| *thread == this_thread)
-            .and_then(|(_, id)| {
-                tracking
-                    .metadata
-                    .get(id)
-                    .map(|metadata| Current::new(Id::from_u64(*id), metadata))
-            })
-            .unwrap_or_else(Current::none)
-    }
-
-    fn event(&self, event: &Event<'_>) {
-        if !self.every_line && event.metadata().target() != "notify" {
-            return;
-        }
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
         let name = if self.every_line {
-            visitor.fields.get("message").cloned().unwrap_or_default()
+            event.message().unwrap_or_default().to_owned()
         } else {
-            visitor
-                .fields
-                .get("event")
-                .cloned()
-                .unwrap_or_else(|| panic!("notify event with no `event` field: {visitor:?}"))
+            event
+                .field("event")
+                .unwrap_or_else(|| panic!("notify event with no `event` field: {event:?}"))
+                .to_owned()
         };
-        self.events.lock().unwrap().push(NotifyEvent {
+        Some(NotifyEvent {
             event: name,
-            level: *event.metadata().level(),
-            fields: visitor.fields,
-        });
+            level: event.level,
+            fields: event.fields,
+        })
     }
 }
 
-/// Install a capture subscriber for the current thread.
+/// Capture this thread's `notify` events until the guard drops.
 ///
-/// The guard must stay alive for the duration of the code under test — the
-/// subscriber is uninstalled when it drops. Only code running on this thread
-/// is seen, which is every handler and route a `#[tokio::test]` drives inline.
+/// The guard must stay alive for the duration of the code under test. Only
+/// code running on this thread is seen, which is every handler and route a
+/// `#[tokio::test]` drives inline.
 pub(crate) fn capture_notify() -> (CapturedEvents, DefaultGuard) {
-    let capture = NotifyCapture::default();
-    let events = Arc::clone(&capture.events);
-    let guard = set_default(capture);
-    (events, guard)
+    let (log, guard) = log_capture::capture_events();
+    (
+        CapturedEvents {
+            log,
+            every_line: false,
+        },
+        guard,
+    )
 }
 
-/// Install a capture subscriber for the current thread that records every log
-/// line, at any level and target, named by its message.
+/// Capture every log line this thread writes, at any level and target, named
+/// by its message.
 ///
 /// For asserting a structured log line that is itself the product — an
 /// observe-mode report — rather than a notify event. The same guard rules as
 /// [`capture_notify`] apply.
 pub(crate) fn capture_logs() -> (CapturedEvents, DefaultGuard) {
-    let capture = NotifyCapture {
-        every_line: true,
-        ..NotifyCapture::default()
-    };
-    let events = Arc::clone(&capture.events);
-    let guard = set_default(capture);
-    (events, guard)
+    let (log, guard) = log_capture::capture_events();
+    (
+        CapturedEvents {
+            log,
+            every_line: true,
+        },
+        guard,
+    )
 }
 
 /// [`capture_logs`], plus every value recorded onto a span after its
-/// creation: the fields a handler fills in as it learns them, such as the
-/// token endpoint's `app_attest`.
-pub(crate) fn capture_logs_and_spans() -> (CapturedEvents, RecordedSpanFields, DefaultGuard) {
-    let spans = SpanCapture::default();
-    let span_fields = Arc::clone(&spans.fields);
-    let capture = NotifyCapture {
+/// creation (read with [`CapturedLog::recorded`]): the fields a handler fills
+/// in as it learns them, such as the token endpoint's `app_attest`.
+pub(crate) fn capture_logs_and_spans() -> (CapturedEvents, CapturedLog, DefaultGuard) {
+    let (log, guard) = log_capture::capture_events_and_spans();
+    let events = CapturedEvents {
+        log: log.clone(),
         every_line: true,
-        spans: Some(spans),
-        ..NotifyCapture::default()
     };
-    let events = Arc::clone(&capture.events);
-    let guard = set_default(capture);
-    (events, span_fields, guard)
-}
-
-/// Every value recorded onto a span under `field`, in the order recorded.
-pub(crate) fn recorded(span_fields: &RecordedSpanFields, field: &str) -> Vec<String> {
-    span_fields
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|(name, _)| name == field)
-        .map(|(_, value)| value.clone())
-        .collect()
+    (events, log, guard)
 }
 
 /// Every captured event with this name.
 pub(crate) fn named(events: &CapturedEvents, name: &str) -> Vec<NotifyEvent> {
     events
-        .lock()
-        .unwrap()
-        .iter()
+        .events()
+        .into_iter()
         .filter(|e| e.event == name)
-        .cloned()
         .collect()
 }
 
@@ -310,8 +139,7 @@ pub(crate) fn only(events: &CapturedEvents, name: &str) -> NotifyEvent {
         1,
         "expected exactly one `{name}`, saw {:?}",
         events
-            .lock()
-            .unwrap()
+            .events()
             .iter()
             .map(|e| e.event.clone())
             .collect::<Vec<_>>()

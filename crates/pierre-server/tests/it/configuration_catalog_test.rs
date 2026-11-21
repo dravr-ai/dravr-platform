@@ -42,6 +42,12 @@ fn test_parameter_lookup() {
         CatalogBuilder::get_parameter("vo2.threshold_adjustment_factor").is_none(),
         "catalogue bug: it offers vo2.threshold_adjustment_factor, which no computation reads"
     );
+
+    // No FTP-from-VO2max coefficient either: nothing estimates FTP from VO2max.
+    assert!(
+        CatalogBuilder::get_parameter("vo2.power_coefficient").is_none(),
+        "catalogue bug: it offers vo2.power_coefficient, which no computation reads"
+    );
 }
 
 #[test]

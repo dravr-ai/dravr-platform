@@ -19,7 +19,6 @@
 use clap::{error::ErrorKind, Parser};
 use dravr_barrage::blob::BlobStore;
 use dravr_barrage::keyed::Signer;
-use dravr_barrage::store::ActivityRecordStore;
 use dravr_tronc::mcp::transport::stdio;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
@@ -581,12 +580,8 @@ async fn create_server(
         );
     }
 
-    let resources = spawn_background_workers(
-        resources_instance,
-        live_records,
-        blobs.ok(),
-        checkpoint_signer,
-    );
+    let resources =
+        spawn_background_workers(resources_instance, &barrage, blobs.ok(), checkpoint_signer);
 
     server_lifecycle::notify_started();
 
@@ -602,7 +597,7 @@ async fn create_server(
 /// rather than booting into a mode that would enqueue turns nowhere.
 #[cfg(feature = "client-messaging")]
 fn select_turn_runner(timeouts: &ServerTimeouts) -> Arc<TurnRunner> {
-    use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
+    use pierre_mcp_server::services::turn_runner::turn_watchdog;
     use std::process;
 
     let runner = TurnRunner::from_env(turn_watchdog(timeouts)).unwrap_or_else(|e| {
@@ -630,7 +625,7 @@ async fn select_original_stores(
 
 fn spawn_background_workers(
     resources_instance: ServerContext,
-    live_records: Arc<dyn ActivityRecordStore>,
+    barrage: &RecordStores,
     blobs: Option<Arc<dyn BlobStore>>,
     checkpoint_signer: Option<Arc<dyn Signer>>,
 ) -> Arc<ServerContext> {
@@ -749,24 +744,26 @@ fn spawn_background_workers(
     // activity_retention.*` holds. Both start unset, so nothing expires (D9).
     {
         use pierre_mcp_server::start_retention_sweep_worker;
-        start_retention_sweep_worker(&resources, Arc::clone(&live_records), blobs);
+        start_retention_sweep_worker(&resources, Arc::clone(&barrage.records), blobs.clone());
     }
 
     // Start the record_log worker (carnet#1542): keys erasures and
-    // tombstones, baselines unlogged records, sweeps orphaned logs, and,
-    // with a signer, cuts the hourly checkpoint anchoring the deletion
-    // receipt chain. Skipped for an in-memory database like the other
-    // ledger workers.
+    // tombstones, baselines unlogged records, renames content-named
+    // originals to their keyed names where a blob store keeps them, sweeps
+    // orphaned logs, and, with a signer, cuts the hourly checkpoint anchoring
+    // the deletion receipt chain. Skipped for an in-memory database like the
+    // other ledger workers.
     if !resources.common.config.database.url.is_memory() {
         use pierre_services::record_log_worker::{start_record_log_worker, RecordLogWorker};
         let repos = &resources.common.repos;
         start_record_log_worker(
             Arc::new(RecordLogWorker::new(
-                live_records,
+                Arc::clone(&barrage.records),
                 Arc::clone(&repos.import_tombstones),
                 Arc::clone(&repos.account_deletion),
                 Arc::clone(&repos.users),
                 checkpoint_signer,
+                blobs.map(|blobs| barrage.with_blobs(blobs)),
             )),
             Arc::clone(&repos.worker_runs),
         );

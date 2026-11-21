@@ -14,9 +14,7 @@
 
 use crate::common;
 
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use common::{create_test_server_resources_with_chat_provider, create_test_user_with_plan};
@@ -34,14 +32,9 @@ use pierre_core::models::TenantId;
 use pierre_evals::{EvidenceCorpus, VerificationConfig, VerificationFallback};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::claims::{ClaimStatus, VerdictLayer};
+use pierre_test_support::log_capture::{self, CapturedEvent, CapturedLog};
 use regex::Regex;
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::{Level, Subscriber};
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use tracing::Level;
 use uuid::Uuid;
 
 /// A deterministic bound violation: it never reaches the judge.
@@ -105,51 +98,6 @@ impl LlmProvider for FailsOnClaim {
     }
     async fn health_check(&self) -> Result<bool, AppError> {
         Ok(true)
-    }
-}
-
-// ── Event capture ────────────────────────────────────────────────────────────
-
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    level: Level,
-    message: String,
-    fields: HashMap<String, String>,
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    message: String,
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        let rendered = format!("{value:?}");
-        if field.name() == "message" {
-            self.message.clone_from(&rendered);
-        }
-        self.fields.insert(field.name().to_owned(), rendered);
-    }
-}
-
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        self.events.lock().unwrap().push(CapturedEvent {
-            level: *event.metadata().level(),
-            message: visitor.message,
-            fields: visitor.fields,
-        });
     }
 }
 
@@ -241,24 +189,13 @@ async fn verify(
     outcome
 }
 
-/// Every event emitted on this thread while the guard lives. The tests run on
-/// tokio's current-thread runtime, so every await stays on this thread.
-fn capture_events() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let layer = CaptureLayer::default();
-    let events = Arc::clone(&layer.events);
-    let guard = tracing_subscriber::registry().with(layer).set_default();
-    (events, guard)
-}
-
 /// The warnings the `dravr-claim-verification-failed` metric counts.
-fn counted_by_the_metric(events: &Mutex<Vec<CapturedEvent>>) -> Vec<CapturedEvent> {
+fn counted_by_the_metric(events: &CapturedLog) -> Vec<CapturedEvent> {
     let filter = metric_filter();
     events
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|e| e.level == Level::WARN && filter.is_match(&e.message))
-        .cloned()
+        .events()
+        .into_iter()
+        .filter(|e| e.level == Level::WARN && filter.is_match(e.message().unwrap_or_default()))
         .collect()
 }
 
@@ -270,7 +207,7 @@ async fn a_blocking_agent_gets_its_block_fallback_when_the_judge_fails() {
     // unchecked. Only the judge error can make this agent block.
     let fx = setup("beetroot", "judge-error-block@example.com").await;
     let reply = format!("{JUDGED_AND_ANSWERED} {JUDGED_AND_FAILED}");
-    let (events, guard) = capture_events();
+    let (events, guard) = log_capture::capture_events();
 
     let outcome = verify(&fx, &reply, VerificationFallback::Block).await;
     drop(guard);
@@ -316,7 +253,7 @@ async fn a_blocking_agent_gets_its_block_fallback_when_the_judge_fails() {
 async fn a_warning_agent_ships_the_reply_and_its_rows_record_the_claim_as_not_checked() {
     let fx = setup("beetroot", "judge-error-warn@example.com").await;
     let reply = format!("{OUT_OF_BOUNDS} {JUDGED_AND_FAILED} {JUDGED_AND_ANSWERED}");
-    let (events, guard) = capture_events();
+    let (events, guard) = log_capture::capture_events();
 
     let outcome = verify(&fx, &reply, VerificationFallback::Warn).await;
     drop(guard);
@@ -396,7 +333,7 @@ async fn a_healthy_judge_neither_blocks_nor_pages() {
     // The block is for a reply that could not be checked. A blocking agent
     // whose judge answered every claim keeps its reply.
     let fx = setup("a claim no reply contains", "judge-healthy@example.com").await;
-    let (events, guard) = capture_events();
+    let (events, guard) = log_capture::capture_events();
 
     let outcome = verify(&fx, JUDGED_AND_ANSWERED, VerificationFallback::Block).await;
     drop(guard);

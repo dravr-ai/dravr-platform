@@ -25,10 +25,8 @@ use crate::common;
 use crate::helpers;
 use secrecy::{ExposeSecret, SecretString};
 
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
 use axum::http::StatusCode;
@@ -62,15 +60,11 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
 use pierre_test_support::db::create_test_db_with_key;
+use pierre_test_support::log_capture::{self, CapturedEvent, CapturedLog};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
-use tracing::field::{Field, Visit};
 use tracing::subscriber::DefaultGuard;
-use tracing::{Level, Subscriber};
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use tracing::Level;
 
 /// The client id the 2026-09-26 probe used.
 const PROBE_CLIENT_ID: &str = "rl-probe";
@@ -82,72 +76,18 @@ const REDIRECT_URI: &str = "https://example.com/callback";
 
 // ── Event capture ────────────────────────────────────────────────────────────
 
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    level: Level,
-    message: String,
-    fields: HashMap<String, String>,
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    message: String,
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        let rendered = format!("{value:?}");
-        if field.name() == "message" {
-            self.message.clone_from(&rendered);
-        }
-        self.fields.insert(field.name().to_owned(), rendered);
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        if field.name() == "message" {
-            value.clone_into(&mut self.message);
-        }
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-}
-
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        self.events.lock().unwrap().push(CapturedEvent {
-            level: *event.metadata().level(),
-            message: visitor.message,
-            fields: visitor.fields,
-        });
-    }
-}
-
 /// Every event emitted on this thread while the guard lives.
 struct Captured {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
+    events: CapturedLog,
     _guard: DefaultGuard,
 }
 
 impl Captured {
     fn start() -> Self {
-        // The process-wide subscriber goes in first. A scoped `set_default`
-        // installs the `log` bridge globally, after which the global `init`
-        // that `create_test_server_resources` runs would panic.
+        // The process-wide test subscriber goes in first; the capture is then
+        // this thread's scoped default over it.
         common::init_test_logging();
-        let layer = CaptureLayer::default();
-        let events = Arc::clone(&layer.events);
-        let guard = tracing_subscriber::registry().with(layer).set_default();
+        let (events, guard) = log_capture::capture_events();
         Self {
             events,
             _guard: guard,
@@ -156,11 +96,9 @@ impl Captured {
 
     fn at(&self, level: Level) -> Vec<CapturedEvent> {
         self.events
-            .lock()
-            .unwrap()
-            .iter()
+            .events()
+            .into_iter()
             .filter(|e| e.level == level)
-            .cloned()
             .collect()
     }
 
@@ -178,13 +116,13 @@ impl Captured {
         let matching: Vec<_> = self
             .at(Level::WARN)
             .into_iter()
-            .filter(|e| e.message == message)
+            .filter(|e| e.message() == Some(message))
             .collect();
         assert_eq!(
             matching.len(),
             1,
             "expected exactly one WARN {message:?}, got: {:#?}",
-            self.events.lock().unwrap()
+            self.events.events()
         );
         matching.into_iter().next().unwrap()
     }
@@ -194,19 +132,19 @@ impl Captured {
         let matching: Vec<_> = self
             .at(Level::ERROR)
             .into_iter()
-            .filter(|e| e.message == message)
+            .filter(|e| e.message() == Some(message))
             .collect();
         assert_eq!(
             matching.len(),
             1,
             "expected exactly one ERROR {message:?}, got: {:#?}",
-            self.events.lock().unwrap()
+            self.events.events()
         );
         matching.into_iter().next().unwrap()
     }
 
     fn all_text(&self) -> String {
-        format!("{:?}", self.events.lock().unwrap())
+        format!("{:?}", self.events.events())
     }
 }
 
@@ -349,10 +287,10 @@ async fn a_wrong_client_secret_warns_and_never_pages() {
     captured.assert_nothing_paged();
     captured.warning("OAuth client validation failed");
     assert!(
-        captured
-            .at(Level::WARN)
-            .iter()
-            .any(|e| e.message.contains("secret validation failed")),
+        captured.at(Level::WARN).iter().any(|e| e
+            .message()
+            .unwrap_or_default()
+            .contains("secret validation failed")),
         "the wrong secret is named where it was detected: {:#?}",
         captured.at(Level::WARN)
     );
@@ -406,7 +344,7 @@ async fn a_database_failure_during_the_client_lookup_still_pages() {
         captured
             .at(Level::WARN)
             .iter()
-            .all(|e| e.message != "OAuth2 client refused: unknown client_id"),
+            .all(|e| e.message() != Some("OAuth2 client refused: unknown client_id")),
         "an outage is never reported as an unknown client"
     );
 }
@@ -621,10 +559,10 @@ async fn a_password_tried_on_a_federated_only_account_is_refused_without_paging(
         "the stored password hash never reaches a log line"
     );
     assert!(
-        captured
-            .at(Level::WARN)
-            .iter()
-            .any(|e| e.message.contains("Failed login: invalid password")),
+        captured.at(Level::WARN).iter().any(|e| e
+            .message()
+            .unwrap_or_default()
+            .contains("Failed login: invalid password")),
         "the refusal is logged as a failed sign-in: {:#?}",
         captured.at(Level::WARN)
     );
@@ -830,10 +768,10 @@ async fn a_weak_password_at_public_registration_warns_and_never_pages() {
     assert_eq!(response.status(), 400);
     captured.assert_nothing_paged();
     assert!(
-        captured
-            .at(Level::WARN)
-            .iter()
-            .any(|e| e.message.starts_with("Public registration refused")),
+        captured.at(Level::WARN).iter().any(|e| e
+            .message()
+            .unwrap_or_default()
+            .starts_with("Public registration refused")),
         "{:#?}",
         captured.at(Level::WARN)
     );
@@ -867,7 +805,8 @@ async fn an_unknown_email_at_the_hosted_sign_in_is_refused_without_paging() {
     captured.assert_nothing_paged();
     assert!(
         captured.at(Level::WARN).iter().any(|e| e
-            .message
+            .message()
+            .unwrap_or_default()
             .starts_with("Authentication failed for OAuth login")),
         "{:#?}",
         captured.at(Level::WARN)
@@ -911,10 +850,10 @@ async fn a_made_up_state_at_the_provider_callback_warns_and_never_pages() {
     assert_ne!(response.status(), 500, "a forged state is the caller's");
     captured.assert_nothing_paged();
     assert!(
-        captured
-            .at(Level::WARN)
-            .iter()
-            .any(|e| e.message.starts_with("OAuth callback refused")),
+        captured.at(Level::WARN).iter().any(|e| e
+            .message()
+            .unwrap_or_default()
+            .starts_with("OAuth callback refused")),
         "{:#?}",
         captured.at(Level::WARN)
     );
@@ -932,9 +871,10 @@ async fn a_database_failure_redeeming_the_callback_state_pages() {
 
     let pages = captured.at(Level::ERROR);
     assert!(
-        pages
-            .iter()
-            .any(|e| e.message.starts_with("OAuth callback failed")),
+        pages.iter().any(|e| e
+            .message()
+            .unwrap_or_default()
+            .starts_with("OAuth callback failed")),
         "{pages:#?}"
     );
 }

@@ -45,10 +45,9 @@ mod live_incident_eval {
     use pierre_chat_pipeline::stages::viz_blocks::granted_visuals;
     use pierre_config::timeouts::ServerTimeouts;
     use pierre_groups::service::MemberCards;
-    use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
+    use pierre_mcp_server::services::turn_runner::turn_watchdog;
     use pierre_providers::activity_source::resolve_activity_source;
     use pierre_providers::core::ActivityQueryParams;
-    use pierre_providers::registry::global_registry;
     use pierre_services::agent_selection::AgentSelectionSource;
     use pierre_services::conversation_forge::{
         forge_conversation, resolve_conversation_model, selected_or_system_agent, ForgeAgent,
@@ -255,7 +254,7 @@ mod live_incident_eval {
 
         let primary = resolve_activity_source(
             resources.common.repos.provider_connections.as_ref(),
-            &global_registry(),
+            &resources.fitness.provider_registry,
             fixture.athlete,
             Some(fixture.athlete_tenant),
         )

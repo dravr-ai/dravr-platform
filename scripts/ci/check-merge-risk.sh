@@ -103,6 +103,12 @@ SURFACES=(
   "crates/pierre-services/src/notification_channel_sink.rs|notification channel sink"
   "crates/pierre-services/src/messaging_broadcast.rs|proactive channel send"
   "crates/pierre-services/src/messaging_outbound.rs|outbound retry worker"
+  # Where every channel message and the server's own Slack posts are
+  # addressed: the adapter factory each sender builds its adapter through,
+  # and the Slack client behind the ops card redraws, modals and the
+  # feedback upload. A wrong host here delivers to it on the next send.
+  "crates/pierre-services/src/channel_adapters.rs|channel adapter factory"
+  "crates/pierre-server/src/services/ops_slack.rs|server Slack client"
   # Timers that fan out to many athletes or groups at once.
   "crates/pierre-services/src/notification_digest_scheduler.rs|notification digest scheduler"
   "crates/pierre-routes-groups/src/group_digest_scheduler.rs|group digest scheduler"

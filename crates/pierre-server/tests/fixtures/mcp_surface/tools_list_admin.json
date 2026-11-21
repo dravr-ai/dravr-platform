@@ -5077,7 +5077,7 @@
             "type": "string"
           },
           "pattern_type": {
-            "description": "'weekly_schedule' (default; training days, consistency), 'training_blocks' (hard/easy share, recovery between hard efforts), 'progression' (weekly volume, spike weeks) or 'overtraining' (heart-rate drift, performance decline, short recovery); any other value is refused.",
+            "description": "'weekly_schedule' (default; training days, consistency), 'training_blocks' (hard/easy share, recovery between hard efforts), 'progression' (weekly volume, spike weeks) or 'overtraining' (short recovery between hard efforts); any other value is refused.",
             "type": "string"
           },
           "provider": {
@@ -5234,10 +5234,6 @@
                 "description": "Always `medium`.",
                 "type": "string"
               },
-              "hr_drift_detected": {
-                "description": "Whether heart rate climbed for the same effort.",
-                "type": "boolean"
-              },
               "hr_zones_unavailable": {
                 "description": "Why heart rate did not decide which sessions counted as hard for the\nrecovery signal: the athlete's heart-rate zones are unknown. Null when\nthe sessions were read against their zones.",
                 "type": [
@@ -5259,10 +5255,6 @@
               "pattern_type": {
                 "description": "Always `overtraining`.",
                 "type": "string"
-              },
-              "performance_decline": {
-                "description": "Whether performance fell while training continued.",
-                "type": "boolean"
               },
               "recommendations": {
                 "description": "What to do about it, graded by risk level.",
@@ -5288,8 +5280,6 @@
               "risk_level",
               "warning_signs",
               "insights",
-              "hr_drift_detected",
-              "performance_decline",
               "insufficient_recovery",
               "confidence",
               "recommendations",
@@ -9376,13 +9366,6 @@
                   "null"
                 ]
               },
-              "hr_drift_detected": {
-                "description": "Whether heart rate drifted upward at a fixed effort. `recovery`.",
-                "type": [
-                  "boolean",
-                  "null"
-                ]
-              },
               "pattern_description": {
                 "description": "The pattern in words. `intensity`.",
                 "type": [
@@ -9637,7 +9620,7 @@
                 "type": "boolean"
               },
               "overtraining_signals": {
-                "description": "Whether either overtraining signal fired.",
+                "description": "Whether hard efforts came too close together.",
                 "type": "boolean"
               },
               "tsb": {

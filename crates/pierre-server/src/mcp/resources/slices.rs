@@ -60,7 +60,7 @@ use crate::services::photograveur_client::PhotograveurClient;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
 use dravr_barrage::store::ActivityRecordStore;
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 use dravr_canot::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
 use dravr_canot::ChannelRegistry;
@@ -72,7 +72,7 @@ use pierre_auth::oauth2_server::play_integrity_decoder::PlayIntegrityDecoder;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_cache::Cache;
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 use pierre_commands::CommandHandlerRegistry;
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
@@ -100,6 +100,7 @@ use pierre_middleware::McpAuthMiddleware;
 use pierre_notifications::NotificationService;
 use pierre_providers::originals::OriginalsStore;
 use pierre_providers::registry::ProviderRegistry;
+use pierre_runtime_context::ProviderConnectLog;
 #[cfg(feature = "client-messaging")]
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
@@ -116,7 +117,7 @@ use pierre_tool_runtime::registry::ToolRegistry;
 #[cfg(feature = "client-messaging")]
 use pierre_tool_runtime::runtime::BackfillNotifier;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
@@ -169,6 +170,9 @@ pub struct CommonSlice {
     /// The one provider data purge: the tables, then the live store's
     /// records of the provider (carnet#1482).
     pub provider_purge: Arc<dyn ProviderPurge>,
+    /// Where each provider connect is recorded: the live store's log of the
+    /// athlete (carnet#1542). Every connect path announces through it.
+    pub connect_log: Arc<dyn ProviderConnectLog>,
     /// The files athletes uploaded, kept in the deployment's blob store
     /// (the one archive imports keep their originals in), or the reason no
     /// blob store is placed here. Chosen once at boot.
@@ -208,20 +212,20 @@ pub struct CommonSlice {
     #[cfg(feature = "tools-groups")]
     pub group_service: Arc<pierre_groups::GroupService>,
     /// Messaging slash command registry (loaded from `commands/*.md`).
-    #[cfg(feature = "client-messaging")]
+    #[cfg(feature = "slash-commands")]
     pub command_registry: Option<Arc<CommandRegistry>>,
     /// Argument signatures from the same `commands/*.md` frontmatter, keyed by
     /// command name. Loaded once with the registry so the command-catalogue
     /// route renders the signatures `/help` renders, rather than re-reading
     /// `PIERRE_COMMANDS_DIR` and drifting from the set the server serves.
-    #[cfg(feature = "client-messaging")]
+    #[cfg(feature = "slash-commands")]
     pub command_arg_specs: Option<Arc<HashMap<String, String>>>,
     /// Messaging command handler registry.
-    #[cfg(feature = "client-messaging")]
+    #[cfg(feature = "slash-commands")]
     pub command_handler_registry: Option<Arc<CommandHandlerRegistry>>,
     /// Names of the commands that act on their caller alone, from the same
     /// catalogue: what a shared room's menu marks as personal.
-    #[cfg(feature = "client-messaging")]
+    #[cfg(feature = "slash-commands")]
     pub personal_commands: HashSet<String>,
 }
 
@@ -239,7 +243,7 @@ impl fmt::Debug for CommonSlice {
             .field("pruning_abort_handle", &self.pruning_abort_handle);
         #[cfg(feature = "client-notifications")]
         d.field("scheduler_abort_handle", &self.scheduler_abort_handle);
-        #[cfg(feature = "client-messaging")]
+        #[cfg(feature = "slash-commands")]
         d.field("command_registry", &self.command_registry)
             .field("command_arg_specs", &self.command_arg_specs);
         d.finish_non_exhaustive()

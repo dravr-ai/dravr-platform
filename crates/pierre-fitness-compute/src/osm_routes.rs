@@ -225,11 +225,17 @@ struct CachedRoutes {
 }
 
 impl RouteDiscoveryService {
-    /// Create a route discovery service over the public Overpass instances.
+    /// A route discovery service over the Overpass instances
+    /// `overpass_origin` names: the public ones, `overpass-api.de` first,
+    /// when it names none, as in a deployment; otherwise the single instance
+    /// at that origin's `/api/interpreter`.
+    ///
+    /// Hand this the origin of the configuration the server read at startup
+    /// (`ExternalServicesConfig::overpass_api_base`).
     #[must_use]
-    pub fn with_defaults() -> Self {
+    pub fn new(overpass_origin: Option<&str>) -> Self {
         Self {
-            overpass: OverpassClient::public(),
+            overpass: OverpassClient::at(overpass_origin),
         }
     }
 

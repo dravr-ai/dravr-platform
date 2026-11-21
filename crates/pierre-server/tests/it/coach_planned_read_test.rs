@@ -310,7 +310,7 @@ impl World {
         let base = spawn_api(api.clone()).await;
         let resources = create_test_server_resources().await.unwrap();
         let mut registry = offline_provider_registry();
-        let mut config = offline_provider_config(INTERVALS_ICU);
+        let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
         config.api_base_url = base;
         registry.set_default_config(INTERVALS_ICU, config);
         let mut context = (*resources).clone();

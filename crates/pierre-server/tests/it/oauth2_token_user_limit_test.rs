@@ -31,17 +31,12 @@ use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
+use pierre_test_support::log_capture;
 use regex::Regex;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
-use tracing::field::{Field, Visit};
-use tracing::{Event, Subscriber};
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use std::sync::Arc;
 use uuid::Uuid;
 
 const REDIRECT: &str = "https://app.example.com/callback";
@@ -361,29 +356,6 @@ async fn only_a_live_grant_of_its_own_client_counts() {
     assert_eq!(own.status(), 200, "{}", own.body_text());
 }
 
-#[derive(Default)]
-struct MessageCapture {
-    messages: Arc<Mutex<Vec<String>>>,
-}
-
-struct MessageVisitor<'a>(&'a mut String);
-
-impl Visit for MessageVisitor<'_> {
-    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-        if field.name() == "message" {
-            *self.0 = format!("{value:?}");
-        }
-    }
-}
-
-impl<S: Subscriber> Layer<S> for MessageCapture {
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        let mut message = String::new();
-        event.record(&mut MessageVisitor(&mut message));
-        self.messages.lock().unwrap().push(message);
-    }
-}
-
 /// `public_mcp_monitoring.tf` alerts on the words of this refusal. Reworded on
 /// one side only, the alert would never fire and nothing else would say so.
 #[tokio::test]
@@ -404,14 +376,16 @@ async fn the_refusal_the_alert_reads_is_the_one_the_server_logs() {
     let token = connected(&resources, &client_id, &user).await;
     let metered = limiter(0, None);
 
-    let capture = MessageCapture::default();
-    let messages = Arc::clone(&capture.messages);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
+    let (capture, guard) = log_capture::capture_events();
     let refused = refresh(routes(&resources, metered), &client_id, &token).await;
     drop(guard);
 
     assert_refused(&refused);
-    let logged = messages.lock().unwrap();
+    let logged: Vec<String> = capture
+        .events()
+        .iter()
+        .filter_map(|e| e.message().map(str::to_owned))
+        .collect();
     assert!(
         logged.iter().any(|message| message.starts_with(wanted)),
         "the alert reads {wanted:?}; the server logged {logged:#?}"

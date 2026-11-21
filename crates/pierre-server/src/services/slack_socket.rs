@@ -10,12 +10,13 @@ use std::time::Duration;
 
 use dravr_canot::channel::MessagingChannel;
 use dravr_canot::channels::slack::transport::SlackTransport;
-use dravr_canot::channels::slack::SlackChannel;
+use dravr_canot::error::MessagingResult;
 use dravr_canot::transport::TransportAdapter;
 use http::HeaderMap;
 use pierre_core::models::messaging::{ChannelType, InboundReaction, IncomingMessage};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::MessagingRepository;
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use serde_json::{json, Value};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
@@ -29,7 +30,14 @@ type SlackWs = WebSocketStream<MaybeTlsStream<TcpStream>>;
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress;
 use crate::services::messaging_ingress::reactions;
-use pierre_runtime_context::DataContext;
+use crate::services::ops_slack;
+use crate::services::ops_slack::SLACK_API_ORIGIN;
+
+/// The signing secret a Socket Mode adapter is built with when the tenant's
+/// Slack config stores none. Socket Mode frames are authed by the `xapp-`
+/// token on the connection, never by an HMAC on the body, so nothing on
+/// this path verifies with it.
+const NO_SIGNING_SECRET: &str = "socket-mode-has-no-signing-secret";
 
 /// Start the Slack Socket Mode background service.
 ///
@@ -42,6 +50,11 @@ use pierre_runtime_context::DataContext;
 /// `routes::messaging::webhooks::enrich_slack_bot_allow_list` for the
 /// parallel webhook-side knob. When the token is absent, this function is a
 /// no-op, and the webhook path keeps working unchanged.
+///
+/// The connection is opened at the origin the context's adapter factory
+/// names for Slack (`ChannelAdapterFactory::destination_api_base`), Slack's
+/// own host in a deployment, and every reply goes through an adapter that
+/// factory builds.
 pub fn start_slack_socket_mode(resources: &Arc<ServerContext>) {
     let app_token = match env::var("SLACK_APP_TOKEN") {
         Ok(t) if !t.is_empty() => t,
@@ -65,8 +78,10 @@ pub fn start_slack_socket_mode(resources: &Arc<ServerContext>) {
     let (reaction_tx, reaction_rx) = mpsc::channel::<InboundReaction>(256);
 
     let producer_allow = allowed_bot_ids.clone();
+    let api_origin =
+        ops_slack::api_origin(resources).unwrap_or_else(|| SLACK_API_ORIGIN.to_owned());
     tokio::spawn(async move {
-        run_reconnect_loop(app_token, producer_allow, tx, reaction_tx).await;
+        run_reconnect_loop(api_origin, app_token, producer_allow, tx, reaction_tx).await;
         warn!("Slack Socket Mode: producer loop exited");
     });
 
@@ -100,8 +115,9 @@ struct SocketSinks {
 }
 
 /// Outer reconnect loop: re-opens the Socket Mode connection on clean
-/// disconnects and after transient errors.
+/// disconnects and after transient errors, asking `api_origin` each time.
 async fn run_reconnect_loop(
+    api_origin: String,
     app_token: String,
     allowed_bot_ids: Vec<String>,
     tx: mpsc::Sender<IncomingMessage>,
@@ -112,7 +128,7 @@ async fn run_reconnect_loop(
         reactions: reaction_tx,
     };
     loop {
-        match connect_and_stream(&app_token, &allowed_bot_ids, &sinks).await {
+        match connect_and_stream(&api_origin, &app_token, &allowed_bot_ids, &sinks).await {
             Ok(()) => {
                 info!("Slack Socket Mode: disconnected cleanly, reconnecting");
             }
@@ -136,13 +152,14 @@ enum FrameOutcome {
 /// server-side disconnect and `Err` for transport or protocol errors that
 /// warrant a backoff before retrying.
 async fn connect_and_stream(
+    api_origin: &str,
     app_token: &str,
     allowed_bot_ids: &[String],
     sinks: &SocketSinks,
 ) -> Result<(), String> {
     use futures_util::StreamExt;
 
-    let wss_url = open_connection(app_token).await?;
+    let wss_url = open_connection(api_origin, app_token).await?;
     debug!("Slack Socket Mode: opening WSS connection");
 
     let (mut ws, _) = tokio_tungstenite::connect_async(&wss_url)
@@ -242,19 +259,20 @@ async fn handle_events_api(
     Ok(FrameOutcome::Continue)
 }
 
-/// POST to `apps.connections.open` and return the ephemeral WebSocket URL.
+/// POST to `apps.connections.open` at `api_origin`, a scheme and authority,
+/// and return the ephemeral WebSocket URL.
 ///
 /// Slack auths this endpoint with the app-level `xapp-…` token via an HTTP
 /// Bearer header; the response carries a short-lived WSS URL suitable for
 /// immediate `connect_async`.
-async fn open_connection(app_token: &str) -> Result<String, String> {
+async fn open_connection(api_origin: &str, app_token: &str) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|e| format!("http client build failed: {e}"))?;
 
     let response: Value = client
-        .post("https://slack.com/api/apps.connections.open")
+        .post(format!("{api_origin}/api/apps.connections.open"))
         .bearer_auth(app_token)
         .send()
         .await
@@ -321,7 +339,7 @@ async fn parse_socket_reactions(payload: &Value) -> Vec<InboundReaction> {
     if !reactions::channel_delivers_reactions(ChannelType::Slack) {
         return Vec::new();
     }
-    let transport = SlackTransport::new("socket-mode-has-no-signing-secret".to_owned());
+    let transport = SlackTransport::new(NO_SIGNING_SECRET.to_owned());
     let body = match serde_json::to_vec(payload) {
         Ok(b) => b,
         Err(e) => {
@@ -346,7 +364,7 @@ pub async fn parse_socket_payload(
     allowed_bot_ids: &[String],
 ) -> Option<Vec<IncomingMessage>> {
     let transport = SlackTransport::with_allowed_bot_ids(
-        "socket-mode-has-no-signing-secret".to_owned(),
+        NO_SIGNING_SECRET.to_owned(),
         allowed_bot_ids.to_vec(),
     );
     let body = match serde_json::to_vec(payload) {
@@ -377,7 +395,7 @@ async fn process_socket_messages(
             channel_message_id = %message.channel_message_id,
             "Slack Socket Mode: received message"
         );
-        let Some((tenant_id, adapter)) = resolve_slack_config(&resources.data()).await else {
+        let Some((tenant_id, adapter)) = resolve_slack_config(&resources).await else {
             continue;
         };
         dispatch_message(&resources, tenant_id, adapter, message).await;
@@ -385,25 +403,55 @@ async fn process_socket_messages(
     info!("Slack Socket Mode: consumer stopped");
 }
 
-/// Resolve the Slack `ChannelConfig` row and build a fresh adapter.
+/// Resolve the Slack `ChannelConfig` row and build its adapter through the
+/// context's factory, the one every other Slack sender builds through.
 ///
-/// Unlike the Discord gateway we don't rely on the factory's signing secret
-/// because outbound posts need the Slack bot token, not the signing secret.
-/// We still pull the `tenant_id` from the row so the ingress layer can scope
+/// The `tenant_id` comes from the row so the ingress layer can scope
 /// tenant-owned conversation state.
-async fn resolve_slack_config(data: &DataContext) -> Option<(TenantId, Arc<dyn MessagingChannel>)> {
+async fn resolve_slack_config(
+    resources: &ServerContext,
+) -> Option<(TenantId, Arc<dyn MessagingChannel>)> {
+    let data = resources.data();
     let db: &dyn MessagingRepository = data.repos().messaging.as_ref();
     let configs = db.get_configs_by_channel_type("slack").await.ok()?;
     let config = configs.first()?;
     let tenant_id_str = config.get("tenant_id").and_then(|v| v.as_str())?;
     let tenant_id = TenantId::parse_str(tenant_id_str).ok()?;
-    let signing_secret = config
+    match socket_adapter(resources.mcp.channel_adapters.as_ref(), config) {
+        Ok(adapter) => Some((tenant_id, adapter)),
+        Err(e) => {
+            warn!(
+                tenant_id = %tenant_id,
+                error = %e,
+                "Slack Socket Mode: the stored Slack config builds no adapter"
+            );
+            None
+        }
+    }
+}
+
+/// The adapter `factory` builds for a stored Slack `config`.
+///
+/// A Socket Mode tenant may store no signing secret: its frames are authed
+/// on the connection, and the adapter only sends. The factory requires one,
+/// so a config without it is handed [`NO_SIGNING_SECRET`], which nothing on
+/// this path verifies with.
+fn socket_adapter(
+    factory: &dyn ChannelAdapterFactory,
+    config: &Value,
+) -> MessagingResult<Arc<dyn MessagingChannel>> {
+    let has_secret = config
         .get("webhook_secret")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_owned();
-    let adapter: Arc<dyn MessagingChannel> = Arc::new(SlackChannel::new(signing_secret));
-    Some((tenant_id, adapter))
+        .and_then(Value::as_str)
+        .is_some_and(|secret| !secret.is_empty());
+    if has_secret {
+        return factory.build(ChannelType::Slack, config);
+    }
+    let mut with_secret = config.clone();
+    if let Some(fields) = with_secret.as_object_mut() {
+        fields.insert("webhook_secret".to_owned(), json!(NO_SIGNING_SECRET));
+    }
+    factory.build(ChannelType::Slack, &with_secret)
 }
 
 /// Persist the message and spawn LLM dispatch tasks — mirrors the tail of
@@ -424,9 +472,9 @@ async fn dispatch_message(
         ChannelType::Slack,
         &adapter,
         &messages,
-        // Socket-mode turns open their placeholder against the channel's
-        // real API, as every production turn does.
-        None,
+        // The placeholder opens where the factory's adapters send: the
+        // channel's real API in a deployment, as every turn does.
+        resources.mcp.channel_adapters.status_api_base().as_deref(),
     )
     .await;
 
@@ -436,5 +484,96 @@ async fn dispatch_message(
     // (registre#126).
     for dispatch in pending_dispatches {
         messaging_ingress::start_turn(resources, dispatch).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use pierre_services::channel_adapters::ConfigChannelAdapters;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    use super::*;
+
+    /// A loopback Slack that answers `apps.connections.open` with a socket
+    /// URL, and keeps each request's first line.
+    async fn stand_in() -> (String, Arc<Mutex<Vec<String>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let record = Arc::clone(&asked);
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut head = Vec::new();
+                let mut chunk = [0_u8; 1024];
+                while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match stream.read(&mut chunk).await {
+                        Ok(read) if read > 0 => head.extend_from_slice(&chunk[..read]),
+                        _ => break,
+                    }
+                }
+                let line = String::from_utf8_lossy(&head)
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned();
+                record.lock().unwrap().push(line);
+                let body = r#"{"ok":true,"url":"wss://socket.example/link"}"#;
+                stream
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
+                             content-length: {}\r\nconnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    )
+                    .await
+                    .ok();
+            }
+        });
+        (origin, asked)
+    }
+
+    #[tokio::test]
+    async fn the_connection_is_opened_at_the_origin_it_is_given() {
+        let (origin, asked) = stand_in().await;
+        let url = open_connection(&origin, "xapp-socket-test").await;
+        assert_eq!(
+            url.as_deref(),
+            Ok("wss://socket.example/link"),
+            "bug: the socket URL the origin answered was not returned"
+        );
+        assert_eq!(
+            *asked.lock().unwrap(),
+            ["POST /api/apps.connections.open HTTP/1.1"],
+            "bug: the connection was not opened at the origin given"
+        );
+    }
+
+    /// A tenant that stores no signing secret keeps its Socket Mode replies:
+    /// the factory, which requires one, is handed the placeholder.
+    #[test]
+    fn a_config_without_a_signing_secret_still_builds_an_adapter() {
+        let factory = ConfigChannelAdapters;
+        for config in [
+            json!({ "tenant_id": "t" }),
+            json!({ "tenant_id": "t", "webhook_secret": "" }),
+            json!({ "tenant_id": "t", "webhook_secret": "stored-secret" }),
+        ] {
+            assert_eq!(
+                socket_adapter(&factory, &config)
+                    .ok()
+                    .map(|adapter| adapter.channel_type()),
+                Some(ChannelType::Slack),
+                "bug: no Slack adapter for {config}"
+            );
+        }
+        assert!(
+            factory.build(ChannelType::Slack, &json!({})).is_err(),
+            "the factory itself requires a signing secret"
+        );
     }
 }

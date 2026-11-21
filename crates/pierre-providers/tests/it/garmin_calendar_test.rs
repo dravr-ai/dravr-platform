@@ -12,7 +12,7 @@ use pierre_providers::garmin_provider::GarminProvider;
 use pierre_providers::models::{
     CalendarEventRef, PlannedSession, PlannedSessionKind, SportType, WorkoutStep,
 };
-use pierre_providers::ProviderRegistry;
+use pierre_test_support::providers::offline_provider_config;
 use secrecy::SecretString;
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -113,11 +113,7 @@ const TOKEN: &str = "garmin-access-token";
 const GRANTED: (&str, &str) = ("200 OK", r#"["ACTIVITY_EXPORT","WORKOUT_IMPORT"]"#);
 
 async fn provider(base_url: &str) -> GarminProvider {
-    let registry = ProviderRegistry::new();
-    let mut config: ProviderConfig = registry
-        .default_config("garmin")
-        .cloned()
-        .expect("garmin is registered");
+    let mut config: ProviderConfig = offline_provider_config("garmin").unwrap();
     config.api_base_url = base_url.to_owned();
     let provider = GarminProvider::with_config(config);
     provider

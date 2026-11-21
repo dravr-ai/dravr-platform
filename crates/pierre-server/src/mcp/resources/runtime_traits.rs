@@ -217,7 +217,7 @@ mod groups_ctx_impl {
     use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
     use pierre_groups::GroupService;
     use pierre_notifications::NotificationService;
-    use pierre_runtime_context::GroupsCtx;
+    use pierre_runtime_context::{GroupsCtx, ProviderConnectLog};
     use std::sync::Arc;
 
     #[async_trait]
@@ -228,6 +228,10 @@ mod groups_ctx_impl {
 
         fn group_service(&self) -> &Arc<GroupService> {
             &self.common.group_service
+        }
+
+        fn connect_log(&self) -> &Arc<dyn ProviderConnectLog> {
+            &self.common.connect_log
         }
 
         fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry> {
@@ -249,11 +253,11 @@ mod groups_ctx_impl {
     }
 }
 
-// `CommandCtx` is gated on `client-messaging` because the trait is consumed
+// `CommandCtx` is gated on `slash-commands` because the trait is consumed
 // only by `pierre-commands`, which is itself an optional dep behind that
 // flag. With the flag off the slash-command dispatcher / handlers never link,
 // so the impl carries no value.
-#[cfg(feature = "client-messaging")]
+#[cfg(feature = "slash-commands")]
 mod command_ctx_impl {
     use super::ServerContext;
     use crate::config::admin::AdminConfigService;

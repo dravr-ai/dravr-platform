@@ -450,14 +450,13 @@ impl ProviderRateLimiter {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
     use std::sync::{Mutex, PoisonError};
 
     use pierre_core::errors::ErrorCode;
     use pierre_database::RepositoryRegistry;
     use pierre_test_support::db::create_test_db;
-    use tracing::{callsite, subscriber};
-    use tracing_subscriber::fmt;
+    use pierre_test_support::log_capture::capture_events;
+    use tracing::Level;
 
     use super::super::{
         detail_walk_athlete_counter_key, detail_walk_counter_key, in_detail_walk,
@@ -533,38 +532,6 @@ mod tests {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone()
-        }
-    }
-
-    /// Log lines written while a test holds the subscriber.
-    #[derive(Clone, Default)]
-    struct Captured(Arc<Mutex<Vec<u8>>>);
-
-    impl io::Write for Captured {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.0
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl Captured {
-        fn lines(&self) -> Vec<String> {
-            let bytes = self
-                .0
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone();
-            String::from_utf8_lossy(&bytes)
-                .lines()
-                .map(str::to_owned)
-                .collect()
         }
     }
 
@@ -812,18 +779,7 @@ mod tests {
         let athlete = Uuid::new_v4();
         let asked = session_read_counter_key(STRAVA_SESSION, "asked", athlete);
         spend(&repos, &asked, FIFTEEN_MINUTES, starter().asked_15min).await;
-        let captured = Captured::default();
-        let writer = captured.clone();
-        let subscriber = fmt()
-            .with_max_level(tracing::Level::TRACE)
-            .with_ansi(false)
-            .with_writer(move || writer.clone())
-            .finish();
-        let capturing = subscriber::set_default(subscriber);
-        // Another test thread can reach the log site first, with no
-        // subscriber, and cache its interest as "never": rebuild it now that
-        // this thread's subscriber is set, or the line is dropped.
-        callsite::rebuild_interest_cache();
+        let (captured, capturing) = capture_events();
         let refused = read_budget(&limiter, STRAVA_SESSION, athlete)
             .admit(STRAVA_SESSION)
             .await
@@ -838,43 +794,47 @@ mod tests {
             Some(SessionReadKind::Asked),
             "bug: an asked refusal does not name its kind"
         );
-        let lines = captured.lines();
-        let usage: Vec<&String> = lines
+        let events = captured.drain();
+        let usage: Vec<_> = events
             .iter()
-            .filter(|line| line.contains("usage limit reached"))
+            .filter(|event| event.message() == Some("usage limit reached"))
             .collect();
         assert_eq!(
             usage.len(),
             1,
-            "bug: one refusal, one usage line: {lines:?}"
+            "bug: one refusal, one usage line: {events:?}"
         );
-        for field in [
-            "usage.limit_reached",
-            "sciotte_reads.asked_15min.starter",
-            "provider_read",
-            &athlete.to_string(),
-            "window=\"15m\"",
-            "kind=\"asked\"",
-            "tier=\"starter\"",
-            "current=30",
-            "limit=30",
+        let line = usage[0];
+        assert_eq!(line.target, USAGE_TARGET, "bug: {line:?}");
+        let athlete_id = athlete.to_string();
+        for (field, value) in [
+            ("event", LIMIT_REACHED_EVENT),
+            ("limit_type", "sciotte_reads.asked_15min.starter"),
+            ("surface", "provider_read"),
+            ("user_id", athlete_id.as_str()),
+            ("window", "15m"),
+            ("kind", "asked"),
+            ("tier", "starter"),
+            ("current", "30"),
+            ("limit", "30"),
         ] {
-            assert!(
-                usage[0].contains(field),
-                "bug: the usage line lacks {field}: {}",
-                usage[0]
+            assert_eq!(
+                line.field(field),
+                Some(value),
+                "bug: the usage line's {field} is wrong: {line:?}"
             );
         }
-        assert!(
-            usage[0].contains("WARN"),
-            "bug: an asked refusal is not a warning: {}",
-            usage[0]
+        assert_eq!(
+            line.level,
+            Level::WARN,
+            "bug: an asked refusal is not a warning: {line:?}"
         );
         assert!(
-            !lines
-                .iter()
-                .any(|line| line.contains("Provider request budget spent")),
-            "bug: a session-read refusal paged as an app's budget: {lines:?}"
+            !events.iter().any(|event| event
+                .fields
+                .values()
+                .any(|value| value.contains("Provider request budget spent"))),
+            "bug: a session-read refusal paged as an app's budget: {events:?}"
         );
     }
 

@@ -190,63 +190,21 @@ async fn increment_scoped_counters(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-    use std::fmt::Debug;
-    use std::sync::{Arc, Mutex, PoisonError};
+    use std::collections::HashMap;
 
     use pierre_core::errors::AppError;
-    use tracing::field::{Field, Visit};
-    use tracing::{callsite, subscriber, Event, Subscriber};
-    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
-    use tracing_subscriber::Registry;
+    use pierre_test_support::log_capture::capture_events_while;
 
     use super::*;
 
-    /// The fields of every quota-charge line logged while installed.
-    #[derive(Clone, Default)]
-    struct ChargeLines(Arc<Mutex<Vec<BTreeMap<String, String>>>>);
-
-    struct FieldText<'a>(&'a mut BTreeMap<String, String>);
-
-    impl Visit for FieldText<'_> {
-        fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-            self.0.insert(field.name().to_owned(), format!("{value:?}"));
-        }
-
-        fn record_str(&mut self, field: &Field, value: &str) {
-            self.0.insert(field.name().to_owned(), value.to_owned());
-        }
-    }
-
-    impl<S: Subscriber> Layer<S> for ChargeLines {
-        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-            let mut fields = BTreeMap::new();
-            event.record(&mut FieldText(&mut fields));
-            if fields.get("message").map(String::as_str)
-                == Some("quota counter charged for the turn")
-            {
-                self.0
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push(fields);
-            }
-        }
-    }
-
-    fn charge_lines_while(run: impl FnOnce()) -> Vec<BTreeMap<String, String>> {
-        let lines = ChargeLines::default();
-        subscriber::with_default(Registry::default().with(lines.clone()), || {
-            callsite::rebuild_interest_cache();
-            run();
-        });
-        // Bound first: the guard is a temporary the tail expression would
-        // drop while the clone still borrows it.
-        let taken = lines
-            .0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
-        taken
+    /// The fields of every quota-charge line `run` logs.
+    fn charge_lines_while(run: impl FnOnce()) -> Vec<HashMap<String, String>> {
+        let ((), events) = capture_events_while(run);
+        events
+            .into_iter()
+            .filter(|event| event.message() == Some("quota counter charged for the turn"))
+            .map(|event| event.fields)
+            .collect()
     }
 
     /// The line says what the turn charged and what the counter reads after,

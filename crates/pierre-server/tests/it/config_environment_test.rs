@@ -12,18 +12,10 @@ use pierre_config::environment::{
     DatabaseUrl, Environment, LogLevel, OAuthConfig, OAuthProviderConfig, SecurityConfig,
     ServerConfig, TokioRuntimeConfig,
 };
+use pierre_test_support::log_capture::{self, CapturedEvent};
 use secrecy::{ExposeSecret, SecretString};
-use std::collections::HashMap;
 use std::env;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use tracing::Level;
 
 // Tests for public configuration types
 
@@ -340,65 +332,8 @@ fn ephemeral_tunnel_base_url_is_told_apart_from_a_durable_one() {
 // below read the event it emitted — its level, its message and its `base_url`
 // field — rather than re-deriving what it should have said.
 
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    level: tracing::Level,
-    message: String,
-    fields: HashMap<String, String>,
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    message: String,
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        let rendered = format!("{value:?}");
-        if field.name() == "message" {
-            self.message.clone_from(&rendered);
-        }
-        self.fields.insert(field.name().to_owned(), rendered);
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        if field.name() == "message" {
-            value.clone_into(&mut self.message);
-        }
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-}
-
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        self.events.lock().unwrap().push(CapturedEvent {
-            level: *event.metadata().level(),
-            message: visitor.message,
-            fields: visitor.fields,
-        });
-    }
-}
-
 fn capture_base_url_log(base_url: &str) -> CapturedEvent {
-    let capture = CaptureLayer::default();
-    let events = Arc::clone(&capture.events);
-    {
-        let _guard: DefaultGuard = tracing_subscriber::registry().with(capture).set_default();
-        log_effective_base_url(base_url);
-    }
-    let captured = events.lock().unwrap().clone();
+    let ((), captured) = log_capture::capture_events_while(|| log_effective_base_url(base_url));
     assert_eq!(
         captured.len(),
         1,
@@ -410,10 +345,10 @@ fn capture_base_url_log(base_url: &str) -> CapturedEvent {
 #[test]
 fn a_quick_tunnel_base_url_is_announced_as_expiring_with_its_process() {
     let event = capture_base_url_log("https://plymouth-animation-tigers-grid.trycloudflare.com");
-    assert_eq!(event.level, tracing::Level::WARN);
+    assert_eq!(event.level, Level::WARN);
     assert_eq!(
-        event.message,
-        "BASE_URL names a Cloudflare quick tunnel; OAuth callbacks and reconnect links resolve only while that tunnel is up"
+        event.message(),
+        Some("BASE_URL names a Cloudflare quick tunnel; OAuth callbacks and reconnect links resolve only while that tunnel is up")
     );
     assert_eq!(
         event.fields.get("base_url").map(String::as_str),
@@ -424,10 +359,10 @@ fn a_quick_tunnel_base_url_is_announced_as_expiring_with_its_process() {
 #[test]
 fn a_durable_base_url_is_announced_at_info() {
     let event = capture_base_url_log("https://api.dravr.ai");
-    assert_eq!(event.level, tracing::Level::INFO);
+    assert_eq!(event.level, Level::INFO);
     assert_eq!(
-        event.message,
-        "BASE_URL in effect for OAuth callbacks and reconnect links"
+        event.message(),
+        Some("BASE_URL in effect for OAuth callbacks and reconnect links")
     );
     assert_eq!(
         event.fields.get("base_url").map(String::as_str),
@@ -438,7 +373,7 @@ fn a_durable_base_url_is_announced_at_info() {
 #[test]
 fn base_url_credentials_never_reach_the_emitted_event() {
     let event = capture_base_url_log("https://ops:s3cret@api.dravr.ai");
-    assert_eq!(event.level, tracing::Level::INFO);
+    assert_eq!(event.level, Level::INFO);
     assert_eq!(
         event.fields.get("base_url").map(String::as_str),
         Some("https://***:***@api.dravr.ai")

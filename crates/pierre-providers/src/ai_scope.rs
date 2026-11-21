@@ -87,7 +87,8 @@ mod source_classes;
 mod stored_health;
 
 pub use consent::{
-    ai_consent_withheld, consented_read, subject_consents, with_ai_consent, with_subject_consent,
+    ai_consent_withheld, consented_read, subject_consents, tier_readable, with_ai_consent,
+    with_subject_consent, withheld_providers, withhold_tier,
 };
 pub use governed::AiGovernedProvider;
 pub use human_coach::for_human_coach;
@@ -421,7 +422,7 @@ where
         Some(exposure) => {
             // The athlete's AI consents ride on the provider terms (carnet#726);
             // for a human coach, on no AI rule at all (carnet#1262).
-            let consent = ai_consent_withheld();
+            let consent = withheld_providers();
             let consent_only_terms = human_coach::ConsentOnly(lookup);
             let rules: &dyn ProviderTerms = if consent_only() {
                 &consent_only_terms

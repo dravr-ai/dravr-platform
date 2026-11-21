@@ -343,6 +343,11 @@ pub struct Withheld {
     /// Items dropped because the call is external and their provider's terms
     /// keep them to Dravr's own surfaces.
     pub off_interface: usize,
+    /// Sensitive records (owl tiers T2, T3) withheld from a model, a human
+    /// coach or an outside client because the athlete keeps them from AI:
+    /// each field nulled on a row, or each read refused, counted once. A reason of its own
+    /// in [`Self::to_note`], whatever service holds them.
+    pub sensitive_reduced: usize,
 }
 
 impl Withheld {
@@ -352,10 +357,10 @@ impl Withheld {
         !self.from_model() && self.off_interface == 0
     }
 
-    /// Whether the AI rules held anything back.
+    /// Whether the AI rules or the athlete's tier consent held anything back.
     #[must_use]
     pub const fn from_model(&self) -> bool {
-        self.dropped > 0 || self.reduced > 0
+        self.dropped > 0 || self.reduced > 0 || self.sensitive_reduced > 0
     }
 
     /// Fold another count into this one.
@@ -364,6 +369,7 @@ impl Withheld {
         self.reduced += other.reduced;
         self.sources.extend(other.sources);
         self.off_interface += other.off_interface;
+        self.sensitive_reduced += other.sensitive_reduced;
     }
 
     fn record(&mut self, outcome: Outcome, provider: &str, source: Option<&str>) {
@@ -378,14 +384,33 @@ impl Withheld {
 
     /// The neutral note a model reads in place of what was withheld: enough
     /// to say that data exists it cannot see, never the data itself.
+    ///
+    /// Each cause has its reason and its own text: `provider_terms` while the
+    /// provider rules held anything back, `sensitive_tier` while the
+    /// athlete's tier consent did ([`Self::sensitive_reduced`]). `reason` is
+    /// the first of `reasons`; a note may carry both.
     #[must_use]
     pub fn to_note(&self) -> Value {
+        const PROVIDER_TERMS: &str = "Some of this athlete's data is withheld from AI, by the terms of the service it came from or because the athlete has not consented to AI use of that service's data. The athlete can still see it in the app; do not guess its contents.";
+        const SENSITIVE_TIER: &str = "Some of this athlete's sensitive records (health records, or their notes and their agent's memory) are withheld because the athlete keeps them from AI. Only the athlete can allow it, in Dravr's Privacy & Data settings under Sensitive health records. The athlete can still see them in the app; do not guess their contents.";
+        let mut reasons = Vec::new();
+        let mut notes = Vec::new();
+        if self.dropped > 0 || self.reduced > 0 {
+            reasons.push("provider_terms");
+            notes.push(PROVIDER_TERMS);
+        }
+        if self.sensitive_reduced > 0 {
+            reasons.push("sensitive_tier");
+            notes.push(SENSITIVE_TIER);
+        }
         serde_json::json!({
             "items_dropped": self.dropped,
             "items_reduced": self.reduced,
+            "sensitive_withheld": self.sensitive_reduced,
             "sources": self.sources.iter().collect::<Vec<_>>(),
-            "reason": "provider_terms",
-            "note": "Some of this athlete's data is withheld from AI, by the terms of the service it came from or because the athlete has not consented to AI use of that service's data. The athlete can still see it in the app; do not guess its contents.",
+            "reason": reasons.first().copied().unwrap_or("provider_terms"),
+            "reasons": reasons,
+            "note": notes.join(" "),
         })
     }
 
@@ -650,6 +675,61 @@ mod tests {
         fn relayed_transport_policy(&self, relay: &str, source: &str) -> Option<TransportPolicy> {
             (relay == "intervals" && source == "coros").then_some(TransportPolicy::AnyTransport)
         }
+    }
+
+    #[test]
+    fn the_note_gives_each_cause_its_own_reason_and_text() {
+        let terms = Withheld {
+            dropped: 1,
+            ..Withheld::default()
+        };
+        let note = terms.to_note();
+        assert_eq!(
+            note["reason"], "provider_terms",
+            "bug: a provider hold-back keeps its reason: {note}"
+        );
+        assert_eq!(
+            note["reasons"],
+            json!(["provider_terms"]),
+            "bug: one cause, one reason: {note}"
+        );
+
+        let sensitive = Withheld {
+            sensitive_reduced: 2,
+            ..Withheld::default()
+        };
+        assert!(
+            sensitive.from_model(),
+            "a tier hold-back is noted to a model"
+        );
+        let note = sensitive.to_note();
+        assert_eq!(
+            note["reason"], "sensitive_tier",
+            "bug: a tier hold-back has its own reason: {note}"
+        );
+        assert_eq!(
+            note["sensitive_withheld"], 2,
+            "bug: the note counts each withheld record: {note}"
+        );
+        let text = note["note"].as_str().unwrap_or_default();
+        assert!(
+            text.contains("keeps them from AI") && !text.contains("terms of the service"),
+            "bug: the tier note is its own, not the provider terms': {text}"
+        );
+
+        let mut both = terms;
+        both.merge(sensitive);
+        let note = both.to_note();
+        assert_eq!(
+            note["reasons"],
+            json!(["provider_terms", "sensitive_tier"]),
+            "bug: a merged count carries both causes: {note}"
+        );
+        let text = note["note"].as_str().unwrap_or_default();
+        assert!(
+            text.contains("terms of the service") && text.contains("keeps them from AI"),
+            "bug: a merged note carries both texts: {text}"
+        );
     }
 
     #[test]

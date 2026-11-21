@@ -43,14 +43,12 @@ use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use pierre_services::invitation::{IssuedInvitation, INVITATIONS_PER_ADDRESS_PER_HOUR};
 use pierre_services::link_token::split_link_token;
 use pierre_services::user_approval::UserApprovalNotifier;
+use pierre_test_support::log_capture::{self, CapturedEvent, CapturedLog};
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::{json, Value};
-use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use tracing::subscriber::set_default;
 use tracing::Level;
-use tracing_subscriber::fmt::{fmt as log_fmt, MakeWriter};
 use uuid::Uuid;
 
 const TEST_ADMIN_JWT_SECRET: &str = "test_jwt_secret_for_pre_approved_email_routes";
@@ -826,43 +824,42 @@ async fn an_invitation_raises_user_invited_without_logging_its_token() -> Result
     let token = harness.device_login_token().await?;
     let email = "notified-about@example.com";
 
-    let buffer = LogBuffer::default();
-    let subscriber = log_fmt()
-        .json()
-        .with_max_level(Level::INFO)
-        .with_writer(buffer.clone())
-        .finish();
-    let (status, body) = {
-        let _guard = set_default(subscriber);
-        harness.allow_with_invite(&token, email).await
-    };
+    let (log, guard) = log_capture::capture_events();
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+    let lines = logged_at_info(&log);
+    drop(guard);
     assert_eq!(status, 200, "{body}");
 
-    let event = buffer
-        .lines()
-        .into_iter()
-        .find(|l| l["fields"]["event"].as_str() == Some("user.invited"))
+    let event = lines
+        .iter()
+        .find(|e| e.field("event") == Some("user.invited"))
         .expect("the invitation must raise the user.invited notify event");
-    assert_eq!(event["target"].as_str(), Some("notify"), "{event}");
+    assert_eq!(event.target, "notify", "{event:?}");
+    assert_eq!(event.level, Level::INFO, "{event:?}");
     assert_eq!(
-        event["fields"]["invited_by"].as_str(),
+        event.field("invited_by"),
         Some(format!("device-cli:{}", harness.operator_id).as_str()),
-        "{event}"
+        "{event:?}"
     );
 
     let mailed = harness.invitations().remove(0);
     let (selector, verifier) = mailed.token.split_once('.').expect("selector.verifier");
-    let leaked: Vec<Value> = buffer
-        .lines()
-        .into_iter()
-        .filter(|l| {
-            let line = l.to_string();
-            line.contains(verifier) || line.contains(selector) || line.contains(email)
+    let leaked: Vec<&CapturedEvent> = lines
+        .iter()
+        .filter(|e| {
+            e.fields
+                .values()
+                .any(|v| v.contains(verifier) || v.contains(selector) || v.contains(email))
         })
         .collect();
     assert!(
         leaked.is_empty(),
         "neither the token nor the address may reach the log: {leaked:?}"
+    );
+    let in_spans = span_leaks(&log, &[verifier, selector, email]);
+    assert!(
+        in_spans.is_empty(),
+        "neither the token nor the address may reach a span: {in_spans:?}"
     );
     Ok(())
 }
@@ -917,50 +914,27 @@ async fn an_active_account_is_never_sent_a_sign_up_link() -> Result<()> {
     Ok(())
 }
 
-/// Every formatted log line, as JSON, captured for one test's thread.
-#[derive(Clone, Default)]
-struct LogBuffer(Arc<Mutex<Vec<u8>>>);
-
-impl LogBuffer {
-    fn lines(&self) -> Vec<Value> {
-        let bytes = self
-            .0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
-        String::from_utf8(bytes)
-            .expect("valid utf8")
-            .lines()
-            .filter(|l| !l.is_empty())
-            .map(|l| serde_json::from_str::<Value>(l).expect("valid json line"))
-            .collect()
-    }
-
-    fn line_with_message(&self, message: &str) -> Option<Value> {
-        self.lines()
-            .into_iter()
-            .find(|l| l["fields"]["message"].as_str() == Some(message))
-    }
+/// The values written onto any span during the capture that hold one of
+/// `secrets`: the span fields a JSON log line carries beside its event's.
+fn span_leaks(log: &CapturedLog, secrets: &[&str]) -> Vec<String> {
+    log.span_values()
+        .into_iter()
+        .filter(|value| secrets.iter().any(|secret| value.contains(secret)))
+        .collect()
 }
 
-impl Write for LogBuffer {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .extend_from_slice(buf);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
+/// The events a deployed server would write: the capture keeps every level,
+/// and the server logs at INFO and above.
+fn logged_at_info(log: &CapturedLog) -> Vec<CapturedEvent> {
+    log.events()
+        .into_iter()
+        .filter(|e| e.level <= Level::INFO)
+        .collect()
 }
 
-impl<'a> MakeWriter<'a> for LogBuffer {
-    type Writer = Self;
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
+/// The first event whose message is exactly `message`.
+fn with_message<'a>(lines: &'a [CapturedEvent], message: &str) -> Option<&'a CapturedEvent> {
+    lines.iter().find(|e| e.message() == Some(message))
 }
 
 /// The deployed server logs at INFO, so an invite that was asked for and not
@@ -972,50 +946,41 @@ async fn a_skipped_invite_is_logged_at_info_with_the_recipient_masked() -> Resul
     let email = "already-here@example.com";
     seed_user(&harness.repos, email, UserStatus::Active, UserRole::User).await?;
 
-    let buffer = LogBuffer::default();
-    let subscriber = log_fmt()
-        .json()
-        .with_max_level(Level::INFO)
-        .with_writer(buffer.clone())
-        .finish();
-    let (status, body) = {
-        let _guard = set_default(subscriber);
-        harness.allow_with_invite(&token, email).await
-    };
+    let (log, guard) = log_capture::capture_events();
+    let (status, body) = harness.allow_with_invite(&token, email).await;
+    let lines = logged_at_info(&log);
+    drop(guard);
     assert_eq!(status, 200, "allow must succeed: {body}");
 
-    let skipped = buffer
-        .line_with_message("Invitation requested but not sent: the address already has an account")
-        .expect("a requested-but-skipped invite must be logged");
-    assert_eq!(skipped["level"].as_str(), Some("INFO"), "{skipped}");
+    let skipped = with_message(
+        &lines,
+        "Invitation requested but not sent: the address already has an account",
+    )
+    .expect("a requested-but-skipped invite must be logged");
+    assert_eq!(skipped.level, Level::INFO, "{skipped:?}");
     assert_eq!(
-        skipped["fields"]["recipient"].as_str(),
+        skipped.field("recipient"),
         Some("a***@e***.com"),
-        "{skipped}"
+        "{skipped:?}"
     );
 
-    let recorded = buffer
-        .line_with_message("Pre-approval allow recorded")
+    let recorded = with_message(&lines, "Pre-approval allow recorded")
         .expect("the allow itself must be logged");
-    assert_eq!(
-        recorded["fields"]["send_invite"].as_bool(),
-        Some(true),
-        "{recorded}"
-    );
-    assert_eq!(
-        recorded["fields"]["invited"].as_bool(),
-        Some(false),
-        "{recorded}"
-    );
+    assert_eq!(recorded.field("send_invite"), Some("true"), "{recorded:?}");
+    assert_eq!(recorded.field("invited"), Some("false"), "{recorded:?}");
 
-    let leaked: Vec<Value> = buffer
-        .lines()
-        .into_iter()
-        .filter(|l| l.to_string().contains(email))
+    let leaked: Vec<&CapturedEvent> = lines
+        .iter()
+        .filter(|e| e.fields.values().any(|v| v.contains(email)))
         .collect();
     assert!(
         leaked.is_empty(),
         "the full address must never reach the log: {leaked:?}"
+    );
+    let in_spans = span_leaks(&log, &[email]);
+    assert!(
+        in_spans.is_empty(),
+        "the full address must never reach a span: {in_spans:?}"
     );
     Ok(())
 }
@@ -1107,16 +1072,10 @@ async fn a_super_admin_gets_the_link_back_and_nothing_is_mailed() -> Result<()> 
     let token = harness.device_login_token().await?;
     let email = "e2e-athlete-1@example.com";
 
-    let buffer = LogBuffer::default();
-    let subscriber = log_fmt()
-        .json()
-        .with_max_level(Level::INFO)
-        .with_writer(buffer.clone())
-        .finish();
-    let (status, body) = {
-        let _guard = set_default(subscriber);
-        harness.allow_with_link(&token, email, true).await
-    };
+    let (log, guard) = log_capture::capture_events();
+    let (status, body) = harness.allow_with_link(&token, email, true).await;
+    let lines = logged_at_info(&log);
+    drop(guard);
 
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["data"]["invited"], json!(true), "{body}");
@@ -1140,23 +1099,27 @@ async fn a_super_admin_gets_the_link_back_and_nothing_is_mailed() -> Result<()> 
     );
 
     let (selector, verifier) = link_token.split_once('.').expect("selector.verifier");
-    let leaked: Vec<Value> = buffer
-        .lines()
-        .into_iter()
-        .filter(|l| {
-            let line = l.to_string();
-            line.contains(verifier) || line.contains(selector) || line.contains(email)
+    let leaked: Vec<&CapturedEvent> = lines
+        .iter()
+        .filter(|e| {
+            e.fields
+                .values()
+                .any(|v| v.contains(verifier) || v.contains(selector) || v.contains(email))
         })
         .collect();
     assert!(
         leaked.is_empty(),
         "neither the token nor the address may reach the log: {leaked:?}"
     );
+    let in_spans = span_leaks(&log, &[verifier, selector, email]);
     assert!(
-        buffer
-            .lines()
+        in_spans.is_empty(),
+        "neither the token nor the address may reach a span: {in_spans:?}"
+    );
+    assert!(
+        lines
             .iter()
-            .all(|l| l["fields"]["event"].as_str() != Some("user.invited")),
+            .all(|e| e.field("event") != Some("user.invited")),
         "a link handed to an operator raises no user.invited"
     );
 

@@ -511,11 +511,12 @@ impl AuthRoutes {
                 "/api/providers/{provider}/sync",
                 post(oauth::handle_sync_provider),
             )
-            // Give or withdraw the consent to AI use of a provider's data
-            // (requires auth; carnet#726)
+            // Read, give or withdraw the consent to AI use of a provider's
+            // data or of a consent class (requires auth; carnet#726, J2)
             .route(
                 "/api/providers/{provider}/ai-consent",
-                put(provider_ai_consent::handle_grant_ai_consent)
+                get(provider_ai_consent::handle_get_ai_consent)
+                    .put(provider_ai_consent::handle_grant_ai_consent)
                     .delete(provider_ai_consent::handle_withdraw_ai_consent),
             )
             // Intervals.icu API-key linking (non-OAuth; validates the key live

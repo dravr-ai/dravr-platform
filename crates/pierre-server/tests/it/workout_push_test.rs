@@ -557,7 +557,7 @@ async fn fixture(base_url: &str, connect_intervals: bool) -> Result<Fixture> {
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
 
-    let mut config = offline_provider_config(INTERVALS_ICU);
+    let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
     config.api_base_url = base_url.to_owned();
     let mut registry = offline_provider_registry();
     registry.set_default_config(INTERVALS_ICU, config);

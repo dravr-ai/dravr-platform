@@ -18,6 +18,13 @@
 pub mod archive_import;
 /// Work this service delivers to itself through Cloud Tasks: task creation and delivery tokens.
 pub mod cloud_tasks;
+/// The dated title a new conversation falls back to when nothing else names it.
+#[cfg(any(
+    feature = "client-chat",
+    feature = "client-messaging",
+    feature = "protocol-a2a"
+))]
+pub(crate) mod conversation_title;
 /// One lock per conversation that every chat turn holds while it runs.
 pub mod conversation_turn_lock;
 /// The interrupted notice that closes a turn which stored its question and produced no reply.

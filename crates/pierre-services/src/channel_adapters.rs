@@ -89,6 +89,12 @@ pub trait ChannelAdapterFactory: Send + Sync {
     /// `/channels/…` or `/<id>/messages` to: a refused loopback origin, or a
     /// mock server so the same turn opens, edits and finalizes its
     /// placeholder against something it can read back.
+    ///
+    /// For Slack this base ends in `/api` (`https://slack.com/api`), because
+    /// canot appends the bare method name. [`Self::destination_api_base`]
+    /// names Slack by scheme and authority alone (`https://slack.com`),
+    /// because its callers append the whole path, `/api` included. Both
+    /// shapes stay: each is what its consumer takes.
     fn status_api_base(&self) -> Option<String> {
         None
     }

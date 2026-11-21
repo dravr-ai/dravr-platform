@@ -34,23 +34,20 @@ use crate::implementations::sleep::output::{
 };
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 
-/// The recovery aggregation the tenant configured.
-///
-/// Weighted-average with its recovery-scoring weights unless another
-/// algorithm is selected.
-fn configured_recovery_algorithm(
+/// The recovery aggregation: the weighted average on the tenant's
+/// recovery-scoring weights, the one aggregation recovery is scored with
+/// (carnet#1693).
+const fn configured_recovery_algorithm(
     cageux: &IntelligenceConfig<true>,
 ) -> RecoveryAggregationAlgorithm {
     let scoring = &cageux.sleep_recovery.recovery_scoring;
-    cageux
-        .algorithms
-        .recovery_algorithm(RecoveryAggregationAlgorithm::WeightedAverage {
-            tsb_weight_full: scoring.tsb_weight_full,
-            sleep_weight_full: scoring.sleep_weight_full,
-            hrv_weight_full: scoring.hrv_weight_full,
-            tsb_weight_no_hrv: scoring.tsb_weight_no_hrv,
-            sleep_weight_no_hrv: scoring.sleep_weight_no_hrv,
-        })
+    RecoveryAggregationAlgorithm::WeightedAverage {
+        tsb_weight_full: scoring.tsb_weight_full,
+        sleep_weight_full: scoring.sleep_weight_full,
+        hrv_weight_full: scoring.hrv_weight_full,
+        tsb_weight_no_hrv: scoring.tsb_weight_no_hrv,
+        sleep_weight_no_hrv: scoring.sleep_weight_no_hrv,
+    }
 }
 
 /// Nights `track_sleep_trends` reads when the caller names no window.

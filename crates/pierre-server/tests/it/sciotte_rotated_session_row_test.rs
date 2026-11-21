@@ -188,7 +188,7 @@ async fn a_health_sync_read_that_rotated_the_session_stores_it_over_the_row() {
     let client = startup_reads(&[String::from(&base)], None).unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let orchestrator = storage
-        .build_orchestrator(Some(client), REFUSED_WELLNESS)
+        .build_orchestrator(Some(client), REFUSED_WELLNESS, None)
         .unwrap();
 
     orchestrator
@@ -221,7 +221,7 @@ async fn a_health_sync_never_overwrites_a_row_a_reconnect_replaced_during_the_re
     let client = startup_reads(&[String::from(&base)], None).unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let orchestrator = storage
-        .build_orchestrator(Some(client), REFUSED_WELLNESS)
+        .build_orchestrator(Some(client), REFUSED_WELLNESS, None)
         .unwrap();
 
     orchestrator
@@ -432,6 +432,7 @@ async fn a_health_sync_never_writes_an_admin_clone_of_the_session() {
         .build_orchestrator(
             Some(startup_reads(&[String::from(&base)], None).unwrap()),
             REFUSED_WELLNESS,
+            None,
         )
         .unwrap();
 

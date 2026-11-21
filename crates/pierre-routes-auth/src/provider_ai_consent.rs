@@ -1,5 +1,5 @@
-// ABOUTME: Give or withdraw the account's consent to AI use of one provider's data, from settings or the connection card
-// ABOUTME: PUT and DELETE /api/providers/{provider}/ai-consent — withdrawal is one call, as simple as the consent (carnet#726)
+// ABOUTME: Read, give or withdraw the account's consent to AI use of one provider's data or one consent class, from settings
+// ABOUTME: GET, PUT and DELETE /api/providers/{provider}/ai-consent — withdrawal is one call, as simple as the consent (carnet#726)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,24 +12,59 @@
 //! provider's data, while the athlete still sees what is stored and the
 //! connection stays live. One `PUT` gives it again, in the notice's current
 //! version. The card's `ai_consent` on `GET /api/providers` reads the answer
-//! back.
+//! back for a provider; `GET` here reads it for any key, a consent class
+//! included (`sensitive_t2`, the athlete's health records, J2), which has no
+//! card.
 
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use pierre_core::constants::oauth_providers::sensitive_display_name;
 use pierre_core::errors::AppError;
-use pierre_services::provider_notice::{grant_ai_consent, withdraw_ai_consent};
+use pierre_services::provider_notice::{ai_consent_state, grant_ai_consent, withdraw_ai_consent};
 use serde_json::json;
 
 use crate::AuthRoutesContext;
 
-/// The provider as a refusal names it: its registered display name.
+/// The provider as a refusal names it: a consent class's fixed display name,
+/// else the provider's registered display name, else the key.
 fn brand(resources: &AuthRoutesContext, provider: &str) -> String {
+    if let Some(name) = sensitive_display_name(provider) {
+        return name.to_owned();
+    }
     resources
         .provider_registry
         .get_descriptor(provider)
         .map_or_else(|| provider.to_owned(), |d| d.display_name().to_owned())
+}
+
+/// Read the account's consent to AI use of `provider`'s data.
+///
+/// `GET /api/providers/{provider}/ai-consent` — `ai_consent` is `true` while
+/// it is given in the notice's current version, `false` while it is not, and
+/// `null` for a key that asks no such consent of this account.
+///
+/// # Errors
+/// Unauthenticated; or no active tenant for this session.
+pub(crate) async fn handle_get_ai_consent(
+    State(resources): State<AuthRoutesContext>,
+    Path(provider): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    let auth = resources
+        .auth_middleware
+        .authenticate_request_with_headers(&headers)
+        .await?;
+    let tenant_id = auth
+        .active_tenant_id
+        .ok_or_else(|| AppError::invalid_input("No active tenant for this session"))?;
+    let state = ai_consent_state(&resources.repos, tenant_id, auth.user_id, &provider).await;
+    Ok((
+        StatusCode::OK,
+        Json(json!({ "provider": provider, "ai_consent": state })),
+    )
+        .into_response())
 }
 
 /// Give the account's consent to AI use of `provider`'s data.

@@ -110,9 +110,9 @@ const fn protocol_error_code(error: &ProtocolError) -> &'static str {
 mod tests {
     use super::*;
     use pierre_logging::span_fields::{SpanFieldStorage, SpanFields};
+    use pierre_test_support::log_capture;
     use serde_json::{json, Map};
     use std::sync::{Arc, Mutex, PoisonError};
-    use tracing::subscriber::with_default;
     use tracing::{info, Event, Subscriber};
     use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
     use tracing_subscriber::registry::{self, LookupSpan};
@@ -170,12 +170,13 @@ mod tests {
         let subscriber = registry::Registry::default()
             .with(SpanFieldStorage)
             .with(capture.clone());
-        with_default(subscriber, || {
+        {
+            let _installed = log_capture::install(subscriber);
             let span = tool_call_span(request);
             record_outcome(&span, result);
             let _entered = span.enter();
             info!("inside the tool call");
-        });
+        }
         let events = capture
             .0
             .lock()

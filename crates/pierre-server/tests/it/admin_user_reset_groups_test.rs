@@ -35,8 +35,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::admin_user_removal_test::{
-    admin_context, blockers_of, body_json, join_group, resources, seed_agent, seed_onboarded_user,
-    seed_user, super_admin_token, RevokeStub,
+    admin_context, blockers_of, body_json, join_group, resources_revoking_at, seed_agent,
+    seed_onboarded_user, seed_user, super_admin_token, RevokeStub,
 };
 use crate::admin_user_reset_test::count_for;
 
@@ -110,9 +110,9 @@ async fn seed_group_on(
 /// group row and its room kept — names it, and then wipes the account.
 #[tokio::test]
 async fn delete_owned_groups_archives_each_owned_group_then_resets() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-groups-owner").await;
     let (member_id, member_tenant, _) = seed_user(repos, "reset-groups-member").await;
     let agent = seed_agent(
@@ -126,13 +126,10 @@ async fn delete_owned_groups_archives_each_owned_group_then_resets() {
     let group_id = seed_group_on(repos, user_id, tenant_id, "Hill club", agent, None).await;
     join_group(repos, group_id, member_id, member_tenant).await;
 
-    let response = reset_deleting_owned_groups(
-        admin_context(&resources, &stub.url),
-        super_admin_token(),
-        user_id,
-    )
-    .await
-    .expect("reset handler");
+    let response =
+        reset_deleting_owned_groups(admin_context(&resources), super_admin_token(), user_id)
+            .await
+            .expect("reset handler");
     let status = response.status();
     let body = body_json(response).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -178,9 +175,9 @@ async fn delete_owned_groups_archives_each_owned_group_then_resets() {
 /// delete: the reset still refuses, and the group it owns is left active.
 #[tokio::test]
 async fn a_group_the_account_only_coaches_still_refuses_and_nothing_is_archived() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-groups-coach").await;
     let (other_id, other_tenant, _) = seed_user(repos, "reset-groups-other-owner").await;
     let agent = seed_agent(
@@ -202,13 +199,10 @@ async fn a_group_the_account_only_coaches_still_refuses_and_nothing_is_archived(
     )
     .await;
 
-    let response = reset_deleting_owned_groups(
-        admin_context(&resources, &stub.url),
-        super_admin_token(),
-        user_id,
-    )
-    .await
-    .expect("a refusal is a response");
+    let response =
+        reset_deleting_owned_groups(admin_context(&resources), super_admin_token(), user_id)
+            .await
+            .expect("a refusal is a response");
     assert_eq!(response.status(), StatusCode::CONFLICT);
     let body = body_json(response).await;
     assert_eq!(
@@ -236,9 +230,9 @@ async fn a_group_the_account_only_coaches_still_refuses_and_nothing_is_archived(
 /// --delete-owned-groups` can show what it would delete before `--yes`.
 #[tokio::test]
 async fn the_user_read_previews_the_reset_with_owned_groups_deleted() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-groups-read").await;
     let (other_id, other_tenant, _) = seed_user(repos, "reset-groups-read-other").await;
     let agent = seed_agent(
@@ -252,7 +246,7 @@ async fn the_user_read_previews_the_reset_with_owned_groups_deleted() {
     let group_id = seed_group_on(repos, user_id, tenant_id, "Read squad", agent, None).await;
 
     let response = handle_get_user(
-        State(admin_context(&resources, &stub.url)),
+        State(admin_context(&resources)),
         Extension(super_admin_token()),
         Path(user_id.to_string()),
     )
@@ -281,9 +275,9 @@ async fn the_user_read_previews_the_reset_with_owned_groups_deleted() {
 /// group the account owns is left active.
 #[tokio::test]
 async fn an_invite_to_another_owners_group_still_refuses_and_nothing_is_archived() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-groups-inviter").await;
     let (other_id, other_tenant, _) = seed_user(repos, "reset-groups-invite-owner").await;
     let agent = seed_agent(
@@ -315,13 +309,10 @@ async fn an_invite_to_another_owners_group_still_refuses_and_nothing_is_archived
         .await
         .unwrap();
 
-    let response = reset_deleting_owned_groups(
-        admin_context(&resources, &stub.url),
-        super_admin_token(),
-        user_id,
-    )
-    .await
-    .expect("a refusal is a response");
+    let response =
+        reset_deleting_owned_groups(admin_context(&resources), super_admin_token(), user_id)
+            .await
+            .expect("a refusal is a response");
     assert_eq!(response.status(), StatusCode::CONFLICT);
     let body = body_json(response).await;
     assert_eq!(
@@ -346,9 +337,9 @@ async fn an_invite_to_another_owners_group_still_refuses_and_nothing_is_archived
 /// the reset refuses before anything is touched rather than leave them.
 #[tokio::test]
 async fn delete_owned_groups_without_a_group_service_refuses_and_touches_nothing() {
-    let resources = resources().await;
-    let repos = &resources.common.repos;
     let stub = RevokeStub::start().await;
+    let resources = resources_revoking_at(&stub.url).await;
+    let repos = &resources.common.repos;
     let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-groups-unwired").await;
     let (other_id, other_tenant, _) = seed_user(repos, "reset-groups-unwired-other").await;
     let agent = seed_agent(
@@ -360,7 +351,7 @@ async fn delete_owned_groups_without_a_group_service_refuses_and_touches_nothing
     )
     .await;
     let own = seed_group_on(repos, user_id, tenant_id, "Unwired squad", agent, None).await;
-    let mut context = Arc::try_unwrap(admin_context(&resources, &stub.url))
+    let mut context = Arc::try_unwrap(admin_context(&resources))
         .unwrap_or_else(|_| panic!("bug: the fresh admin context is shared"));
     context.group_service = None;
 

@@ -47,8 +47,9 @@ const PREVOST_QC_LON: f64 = -74.08;
 #[tokio::test]
 async fn test_unsupported_sport_returns_empty() {
     // Swim is not a land route — discover_routes_for_sport should return
-    // an empty vec without hitting Overpass — a pure logic test.
-    let service = RouteDiscoveryService::with_defaults();
+    // an empty vec without hitting Overpass — a pure logic test, on a
+    // refused origin so a regression is refused on this machine.
+    let service = RouteDiscoveryService::new(Some(common::REFUSED_ORIGIN));
     let routes = service
         .discover_routes_for_sport(&SportType::Swim, PREVOST_QC_LAT, PREVOST_QC_LON, None, None)
         .await

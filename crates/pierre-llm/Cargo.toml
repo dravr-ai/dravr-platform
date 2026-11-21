@@ -27,6 +27,9 @@ embacle = { version = "0.47.0", features = ["copilot-headless", "copilot-sdk", "
 dravr-contremaitre = { workspace = true }
 
 [dev-dependencies]
+# The shared log capture (`log_capture`). Default features only: those reach
+# pierre-core, pierre-database and pierre-memory, never this crate.
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
 # The fallback chain's decisions are only observable by driving a real
 # `complete()`/`complete_with_tools()` call, both of which are async.
 # `net` and `io-util` serve the loopback OpenAI-shaped endpoint the

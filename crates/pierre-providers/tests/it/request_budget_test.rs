@@ -20,7 +20,6 @@ use chrono::Utc;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{ConnectionType, TenantId, User, UserOAuthToken, API_KEY_TOKEN_TYPE};
 use pierre_database::RepositoryRegistry;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{
     api_key_counter_key, budget_counter_key, budget_period, detail_walk_athlete_counter_key,
     detail_walk_counter_key, in_background, in_detail_walk, is_background, refused_before_send,
@@ -28,6 +27,7 @@ use pierre_providers::request_budget::{
     ONE_DAY, PLATFORM_SCOPE,
 };
 use pierre_test_support::db::create_test_db;
+use pierre_test_support::providers::offline_provider_registry;
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -574,7 +574,7 @@ async fn an_intervals_apps_fifteen_minute_bucket_holds_half_the_rolling_limit() 
 async fn two_athletes_of_one_app_spend_one_pool() {
     let repos = database().await;
     grant_server_app(&repos, 2).await;
-    let registry = ProviderRegistry::new().with_request_limiter(Arc::new(limiter_over(&repos)));
+    let registry = offline_provider_registry().with_request_limiter(Arc::new(limiter_over(&repos)));
     let first = registry.request_budget(APP, None).expect("a counted app");
     let second = registry.request_budget(APP, None).expect("a counted app");
     let app = budget_counter_key(INTERVALS, APP);
@@ -752,7 +752,7 @@ async fn an_api_key_is_held_to_no_app_window() {
 #[tokio::test]
 async fn a_key_with_no_account_shares_no_windows() {
     let repos = database().await;
-    let registry = ProviderRegistry::new().with_request_limiter(Arc::new(limiter_over(&repos)));
+    let registry = offline_provider_registry().with_request_limiter(Arc::new(limiter_over(&repos)));
 
     assert!(registry.api_key_budget("").is_none());
     registry

@@ -37,6 +37,7 @@ use dravr_barrage::{ActivityId, LiveSource, Scope, SourceKey};
 use dravr_cageux::visitor::NormalizedPowerCalculator;
 use dravr_riviere::{SeriesType, TimeRange};
 use futures_util::stream::poll_fn;
+use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionStatus, ConnectionType, DataSource, DeviceType, SportType,
     StoredRecoveryMetrics, TenantId, UserOAuthToken,
@@ -84,7 +85,14 @@ async fn context(api_base: Option<&str>) -> Arc<ServerContext> {
     common::set_server_app(&mut config, "garmin", CLIENT_ID, "garmin-test-secret");
     config.webhooks.garmin_token = Some(SecretString::from(PATH_TOKEN));
     if let Some(base) = api_base {
-        config.external_services.garmin_api.base_url = format!("{base}/wellness-api/rest");
+        common::set_provider_endpoints(
+            &mut config,
+            "garmin",
+            ProviderEndpointOverride {
+                api_base_url: Some(format!("{base}/wellness-api/rest")),
+                ..ProviderEndpointOverride::default()
+            },
+        );
     }
     common::create_test_server_resources_with_config(config)
         .await
@@ -100,7 +108,14 @@ async fn context_over(
     common::set_server_app(&mut config, "garmin", CLIENT_ID, "garmin-test-secret");
     config.webhooks.garmin_token = Some(SecretString::from(PATH_TOKEN));
     if let Some(base) = api_base {
-        config.external_services.garmin_api.base_url = format!("{base}/wellness-api/rest");
+        common::set_provider_endpoints(
+            &mut config,
+            "garmin",
+            ProviderEndpointOverride {
+                api_base_url: Some(format!("{base}/wellness-api/rest")),
+                ..ProviderEndpointOverride::default()
+            },
+        );
     }
     common::create_test_server_resources_with_config_and_records(config, records)
         .await

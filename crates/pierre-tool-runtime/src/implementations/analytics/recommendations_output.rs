@@ -227,7 +227,7 @@ pub struct TrainingSummary {
     pub volume_spike_detected: bool,
     /// Whether a hard/easy pattern was found at all.
     pub intensity_pattern_detected: bool,
-    /// Whether either overtraining signal fired.
+    /// Whether hard efforts came too close together.
     pub overtraining_signals: bool,
 }
 
@@ -270,9 +270,6 @@ pub struct RecommendationMetrics {
     /// Training stress balance. `recovery`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tsb: Option<f64>,
-    /// Whether heart rate drifted upward at a fixed effort. `recovery`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hr_drift_detected: Option<bool>,
     /// `low`, `moderate` or `high` — descriptive, never an injury
     /// prediction. `recovery`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -120,6 +120,8 @@ async fn import_archive_ride(
         importer_version: None,
         summary_window: SummaryWindow::default(),
         totals_from: TotalsFrom::default(),
+        legacy_id: None,
+        legacy_original: None,
     };
     let record = ActivityRecord::try_new(
         scope,

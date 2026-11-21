@@ -23,12 +23,14 @@
 //! something named.
 
 use chrono::{Duration, Utc};
+use pierre_core::constants::oauth::providers::SENSITIVE_T2;
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::{
     DataSource, DeviceType, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics,
     StoredSleepSession,
 };
 use pierre_database::repositories::WellnessWriteMode;
+use pierre_services::provider_notice::grant_ai_consent;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -216,6 +218,19 @@ async fn file_unnamed_health(f: &Fixture) {
         .unwrap();
 }
 
+/// The athlete allows their health records' AI use (`sensitive_t2`).
+async fn allow_health_records(f: &Fixture) {
+    grant_ai_consent(
+        f.repos(),
+        f.athlete.tenant.as_uuid(),
+        f.athlete.id,
+        SENSITIVE_T2,
+        "Health records",
+    )
+    .await
+    .unwrap();
+}
+
 /// The rows of `payload[key]`.
 fn rows<'payload>(payload: &'payload Value, key: &str) -> &'payload Vec<Value> {
     payload[key]
@@ -331,6 +346,9 @@ async fn a_coachs_health_snapshot_read_carries_what_the_consent_names_and_the_at
          {merged_day}"
     );
 
+    // Glucose is a T2 record: the athlete's own agent reads it once they
+    // allowed their health records' AI use (J2).
+    allow_health_records(&f).await;
     let own = f
         .own_read(f.athlete, "get_health_snapshots", json!({}))
         .await;
@@ -648,6 +666,9 @@ async fn a_source_that_recorded_only_unnamed_metrics_never_stands_for_a_coachs_d
 
     // The athlete's own read is unchanged: Garmin stands for both days, its
     // unnamed metrics kept, Intervals.icu's filled in, both sources named.
+    // Glucose is a T2 record: the athlete's own agent reads it once they
+    // allowed their health records' AI use (J2).
+    allow_health_records(&f).await;
     let own = f
         .own_read(f.athlete, "get_health_snapshots", json!({}))
         .await;

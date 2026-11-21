@@ -35,6 +35,8 @@ use chrono::Utc;
 use common::{
     create_test_server_resources_with_sciotte, create_test_user_with_plan, generate_test_token,
 };
+use dravr_barrage::record_log::entry::EntryKind;
+use dravr_barrage::{LiveSource, Scope, SourceKey};
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier};
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -905,7 +907,8 @@ async fn only_the_named_member_confirms_without_a_login_of_their_own(w: &World, 
 }
 
 /// The confirm registers the member's delegated connection in the tenant
-/// they confirmed in, and tells the coach.
+/// they confirmed in, logs the connect in their log (carnet#1542), and tells
+/// the coach.
 async fn the_confirm_registers_the_link_and_tells_the_coach(w: &World, link: &str) {
     let (status, body) = w.confirm(link, &w.m1).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -916,6 +919,24 @@ async fn the_confirm_registers_the_link_and_tells_the_coach(w: &World, link: &st
         Some(ConnectionType::Delegated)
     );
     assert_eq!(w.stored(link).await.member_tenant_id, Some(w.m1.tenant));
+    let connects: Vec<_> = w
+        .res
+        .common
+        .activity_records
+        .log_entries(&Scope::new(w.m1.tenant.as_uuid(), w.m1.id), 0, 10)
+        .await
+        .expect("the log reads")
+        .into_iter()
+        .filter(|entry| entry.kind == EntryKind::Connect)
+        .collect();
+    let [connect] = connects.as_slice() else {
+        panic!("bug: the confirm did not log exactly one connect: {connects:?}");
+    };
+    assert_eq!(
+        connect.source,
+        SourceKey::Live(LiveSource::SciotteTrainingpeaks),
+        "bug: the connect was logged under the wrong source"
+    );
     let (status, _) = w.confirm(link, &w.m1).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "no longer a proposal");
 

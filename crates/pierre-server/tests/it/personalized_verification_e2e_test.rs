@@ -33,7 +33,6 @@ use pierre_evals::{
 };
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_providers::ai_scope::{ai_read, serve_over, with_ai_consent};
-use pierre_providers::registry::global_registry;
 use pierre_services::athlete_snapshot::build_athlete_metrics;
 use uuid::Uuid;
 
@@ -119,7 +118,7 @@ async fn physiology_and_activities_drive_a_personalized_contradiction() -> Resul
     // Build the snapshot through the real service path.
     let metrics = build_athlete_metrics(
         repos,
-        global_registry().as_ref(),
+        &common::offline_provider_registry(),
         &AlgorithmConfig::default(),
         &TrainingZonesConfig::default(),
         tenant_id,
@@ -196,7 +195,7 @@ async fn missing_physiology_yields_unusable_snapshot() -> Result<()> {
 
     let metrics = build_athlete_metrics(
         repos,
-        global_registry().as_ref(),
+        &common::offline_provider_registry(),
         &AlgorithmConfig::default(),
         &TrainingZonesConfig::default(),
         tenant(),
@@ -336,7 +335,7 @@ async fn turn_snapshot(
             consent_withheld,
             ai_read(Box::pin(build_athlete_metrics(
                 repos,
-                global_registry().as_ref(),
+                &common::offline_provider_registry(),
                 &AlgorithmConfig::default(),
                 &TrainingZonesConfig::default(),
                 tenant_id,

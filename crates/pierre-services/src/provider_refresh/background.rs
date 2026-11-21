@@ -209,7 +209,7 @@ mod tests {
         let recorded = Arc::new(Recorded::default());
         let sync = BackgroundSync {
             orchestrator: storage
-                .build_orchestrator(None, WellnessOrigins::default())
+                .build_orchestrator(None, WellnessOrigins::default(), None)
                 .unwrap(),
             repos: repos.auth_repos(),
             registry: Arc::clone(&repos),

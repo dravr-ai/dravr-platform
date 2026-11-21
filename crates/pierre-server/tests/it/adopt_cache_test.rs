@@ -46,7 +46,7 @@ fn activity(id: &str, provider: &str, age_days: i64) -> Activity {
 
 /// The admin context the composition root builds, the live store included.
 fn context(resources: &Arc<ServerContext>) -> Arc<AdminApiContext> {
-    let mut context = (*admin_context(resources, "http://127.0.0.1:9")).clone();
+    let mut context = (*admin_context(resources)).clone();
     context.live_activities = Some(Arc::clone(&resources.common.live_activities));
     Arc::new(context)
 }

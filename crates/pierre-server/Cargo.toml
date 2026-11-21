@@ -138,7 +138,11 @@ transport-web = ["transport-http", "transport-sse"]
 # ═══════════════════════════════════════════════════════════════
 client-dashboard = ["protocol-rest", "dep:pierre-routes-dashboard"]     # dashboard routes (extracted to pierre-routes-dashboard)
 client-settings = ["protocol-rest", "dep:pierre-routes-billing"]      # configuration.rs, fitness.rs
-client-chat = ["protocol-rest", "pierre-tool-runtime/client-chat", "dep:pierre-chat-pipeline", "dep:async-stream", "dep:embacle-tool-host"]  # chat.rs + tool-loop strategies in pierre-tool-runtime; chat pipeline orchestrator extracted to pierre-chat-pipeline
+# The chat pipeline's context holds the SSE manager, the group service and the
+# slash-command registries unconditionally (pierre-chat-pipeline turns its own
+# `tools-groups` on by default), so a chat build states all three; left
+# implied, they only surface in a build that turns `client-chat` on alone.
+client-chat = ["protocol-rest", "pierre-tool-runtime/client-chat", "dep:pierre-chat-pipeline", "dep:async-stream", "dep:embacle-tool-host", "transport-sse", "tools-groups", "slash-commands"]  # chat.rs + tool-loop strategies in pierre-tool-runtime; chat pipeline orchestrator extracted to pierre-chat-pipeline
 client-agents = ["protocol-rest", "tools-agents", "dep:pierre-routes-agents"]  # the agent routes
 client-oauth-apps = ["protocol-rest", "oauth"]       # user_oauth_apps.rs
 
@@ -173,8 +177,14 @@ client-mcp-tokens = ["protocol-mcp"]     # user_mcp_tokens.rs
 
 # Depends on tools-groups: a non-DM chat auto-binds to a coaching group through
 # GroupService, which owns the tier gate and the group.created/joined events.
-client-messaging = ["protocol-rest", "dep:dravr-canot", "dep:pierre-commands", "dep:pierre-routes-agents", "dep:qrcode", "dravr-canot/all-channels", "pierre-services/client-messaging", "tools-groups"]
+client-messaging = ["protocol-rest", "slash-commands", "dep:pierre-routes-agents", "dep:qrcode", "dravr-canot/all-channels", "pierre-services/client-messaging", "tools-groups"]
 client-notifications = ["protocol-rest", "dep:pierre-notifications", "dep:pierre-routes-groups", "pierre-routes-groups?/client-notifications", "pierre-routes-agents?/client-notifications", "pierre-runtime-context/client-notifications", "pierre-tool-runtime/client-notifications"]   # push notification routes (extracted to pierre-routes-groups)
+
+# The `commands/*.md` catalogue and its handlers, which the web chat and every
+# messaging channel answer a `/command` through. Turned on by either surface,
+# never on its own. `tools-groups` because `CommandCtx` hands every handler the
+# group service.
+slash-commands = ["dep:pierre-commands", "dep:dravr-canot", "tools-groups"]
 
 client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens", "client-messaging", "client-notifications"]
 
@@ -294,7 +304,7 @@ pierre-chat-pipeline = { version = "0.3.0", path = "../pierre-chat-pipeline", fe
 # Integration tests only — production code uses structured AppError (anyhow is banned in src/)
 anyhow = "1.0"
 # Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
-pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["sse", "groups"] }
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["providers", "sse", "groups"] }
 # The Garmin API end-to-end suite connects through the dev fixture's Garmin
 # stand-in and receives its pushes, the same code the local stack runs.
 pierre-dev-fixture = { version = "0.3.0", path = "../pierre-dev-fixture" }
@@ -307,10 +317,6 @@ serial_test = "3.5"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
 serde_urlencoded = "0.7"
 toml = "0.8"
-# The log-capture test subscriber answers `current_span`, so a handler's
-# `Span::current().record(..)` reaches it; `span::Current` is not re-exported
-# by `tracing`. Already in the tree through `tracing`.
-tracing-core = "0.1"
 # Messaging transport test dependencies (crypto verification)
 hmac = "0.12"
 sha2 = "0.10"

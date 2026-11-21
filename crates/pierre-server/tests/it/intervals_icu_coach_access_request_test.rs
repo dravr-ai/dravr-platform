@@ -180,7 +180,7 @@ impl World {
     async fn new() -> Self {
         let api = Api::default();
         let base = spawn_api(api.clone()).await;
-        let mut config = offline_provider_config(INTERVALS_ICU);
+        let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
         config.api_base_url = base;
         let mut registry = offline_provider_registry();
         registry.set_default_config(INTERVALS_ICU, config);

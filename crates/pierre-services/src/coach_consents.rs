@@ -47,6 +47,14 @@
 //! covers every app they connect ([`wellness_notice_due`]) until they keep it
 //! (a fresh grant, which stamps it again) or revoke it.
 //!
+//! - `sensitive_t2_read`: the group's coach may also read the member's
+//!   health records (owl tier T2: labs, clinical records, self-measured
+//!   glucose), for 30 days or until revoked ([`SensitiveWindow`]). Its own
+//!   grant, beside `wellness_read`, never folded into what that grant names:
+//!   it reaches a coach's read only alongside `wellness_read`, and the
+//!   member's own consent to AI use of those records still applies on top
+//!   (J2, row 64). Offered whenever the group has a human coach.
+//!
 //! No coach can change a consent: every write is scoped to the member's own
 //! membership.
 //!
@@ -57,7 +65,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{CoachConsents, CoachingGroup, GroupMember};
 use pierre_core::models::{DelegatedConnection, DelegationStatus};
@@ -318,6 +326,47 @@ fn own_wellness_backends(registry: &ProviderRegistry, link: &str) -> Vec<String>
     backends
 }
 
+/// How long a `sensitive_t2_read` grant holds: owl's preset windows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SensitiveWindow {
+    /// Until the member revokes it.
+    #[default]
+    UntilRevoked,
+    /// For 30 days from the grant.
+    ThirtyDays,
+}
+
+impl SensitiveWindow {
+    /// The only window length a member may pick besides "until revoked".
+    pub const DAYS: u32 = 30;
+
+    /// The window a request's `sensitive_days` asks for: absent, until
+    /// revoked; 30, thirty days.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-input error for any other number of days.
+    pub fn try_from_days(days: Option<u32>) -> AppResult<Self> {
+        match days {
+            None => Ok(Self::UntilRevoked),
+            Some(Self::DAYS) => Ok(Self::ThirtyDays),
+            Some(other) => Err(AppError::invalid_input(format!(
+                "sensitive_days must be {}, or left out for until revoked; got {other}",
+                Self::DAYS
+            ))),
+        }
+    }
+
+    /// When a grant made at `now` lapses; `None` until revoked.
+    #[must_use]
+    pub fn until(self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        match self {
+            Self::UntilRevoked => None,
+            Self::ThirtyDays => Some(now + Duration::days(i64::from(Self::DAYS))),
+        }
+    }
+}
+
 /// The member's change to their coach consents: `Some` grants or revokes
 /// one, `None` leaves it as it stands.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -329,6 +378,10 @@ pub struct ConsentChange {
     /// Turn on or off the coach's AI assistant including the member in the
     /// roster tools.
     pub assistant_read: Option<bool>,
+    /// Grant or revoke the coach's reads of the member's health records (T2).
+    pub sensitive_t2_read: Option<bool>,
+    /// How long a `sensitive_t2_read` grant holds.
+    pub sensitive_window: SensitiveWindow,
 }
 
 impl ConsentChange {
@@ -340,6 +393,8 @@ impl ConsentChange {
             calendar_write: if calendar_write { Some(true) } else { None },
             wellness_read: if wellness_read { Some(true) } else { None },
             assistant_read: None,
+            sensitive_t2_read: None,
+            sensitive_window: SensitiveWindow::UntilRevoked,
         }
     }
 
@@ -349,15 +404,20 @@ impl ConsentChange {
         matches!(self.calendar_write, Some(true))
             || matches!(self.wellness_read, Some(true))
             || matches!(self.assistant_read, Some(true))
+            || matches!(self.sensitive_t2_read, Some(true))
     }
 
     /// The change, with every grant `offer` does not carry dropped. A revoke
-    /// always stands: withdrawing what is not offered is harmless.
+    /// always stands: withdrawing what is not offered is harmless. Health
+    /// records are offered wherever wellness reads are: a group with a
+    /// human coach.
     pub(crate) const fn within(self, offer: ConsentOffer) -> Self {
         Self {
             calendar_write: keep(self.calendar_write, offer.calendar_write),
             wellness_read: keep(self.wellness_read, offer.wellness_read),
             assistant_read: keep(self.assistant_read, offer.assistant_read),
+            sensitive_t2_read: keep(self.sensitive_t2_read, offer.wellness_read),
+            sensitive_window: self.sensitive_window,
         }
     }
 }
@@ -397,22 +457,39 @@ pub async fn set_coach_consents(
     require_app_for_grant(change.grants_any())?;
     let change = change.within(consent_offer(registry, group, member));
     let now = Utc::now();
-    let group_id = group.id.to_string();
-    let consents = repos
-        .groups
-        .set_coach_consents(
-            &group_id,
-            member,
-            change.calendar_write,
-            change.wellness_read,
-            now,
-        )
-        .await?
-        .ok_or_else(|| AppError::not_found("Group member"))?;
+    let group_key = group.id.to_string();
+    let consents = match change.sensitive_t2_read {
+        Some(t2_read) => {
+            repos
+                .groups
+                .set_coach_sensitive_reads(
+                    &group_key,
+                    member,
+                    change.calendar_write,
+                    change.wellness_read,
+                    Some((t2_read, change.sensitive_window.until(now))),
+                    now,
+                )
+                .await?
+        }
+        None => {
+            repos
+                .groups
+                .set_coach_consents(
+                    &group_key,
+                    member,
+                    change.calendar_write,
+                    change.wellness_read,
+                    now,
+                )
+                .await?
+        }
+    }
+    .ok_or_else(|| AppError::not_found("Group member"))?;
     let updated = match change.assistant_read {
         Some(granted) => repos
             .groups
-            .set_coach_assistant_read(&group_id, member, granted, now)
+            .set_coach_assistant_read(&group_key, member, granted, now)
             .await?
             .ok_or_else(|| AppError::not_found("Group member"))?,
         None => consents,
@@ -423,6 +500,8 @@ pub async fn set_coach_consents(
         calendar_write = updated.coach_consents.calendar_write,
         wellness_read = updated.coach_consents.wellness_read,
         assistant_read = updated.coach_consents.assistant_read,
+        sensitive_t2_read = updated.coach_consents.sensitive_t2_read,
+        sensitive_t2_read_until = ?updated.coach_consents.sensitive_t2_read_until,
         "Coach consents set"
     );
     if change.wellness_read == Some(false) {
@@ -521,7 +600,6 @@ pub(crate) fn require_app_for_grant(grants: bool) -> AppResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Duration;
     use pierre_core::constants::oauth_providers::{
         GARMIN, INTERVALS_ICU, SCIOTTE_GARMIN, TRAININGPEAKS, WHOOP,
     };
@@ -571,8 +649,7 @@ mod tests {
             both.within(calendar_only),
             ConsentChange {
                 calendar_write: Some(true),
-                wellness_read: None,
-                assistant_read: None,
+                ..ConsentChange::default()
             }
         );
         let nothing = ConsentOffer {
@@ -598,6 +675,8 @@ mod tests {
             calendar_write: Some(false),
             wellness_read: Some(false),
             assistant_read: Some(false),
+            sensitive_t2_read: Some(false),
+            ..ConsentChange::default()
         };
         assert_eq!(revokes.within(nothing), revokes);
         assert_eq!(
@@ -606,6 +685,59 @@ mod tests {
         );
         assert!(!revokes.grants_any());
         assert!(both.grants_any());
+    }
+
+    #[test]
+    fn health_records_are_offered_with_wellness_and_only_for_thirty_days_or_until_revoked() {
+        let records = ConsentChange {
+            sensitive_t2_read: Some(true),
+            ..ConsentChange::default()
+        };
+        assert!(
+            records.grants_any(),
+            "bug: a health-records grant is a grant"
+        );
+        let coached = ConsentOffer {
+            calendar_write: false,
+            wellness_read: true,
+            assistant_read: false,
+        };
+        assert_eq!(
+            records.within(coached),
+            records,
+            "bug: a coached group offers the health-records grant"
+        );
+        let uncoached = ConsentOffer {
+            calendar_write: false,
+            wellness_read: false,
+            assistant_read: false,
+        };
+        assert_eq!(
+            records.within(uncoached).sensitive_t2_read,
+            None,
+            "bug: a group with no human coach offers no health-records grant"
+        );
+
+        let now = Utc::now();
+        assert_eq!(
+            SensitiveWindow::try_from_days(None).unwrap().until(now),
+            None,
+            "bug: no window holds until revoked"
+        );
+        assert_eq!(
+            SensitiveWindow::try_from_days(Some(30)).unwrap().until(now),
+            Some(now + Duration::days(30)),
+            "bug: a 30-day window lapses 30 days after the grant"
+        );
+        for refused in [0, 7, 31, 365] {
+            assert_eq!(
+                SensitiveWindow::try_from_days(Some(refused))
+                    .expect_err("bug: only 30 days is a window")
+                    .code,
+                ErrorCode::InvalidInput,
+                "{refused}"
+            );
+        }
     }
 
     /// A grant given before the consent widened to every app is told of the

@@ -20,9 +20,8 @@
 #![allow(missing_docs)]
 
 use std::collections::BTreeMap;
-use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use embacle::types::{
@@ -30,11 +29,7 @@ use embacle::types::{
     RunnerError,
 };
 use pierre_llm::{ChatMessage, ChatProvider, EmbacleProvider, QuotaCooldowns};
-use tracing::field::{Field, Visit};
-use tracing::instrument::WithSubscriber;
-use tracing::{Event, Subscriber};
-use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
-use tracing_subscriber::Registry;
+use pierre_test_support::log_capture;
 
 use crate::chain_guard_lock::fresh_chain_guard;
 
@@ -110,50 +105,21 @@ impl EmbacleLlmProvider for Switchable {
     }
 }
 
-/// One recorded event: its target and its fields, `message` included.
-type Recorded = Arc<Mutex<Vec<(String, BTreeMap<String, String>)>>>;
-
-struct EventRecorder {
-    events: Recorded,
-}
-
-struct FieldCollector<'a>(&'a mut BTreeMap<String, String>);
-
-impl Visit for FieldCollector<'_> {
-    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-        self.0.insert(field.name().to_owned(), format!("{value:?}"));
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.0.insert(field.name().to_owned(), value.to_owned());
-    }
-}
-
-impl<S: Subscriber> Layer<S> for EventRecorder {
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        let mut fields = BTreeMap::new();
-        event.record(&mut FieldCollector(&mut fields));
-        self.events
-            .lock()
-            .unwrap()
-            .push((event.metadata().target().to_owned(), fields));
-    }
-}
-
-/// Ask `chain` once under a fresh recording subscriber; return the reply and
-/// every event the call emitted.
+/// Ask `chain` once under a fresh capture; return the reply and every event
+/// the call emitted.
 async fn ask(chain: &ChatProvider) -> (String, Vec<(String, BTreeMap<String, String>)>) {
-    let events: Recorded = Arc::new(Mutex::new(Vec::new()));
-    let subscriber = Registry::default().with(EventRecorder {
-        events: Arc::clone(&events),
-    });
     let request = ChatRequest::new(vec![ChatMessage::user("how did my week go?")]);
+    let (captured, capturing) = log_capture::capture_events();
     let response = chain
         .complete(&request)
-        .with_subscriber(subscriber)
         .await
         .expect("the secondary answers");
-    let recorded = events.lock().unwrap().clone();
+    drop(capturing);
+    let recorded = captured
+        .drain()
+        .into_iter()
+        .map(|event| (event.target, event.fields.into_iter().collect()))
+        .collect();
     (response.content, recorded)
 }
 

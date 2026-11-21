@@ -101,7 +101,6 @@ async fn stack() -> Stack {
         },
     );
     config.webhooks.garmin_token = Some(SecretString::from(PATH_TOKEN));
-    config.external_services.garmin_api.base_url = format!("{fixture_base}/wellness-api/rest");
     let resources = common::create_test_server_resources_with_config(config)
         .await
         .unwrap();

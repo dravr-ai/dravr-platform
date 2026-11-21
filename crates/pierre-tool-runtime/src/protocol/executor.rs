@@ -34,6 +34,7 @@ use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
 use crate::security::SecurityLabels;
+use crate::tool_data::ToolData;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use futures_util::future::Either;
@@ -61,6 +62,7 @@ mod access;
 mod admin_call_audit;
 /// Whose data a dispatched call reads (carnet#1387).
 mod subject;
+mod tier_gate;
 mod turn_signals;
 
 pub use access::SUPPORT_SESSION_EXPORT_REFUSED;
@@ -755,7 +757,14 @@ impl UniversalExecutor {
         // notice) is the athlete's, and never posts into the coach's thread.
         let in_conversation = subject.is_none();
         let member_read = subject.as_ref().map(ReadSubject::athlete);
-        let execute = async move {
+        // An outside client reaches a tool reading T2/T3 streams only under
+        // the athlete's tier consent (`tier_gate`, carnet#1544).
+        let tier = self
+            .resources
+            .tool_registry()
+            .tool_data(&tool_name)
+            .and_then(ToolData::tier);
+        let execute = tier_gate::gated(&tool_name, tier, async move {
             // What the call derives from here on is the athlete's (carnet#1174),
             // and so is every attribution what it serves owes (carnet#1464).
             match member_read {
@@ -766,7 +775,7 @@ impl UniversalExecutor {
                 }
                 None => tool.execute(&self.resources, &ctx, args).await,
             }
-        };
+        });
         let body = ai_scope::ai_read(CONVERSATION_ID.scope(
             self.conversation_id.clone().filter(|_| in_conversation),
             CONVERSATION_TENANT.scope(

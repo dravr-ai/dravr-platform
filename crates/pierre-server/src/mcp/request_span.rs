@@ -112,9 +112,9 @@ pub(crate) fn record_caller(ctx: &ToolContext) {
 mod tests {
     use super::*;
     use pierre_logging::span_fields::{SpanFieldStorage, SpanFields};
+    use pierre_test_support::log_capture;
     use serde_json::{json, Map};
     use std::sync::{Arc, Mutex, PoisonError};
-    use tracing::subscriber::with_default;
     use tracing::{info, Event, Subscriber};
     use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
     use tracing_subscriber::registry::{LookupSpan, Registry};
@@ -151,7 +151,9 @@ mod tests {
         let subscriber = Registry::default()
             .with(SpanFieldStorage)
             .with(capture.clone());
-        with_default(subscriber, body);
+        let installed = log_capture::install(subscriber);
+        body();
+        drop(installed);
         let events = capture
             .0
             .lock()

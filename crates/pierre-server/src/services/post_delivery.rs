@@ -44,8 +44,8 @@ use crate::mcp::resources::ServerContext;
 use crate::services::adapter_resolver::AdapterResolver;
 use crate::services::backfill_delivery::{ChannelDelivery, ResolvedRoute};
 use crate::services::commitment_reporter::{channel_allows_proactive, session_last_inbound};
+use crate::services::conversation_title::fresh_title_fallback;
 use crate::services::messaging_ingress::block_render::render_reply;
-use crate::services::messaging_ingress::fresh_title_fallback;
 use crate::services::messaging_ingress::surface::messaging_render_profile;
 use crate::services::platform_post::{PlatformPost, PlatformPostRequest, PostSurface};
 

@@ -19,6 +19,7 @@ use embacle::types::{
     LlmProvider as EmbacleLlmProvider, RunnerError, TokenUsage,
 };
 use pierre_llm::{EmbacleProvider, LlmProvider, QuotaCooldowns};
+use pierre_test_support::log_capture;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -194,6 +195,9 @@ where
     F: FnOnce(EmbacleProvider) -> Fut,
     Fut: Future<Output = ()>,
 {
+    // The scope follows the future, so `install` cannot hold it; prime the
+    // inert pair it would have registered.
+    log_capture::prime();
     let spans: Recorded = Arc::default();
     let subscriber = Registry::default().with(SpanRecorder {
         spans: Arc::clone(&spans),

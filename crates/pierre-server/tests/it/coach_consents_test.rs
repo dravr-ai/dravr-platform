@@ -763,6 +763,171 @@ async fn the_relationship_offers_what_applies(w: &World) {
     assert_eq!(body["message"], CONSENTS_MEMBER_ONLY);
 }
 
+/// The health-records flag (T2, row 64) is offered with wellness reads, is
+/// granted until revoked or for 30 days and no other window, and a revoke
+/// clears its window. Over an API key it is revoked, never granted.
+async fn the_health_records_flag_takes_a_window(w: &World) {
+    let (status, body) = w.get_consents(&w.m4.auth).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        (
+            &body["sensitive_t2_read"],
+            &body["sensitive_t2_read_supported"],
+            &body["sensitive_t2_read_until"]
+        ),
+        (&json!(false), &json!(true), &Value::Null),
+        "{body}"
+    );
+
+    for days in [7, 31, 365] {
+        let (status, body) = w
+            .put_consents(
+                &w.m4.auth,
+                &json!({ "sensitive_t2_read": true, "sensitive_days": days }),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{days}: {body}");
+    }
+    assert!(
+        !w.consents(&w.m4).await.sensitive_t2_read,
+        "a refused window grants nothing"
+    );
+
+    the_health_records_window_runs_thirty_days(w).await;
+    a_change_with_the_flag_lands_whole(w).await;
+    the_health_records_flag_is_granted_only_from_the_app(w).await;
+}
+
+/// A change naming the flag beside other consents stores each as named, in
+/// opposite directions too, and leaves what it does not name as it stood.
+async fn a_change_with_the_flag_lands_whole(w: &World) {
+    let before = w.consents(&w.m4).await;
+    let (status, body) = w
+        .put_consents(
+            &w.m4.auth,
+            &json!({ "calendar_write": false, "sensitive_t2_read": true, "sensitive_days": 30 }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let first = w.consents(&w.m4).await;
+    assert!(
+        !first.calendar_write,
+        "bug: the calendar revoke lands: {first:?}"
+    );
+    assert!(
+        first.calendar_write_at > before.calendar_write_at,
+        "bug: the calendar revoke is stamped: {first:?}"
+    );
+    assert!(
+        first.sensitive_t2_read,
+        "bug: the flag grant lands: {first:?}"
+    );
+    assert!(
+        first.sensitive_t2_read_until.is_some(),
+        "bug: the flag grant carries its 30-day window: {first:?}"
+    );
+    assert_eq!(
+        (first.wellness_read, first.wellness_read_at),
+        (before.wellness_read, before.wellness_read_at),
+        "bug: a consent the change leaves out stays as it stood"
+    );
+
+    let (status, body) = w
+        .put_consents(
+            &w.m4.auth,
+            &json!({ "calendar_write": true, "wellness_read": true, "sensitive_t2_read": false }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let second = w.consents(&w.m4).await;
+    assert!(
+        second.calendar_write,
+        "bug: the calendar grant lands: {second:?}"
+    );
+    assert!(
+        second.wellness_read && second.wellness_read_at > first.wellness_read_at,
+        "bug: a standing wellness grant is stamped again: {second:?}"
+    );
+    assert!(
+        !second.sensitive_t2_read,
+        "bug: the flag revoke lands: {second:?}"
+    );
+    assert!(
+        second.sensitive_t2_read_until.is_none(),
+        "bug: the flag revoke clears its window: {second:?}"
+    );
+}
+
+/// A 30-day grant stamps its window; a renewal with no window holds until
+/// revoked; no other consent moves.
+async fn the_health_records_window_runs_thirty_days(w: &World) {
+    let before = Utc::now();
+    let (status, body) = w
+        .put_consents(
+            &w.m4.auth,
+            &json!({ "sensitive_t2_read": true, "sensitive_days": 30 }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["sensitive_t2_read"], true, "{body}");
+    let stored = w.consents(&w.m4).await;
+    let until = stored.sensitive_t2_read_until.expect("a 30-day window");
+    assert!(
+        until >= before + Duration::days(30) && until <= Utc::now() + Duration::days(30),
+        "the window runs 30 days from the grant: {until}"
+    );
+    assert!(
+        stored.sensitive_t2_read_at.is_some(),
+        "bug: a grant is stamped: {stored:?}"
+    );
+    assert!(body["sensitive_t2_read_until"].is_string(), "{body}");
+    assert_eq!(
+        (stored.calendar_write, stored.wellness_read),
+        (true, true),
+        "the flag changes no other consent"
+    );
+
+    let (status, body) = w
+        .put_consents(&w.m4.auth, &json!({ "sensitive_t2_read": true }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["sensitive_t2_read_until"],
+        Value::Null,
+        "a renewed grant with no window holds until revoked: {body}"
+    );
+}
+
+/// Over an API key the flag is revoked, never granted.
+async fn the_health_records_flag_is_granted_only_from_the_app(w: &World) {
+    let key = api_key(&w.res, w.m4.id).await;
+    let (status, body) = w
+        .put_consents(&key, &json!({ "sensitive_t2_read": false }))
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a revoke works from anywhere: {body}"
+    );
+    let revoked = w.consents(&w.m4).await;
+    assert!(
+        !revoked.sensitive_t2_read && revoked.sensitive_t2_read_until.is_none(),
+        "bug: a revoke clears the flag and its window: {revoked:?}"
+    );
+    let (status, body) = w
+        .put_consents(&key, &json!({ "sensitive_t2_read": true }))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(
+        body["details"]["reason"], "consent_grant_needs_app",
+        "{body}"
+    );
+    assert!(
+        !w.consents(&w.m4).await.sensitive_t2_read,
+        "nothing granted"
+    );
+}
+
 /// A WHOOP connection of the member's own wins over what the link would
 /// sync: the link and the relationship tell the member so whether or not
 /// they granted it, and the coach only once they did, since which sources a
@@ -1088,11 +1253,16 @@ async fn a_group_with_no_coach_offers_nothing(w: &World) {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_consents(&body, [false, false, true, false]);
 
+    assert_eq!(body["sensitive_t2_read_supported"], false, "{body}");
     let (status, body) = w
-        .put_consents(&w.m3.auth, &json!({ "calendar_write": true }))
+        .put_consents(
+            &w.m3.auth,
+            &json!({ "calendar_write": true, "sensitive_t2_read": true }),
+        )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_consents(&body, [false, false, true, false]);
+    assert_eq!(body["sensitive_t2_read"], false, "{body}");
     assert_eq!(
         w.consents(&w.m3).await,
         before,
@@ -1106,6 +1276,7 @@ async fn a_member_grants_and_revokes_what_their_coach_may_do() {
 
     let (m1_link, m2_link, m3_link) = a_confirm_grants_what_it_names(&w).await;
     the_relationship_offers_what_applies(&w).await;
+    the_health_records_flag_takes_a_window(&w).await;
     only_the_member_changes_what_their_coach_may_do(&w, m1_link).await;
     an_api_key_revokes_but_never_grants(&w).await;
     revoking_wellness_deletes_what_the_links_synced(&w, m1_link, m2_link).await;

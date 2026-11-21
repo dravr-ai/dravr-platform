@@ -694,7 +694,7 @@ async fn an_unverified_or_absent_email_is_refused_without_an_account_or_session(
     let unchanged = f.user("taken@gmail.com").await.unwrap();
     assert_eq!(unchanged.password_hash, existing.password_hash);
     assert_eq!(f.linked_subject(existing.id).await, None);
-    let lines = logs.lock().unwrap();
+    let lines = logs.events();
     assert!(lines
         .iter()
         .any(|l| l.event.starts_with("Google sign-in refused")));
@@ -845,8 +845,7 @@ async fn unreachable_google_keys_are_a_server_fault_not_a_refusal() {
         .contains("Google sign-in could not be completed"));
     assert!(session(&callback).is_none());
     assert!(logs
-        .lock()
-        .unwrap()
+        .events()
         .iter()
         .any(|l| l.event.starts_with("Google sign-in could not complete")));
 }
@@ -1120,8 +1119,8 @@ async fn a_refused_code_is_a_refusal_and_a_failing_google_a_fault_neither_echoin
         assert!(!page.contains(SENTINEL), "{page}");
         assert!(!page.contains(GOOGLE_CLIENT_SECRET));
     }
-    let lines = logs.lock().unwrap();
-    for line in lines.iter() {
+    let lines = logs.events();
+    for line in &lines {
         let text = format!("{} {:?}", line.event, line.fields);
         assert!(!text.contains(SENTINEL), "{text}");
         assert!(!text.contains(GOOGLE_CLIENT_SECRET), "{text}");

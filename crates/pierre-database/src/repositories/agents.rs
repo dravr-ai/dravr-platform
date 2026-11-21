@@ -536,6 +536,27 @@ pub trait CoachingGroupRepository: GroupChatConnectRepository + Send + Sync {
         calendar_write: Option<bool>,
         wellness_read: Option<bool>,
         now: DateTime<Utc>,
+    ) -> AppResult<Option<GroupMember>> {
+        self.set_coach_sensitive_reads(group_id, user_id, calendar_write, wellness_read, None, now)
+            .await
+    }
+
+    /// [`Self::set_coach_consents`], in the same statement as the live
+    /// member sharing (`Some((true, until))`) or no longer sharing
+    /// (`Some((false, _))`) their health records (T2) with their coach,
+    /// stamped `now`, so the change lands whole or not at all; `None` leaves
+    /// the flag as it stands. A grant lapses at `until` (`None`: until
+    /// revoked), a renewed one included; a revoke clears it. Scoped to the
+    /// member's own row and cross-tenant. Returns the membership as it now
+    /// stands, or `None` when `user_id` is not a live member.
+    async fn set_coach_sensitive_reads(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        calendar_write: Option<bool>,
+        wellness_read: Option<bool>,
+        t2_read: Option<(bool, Option<DateTime<Utc>>)>,
+        now: DateTime<Utc>,
     ) -> AppResult<Option<GroupMember>>;
 
     /// The live member `user_id` of `group_id` turns on (`granted`) or off

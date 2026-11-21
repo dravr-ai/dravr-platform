@@ -29,7 +29,7 @@ mod refused {
     use pierre_database::backends::MessagingRepository;
     use pierre_database::database::MessageRecord;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
-    use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
+    use pierre_mcp_server::services::turn_runner::turn_watchdog;
     use tokio::time;
 
     use crate::common::{

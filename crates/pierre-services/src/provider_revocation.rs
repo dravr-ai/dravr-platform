@@ -191,22 +191,18 @@ pub enum RevocationShape {
 /// COROS disconnect stays local-delete-only.
 #[must_use]
 pub fn revocation_shape(service: &OAuthService, backend: &str) -> Option<RevocationShape> {
-    let config = service.config();
     match backend {
-        oauth_providers::STRAVA => Some(RevocationShape::TokenRevocation {
-            revoke_url: config.strava_api_config().revoke_url.clone(),
-        }),
-        oauth_providers::GARMIN => {
-            let garmin = config.garmin_api_config();
-            Some(RevocationShape::BearerDeregistration {
-                revoke_url: garmin.revoke_url.clone(),
-                token_url: garmin.token_url.clone(),
-            })
+        oauth_providers::STRAVA => {
+            let (revoke_url, _) = registry_endpoints(&service.data, backend)?;
+            Some(RevocationShape::TokenRevocation { revoke_url })
         }
         // Wahoo's `DELETE /v1/permissions` withdraws every scope the athlete
         // granted, and with the portal's cleanup flags on it also removes the
         // workouts and plans Dravr scheduled on their account.
-        oauth_providers::WHOOP | oauth_providers::INTERVALS_ICU | oauth_providers::WAHOO => {
+        oauth_providers::GARMIN
+        | oauth_providers::WHOOP
+        | oauth_providers::INTERVALS_ICU
+        | oauth_providers::WAHOO => {
             let (revoke_url, token_url) = registry_endpoints(&service.data, backend)?;
             Some(RevocationShape::BearerDeregistration {
                 revoke_url,
@@ -224,6 +220,11 @@ pub fn revocation_shape(service: &OAuthService, backend: &str) -> Option<Revocat
 /// The registry's `(revoke_url, token_url)` for a backend, or `None` — with
 /// the reason logged — when the build did not register it or it declares no
 /// revocation endpoint.
+///
+/// The registry holds each provider's defaults with the deployment's
+/// `PIERRE_<P>_REVOKE_URL` and `_TOKEN_URL` overrides applied, the same
+/// endpoints its token exchanges and refreshes use, so a disconnect revokes
+/// where the grant was made.
 fn registry_endpoints(data: &DataContext, backend: &str) -> Option<(String, String)> {
     let Some(config) = data.provider_registry().default_config(backend) else {
         debug!(

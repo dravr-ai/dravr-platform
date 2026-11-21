@@ -186,6 +186,7 @@ fn startup_captures_the_sciotte_service_and_operator_settings() {
         Some("http://127.0.0.1:9/v22.0")
     );
 
+    assert_overpass_origin_read_at_startup();
     assert_weather_configuration_read_at_startup();
 
     for key in [
@@ -367,4 +368,32 @@ fn assert_webhook_secrets_read_at_startup() {
             && !shown.contains("xoxb-bot-829"),
         "bug: Debug of the webhook secrets printed a secret"
     );
+}
+
+/// No Overpass origin is the public instances; a blank one, or one of only
+/// slashes, is none.
+fn assert_overpass_origin_read_at_startup() {
+    env::remove_var("OVERPASS_API_BASE");
+    assert_eq!(
+        ExternalServicesConfig::from_env().overpass_api_base,
+        None,
+        "bug: an unset OVERPASS_API_BASE named an origin"
+    );
+    for blank in ["", "/"] {
+        env::set_var("OVERPASS_API_BASE", blank);
+        assert_eq!(
+            ExternalServicesConfig::from_env().overpass_api_base,
+            None,
+            "bug: OVERPASS_API_BASE={blank:?} named an origin"
+        );
+    }
+    env::set_var("OVERPASS_API_BASE", "http://127.0.0.1:9");
+    assert_eq!(
+        ExternalServicesConfig::from_env()
+            .overpass_api_base
+            .as_deref(),
+        Some("http://127.0.0.1:9"),
+        "bug: the exported OVERPASS_API_BASE was not read"
+    );
+    env::remove_var("OVERPASS_API_BASE");
 }

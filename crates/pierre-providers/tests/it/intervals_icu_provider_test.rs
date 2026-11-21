@@ -29,7 +29,7 @@ use pierre_providers::models::{
     WorkoutTargetZones, WorkoutTemplate,
 };
 use pierre_providers::pagination::PaginationParams;
-use pierre_providers::ProviderRegistry;
+use pierre_test_support::providers::offline_provider_registry;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -216,7 +216,7 @@ async fn registry_registers_intervals_icu_as_an_oauth_provider() {
     // The provider is registered (factory + descriptor) and links through the
     // shared OAuth flow; the pasted API key stays a second way in, which the
     // credential's kind selects per call rather than the registry.
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     assert!(
         registry.is_supported("intervals_icu"),
         "intervals_icu must be registered"

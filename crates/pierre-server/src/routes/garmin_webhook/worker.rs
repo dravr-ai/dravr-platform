@@ -441,10 +441,16 @@ impl ServerHost {
     }
 
     /// The callback URL, when it points at the Garmin API this server is
-    /// configured for: the owner's bearer token is sent to it, so a URL a
-    /// push names on any other origin is refused.
+    /// configured for — the provider registry's, where every other Garmin
+    /// call goes: the owner's bearer token is sent to it, so a URL a push
+    /// names on any other origin is refused.
     fn trusted_callback(&self, callback_url: &str) -> AppResult<Url> {
-        let base = Url::parse(&self.resources.common.config.garmin_api_config().base_url)
+        let garmin = self
+            .resources
+            .provider_registry()
+            .default_config(GARMIN)
+            .ok_or_else(|| AppError::internal("Garmin is not registered in this build"))?;
+        let base = Url::parse(&garmin.api_base_url)
             .map_err(|e| AppError::internal(format!("Garmin API base URL does not parse: {e}")))?;
         let url = Url::parse(callback_url)
             .map_err(|_| AppError::invalid_input("Garmin activity file URL does not parse"))?;

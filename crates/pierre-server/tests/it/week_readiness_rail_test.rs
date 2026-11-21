@@ -24,19 +24,11 @@ use pierre_core::models::agents::AgentCategory;
 use pierre_core::models::periodization::{Flavour, ReadinessLevel, WorkoutPurpose};
 use pierre_core::models::{ArtefactKind, PackageArtefact, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_test_support::log_capture::{self, CapturedEvent};
 use pierre_tool_runtime::implementations::training_plans::GetTrainingPlanTool;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex, PoisonError};
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
@@ -44,83 +36,25 @@ use crate::helpers;
 
 use helpers::agent_fixtures::publish_catalogue_agent_tagged;
 
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    message: String,
-    fields: HashMap<String, String>,
-}
-
-impl CapturedEvent {
-    fn field(&self, name: &str) -> &str {
-        self.fields.get(name).map_or("", String::as_str)
-    }
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
-    }
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-    fn record_u64(&mut self, field: &Field, value: u64) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-    fn record_bool(&mut self, field: &Field, value: bool) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-}
-
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        let message = visitor
-            .fields
-            .get("message")
-            .cloned()
-            .unwrap_or_else(|| event.metadata().name().to_owned());
-        if let Ok(mut events) = self.events.lock() {
-            events.push(CapturedEvent {
-                message,
-                fields: visitor.fields,
-            });
-        }
-    }
-}
-
-fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let capture = CaptureLayer::default();
-    let events = Arc::clone(&capture.events);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
-    (events, guard)
+/// The rendered value of `name` on `event`, or an empty string when the event
+/// did not carry it.
+fn field<'a>(event: &'a CapturedEvent, name: &str) -> &'a str {
+    event.field(name).unwrap_or_default()
 }
 
 fn readiness_of<'a>(events: &'a [CapturedEvent], week_start: &str) -> &'a CapturedEvent {
     events
         .iter()
-        .find(|e| e.message == "week readiness assessed" && e.field("week_start") == week_start)
+        .find(|e| {
+            e.message() == Some("week readiness assessed") && field(e, "week_start") == week_start
+        })
         .unwrap_or_else(|| {
             panic!(
                 "no readiness verdict for {week_start}; saw {:?}",
-                events.iter().map(|e| &e.message).collect::<Vec<_>>()
+                events
+                    .iter()
+                    .map(CapturedEvent::message)
+                    .collect::<Vec<_>>()
             )
         })
 }
@@ -235,7 +169,7 @@ async fn an_athlete_with_no_history_maintains_and_threshold_work_is_substituted(
     let week = week_start();
     let tuesday = day_in(&week, 1);
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     save(
         &executor,
         user_id,
@@ -252,28 +186,25 @@ async fn an_athlete_with_no_history_maintains_and_threshold_work_is_substituted(
     .await?;
     drop(guard);
 
-    let captured = events
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
+    let captured = events.events();
     let verdict = readiness_of(&captured, &week);
 
     assert_eq!(
-        verdict.field("readiness"),
+        field(verdict, "readiness"),
         "p2",
         "no chronic base and no alert is the ladder's resting state, not a block"
     );
     assert_eq!(
-        verdict.field("alerts"),
+        field(verdict, "alerts"),
         "[]",
         "an athlete with no series raises nothing"
     );
     assert!(
-        verdict.field("substitutions").contains(tuesday.as_str()),
+        field(verdict, "substitutions").contains(tuesday.as_str()),
         "maintain does not allow threshold work: {}",
-        verdict.field("substitutions")
+        field(verdict, "substitutions")
     );
-    assert_eq!(verdict.field("clear"), "false");
+    assert_eq!(field(verdict, "clear"), "false");
     Ok(())
 }
 
@@ -283,7 +214,7 @@ async fn a_week_the_level_already_allows_reads_clear() -> Result<()> {
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     let week = week_start();
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     save(
         &executor,
         user_id,
@@ -296,18 +227,15 @@ async fn a_week_the_level_already_allows_reads_clear() -> Result<()> {
     .await?;
     drop(guard);
 
-    let captured = events
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
+    let captured = events.events();
     let verdict = readiness_of(&captured, &week);
-    assert_eq!(verdict.field("readiness"), "p2");
+    assert_eq!(field(verdict, "readiness"), "p2");
     assert_eq!(
-        verdict.field("substitutions"),
+        field(verdict, "substitutions"),
         "[]",
         "nothing in an easy week is refused at maintain"
     );
-    assert_eq!(verdict.field("hard_sessions"), "0");
+    assert_eq!(field(verdict, "hard_sessions"), "0");
     Ok(())
 }
 
@@ -318,7 +246,7 @@ async fn a_day_with_no_template_is_reported_unclassified_never_substituted() -> 
     let week = week_start();
     let prose = day_in(&week, 2);
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     save(
         &executor,
         user_id,
@@ -328,18 +256,15 @@ async fn a_day_with_no_template_is_reported_unclassified_never_substituted() -> 
     .await?;
     drop(guard);
 
-    let captured = events
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
+    let captured = events.events();
     let verdict = readiness_of(&captured, &week);
     assert_eq!(
-        verdict.field("unclassified_days"),
+        field(verdict, "unclassified_days"),
         "2",
         "neither day resolves a template, so neither is guessed at"
     );
     assert_eq!(
-        verdict.field("substitutions"),
+        field(verdict, "substitutions"),
         "[]",
         "swapping a session nobody could classify would be guessing at the week"
     );
@@ -356,7 +281,7 @@ async fn a_week_already_run_is_not_read_at_all() -> Result<()> {
         .format("%Y-%m-%d")
         .to_string();
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     save(
         &executor,
         user_id,
@@ -366,14 +291,11 @@ async fn a_week_already_run_is_not_read_at_all() -> Result<()> {
     .await?;
     drop(guard);
 
-    let captured = events
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
+    let captured = events.events();
     assert!(
         !captured
             .iter()
-            .any(|e| e.message == "week readiness assessed"),
+            .any(|e| e.message() == Some("week readiness assessed")),
         "a week with no changeable day left must not be read"
     );
     Ok(())
@@ -537,7 +459,7 @@ async fn a_template_above_the_level_is_answered_with_an_easier_template_of_its_p
     // Maintain opens threshold under the Norwegian singles ladder, but the
     // double threshold day stacks two quality blocks and floors at build.
     // The purpose is open; only the template is above the level.
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     save(
         &executor,
         user_id,
@@ -554,15 +476,12 @@ async fn a_template_above_the_level_is_answered_with_an_easier_template_of_its_p
     .await?;
     drop(guard);
 
-    let captured = events
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
+    let captured = events.events();
     let logged = readiness_of(&captured, &week);
     assert!(
-        logged.field("reasons").contains("template_above_level"),
+        field(logged, "reasons").contains("template_above_level"),
         "the log names why the day moved: {}",
-        logged.field("reasons")
+        field(logged, "reasons")
     );
 
     let state = plan_state(&executor, user_id, &tenant_id).await?;

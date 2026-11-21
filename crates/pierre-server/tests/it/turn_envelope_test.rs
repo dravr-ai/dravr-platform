@@ -25,8 +25,6 @@
 
 use pierre_core::transport::TransportPolicy;
 use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
 
 use pierre_chat_pipeline::{
     build_envelope, ProseFormat, QuotaLevel, QuotaState, QuotaWarningState, ReconnectPrompt,
@@ -41,13 +39,7 @@ use pierre_mcp_server::services::messaging_ingress::identity_leak_notify::{
     emit_identity_leak, LeakContext,
 };
 use pierre_mcp_server::services::messaging_ingress::surface::messaging_surface_request;
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use pierre_test_support::log_capture::{self, CapturedEvents};
 
 // ============================================================================
 // Fixtures
@@ -575,60 +567,18 @@ struct NotifyEvent {
     fields: HashMap<String, String>,
 }
 
-#[derive(Clone, Default)]
-struct NotifyCapture {
-    events: Arc<Mutex<Vec<NotifyEvent>>>,
-}
-
-#[derive(Debug, Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-
-    fn record_u64(&mut self, field: &Field, value: u64) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-}
-
-impl<S> Layer<S> for NotifyCapture
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        if event.metadata().target() != "notify" {
-            return;
-        }
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        let name = visitor
-            .fields
-            .get("event")
-            .cloned()
-            .unwrap_or_else(|| panic!("notify event with no `event` field: {visitor:?}"));
-        self.events.lock().unwrap().push(NotifyEvent {
-            event: name,
-            fields: visitor.fields,
-        });
-    }
-}
-
-fn capture_notify() -> (Arc<Mutex<Vec<NotifyEvent>>>, DefaultGuard) {
-    let capture = NotifyCapture::default();
-    let events = Arc::clone(&capture.events);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
-    (events, guard)
+/// The `notify` events captured so far, each required to name its `event`.
+fn notify_events(events: &CapturedEvents) -> Vec<NotifyEvent> {
+    log_capture::drain(events)
+        .into_iter()
+        .map(|fields| {
+            let event = fields
+                .get("event")
+                .cloned()
+                .unwrap_or_else(|| panic!("notify event with no `event` field: {fields:?}"));
+            NotifyEvent { event, fields }
+        })
+        .collect()
 }
 
 fn leak_context() -> LeakContext<'static> {
@@ -655,10 +605,10 @@ fn a_withheld_persona_break_still_fires_the_notify_event() {
     let turn_id = state.turn_id.to_string();
     let envelope = build_envelope(&telegram_profile(), state);
 
-    let (events, _guard) = capture_notify();
+    let (events, _guard) = log_capture::capture_notify();
     emit_identity_leak(&envelope, &leak_context());
 
-    let captured = events.lock().unwrap();
+    let captured = notify_events(&events);
     let leak: Vec<&NotifyEvent> = captured
         .iter()
         .filter(|e| e.event == "messaging.identity_leak")
@@ -705,11 +655,11 @@ fn a_withheld_persona_break_still_fires_the_notify_event() {
 fn a_clean_turn_fires_no_persona_break_alert() {
     let envelope = build_envelope(&telegram_profile(), turn_state());
 
-    let (events, _guard) = capture_notify();
+    let (events, _guard) = log_capture::capture_notify();
     emit_identity_leak(&envelope, &leak_context());
 
     assert!(
-        events.lock().unwrap().is_empty(),
+        notify_events(&events).is_empty(),
         "a turn with no persona break must emit no alert"
     );
 }

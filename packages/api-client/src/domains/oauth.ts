@@ -6,6 +6,7 @@
 
 import type { AxiosInstance, AxiosResponse, AxiosRequestConfig } from 'axios';
 import type {
+  AiConsentStateResponse,
   ExtendedProviderStatus,
   ProvidersStatusResponse,
   ApiMetadata,
@@ -221,6 +222,16 @@ export function createOAuthApi(axios: AxiosInstance) {
      */
     async disconnectProvider(provider: string): Promise<void> {
       await axios.delete(ENDPOINTS.OAUTH.DISCONNECT(provider));
+    },
+
+    /**
+     * The account's answer to the consent to AI use of `provider`'s data, or
+     * of a consent class such as `sensitive_t2` (which has no card): `true`
+     * given, `false` not given, `null` when no such consent is asked.
+     */
+    async getAiConsent(provider: string): Promise<boolean | null> {
+      const response = await axios.get<AiConsentStateResponse>(ENDPOINTS.PROVIDERS.AI_CONSENT(provider));
+      return response.data.ai_consent;
     },
 
     /**

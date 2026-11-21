@@ -74,7 +74,7 @@ use uuid::Uuid;
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// The webhook secret the provider reads at construction.
+/// The webhook secret the configuration holds.
 const SECRET: &str = "whoop-webhook-secret-for-tests";
 
 /// The WHOOP user id the seeded token carries and the events name.
@@ -302,9 +302,9 @@ impl SyncProvider for MockWhoop {
 /// A server context whose sync orchestrator runs the mock WHOOP provider over
 /// the platform's real stores.
 ///
-/// The secret guard must be alive before this call: both the real provider
-/// (built inside `ServerContext::new`) and the mock read the secret at
-/// construction, the way production does.
+/// The secret guard must be alive before this call: the configuration's
+/// webhook secrets are read from it here, as the server reads them at boot,
+/// and the mock reads it at construction.
 async fn context_with_mock_whoop() -> (Arc<ServerContext>, Arc<MockWhoop>) {
     // The webhook secrets are read from the environment the test set, the way
     // the server reads them once at boot.
@@ -502,20 +502,34 @@ async fn sleep_rows(resources: &ServerContext, user_id: Uuid, tenant_id: &Tenant
         .len()
 }
 
+/// The orchestrator of a context built on `whoop_secret` as the
+/// configuration's `webhooks.whoop_secret`.
+async fn orchestrator_keyed_with(whoop_secret: Option<&str>) -> Arc<SyncOrchestrator> {
+    let mut config = common::test_server_config();
+    config.webhooks.whoop_secret = whoop_secret.map(SecretString::from);
+    let resources = common::create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
+    resources
+        .fitness
+        .sync_orchestrator
+        .clone()
+        .expect("the server builds a sync orchestrator")
+}
+
 /// The server's own orchestrator, with the real enforme WHOOP provider,
 /// hands a correctly signed body back as an event naming the WHOOP user —
 /// the contract the route acts on — and refuses a forged signature before
 /// parsing anything.
+///
+/// The provider is keyed with the configuration's `webhooks.whoop_secret`,
+/// the one the route checks, never with what the environment holds when the
+/// context is built: a body signed under the variable's value is refused.
 #[tokio::test]
 #[serial]
 async fn real_whoop_provider_returns_the_validated_event_and_refuses_a_forgery() {
-    let _secret = EnvGuard::set(&[("WHOOP_WEBHOOK_SECRET", SECRET.to_owned())]);
-    let resources = common::create_test_server_resources().await.unwrap();
-    let orchestrator = resources
-        .fitness
-        .sync_orchestrator
-        .clone()
-        .expect("the server builds a sync orchestrator");
+    let _secret = EnvGuard::set(&[("WHOOP_WEBHOOK_SECRET", "env-only-secret".to_owned())]);
+    let orchestrator = orchestrator_keyed_with(Some(SECRET)).await;
     assert!(
         orchestrator.provider_names().contains(&"whoop"),
         "premise: the real WHOOP provider is registered"
@@ -538,7 +552,7 @@ async fn real_whoop_provider_returns_the_validated_event_and_refuses_a_forgery()
     );
     assert_eq!(events[0].resource_id, "9d3c1b2a");
 
-    let forged = signed_headers(&sign("another-secret", &body));
+    let forged = signed_headers(&sign("env-only-secret", &body));
     let err = orchestrator
         .handle_webhook("whoop", &forged, &body)
         .await
@@ -577,6 +591,27 @@ async fn real_whoop_provider_returns_the_validated_event_and_refuses_a_forgery()
         .handle_webhook("whoop", &replayed, &body)
         .await
         .is_err());
+}
+
+/// A configuration that holds no WHOOP secret builds a WHOOP provider that
+/// verifies no event, whatever the environment exports: the secret is read
+/// once, into the configuration, and the provider is handed that.
+#[tokio::test]
+#[serial]
+async fn no_configured_secret_verifies_no_event_whatever_the_environment_holds() {
+    let _secret = EnvGuard::set(&[("WHOOP_WEBHOOK_SECRET", SECRET.to_owned())]);
+    let orchestrator = orchestrator_keyed_with(None).await;
+    let body = whoop_payload("workout.updated", WHOOP_USER_ID, "9d3c1b2a");
+    let headers = signed_headers(&sign(SECRET, &body));
+    let err = orchestrator
+        .handle_webhook("whoop", &headers, &body)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, EnformeError::ConfigurationError { .. }),
+        "with no configured secret the provider has no key to verify with, \
+         rather than one taken from the environment: {err:?}"
+    );
 }
 
 /// A signed event for a linked user runs that user's sync: the mock fetch is

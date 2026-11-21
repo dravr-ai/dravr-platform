@@ -302,6 +302,32 @@ export const AI_CONSENT_KEYS = {
   failed: 'providers.aiConsent.failed',
 } as const;
 
+/**
+ * The consent class of the athlete's health records (lab results, clinical
+ * records, blood glucose): a consent to AI use with no provider card, read
+ * and changed through the same `ai-consent` endpoints as a provider's.
+ */
+export const SENSITIVE_T2_CONSENT = 'sensitive_t2';
+
+/**
+ * The consent class of the athlete's intimate health records (cycle
+ * tracking, mental and reproductive health). It also lets AI apps the athlete
+ * connects (Claude, ChatGPT) read their notes and their agent's memory, which
+ * Dravr's own agent and the human coach read either way (carnet#1544).
+ */
+export const SENSITIVE_T3_CONSENT = 'sensitive_t3';
+
+/** The privacy settings' Sensitive health records block, shown to every account. */
+export const SENSITIVE_CONSENT_KEYS = {
+  title: 'providers.aiConsent.sensitive.title',
+  blurb: 'providers.aiConsent.sensitive.blurb',
+  t2Label: 'providers.aiConsent.sensitive.t2Label',
+  t3Label: 'providers.aiConsent.sensitive.t3Label',
+  t3Hint: 'providers.aiConsent.sensitive.t3Hint',
+  allowed: 'providers.aiConsent.sensitive.allowed',
+  withdrawn: 'providers.aiConsent.sensitive.withdrawn',
+} as const;
+
 /** The fields of a provider card the AI-consent controls read. */
 export interface AiConsentCard {
   provider: string;

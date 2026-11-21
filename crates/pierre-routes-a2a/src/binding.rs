@@ -248,6 +248,21 @@ fn jsonrpc_response(response: A2AResponse) -> Response {
     with_retry_after((status, Json(response)).into_response(), retry_after)
 }
 
+/// Read a `POST /a2a/jsonrpc` body into a request, or the error envelope to
+/// answer with. A body that is not UTF-8 is a parse error (-32700), like
+/// text that is not JSON; the rest is [`A2ARequest::parse`].
+fn parse_jsonrpc_body(body: &[u8]) -> Result<A2ARequest, Box<A2AResponse>> {
+    str::from_utf8(body)
+        .map_err(|e| {
+            Box::new(A2AResponse::error(
+                None,
+                -32700,
+                format!("Parse error: body is not UTF-8: {e}"),
+            ))
+        })
+        .and_then(A2ARequest::parse)
+}
+
 /// Handle the A2A JSON-RPC transport endpoint (`POST /a2a/jsonrpc`).
 ///
 /// Dispatches non-streaming methods to [`A2AServer::handle_request`] and
@@ -265,16 +280,7 @@ pub(crate) async fn handle_jsonrpc<C: MiddlewareCtx + A2ACtx>(
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> Response {
-    let parsed = str::from_utf8(&body)
-        .map_err(|e| {
-            Box::new(A2AResponse::error(
-                None,
-                -32700,
-                format!("Parse error: body is not UTF-8: {e}"),
-            ))
-        })
-        .and_then(A2ARequest::parse);
-    let mut request = match parsed {
+    let mut request = match parse_jsonrpc_body(&body) {
         Ok(request) => request,
         Err(response) => return (StatusCode::OK, Json(*response)).into_response(),
     };
@@ -697,4 +703,48 @@ pub(crate) async fn rest_extended_card<C: MiddlewareCtx + A2ACtx>(
         return *response;
     }
     rest_dispatch(&state, &headers, "GetExtendedAgentCard", Value::Null).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_jsonrpc_body;
+
+    #[test]
+    fn a_body_that_is_not_utf8_is_a_parse_error_with_a_null_id() {
+        let refused = parse_jsonrpc_body(&[0xff, 0xfe, b'{'])
+            .expect_err("a non-UTF-8 body must not parse into a request");
+        let error = refused
+            .error
+            .as_ref()
+            .expect("a refused body is answered with an error envelope");
+        assert_eq!(
+            error.code, -32700,
+            "a body that is not UTF-8 is a JSON-RPC parse error (binding bug otherwise)"
+        );
+        assert!(
+            error.message.contains("not UTF-8"),
+            "the parse error names the encoding failure: {}",
+            error.message
+        );
+        assert!(
+            refused.id.is_none(),
+            "an unreadable body has no id to answer with (binding bug otherwise)"
+        );
+    }
+
+    #[test]
+    fn an_auth_member_in_the_body_never_becomes_the_credential() {
+        let request = parse_jsonrpc_body(
+            br#"{"jsonrpc":"2.0","method":"GetTask","id":3,"auth":"body-token"}"#,
+        )
+        .expect("a well-formed request parses");
+        assert_eq!(
+            request.method, "GetTask",
+            "the parsed request keeps its method (parser bug otherwise)"
+        );
+        assert!(
+            request.auth_token.is_none(),
+            "a client-written `auth` member must never fill the credential (binding bug otherwise)"
+        );
+    }
 }

@@ -68,18 +68,13 @@ impl TrustLabels {
         if served.is_empty() {
             return None;
         }
-        let declared = data.map_or_default(ToolData::streams);
-        let tier = declared
-            .iter()
-            .map(|stream| stream.tier())
-            .max()
-            .unwrap_or_else(|| {
-                warn!(
-                    tool = tool_name,
-                    "a tool that declares no stream served an item; its result is labelled T3"
-                );
-                Tier::T3
-            });
+        let tier = data.and_then(ToolData::tier).unwrap_or_else(|| {
+            warn!(
+                tool = tool_name,
+                "a tool that declares no stream served an item; its result is labelled T3"
+            );
+            Tier::T3
+        });
         let untrusted = data.is_some_and(ToolData::athlete_text)
             || served.contains(&SourceClass::ThirdPartyApp)
             || served.contains(&SourceClass::AgentWritten);

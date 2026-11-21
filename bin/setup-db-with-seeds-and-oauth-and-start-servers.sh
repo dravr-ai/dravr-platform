@@ -358,7 +358,6 @@ point_providers_at_fixture() {
     export PIERRE_GARMIN_AUTH_URL="http://127.0.0.1:$FIXTURE_PORT/oauth2Confirm"
     export PIERRE_GARMIN_TOKEN_URL="http://127.0.0.1:$FIXTURE_PORT/di-oauth2-service/oauth/token"
     export PIERRE_GARMIN_REVOKE_URL="http://127.0.0.1:$FIXTURE_PORT/user/registration"
-    export GARMIN_API_BASE="http://127.0.0.1:$FIXTURE_PORT/wellness-api/rest"
 }
 point_providers_at_fixture
 

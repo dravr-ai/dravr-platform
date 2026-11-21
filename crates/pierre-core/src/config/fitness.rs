@@ -70,12 +70,14 @@ pub struct PersonalRecordConfig {
 /// Weather API configuration
 ///
 /// The server reads the one its deployment configuration carries, loaded at
-/// startup, and never the one of a stored fitness configuration.
+/// startup, and never the one of a stored fitness configuration. Which
+/// historical vendor is asked is `WEATHER_PROVIDER`'s choice, read by
+/// dravr-meteo. A stored document written before `provider`,
+/// `cache_duration_hours`, `request_timeout_seconds` and
+/// `rate_limit_requests_per_minute` were dropped still reads: serde skips
+/// keys this type does not name.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WeatherApiConfig {
-    /// Weather provider name (e.g., "openweathermap"). Unread: the
-    /// historical vendor is `WEATHER_PROVIDER`'s choice.
-    pub provider: String,
     /// Where the weather vendors are asked. At
     /// [`Self::DEFAULT_BASE_URL`], each vendor on its own host; any other
     /// value is the single origin of the archive, the forecast, the
@@ -85,12 +87,6 @@ pub struct WeatherApiConfig {
     /// left out (`FITNESS_WEATHER_ENABLED`). The tools an athlete asks for
     /// weather with run either way.
     pub enabled: bool,
-    /// How long to cache weather data (hours)
-    pub cache_duration_hours: u64,
-    /// Request timeout (seconds)
-    pub request_timeout_seconds: u64,
-    /// Rate limit for API requests (requests per minute)
-    pub rate_limit_requests_per_minute: u64,
 }
 
 impl FitnessConfig {
@@ -208,18 +204,6 @@ impl FitnessConfig {
     fn apply_weather_api_overrides(weather_api: &mut Option<WeatherApiConfig>) {
         if let Some(ref mut api_config) = weather_api {
             Self::parse_env_bool("FITNESS_WEATHER_ENABLED", &mut api_config.enabled);
-            Self::parse_env_u64(
-                "FITNESS_WEATHER_CACHE_DURATION_HOURS",
-                &mut api_config.cache_duration_hours,
-            );
-            Self::parse_env_u64(
-                "FITNESS_WEATHER_REQUEST_TIMEOUT_SECONDS",
-                &mut api_config.request_timeout_seconds,
-            );
-            Self::parse_env_u64(
-                "FITNESS_WEATHER_RATE_LIMIT_PER_MINUTE",
-                &mut api_config.rate_limit_requests_per_minute,
-            );
         }
     }
 
@@ -236,15 +220,6 @@ impl FitnessConfig {
     fn parse_env_bool(env_var: &str, target: &mut bool) {
         if let Ok(value) = env::var(env_var) {
             if let Ok(parsed) = value.parse::<bool>() {
-                *target = parsed;
-            }
-        }
-    }
-
-    /// Parse environment variable as u64 and update target if valid
-    fn parse_env_u64(env_var: &str, target: &mut u64) {
-        if let Ok(value) = env::var(env_var) {
-            if let Ok(parsed) = value.parse::<u64>() {
                 *target = parsed;
             }
         }
@@ -371,21 +346,13 @@ impl WeatherApiConfig {
     /// own host; any other value is the single origin every weather call
     /// goes to.
     pub const DEFAULT_BASE_URL: &'static str = "https://api.openweathermap.org";
-
-    /// The weather API request rate a configuration nobody changed allows,
-    /// in requests per minute.
-    const DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE: u64 = 60;
 }
 
 impl Default for WeatherApiConfig {
     fn default() -> Self {
         Self {
-            provider: "openweathermap".into(),
             base_url: Self::DEFAULT_BASE_URL.into(),
             enabled: true,
-            cache_duration_hours: 24,
-            request_timeout_seconds: 10,
-            rate_limit_requests_per_minute: Self::DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE,
         }
     }
 }
@@ -410,3 +377,32 @@ pub const DETAIL_WINDOW_DAYS: i64 = 14;
 /// detail read is cheap (an HTTP GET). Details are stored, so a recent window
 /// past it is read over the turns that follow.
 pub const EXPLICIT_DETAIL_CAP: usize = 30;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stored_document_naming_the_dropped_weather_keys_still_reads() -> serde_json::Result<()> {
+        let stored = serde_json::json!({
+            "provider": "openweathermap",
+            "base_url": WeatherApiConfig::DEFAULT_BASE_URL,
+            "enabled": false,
+            "cache_duration_hours": 24,
+            "request_timeout_seconds": 10,
+            "rate_limit_requests_per_minute": 60,
+        });
+        // The dropped keys are skipped, not refused.
+        let read: WeatherApiConfig = serde_json::from_value(stored)?;
+        assert_eq!(
+            read.base_url,
+            WeatherApiConfig::DEFAULT_BASE_URL,
+            "bug: the stored base URL was not read"
+        );
+        assert!(
+            !read.enabled,
+            "bug: the stored backfill switch was not read"
+        );
+        Ok(())
+    }
+}

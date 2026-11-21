@@ -143,7 +143,7 @@ async fn strava_oauth_with_stamped_last_sync_but_cold_cache_is_stale() {
     // sync in it, and its freshness must come from the activity cache.
     let storage = Arc::new(PierreSyncStorage::new(repos));
     let orchestrator = storage
-        .build_orchestrator(None, common::REFUSED_WELLNESS)
+        .build_orchestrator(None, common::REFUSED_WELLNESS, None)
         .unwrap();
     assert!(
         !orchestrator.provider_names().contains(&"strava"),
@@ -222,7 +222,7 @@ async fn strava_oauth_with_fresh_activity_cache_is_fresh() {
 
     let storage = Arc::new(PierreSyncStorage::new(repos));
     let orchestrator = storage
-        .build_orchestrator(None, common::REFUSED_WELLNESS)
+        .build_orchestrator(None, common::REFUSED_WELLNESS, None)
         .unwrap();
 
     let service = RefreshService::new(

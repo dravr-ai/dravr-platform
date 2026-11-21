@@ -27,7 +27,7 @@ use axum::Router;
 use dravr_tronc::iam::GoogleKeySet;
 use helpers::axum_test::AxumTestRequest;
 use helpers::google_token::{FirebaseTokenClaims, TestSigner};
-use helpers::notify_capture::{capture_logs_and_spans, capture_notify, only, recorded};
+use helpers::notify_capture::{capture_logs_and_spans, capture_notify, only};
 use pierre_auth::firebase::FirebaseAuth;
 use pierre_config::environment::FirebaseConfig;
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
@@ -135,27 +135,27 @@ async fn a_web_sign_up_records_its_personal_tenant_and_only_tag_shaped_campaign_
 
     let tenant = personal_tenant(&resources, user_id).await;
     assert_eq!(
-        recorded(&spans, "tenant_id"),
+        spans.recorded("tenant_id"),
         vec![tenant.to_string()],
         "the sign-up span must carry the personal tenant user.signed_up keys on"
     );
     assert_eq!(
-        recorded(&spans, "user_id"),
+        spans.recorded("user_id"),
         vec![user_id.to_string()],
         "the sign-up span names the new account"
     );
     assert_eq!(
-        recorded(&spans, "utm_source"),
+        spans.recorded("utm_source"),
         vec!["newsletter".to_owned()],
         "a tag-shaped campaign value is recorded, trimmed"
     );
     assert_eq!(
-        recorded(&spans, "utm_campaign"),
+        spans.recorded("utm_campaign"),
         vec!["fall-2026".to_owned()],
         "a tag-shaped campaign value is recorded"
     );
     assert!(
-        recorded(&spans, "utm_medium").is_empty(),
+        spans.recorded("utm_medium").is_empty(),
         "free text in a campaign field never reaches the analytics sink"
     );
 }
@@ -209,7 +209,7 @@ async fn a_web_sign_up_from_a_dravr_ai_button_records_the_button_and_every_utm_t
     // a space, so it is free text and is dropped rather than recorded.
     for (field, expected) in BUTTON_AND_CAMPAIGN {
         assert_eq!(
-            recorded(&spans, field),
+            spans.recorded(field),
             vec![expected.to_owned()],
             "the sign-up span must carry `{field}` for user.signed_up, and only when tag-shaped"
         );
@@ -251,7 +251,7 @@ async fn a_google_sign_up_from_a_dravr_ai_button_records_the_button_and_every_ut
 
     for (field, expected) in BUTTON_AND_CAMPAIGN {
         assert_eq!(
-            recorded(&spans, field),
+            spans.recorded(field),
             vec![expected.to_owned()],
             "the Firebase login span must carry `{field}` for user.signed_up"
         );

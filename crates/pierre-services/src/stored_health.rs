@@ -77,10 +77,13 @@ mod anchors;
 mod attribution;
 /// Which rows a merged read takes part in, and what of each it keeps.
 mod read_scope;
+/// What of a stored row the tier gate keeps from the reader.
+mod sensitive;
 
 use self::anchors::newest;
 pub use self::anchors::{AnchorMeasurements, Anchors, Measured};
 pub use self::read_scope::{as_stored, RowProjection, SourceFilter};
+use self::sensitive::{withhold_clinical_readings, withhold_daily_notes};
 
 /// Stored health records as a reader may see them, with the attribution
 /// they owe.
@@ -246,10 +249,11 @@ pub async fn merged_recovery(
     filter: SourceFilter<'_>,
     project: RowProjection<StoredRecoveryMetrics>,
 ) -> AppResult<StoredHealth<Merged<StoredRecoveryMetrics>>> {
-    let rows = repos
+    let mut rows = repos
         .recovery
         .get_recovery_metrics(user_id, tenant, start, end)
         .await?;
+    withhold_daily_notes(&mut rows);
     merged(
         repos,
         terms,
@@ -259,18 +263,6 @@ pub async fn merged_recovery(
         merge_recovery_metrics,
     )
     .await
-}
-
-/// Blood pressure and glucose are clinical readings: an external transport
-/// reads the rest of a body record without them, whichever source wrote them.
-fn withhold_clinical_readings(rows: &mut [StoredHealthMetrics]) {
-    if ai_scope::serving_external() {
-        for row in rows {
-            row.systolic_bp = None;
-            row.diastolic_bp = None;
-            row.blood_glucose = None;
-        }
-    }
 }
 
 /// The athlete's body readings inside the window, one per date across the

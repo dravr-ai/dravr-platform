@@ -78,7 +78,7 @@ struct World {
 impl World {
     async fn new(reported_sex: Option<&'static str>) -> Self {
         let base = create_test_server_resources().await.unwrap();
-        let mut config = offline_provider_config(INTERVALS_ICU);
+        let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
         config.api_base_url = spawn_intervals(reported_sex).await;
         let mut registry = offline_provider_registry();
         registry.set_default_config(INTERVALS_ICU, config);

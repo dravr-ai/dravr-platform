@@ -34,9 +34,6 @@ use crate::common;
 use crate::helpers;
 
 use secrecy::ExposeSecret;
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::thread;
 
@@ -56,13 +53,10 @@ use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTo
 use pierre_routes_auth::{
     friendly_login_challenge_message, require_remote_flow, AuthRoutes, LOGIN_CHALLENGE_REASON,
 };
+use pierre_test_support::log_capture::{self, CapturedLog};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio::runtime::Builder;
-use tracing::field::{Field, Visit};
-use tracing::span::{Attributes, Id, Record};
-use tracing::subscriber::{set_default, DefaultGuard};
-use tracing::{Event, Metadata, Subscriber};
 use uuid::Uuid;
 
 /// Logins whose email starts with this are stopped at a challenge.
@@ -458,95 +452,25 @@ fn session_blob(session_id: &str, expires_at: Option<chrono::DateTime<Utc>>) -> 
 
 // ── Capture of what the platform logs ──
 
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    level: tracing::Level,
-    fields: HashMap<String, String>,
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-}
-
-/// Records every event and keeps no span state.
-///
-/// A login here runs through sqlx, whose SQLite worker threads drop spans
-/// created on the test thread. Under a `tracing_subscriber::Registry`
-/// installed with `set_default`, that drop can reach a registry that no
-/// longer holds the span and panic the worker ("tried to drop a ref to
-/// Id(1), but no such span exists"), failing the login before the handler
-/// logs. Handing out span ids without tracking them leaves nothing to drop.
-#[derive(Default)]
-struct CaptureSubscriber {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-    next_span: AtomicU64,
-}
-
-impl Subscriber for CaptureSubscriber {
-    fn enabled(&self, _metadata: &Metadata<'_>) -> bool {
-        true
-    }
-
-    fn new_span(&self, _span: &Attributes<'_>) -> Id {
-        Id::from_u64(self.next_span.fetch_add(1, Ordering::Relaxed) + 1)
-    }
-
-    fn record(&self, _span: &Id, _values: &Record<'_>) {}
-
-    fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
-
-    fn event(&self, event: &Event<'_>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        self.events.lock().unwrap().push(CapturedEvent {
-            level: *event.metadata().level(),
-            fields: visitor.fields,
-        });
-    }
-
-    fn enter(&self, _span: &Id) {}
-
-    fn exit(&self, _span: &Id) {}
-}
-
-fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let capture = CaptureSubscriber::default();
-    let events = Arc::clone(&capture.events);
-    let guard = set_default(capture);
-    (events, guard)
-}
-
 /// Whether the capture saw the handler's own challenge `WARN` for `stage`,
 /// which proves it was listening while the handler ran.
-fn saw_challenge_warning(events: &Arc<Mutex<Vec<CapturedEvent>>>, stage: &str) -> bool {
-    events.lock().unwrap().iter().any(|e| {
-        e.level == tracing::Level::WARN && e.fields.get("stage").map(String::as_str) == Some(stage)
-    })
+fn saw_challenge_warning(events: &CapturedLog, stage: &str) -> bool {
+    events
+        .events()
+        .iter()
+        .any(|e| e.level == tracing::Level::WARN && e.field("stage") == Some(stage))
 }
 
 /// The `ERROR` events and `sync.failed` business events among `events`.
-fn system_failure_signals(events: &Arc<Mutex<Vec<CapturedEvent>>>) -> (usize, usize) {
-    let events = events.lock().unwrap();
+fn system_failure_signals(events: &CapturedLog) -> (usize, usize) {
+    let events = events.events();
     let errors = events
         .iter()
         .filter(|e| e.level == tracing::Level::ERROR)
         .count();
     let sync_failed = events
         .iter()
-        .filter(|e| e.fields.get("event").map(String::as_str) == Some("sync.failed"))
+        .filter(|e| e.field("event") == Some("sync.failed"))
         .count();
     (errors, sync_failed)
 }
@@ -579,7 +503,7 @@ fn assert_is_the_challenge_refusal(status: u16, body: &Value) {
 /// no flow, and emits neither the operator alert nor `sync.failed`.
 async fn a_challenge_is_the_athletes_to_retry(athlete: &Athlete) {
     let from = email(CHALLENGED);
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let (status, body) = athlete.login(&from).await;
     let (errors, sync_failed) = system_failure_signals(&events);
     let warned = saw_challenge_warning(&events, "credential_login");
@@ -667,7 +591,7 @@ async fn a_challenge_at_the_code_step_ends_the_sign_in() {
     assert_eq!(status, 200, "{login}");
     assert_eq!(login, json!({ "status": "otp_required" }));
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let (status, body) = athlete
         .post(
             "/api/providers/sciotte/submit-otp",

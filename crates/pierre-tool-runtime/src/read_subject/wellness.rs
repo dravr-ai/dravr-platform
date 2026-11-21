@@ -79,10 +79,19 @@ pub(crate) enum GrantNamed {
     Readiness,
     /// The notes they write in their source's daily log.
     DailyNotes,
+    /// Their health records (owl tier T2: labs, clinical records,
+    /// self-measured glucose). Not an entry of the wellness grant, so not in
+    /// [`Self::ALL`] nor in [`wellness_data`]: its own grant,
+    /// `coach_sensitive_t2_read`, which the athlete gives beside the wellness
+    /// one (`delegation.sensitiveT2Label`), names it while it stands and
+    /// has not lapsed. It never widens a wellness grant already given. Only
+    /// the stored-record projection (`tools-data`) names it.
+    #[cfg(feature = "tools-data")]
+    HealthRecords,
 }
 
 impl GrantNamed {
-    /// Every entry, in the consent's order.
+    /// Every entry of the wellness grant, in the consent's order.
     const ALL: [Self; 6] = [
         Self::Sleep,
         Self::Hrv,
@@ -101,6 +110,8 @@ impl GrantNamed {
             Self::Weight => "weight",
             Self::Readiness => "readiness",
             Self::DailyNotes => "daily notes",
+            #[cfg(feature = "tools-data")]
+            Self::HealthRecords => "health records",
         }
     }
 }

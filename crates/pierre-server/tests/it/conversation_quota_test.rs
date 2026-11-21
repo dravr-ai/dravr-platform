@@ -902,8 +902,7 @@ async fn a_command_refused_at_the_cap_is_recorded_as_a_failed_command() {
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
 
     let executed: Vec<_> = events
-        .lock()
-        .unwrap()
+        .events()
         .iter()
         .filter(|e| e.event == "messaging.command_executed")
         .cloned()

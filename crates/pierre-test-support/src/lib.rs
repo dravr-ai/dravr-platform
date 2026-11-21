@@ -21,6 +21,11 @@
 //!   their wellness.
 //! - `group_tier` (feature `groups`) — a plan whose tier includes no group
 //!   coaching, which no shipping tier is.
+//! - [`log_capture`] — the one way a test installs a tracing subscriber and
+//!   reads back what the code under test logged, without losing a line to
+//!   another test's cached log-site interest.
+//! - `providers` (feature `providers`) — the provider registry a test builds,
+//!   with every endpoint the server calls at the refused origin.
 //! - [`server`] — `User` fixtures in a consistent default shape.
 //! - `sse` (feature `sse`) — the frames a client reads off a streaming chat
 //!   turn's body.
@@ -52,6 +57,12 @@
 //!
 //! `sse` builds the SSE frame reader, and with it an HTTP client; only a
 //! consumer whose suites read a streaming turn turns it on.
+//!
+//! `providers` builds the offline provider registry, and with it the
+//! providers; a consumer whose tests build a `ProviderRegistry` turns it on.
+//! `pierre-providers` lists this crate as a dev-dependency, so, as with
+//! `pierre-database`, only its integration tests can use the registry: its
+//! in-module unit tests build a different `ProviderRegistry` type.
 
 /// Deleting an account the way production does.
 pub mod account;
@@ -72,6 +83,9 @@ pub mod garmin;
 pub mod group_tier;
 /// Capture one tracing target's events, to assert the lines code logs.
 pub mod log_capture;
+/// The provider registry a test builds, every server-called endpoint refused.
+#[cfg(feature = "providers")]
+pub mod providers;
 /// `User` fixtures in a consistent default shape.
 pub mod server;
 /// The frames a client reads off a streaming chat turn's SSE body.

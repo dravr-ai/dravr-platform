@@ -14,11 +14,43 @@ use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider};
 use pierre_core::http_client::api_client;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::LazyLock;
+use std::thread;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
-use tracing::subscriber::set_default;
+use tracing::subscriber::{self, DefaultGuard, NoSubscriber};
+use tracing::{Dispatch, Subscriber};
 use tracing_subscriber::layer::SubscriberExt;
+
+/// Two inert dispatchers, registered once and never dropped.
+///
+/// The local copy of `pierre_test_support::log_capture::prime`:
+/// `pierre-test-support` depends on `pierre-core`, so listing it here would
+/// be a dev-dependency cycle, which this crate's dev-dependencies keep out:
+/// Cargo links an integration test against the one `pierre-core` library, so
+/// it would build, but every `pierre-core` test build would then compile
+/// `pierre-test-support` for one capture. While at most one dispatcher is registered,
+/// `tracing-core` 0.1.36 decides a log site's interest from the registering
+/// thread's own dispatcher without its lock, so another test reaching the
+/// client middleware's span with no subscriber caches it as never for every
+/// thread, and the CLIENT span this file asserts on is never opened. The
+/// pause lets a registration that began before the pair finish first.
+static INERT_DISPATCHERS: LazyLock<[Dispatch; 2]> = LazyLock::new(|| {
+    let inert = [
+        Dispatch::new(NoSubscriber::default()),
+        Dispatch::new(NoSubscriber::default()),
+    ];
+    thread::sleep(Duration::from_millis(50));
+    inert
+});
+
+/// `subscriber` as this thread's default, after the inert pair registers.
+fn install<S: Subscriber + Send + Sync + 'static>(subscriber: S) -> DefaultGuard {
+    LazyLock::force(&INERT_DISPATCHERS);
+    subscriber::set_default(subscriber)
+}
 
 /// Minimal one-shot HTTP server: accepts a single connection, captures the
 /// request headers, and answers `200 OK`. Returns the bound address and a
@@ -79,7 +111,7 @@ async fn test_traceparent_injected_when_pipeline_active() {
     let subscriber = tracing_subscriber::registry().with(
         tracing_opentelemetry::layer().with_tracer(provider.tracer("trace-propagation-test")),
     );
-    let _guard = set_default(subscriber);
+    let _guard = install(subscriber);
 
     let (addr, rx) = spawn_header_capture_server().await;
     let response = api_client()
@@ -123,7 +155,7 @@ async fn test_traceparent_injected_when_pipeline_active() {
 #[tokio::test]
 async fn test_no_traceparent_when_pipeline_inactive() {
     global::set_text_map_propagator(TraceContextPropagator::new());
-    let _guard = set_default(tracing_subscriber::registry());
+    let _guard = install(tracing_subscriber::registry());
 
     let (addr, rx) = spawn_header_capture_server().await;
     let response = api_client()

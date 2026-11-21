@@ -84,9 +84,9 @@ mod pipeline {
     use uuid::Uuid;
 
     use crate::mcp::resources::ServerContext;
+    use crate::services::conversation_title::fresh_title_fallback;
     use crate::services::conversation_turn_lock::{acquire_turn_lock, evict_idle_turn_lock};
     use crate::services::failed_turn_notice::{close_failed_turn, TurnThread};
-    use crate::services::messaging_ingress::fresh_title_fallback;
     use crate::services::messaging_ingress::turn_guard::{
         run_bounded, run_guarded, TurnInterruption, TurnOutcome,
     };

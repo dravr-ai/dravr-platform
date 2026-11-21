@@ -22,9 +22,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{header, Request as HttpRequest, StatusCode};
@@ -33,93 +31,9 @@ use axum::routing::get;
 use axum::{middleware, Router};
 use pierre_middleware::redaction::{redaction_middleware, RedactionConfig};
 use pierre_middleware::response_failure_log_middleware;
+use pierre_test_support::log_capture;
 use tower::ServiceExt;
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
-
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    level: tracing::Level,
-    message: String,
-    fields: HashMap<String, String>,
-}
-
-impl CapturedEvent {
-    fn field(&self, name: &str) -> Option<&str> {
-        self.fields.get(name).map(String::as_str)
-    }
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-}
-
-impl CaptureLayer {
-    fn events(&self) -> Arc<Mutex<Vec<CapturedEvent>>> {
-        Arc::clone(&self.events)
-    }
-}
-
-/// Records every field of an event as a string so the test can assert both the
-/// message and the structured `http_method` / `http_path` / `http_status`.
-#[derive(Default)]
-struct FieldVisitor {
-    message: String,
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        let rendered = format!("{value:?}");
-        if field.name() == "message" {
-            self.message.clone_from(&rendered);
-        }
-        self.fields.insert(field.name().to_owned(), rendered);
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-
-    fn record_u64(&mut self, field: &Field, value: u64) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-
-    fn record_i64(&mut self, field: &Field, value: i64) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-}
-
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        self.events.lock().unwrap().push(CapturedEvent {
-            level: *event.metadata().level(),
-            message: visitor.message,
-            fields: visitor.fields,
-        });
-    }
-}
-
-fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let capture = CaptureLayer::default();
-    let events = capture.events();
-    let guard = tracing_subscriber::registry().with(capture).set_default();
-    (events, guard)
-}
+use tracing::Level;
 
 /// Backpressure shed: 503 that advertises a `Retry-After` for the client.
 async fn shed_handler() -> Response {
@@ -172,17 +86,17 @@ async fn call(path: &str) -> Response {
 
 #[tokio::test]
 async fn retry_after_503_logs_warn_with_endpoint_and_never_errors() {
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
 
     let response = call("/api/providers/sciotte/login").await;
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 
-    let snapshot = events.lock().unwrap().clone();
+    let snapshot = events.events();
     drop(guard);
 
     // Fix A: the shed is logged, but at WARN — never at ERROR — so the ops
     // channel (`ERROR`-fed) is not paged for designed backpressure.
-    let errored = snapshot.iter().any(|e| e.level == tracing::Level::ERROR);
+    let errored = snapshot.iter().any(|e| e.level == Level::ERROR);
     assert!(
         !errored,
         "a Retry-After 503 must not emit any ERROR event; captured: {snapshot:?}"
@@ -190,7 +104,7 @@ async fn retry_after_503_logs_warn_with_endpoint_and_never_errors() {
 
     let warn = snapshot
         .iter()
-        .find(|e| e.level == tracing::Level::WARN)
+        .find(|e| e.level == Level::WARN)
         .unwrap_or_else(|| panic!("expected a WARN shed event; captured: {snapshot:?}"));
 
     // Fix B: the event names the endpoint + method that shed.
@@ -206,41 +120,45 @@ async fn retry_after_503_logs_warn_with_endpoint_and_never_errors() {
 
 #[tokio::test]
 async fn plain_503_without_retry_after_still_errors() {
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
 
     let response = call("/ready").await;
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 
-    let snapshot = events.lock().unwrap().clone();
+    let snapshot = events.events();
     drop(guard);
 
     // Precision guard: the WARN downgrade is gated on Retry-After, so a bare
     // dependency-down 503 keeps paging.
     let error = snapshot
         .iter()
-        .find(|e| e.level == tracing::Level::ERROR && e.message.contains("response failed"))
+        .find(|e| {
+            e.level == Level::ERROR && e.message().is_some_and(|m| m.contains("response failed"))
+        })
         .unwrap_or_else(|| panic!("bare 503 must still ERROR; captured: {snapshot:?}"));
     assert_eq!(error.field("http_path"), Some("/ready"));
     assert_eq!(error.field("http_status"), Some("503"));
     assert!(
-        snapshot.iter().all(|e| e.level != tracing::Level::WARN),
+        snapshot.iter().all(|e| e.level != Level::WARN),
         "a 503 without Retry-After must not be downgraded to WARN; captured: {snapshot:?}"
     );
 }
 
 #[tokio::test]
 async fn server_error_logs_error_with_endpoint() {
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
 
     let response = call("/boom").await;
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
-    let snapshot = events.lock().unwrap().clone();
+    let snapshot = events.events();
     drop(guard);
 
     let error = snapshot
         .iter()
-        .find(|e| e.level == tracing::Level::ERROR && e.message.contains("response failed"))
+        .find(|e| {
+            e.level == Level::ERROR && e.message().is_some_and(|m| m.contains("response failed"))
+        })
         .unwrap_or_else(|| panic!("a 500 must ERROR; captured: {snapshot:?}"));
 
     // Fix B: the endpoint that produced the 500 is on the alert.
@@ -251,17 +169,19 @@ async fn server_error_logs_error_with_endpoint() {
 
 #[tokio::test]
 async fn failure_on_an_oauth_callback_names_the_route_without_the_code() {
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
 
     let response = call("/api/oauth/callback/strava?code=4b2c8fdeadbeef&state=xyz789").await;
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
-    let snapshot = events.lock().unwrap().clone();
+    let snapshot = events.events();
     drop(guard);
 
     let error = snapshot
         .iter()
-        .find(|e| e.level == tracing::Level::ERROR && e.message.contains("response failed"))
+        .find(|e| {
+            e.level == Level::ERROR && e.message().is_some_and(|m| m.contains("response failed"))
+        })
         .unwrap_or_else(|| panic!("a 500 must ERROR; captured: {snapshot:?}"));
 
     assert_eq!(
@@ -278,12 +198,12 @@ async fn failure_on_an_oauth_callback_names_the_route_without_the_code() {
 
 #[tokio::test]
 async fn successful_response_logs_no_failure_event() {
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
 
     let response = call("/ok").await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let snapshot = events.lock().unwrap().clone();
+    let snapshot = events.events();
     drop(guard);
 
     assert!(

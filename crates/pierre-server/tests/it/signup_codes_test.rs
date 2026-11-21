@@ -1256,7 +1256,7 @@ async fn a_code_never_reaches_the_logs() {
     assert_eq!(status, 200);
     drop(guard);
 
-    let lines = logs.lock().unwrap().clone();
+    let lines = logs.events();
     assert!(
         lines
             .iter()
@@ -1274,7 +1274,7 @@ async fn a_code_never_reaches_the_logs() {
                 );
             }
         }
-        for (field, value) in spans.lock().unwrap().iter() {
+        for (field, value) in &spans.recorded_fields() {
             assert!(
                 !value.contains(code.as_str()) && !value.contains(&normalized),
                 "a span recorded the code under {field}"
