@@ -22,6 +22,7 @@ vi.mock('../../hooks/useAuth', () => ({ useAuth: () => mockUseAuth() }))
 // The two neighbouring sections read their own endpoints; they are not under test.
 vi.mock('../AccountDeletionSection', () => ({ default: () => null }))
 vi.mock('../settings/AiConsentSettings', () => ({ default: () => null }))
+vi.mock('../settings/HealthRecordsSettings', () => ({ default: () => null }))
 vi.mock('../dataAccess/DataAccessRequestsSection', () => ({ default: () => null }))
 
 function renderTab() {

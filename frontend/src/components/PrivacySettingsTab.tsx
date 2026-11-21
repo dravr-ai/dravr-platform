@@ -1,4 +1,4 @@
-// ABOUTME: Privacy settings tab — analytics consent, each provider's AI consent, data export, access requests to a company, account deletion
+// ABOUTME: Privacy settings tab — analytics consent, each provider's AI consent, health records, data export, access requests to a company, account deletion
 // ABOUTME: Allows users to opt in/out of anonymized usage analytics tracking, or delete their account
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -12,6 +12,7 @@ import AccountDeletionSection from './AccountDeletionSection';
 import DataExportSection from './DataExportSection';
 import DataAccessRequestsSection from './dataAccess/DataAccessRequestsSection';
 import AiConsentSettings from './settings/AiConsentSettings';
+import HealthRecordsSettings from './settings/HealthRecordsSettings';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '@pierre/i18n';
 
@@ -66,6 +67,9 @@ export default function PrivacySettingsTab({
         <div className="space-y-6">
           {/* Consent to AI use of each provider's data that asks for one */}
           <AiConsentSettings />
+
+          {/* The athlete's health records: lab report upload and review, the records by kind */}
+          <HealthRecordsSettings />
 
           {/* Analytics Consent Toggle */}
           <div className="flex items-start justify-between gap-4 border-b ghost-border-faint pb-5">

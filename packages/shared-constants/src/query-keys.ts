@@ -72,6 +72,18 @@ export const QUERY_KEYS = {
     originalsLatest: () => ['originals-latest'] as const,
   },
 
+  // ==================== HEALTH RECORDS ====================
+  healthRecords: {
+    /** Every key below; invalidated after any answer, upload or delete, since each moves records between them. */
+    all: ['health-records'] as const,
+    /** The served records of one kind. */
+    records: (kind: string) => ['health-records', 'records', kind] as const,
+    /** The records read from a lab report that wait for the athlete's answer. */
+    review: () => ['health-records', 'review'] as const,
+    /** The athlete's uploaded lab reports. */
+    documents: () => ['health-records', 'documents'] as const,
+  },
+
   // ==================== DATA ACCESS REQUESTS ====================
   dataAccessRequests: {
     /** Every key below; invalidated after any write, since a step moves a request's state and letter. */
