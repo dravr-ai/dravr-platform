@@ -1,4 +1,4 @@
-// ABOUTME: The privacy screen's consent-to-AI-use switches: one per connected provider whose card carries one, and health records
+// ABOUTME: The privacy screen's consent-to-AI-use switches: one per connected provider whose card carries one, and both sensitive tiers
 // ABOUTME: Withdrawing is one tap and stops AI use at once; the data stays visible and the connection stays live (carnet#726, J2)
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,6 +11,7 @@ import {
   QUERY_KEYS,
   SENSITIVE_CONSENT_KEYS,
   SENSITIVE_T2_CONSENT,
+  SENSITIVE_T3_CONSENT,
   aiConsentCards,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
@@ -37,14 +38,22 @@ export function AiConsentSection(): React.JSX.Element {
   });
   const consent = useAiConsent();
   const sensitive = useAiConsentState(SENSITIVE_T2_CONSENT, isAuthenticated);
+  const intimate = useAiConsentState(SENSITIVE_T3_CONSENT, isAuthenticated);
   const cards = aiConsentCards(data?.providers ?? []);
   const change = (provider: string, allow: boolean) =>
     consent.mutate(
       { provider, allow },
       { onError: () => Alert.alert(t('common.error'), t(AI_CONSENT_KEYS.failed)) },
     );
-  const sensitiveLabel = t(SENSITIVE_CONSENT_KEYS.t2Label);
-  const recordsAllowed = sensitive.data === true;
+  const classes = [
+    { key: SENSITIVE_T2_CONSENT, label: t(SENSITIVE_CONSENT_KEYS.t2Label), state: sensitive.data },
+    {
+      key: SENSITIVE_T3_CONSENT,
+      label: t(SENSITIVE_CONSENT_KEYS.t3Label),
+      hint: t(SENSITIVE_CONSENT_KEYS.t3Hint),
+      state: intimate.data,
+    },
+  ];
 
   return (
     <>
@@ -75,16 +84,27 @@ export function AiConsentSection(): React.JSX.Element {
         description={t(SENSITIVE_CONSENT_KEYS.blurb)}
         testID="privacy-section-sensitive-records"
       >
-        <View className="flex-row items-center justify-between gap-4 px-4">
-          <Text className="flex-1 text-sm text-text-primary">{sensitiveLabel}</Text>
-          <Switch
-            testID={`ai-consent-switch-${SENSITIVE_T2_CONSENT}`}
-            accessibilityLabel={sensitiveLabel}
-            value={recordsAllowed}
-            onValueChange={(allow) => change(SENSITIVE_T2_CONSENT, allow)}
-            {...switchColors(colors.tokens, recordsAllowed)}
-            disabled={consent.isPending || sensitive.data === undefined}
-          />
+        <View className="gap-3 px-4">
+          {classes.map(({ key, label, hint, state }) => (
+            <View key={key} className="flex-row items-center justify-between gap-4">
+              <View className="flex-1">
+                <Text className="text-sm text-text-primary">{label}</Text>
+                {hint && (
+                  <Text className="mt-1 text-xs text-text-secondary" testID={`ai-consent-hint-${key}`}>
+                    {hint}
+                  </Text>
+                )}
+              </View>
+              <Switch
+                testID={`ai-consent-switch-${key}`}
+                accessibilityLabel={label}
+                value={state === true}
+                onValueChange={(allow) => change(key, allow)}
+                {...switchColors(colors.tokens, state === true)}
+                disabled={consent.isPending || state === undefined}
+              />
+            </View>
+          ))}
         </View>
       </Section>
     </>

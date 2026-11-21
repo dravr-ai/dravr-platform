@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The privacy settings' consent-to-AI-use switches: one per connected provider whose card carries one, and health records
+// ABOUTME: The privacy settings' consent-to-AI-use switches: one per connected provider whose card carries one, and both sensitive tiers
 // ABOUTME: Withdrawing is one tap and stops AI use at once; the data stays visible and the connection stays live (carnet#726, J2)
 
 import { useState } from 'react';
@@ -10,6 +10,7 @@ import {
   AI_CONSENT_KEYS,
   SENSITIVE_CONSENT_KEYS,
   SENSITIVE_T2_CONSENT,
+  SENSITIVE_T3_CONSENT,
   aiConsentCards,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
@@ -36,6 +37,7 @@ export default function AiConsentSettings() {
   });
   const consent = useAiConsent();
   const sensitive = useAiConsentState(SENSITIVE_T2_CONSENT, isAuthenticated);
+  const intimate = useAiConsentState(SENSITIVE_T3_CONSENT, isAuthenticated);
   const cards = aiConsentCards(data?.providers ?? []);
 
   const toggle = (provider: string, allow: boolean, success: string) => {
@@ -49,7 +51,15 @@ export default function AiConsentSettings() {
     );
   };
 
-  const sensitiveLabel = t(SENSITIVE_CONSENT_KEYS.t2Label);
+  const classes = [
+    { key: SENSITIVE_T2_CONSENT, label: t(SENSITIVE_CONSENT_KEYS.t2Label), state: sensitive.data },
+    {
+      key: SENSITIVE_T3_CONSENT,
+      label: t(SENSITIVE_CONSENT_KEYS.t3Label),
+      hint: t(SENSITIVE_CONSENT_KEYS.t3Hint),
+      state: intimate.data,
+    },
+  ];
   return (
     <div className="border-b ghost-border-faint pb-5 space-y-5" data-testid="ai-consent-settings">
       {cards.length > 0 && (
@@ -87,22 +97,29 @@ export default function AiConsentSettings() {
       <div data-testid="ai-consent-sensitive">
         <h3 className="text-sm font-medium text-on-surface mb-2">{t(SENSITIVE_CONSENT_KEYS.title)}</h3>
         <p className="text-sm text-on-surface-variant leading-relaxed mb-4">{t(SENSITIVE_CONSENT_KEYS.blurb)}</p>
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-sm text-on-surface">{sensitiveLabel}</span>
-          <Switch
-            checked={sensitive.data === true}
-            onChange={(next) =>
-              toggle(
-                SENSITIVE_T2_CONSENT,
-                next,
-                t(next ? SENSITIVE_CONSENT_KEYS.allowed : SENSITIVE_CONSENT_KEYS.withdrawn),
-              )
-            }
-            label={sensitiveLabel}
-            disabled={consent.isPending || sensitive.data === undefined}
-            data-testid={`ai-consent-switch-${SENSITIVE_T2_CONSENT}`}
-          />
-        </div>
+        <ul className="space-y-3">
+          {classes.map(({ key, label, hint, state }) => (
+            <li key={key} className="flex items-center justify-between gap-4">
+              <div>
+                <span className="text-sm text-on-surface">{label}</span>
+                {hint && (
+                  <p className="text-xs text-on-surface-variant leading-relaxed mt-1" data-testid={`ai-consent-hint-${key}`}>
+                    {hint}
+                  </p>
+                )}
+              </div>
+              <Switch
+                checked={state === true}
+                onChange={(next) =>
+                  toggle(key, next, t(next ? SENSITIVE_CONSENT_KEYS.allowed : SENSITIVE_CONSENT_KEYS.withdrawn))
+                }
+                label={label}
+                disabled={consent.isPending || state === undefined}
+                data-testid={`ai-consent-switch-${key}`}
+              />
+            </li>
+          ))}
+        </ul>
       </div>
       {message && (
         <p

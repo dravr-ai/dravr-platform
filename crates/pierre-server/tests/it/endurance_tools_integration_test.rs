@@ -36,7 +36,7 @@ use chrono::{Duration, Utc};
 use dravr_cageux::zones::{AerobicThresholdPace, AerobicThresholdPower, HrZones};
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
-use pierre_core::constants::oauth::providers::STRAVA;
+use pierre_core::constants::oauth::providers::{SENSITIVE_T3, STRAVA};
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::periodization::{ReadinessLevel, WorkoutPurpose};
 use pierre_core::models::{
@@ -46,6 +46,7 @@ use pierre_core::models::{
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_fitness_compute::latest_snapshot::MAX_WINDOW_DAYS;
+use pierre_services::provider_notice;
 use pierre_tool_runtime::implementations::endurance_workouts::ListWorkoutTemplatesTool;
 use pierre_tool_runtime::protocol::{auth_required_provider, is_no_provider_refusal};
 use pierre_tool_runtime::protocols::ProtocolError;
@@ -80,6 +81,17 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, Str
         .iter()
         .find(|t| t.owner_user_id == user_id)
         .ok_or_else(|| anyhow::anyhow!("user should have tenant"))?;
+    // This executor declares no transport, so it serves as an outside client
+    // does: the dossier carries the agent's memory (T3), which such a client
+    // reads only under the athlete's `sensitive_t3` (carnet#1544).
+    provider_notice::grant_ai_consent(
+        executor.resources.repos(),
+        user_tenant.id.as_uuid(),
+        user_id,
+        SENSITIVE_T3,
+        "Intimate health records",
+    )
+    .await?;
     Ok((user_id, user_tenant.id.to_string()))
 }
 

@@ -56,22 +56,30 @@ function renderSection() {
 describe('AiConsentSection', () => {
   let whoopConsent: boolean;
   let recordsConsent: boolean;
+  let intimateConsent: boolean;
 
   beforeEach(() => {
     jest.clearAllMocks();
     jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     whoopConsent = true;
     recordsConsent = false;
-    getAiConsent.mockImplementation(async (key: string) => (key === 'sensitive_t2' ? recordsConsent : null));
+    intimateConsent = false;
+    getAiConsent.mockImplementation(async (key: string) => {
+      if (key === 'sensitive_t2') return recordsConsent;
+      if (key === 'sensitive_t3') return intimateConsent;
+      return null;
+    });
     getProvidersStatus.mockImplementation(async () => ({
       providers: [card('whoop', 'WHOOP', true, whoopConsent), card('strava', 'Strava', true)],
     }));
     withdrawAiConsent.mockImplementation(async (key: string) => {
       if (key === 'sensitive_t2') recordsConsent = false;
+      else if (key === 'sensitive_t3') intimateConsent = false;
       else whoopConsent = false;
     });
     grantAiConsent.mockImplementation(async (key: string) => {
       if (key === 'sensitive_t2') recordsConsent = true;
+      else if (key === 'sensitive_t3') intimateConsent = true;
       else whoopConsent = true;
     });
   });
@@ -122,5 +130,22 @@ describe('AiConsentSection', () => {
     fireEvent(screen.getByTestId('ai-consent-switch-sensitive_t2'), 'valueChange', false);
     await waitFor(() => expect(withdrawAiConsent).toHaveBeenCalledWith('sensitive_t2'));
     await waitFor(() => expect(screen.getByTestId('ai-consent-switch-sensitive_t2').props.value).toBe(false));
+  });
+
+  it('gives the intimate records consent its own switch, naming outside AI apps', async () => {
+    renderSection();
+    await waitFor(() => expect(screen.getByTestId('ai-consent-switch-sensitive_t3').props.disabled).toBe(false));
+    expect(getAiConsent).toHaveBeenCalledWith('sensitive_t3');
+    expect(screen.getByText('Let AI read my intimate health records (cycle tracking, mental and reproductive health)')).toBeTruthy();
+    expect(screen.getByTestId('ai-consent-hint-sensitive_t3').props.children).toContain('Claude or ChatGPT');
+
+    fireEvent(screen.getByTestId('ai-consent-switch-sensitive_t3'), 'valueChange', true);
+    await waitFor(() => expect(grantAiConsent).toHaveBeenCalledWith('sensitive_t3'));
+    await waitFor(() => expect(screen.getByTestId('ai-consent-switch-sensitive_t3').props.value).toBe(true));
+    expect(screen.getByTestId('ai-consent-switch-sensitive_t2').props.value).toBe(false);
+
+    fireEvent(screen.getByTestId('ai-consent-switch-sensitive_t3'), 'valueChange', false);
+    await waitFor(() => expect(withdrawAiConsent).toHaveBeenCalledWith('sensitive_t3'));
+    await waitFor(() => expect(screen.getByTestId('ai-consent-switch-sensitive_t3').props.value).toBe(false));
   });
 });

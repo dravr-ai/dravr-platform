@@ -193,6 +193,7 @@ export {
   SCIOTTE_TAKEOVER_MAX_TEXT_BYTES,
   SENSITIVE_CONSENT_KEYS,
   SENSITIVE_T2_CONSENT,
+  SENSITIVE_T3_CONSENT,
   aiConsentCards,
   cardHistoryState,
   intervalsConnectPath,

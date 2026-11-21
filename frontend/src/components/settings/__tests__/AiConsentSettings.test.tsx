@@ -56,12 +56,18 @@ function renderPane() {
 describe('AiConsentSettings', () => {
   let whoopConsent: boolean;
   let recordsConsent: boolean;
+  let intimateConsent: boolean;
 
   beforeEach(() => {
     vi.clearAllMocks();
     whoopConsent = true;
     recordsConsent = false;
-    getAiConsent.mockImplementation(async (key: string) => (key === 'sensitive_t2' ? recordsConsent : null));
+    intimateConsent = false;
+    getAiConsent.mockImplementation(async (key: string) => {
+      if (key === 'sensitive_t2') return recordsConsent;
+      if (key === 'sensitive_t3') return intimateConsent;
+      return null;
+    });
     getProvidersStatus.mockImplementation(async () => ({
       providers: [
         card('whoop', 'WHOOP', true, whoopConsent),
@@ -71,10 +77,12 @@ describe('AiConsentSettings', () => {
     }));
     withdrawAiConsent.mockImplementation(async (key: string) => {
       if (key === 'sensitive_t2') recordsConsent = false;
+      else if (key === 'sensitive_t3') intimateConsent = false;
       else whoopConsent = false;
     });
     grantAiConsent.mockImplementation(async (key: string) => {
       if (key === 'sensitive_t2') recordsConsent = true;
+      else if (key === 'sensitive_t3') intimateConsent = true;
       else whoopConsent = true;
     });
   });
@@ -147,5 +155,29 @@ describe('AiConsentSettings', () => {
       expect(screen.getByTestId('ai-consent-switch-sensitive_t2')).toHaveAttribute('aria-checked', 'false'),
     );
     expect(screen.getByRole('status')).toHaveTextContent('Your agent no longer reads these records');
+  });
+
+  it('gives the intimate records consent its own switch, naming outside AI apps', async () => {
+    const user = userEvent.setup();
+    renderPane();
+    const intimate = await screen.findByRole('switch', {
+      name: 'Let AI read my intimate health records (cycle tracking, mental and reproductive health)',
+    });
+    await vi.waitFor(() => expect(intimate).not.toBeDisabled());
+    expect(getAiConsent).toHaveBeenCalledWith('sensitive_t3');
+    expect(screen.getByTestId('ai-consent-hint-sensitive_t3')).toHaveTextContent('Claude or ChatGPT');
+
+    await user.click(intimate);
+    expect(grantAiConsent).toHaveBeenCalledWith('sensitive_t3');
+    await vi.waitFor(() =>
+      expect(screen.getByTestId('ai-consent-switch-sensitive_t3')).toHaveAttribute('aria-checked', 'true'),
+    );
+    expect(screen.getByTestId('ai-consent-switch-sensitive_t2')).toHaveAttribute('aria-checked', 'false');
+
+    await user.click(screen.getByTestId('ai-consent-switch-sensitive_t3'));
+    expect(withdrawAiConsent).toHaveBeenCalledWith('sensitive_t3');
+    await vi.waitFor(() =>
+      expect(screen.getByTestId('ai-consent-switch-sensitive_t3')).toHaveAttribute('aria-checked', 'false'),
+    );
   });
 });

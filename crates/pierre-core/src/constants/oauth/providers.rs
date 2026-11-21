@@ -248,19 +248,21 @@ impl ProviderNotice {
 ///   after which no model reads WHOOP data and health sync keeps no new WHOOP
 ///   record until it is given again (carnet#726).
 ///
-/// - **Consent classes.** [`SENSITIVE_T2`] is no provider: it is the
-///   athlete's consent to AI use of every record of one sensitivity tier,
-///   owl's T2 (labs, clinical records, self-measured glucose), whichever
-///   provider or import holds it (J2, 2026-11-12). It guards no connect,
-///   since nothing connects under it; it rides this table only so the one
-///   AI-consent set withholds it until given, exactly like WHOOP's
-///   authorization, and so one acceptance record holds every consent to AI
-///   use. Asked of every account ([`NoticeAudience::EveryAccount`]) as a
-///   [`NoticeKind::AiConsent`]: given and withdrawn from the privacy
-///   settings. No provider descriptor is registered under its key
-///   ([`is_consent_class`]); a refusal or a route names it by
-///   [`sensitive_display_name`], never by the key. T3 has no class yet: no
-///   model or human coach reads a T3 record.
+/// - **Consent classes.** [`SENSITIVE_T2`] and [`SENSITIVE_T3`] are no
+///   provider: each is the athlete's consent to AI use of every record of
+///   one sensitivity tier, owl's T2 (labs, clinical records, self-measured
+///   glucose) and T3 (cycle tracking, mental and reproductive health),
+///   whichever provider or import holds it (J2, 2026-11-12). [`SENSITIVE_T3`]
+///   also opens the athlete's notes and their agent's memory to an outside AI
+///   client; Dravr's own agent and the human coach read those either way
+///   (JF 2026-11-20, carnet#1544). A class guards no connect, since nothing
+///   connects under it; it rides this table only so the one AI-consent set
+///   withholds it until given, exactly like WHOOP's authorization, and so one
+///   acceptance record holds every consent to AI use. Asked of every account
+///   ([`NoticeAudience::EveryAccount`]) as a [`NoticeKind::AiConsent`]: given
+///   and withdrawn from the privacy settings. No provider descriptor is
+///   registered under its key ([`is_consent_class`]); a refusal or a route
+///   names it by [`sensitive_display_name`], never by the key.
 ///
 /// A connect to one of these backends — a credential login or the start of an
 /// OAuth flow — is refused until an account asked for the notice accepts its
@@ -268,7 +270,7 @@ impl ProviderNotice {
 /// show it. An account that accepted a version connects again without being
 /// asked. Bump a provider's version whenever its notice text changes on any
 /// surface or in any locale, so every account is asked again.
-pub const PROVIDER_NOTICES: [ProviderNotice; 4] = [
+pub const PROVIDER_NOTICES: [ProviderNotice; 5] = [
     ProviderNotice {
         backend: SCIOTTE_TRAININGPEAKS,
         version: "2026-09-24",
@@ -293,6 +295,12 @@ pub const PROVIDER_NOTICES: [ProviderNotice; 4] = [
         audience: NoticeAudience::EveryAccount,
         kind: NoticeKind::AiConsent,
     },
+    ProviderNotice {
+        backend: SENSITIVE_T3,
+        version: "2026-11-20",
+        audience: NoticeAudience::EveryAccount,
+        kind: NoticeKind::AiConsent,
+    },
 ];
 
 /// The consent class of the athlete's T2 records.
@@ -303,8 +311,19 @@ pub const PROVIDER_NOTICES: [ProviderNotice; 4] = [
 /// acceptance is a row of `provider_terms_consents` under this key.
 pub const SENSITIVE_T2: &str = "sensitive_t2";
 
+/// The consent class of the athlete's T3 records.
+///
+/// Cycle tracking, mental, reproductive and substance records, whichever
+/// provider or import holds them: while it is not given, no model and no
+/// human coach reads one. It is also what lets an outside AI client (MCP,
+/// A2A, an API key) read the athlete's notes and their agent's memory,
+/// which Dravr's own agent and the human coach read without it
+/// ([`PROVIDER_NOTICES`]). Its acceptance is a row of
+/// `provider_terms_consents` under this key.
+pub const SENSITIVE_T3: &str = "sensitive_t3";
+
 /// Every consent class [`PROVIDER_NOTICES`] carries.
-pub const CONSENT_CLASSES: [&str; 1] = [SENSITIVE_T2];
+pub const CONSENT_CLASSES: [&str; 2] = [SENSITIVE_T2, SENSITIVE_T3];
 
 /// Whether `key` names a consent class rather than a provider.
 #[must_use]
@@ -318,6 +337,7 @@ pub fn is_consent_class(key: &str) -> bool {
 pub fn sensitive_display_name(key: &str) -> Option<&'static str> {
     match key {
         SENSITIVE_T2 => Some("Health records"),
+        SENSITIVE_T3 => Some("Intimate health records"),
         _ => None,
     }
 }

@@ -343,9 +343,9 @@ pub struct Withheld {
     /// Items dropped because the call is external and their provider's terms
     /// keep them to Dravr's own surfaces.
     pub off_interface: usize,
-    /// Sensitive records (owl tiers T2, T3) withheld from a model or a human
-    /// coach because the athlete keeps them from AI: each field nulled on a
-    /// row, or each untagged read refused, counted once. A reason of its own
+    /// Sensitive records (owl tiers T2, T3) withheld from a model, a human
+    /// coach or an outside client because the athlete keeps them from AI:
+    /// each field nulled on a row, or each read refused, counted once. A reason of its own
     /// in [`Self::to_note`], whatever service holds them.
     pub sensitive_reduced: usize,
 }
@@ -392,7 +392,7 @@ impl Withheld {
     #[must_use]
     pub fn to_note(&self) -> Value {
         const PROVIDER_TERMS: &str = "Some of this athlete's data is withheld from AI, by the terms of the service it came from or because the athlete has not consented to AI use of that service's data. The athlete can still see it in the app; do not guess its contents.";
-        const SENSITIVE_TIER: &str = "Some of this athlete's sensitive health records are withheld because the athlete keeps them from AI. Only the athlete can allow it, in Dravr's privacy settings under Sensitive health records. The athlete can still see them in the app; do not guess their contents.";
+        const SENSITIVE_TIER: &str = "Some of this athlete's sensitive records (health records, or their notes and their agent's memory) are withheld because the athlete keeps them from AI. Only the athlete can allow it, in Dravr's Privacy & Data settings under Sensitive health records. The athlete can still see them in the app; do not guess their contents.";
         let mut reasons = Vec::new();
         let mut notes = Vec::new();
         if self.dropped > 0 || self.reduced > 0 {

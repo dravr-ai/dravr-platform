@@ -18,20 +18,31 @@
 //!   delegated grant's ceiling is T1;
 //! - the consent class is no provider: no card lists it, and the GET reads
 //!   back what PUT and DELETE set. Export carries the new columns.
+//!
+//! Slice 1b (JF 2026-11-20, "Gate for third parties") adds `sensitive_t3`:
+//! an outside client (MCP) calls the memory tools, which declare the T3
+//! `RestrictedNotes` stream, and reads the athlete's daily note only while it
+//! is given. Dravr's own agent and the human coach read both as before, and
+//! T2 stays off an outside client whatever the athlete gave.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::constants::oauth::providers::{SENSITIVE_T2, WHOOP};
+use pierre_core::constants::oauth::providers::{
+    sensitive_display_name, SENSITIVE_T2, SENSITIVE_T3, WHOOP,
+};
 use pierre_core::constants::oauth::INTERVALS_ICU;
-use pierre_core::models::{DataSource, DeviceType, StoredHealthMetrics};
+use pierre_core::models::{DataSource, DeviceType, StoredHealthMetrics, StoredRecoveryMetrics};
 use pierre_database::repositories::{WellnessWriteMode, USER_EXPORT_TABLES};
+use pierre_database::RepositoryRegistry;
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::provider_notice::{grant_ai_consent, withdraw_ai_consent};
+use pierre_tool_runtime::protocols::UniversalResponse;
 use serde_json::{json, Value};
+use uuid::Uuid;
 
-use crate::coach_athlete_reads_test::{ok, Fixture, Person};
+use crate::coach_athlete_reads_test::{mentions, ok, Fixture, Person};
 use crate::coach_athlete_wellness_reads_test::{naming_mira, world};
 use crate::common;
 use crate::helpers::axum_test::AxumTestRequest;
@@ -109,20 +120,20 @@ fn both() -> Vec<f64> {
 
 /// The athlete gives (`true`) or withdraws their health records' AI use.
 async fn athlete_allows(f: &Fixture, allowed: bool) {
+    athlete_sets(f, SENSITIVE_T2, allowed).await;
+}
+
+/// The athlete gives (`true`) or withdraws the consent class `class`.
+async fn athlete_sets(f: &Fixture, class: &str, allowed: bool) {
     let repos = f.repos();
     let athlete = f.athlete;
+    let name = sensitive_display_name(class).expect("a consent class");
     if allowed {
-        grant_ai_consent(
-            repos,
-            athlete.tenant.as_uuid(),
-            athlete.id,
-            SENSITIVE_T2,
-            "Health records",
-        )
-        .await
-        .unwrap();
+        grant_ai_consent(repos, athlete.tenant.as_uuid(), athlete.id, class, name)
+            .await
+            .unwrap();
     } else {
-        withdraw_ai_consent(repos, athlete.id, SENSITIVE_T2, "Health records")
+        withdraw_ai_consent(repos, athlete.id, class, name)
             .await
             .unwrap();
     }
@@ -290,6 +301,7 @@ async fn an_mcp_read_never_carries_glucose_whatever_was_given() {
     f.share_wellness(true).await;
     coach_flag(&f, true, None).await;
     athlete_allows(&f, true).await;
+    athlete_sets(&f, SENSITIVE_T3, true).await;
 
     let own = ok(
         f.call(
@@ -303,7 +315,7 @@ async fn an_mcp_read_never_carries_glucose_whatever_was_given() {
     );
     assert!(
         glucose(&own).is_empty(),
-        "bug: a delegated grant's ceiling is T1: {own}"
+        "bug: a delegated grant's ceiling is T1, sensitive_t2 and sensitive_t3 given: {own}"
     );
     assert!(
         own.get("_unavailable_over_this_interface").is_some(),
@@ -429,4 +441,310 @@ async fn the_export_carries_the_coach_health_records_flag() {
         "{row}"
     );
     assert!(row["coach_sensitive_t2_read_until"].is_string(), "{row}");
+}
+
+/// `user` gives `sensitive_t3`, so an outside client (MCP, A2A, an API key)
+/// reads their notes and their agent's memory: the setup of every suite that
+/// drives a memory tool from outside Dravr (carnet#1544).
+pub(crate) async fn allow_outside_memory(repos: &RepositoryRegistry, tenant: Uuid, user: Uuid) {
+    grant_ai_consent(repos, tenant, user, SENSITIVE_T3, "Intimate health records")
+        .await
+        .unwrap();
+}
+
+/// The fact the athlete's in-app agent remembers, approved so a recall
+/// serves it.
+const REMEMBERED: &str = "morning workouts";
+
+async fn remember(f: &Fixture) {
+    let filed = ok(
+        f.call(
+            &f.own_executor(),
+            f.athlete,
+            "remember_fact",
+            json!({
+                "kind": "preference",
+                "predicate_code": "prefer",
+                "object": REMEMBERED,
+                "confidence": 0.95,
+            }),
+        )
+        .await,
+        "the in-app agent remembers without the tier consent",
+    );
+    f.repos()
+        .memory
+        .approve_user_fact(
+            filed["fact_id"].as_str().expect("the fact names its id"),
+            f.athlete.tenant,
+            &f.athlete.id.to_string(),
+        )
+        .await
+        .unwrap();
+}
+
+/// Whether `response` is the tier gate's refusal, naming the switch, with
+/// nothing of the athlete's memory in it.
+fn tier_refused(response: &UniversalResponse) -> bool {
+    let result = response
+        .result
+        .as_ref()
+        .expect("a refusal carries a result");
+    !response.success
+        && result["error_code"] == "sensitive_tier_withheld"
+        && response
+            .error
+            .as_deref()
+            .is_some_and(|message| message.contains("Privacy & Data"))
+        && !result.to_string().contains(REMEMBERED)
+}
+
+#[tokio::test]
+async fn an_mcp_client_reads_memory_and_the_dossier_only_under_sensitive_t3() {
+    let f = world().await;
+    remember(&f).await;
+    // T2 given alone opens nothing of T3.
+    athlete_allows(&f, true).await;
+
+    for tool in ["recall_user_memory", "export_dossier"] {
+        let refused = f.call(&f.mcp_executor(), f.athlete, tool, json!({})).await;
+        assert!(
+            tier_refused(&refused),
+            "bug: {tool} over MCP needs sensitive_t3: {:?} {:?}",
+            refused.error,
+            refused.result
+        );
+        let note = &refused.result.as_ref().unwrap()["_withheld"];
+        assert_eq!(note["reason"], "sensitive_tier", "{tool}: tallied: {note}");
+        assert_eq!(note["sensitive_withheld"], 1, "{tool}: {note}");
+    }
+    let write = f
+        .call(
+            &f.mcp_executor(),
+            f.athlete,
+            "remember_fact",
+            json!({
+                "kind": "preference",
+                "predicate_code": "prefer",
+                "object": "evening swims",
+                "confidence": 0.9,
+            }),
+        )
+        .await;
+    // The memory writes and the playbook tools are Dravr's own surface: the
+    // surface gate refuses them first, before the tier gate would.
+    assert!(
+        !write.success && !mentions(write.result.as_ref().unwrap(), "evening swims"),
+        "bug: an outside client files nothing in the agent's memory: {:?}",
+        write.result
+    );
+
+    athlete_sets(&f, SENSITIVE_T3, true).await;
+    for tool in ["recall_user_memory", "export_dossier"] {
+        let served = ok(
+            f.call(&f.mcp_executor(), f.athlete, tool, json!({})).await,
+            tool,
+        );
+        assert!(
+            mentions(&served, REMEMBERED),
+            "sensitive_t3 given: {tool} serves the memory over MCP: {served}"
+        );
+    }
+
+    athlete_sets(&f, SENSITIVE_T3, false).await;
+    let withdrawn = f
+        .call(
+            &f.mcp_executor(),
+            f.athlete,
+            "recall_user_memory",
+            json!({}),
+        )
+        .await;
+    assert!(tier_refused(&withdrawn), "bug: withdrawal applies at once");
+}
+
+#[tokio::test]
+async fn the_in_app_agent_reads_its_memory_without_the_tier_consent() {
+    let f = world().await;
+    remember(&f).await;
+    for tool in ["recall_user_memory", "export_dossier"] {
+        let own = f.own_read(f.athlete, tool, json!({})).await;
+        assert!(
+            mentions(&own, REMEMBERED),
+            "bug: the first-party agent keeps its memory (directive 2): {tool}: {own}"
+        );
+        assert!(own.get("_withheld").is_none(), "{tool}: {own}");
+    }
+}
+
+#[tokio::test]
+async fn a_human_coachs_agent_is_unchanged() {
+    let f = world().await;
+    file_note(&f).await;
+    f.share_wellness(true).await;
+
+    // The coach's own memory, in their own conversation: no consent asked.
+    let own = f.own_read(f.coach, "recall_user_memory", json!({})).await;
+    assert!(own.get("_withheld").is_none(), "{own}");
+
+    // In the thread about the athlete their memory is withheld by the seat,
+    // as before, never by the tier gate.
+    let seat = f.in_thread("recall_user_memory", json!({})).await;
+    assert!(!seat.success, "{:?}", seat.result);
+    assert_ne!(
+        seat.result.as_ref().unwrap()["error_code"],
+        "sensitive_tier_withheld",
+        "{:?}",
+        seat.result
+    );
+
+    // The athlete's daily note, named by the wellness grant: read without
+    // sensitive_t3.
+    let recovery = ok(
+        f.in_thread("get_recovery_metrics", json!({})).await,
+        "recovery",
+    );
+    assert!(
+        mentions(&recovery, NOTE),
+        "bug: E3 keeps the note for the coach: {recovery}"
+    );
+}
+
+/// The daily note the athlete typed into their source's log yesterday.
+const NOTE: &str = "slept badly, stressful week";
+
+async fn file_note(f: &Fixture) {
+    let repos = f.repos();
+    let athlete = f.athlete;
+    let source = repos
+        .data_sources
+        .upsert_data_source(
+            &athlete.tenant,
+            &DataSource {
+                id: String::new(),
+                user_id: athlete.id.to_string(),
+                provider: INTERVALS_ICU.to_owned(),
+                device_model: None,
+                software_version: None,
+                source: None,
+                device_type: DeviceType::Band,
+                original_source_name: None,
+            },
+        )
+        .await
+        .unwrap();
+    let now = Utc::now();
+    repos
+        .recovery
+        .upsert_recovery_metrics(
+            &athlete.tenant,
+            &StoredRecoveryMetrics {
+                id: format!("icu-note-{}", Uuid::new_v4()),
+                user_id: athlete.id.to_string(),
+                data_source_id: source,
+                date: now.date_naive() - Duration::days(1),
+                recovery_score: None,
+                readiness_score: Some(64),
+                hrv_ms: None,
+                hrv_rmssd: Some(61.5),
+                resting_heart_rate: Some(48),
+                stress_score: None,
+                body_battery: None,
+                spo2: None,
+                respiratory_rate: None,
+                skin_temp_deviation: None,
+                daily_strain: None,
+                athlete_note: Some(NOTE.to_owned()),
+                source_name: INTERVALS_ICU.to_owned(),
+                recorded_at: now,
+            },
+            WellnessWriteMode::FullDay,
+            now,
+        )
+        .await
+        .unwrap();
+}
+
+/// What `who`'s MCP client reads of recovery, asked with `params`.
+async fn recovery_over_mcp(f: &Fixture, who: Person, params: Value) -> UniversalResponse {
+    f.call(&f.mcp_executor(), who, "get_recovery_metrics", params)
+        .await
+}
+
+#[tokio::test]
+async fn the_daily_note_reaches_an_mcp_client_only_under_sensitive_t3() {
+    let f = world().await;
+    file_note(&f).await;
+    f.share_wellness(true).await;
+
+    let withheld = ok(
+        recovery_over_mcp(&f, f.athlete, json!({})).await,
+        "the athlete's recovery over MCP",
+    );
+    assert!(
+        !mentions(&withheld, NOTE),
+        "bug: an outside client reads the note only under sensitive_t3: {withheld}"
+    );
+    assert!(
+        mentions(&withheld, "61.5"),
+        "the rest of the morning is served: {withheld}"
+    );
+    assert_eq!(
+        withheld["_withheld"]["reason"], "sensitive_tier",
+        "{withheld}"
+    );
+    assert_eq!(withheld["_withheld"]["sensitive_withheld"], 1, "{withheld}");
+
+    // The coach's own AI client reads the athlete under the athlete's
+    // consents: no note either.
+    let coach_withheld = ok(
+        recovery_over_mcp(&f, f.coach, naming_mira(json!({}))).await,
+        "the coach's recovery over MCP",
+    );
+    assert!(!mentions(&coach_withheld, NOTE), "{coach_withheld}");
+
+    // The in-app agent reads it without the consent.
+    let in_app = f
+        .own_read(f.athlete, "get_recovery_metrics", json!({}))
+        .await;
+    assert!(
+        mentions(&in_app, NOTE),
+        "bug: E3 keeps the note in-app: {in_app}"
+    );
+
+    athlete_sets(&f, SENSITIVE_T3, true).await;
+    let given = ok(
+        recovery_over_mcp(&f, f.athlete, json!({})).await,
+        "the athlete's recovery over MCP",
+    );
+    assert!(mentions(&given, NOTE), "sensitive_t3 given: {given}");
+    assert!(given.get("_withheld").is_none(), "{given}");
+    let coach_given = ok(
+        recovery_over_mcp(&f, f.coach, naming_mira(json!({}))).await,
+        "the coach's recovery over MCP",
+    );
+    assert!(
+        mentions(&coach_given, NOTE),
+        "the athlete's consent decides the coach's client too: {coach_given}"
+    );
+}
+
+#[tokio::test]
+async fn the_t3_class_reads_back_what_was_set() {
+    let f = world().await;
+    let auth = bearer(&f, f.athlete).await;
+    let (status, body) = consent_call(&f, &auth, "GET", SENSITIVE_T3).await;
+    assert_eq!(
+        (status, &body["ai_consent"]),
+        (200, &json!(false)),
+        "{body}"
+    );
+    let (status, body) = consent_call(&f, &auth, "PUT", SENSITIVE_T3).await;
+    assert_eq!((status, &body["ai_consent"]), (200, &json!(true)), "{body}");
+    let (_, t2) = consent_call(&f, &auth, "GET", SENSITIVE_T2).await;
+    assert_eq!(t2["ai_consent"], false, "each class is its own: {t2}");
+    let (status, _) = consent_call(&f, &auth, "DELETE", SENSITIVE_T3).await;
+    assert_eq!(status, 200, "bug: the athlete withdraws sensitive_t3");
+    let (_, body) = consent_call(&f, &auth, "GET", SENSITIVE_T3).await;
+    assert_eq!(body["ai_consent"], false, "{body}");
 }

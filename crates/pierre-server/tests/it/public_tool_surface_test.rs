@@ -16,6 +16,7 @@
 //! without the change it pins.
 
 use crate::common;
+use crate::tier_consent_test::allow_outside_memory;
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -200,6 +201,7 @@ fn assert_no_medical_fact(answer: &Value) {
 async fn recall_over_mcp_never_returns_a_medical_fact() {
     let res = common::create_test_server_resources().await.unwrap();
     let who = athlete(&res).await;
+    allow_outside_memory(&res.common.repos, who.tenant.as_uuid(), who.id).await;
     seed_parq(&res, &who).await;
     let app = ProviderToolRouter::build_http_app(&res);
     let authorization = grant(&res, &who);
@@ -223,6 +225,7 @@ async fn recall_over_mcp_never_returns_a_medical_fact() {
 async fn export_dossier_over_mcp_has_no_medical_bucket() {
     let res = common::create_test_server_resources().await.unwrap();
     let who = athlete(&res).await;
+    allow_outside_memory(&res.common.repos, who.tenant.as_uuid(), who.id).await;
     seed_parq(&res, &who).await;
     let app = ProviderToolRouter::build_http_app(&res);
 

@@ -53,7 +53,6 @@
 //! was stored under.
 
 use chrono::{DateTime, Utc};
-use dravr_barrage::Tier;
 use dravr_equilibre_sync::{
     merge_daily_activity, merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions,
     Merged, Source, Sourced,
@@ -78,10 +77,13 @@ mod anchors;
 mod attribution;
 /// Which rows a merged read takes part in, and what of each it keeps.
 mod read_scope;
+/// What of a stored row the tier gate keeps from the reader.
+mod sensitive;
 
 use self::anchors::newest;
 pub use self::anchors::{AnchorMeasurements, Anchors, Measured};
 pub use self::read_scope::{as_stored, RowProjection, SourceFilter};
+use self::sensitive::{withhold_clinical_readings, withhold_daily_notes};
 
 /// Stored health records as a reader may see them, with the attribution
 /// they owe.
@@ -247,10 +249,11 @@ pub async fn merged_recovery(
     filter: SourceFilter<'_>,
     project: RowProjection<StoredRecoveryMetrics>,
 ) -> AppResult<StoredHealth<Merged<StoredRecoveryMetrics>>> {
-    let rows = repos
+    let mut rows = repos
         .recovery
         .get_recovery_metrics(user_id, tenant, start, end)
         .await?;
+    withhold_daily_notes(&mut rows);
     merged(
         repos,
         terms,
@@ -260,29 +263,6 @@ pub async fn merged_recovery(
         merge_recovery_metrics,
     )
     .await
-}
-
-/// Blood pressure and glucose are clinical readings, whichever source wrote
-/// them: an external transport reads the rest of a body record without its
-/// blood pressure, and self-measured glucose, a T2 record, is read only
-/// where the tier gate lets it ([`ai_scope::tier_readable`]): never over an
-/// external transport, and by a model or a human coach only once the
-/// athlete allowed their health records' AI use, each nulled reading tallied
-/// once. One gate, no second filter.
-fn withhold_clinical_readings(rows: &mut [StoredHealthMetrics]) {
-    if ai_scope::serving_external() {
-        for row in rows.iter_mut() {
-            row.systolic_bp = None;
-            row.diastolic_bp = None;
-        }
-    }
-    if ai_scope::tier_readable(Tier::T2) {
-        return;
-    }
-    for row in rows.iter_mut().filter(|row| row.blood_glucose.is_some()) {
-        row.blood_glucose = None;
-        ai_scope::withhold_tier(Tier::T2);
-    }
 }
 
 /// The athlete's body readings inside the window, one per date across the

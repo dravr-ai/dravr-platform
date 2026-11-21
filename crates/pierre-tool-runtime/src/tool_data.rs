@@ -12,7 +12,7 @@
 //! the most sensitive stream it serves, and whether provider-written text
 //! passes through it.
 
-use dravr_barrage::Stream;
+use dravr_barrage::{Stream, Tier};
 
 use crate::read_subject::DataClass;
 
@@ -70,10 +70,12 @@ impl ToolData {
         self.class
     }
 
-    /// The streams its result serves readings of.
+    /// The tier of what it reads: its most sensitive declared stream, `None`
+    /// for a tool declaring none. The one source of a tool's tier, for the
+    /// trust label on its result and for the tier gate at dispatch.
     #[must_use]
-    pub(crate) const fn streams(&self) -> &'static [Stream] {
-        self.streams
+    pub(crate) fn tier(&self) -> Option<Tier> {
+        self.streams.iter().map(|stream| stream.tier()).max()
     }
 
     /// Whether its result passes unchecked written text through.

@@ -33,12 +33,14 @@
 use std::collections::BTreeSet;
 use std::future::Future;
 
+use dravr_barrage::Tier;
 use pierre_core::constants::oauth_providers::{
     self, ai_consent_backends, provider_notice, NoticeAudience, ProviderNotice,
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::TenantId;
+use pierre_core::transport::Transport;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use serde_json::json;
@@ -268,6 +270,29 @@ pub async fn under_subject_ai_consent<F: Future>(
 ) -> F::Output {
     let withheld = ai_consent_withheld(repos, tenant_id, subject).await;
     ai_scope::with_subject_consent(withheld, fut).await
+}
+
+/// Whether an outside client (MCP, A2A, an API key) may read `user_id`'s
+/// `tier` records.
+///
+/// By the one tier rule ([`tier_readable`](ai_scope::tier_readable)) under
+/// their consents: a T3 record only while they give `sensitive_t3`, a T2
+/// record never.
+///
+/// For a route outside the tool executor serving such records to an outside
+/// credential, such as the athlete's memory (JF 2026-11-20, carnet#1544).
+pub async fn outside_client_reads(
+    repos: &RepositoryRegistry,
+    tenant_id: Uuid,
+    user_id: Uuid,
+    tier: Tier,
+) -> bool {
+    let withheld = ai_consent_withheld(repos, tenant_id, user_id).await;
+    ai_scope::serve_over(
+        Transport::ApiKey,
+        ai_scope::with_ai_consent(withheld, async { ai_scope::tier_readable(tier) }),
+    )
+    .await
 }
 
 /// Withdraw this account's consent to AI use of `backend`'s data.
