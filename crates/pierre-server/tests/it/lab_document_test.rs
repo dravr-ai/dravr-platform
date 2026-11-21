@@ -357,3 +357,42 @@ async fn the_model_reads_only_under_sensitive_t2_and_a_failing_one_leaves_the_ru
         "bug: the rules did not read after the failure"
     );
 }
+
+/// A one-page PDF whose page dictionary nests `levels` dictionaries deep: the
+/// shape that overflows lopdf's stack and aborts the process.
+fn nested_pdf(levels: usize) -> Bytes {
+    let mut pdf = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec();
+    pdf.extend(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+    pdf.extend(b"3 0 obj\n<< /Type /Page /Parent 2 0 R /X ");
+    pdf.extend(b"<< /A ".repeat(levels));
+    pdf.push(b'1');
+    pdf.extend(b" >>".repeat(levels));
+    pdf.extend(b" >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n");
+    Bytes::from(pdf)
+}
+
+#[tokio::test]
+async fn a_deeply_nested_pdf_is_refused_cleanly_instead_of_aborting() {
+    let resources = context(LabReaderModel::rules()).await;
+    let athlete = seed_athlete(&resources, "lab-nested").await;
+    let refused = upload_lab_document(
+        &resources,
+        athlete.tenant,
+        athlete.user_id,
+        nested_pdf(20_000),
+    )
+    .await;
+    let error = refused.expect_err("bug: a nesting that aborts lopdf was parsed");
+    assert!(
+        error.message.contains("nest"),
+        "bug: the refusal says why: {error:?}"
+    );
+    let held = resources
+        .common
+        .repos
+        .health_records
+        .list_lab_documents(&athlete.tenant, athlete.user_id)
+        .await
+        .unwrap();
+    assert!(held.is_empty(), "bug: a refused file was stored");
+}
