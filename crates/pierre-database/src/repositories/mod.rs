@@ -115,6 +115,8 @@ pub mod feature_flags;
 pub mod federated_identities;
 /// Repository trait for the in-app feedback thread with the Dravr team (carnet#1235).
 pub mod feedback_messages;
+/// The T2–T3 health records an import or a lab document yields (carnet#1544).
+pub mod health_records;
 /// The outbox of Firebase identities still to delete at Google after their account went.
 pub mod firebase_identity_deletions;
 /// Repository trait for the days each athlete met a first-run flow's done rule (carnet#1099).
@@ -406,6 +408,11 @@ pub use system_settings::SystemSettingsRepository;
 pub use tenants::*;
 pub use tool_selection::*;
 pub use training_plans::*;
+pub use health_records::{
+    ClinicalRecordWrite, ClinicalSelection, HealthRecordRepository, LabDocumentWrite,
+    RecordFiling, RecordWindow, ReviewDecision, SelfReportWrite, StoredClinicalRecord,
+    StoredLabDocument, StoredSelfReport, LAB_DOCUMENT_PROVIDER, MAX_HEALTH_RECORDS_PAGE,
+};
 pub use uploaded_activity_files::{UploadedActivityFileRepository, UPLOAD_ORIGIN};
 pub use usage::*;
 pub use use_case_exposures::{UseCaseExposure, UseCaseExposureRepository};

@@ -204,12 +204,18 @@ pub(super) fn wiring(resources: &ServerContext) -> AppResult<&Arc<ImportWiring>>
 
 /// An importer over the wiring's stores, projecting into `resources`, each
 /// recording it decodes admitted by the process's FIT decode permits.
+///
+/// Armed for the T2–T3 records an export holds (glucose, cycle tracking,
+/// clinical records), whoever imports: every import keeps them for the
+/// athlete, and the tier consent decides only who else reads them (JF
+/// 2026-11-20, "Store, gate reads"; carnet#1544).
 pub(super) fn importer(resources: &Arc<ServerContext>, wiring: &ImportWiring) -> Importer {
     Importer::new(
         wiring.stores.clone(),
         Arc::new(CachedActivitiesSink::new(Arc::clone(resources))),
     )
     .with_decode_gate(Arc::new(ImportDecodeGate))
+    .with_sensitive_reads()
 }
 
 /// Barrage's error as the platform's.

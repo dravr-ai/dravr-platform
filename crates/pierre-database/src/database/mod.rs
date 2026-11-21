@@ -80,6 +80,8 @@ pub mod feature_flags;
 pub mod federated_identities;
 /// The in-app feedback thread with the Dravr team (`SQLite`)
 pub mod feedback_messages;
+/// Health records: self-reports, clinical records and lab documents (carnet#1544).
+pub mod health_records;
 /// Firebase identity deletion outbox (`SQLite`) backing `FirebaseIdentityDeletionRepository`.
 pub mod firebase_identity_deletions;
 /// The days each athlete met a first-run flow's done rule (`SQLite`)

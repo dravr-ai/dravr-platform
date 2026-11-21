@@ -75,7 +75,7 @@ macro_rules! provider_sources {
 /// them reference. A user's purge runs them first, then
 /// [`USER_ACTIVITY_ROWS_SQL`]; a wellness purge runs them alone, with the
 /// sync's cursors ([`USER_SYNC_CURSORS_SQL`]).
-pub(crate) const USER_WELLNESS_ROWS_SQL: [(&str, &str); 6] = [
+pub(crate) const USER_WELLNESS_ROWS_SQL: [(&str, &str); 8] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", user_sources!()),
@@ -95,6 +95,16 @@ pub(crate) const USER_WELLNESS_ROWS_SQL: [(&str, &str); 6] = [
     (
         "daily_activity",
         concat!("DELETE FROM daily_activity WHERE ", user_rows!()),
+    ),
+    // The health records an import filed (carnet#1544), uuid-keyed on
+    // Postgres like feedback_messages.
+    (
+        "self_reports",
+        concat!("DELETE FROM self_reports WHERE ", user_rows_cast!()),
+    ),
+    (
+        "clinical_records",
+        concat!("DELETE FROM clinical_records WHERE ", user_rows_cast!()),
     ),
     (
         "data_sources",
@@ -121,7 +131,7 @@ macro_rules! user_marked_sources {
 /// provider key (the Garmin API and the connection using usr/pwd from Dravr
 /// both under `garmin`). The rows the other connection filed under its own
 /// data source, and the health sync's cursors over them, stay.
-pub(crate) const USER_SOURCE_WELLNESS_ROWS_SQL: [(&str, &str); 6] = [
+pub(crate) const USER_SOURCE_WELLNESS_ROWS_SQL: [(&str, &str); 8] = [
     (
         "data_point_series",
         concat!(
@@ -161,6 +171,24 @@ pub(crate) const USER_SOURCE_WELLNESS_ROWS_SQL: [(&str, &str); 6] = [
         concat!(
             "DELETE FROM daily_activity WHERE ",
             user_rows!(),
+            " AND ",
+            user_marked_sources!()
+        ),
+    ),
+    (
+        "self_reports",
+        concat!(
+            "DELETE FROM self_reports WHERE ",
+            user_rows_cast!(),
+            " AND ",
+            user_marked_sources!()
+        ),
+    ),
+    (
+        "clinical_records",
+        concat!(
+            "DELETE FROM clinical_records WHERE ",
+            user_rows_cast!(),
             " AND ",
             user_marked_sources!()
         ),
@@ -455,7 +483,7 @@ pub(crate) const PURGE_REASONS_SINCE_SQL: &str = "SELECT reason FROM provider_da
 /// provider's terms can require across the whole platform (WHOOP API Terms
 /// §7), and are reachable only from the super-admin route that audits the
 /// call. No tenant- or user-facing path may run them.
-pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 20] = [
+pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 22] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", provider_sources!()),
@@ -475,6 +503,14 @@ pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 20] = [
     (
         "daily_activity",
         concat!("DELETE FROM daily_activity WHERE ", provider_rows!()),
+    ),
+    (
+        "self_reports",
+        concat!("DELETE FROM self_reports WHERE ", provider_rows!()),
+    ),
+    (
+        "clinical_records",
+        concat!("DELETE FROM clinical_records WHERE ", provider_rows!()),
     ),
     (
         "data_sources",

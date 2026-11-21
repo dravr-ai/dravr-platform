@@ -24,6 +24,7 @@ use crate::repositories::{
     DataSourceRepository, DelegatedConnectionRepository, DossierRepository,
     EmailVerificationRepository, EngagementRepository, FeatureFlagsRepository,
     FederatedIdentityRepository, FeedbackMessageRepository, FirebaseIdentityDeletionRepository,
+    HealthRecordRepository,
     FirstRunProgressRepository, FitnessConfigRepository, GarminPushInboxRepository,
     HarnessMemoryRepository, HealthSnapshotRepository, HomePreferencesRepository,
     ImpersonationRepository, ImportTombstoneRepository, LlmCredentialRepository,
@@ -154,6 +155,8 @@ pub struct RepositoryRegistry {
     pub check_in_preferences: Arc<dyn CheckInPreferenceRepository>,
     /// The athletes' in-app feedback threads with the Dravr team (carnet#1235)
     pub feedback_messages: Arc<dyn FeedbackMessageRepository>,
+    /// The T2–T3 health records imports and lab documents yield (carnet#1544)
+    pub health_records: Arc<dyn HealthRecordRepository>,
     /// Durable per-user onboarding step completion state (server-driven onboarding flow)
     pub user_onboarding: Arc<dyn UserOnboardingRepository>,
     /// Store listings for agent marketplace
@@ -372,6 +375,7 @@ impl RepositoryRegistry {
             platform_post_claims: db.clone(),
             check_in_preferences: db.clone(),
             feedback_messages: db.clone(),
+            health_records: db.clone(),
             user_onboarding: db.clone(),
             store_listings: db.clone(),
             tenants: db.clone(),
@@ -489,6 +493,7 @@ impl RepositoryRegistry {
             platform_post_claims: db.clone(),
             check_in_preferences: db.clone(),
             feedback_messages: db.clone(),
+            health_records: db.clone(),
             user_onboarding: db.clone(),
             store_listings: db.clone(),
             tenants: db.clone(),

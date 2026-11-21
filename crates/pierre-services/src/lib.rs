@@ -233,6 +233,9 @@ pub mod garmin_push;
 #[cfg(feature = "health-sync")]
 pub mod health_sync;
 
+/// The T2–T3 records an import or a lab document yields, as the platform stores them (carnet#1544)
+pub mod health_records;
+
 /// The one writer of wellness rows: every ingress writes nights, days, sources and series through it
 pub mod wellness_store;
 /// What the wellness store may keep of a WHOOP record: measurements, never WHOOP's own scores

@@ -107,6 +107,22 @@ impl IntradaySeries {
         }
     }
 
+    /// Self-measured blood glucose readings, each `(instant, mg/dL)`.
+    ///
+    /// A T2 record (owl §6.1), so it is kept apart from [`INTRADAY_SERIES`]:
+    /// the continuous-series read never serves it and [`Self::try_from_id`]
+    /// never rebuilds it; only the tier-gated health-records read does.
+    #[must_use]
+    pub fn blood_glucose(readings: impl IntoIterator<Item = (DateTime<Utc>, f64)>) -> Self {
+        Self {
+            series: SeriesType::BloodGlucose,
+            points: readings
+                .into_iter()
+                .map(|(at, mg_dl)| DataPoint::new(at, mg_dl))
+                .collect(),
+        }
+    }
+
     /// The series by riviere's id, when it is intraday.
     ///
     /// # Errors
