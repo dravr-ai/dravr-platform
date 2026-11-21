@@ -11,9 +11,9 @@
 //! exactly what that user's own assistant is, plus
 //! [`END_TOOL`](crate::support_session::END_TOOL). Both tools are
 //! `ADMIN_ONLY`, so they need an admin whose grant holds `admin` (their API
-//! key, or a connection granted Admin access), and the one access predicate
-//! refuses them to anyone else. Neither is offered in Dravr's own chat: the
-//! web console starts its own support sessions.
+//! key; no OAuth connection holds it while `admin` is not delegable), and the
+//! one access predicate refuses them to anyone else. Neither is offered in
+//! Dravr's own chat: the web console starts its own support sessions.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,10 +29,11 @@ use crate::conversions::{
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
-use crate::support_session::{self, END_TOOL, SESSION_MINUTES, START_TOOL};
+use crate::support_session::{self, END_TOOL, START_TOOL};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::permissions::impersonation::SESSION_MINUTES;
 use pierre_core::transport::Transport;
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;

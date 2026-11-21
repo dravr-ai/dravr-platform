@@ -40,7 +40,7 @@ impl A2AServer {
         let registry = resources.tool_runtime.tool_registry();
         // A live support session lists the user's skills, and the one that
         // ends it (carnet#1511).
-        let acting = match Self::acting_for(resources.ctx.as_ref(), &principal, "").await {
+        let acting = match Self::acting(resources.ctx.as_ref(), &principal).await {
             Ok(acting) => acting,
             Err(reason) => return Self::a2a_error(-32000, reason, request.id),
         };

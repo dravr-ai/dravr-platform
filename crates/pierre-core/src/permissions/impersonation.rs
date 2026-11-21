@@ -42,6 +42,11 @@ pub struct ImpersonationSession {
 /// through one of their API keys.
 pub const API_KEY_BINDING: &str = "api_key";
 
+/// How long a support session acts as its user from its start, never
+/// renewed: on the web console (the impersonation token's life) and through
+/// an admin's assistant alike.
+pub const SESSION_MINUTES: i64 = 60;
+
 /// Whether `impersonator` may act as `target`, on every door a session
 /// starts from (the admin console and an admin's assistant).
 ///

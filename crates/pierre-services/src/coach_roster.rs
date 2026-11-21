@@ -459,7 +459,8 @@ async fn mark_sources(repos: &RepositoryRegistry, members: &mut [RosterMember]) 
         .buffered(ROSTER_LOOKUP_CONCURRENCY)
         .try_collect()
         .await?;
-    for (at, (tenants, providers)) in sharers.into_iter().zip(sources) {
+    let found = sharers.into_iter().zip(sources);
+    for (at, (tenants, providers)) in found {
         let member = &mut members[at];
         if tenants.is_empty() {
             member.status = RosterAthleteStatus::NoSource;

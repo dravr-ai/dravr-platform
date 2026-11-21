@@ -47,12 +47,11 @@ impl A2AServer {
         ctx: &dyn A2ACtx,
         principal: &AuthPrincipal,
     ) -> Result<Option<LiveSupport>, String> {
-        let binding = support_session::binding_of(false, principal.credential_client.as_deref());
         support_session::live_support(
             ctx.repos(),
             principal.user_id,
             &principal.scopes,
-            binding.as_deref(),
+            binding(principal).as_deref(),
             Transport::A2a,
         )
         .await
@@ -71,8 +70,8 @@ impl A2AServer {
             .map_or(true, |live| live.is_some())
     }
 
-    /// Who a call of `tool_name` acts as: the user of a live support
-    /// session, except for the two session tools, which run as the admin.
+    /// Who a call of `tool_name` acts as: [`Self::acting`], except for the
+    /// two session tools, which run as the admin.
     ///
     /// # Errors
     ///
@@ -82,15 +81,22 @@ impl A2AServer {
         principal: &AuthPrincipal,
         tool_name: &str,
     ) -> Result<Acting, String> {
-        let as_principal = || Acting {
-            user_id: principal.user_id,
-            tenant: principal.active_tenant_id.map(TenantId::from_uuid),
-            scopes: principal.scopes.clone(),
-            support: None,
-        };
         if tool_name == START_TOOL || tool_name == END_TOOL {
-            return Ok(as_principal());
+            return Ok(Acting::principal(principal));
         }
+        Self::acting(ctx, principal).await
+    }
+
+    /// Who `principal` acts as: the user of a live support session, else
+    /// itself.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::live_support`].
+    pub(super) async fn acting(
+        ctx: &dyn A2ACtx,
+        principal: &AuthPrincipal,
+    ) -> Result<Acting, String> {
         Ok(match Self::live_support(ctx, principal).await? {
             Some(live) => Acting {
                 user_id: live.target(),
@@ -98,7 +104,26 @@ impl A2AServer {
                 scopes: grant_for_user(&principal.scopes),
                 support: Some(live),
             },
-            None => as_principal(),
+            None => Acting::principal(principal),
         })
     }
+}
+
+impl Acting {
+    /// `principal` acting as itself.
+    fn principal(principal: &AuthPrincipal) -> Self {
+        Self {
+            user_id: principal.user_id,
+            tenant: principal.active_tenant_id.map(TenantId::from_uuid),
+            scopes: principal.scopes.clone(),
+            support: None,
+        }
+    }
+}
+
+/// The connection an A2A call came through, as a support session binds it:
+/// the OAuth application `principal`'s user token was issued to. A
+/// client-credentials agent binds nothing.
+pub(super) fn binding(principal: &AuthPrincipal) -> Option<String> {
+    support_session::binding_of(false, principal.credential_client.as_deref())
 }

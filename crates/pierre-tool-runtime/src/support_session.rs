@@ -10,8 +10,9 @@
 //! web console's support session, over MCP and A2A, under the same rules:
 //!
 //! - **Who.** An admin whose connection's grant holds `admin`: their own API
-//!   key, or (once Admin access is offered at consent) an OAuth connection
-//!   with it ticked. Never of another admin, never of themselves. The two
+//!   key, or an OAuth connection whose grant holds it, which none does while
+//!   `admin` is not delegable (`OAuthScope::is_delegable`). Never of another
+//!   admin, never of themselves. The two
 //!   tools that start and end it are `ADMIN_ONLY`, so the one access
 //!   predicate ([`crate::tool_access`]) refuses them to anyone else.
 //! - **Bound to the connection that started it** ([`SUPPORT_BINDING`]): an
@@ -42,7 +43,9 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_auth::auth::ImpersonationGrant;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{TenantId, User};
-use pierre_core::permissions::impersonation::{self, ImpersonationSession, API_KEY_BINDING};
+use pierre_core::permissions::impersonation::{
+    self, ImpersonationSession, API_KEY_BINDING, SESSION_MINUTES,
+};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::repositories::{AuditOutcome, AuditSource, NewAuditEvent};
@@ -57,9 +60,6 @@ pub const START_TOOL: &str = "admin_impersonate_start";
 /// The tool an admin's assistant ends its support session with: the one call
 /// a live session serves as the admin, never as the user.
 pub const END_TOOL: &str = "admin_impersonate_end";
-
-/// How long a support session lasts from its start: the web console's hour.
-pub const SESSION_MINUTES: i64 = 60;
 
 /// `audit_events.action` of a support session an assistant started.
 pub const STARTED_ACTION: &str = "impersonation.started";

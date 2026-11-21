@@ -38,6 +38,7 @@ use pierre_core::constants::{
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{AuthRequest, AuthResponse, User, UserSession};
+use pierre_core::permissions::impersonation::SESSION_MINUTES;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::backends::UserRepository;
@@ -496,7 +497,7 @@ impl AuthManager {
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
         // Impersonation tokens have shorter expiry (1 hour)
-        let expiry = (Utc::now() + Duration::hours(1)).timestamp();
+        let expiry = (Utc::now() + Duration::minutes(SESSION_MINUTES)).timestamp();
         Self::impersonation_token(
             target_user,
             impersonator_id,
@@ -522,7 +523,7 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
-        let expiry = (Utc::now() + Duration::hours(1))
+        let expiry = (Utc::now() + Duration::minutes(SESSION_MINUTES))
             .timestamp()
             .min(grant.expires_at);
         Self::impersonation_token(

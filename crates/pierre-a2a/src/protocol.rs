@@ -929,7 +929,7 @@ impl A2AServer {
         };
         // Built inside the session's scope: the executor reads the session
         // when it is built, and carries it into the tool body.
-        let binding = support_session::binding_of(false, principal.credential_client.as_deref());
+        let binding = support::binding(principal);
         let session = acting
             .support
             .as_ref()
