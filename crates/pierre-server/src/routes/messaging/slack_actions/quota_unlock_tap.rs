@@ -64,9 +64,9 @@ pub(super) async fn answer_quota_unlock_tap(
     // rides in the interactive payload.
     let raiser = format!("@{}", action.slack_username);
 
-    let operator =
+    let admin =
         match authorize_admin(resources, &action.slack_user_id, AdminDecision::RaiseTier).await {
-            Ok(operator) => operator,
+            Ok(admin) => admin,
             Err(refused) => {
                 keep_card_with_reason(resources, action, &refused.room_line(&raiser));
                 return Err(refused.error);
@@ -77,11 +77,11 @@ pub(super) async fn answer_quota_unlock_tap(
         "raised to enterprise from Slack #{} by {raiser}",
         room_of(action)
     );
-    match raise_to_enterprise(&resources.common.repos, user_uuid, note, operator).await {
+    match raise_to_enterprise(&resources.common.repos, user_uuid, note, admin).await {
         Ok(unlock) => {
             info!(
                 user_id = %user_uuid,
-                operator_user_id = %operator,
+                admin_user_id = %admin,
                 slack_user = %action.slack_user_id,
                 outcome = unlock_kind(&unlock),
                 "Slack quota action answered"
@@ -131,7 +131,7 @@ const fn unlock_kind(unlock: &Unlock) -> &'static str {
 }
 
 /// Raise `user_uuid` to Enterprise through the shared admin tier override,
-/// attributed to `operator` with `note`, which also records the marker that
+/// attributed to `admin` with `note`, which also records the marker that
 /// keeps a later billing webhook from lowering it again. A user already
 /// Enterprise is left as it is.
 ///
@@ -143,7 +143,7 @@ async fn raise_to_enterprise(
     repos: &RepositoryRegistry,
     user_uuid: Uuid,
     note: String,
-    operator: Uuid,
+    admin: Uuid,
 ) -> AppResult<Unlock> {
     let user = repos
         .users
@@ -160,7 +160,7 @@ async fn raise_to_enterprise(
         user_uuid,
         UserTier::Enterprise,
         Some(note),
-        Some(operator),
+        Some(admin),
     )
     .await?;
 
@@ -168,7 +168,7 @@ async fn raise_to_enterprise(
         user_id = %user_uuid,
         email = %mask_email(&updated.email),
         previous_tier = user.tier.as_str(),
-        operator_user_id = %operator,
+        admin_user_id = %admin,
         "User raised to Enterprise via Slack quota action"
     );
 
@@ -230,7 +230,7 @@ mod tests {
         SlackAction {
             action_id: "raise_tier_enterprise:00000000-0000-0000-0000-000000000001".to_owned(),
             slack_user_id: "U1".to_owned(),
-            slack_username: "operator".to_owned(),
+            slack_username: "admin".to_owned(),
             channel_id: channel_id.to_owned(),
             channel_name: channel_name.to_owned(),
             message_ts: "1.0".to_owned(),
@@ -340,26 +340,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_starter_is_raised_to_enterprise_with_the_note_and_the_operator_on_record() {
+    async fn a_starter_is_raised_to_enterprise_with_the_note_and_the_admin_on_record() {
         let db = create_test_db().await.expect("test database");
         let repos = db.repositories();
         let athlete = create_test_user(&format!("{}@quota.test", Uuid::new_v4()), None);
         let athlete_id = repos.users.create(&athlete).await.expect("user row");
-        // `set_by` references a user row: the operator is a real account.
-        let operator = repos
+        // `set_by` references a user row: the admin is a real account.
+        let admin = repos
             .users
             .create(&create_test_admin_user(
                 &format!("{}@ops.test", Uuid::new_v4()),
                 None,
             ))
             .await
-            .expect("operator row");
+            .expect("admin row");
 
         let unlock = raise_to_enterprise(
             repos,
             athlete_id,
             "raised from Slack #dravr-quota by @op".to_owned(),
-            operator,
+            admin,
         )
         .await
         .expect("the raise");
@@ -392,7 +392,7 @@ mod tests {
             Some("raised from Slack #dravr-quota by @op"),
             "the audit note is recorded as given"
         );
-        assert_eq!(marker.set_by, Some(operator), "the operator is on record");
+        assert_eq!(marker.set_by, Some(admin), "the admin is on record");
     }
 
     #[tokio::test]

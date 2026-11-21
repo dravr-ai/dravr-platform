@@ -1000,7 +1000,7 @@ macro_rules! owner_slot_lock_sql {
 pub(crate) use owner_slot_lock_sql;
 
 /// The newest conversations of tenant `$1`, or of every tenant when it binds
-/// `NULL`, for the operator console.
+/// `NULL`, for the admin console.
 pub(crate) const RECENT_CONVERSATIONS_ADMIN_SQL: &str = concat!(
     "SELECT ",
     conversation_columns!(),

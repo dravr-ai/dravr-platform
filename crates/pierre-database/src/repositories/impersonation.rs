@@ -17,7 +17,7 @@ use uuid::Uuid;
 /// A permission surface: only an admin reaches the handlers that
 /// write here, and every read is keyed by the session id or by the two
 /// user ids the row names, so a caller can only see sessions they are a
-/// party to unless they hold the operator role that lists them all.
+/// party to unless they hold the admin role that lists them all.
 #[async_trait]
 pub trait ImpersonationRepository: Send + Sync {
     /// Create a new impersonation session for audit trail
@@ -114,7 +114,7 @@ pub(crate) const GET_SESSION_SQL: &str = concat!(
     " FROM impersonation_sessions WHERE id = $1"
 );
 
-/// The newest open session a user is a party to, as operator or as target.
+/// The newest open session a user is a party to, as admin or as target.
 /// `TRUE` is the spelling both engines accept for the boolean column.
 pub(crate) const GET_ACTIVE_SESSION_SQL: &str = concat!(
     "SELECT ",
@@ -159,7 +159,7 @@ pub(crate) const END_SESSION_SQL: &str = "UPDATE impersonation_sessions \
      SET is_active = FALSE, ended_at = $1 \
      WHERE id = $2";
 
-/// Close every open session an operator holds.
+/// Close every open session an admin holds.
 pub(crate) const END_ALL_SESSIONS_SQL: &str = "UPDATE impersonation_sessions \
      SET is_active = FALSE, ended_at = $1 \
      WHERE impersonator_id = $2 AND is_active = TRUE";

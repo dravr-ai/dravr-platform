@@ -126,7 +126,7 @@ fn a_connection_served_from_a_frozen_cache_is_reported_with_its_true_age() {
 }
 
 /// A healthy connection: served recently, fetched recently. Reporting this
-/// would train an operator to ignore the alert.
+/// would train an admin to ignore the alert.
 #[test]
 fn a_connection_still_reaching_its_provider_is_not_reported() {
     let now = Utc::now();
@@ -195,7 +195,7 @@ fn a_connection_that_never_served_is_never_judged() {
 }
 
 /// The thresholds are the caller's, and moving them must actually move the
-/// verdict — that is what lets an operator re-ask with a tighter question
+/// verdict — that is what lets an admin re-ask with a tighter question
 /// without a deploy.
 #[test]
 fn the_threshold_decides_the_verdict() {
@@ -466,7 +466,7 @@ async fn tenant_of(resources: &Arc<dyn ToolRuntime>, user_id: Uuid) -> TenantId 
 const HEAD_READ_FAILED: &str =
     "Live activity head read failed; the athlete is served from the cache until it recovers";
 
-/// A head read that failed is the one event an operator is paged for: the
+/// A head read that failed is the one event an admin is paged for: the
 /// error layer forwards `error` lines only, and a `warn` is how the 2026-10-30
 /// stale serve went unheard (carnet#1278). An authentication failure is not
 /// one — the reconnect notice is its page — and a complete read records
@@ -655,7 +655,7 @@ async fn a_spent_budget_pages_once_through_the_limiter_and_a_provider_429_still_
     assert_eq!(
         named(&events, HEAD_READ_FAILED).len(),
         1,
-        "bug: a 429 Strava itself answered is a failed read the operator must hear about"
+        "bug: a 429 Strava itself answered is a failed read the admin must hear about"
     );
 }
 

@@ -37,7 +37,7 @@ use pierre_services::locale::resolve_channel_locale;
 /// and needs nothing. `Some(reason)` means it is still on screen — the room
 /// shows a command with no answer, the caller is owed a word about where the
 /// answer went (see [`KEY_SLASH_ANSWERED_PRIVATELY`]), and `reason` says why it
-/// survived, for the operator log.
+/// survived, for the admin log.
 async fn delete_room_command_echo(
     db: &dyn MessagingRepository,
     tenant_id: TenantId,

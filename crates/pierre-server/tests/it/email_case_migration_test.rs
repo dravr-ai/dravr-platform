@@ -10,7 +10,7 @@
 //! lane rather than trusted from the SQL, because the refusal it carries is
 //! the part that matters: when lowercasing would put two accounts (or two
 //! pre-approvals) on one address, the migration must fail and name every
-//! address involved, merging and dropping nothing, so an operator can merge
+//! address involved, merging and dropping nothing, so an admin can merge
 //! them by hand and migrate again.
 //!
 //! Each lane has its own migration set, so the factory's URL decides which
@@ -265,7 +265,7 @@ async fn collision_on_sqlite(url: &str) {
         vec!["Jane@Case.Test", "jane@case.test", "Other@Case.Test"]
     );
 
-    // The operator merges the two accounts by hand; the pre-approvals collide
+    // The admin merges the two accounts by hand; the pre-approvals collide
     // next, and are named the same way.
     sqlx::query("DELETE FROM users WHERE id = 'u-jane'")
         .execute(&pool)

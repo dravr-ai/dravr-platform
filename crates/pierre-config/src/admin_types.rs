@@ -105,7 +105,7 @@ pub struct AdminConfigParameter {
     /// narrower scope (tenant or user) will win over the pin.
     pub env_pinned: bool,
     /// Which rung supplied `current_value`: `user`, `tenant`, `env`,
-    /// `global`, or `default`. Reported rather than inferred, so operator
+    /// `global`, or `default`. Reported rather than inferred, so admin
     /// tooling never has to guess which scope it is looking at.
     pub value_source: String,
     /// Whether this can be changed at runtime without restart
@@ -226,7 +226,7 @@ pub enum EnvSource {
     /// layered under per-tenant and per-user overrides.
     ConfigLayer,
     /// A boot-time loader owns this variable. The catalogue displays the
-    /// name for operators; the config layer must not also read it.
+    /// name for admins; the config layer must not also read it.
     BootLoader,
 }
 
@@ -259,7 +259,7 @@ pub fn config_env(name: &str) -> Option<EnvBinding> {
 }
 
 /// Bind a parameter to a variable a boot-time loader owns. Documented for
-/// operators, never read by the config layer — two readers for one variable
+/// admins, never read by the config layer — two readers for one variable
 /// would silently disagree.
 #[must_use]
 pub fn boot_env(name: &str) -> Option<EnvBinding> {
@@ -305,7 +305,7 @@ impl<'a> ConfigScope<'a> {
         }
     }
 
-    /// Stable operator-facing label used in CLI output and audit reasons.
+    /// Stable admin-facing label used in CLI output and audit reasons.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {

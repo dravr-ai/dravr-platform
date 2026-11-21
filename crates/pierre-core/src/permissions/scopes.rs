@@ -63,7 +63,7 @@ pub enum OAuthScope {
     /// Change who the athlete is — profile fields, configuration, provider links.
     #[serde(rename = "profile:write")]
     ProfileWrite,
-    /// Operate the server. Held by operators, never delegated to an integration.
+    /// Operate the server. Held by admins, never delegated to an integration.
     #[serde(rename = "admin")]
     Admin,
 }

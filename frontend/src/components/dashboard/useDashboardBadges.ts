@@ -46,7 +46,7 @@ export function useStoreStatsPendingCount(enabled = true): number {
  *
  * Reads the same paged list query the lists draw, so opening a thread
  * (which zeroes its row) and the badge agree without a second request.
- * `enabled` is the caller's athlete check: an operator has neither tab.
+ * `enabled` is the caller's athlete check: an admin has neither tab.
  */
 export function useUnreadConversationsCount(scope: ConversationScope, enabled = true): number {
   return useUnreadConversationTotal(scope, enabled);

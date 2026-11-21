@@ -434,7 +434,7 @@ test.describe('Settings Page - User Mode', () => {
     // from the "Privacy & Data" pane and went somewhere else entirely.
     await expect(pane.getByText('Legal documents')).toBeVisible();
     await expect(pane.getByText('Terms & Privacy')).toHaveCount(0);
-    // Which model answers is an operator's reading, never an athlete's (carnet#1147).
+    // Which model answers is an admin's reading, never an athlete's (carnet#1147).
     await expect(pane.getByTestId('about-section-coach-model')).toHaveCount(0);
     // Both external rows go to a page that answers: help to the docs hub,
     // legal to the privacy policy, which links the terms.

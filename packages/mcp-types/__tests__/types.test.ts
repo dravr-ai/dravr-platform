@@ -197,7 +197,7 @@ describe('TOOL_NAMES roster', () => {
     // A representative slice rather than the whole roster: it is generated, so
     // restating it here would be the second copy this exists to remove. Only
     // tools on the public profile belong here: a first_party_only tool (the
-    // agent store, memory, operator tools) is never in `tools/list` on /mcp.
+    // agent store, memory, admin tools) is never in `tools/list` on /mcp.
     for (const name of [
       'get_activities',
       'get_connection_status',

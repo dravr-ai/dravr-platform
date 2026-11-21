@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 /// Per-user admin tier override marker.
 ///
-/// When a row exists for a user, an operator has manually set the user's
+/// When a row exists for a user, an admin has manually set the user's
 /// billing tier outside the Stripe loop (QA, comp accounts, manual
 /// overrides). While the row is present the Stripe webhook MUST NOT change
 /// `users.tier` or the tenant plan — it still upserts the subscription row
@@ -24,9 +24,9 @@ use uuid::Uuid;
 pub struct UserTierOverride {
     /// User the override applies to.
     pub user_id: Uuid,
-    /// Tier the operator pinned the user to.
+    /// Tier the admin pinned the user to.
     pub tier: UserTier,
-    /// Operator-facing note explaining why the override exists.
+    /// Admin-facing note explaining why the override exists.
     pub note: Option<String>,
     /// Admin user who set the override (audit trail). `None` for service
     /// tokens that do not map to a user UUID.

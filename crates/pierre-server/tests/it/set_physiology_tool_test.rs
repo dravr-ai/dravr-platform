@@ -632,10 +632,10 @@ fn set_physiology_is_reachable_from_a_chat_turn() {
 
     // The sibling config writers stay off the natural-language surface; this
     // pins the distinction the `physiology` category exists to draw.
-    for operator_tool in ["update_user_configuration", "set_fitness_config"] {
+    for admin_tool in ["update_user_configuration", "set_fitness_config"] {
         assert!(
-            !chat_callable.iter().any(|n| n == operator_tool),
-            "{operator_tool} must stay off the chat surface"
+            !chat_callable.iter().any(|n| n == admin_tool),
+            "{admin_tool} must stay off the chat surface"
         );
     }
 }

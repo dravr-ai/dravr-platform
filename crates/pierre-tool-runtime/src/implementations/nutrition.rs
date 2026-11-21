@@ -157,7 +157,7 @@ fn parse_nutrition_params(args: &Value) -> AppResult<DailyNutritionParams> {
     })
 }
 
-/// The operator's athlete protein target for this call's athlete, when one is
+/// The admin's athlete protein target for this call's athlete, when one is
 /// set: the per-user row, then the tenant's, then the fleet's.
 ///
 /// Only an explicit override is read. With none, the kernel's configured
@@ -493,7 +493,7 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
 
             let cageux_config = context.cageux_config();
             let nutrition_config = &cageux_config.nutrition;
-            // The kernel's macronutrient factors, with the operator's athlete
+            // The kernel's macronutrient factors, with the admin's athlete
             // protein target in place of the compiled one when an admin set it.
             let mut macronutrients = nutrition_config.macronutrients.clone();
             if let Some(g_per_kg) = athlete_protein_override(&context).await? {

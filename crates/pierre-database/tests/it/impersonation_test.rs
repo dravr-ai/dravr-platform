@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! `impersonation_sessions` records which operator acted as which user and
+//! `impersonation_sessions` records which admin acted as which user and
 //! when. Every read the admin handlers make — the active session for a
 //! caller, one session by id, a page of the log — has to work on both
 //! backends, and the ids that key those reads are `uuid` columns on
@@ -37,10 +37,10 @@ async fn fresh_user(repos: &RepositoryRegistry) -> Uuid {
 async fn a_session_reads_back_by_id_and_by_either_party() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let operator = fresh_user(repos).await;
+    let admin = fresh_user(repos).await;
     let target = fresh_user(repos).await;
 
-    let session = ImpersonationSession::new(operator, target, Some("support ticket 42".to_owned()));
+    let session = ImpersonationSession::new(admin, target, Some("support ticket 42".to_owned()));
     repos.impersonation.create_session(&session).await.unwrap();
 
     let by_id = repos
@@ -49,7 +49,7 @@ async fn a_session_reads_back_by_id_and_by_either_party() {
         .await
         .unwrap()
         .expect("the session just created must read back by id");
-    assert_eq!(by_id.impersonator_id, operator);
+    assert_eq!(by_id.impersonator_id, admin);
     assert_eq!(by_id.target_user_id, target);
     assert_eq!(by_id.reason.as_deref(), Some("support ticket 42"));
     assert!(by_id.is_active);
@@ -60,13 +60,13 @@ async fn a_session_reads_back_by_id_and_by_either_party() {
         "started_at survives the round-trip to the millisecond"
     );
 
-    let for_operator = repos
+    let for_admin = repos
         .impersonation
-        .get_active_session(operator)
+        .get_active_session(admin)
         .await
         .unwrap()
-        .expect("the operator's active session must be found by their id");
-    assert_eq!(for_operator.id, session.id);
+        .expect("the admin's active session must be found by their id");
+    assert_eq!(for_admin.id, session.id);
 
     let for_target = repos
         .impersonation
@@ -92,10 +92,10 @@ async fn a_session_reads_back_by_id_and_by_either_party() {
 async fn ending_a_session_clears_it_from_the_active_lookup() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let operator = fresh_user(repos).await;
+    let admin = fresh_user(repos).await;
     let target = fresh_user(repos).await;
 
-    let session = ImpersonationSession::new(operator, target, None);
+    let session = ImpersonationSession::new(admin, target, None);
     repos.impersonation.create_session(&session).await.unwrap();
     repos.impersonation.end_session(&session.id).await.unwrap();
 
@@ -110,31 +110,31 @@ async fn ending_a_session_clears_it_from_the_active_lookup() {
     assert!(
         repos
             .impersonation
-            .get_active_session(operator)
+            .get_active_session(admin)
             .await
             .unwrap()
             .is_none(),
-        "an ended session is no longer the operator's active one"
+        "an ended session is no longer the admin's active one"
     );
 }
 
 #[tokio::test]
-async fn end_all_sessions_counts_only_the_operators_open_ones() {
+async fn end_all_sessions_counts_only_the_admins_open_ones() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let operator = fresh_user(repos).await;
-    let other_operator = fresh_user(repos).await;
+    let admin = fresh_user(repos).await;
+    let other_admin = fresh_user(repos).await;
     let first_target = fresh_user(repos).await;
     let second_target = fresh_user(repos).await;
 
     for target in [first_target, second_target] {
         repos
             .impersonation
-            .create_session(&ImpersonationSession::new(operator, target, None))
+            .create_session(&ImpersonationSession::new(admin, target, None))
             .await
             .unwrap();
     }
-    let untouched = ImpersonationSession::new(other_operator, first_target, None);
+    let untouched = ImpersonationSession::new(other_admin, first_target, None);
     repos
         .impersonation
         .create_session(&untouched)
@@ -142,31 +142,23 @@ async fn end_all_sessions_counts_only_the_operators_open_ones() {
         .unwrap();
 
     assert_eq!(
-        repos
-            .impersonation
-            .end_all_sessions(operator)
-            .await
-            .unwrap(),
+        repos.impersonation.end_all_sessions(admin).await.unwrap(),
         2,
-        "both of the operator's open sessions end, the other operator's does not"
+        "both of the admin's open sessions end, the other admin's does not"
     );
     assert_eq!(
-        repos
-            .impersonation
-            .end_all_sessions(operator)
-            .await
-            .unwrap(),
+        repos.impersonation.end_all_sessions(admin).await.unwrap(),
         0,
         "a second sweep finds nothing open"
     );
     assert!(
         repos
             .impersonation
-            .get_active_session(other_operator)
+            .get_active_session(other_admin)
             .await
             .unwrap()
             .is_some(),
-        "the other operator's session is still active"
+        "the other admin's session is still active"
     );
 }
 
@@ -177,7 +169,7 @@ async fn end_all_sessions_counts_only_the_operators_open_ones() {
 async fn the_session_log_pages_through_every_session_with_no_gap_at_a_tied_start() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let operator = fresh_user(repos).await;
+    let admin = fresh_user(repos).await;
     let target = fresh_user(repos).await;
 
     let tied_at = Utc.with_ymd_and_hms(2026, 9, 27, 9, 0, 0).unwrap();
@@ -196,7 +188,7 @@ async fn the_session_log_pages_through_every_session_with_no_gap_at_a_tied_start
             id: format!("imp-page-{n}-{}", Uuid::new_v4()),
             started_at,
             created_at: started_at,
-            ..ImpersonationSession::new(operator, target, None)
+            ..ImpersonationSession::new(admin, target, None)
         };
         repos.impersonation.create_session(&session).await.unwrap();
         written.push(session.id);
@@ -212,7 +204,7 @@ async fn the_session_log_pages_through_every_session_with_no_gap_at_a_tied_start
             .unwrap();
         let mine: Vec<_> = page
             .iter()
-            .filter(|s| s.impersonator_id == operator)
+            .filter(|s| s.impersonator_id == admin)
             .map(|s| s.id.clone())
             .collect();
         seen.extend(mine);

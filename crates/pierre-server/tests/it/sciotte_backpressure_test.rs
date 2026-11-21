@@ -1,5 +1,5 @@
 // ABOUTME: Regression tests pinning that a sciotte scraper load-shed is backpressure, not a system failure
-// ABOUTME: Asserts the 503 + Retry-After answer and that no operator alert or sync.failed event is emitted
+// ABOUTME: Asserts the 503 + Retry-After answer and that no admin alert or sync.failed event is emitted
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,7 +19,7 @@
 //! The sciotte client names the shed (pinned in dravr-sciotte's own client
 //! tests) and `sciotte_error` maps it (pinned in that module's unit tests).
 //! These tests pin the route layer: the login routes answer a mapped shed with
-//! the service's own `503` + `Retry-After` while emitting neither the operator
+//! the service's own `503` + `Retry-After` while emitting neither the admin
 //! alert nor the business-failure event. A genuine failure still does both,
 //! and what it logs names the answer's marker without its body.
 
@@ -144,7 +144,7 @@ async fn a_login_shed_answers_503_with_retry_after_and_pages_nobody() {
 }
 
 #[tokio::test]
-async fn a_login_system_failure_still_alerts_operators() {
+async fn a_login_system_failure_still_alerts_admins() {
     let failure = AppError::internal("browser error: Failed to launch browser");
 
     let (events, guard) = log_capture::capture_events();
@@ -160,7 +160,7 @@ async fn a_login_system_failure_still_alerts_operators() {
     assert_eq!(
         error_count(&events),
         1,
-        "a genuine fault must still page operators exactly once"
+        "a genuine fault must still page admins exactly once"
     );
     assert_eq!(
         sync_failed_count(&events),
@@ -179,7 +179,7 @@ async fn a_login_system_failure_still_alerts_operators() {
 
 #[tokio::test]
 async fn a_login_answer_with_no_status_alerts_with_its_marker_and_not_its_body() {
-    // The identity-token gate's 401: no login status, and a body an operator
+    // The identity-token gate's 401: no login status, and a body an admin
     // log must not carry beyond the marker that says what refused the call.
     let failure = to_app_error(ClientError::Unexpected {
         exchange: exchange(Operation::Login).into(),
@@ -209,7 +209,7 @@ async fn a_login_answer_with_no_status_alerts_with_its_marker_and_not_its_body()
     assert_eq!(
         reasons.len(),
         2,
-        "the operator alert and the sync.failed event each carry the reason: {reasons:?}"
+        "the admin alert and the sync.failed event each carry the reason: {reasons:?}"
     );
     for reason in &reasons {
         assert!(

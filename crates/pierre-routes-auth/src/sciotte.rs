@@ -53,7 +53,7 @@ use pierre_middleware::provider_link_token::CONNECT_PROVIDER;
 /// The parked remote-login state the platform remembers between the initial
 /// login call and its OTP/2FA continuations. The heavy state — parked browser +
 /// permit — lives on the scraper service; the platform keeps only this so a
-/// continuation can name the right server-side flow *and* alert operators with
+/// continuation can name the right server-side flow *and* alert admins with
 /// the right platform on a system failure.
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct RemoteFlowState {
@@ -67,7 +67,7 @@ pub(crate) struct RemoteFlowState {
     /// Backend provider name (`sciotte`, `sciotte_garmin`,
     /// `sciotte_trainingpeaks`, `sciotte_coros`) carried from the login
     /// request. A *system* failure on an OTP/2FA continuation needs it for the
-    /// operator alert + friendly copy, because the outcome only reports the
+    /// admin alert + friendly copy, because the outcome only reports the
     /// provider on success — never on the intermediate steps or on an `Err`.
     provider: String,
 }
@@ -276,7 +276,7 @@ fn login_flow_expired() -> AppError {
 ///
 /// The sign-in service scales to zero between sign-ins, so the instance that
 /// parked a browser can be gone by the time the athlete types the code
-/// (carnet#1504). That is a sign-in to start again, not an operator alert. A
+/// (carnet#1504). That is a sign-in to start again, not an admin alert. A
 /// shed keeps the flow for the retry its `Retry-After` invites; every other
 /// failure ends the attempt, and both login UIs send the athlete back to the
 /// credential screen, so the flow is forgotten and the next login does not
@@ -710,7 +710,7 @@ async fn drop_signed_in_copy(remote: &SciotteClient, session_id: &str, user_id: 
 ///
 /// Splits the failure between two audiences so neither is served the wrong
 /// thing:
-/// * **Operators** — the full technical reason is logged at `error!`, which
+/// * **Admins** — the full technical reason is logged at `error!`, which
 ///   `dravr-tronc` forwards to the `#dev-dravr-errors` Slack channel next to
 ///   the other server-fault alerts (a browser-launch failure blocks *every*
 ///   credential login on the revision, so it belongs there, not the
@@ -791,7 +791,7 @@ pub fn friendly_login_challenge_message(provider: &str) -> String {
 /// `details.reason` for the login UIs to select on.
 ///
 /// A `4xx` on purpose: `response_failure_log_middleware` records a `5xx` that
-/// carries no `Retry-After` at `ERROR`, which pages operators, and the service
+/// carries no `Retry-After` at `ERROR`, which pages admins, and the service
 /// names no wait for a challenge.
 fn login_challenge_refusal(provider: &str) -> AppError {
     let mut refusal = AppError::invalid_input(friendly_login_challenge_message(provider));
@@ -803,7 +803,7 @@ fn login_challenge_refusal(provider: &str) -> AppError {
 
 /// Turn an `Err` from the dedicated scraper service into what the athlete gets
 /// back: a retryable shed response, the cancel or challenge refusal, or the
-/// operator-alerting system failure.
+/// admin-alerting system failure.
 ///
 /// A load-shed is the service's designed answer to a saturated Chrome budget
 /// (`503` + `Retry-After`), so it is deliberately routed *around*
@@ -811,10 +811,10 @@ fn login_challenge_refusal(provider: &str) -> AppError {
 /// `dravr-tronc` forwards to the `#dev-dravr-errors` Slack channel — plus a
 /// `sync.failed` business event, and both would fire once per shed request at
 /// exactly the moment the service is busiest, turning healthy backpressure into
-/// an operator page storm.
+/// an admin page storm.
 ///
 /// A sign-in the provider stopped at a challenge (a captcha) goes around it
-/// too: it is the provider's bot check, which no operator can answer, and the
+/// too: it is the provider's bot check, which no admin can answer, and the
 /// athlete is told so in [`friendly_login_challenge_message`]'s words. Unlike
 /// a shed it ends the attempt — the service stopped the login — so it is an
 /// `Err`, which the continuation handlers answer by dropping the flow.
@@ -998,7 +998,7 @@ pub(crate) async fn handle_sciotte_login(
     // session-of-record (it exports + persists the session, keyed by flow_id).
     // A transport/service fault (not a credential rejection, which comes back
     // as `Failed`, nor a load-shed, which comes back as retryable backpressure)
-    // is a *system* failure: alert operators + emit `sync.failed`.
+    // is a *system* failure: alert admins + emit `sync.failed`.
     let remote = resources.provider_registry.require_sciotte_login_client()?;
     info!(
         user_id = %user_id,

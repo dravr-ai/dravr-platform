@@ -123,7 +123,7 @@ pub(crate) async fn list_purges(client: &RemoteClient, provider: &str) -> AppRes
 /// The attestation lines for the `/admin/providers/{provider}/purges` answer
 /// `body`, newest first as the server orders them.
 ///
-/// This is what an operator writes a provider attestation from, so an answer
+/// This is what an admin writes a provider attestation from, so an answer
 /// of any other shape (a renamed envelope, a missing field, the `Null` a
 /// non-JSON 200 decodes to) is an error, never "no deletion is recorded" or a
 /// made-up value. Only `user_id` and `tenant_id` read `all` when absent: that

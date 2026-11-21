@@ -160,7 +160,7 @@ impl PhotograveurClient {
 
         let status = response.status();
         if !status.is_success() {
-            // The body carries the service's own reason; it is operator-facing
+            // The body carries the service's own reason; it is admin-facing
             // and contains no athlete data, so it is safe to surface.
             let detail = String::from_utf8_lossy(response.bytes());
             return Err(AppError::new(

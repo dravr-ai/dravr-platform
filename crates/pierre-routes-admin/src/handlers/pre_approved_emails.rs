@@ -195,7 +195,7 @@ pub(crate) async fn handle_disallow_email(
     );
 
     // Said plainly: removing a pre-approval never deletes an account, and an
-    // operator once read this action as a user delete (carnet#1391).
+    // admin once read this action as a user delete (carnet#1391).
     let audit = AuditDetail::new(
         "pre_approval.remove",
         format!(

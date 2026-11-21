@@ -57,7 +57,7 @@ pub struct ConnectOrderResponse {
 }
 
 /// The orders in force right now, or the store's error: a failed read is
-/// never shown to the operator as the default.
+/// never shown to the admin as the default.
 async fn orders(context: &AdminApiContext) -> AppResult<ConnectOrderResponse> {
     let settings = context.repos.system_settings.as_ref();
     let mut orders = BTreeMap::new();

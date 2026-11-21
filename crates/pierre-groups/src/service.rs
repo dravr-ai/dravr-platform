@@ -584,7 +584,7 @@ impl GroupService {
     ///
     /// The group change has already been written, so a billing failure does
     /// not undo it: it is logged at ERROR, which the error digest carries to
-    /// an operator, and the next change or subscription webhook re-applies the
+    /// an admin, and the next change or subscription webhook re-applies the
     /// absolute count, so a missed update converges instead of drifting.
     async fn bill_athletes(&self, owner_id: Uuid, tenant_id: TenantId) {
         match self.athlete_billing.sync(owner_id, tenant_id).await {

@@ -14,7 +14,7 @@ use super::self_id;
 /// Says which coarse class fired, in which locale, and the pattern's
 /// index in [`IDENTITY_NARRATION_PATTERNS`]. Deliberately carries no
 /// text — the withheld reply is never logged or persisted, so these
-/// labels are the only per-leak signal that reaches operators.
+/// labels are the only per-leak signal that reaches admins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IdentityLeakMatch {
     /// Coarse pattern class (product flip vs roleplay framing vs …).

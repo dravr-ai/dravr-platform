@@ -34,7 +34,7 @@
 //! The reset refuses, before anything is touched, while the account holds
 //! something other people use ([`RESET_BLOCKERS_SQL`]). Those are a subset of
 //! the delete's blockers: the ones that exist only because the `users` row
-//! disappears (operator attribution, sole tenant ownership, a live billing
+//! disappears (admin attribution, sole tenant ownership, a live billing
 //! subscription) do not apply to a reset, which keeps that row and those rows.
 //!
 //! The history dravr-barrage imported for the account and the files it
@@ -311,20 +311,20 @@ account_reset_tables!(
 
 /// Every user-keyed table a reset keeps, with the reason it stays.
 ///
-/// The account itself, the way it signs in and what operators set on it stay,
+/// The account itself, the way it signs in and what admins set on it stay,
 /// so the reset account is the same account; the ledgers stay because they
 /// are records of what happened, not the account's data.
 pub const RESET_KEEP: &[(&str, &str)] = &[
-    ("users", "the account itself: id, email, role, tier, status and sign-in; approved_by and manages_roster_granted_by are operator attribution (a TrainingPeaks coach disconnect may revoke an earned manages_roster through the chokepoint)"),
+    ("users", "the account itself: id, email, role, tier, status and sign-in; approved_by and manages_roster_granted_by are admin attribution (a TrainingPeaks coach disconnect may revoke an earned manages_roster through the chokepoint)"),
     ("tenant_users", "tenant membership and role: the account stays in its tenants"),
-    ("user_tier_overrides", "an operator's tier override on the account"),
-    ("user_rate_limit_overrides", "an operator's rate-limit override on the account"),
-    ("user_feature_overrides", "an operator's feature flags on the account"),
-    ("user_tool_overrides", "an operator's tool overrides on the account"),
-    ("admin_config_overrides", "operator configuration scoped to the account, and attribution of overrides the account wrote as an operator"),
-    ("admin_config_audit", "the operator configuration audit trail"),
-    ("admin_tokens", "operator device tokens the account approved (attribution, no foreign key)"),
-    ("device_authorization", "pierre-cli device-login approvals the account made as an operator"),
+    ("user_tier_overrides", "an admin's tier override on the account"),
+    ("user_rate_limit_overrides", "an admin's rate-limit override on the account"),
+    ("user_feature_overrides", "an admin's feature flags on the account"),
+    ("user_tool_overrides", "an admin's tool overrides on the account"),
+    ("admin_config_overrides", "admin configuration scoped to the account, and attribution of overrides the account wrote as an admin"),
+    ("admin_config_audit", "the admin configuration audit trail"),
+    ("admin_tokens", "admin device tokens the account approved (attribution, no foreign key)"),
+    ("device_authorization", "pierre-cli device-login approvals the account made as an admin"),
     ("user_federated_identities", "sign-in identity: the account keeps signing in the same way"),
     ("session_refresh_tokens", "live app sessions: a reset does not sign the account out"),
     ("user_mcp_tokens", "the account's MCP client tokens (sign-in credentials)"),
@@ -332,12 +332,12 @@ pub const RESET_KEEP: &[(&str, &str)] = &[
     ("email_verification_tokens", "sign-in state"),
     ("password_reset_tokens", "sign-in state"),
     ("permission_delegations", "role and permission grants"),
-    ("impersonation_sessions", "the operator record of impersonations"),
+    ("impersonation_sessions", "the admin record of impersonations"),
     ("signup_code_redemptions", "how the account was created"),
     ("group_invite_holds", "a group invite the account opened and has not joined yet: sign-up state, as signup_code_redemptions (carnet#1648)"),
-    ("signup_codes", "codes the account minted as an operator (attribution)"),
+    ("signup_codes", "codes the account minted as an admin (attribution)"),
     ("pre_approved_emails", "the sign-up allow-list and who allowed each email"),
-    ("user_invitations", "invitations the account sent as an operator"),
+    ("user_invitations", "invitations the account sent as an admin"),
     ("user_llm_credentials", "bring-your-own LLM credentials: account configuration"),
     ("user_llm_credentials_audit", "the audit trail of those credentials"),
     ("user_oauth_app_credentials", "the account's own provider OAuth app configuration, not provider data"),
@@ -359,11 +359,11 @@ pub const RESET_KEEP: &[(&str, &str)] = &[
     ("archive_erasures", "the account delete's erasure outbox; a reset erases the account's imported history and uploads itself, before its wipe, and queues nothing here"),
     ("group_chat_invite_prompts", "a chat sender told once how to join a connected group: channel_user_id is the chat platform's sender id, never a Dravr account, and the row goes with its group"),
     ("group_invites", "an invite the account created to an active group refuses the reset; one to an archived group the reset wipes cascades with it; one to an archived group someone else used is inert and stays with it"),
-    ("tenant_oauth_credentials", "a tenant's provider OAuth app the account configured as an operator (attribution)"),
-    ("tenant_feature_defaults", "tenant feature defaults the account set as an operator (attribution)"),
-    ("tenant_tool_overrides", "tenant tool overrides the account enabled as an operator (attribution)"),
+    ("tenant_oauth_credentials", "a tenant's provider OAuth app the account configured as an admin (attribution)"),
+    ("tenant_feature_defaults", "tenant feature defaults the account set as an admin (attribution)"),
+    ("tenant_tool_overrides", "tenant tool overrides the account enabled as an admin (attribution)"),
     ("agent_versions", "attribution on other authors' agent versions; the versions of the account's own agents go with them"),
-    ("store_listings", "store review decisions the account made as an operator (attribution)"),
+    ("store_listings", "store review decisions the account made as an admin (attribution)"),
     ("import_tombstones", "the deletion ledger's tombstones and who claimed or cleared them"),
 ];
 
@@ -391,7 +391,7 @@ pub const RESET_KEEP: &[(&str, &str)] = &[
 /// binding does, since the reset keeps that group and it would name an agent
 /// the reset wipes.
 ///
-/// The delete's other blockers do not apply: operator and audit attribution,
+/// The delete's other blockers do not apply: admin and audit attribution,
 /// LLM credentials made for others, approvals, and sole ownership of a tenant
 /// refuse a delete only because the `users` row they reference disappears,
 /// and a live subscription only because its row would; a reset keeps both.
@@ -476,7 +476,7 @@ pub struct OwnedGroup {
     pub group_id: String,
     /// The tenant the group lives in, which its archive is scoped by.
     pub tenant_id: TenantId,
-    /// The group's name, for the operator.
+    /// The group's name, for the admin.
     pub name: String,
 }
 
@@ -541,7 +541,7 @@ pub trait AccountResetRepository: Send + Sync {
 ///
 /// A foreign-key violation means a row still references what the reset
 /// clears — one [`RESET_BLOCKERS_SQL`] could not see, or one written between
-/// that read and the reset. That is a conflict an operator resolves, so it
+/// that read and the reset. That is a conflict an admin resolves, so it
 /// maps to [`ErrorCode::ResourceLocked`] (409), never to a 500.
 pub(crate) fn reset_error(user_id: Uuid, error: &sqlx::Error) -> AppError {
     let is_reference = error

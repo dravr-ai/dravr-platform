@@ -207,7 +207,7 @@ async fn send_registration_email(
 /// or sign-up is open to verified addresses and the confirmation link activates them.
 ///
 /// The sign-up guards apply first, cheapest first (carnet#1063): the client
-/// address's window, then the bot check, then the operator's bounds inside
+/// address's window, then the bot check, then the admin's bounds inside
 /// [`pierre_services::auth::AuthService::self_register`].
 #[tracing::instrument(
     skip(resources, headers, body),

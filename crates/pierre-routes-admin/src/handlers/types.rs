@@ -63,7 +63,7 @@ pub struct ApproveUserRequest {
 pub struct AllowEmailRequest {
     /// Address to pre-approve; normalized (trimmed, lower-cased) server-side.
     pub email: String,
-    /// Operator note recorded with the allow (cohort, reason).
+    /// Admin note recorded with the allow (cohort, reason).
     pub note: Option<String>,
     /// Email the invitee the sign-up link. Defaults to false, because an allow
     /// is silent by design: recording one is not by itself a decision to
@@ -71,7 +71,7 @@ pub struct AllowEmailRequest {
     #[serde(default)]
     pub send_invite: bool,
     /// Answer the invitation's link instead of mailing it. Super-admin only
-    /// and requires `send_invite`: for operator-driven end-to-end testing,
+    /// and requires `send_invite`: for admin-driven end-to-end testing,
     /// where the invitee's address has no mailbox anyone reads.
     #[serde(default)]
     pub return_link: bool,
@@ -83,7 +83,7 @@ pub struct AllowEmailRequest {
 pub struct CloneProviderRequest {
     /// The account whose session is copied.
     pub from_user_id: String,
-    /// Operator note recorded on the audit row (why the clone was made).
+    /// Admin note recorded on the audit row (why the clone was made).
     pub reason: Option<String>,
 }
 

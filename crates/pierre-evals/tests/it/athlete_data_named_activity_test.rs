@@ -87,7 +87,7 @@ fn placing_a_named_activity_on_the_wrong_weekday_is_contradicted() {
     assert_eq!(outcome.layer_fired, VerdictLayer::AthleteData);
     assert!(
         outcome.explanation.contains("Road 2 AUS"),
-        "the operator explanation must name the session: {}",
+        "the admin explanation must name the session: {}",
         outcome.explanation
     );
 }

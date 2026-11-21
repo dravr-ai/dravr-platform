@@ -100,7 +100,7 @@ pub mod strava_seat_reclaim {
     pub const MODE_OBSERVE: &str = "observe";
     /// Warns, then disconnects.
     pub const MODE_ENFORCE: &str = "enforce";
-    /// Armed: the sweeper warns and reclaims. An operator stands it down with
+    /// Armed: the sweeper warns and reclaims. An admin stands it down with
     /// `observe` (report only) or `off`, no deploy needed.
     pub const DEFAULT_MODE: &str = MODE_ENFORCE;
 
@@ -202,7 +202,7 @@ pub mod password_reset {
 /// [`password_reset::SELECTOR_LEN`] / [`password_reset::VERIFIER_LEN`]) against a
 /// separate token space, so only the lifetime and throttle differ here.
 ///
-/// Both knobs are operator-tunable at runtime through `system_settings` with an
+/// Both knobs are admin-tunable at runtime through `system_settings` with an
 /// environment override, the same three-tier precedence `AUTO_APPROVE_USERS`
 /// uses (env → stored row → the defaults below). They deliberately do **not**
 /// live in the runtime configuration catalog: that surface is per-user and
@@ -246,7 +246,7 @@ pub mod email_verification {
 
 /// Bounds on self-serve sign-up (carnet#1063).
 ///
-/// The ceiling is an operator knob in `system_settings`, clamped on read like
+/// The ceiling is an admin knob in `system_settings`, clamped on read like
 /// the verification knobs, and deliberately not in the runtime configuration
 /// catalog: a tenant that could lift its own sign-up ceiling would be lifting
 /// everyone's.

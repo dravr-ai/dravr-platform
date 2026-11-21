@@ -1,5 +1,5 @@
 // ABOUTME: Blind grading export — a stratified, seeded sample of production verdicts into two grader sheets and a key
-// ABOUTME: A sheet row carries the claim and nothing the checker decided; the key holding the verdicts stays with the operator
+// ABOUTME: A sheet row carries the claim and nothing the checker decided; the key holding the verdicts stays with the admin
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -244,7 +244,7 @@ pub struct StratumCount {
     pub sample: usize,
 }
 
-/// One sampled claim as the operator's key records it: the item the graders
+/// One sampled claim as the admin's key records it: the item the graders
 /// see, and the verdict they must not.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyItem {
@@ -280,7 +280,7 @@ pub struct KeyItem {
     pub flagged: bool,
 }
 
-/// The operator's half of an export: everything needed to score the graded
+/// The admin's half of an export: everything needed to score the graded
 /// sheets and to re-check the draw. Never given to a grader.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GradingKey {
@@ -427,10 +427,10 @@ impl GradingSheet {
     }
 }
 
-/// An export: the key for the operator, a sheet per grader.
+/// An export: the key for the admin, a sheet per grader.
 #[derive(Debug, Clone)]
 pub struct GradingExport {
-    /// The operator's key.
+    /// The admin's key.
     pub key: GradingKey,
     /// The grader sheets, numbered from 1.
     pub sheets: Vec<GradingSheet>,

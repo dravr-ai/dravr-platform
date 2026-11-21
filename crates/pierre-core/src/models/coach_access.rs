@@ -70,7 +70,7 @@ pub struct CoachAccessRequest {
     /// When an admin decided; `None` while pending.
     pub decided_at: Option<DateTime<Utc>>,
     /// The admin who decided; `None` while pending, for a service token,
-    /// and once that operator's account is deleted.
+    /// and once that admin's account is deleted.
     pub decided_by: Option<Uuid>,
     /// The reason an admin gave with a decline, shown to the coach in
     /// the notice, the email and the declined state (carnet#1521). `None`

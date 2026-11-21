@@ -6,7 +6,7 @@
 
 //! What a stranger's sign-up passes before an account is written (carnet#1063).
 //!
-//! The operator's bounds (the kill switch and the 24-hour ceiling) live in
+//! The admin's bounds (the kill switch and the 24-hour ceiling) live in
 //! `pierre_services::signup_policy` and apply to every self-serve door. The
 //! two guards here belong to the doors a browser reaches:
 //!
@@ -171,7 +171,7 @@ pub async fn meter_sign_up(limiter: &OAuth2RateLimiter, client: Option<IpAddr>) 
 /// Pass the bot check, when one is configured.
 ///
 /// Cloudflare out of reach admits the sign-up: the per-address window and
-/// the operator's ceiling still bound it, and an outage at Cloudflare must not
+/// the admin's ceiling still bound it, and an outage at Cloudflare must not
 /// close sign-up by itself.
 ///
 /// # Errors
@@ -205,7 +205,7 @@ pub(crate) async fn pass_human_check(
 
 /// Tell the register form whether sign-up is open and which widget to render.
 ///
-/// `open` is the operator's bounds as a sign-up would meet them now
+/// `open` is the admin's bounds as a sign-up would meet them now
 /// ([`signup_refusal`], the decision the sign-up itself takes).
 pub(crate) async fn handle_signup_config(
     State(resources): State<AuthRoutesContext>,

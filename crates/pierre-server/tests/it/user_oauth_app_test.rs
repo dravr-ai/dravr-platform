@@ -724,7 +724,7 @@ async fn test_user_credentials_default_rate_limits() -> Result<()> {
 
     assert_eq!(credentials.client_id(), "strava_id", "the user's own app");
     // Strava's default is the standard read limit (1000/day): the budget an
-    // app is registered with when its operator names none
+    // app is registered with when its admin names none
     assert_eq!(
         default_rate_limit_for_provider("strava"),
         1000,

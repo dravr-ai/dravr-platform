@@ -149,7 +149,7 @@ pub struct ServerConfig {
     /// settings view, the health probe — is handed this value; nothing reads
     /// the variable again per request.
     pub llm_chain: LlmChain,
-    /// Request-path time bounds the operator retuned
+    /// Request-path time bounds the admin retuned
     pub timeouts: ServerTimeouts,
     /// How a chat turn sends its tool catalogue
     pub chat_tools: ChatToolSettings,
@@ -391,7 +391,7 @@ impl ServerConfig {
         // snapshot is owned by `ServerContext::cageux_config_registry`,
         // which applies the same layered stack plus the contremaitre YAML
         // overlay on startup; this call exists purely so startup fails fast
-        // if an operator has supplied a bad env override.
+        // if an admin has supplied a bad env override.
         let intelligence_config = IntelligenceConfig::load()
             .map_err(|e| AppError::internal(format!("Intelligence config load failed: {e}")))?;
         info!(
@@ -508,7 +508,7 @@ impl ServerConfig {
 /// `BASE_URL` on one of those hosts is reachable only while that tunnel is up,
 /// so every OAuth callback and provider reconnect link built from it expires
 /// with the process — which is worth saying out loud at startup. A durable
-/// host, whether a deployment or an operator's own tunnel, is not this.
+/// host, whether a deployment or an admin's own tunnel, is not this.
 ///
 /// The match is on the host's suffix, matching `is_ephemeral_tunnel_base_url`
 /// in `bin/tunnel-env.sh` so the startup log and the script that resets
@@ -569,7 +569,7 @@ fn usda_key_from(value: Option<&str>) -> Option<SecretString> {
 /// process exits, so a `BASE_URL` still naming one is reported at WARN and is
 /// greppable in `logs/pierre-server.log` instead of surfacing only as "server
 /// can't be found" in a browser. The value goes through the canonical
-/// log-boundary redactor: `BASE_URL` is operator-set and the URL grammar admits
+/// log-boundary redactor: `BASE_URL` is admin-set and the URL grammar admits
 /// `https://user:pass@host`.
 pub fn log_effective_base_url(base_url: &str) {
     if is_ephemeral_tunnel_base_url(base_url) {

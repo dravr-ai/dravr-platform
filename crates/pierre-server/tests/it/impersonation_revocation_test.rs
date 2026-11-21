@@ -67,11 +67,11 @@ async fn live_impersonation(
     label: &str,
 ) -> (ImpersonationSession, User, String) {
     let database = &resources.agent.database;
-    let operator_id = admin(resources, &format!("operator-{label}@example.com")).await;
+    let admin_id = admin(resources, &format!("admin-{label}@example.com")).await;
     let (_, target) = create_test_user_with_email(database, &format!("target-{label}@example.com"))
         .await
         .unwrap();
-    let session = ImpersonationSession::new(operator_id, target.id, Some("support".to_owned()));
+    let session = ImpersonationSession::new(admin_id, target.id, Some("support".to_owned()));
     resources
         .common
         .repos
@@ -84,7 +84,7 @@ async fn live_impersonation(
         .auth_manager
         .generate_impersonation_token(
             &target,
-            operator_id,
+            admin_id,
             &session.id,
             &resources.auth.jwks_manager,
             None,
@@ -93,7 +93,7 @@ async fn live_impersonation(
     (session, target, format!("Bearer {token}"))
 }
 
-/// Restoring a session from an impersonation token would mint the operator
+/// Restoring a session from an impersonation token would mint the admin
 /// an ordinary 24-hour session as the athlete, outside the impersonation's
 /// revocation and audit: it is refused, and no cookie is set (carnet#909).
 #[tokio::test]
@@ -111,7 +111,7 @@ async fn an_impersonation_token_is_not_exchanged_for_a_session() {
 }
 
 /// A tenant switch under impersonation stays the impersonation: the new
-/// token names the same operator and session and expires no later, so ending
+/// token names the same admin and session and expires no later, so ending
 /// the impersonation revokes it too (carnet#909).
 #[tokio::test]
 async fn a_tenant_switch_under_impersonation_keeps_the_impersonation() {
@@ -181,20 +181,20 @@ async fn a_tenant_switch_under_impersonation_keeps_the_impersonation() {
 async fn an_ended_impersonation_session_revokes_its_token() {
     let resources = create_test_server_resources().await.unwrap();
     let database = &resources.agent.database;
-    let operator_id = admin(&resources, "operator@example.com").await;
+    let admin_id = admin(&resources, "admin@example.com").await;
     let (_, target) = create_test_user_with_email(database, "target@example.com")
         .await
         .unwrap();
     let repos = &resources.common.repos;
 
-    let session = ImpersonationSession::new(operator_id, target.id, Some("support".to_owned()));
+    let session = ImpersonationSession::new(admin_id, target.id, Some("support".to_owned()));
     repos.impersonation.create_session(&session).await.unwrap();
     let token = resources
         .auth
         .auth_manager
         .generate_impersonation_token(
             &target,
-            operator_id,
+            admin_id,
             &session.id,
             &resources.auth.jwks_manager,
             None,
@@ -223,7 +223,7 @@ async fn an_ended_impersonation_session_revokes_its_token() {
 async fn an_impersonation_token_for_another_sessions_target_is_refused() {
     let resources = create_test_server_resources().await.unwrap();
     let database = &resources.agent.database;
-    let operator_id = admin(&resources, "operator2@example.com").await;
+    let admin_id = admin(&resources, "admin2@example.com").await;
     let (other_id, _) = create_test_user_with_email(database, "other@example.com")
         .await
         .unwrap();
@@ -232,7 +232,7 @@ async fn an_impersonation_token_for_another_sessions_target_is_refused() {
         .unwrap();
 
     // A live session for someone else, and a token naming it for `target`.
-    let session = ImpersonationSession::new(operator_id, other_id, None);
+    let session = ImpersonationSession::new(admin_id, other_id, None);
     resources
         .common
         .repos
@@ -245,7 +245,7 @@ async fn an_impersonation_token_for_another_sessions_target_is_refused() {
         .auth_manager
         .generate_impersonation_token(
             &target,
-            operator_id,
+            admin_id,
             &session.id,
             &resources.auth.jwks_manager,
             None,
@@ -266,7 +266,7 @@ async fn an_impersonation_token_for_another_sessions_target_is_refused() {
         .auth_manager
         .generate_impersonation_token(
             &target,
-            operator_id,
+            admin_id,
             &Uuid::new_v4().to_string(),
             &resources.auth.jwks_manager,
             None,
@@ -367,7 +367,7 @@ async fn an_impersonation_token_does_not_validate_as_a_session() {
 }
 
 /// Placed in the web app's cookie, an impersonation token would sign the
-/// operator in to Dravr's own app as the athlete: the consent skip hands
+/// admin in to Dravr's own app as the athlete: the consent skip hands
 /// `dravr-web` a code at once, redeemed for an ordinary session that outlives
 /// the hour and the impersonation's end (carnet#1560). It is sent to log in
 /// instead, and the athlete's own session still gets its code.

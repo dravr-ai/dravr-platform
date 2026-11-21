@@ -41,7 +41,7 @@ use chrono::Utc;
 use common::{acting_on, create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::admin::models::{
-    AdminPermission, CreateAdminTokenRequest, DELETED_ACCOUNT_LABEL, DELETED_ACCOUNT_OPERATOR,
+    AdminPermission, CreateAdminTokenRequest, DELETED_ACCOUNT_ADMIN, DELETED_ACCOUNT_LABEL,
     DEVICE_CLI_DELETED_ACCOUNT_SERVICE,
 };
 use pierre_core::errors::ErrorCode;
@@ -558,8 +558,8 @@ async fn revocations_on_the_trail(resources: &Arc<ServerContext>) -> Vec<AuditEv
         .unwrap()
 }
 
-/// Whether a token acting as `operator` is still live in the token table.
-async fn holds_a_live_device_token(resources: &Arc<ServerContext>, operator: Uuid) -> bool {
+/// Whether a token acting as `admin` is still live in the token table.
+async fn holds_a_live_device_token(resources: &Arc<ServerContext>, admin: Uuid) -> bool {
     resources
         .common
         .repos
@@ -568,7 +568,7 @@ async fn holds_a_live_device_token(resources: &Arc<ServerContext>, operator: Uui
         .await
         .unwrap()
         .iter()
-        .any(|token| token.operator_user_id == Some(operator))
+        .any(|token| token.operator_user_id == Some(admin))
 }
 
 /// A device login is a non-expiring token carrying its approver's every
@@ -1200,7 +1200,7 @@ const TOKEN_ROWS_NAMING_SQL: &str = "SELECT COUNT(*) FROM admin_tokens WHERE \
      OR COALESCE(CAST(last_used_ip AS TEXT), '') LIKE $1";
 
 /// How many `admin_tokens` rows name `account` anywhere, read past the
-/// repository: by the operator column, in the service name, or elsewhere.
+/// repository: by the admin column, in the service name, or elsewhere.
 async fn token_rows_naming(resources: &Arc<ServerContext>, account: Uuid) -> i64 {
     let needle = format!("%{account}%");
     match resources.agent.database.backend() {
@@ -1253,7 +1253,7 @@ async fn a_deleted_admin_leaves_no_working_device_login() {
     assert_eq!(
         token_rows_naming(&resources, leaving.id).await,
         0,
-        "no token row names the deleted account, by operator or by name"
+        "no token row names the deleted account, by admin or by name"
     );
     assert_eq!(
         token_rows_naming(&resources, staying.id).await,
@@ -1358,8 +1358,8 @@ async fn a_deleted_admin_is_named_by_no_token_row_however_it_was_rotated() {
     assert_eq!(retired.service_name, DEVICE_CLI_DELETED_ACCOUNT_SERVICE);
     assert_eq!(
         retired.operator_user_id,
-        Some(DELETED_ACCOUNT_OPERATOR),
-        "kept under an operator that is no account, never without one"
+        Some(DELETED_ACCOUNT_ADMIN),
+        "kept under an admin that is no account, never without one"
     );
     let response = AxumTestRequest::post(&format!("/api/admin/tokens/{original}/rotate"))
         .header("authorization", &staying_auth)
@@ -1517,16 +1517,16 @@ async fn lists_users_answer(resources: &Arc<ServerContext>, bearer: &str) -> (u1
     (response.status(), response.text())
 }
 
-/// What the gate answers a token whose operator is no admin.
-const OPERATOR_REFUSAL: &str = "The admin this token acts as is no longer an active admin";
+/// What the gate answers a token whose admin is no admin.
+const ADMIN_REFUSAL: &str = "The admin this token acts as is no longer an active admin";
 
 /// A deleted admin's device login is kept as a record and is never a
 /// credential again. The row stays with the log of the requests it made,
-/// inactive, under a name that names no one and an operator that is no
-/// account. That operator is what refuses it for good: reactivated by hand
-/// it passes the activity check and is refused on the operator, and rotated
+/// inactive, under a name that names no one and an admin that is no
+/// account. That admin is what refuses it for good: reactivated by hand
+/// it passes the activity check and is refused on the admin, and rotated
 /// from there its replacement, live and freshly signed, carries the same
-/// operator and is refused the same way. The admin who rotated it keeps its
+/// admin and is refused the same way. The admin who rotated it keeps its
 /// own login throughout.
 #[tokio::test]
 #[serial]
@@ -1568,7 +1568,7 @@ async fn a_deleted_admins_device_login_is_kept_and_refused_reactivated_or_rotate
         .expect("the row stays");
     assert!(!kept.is_active);
     assert_eq!(kept.service_name, DEVICE_CLI_DELETED_ACCOUNT_SERVICE);
-    assert_eq!(kept.operator_user_id, Some(DELETED_ACCOUNT_OPERATOR));
+    assert_eq!(kept.operator_user_id, Some(DELETED_ACCOUNT_ADMIN));
     assert_eq!(
         requests_logged(&resources, &login).await,
         logged,
@@ -1578,7 +1578,7 @@ async fn a_deleted_admins_device_login_is_kept_and_refused_reactivated_or_rotate
     assert_eq!(lists_users(&resources, &leaving_cli).await, 401);
 
     // Reactivated past the repository: the row is live, and still refused,
-    // by the operator check this time.
+    // by the admin check this time.
     write_past_the_repository(
         &resources,
         "UPDATE admin_tokens SET is_active = TRUE \
@@ -1594,12 +1594,12 @@ async fn a_deleted_admins_device_login_is_kept_and_refused_reactivated_or_rotate
     let (status, body) = lists_users_answer(&resources, &leaving_cli).await;
     assert_eq!(status, 401, "{body}");
     assert!(
-        body.contains(OPERATOR_REFUSAL),
-        "refused on its operator, not on being inactive: {body}"
+        body.contains(ADMIN_REFUSAL),
+        "refused on its admin, not on being inactive: {body}"
     );
 
     // Rotated from there by another admin: the replacement is live, signed
-    // now, and acts as the same operator that is no account.
+    // now, and acts as the same admin that is no account.
     let response = AxumTestRequest::post(&format!("/api/admin/tokens/{login}/rotate"))
         .header("authorization", &staying_auth)
         .json(&json!({}))
@@ -1615,13 +1615,13 @@ async fn a_deleted_admins_device_login_is_kept_and_refused_reactivated_or_rotate
     assert!(replacement.is_active);
     assert_eq!(
         replacement.operator_user_id,
-        Some(DELETED_ACCOUNT_OPERATOR),
+        Some(DELETED_ACCOUNT_ADMIN),
         "a rotation hands the row to no one"
     );
     let replacement_cli = format!("Bearer {}", rotated["data"]["jwt_token"].as_str().unwrap());
     let (status, body) = lists_users_answer(&resources, &replacement_cli).await;
     assert_eq!(status, 401, "{body}");
-    assert!(body.contains(OPERATOR_REFUSAL), "{body}");
+    assert!(body.contains(ADMIN_REFUSAL), "{body}");
 
     assert_eq!(token_rows_naming(&resources, leaving.id).await, 0);
     assert_eq!(

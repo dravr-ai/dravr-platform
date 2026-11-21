@@ -571,7 +571,7 @@ mod live_incident_eval {
     }
 
     /// The lane must wait out the server's turn watchdog before it moves on,
-    /// wherever an operator sets it.
+    /// wherever an admin sets it.
     ///
     /// A turn still running when the lane gives up delivers its reply after
     /// the next inbound, and the lane reads it as that turn's answer: a

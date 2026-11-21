@@ -115,7 +115,7 @@ pub struct AdminApiContext {
     /// `None` until wired, in which case such a reset refuses).
     pub group_service: Option<Arc<GroupService>>,
     /// Stores a scrape session on an account and warms its data the way a
-    /// login does, for the operator clone (injected by the composition root;
+    /// login does, for the admin clone (injected by the composition root;
     /// `None` until wired, in which case the clone route refuses).
     pub session_installer: Option<Arc<dyn ScrapeSessionInstaller>>,
     /// Meters the device-approval sign-in per client address and account

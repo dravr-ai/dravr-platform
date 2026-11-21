@@ -381,7 +381,7 @@ impl UniversalExecutor {
         parties: Parties,
         provider_gate: ProviderGate<'_>,
     ) -> Result<Option<UniversalResponse>, ProtocolError> {
-        // Tool-disable (absorbed `enforce_tool_allowlist`): an operator's
+        // Tool-disable (absorbed `enforce_tool_allowlist`): an admin's
         // explicit config for the tenant, or a per-user override above it,
         // enforced on every transport. Disabling a tool is config, not a
         // security incident — return the graceful in-band nudge the old
@@ -580,7 +580,7 @@ impl UniversalExecutor {
             })?;
 
         let (ctx, is_admin) = build_tool_context(&self.resources, &request).await?;
-        // Captured before `request` is torn apart: the charge and the operator
+        // Captured before `request` is torn apart: the charge and the admin
         // event below are owed for every transport, and `protocol` is the only
         // thing that says which one this was.
         let protocol = request.protocol.clone();
@@ -997,7 +997,7 @@ impl UniversalExecutor {
         Ok(universal)
     }
 
-    /// Charge the athlete's tool budget and tell operators a tool ran.
+    /// Charge the athlete's tool budget and tell admins a tool ran.
     ///
     /// Both belong HERE and nowhere else. Every transport funnels through
     /// `execute_tool` — the chat `ReAct` loop, MCP-direct, A2A, and an ACP
@@ -1013,7 +1013,7 @@ impl UniversalExecutor {
     /// mistake as letting it satisfy a citation. It is still *reported*: the
     /// notify event sits above the charge guard and carries
     /// `success: false`, so a tool that ran and declined stays visible to
-    /// operators.
+    /// admins.
     ///
     /// What no transport reports through here is a call that produced no
     /// response at all. This is `execute_tool`'s last statement before `Ok`,
@@ -1107,7 +1107,7 @@ impl UniversalExecutor {
         self.turn_token.as_deref()
     }
 
-    /// Answer a call the Guardian blocked: tell operators, leave the block for
+    /// Answer a call the Guardian blocked: tell admins, leave the block for
     /// the turn's tool loop, and refuse the call in-band.
     fn refuse_blocked(
         &self,
@@ -1117,7 +1117,7 @@ impl UniversalExecutor {
         tool_name: &str,
         reason: DenyReason,
     ) -> UniversalResponse {
-        // Operators see every block, whatever transport raised it.
+        // Admins see every block, whatever transport raised it.
         let tenant_id = tenant.map_or_default(|t| t.to_string());
         info!(
             target: "notify",

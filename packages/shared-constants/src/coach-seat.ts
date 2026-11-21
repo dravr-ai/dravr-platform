@@ -14,7 +14,7 @@ import { COACH_PLATFORM_PROVIDERS } from './onboarding';
  * decides, so the seat only ever waits on a person.
  *
  * - `to_request`: never asked, or the last request was granted and the access
- *   has since gone (an operator revoked it). Nothing is said to be pending.
+ *   has since gone (an admin revoked it). Nothing is said to be pending.
  * - `pending`: the request is with the Dravr team.
  * - `declined`: the team said no; the coach may ask again.
  */

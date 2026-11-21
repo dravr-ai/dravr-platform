@@ -410,7 +410,7 @@ impl ToolRegistry {
     /// browse / search / install tools so "what coaches are there?" has an
     /// answer on every surface instead of only in the web UI.
     ///
-    /// Excluded categories are UI surfaces or operator workflows that should
+    /// Excluded categories are UI surfaces or admin workflows that should
     /// not fire on natural-language inputs: agent create/delete/assign, store
     /// uninstall, config write/delete, claim verification, and admin
     /// operations.
@@ -442,7 +442,7 @@ impl ToolRegistry {
             // Athlete self-report (set_physiology). Physiology arrives mid-
             // conversation — "my FTP is 285" — so the agent must be able to
             // save it on the turn it is said. That is the opposite case from
-            // `configuration` / `fitness_config`, which are operator config
+            // `configuration` / `fitness_config`, which are admin config
             // writes and stay off the natural-language surface.
             "physiology",
             // Consent-gated peer activity fetch (get_group_member_activities) —
@@ -454,7 +454,7 @@ impl ToolRegistry {
             // coaches exist?", a question every chat surface gets asked and
             // none could answer: the category was absent here, so web, mobile
             // and messaging alike refused. `agents` stays out — that category
-            // holds create/delete/assign, which are UI and operator gestures.
+            // holds create/delete/assign, which are UI and admin gestures.
             // Uninstall is registered outside `store` for the same reason.
             "store",
         ];

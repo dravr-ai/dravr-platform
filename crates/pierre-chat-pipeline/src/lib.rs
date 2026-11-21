@@ -235,7 +235,7 @@ struct DispatchStageArgs<'a> {
     turn_agent_id: Option<&'a str>,
     /// Whose data the turn's tools run against (see `DispatchLlmInputs::seat`).
     seat: TurnSeat,
-    /// What an operator switched off for the sender (see
+    /// What an admin switched off for the sender (see
     /// `DispatchLlmInputs::switched_off`).
     switched_off: &'a SwitchedOff,
     /// Whether the turn's tools beyond the core go out deferred (see
@@ -489,9 +489,9 @@ const fn persisted_finish_reason<'a>(
     }
 }
 
-/// The turn's tool offer: the tools an operator switched off for its sender,
+/// The turn's tool offer: the tools an admin switched off for its sender,
 /// under the tenant its tools run in, and whether the tools beyond the loaded
-/// core go out deferred (the operator's switch, on an Anthropic head whose
+/// core go out deferred (the admin's switch, on an Anthropic head whose
 /// model `chat_catalogue::defers_on` names). A sender id that does not parse
 /// switches nothing off; the executor refuses whatever it must on its own.
 async fn turn_tool_offer(
@@ -577,7 +577,7 @@ async fn answer_stored_turn(
 
     // Stage 4.1: who the turn is about, named once. Every stage below that
     // reads, fetches or files the sender's own data follows it. With it, the
-    // turn's tool offer (`turn_tool_offer`): what an operator switched off for
+    // turn's tool offer (`turn_tool_offer`): what an admin switched off for
     // the sender, which the declarations, the prompt's names index and the
     // loopback listing all leave out as `tools/list` does, and whether the
     // tools beyond the loaded core go out deferred.

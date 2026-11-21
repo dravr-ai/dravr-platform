@@ -21,7 +21,7 @@
 //! account the answer says so and names it, so the console offers the direct
 //! grant (`POST /admin/users/{id}/manages-roster`) instead of a link that
 //! could never be redeemed. Sending again replaces the earlier link, which is
-//! how an operator re-sends an expired one.
+//! how an admin re-sends an expired one.
 
 use std::sync::Arc;
 
@@ -54,7 +54,7 @@ use crate::context::AdminApiContext;
 pub(crate) struct CoachSeatInviteRequest {
     /// The coach's address; normalized server-side.
     pub email: String,
-    /// Answer the invitation's link instead of mailing it, for operator-driven
+    /// Answer the invitation's link instead of mailing it, for admin-driven
     /// testing on an environment whose test addresses have no mailbox, as the
     /// pre-approval allow's `return_link` does.
     #[serde(default)]
@@ -117,7 +117,7 @@ pub(crate) async fn handle_issue_coach_seat_invitation(
                 None,
             ));
         };
-        Carrier::Operator { frontend_url }
+        Carrier::Admin { frontend_url }
     } else {
         let Some(notifier) = ctx.approval_notifier.as_ref() else {
             return Ok(refusal(

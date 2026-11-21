@@ -985,7 +985,7 @@ pub(crate) fn offline_email_service() -> Arc<ResendEmailService> {
 }
 
 /// Put `resources` under a Guardian destructive budget of `budget`, as an
-/// operator's save of the stored document would.
+/// admin's save of the stored document would.
 pub(crate) fn set_destructive_budget(resources: &ServerContext, budget: u16) {
     resources
         .fitness

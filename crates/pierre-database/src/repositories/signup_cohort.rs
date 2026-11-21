@@ -45,7 +45,7 @@ pub struct NewUserMilestones {
     pub auth_provider: String,
     /// `pending`, `active` or `suspended`.
     pub status: String,
-    /// When an operator approved it, or it was admitted.
+    /// When an admin approved it, or it was admitted.
     pub approved_at: Option<DateTime<Utc>>,
     /// When it proved its address.
     pub email_verified_at: Option<DateTime<Utc>>,

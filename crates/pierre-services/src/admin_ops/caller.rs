@@ -289,7 +289,7 @@ impl AccountCaller {
             Surface::AdminCredential(_)
             | Surface::HostCli
             | Surface::SlackRoom
-            | Surface::SignUpRule => DeletionActor::Operator,
+            | Surface::SignUpRule => DeletionActor::Admin,
         }
     }
 
@@ -381,14 +381,14 @@ mod tests {
         user
     }
 
-    fn token(is_super_admin: bool, operator: Option<Uuid>, id: &str, name: &str) -> AccountCaller {
+    fn token(is_super_admin: bool, admin: Option<Uuid>, id: &str, name: &str) -> AccountCaller {
         AccountCaller::of_token(&ValidatedAdminToken {
             token_id: id.to_owned(),
             service_name: name.to_owned(),
             permissions: AdminPermissions::super_admin(),
             is_super_admin,
             tenant_id: None,
-            operator_user_id: operator,
+            operator_user_id: admin,
             user_info: None,
         })
     }
@@ -475,8 +475,7 @@ mod tests {
             );
         }
         let every_caller = with_the_rank.iter().chain(&without_it);
-        for caller in
-            every_caller.filter(|caller| caller.deletion_actor() == DeletionActor::Operator)
+        for caller in every_caller.filter(|caller| caller.deletion_actor() == DeletionActor::Admin)
         {
             assert!(
                 caller.acting_on(account(UserRole::User)).is_ok(),
@@ -590,7 +589,7 @@ mod tests {
         );
     }
 
-    /// A deletion receipt names an admin surface as `operator` and the
+    /// A deletion receipt names an admin surface as `admin` and the
     /// holder by its channel: the values receipts already hold.
     #[test]
     fn a_deletion_receipt_names_the_holder_by_its_channel() {

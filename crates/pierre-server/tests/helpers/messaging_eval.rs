@@ -522,7 +522,7 @@ pub(crate) fn assert_citation_grounded(
 // `llm_usage` table, calling the admin endpoint, and passing the parsed
 // JSON to these asserters. Operating on `Value` keeps the helpers
 // usable by any consumer of the endpoint (Rust tests, future JS messaging-eval
-// asserters via an HTTP bridge, operator CLIs).
+// asserters via an HTTP bridge, admin CLIs).
 
 /// Reason the tool-called assertion failed.
 #[derive(Debug, Clone, PartialEq, Eq)]

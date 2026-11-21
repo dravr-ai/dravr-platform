@@ -42,7 +42,7 @@ pub const KEY_CONSENT_REVOKE_ANYTIME: &str = "oauth.consent.revokeAnytime";
 pub const KEY_CONSENT_PRIVACY_POLICY: &str = "oauth.consent.privacyPolicy";
 /// Key: "Terms". No format placeholders.
 pub const KEY_CONSENT_TERMS: &str = "oauth.consent.terms";
-/// Key: "Verified: `{0}` by `{1}`", the product and its operator
+/// Key: "Verified: `{0}` by `{1}`", the product and the company behind it
 pub const KEY_CONSENT_VERIFIED: &str = "oauth.consent.verified";
 /// Key: "Unverified app." No format placeholders.
 pub const KEY_CONSENT_UNVERIFIED_TITLE: &str = "oauth.consent.unverifiedTitle";
@@ -150,7 +150,7 @@ pub const KEY_ERROR_CONSENT_EXPIRED: &str = "oauth.error.consentExpired";
 pub const KEY_ERROR_CONSENT_UNAVAILABLE: &str = "oauth.error.consentUnavailable";
 /// Key: an account waiting on its confirmation link. No format placeholders.
 pub const KEY_ERROR_AWAITS_EMAIL_PROOF: &str = "oauth.error.awaitsEmailProof";
-/// Key: an account waiting on an operator. No format placeholders.
+/// Key: an account waiting on an admin. No format placeholders.
 pub const KEY_ERROR_AWAITS_APPROVAL: &str = "oauth.error.awaitsApproval";
 /// Key: a suspended account. No format placeholders.
 pub const KEY_ERROR_SUSPENDED: &str = "oauth.error.suspended";
@@ -166,7 +166,7 @@ pub const KEY_ERROR_LIMITER_UNAVAILABLE: &str = "oauth.error.limiterUnavailable"
 pub const KEY_ERROR_GOOGLE_REFUSED: &str = "oauth.error.googleRefused";
 /// Key: a Google callback this browser did not start. No format placeholders.
 pub const KEY_ERROR_GOOGLE_EXPIRED: &str = "oauth.error.googleExpired";
-/// Key: the operator's sign-up bounds admit no new account. No format placeholders.
+/// Key: the admin's sign-up bounds admit no new account. No format placeholders.
 pub const KEY_ERROR_SIGNUP_PAUSED: &str = "oauth.error.signupPaused";
 /// Key: any other `invalid_request`. No format placeholders.
 pub const KEY_ERROR_INVALID_REQUEST: &str = "oauth.error.invalidRequest";

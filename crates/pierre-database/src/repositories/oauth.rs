@@ -423,7 +423,7 @@ pub trait OAuth2ServerRepository: Send + Sync {
         &self,
         device_code_hash: &str,
     ) -> AppResult<Option<DeviceAuthorization>>;
-    /// Look up a device authorization by its `user_code` (operator-entered code).
+    /// Look up a device authorization by its `user_code` (admin-entered code).
     async fn get_device_authorization_by_user_code(
         &self,
         user_code: &str,
@@ -702,7 +702,7 @@ pub trait ProviderConnectionRepository: Send + Sync {
     /// Every connection flagged `needs_reauth` whose retry is due at
     /// `due_before`, under the condition [`Self::claim_reauth_retry`] claims,
     /// longest-flagged first, at most `limit` of them. Crosses users and
-    /// tenants: it feeds the operator capture sweep, which claims each row
+    /// tenants: it feeds the admin capture sweep, which claims each row
     /// before touching it.
     async fn list_reauth_retry_due(
         &self,

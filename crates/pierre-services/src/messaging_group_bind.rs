@@ -211,7 +211,7 @@ pub async fn resolve_or_create_channel_group(
 
     // First sender = Owner. (We can't reliably detect Telegram/Slack/Discord
     // chat-admin status across all three platforms without per-channel API
-    // calls; first-sender = Owner is the channel-agnostic baseline. Operators
+    // calls; first-sender = Owner is the channel-agnostic baseline. Admins
     // can transfer ownership via REST PUT /api/groups/{id}/members/{user}/role.)
     let fallback_name = fallback_group_name(binding.channel_type, binding.channel_chat_id);
     let spec = ChannelGroupSpec {

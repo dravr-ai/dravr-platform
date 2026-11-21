@@ -9,7 +9,7 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
-use pierre_core::models::{MonthlyLimitOverride, OperatorRosterGrant, User, UserStatus};
+use pierre_core::models::{AdminRosterGrant, MonthlyLimitOverride, User, UserStatus};
 use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_database::repositories::analytics::next_utc_month_start;
@@ -62,7 +62,7 @@ pub struct UserRateLimits {
     pub monthly_reset: DateTime<Utc>,
     /// True when a per-user override is in effect (tier default ignored).
     pub override_active: bool,
-    /// Operator note attached to the override, if any.
+    /// Admin note attached to the override, if any.
     pub override_note: Option<String>,
 }
 
@@ -153,9 +153,9 @@ pub struct UserAdminProfile {
     pub coaching_persona: String,
     /// Whether the user may become a coaching group's human coach
     pub manages_roster: bool,
-    /// Who granted it as an operator, and when; `None` when no operator did.
-    /// A `TrainingPeaks` disconnect leaves an operator grant in place.
-    pub manages_roster_operator_grant: Option<OperatorRosterGrant>,
+    /// Who granted it as an admin, and when; `None` when no admin did.
+    /// A `TrainingPeaks` disconnect leaves an admin grant in place.
+    pub manages_roster_admin_grant: Option<AdminRosterGrant>,
     /// Coaches the user has installed from the Agent Store
     pub installed_agents: Vec<InstalledAgentSummary>,
     /// Coaching groups the user belongs to
@@ -945,10 +945,10 @@ pub async fn compute_user_admin_profile(
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
-    let manages_roster_operator_grant = data
+    let manages_roster_admin_grant = data
         .repos()
         .users
-        .manages_roster_operator_grant(target_user_id)
+        .manages_roster_admin_grant(target_user_id)
         .await?;
 
     // Installed agents require a tenant scope — use the user's first tenant.
@@ -1017,7 +1017,7 @@ pub async fn compute_user_admin_profile(
         user_id: target_user_id.to_string(),
         coaching_persona: user.coaching_persona.to_string(),
         manages_roster: user.manages_roster,
-        manages_roster_operator_grant,
+        manages_roster_admin_grant,
         installed_agents,
         joined_groups,
     })

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! registre#43: an operator invites an address, and the invitee chooses their
+//! registre#43: an admin invites an address, and the invitee chooses their
 //! own password on the link the invitation mails — no password crosses a side
 //! channel, and no approval queue stands between the invitee and the app.
 //!
@@ -108,15 +108,15 @@ async fn setup() -> Arc<ServerContext> {
     )
 }
 
-/// A real operator account: `users.approved_by` references `users.id`.
-async fn operator(resources: &Arc<ServerContext>, email: &str) -> Uuid {
+/// A real admin account: `users.approved_by` references `users.id`.
+async fn admin(resources: &Arc<ServerContext>, email: &str) -> Uuid {
     let response = AxumTestRequest::post("/api/auth/register")
-        .json(&json!({ "email": email, "password": "operatorPassword123" }))
+        .json(&json!({ "email": email, "password": "adminPassword123" }))
         .send(AuthRoutes::routes(resources.auth_routes_context()))
         .await;
     let status = response.status();
     let body: Value = response.json();
-    assert_eq!(status, 201, "operator registration must succeed: {body}");
+    assert_eq!(status, 201, "admin registration must succeed: {body}");
     Uuid::parse_str(body["user_id"].as_str().unwrap()).unwrap()
 }
 
@@ -159,8 +159,8 @@ fn assert_uniform_refusal(status: u16, body: &Value, why: &str) {
 #[tokio::test]
 async fn redemption_creates_an_active_account_tied_to_the_invited_address() {
     let resources = setup().await;
-    let operator_id = operator(&resources, "inviting-operator@example.com").await;
-    let issued = invite(&resources, "Coach.Phil@Example.com", Some(operator_id)).await;
+    let admin_id = admin(&resources, "inviting-admin@example.com").await;
+    let issued = invite(&resources, "Coach.Phil@Example.com", Some(admin_id)).await;
     assert_eq!(
         issued.email, "coach.phil@example.com",
         "the address is stored normalized"
@@ -194,8 +194,8 @@ async fn redemption_creates_an_active_account_tied_to_the_invited_address() {
     assert_eq!(user.user_status, UserStatus::Active);
     assert_eq!(
         user.approved_by,
-        Some(operator_id),
-        "approved_by must attribute the inviting operator"
+        Some(admin_id),
+        "approved_by must attribute the inviting admin"
     );
     assert!(user.approved_at.is_some(), "approved_at must be stamped");
     assert!(
@@ -223,15 +223,15 @@ async fn redemption_creates_an_active_account_tied_to_the_invited_address() {
 }
 
 #[tokio::test]
-async fn an_invitation_outliving_its_operator_still_creates_the_account_unattributed() {
+async fn an_invitation_outliving_its_admin_still_creates_the_account_unattributed() {
     let resources = setup().await;
     let repos = &resources.common.repos;
-    let operator_id = operator(&resources, "departed-operator@example.com").await;
-    let issued = invite(&resources, "outlived@example.com", Some(operator_id)).await;
+    let admin_id = admin(&resources, "departed-admin@example.com").await;
+    let issued = invite(&resources, "outlived@example.com", Some(admin_id)).await;
 
-    delete_account(repos, operator_id, None)
+    delete_account(repos, admin_id, None)
         .await
-        .expect("an operator whose only trace is an invitation can be deleted");
+        .expect("an admin whose only trace is an invitation can be deleted");
 
     let (status, body) = accept(&resources, &issued.token, PASSWORD, None).await;
     assert_eq!(
@@ -247,7 +247,7 @@ async fn an_invitation_outliving_its_operator_still_creates_the_account_unattrib
     assert_eq!(user.user_status, UserStatus::Active);
     assert_eq!(
         user.approved_by, None,
-        "a deleted operator cannot be the account's approver"
+        "a deleted admin cannot be the account's approver"
     );
 }
 

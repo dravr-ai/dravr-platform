@@ -252,7 +252,7 @@ mod messaging_routes_tests {
         let channels = body.as_array().expect("available channels is an array");
 
         // Regression: the filter previously read the wrong JSON key (`enabled` vs
-        // the stored `is_active`), so operator-disabled channels leaked into the
+        // the stored `is_active`), so admin-disabled channels leaked into the
         // onboarding picker. A disabled channel must NOT be advertised.
         assert!(
             !channels.iter().any(|c| c["channel"] == "telegram"),

@@ -145,7 +145,7 @@ pub const SCIOTTE_COROS: &str = "sciotte_coros";
 /// Every mirror pair: a user-facing provider and its sciotte backend.
 ///
 /// The one table routing, status, the hosted sign-in, the reconnect copy and
-/// the operator's connect order read (carnet#1494), so a provider added here
+/// the admin's connect order read (carnet#1494), so a provider added here
 /// is known to all of them at once.
 pub const MIRROR_PAIRS: [(&str, &str); 4] = [
     (STRAVA, SCIOTTE),
@@ -177,7 +177,7 @@ pub const MIRRORED_PROVIDERS: [&str; MIRROR_PAIRS.len()] = {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoticeAudience {
     /// Every account that connects the provider, whatever its feature flags:
-    /// the provider's own terms bind every connection, so no operator switch
+    /// the provider's own terms bind every connection, so no admin switch
     /// can waive the notice.
     EveryAccount,
     /// Only the accounts the `provider_exposure_notice` feature flag arms,

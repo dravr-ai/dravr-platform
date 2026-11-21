@@ -369,9 +369,9 @@ export default function UserDetailDrawer({
                     <p className="font-medium text-on-surface" data-testid="roster-grant-status">
                       {!adminProfile.manages_roster
                         ? 'Cannot coach a group'
-                        : adminProfile.manages_roster_operator_grant
-                          ? `Can coach a group (granted by an operator ${formatDateTime(
-                              adminProfile.manages_roster_operator_grant.granted_at,
+                        : adminProfile.manages_roster_admin_grant
+                          ? `Can coach a group (granted by an admin ${formatDateTime(
+                              adminProfile.manages_roster_admin_grant.granted_at,
                               ADMIN_LOCALE,
                             )})`
                           : 'Can coach a group (TrainingPeaks coach account)'}
@@ -390,7 +390,7 @@ export default function UserDetailDrawer({
                   </Button>
                 </div>
                 <p className="text-xs text-on-surface-variant">
-                  Lets the user redeem a group&apos;s coach invite. An operator grant stays
+                  Lets the user redeem a group&apos;s coach invite. An admin grant stays
                   through a TrainingPeaks disconnect; revoking also removes a TrainingPeaks
                   grant until that account signs in again.
                 </p>
@@ -495,7 +495,7 @@ export default function UserDetailDrawer({
                         />
                       </label>
                       <label className="block">
-                        <span className="text-on-surface-variant">Note (operator-only)</span>
+                        <span className="text-on-surface-variant">Note (admin-only)</span>
                         <input
                           type="text"
                           value={overrideNote}

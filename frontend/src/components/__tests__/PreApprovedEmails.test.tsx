@@ -1,5 +1,5 @@
 // ABOUTME: Tests the admin console's pre-approval allow-list view
-// ABOUTME: Asserts the list renders operator + registration state, and that allow/remove call the API
+// ABOUTME: Asserts the list renders admin + registration state, and that allow/remove call the API
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -24,7 +24,7 @@ const WAITING = {
   email: 'alpha@example.com',
   note: 'alpha cohort',
   created_at: '2026-08-20T12:00:00Z',
-  allowed_by: 'operator-1',
+  allowed_by: 'admin-1',
   allowed_by_email: 'admin@example.com',
   account_status: null,
   invitation_expires_at: null,
@@ -34,7 +34,7 @@ const INVITED = {
   email: 'coach@example.com',
   note: 'coach cohort',
   created_at: '2026-08-22T12:00:00Z',
-  allowed_by: 'operator-1',
+  allowed_by: 'admin-1',
   allowed_by_email: 'admin@example.com',
   account_status: null,
   invitation_expires_at: '2026-08-29T12:00:00Z',
@@ -64,7 +64,7 @@ describe('PreApprovedEmails', () => {
     vi.clearAllMocks();
   });
 
-  it('lists each allow with its note, operator, and registration state', async () => {
+  it('lists each allow with its note, admin, and registration state', async () => {
     vi.mocked(adminApi.getPreApprovedEmails).mockResolvedValue([WAITING, REGISTERED]);
 
     renderView();
@@ -190,7 +190,7 @@ describe('PreApprovedEmails', () => {
 
   // The browser's own `type="email"` check catches the obvious typos, so the
   // rejection that reaches this path is the server's stricter one — it has to
-  // be shown verbatim, or an operator sees a form that silently did nothing.
+  // be shown verbatim, or an admin sees a form that silently did nothing.
   it('surfaces the server rejection instead of a generic failure', async () => {
     vi.mocked(adminApi.getPreApprovedEmails).mockResolvedValue([]);
     vi.mocked(adminApi.allowEmail).mockRejectedValue({

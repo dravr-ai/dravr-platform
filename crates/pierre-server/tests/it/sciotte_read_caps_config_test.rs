@@ -372,12 +372,12 @@ async fn cli_set(
 #[tokio::test]
 async fn every_cap_is_changed_by_pierre_cli_config_set_with_no_restart() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
-    let operator = user_with_role(&resources, UserRole::Admin).await;
+    let admin = user_with_role(&resources, UserRole::Admin).await;
     let token = admin_token(
         &resources,
-        &format!("{DEVICE_CLI_SERVICE_PREFIX}{}", operator.id),
+        &format!("{DEVICE_CLI_SERVICE_PREFIX}{}", admin.id),
         true,
-        Some(operator.id),
+        Some(admin.id),
     )
     .await;
 

@@ -1545,7 +1545,7 @@ async fn test_uninstall_of_a_forked_copy_hands_its_conversation_to_the_origin() 
     assert_eq!(listing_install_count(&resources, &origin_id).await, 0);
 }
 
-/// Catalogue agents are owned by the operator who wrote them. An operator who
+/// Catalogue agents are owned by the admin who wrote them. An admin who
 /// also coaches with one installs it like anyone else, and can take it off
 /// their team again.
 #[tokio::test]
@@ -1557,7 +1557,7 @@ async fn test_the_author_of_a_catalogue_agent_can_take_it_off_their_team() {
         &resources,
         author_id,
         author_tenant,
-        "Operator Coach",
+        "Admin Coach",
         AgentCategory::Training,
     )
     .await;
@@ -1808,7 +1808,7 @@ async fn test_the_author_sees_their_own_listing_as_their_own() {
         assert_eq!(detail.is_own, expected, "{}", user.email);
     }
 
-    // A catalogue agent is never "own", even to the operator who wrote it:
+    // A catalogue agent is never "own", even to the admin who wrote it:
     // they install and remove it like anyone.
     let catalogue = create_published_agent(
         &resources,

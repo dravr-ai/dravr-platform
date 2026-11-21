@@ -946,7 +946,7 @@ async fn handle_signup_confirm_step(params: &OtpFlowStep<'_>, text: &str) -> Out
 ///
 /// The account is created Active or Pending by the same
 /// [`pierre_services::auth::AuthService::self_register`] rules every other
-/// self-serve signup uses, so the approval posture and the operator's sign-up
+/// self-serve signup uses, so the approval posture and the admin's sign-up
 /// bounds stay in one place rather than being special-cased per surface.
 ///
 /// The account reads `locale`, the language the sign-up conversation was held

@@ -1,5 +1,5 @@
 // ABOUTME: Re-cuts a tenant's stored HR and power zone copies from each profile's own inputs
-// ABOUTME: Operator-run, dry by default; turns rows cut by the old platform tables into cageux's one zone model
+// ABOUTME: Admin-run, dry by default; turns rows cut by the old platform tables into cageux's one zone model
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -21,7 +21,7 @@
 //! reversible by re-deriving.
 //!
 //! Re-running it is a no-op: a row already holding cageux's zones is counted
-//! as current and not written again. It is **dry by default**, so an operator
+//! as current and not written again. It is **dry by default**, so an admin
 //! sees the count before any row moves.
 
 use pierre_core::errors::AppResult;

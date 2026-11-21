@@ -258,7 +258,7 @@ pub async fn fetch_peer_activities_outcome(
 /// kill-switch), an outage, an empty payload — because to the grounding
 /// callers the meaning is the same: there is no peer evidence to ground or
 /// verify with. The decline reason is logged by
-/// [`fetch_peer_activities_outcome`] so operators still see which it was.
+/// [`fetch_peer_activities_outcome`] so admins still see which it was.
 pub async fn fetch_peer_activities(
     executor: &Arc<UniversalExecutor>,
     user_id: &str,

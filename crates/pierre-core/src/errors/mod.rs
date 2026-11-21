@@ -344,7 +344,7 @@ impl AppError {
     /// an upstream service that failed. Anything else (a refused credential, a
     /// missing resource, invalid input, a spent budget) is the caller's and can
     /// be sent by anyone, so it must never log at ERROR, the level that pages
-    /// the operators.
+    /// the admins.
     #[must_use]
     pub const fn is_server_fault(&self) -> bool {
         self.http_status() >= INTERNAL_SERVER_ERROR

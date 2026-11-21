@@ -100,7 +100,7 @@ pub struct RepositoryRegistry {
     pub pre_approved_emails: Arc<dyn PreApprovedEmailRepository>,
     /// Single-use magic links that open the members part of the dravr.ai docs
     pub website_sign_in_tokens: Arc<dyn WebsiteSignInTokenRepository>,
-    /// Single-use invitations an operator mails to an address with no account
+    /// Single-use invitations an admin mails to an address with no account
     pub user_invitations: Arc<dyn UserInvitationRepository>,
     /// Shareable codes an admin mints so whoever enters one is approved
     pub signup_codes: Arc<dyn SignupCodeRepository>,
@@ -204,7 +204,7 @@ pub struct RepositoryRegistry {
     pub subscriptions: Arc<dyn SubscriptionsRepository>,
     /// dravr-meteo persistent weather cache (geographic + hourly buckets)
     pub weather_cache: Arc<dyn WeatherCacheRepository>,
-    /// The operator's key/value settings (`system_settings`), for code that
+    /// The admin's key/value settings (`system_settings`), for code that
     /// holds the registry but no backend handle
     pub system_settings: Arc<dyn SystemSettingsRepository>,
     /// Endurance typed physiological profile (FTP, threshold pace, zones)
@@ -236,7 +236,7 @@ pub struct RepositoryRegistry {
     pub user_rate_limit_overrides: Arc<dyn UserRateLimitOverrideRepository>,
     /// Per-user admin tier override marker. Row presence makes the billing
     /// webhook skip `set_tier`/`set_plan` so a Stripe event cannot clobber a
-    /// manual operator override.
+    /// manual admin override.
     pub user_tier_overrides: Arc<dyn UserTierOverrideRepository>,
     /// Per-user choices Home's layout honours on every device
     pub home_preferences: Arc<dyn HomePreferencesRepository>,
@@ -268,7 +268,7 @@ pub struct RepositoryRegistry {
     /// day rows merge, one-shot files are kept until their samples land.
     pub pushed_data: Arc<dyn PushedDataRepository>,
     /// An account deletion in one transaction with its hash-chained receipt,
-    /// and the receipt chain an operator verifies.
+    /// and the receipt chain an admin verifies.
     pub account_deletion: Arc<dyn AccountDeletionRepository>,
     /// A whole-account reset in one transaction: every row the account owns
     /// wiped, the account and its sign-in kept, no tombstone and no receipt.
@@ -278,7 +278,7 @@ pub struct RepositoryRegistry {
     pub import_tombstones: Arc<dyn ImportTombstoneRepository>,
     /// Parked actions awaiting their owner: the agent drafts of `/agent create`.
     pub agent_drafts: Arc<dyn AgentDraftsRepository>,
-    /// The admin audit trail: one row per operator write through the admin
+    /// The admin audit trail: one row per admin write through the admin
     /// API, or `pierre-cli` straight to the database (carnet#1391).
     pub admin_audit: Arc<dyn AdminAuditRepository>,
     /// The admin Engagement screen's reads, each in one admin scope.
@@ -306,7 +306,7 @@ pub struct RepositoryRegistry {
     /// or failed, until they expire (carnet#1541).
     pub user_export_bundles: Arc<dyn UserExportBundleRepository>,
     /// Deletes every row one provider contributed: one user's on disconnect,
-    /// every tenant's on the operator's termination purge.
+    /// every tenant's on the admin's termination purge.
     pub provider_data: Arc<dyn ProviderDataRepository>,
 }
 

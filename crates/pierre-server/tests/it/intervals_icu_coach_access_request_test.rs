@@ -536,7 +536,7 @@ async fn a_decided_request_is_never_asked_again() {
     };
     decline(repos, asked.id, None, None, None).await.unwrap();
 
-    // Granted, then revoked by an operator: the revoke stands.
+    // Granted, then revoked by an admin: the revoke stands.
     let revoked = w.person("revoked@coach-access.test", true).await;
     let RequestOutcome::Opened(asked_too) =
         request_access(repos, revoked.id, None, CoachAccessOrigin::Asked)

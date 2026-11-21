@@ -818,7 +818,7 @@ same ring on `:focus-visible` only, for a control a pointer clicks and leaves
 Radii (Boreal scale): `sm` 2px, `md` 4px, `lg` 8px, `xl` 12px, `full` 9999px
 (chips only). Cards are `xl` (12px). Buttons are `lg` (8px). Tags are `full`.
 
-Content max-width: 1280px main, 720px reading (the thread and its composer). Athlete shell: icon rail 72px; Home: the thread + the Today panel 320px (`lg`) / 360px (`xl`); Groups: list column 320px (`lg`) / 340px (`xl`) + the thread; operator shell: sidebar 260px, rail 72px when collapsed. Sheets: 360px from a side, full height from the bottom. Row heights: chat list 60, settings menu 48, notifications 48, tables 44; headers 52.
+Content max-width: 1280px main, 720px reading (the thread and its composer). Athlete shell: icon rail 72px; Home: the thread + the Today panel 320px (`lg`) / 360px (`xl`); Groups: list column 320px (`lg`) / 340px (`xl`) + the thread; admin shell: sidebar 260px, rail 72px when collapsed. Sheets: 360px from a side, full height from the bottom. Row heights: chat list 60, settings menu 48, notifications 48, tables 44; headers 52.
 
 A long table never pushes the page's next action below the fold: it scrolls
 inside a frame of its own, under a header row that stays put, and the action
@@ -832,7 +832,7 @@ column, they follow the chat, and each table is capped at 256px. The field
 is on screen on arrival from 390px up. Either way the frame is a named,
 focusable region, and no CSS `order` is used: focus order is document order.
 
-The operator sidebar sits on `surface` behind a hairline, like the athlete
+The admin sidebar sits on `surface` behind a hairline, like the athlete
 rail: the lockup at 28px, 12px sentence-case section labels in `outline`,
 the active row on the `primary-container` tint with no side bar, a count
 badge in `primary`, and the collapse control among the footer's icon buttons.
@@ -998,7 +998,7 @@ product does instead of describing its own design, and three claims were cut
 back to what the code actually delivers.
 
 **Boreal v2 (2026-09).** The Product Tier had grown four visible greys, a
-primary that read as black, three header idioms, a gradient-decorated operator
+primary that read as black, three header idioms, a gradient-decorated admin
 shell and a second logo on the phone. The refresh, planned in the team vault
 under `Design/` and landed in seven commits on `feature/boreal-v2`, changed:
 

@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! The knob sat in the admin catalogue with nothing reading it: an operator
+//! The knob sat in the admin catalogue with nothing reading it: an admin
 //! could move it and every athlete still got the kernel's compiled 1.8 g/kg.
 //! These drive the tool itself, so a knob the calculator ignores fails here.
 

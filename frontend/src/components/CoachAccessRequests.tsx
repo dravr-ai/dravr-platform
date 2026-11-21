@@ -17,7 +17,7 @@ import CoachSeatInvitations from './CoachSeatInvitations';
 /**
  * The longest decline reason the field takes: what the server keeps
  * (`DECLINE_REASON_MAX_CHARS` in `pierre_core::models::coach_access`), so the
- * operator never types words the coach would not read.
+ * admin never types words the coach would not read.
  */
 const DECLINE_REASON_MAX_CHARS = 500;
 

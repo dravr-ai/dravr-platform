@@ -34,19 +34,19 @@ use pierre_core::models::{
 use pierre_database::repositories::user_invitations::invalid_invitation;
 use pierre_runtime_context::DataContext;
 
+use crate::admin_mail::PendingSignupMail;
 use crate::analytics::{analytics, cache_user_email, hash_id};
 use crate::default_agent::first_athlete_facing;
 use crate::import_tombstones::{email_held, pending_email_tombstone};
 use crate::invitation::settle_coach_seat;
 use crate::link_token::split_link_token;
-use crate::operator_mail::PendingSignupMail;
 
 /// Sign-in through an external identity (Firebase, Google) and the account rules both follow
 mod federated;
 
 /// The first-party session a redeemed code (or the CLI's seeded session) opens, and its user.login event
 mod code_sign_in;
-/// The operator's bounds on a stranger's sign-up, and activation on a proven address
+/// The admin's bounds on a stranger's sign-up, and activation on a proven address
 mod self_signup;
 /// Signup codes: register with one, redeem one from the pending page, activate on a proven address
 mod signup_code;
@@ -167,7 +167,7 @@ impl AuthService {
     /// for the first time and that still waits for approval (carnet#1056).
     ///
     /// Waiting for the proof keeps a burst of throwaway sign-ups out of the
-    /// operators' inboxes and off the shared Resend quota: an address nobody
+    /// admins' inboxes and off the shared Resend quota: an address nobody
     /// confirmed never reaches them. Callers pass only a first proof (the
     /// confirmation link, the chat OTP, a provider vouching for the address),
     /// so each account is mailed once. Sent off the request path, and only
@@ -193,7 +193,7 @@ impl AuthService {
     /// with appropriate approval status, provisions a personal tenant, and
     /// raises the `user.signed_up` notify event.
     ///
-    /// This is the operator's door too (the admin register route), so it
+    /// This is the admin's door too (the admin register route), so it
     /// applies no sign-up bound; a stranger's door goes through
     /// [`Self::self_register`].
     ///
@@ -206,8 +206,8 @@ impl AuthService {
 
     /// Register `request`'s account. `self_serve` says a stranger's door
     /// created it: only such an account activates itself by proving its
-    /// address, so only it skips the operators' review and is told to confirm
-    /// its email. An operator's door sends no confirmation link, so its
+    /// address, so only it skips the admins' review and is told to confirm
+    /// its email. An admin's door sends no confirmation link, so its
     /// Pending account stays in review whatever the sign-up settings say.
     /// `code_vouched` says a signup code will activate it once the address is
     /// proven (carnet#1128), so it is not announced for review either.
@@ -240,7 +240,7 @@ impl AuthService {
         }
 
         // Check if user should be auto-approved (global setting, domain
-        // allow-list, or a per-email pre-approval carrying its operator)
+        // allow-list, or a per-email pre-approval carrying its admin)
         let approval = self.determine_approval_status(&email).await;
         let self_activates = self_serve
             && ((code_vouched && !email_held(self.data.repos(), &email).await)
@@ -281,8 +281,8 @@ impl AuthService {
     /// invitee chose.
     ///
     /// The invitation is redeemed first, single-use: the account lands
-    /// [`UserStatus::Active`] with `approved_by` set to the operator who sent
-    /// it (none when that operator's account has since been deleted), and its
+    /// [`UserStatus::Active`] with `approved_by` set to the admin who sent
+    /// it (none when that admin's account has since been deleted), and its
     /// address is recorded as verified, since following the link
     /// is the proof of the inbox that a verification mail would ask for. The
     /// account gets its personal tenant exactly as a registration does.
@@ -302,7 +302,7 @@ impl AuthService {
     ///
     /// A coach-seat invitation also settles coach access and the coach role
     /// for the new account ([`crate::invitation::settle_coach_seat`]), with
-    /// the inviter as the operator of the grant. The answer carries the kind
+    /// the inviter as the admin of the grant. The answer carries the kind
     /// redeemed, so the caller can attribute the sign-up.
     #[tracing::instrument(skip_all, fields(route = "accept_invitation"))]
     pub async fn accept_invitation(
@@ -329,9 +329,9 @@ impl AuthService {
             return Err(user_state_error(error_messages::USER_ALREADY_EXISTS));
         }
 
-        // The link is spent by now: an operator who cannot be attributed
+        // The link is spent by now: an admin who cannot be attributed
         // leaves the account unattributed rather than failing it.
-        let approved_by = self.existing_operator(invitation.invited_by).await;
+        let approved_by = self.existing_admin(invitation.invited_by).await;
         let approval = (UserStatus::Active, Some(Utc::now()), approved_by);
         let (user_id, user, tenant_id) = self
             .create_account(
@@ -792,20 +792,20 @@ impl AuthService {
         }
     }
 
-    /// `operator`, while that operator's account still exists.
+    /// `admin`, while that admin's account still exists.
     ///
-    /// An allow and an invitation both outlive the account of the operator
+    /// An allow and an invitation both outlive the account of the admin
     /// who recorded them (neither carries a foreign key onto `users`), but
     /// `users.approved_by` references `users(id)` on Postgres: attributing a
-    /// new or promoted account to a deleted operator would fail the very
+    /// new or promoted account to a deleted admin would fail the very
     /// approval the allow or invitation grants. A lookup failure degrades the
     /// same way, to an unattributed approval, never to a refused account.
-    async fn existing_operator(&self, operator: Option<uuid::Uuid>) -> Option<uuid::Uuid> {
-        let id = operator?;
+    async fn existing_admin(&self, admin: Option<uuid::Uuid>) -> Option<uuid::Uuid> {
+        let id = admin?;
         match self.data.repos().users.get_global(id).await {
             Ok(user) => user.map(|_| id),
             Err(e) => {
-                warn!(operator = %id, "Approving operator lookup failed, approval left unattributed: {e}");
+                warn!(admin = %id, "Approving admin lookup failed, approval left unattributed: {e}");
                 None
             }
         }
@@ -849,11 +849,11 @@ impl AuthService {
     /// Determine user approval status from the per-email pre-approval list,
     /// the global auto-approval setting, and the email-domain allow-list.
     ///
-    /// A per-email pre-approval also carries the operator who recorded it, so
+    /// A per-email pre-approval also carries the admin who recorded it, so
     /// the new account's `approved_by` attributes the decision to a person;
     /// the global switch and domain list are policy, not a person, and leave
     /// it `None`. An email a deleted account's tombstone holds is admitted by
-    /// no rule: it waits Pending for an operator or an explicit clear.
+    /// no rule: it waits Pending for an admin or an explicit clear.
     async fn determine_approval_status(
         &self,
         email: &str,
@@ -868,7 +868,7 @@ impl AuthService {
         }
         if let Some(entry) = self.pre_approval_for(email).await {
             tracing::debug!("Auto-approval granted via pre-approved email");
-            let approved_by = self.existing_operator(entry.allowed_by).await;
+            let approved_by = self.existing_admin(entry.allowed_by).await;
             return (UserStatus::Active, Some(now), approved_by);
         }
         if self.should_auto_approve_email(email).await {
@@ -1090,7 +1090,7 @@ impl AuthService {
     ///
     /// Whitespace and `<` `>` are refused outright: no deliverable unquoted
     /// address carries them, and Slack renders `<!channel>` or `<url|text>`
-    /// in an operator ping as a room-wide mention or a disguised link, so an
+    /// in an admin ping as a room-wide mention or a disguised link, so an
     /// address an applicant typed must never hold them (carnet#1056).
     #[must_use]
     pub fn is_valid_email(email: &str) -> bool {

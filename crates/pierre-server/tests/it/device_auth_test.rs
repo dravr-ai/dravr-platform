@@ -242,16 +242,16 @@ async fn an_expired_login_swept_by_the_next_one_is_answered_as_unknown_or_expire
 }
 
 #[tokio::test]
-async fn the_minted_token_acts_as_the_approving_operator_and_names_no_email() {
+async fn the_minted_token_acts_as_the_approving_admin_and_names_no_email() {
     let context = build_context().await;
-    let mut operator = User::new(
-        "approving-operator@example.com".to_owned(),
+    let mut admin = User::new(
+        "approving-admin@example.com".to_owned(),
         "hash".to_owned(),
-        Some("Operator".to_owned()),
+        Some("Admin".to_owned()),
     );
-    operator.role = UserRole::Admin;
-    operator.user_status = UserStatus::Active;
-    context.repos.users.create(&operator).await.unwrap();
+    admin.role = UserRole::Admin;
+    admin.user_status = UserStatus::Active;
+    context.repos.users.create(&admin).await.unwrap();
 
     let resp = handle_device_authorization(State(context.clone()))
         .await
@@ -261,7 +261,7 @@ async fn the_minted_token_acts_as_the_approving_operator_and_names_no_email() {
     let user_code = body["user_code"].as_str().unwrap().to_owned();
 
     let approver = ValidatedAdminToken {
-        operator_user_id: Some(operator.id),
+        operator_user_id: Some(admin.id),
         ..super_admin_token()
     };
     let resp = handle_device_approve(
@@ -279,7 +279,7 @@ async fn the_minted_token_acts_as_the_approving_operator_and_names_no_email() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_json(resp).await;
     // The CLI that asked is told who approved it.
-    assert_eq!(body["subject"], "approving-operator@example.com");
+    assert_eq!(body["subject"], "approving-admin@example.com");
 
     let minted: Vec<_> = context
         .repos
@@ -288,13 +288,13 @@ async fn the_minted_token_acts_as_the_approving_operator_and_names_no_email() {
         .await
         .unwrap()
         .into_iter()
-        .filter(|token| token.operator_user_id == Some(operator.id))
+        .filter(|token| token.operator_user_id == Some(admin.id))
         .collect();
-    assert_eq!(minted.len(), 1, "one token acts as the approving operator");
+    assert_eq!(minted.len(), 1, "one token acts as the approving admin");
     assert_eq!(
         minted[0].service_name,
-        format!("device-cli:{}", operator.id),
-        "the name is a label carrying the operator's id, never their email"
+        format!("device-cli:{}", admin.id),
+        "the name is a label carrying the admin's id, never their email"
     );
     assert!(minted[0].is_super_admin);
 }

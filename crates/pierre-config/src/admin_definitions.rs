@@ -6,7 +6,7 @@
 //
 // file-size-ok: parameter catalog, not logic — `ParameterDefinition` entries
 // across the `register_*` builders, each a flat literal of key, display name,
-// description, category, data type, default, and range. Every knob an operator
+// description, category, data type, default, and range. Every knob an admin
 // can turn costs its fixed block of lines here, so the length measures how much
 // of the platform is admin-configurable, not how complex this module is. A
 // domain whose knobs have a consumer-side reader registers them in its own

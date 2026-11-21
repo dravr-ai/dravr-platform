@@ -313,7 +313,7 @@ pub(crate) fn render_power_zones(zones: &PowerZones) -> Option<PowerZonesPayload
     })
 }
 
-/// The max-HR estimator an athlete is read with: the operator's
+/// The max-HR estimator an athlete is read with: the admin's
 /// `algorithm.maxhr` override for the user, tenant or fleet when one is set,
 /// else the algorithm cageux's configuration selects.
 ///

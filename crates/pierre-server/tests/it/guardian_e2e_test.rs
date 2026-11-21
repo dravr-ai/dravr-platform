@@ -113,7 +113,7 @@ fn guardian_error_code(response: &UniversalResponse) -> Option<String> {
 
 #[tokio::test]
 async fn guardian_enforce_chokepoint_denies_irreversible_allows_reads_e2e() {
-    // A zero destructive budget, as an operator's stored document would set.
+    // A zero destructive budget, as an admin's stored document would set.
     common::init_server_config();
     let resources = create_test_server_resources_with_no_destructive_budget()
         .await
@@ -216,7 +216,7 @@ async fn guardian_enforce_chokepoint_denies_irreversible_allows_reads_e2e() {
     );
 }
 
-/// carnet#1471: a block is a catalogued notify event, so operators see every one
+/// carnet#1471: a block is a catalogued notify event, so admins see every one
 /// whatever transport raised it, and each later refusal it causes too.
 #[tokio::test]
 async fn a_block_fires_the_guardian_denied_event() {

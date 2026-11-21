@@ -447,7 +447,7 @@ pub(crate) struct PromptTurn<'a> {
     pub conv: &'a ConversationRecord,
     /// Who the turn is about, named once when the conversation resolved.
     pub standing: TurnStanding,
-    /// What an operator switched off for the sender, left out of the index.
+    /// What an admin switched off for the sender, left out of the index.
     pub switched_off: &'a SwitchedOff,
     /// Whether tools beyond the core go out deferred; the index says how to load one.
     pub defer_tools: bool,
@@ -618,7 +618,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // only place the model sees the deferred names, and says to load one by
     // name rather than guess its parameters (carnet#406). It names what
     // `offered_schemas` offers, as the declarations and loopback do: nothing
-    // the seat withholds (carnet#742, carnet#1070) or an operator switched off.
+    // the seat withholds (carnet#742, carnet#1070) or an admin switched off.
     let tool_names: Vec<String> = chat_catalogue::offered_schemas(
         &ctx.tool_registry,
         seat,
@@ -1084,7 +1084,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     );
 
     // Trace-level dump of the full hardened system prompt and the flattened
-    // message list. Operators bump `RUST_LOG=...=trace` to see exactly what
+    // message list. Admins bump `RUST_LOG=...=trace` to see exactly what
     // the LLM will receive; otherwise the events are filtered out.
     if tracing::enabled!(tracing::Level::TRACE) {
         trace!(

@@ -1,4 +1,4 @@
-// ABOUTME: carnet#1463 — an operator starts a whole account over: every provider disconnected, every owned row wiped
+// ABOUTME: carnet#1463 — an admin starts a whole account over: every provider disconnected, every owned row wiped
 // ABOUTME: The account, its sign-in, tenants and overrides stay; no tombstone, no receipt; refusals touch nothing
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -284,7 +284,7 @@ async fn reset_wipes_everything_the_account_owns_and_keeps_the_account() {
         .unwrap()
         .is_none());
 
-    // The account, its sign-in, its tenants and what operators set on it stay.
+    // The account, its sign-in, its tenants and what admins set on it stay.
     let after = repos.users.get_global(user_id).await.unwrap().unwrap();
     assert_eq!(after.email, before.email);
     assert_eq!(after.role, before.role);

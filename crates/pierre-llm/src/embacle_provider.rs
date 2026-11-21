@@ -932,7 +932,7 @@ fn entry_model(model_override: Option<&str>) -> Option<String> {
 }
 
 /// Check a CLI runner's readiness off the constructing task and warn when it
-/// is not ready — the operator's boot-time signal that a runner will fail its
+/// is not ready — the admin's boot-time signal that a runner will fail its
 /// first turn (binary missing, not logged in), without blocking construction.
 fn spawn_readiness_warning(runner_type: CliRunnerType, binary_path: PathBuf) {
     tokio::spawn(async move {

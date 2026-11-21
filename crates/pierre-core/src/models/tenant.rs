@@ -268,7 +268,7 @@ impl Tenant {
     /// they own (their personal tenant), else the first they belong to.
     ///
     /// Sign-up keys its operational events on the personal tenant, so an
-    /// approval that later joins the user to an operator's tenant must still
+    /// approval that later joins the user to an admin's tenant must still
     /// pick the personal one, or the two events land on different identities.
     #[must_use]
     pub fn attribution_tenant(tenants: &[Self], user_id: Uuid) -> Option<TenantId> {
@@ -432,9 +432,9 @@ mod tests {
     #[test]
     fn attribution_prefers_the_tenant_the_user_owns() {
         let user = Uuid::new_v4();
-        let operators = owned_by(Uuid::new_v4());
+        let admins = owned_by(Uuid::new_v4());
         let personal = owned_by(user);
-        let tenants = [operators, personal.clone()];
+        let tenants = [admins, personal.clone()];
         assert_eq!(
             Tenant::attribution_tenant(&tenants, user),
             Some(personal.id)

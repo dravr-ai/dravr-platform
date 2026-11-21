@@ -32,12 +32,12 @@ fn the_device_page_query_never_prints_the_user_code() {
 #[test]
 fn the_device_approval_form_never_prints_the_password_or_user_code() {
     let form = DeviceApproveForm {
-        email: "operator@dravr.ai".to_owned(),
+        email: "admin@dravr.ai".to_owned(),
         password: "sentinel-password-7f3a".to_owned(),
         user_code: "SENT-7F3A".to_owned(),
         action: Some("approve".to_owned()),
     };
     let printed = printed_without(&form, &["sentinel-password-7f3a", "SENT-7F3A"]);
     assert_eq!(printed.matches("[REDACTED]").count(), 2, "{printed}");
-    assert!(printed.contains("operator@dravr.ai"), "{printed}");
+    assert!(printed.contains("admin@dravr.ai"), "{printed}");
 }

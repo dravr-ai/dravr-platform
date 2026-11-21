@@ -6,7 +6,7 @@
 
 //! User invitations, written once.
 //!
-//! The link an operator mails to an address that has no account, where the
+//! The link an admin mails to an address that has no account, where the
 //! invitee chooses their own password. It uses the `<selector>.<verifier>`
 //! mechanism of every other mailed link, in a token space of its own: only
 //! the SHA-256 of the verifier is stored, a wrong guess costs one attempt

@@ -16,7 +16,7 @@
 //!   claim-verification warnings)
 //! - Slash-command handler output (`/status`, `/help`, `/logout`, `/privacy`,
 //!   `/group`, `/agent`) — every user-visible string goes through the registry
-//!   so operators can hot-reload translations via the contremaitre repo without
+//!   so admins can hot-reload translations via the contremaitre repo without
 //!   a code change or redeploy
 //!
 //! These are distinct from [`super::PromptRegistry`] which holds the system
@@ -1406,7 +1406,7 @@ pub const KEY_COACH_ACCESS_ROOM_LINE_COACH: &str = "humanCoach.access.roomLineCo
 /// name.
 pub const KEY_COACH_ACCESS_ROOM_LINE_ATHLETE: &str = "humanCoach.access.roomLineAthlete";
 /// Key: the declined coach-access notice's body when the admin gave a
-/// reason. `{0}` = the reason, in the operator's own words.
+/// reason. `{0}` = the reason, in the admin's own words.
 pub const KEY_COACH_ACCESS_DECLINED_REASON_BODY: &str = "humanCoach.access.declinedReasonBody";
 
 // ── /discover command keys ────────────────────────────────────────────────

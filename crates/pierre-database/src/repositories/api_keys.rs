@@ -133,7 +133,7 @@ pub(crate) const GET_USER_API_KEY_BY_ID_SQL: &str = concat!(
     " FROM api_keys WHERE id = $1 AND user_id = $2"
 );
 
-/// One key by id regardless of owner, for operator callers.
+/// One key by id regardless of owner, for admin callers.
 pub(crate) const GET_ANY_API_KEY_BY_ID_SQL: &str = concat!(
     "SELECT ",
     api_key_columns!(""),
@@ -143,7 +143,7 @@ pub(crate) const GET_ANY_API_KEY_BY_ID_SQL: &str = concat!(
 /// Deactivate every active key whose expiry lies before `$1`.
 pub(crate) const CLEANUP_EXPIRED_API_KEYS_SQL: &str = "UPDATE api_keys SET is_active = false WHERE expires_at IS NOT NULL AND expires_at < $1 AND is_active = true";
 
-/// The operator listing: every key, optionally only one user's (by email,
+/// The admin listing: every key, optionally only one user's (by email,
 /// case aside) and only the active ones, newest first, with an optional row window. The
 /// email, limit and offset bind in that order as `$1..`, each only when
 /// given; `offset` needs `limit`.

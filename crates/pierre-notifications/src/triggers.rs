@@ -713,7 +713,7 @@ pub fn trigger_coach_access_granted(
 ///
 /// It carries no destination: the request's declined state, where the coach
 /// asks again, is wherever they asked from, which no screen token names. The
-/// reason is the operator's own words, stored as a parameter so the feed
+/// reason is the admin's own words, stored as a parameter so the feed
 /// renders it inside the sentence of whatever language the coach reads.
 pub fn trigger_coach_access_declined(
     service: &Arc<NotificationService>,

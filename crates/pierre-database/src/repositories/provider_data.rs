@@ -147,8 +147,9 @@ impl ProviderDataPurge {
 pub enum PurgeReason {
     /// The athlete disconnected the provider.
     AthleteDisconnect,
-    /// An operator disconnected it for them, or removed their account.
-    OperatorDisconnect,
+    /// An admin disconnected it for them, or removed their account. Stored as
+    /// `operator_disconnect`, the value attestation rows already hold.
+    AdminDisconnect,
     /// The seat-reclaim sweeper freed an idle athlete's seat.
     SeatReclaim,
     /// The provider said the athlete withdrew the grant (a deauthorization
@@ -163,7 +164,7 @@ pub enum PurgeReason {
     /// provider while the connection stands (Garmin's
     /// `userPermissionsChange`).
     PermissionWithdrawn,
-    /// The operator's whole-provider purge, on termination of access.
+    /// The admin's whole-provider purge, on termination of access.
     Termination,
     /// The retention policy's days passed since those activity copies were
     /// last read from the provider (`activity_retention.*`).
@@ -186,7 +187,7 @@ impl PurgeReason {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::AthleteDisconnect => "athlete_disconnect",
-            Self::OperatorDisconnect => "operator_disconnect",
+            Self::AdminDisconnect => "operator_disconnect",
             Self::SeatReclaim => "seat_reclaim",
             Self::ProviderRevoked => "provider_revoked",
             Self::LinkEnded => "link_ended",
@@ -331,7 +332,7 @@ pub trait ProviderDataRepository: Send + Sync {
 
     /// Delete every row `provider` contributed, for every user in every
     /// tenant, in one transaction that also writes its attestation row: the
-    /// operator's termination purge.
+    /// admin's termination purge.
     ///
     /// # Errors
     /// Returns a database error when any statement fails; nothing is deleted
@@ -388,7 +389,7 @@ pub trait ProviderDataRepository: Send + Sync {
 
     /// The reasons ([`PurgeReason::as_str`]) of every purge of `provider`'s
     /// data that reached `user_id` in `tenant_id` — theirs, or the
-    /// operator's whole-provider purge — committed at or after `since`, read
+    /// admin's whole-provider purge — committed at or after `since`, read
     /// from the attestation rows.
     ///
     /// # Errors

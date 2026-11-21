@@ -44,7 +44,7 @@ pub struct EnvConfigError {
 }
 
 impl EnvConfigError {
-    /// One-line operator-facing rendering used in boot failures and logs.
+    /// One-line admin-facing rendering used in boot failures and logs.
     #[must_use]
     pub fn describe(&self) -> String {
         let Self {

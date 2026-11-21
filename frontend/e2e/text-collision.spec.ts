@@ -322,7 +322,7 @@ test.describe('Text never paints over text', () => {
       route.fulfill(json({ user_id: 'user-1', from: NOW, total_cost_usd: 0, by_model: [], daily: [] })),
     );
     await page.route('**/api/admin/users/*/admin-profile', (route) =>
-      route.fulfill(json({ user_id: 'user-1', coaching_persona: 'balanced', default_coach_id: null, manages_roster: false, manages_roster_operator_grant: null, installed_agents: [], joined_groups: [] })),
+      route.fulfill(json({ user_id: 'user-1', coaching_persona: 'balanced', default_coach_id: null, manages_roster: false, manages_roster_admin_grant: null, installed_agents: [], joined_groups: [] })),
     );
     await page.route('**/api/admin/users/*/features', (route) =>
       route.fulfill(

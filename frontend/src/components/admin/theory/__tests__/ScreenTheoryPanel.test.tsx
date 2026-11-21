@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The admin shell opens each operator screen with its own theory panel, and an athlete's screen with none
+// ABOUTME: The admin shell opens each admin screen with its own theory panel, and an athlete's screen with none
 // ABOUTME: Mounts the Dashboard at several tabs with the screens stubbed and reads the panel's question, since and commits
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';

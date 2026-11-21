@@ -32,13 +32,13 @@
 //!   athlete holds a live grant on that app in another tenant.
 //! - When the athlete's tokens cannot be listed, whether a grant on some app
 //!   is live in another tenant is unknown, so nothing is revoked: a grant left
-//!   authorized costs a seat until an operator withdraws it, and revoking a
+//!   authorized costs a seat until an admin withdraws it, and revoking a
 //!   live one disconnects the athlete wherever it is stored.
 //!
 //! Each revocation's outcome is logged. One Strava did not confirm for a grant
 //! that was live here (by the seat counts' rule, so a `needs_reauth` over our
 //! own client credentials included) is logged at ERROR, the level the alert
-//! policy watches: the athlete then counts against two apps until an operator
+//! policy watches: the athlete then counts against two apps until an admin
 //! withdraws it. A dead grant here most often died at Strava too, so its
 //! refused revocation is a WARN.
 

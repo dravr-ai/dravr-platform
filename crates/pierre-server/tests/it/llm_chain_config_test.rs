@@ -86,7 +86,7 @@ async fn admin_settings_show_no_system_provider_for_the_platform_default() {
     let body = llm_settings(&resources, &auth).await;
     assert!(
         body.get("system_provider").is_none(),
-        "an operator who chose no chain has no system provider to show: {body}"
+        "an admin who chose no chain has no system provider to show: {body}"
     );
 }
 

@@ -339,7 +339,7 @@ async fn the_code_needs_the_verifier_and_redeems_once() {
 
 // ── Registrations that earn no code ──────────────────────────────────────────
 
-/// An account that waits on an operator's review is not signed in, whatever
+/// An account that waits on an admin's review is not signed in, whatever
 /// the app asked; its answer has today's keys and no more.
 #[tokio::test]
 async fn a_registration_awaiting_review_gets_no_code() {

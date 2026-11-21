@@ -55,7 +55,7 @@ impl AuthService {
     /// The account is then created as any self-serve one is and the code is
     /// redeemed against it; a code that was used up between the check and
     /// the claim leaves the account Pending rather than failing it. An
-    /// account registration already made active (an operator allowed its
+    /// account registration already made active (an admin allowed its
     /// address) still spends the code, so a coach's code joins its group; a
     /// claim that fails there leaves the account active and in no group.
     ///
@@ -79,7 +79,7 @@ impl AuthService {
         let user_id = Uuid::parse_str(&response.user_id)
             .map_err(|e| AppError::internal(format!("Registration returned a bad id: {e}")))?;
         if response.user_status == UserStatus::Active {
-            // An operator's allow already activated the account; the code
+            // An admin's allow already activated the account; the code
             // still carries the coach's group, so it is spent and joined.
             return match self.redeem_for_active_signup(user_id, code).await {
                 Ok(redeemed) => Ok((response, Some(redeemed))),
@@ -114,7 +114,7 @@ impl AuthService {
     /// up or revoked in between), so no confirmation link will activate the
     /// account. Registering skipped the review announcement only because the
     /// code vouched for it; unless a proven address activates it anyway, it
-    /// waits for an operator like any account no rule admitted: it is told
+    /// waits for an admin like any account no rule admitted: it is told
     /// so, and announced for review. A deleted account's address was never
     /// vouched for (registering announced it already), so it is left alone.
     async fn review_without_code(&self, user_id: Uuid, response: &mut RegisterResponse) {
@@ -227,7 +227,7 @@ impl AuthService {
     }
 
     /// Redeem a code for an account registration has just made active (an
-    /// operator allowed its address): one use is claimed and recorded, and the
+    /// admin allowed its address): one use is claimed and recorded, and the
     /// redemption is marked activated so no later confirmation reapplies it.
     /// The account's approver is left as the allow set it.
     async fn redeem_for_active_signup(
@@ -312,7 +312,7 @@ impl AuthService {
         granted_by: Option<Uuid>,
     ) -> AppResult<User> {
         let repos = self.data.repos();
-        let approver = self.existing_operator(granted_by).await;
+        let approver = self.existing_admin(granted_by).await;
         let rule = AccountCaller::sign_up_rule(approver);
         let activation = activate_pending_sign_up(repos, &rule.acting_on(user.clone())?).await?;
         if !activation.activated {

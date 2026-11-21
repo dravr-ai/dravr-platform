@@ -1,4 +1,4 @@
-// ABOUTME: carnet#1035 — a Garmin sign-in stopped at a captcha is the athlete's to retry, never an operator page
+// ABOUTME: carnet#1035 — a Garmin sign-in stopped at a captcha is the athlete's to retry, never an admin page
 // ABOUTME: Pins the challenge copy and reason, and a re-login sending only the caller's own dead session as prior
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 //! Garmin's SSO puts a captcha in front of a sign-in it does not trust, and
 //! the scraper service stops there without answering it: `403
 //! {"error":"login_challenge"}`. Read as an unrecognised login answer, that
-//! paged an operator for a provider's bot check and told the athlete nothing
+//! paged an admin for a provider's bot check and told the athlete nothing
 //! useful. The platform now answers it with its own copy and the reason the
 //! hosted pages select on, and goes around the system-failure path.
 //!
@@ -500,7 +500,7 @@ fn assert_is_the_challenge_refusal(status: u16, body: &Value) {
 }
 
 /// A challenged sign-in answers the challenge refusal, stores nothing, holds
-/// no flow, and emits neither the operator alert nor `sync.failed`.
+/// no flow, and emits neither the admin alert nor `sync.failed`.
 async fn a_challenge_is_the_athletes_to_retry(athlete: &Athlete) {
     let from = email(CHALLENGED);
     let (events, guard) = log_capture::capture_events();

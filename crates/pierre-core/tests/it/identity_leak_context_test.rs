@@ -1,4 +1,4 @@
-// ABOUTME: The forensic window must let an operator classify a leak from the log line alone
+// ABOUTME: The forensic window must let an admin classify a leak from the log line alone
 // ABOUTME: pattern_index cannot separate a claim from a denial the negation guard missed
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -40,7 +40,7 @@ fn a_genuine_claim_shows_the_claim_in_the_window() {
         ctx.contains("github copilot"),
         "the window must carry the matched phrase itself: {ctx:?}"
     );
-    // The operator-visible tell: the phrase is preceded by an assertion, not a
+    // The admin-visible tell: the phrase is preceded by an assertion, not a
     // negation. This is what separates it from the denial case below.
     assert!(
         ctx.contains("i m github copilot") || ctx.contains("im github copilot"),
@@ -52,7 +52,7 @@ fn a_genuine_claim_shows_the_claim_in_the_window() {
 fn a_denial_the_guard_missed_is_visibly_a_denial_in_the_window() {
     // The residual case, and the reason the window exists. The negation sits
     // far enough back that the bounded lookbehind cannot see it, so this still
-    // logs as a leak — but an operator reading the window can tell instantly
+    // logs as a leak — but an admin reading the window can tell instantly
     // that the agent behaved correctly and the guard needs widening, rather
     // than chasing a persona break that never happened.
     let reply = "Non — je vais être direct avec toi parce que la question revient souvent \
@@ -69,7 +69,7 @@ fn a_denial_the_guard_missed_is_visibly_a_denial_in_the_window() {
         assert!(
             ctx.contains("pas github copilot") || ctx.contains("ne suis pas"),
             "the window must reveal the negation the guard's lookbehind missed, \
-             so the operator can widen the guard instead of chasing a phantom \
+             so the admin can widen the guard instead of chasing a phantom \
              persona break: {ctx:?}"
         );
     }

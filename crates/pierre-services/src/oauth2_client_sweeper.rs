@@ -20,7 +20,7 @@
 //! expiry the read path already honours, on [`spawn_periodic`], whose ledger
 //! runs the first pass within seconds of boot whenever one is due. Unlike them
 //! it logs a non-empty pass at `info!`: how many registrations were abandoned
-//! is how an operator sees the anonymous endpoint being filled.
+//! is how an admin sees the anonymous endpoint being filled.
 
 use std::sync::Arc;
 use std::time::Duration;

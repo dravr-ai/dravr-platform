@@ -417,7 +417,7 @@ export function createUserApi(axios: AxiosInstance) {
      * `deleteLlmCredentials` have no production caller. The athlete-facing
      * AI-provider surface was removed from both clients — nobody brings their own
      * model — and the endpoints and these three methods are kept by decision, for a
-     * re-add. Per-tenant provider configuration continues through the operator
+     * re-add. Per-tenant provider configuration continues through the admin
      * console.
      */
     async saveLlmCredentials(

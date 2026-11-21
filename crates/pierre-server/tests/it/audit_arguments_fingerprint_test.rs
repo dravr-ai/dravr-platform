@@ -58,7 +58,7 @@ fn fingerprint_identifies_arguments_and_ignores_key_order() {
 }
 
 /// The fingerprint must not carry its input back out. This is the property that
-/// makes it safe to put in a log line at all: an operator reading the audit
+/// makes it safe to put in a log line at all: an admin reading the audit
 /// trail learns that two calls matched, never what was in them.
 #[test]
 fn fingerprint_reveals_nothing_about_the_arguments() {

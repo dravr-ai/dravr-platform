@@ -7,7 +7,7 @@
 //! `sechoir` (French for a dryer) follows unclebob's
 //! [dryer](https://github.com/unclebob/dryer): normalize each function so
 //! local names and literals vanish while called functions, methods, macros and
-//! operators stay, fingerprint every subtree, and report pairs whose
+//! admins stay, fingerprint every subtree, and report pairs whose
 //! fingerprint sets overlap past a threshold.
 //!
 //! Two things are added for a fleet of repositories. Every root carries a

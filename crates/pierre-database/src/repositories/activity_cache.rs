@@ -375,7 +375,7 @@ pub trait ActivityCacheRepository: Send + Sync {
     ) -> AppResult<Vec<String>>;
 
     /// How many cached activities the user holds in `tenant_id` under each
-    /// key, by key. An operator reads it before and after retiring a session,
+    /// key, by key. An admin reads it before and after retiring a session,
     /// to see that no row went with it.
     async fn count_by_provider(
         &self,
@@ -384,7 +384,7 @@ pub trait ActivityCacheRepository: Send + Sync {
     ) -> AppResult<Vec<(String, i64)>>;
 
     /// How many cached activities each user of `tenant_id` holds under each
-    /// key, ordered by user then key: what an operator adopting the cache
+    /// key, ordered by user then key: what an admin adopting the cache
     /// into the activity store walks and checks it against.
     async fn count_by_user_and_provider(
         &self,
@@ -477,13 +477,13 @@ pub trait ActivityCacheRepository: Send + Sync {
     ///
     /// Cross-tenant, and deliberately so — the same exception
     /// [`CommitmentRepository::due_commitments`](crate::repositories::CommitmentRepository::due_commitments)
-    /// takes. An operator asking "has any athlete's capture stopped" cannot ask
+    /// takes. An admin asking "has any athlete's capture stopped" cannot ask
     /// it one tenant at a time: the tenants worth asking about are exactly the
     /// ones nobody thought to check. Each row carries its own `tenant_id`
     /// forward so every consumer stays tenant-aware.
     ///
     /// Returns no verdict. Staleness is a threshold decision that belongs to the
-    /// caller, which is what lets an operator re-ask the same question with a
+    /// caller, which is what lets an admin re-ask the same question with a
     /// different threshold without a deploy.
     ///
     /// Connections needing re-auth are excluded: a revoked or expired connection

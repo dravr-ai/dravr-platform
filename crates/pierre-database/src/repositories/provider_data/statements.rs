@@ -440,7 +440,7 @@ pub(crate) const LIST_PURGE_RECORDS_SQL: &str = "SELECT id, tenant_id, user_id, 
      ORDER BY purged_at DESC LIMIT $2";
 
 /// The reasons of the purges of `$1`'s data that reached the user `$3` in
-/// the tenant `$4`, theirs or the operator's whole-provider purge (both ids
+/// the tenant `$4`, theirs or the admin's whole-provider purge (both ids
 /// NULL), committed at or after `$2`.
 pub(crate) const PURGE_REASONS_SINCE_SQL: &str = "SELECT reason FROM provider_data_purges \
      WHERE provider = $1 AND purged_at >= $2 \
@@ -451,7 +451,7 @@ pub(crate) const PURGE_REASONS_SINCE_SQL: &str = "SELECT reason FROM provider_da
 /// [`USER_SYNC_STATE_SQL`], each statement binding `$1` provider.
 ///
 /// ISOLATION EXEMPTION: these statements carry neither `tenant_id` nor
-/// `user_id` on purpose. They serve the operator's termination purge, which a
+/// `user_id` on purpose. They serve the admin's termination purge, which a
 /// provider's terms can require across the whole platform (WHOOP API Terms
 /// §7), and are reachable only from the super-admin route that audits the
 /// call. No tenant- or user-facing path may run them.

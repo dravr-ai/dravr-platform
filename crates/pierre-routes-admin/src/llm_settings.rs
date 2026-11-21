@@ -131,7 +131,7 @@ pub struct SaveCredentialsResponse {
     pub message: String,
 }
 
-/// Refuse a user-supplied LLM `base_url` the operator's tronc `allowlist` policy does
+/// Refuse a user-supplied LLM `base_url` the admin's tronc `allowlist` policy does
 /// not admit (T3MP3ST F2 / CWE-918): an unparseable URL, a scheme other than http(s),
 /// credentials in the URL, or a host not on `PIERRE_LLM_BASE_URL_ALLOWLIST`. An empty
 /// allowlist admits nothing, so a tenant cannot aim the server's outbound LLM request
@@ -372,7 +372,7 @@ async fn save_llm_credentials<C: MiddlewareCtx>(
         return Err(AppError::invalid_input("API key cannot be empty"));
     }
 
-    // SSRF guard: a user-supplied base_url must pass the operator's allowlist policy,
+    // SSRF guard: a user-supplied base_url must pass the admin's allowlist policy,
     // else a tenant could aim the server's outbound LLM request at an internal host.
     if let Some(base_url) = request.base_url.as_deref() {
         ensure_base_url_permitted(base_url, resources.llm_base_url_policy())?;
@@ -461,7 +461,7 @@ async fn validate_llm_credentials<C: MiddlewareCtx>(
 
     let tenant_id = get_tenant_id(&auth, &resources).await?;
 
-    // SSRF guard: a user-supplied base_url must be on the operator's allowlist before
+    // SSRF guard: a user-supplied base_url must be on the admin's allowlist before
     // we run a health_check() against it (else validation itself becomes an SSRF sink).
     if let Some(base_url) = request.base_url.as_deref() {
         ensure_base_url_permitted(base_url, resources.llm_base_url_policy())?;

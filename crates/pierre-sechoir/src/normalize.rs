@@ -1,5 +1,5 @@
 // ABOUTME: Turns a Rust function body into a set of structural fingerprints
-// ABOUTME: Keeps what is called (functions, methods, macros, operators); drops locals, literals and types
+// ABOUTME: Keeps what is called (functions, methods, macros, admins); drops locals, literals and types
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -134,8 +134,8 @@ const fn unary_operator(op: &UnOp) -> &'static str {
     }
 }
 
-/// The label of an expression node. Calls carry their callee, operators their
-/// operator; everything else is the kind of expression alone.
+/// The label of an expression node. Calls carry their callee, admins their
+/// admin; everything else is the kind of expression alone.
 fn expr_label(expr: &Expr) -> String {
     match expr {
         Expr::Binary(b) => format!("binary:{}", binary_operator(&b.op)),

@@ -42,7 +42,7 @@ pub trait SessionRefreshTokenRepository: Send + Sync {
     async fn revoke_user_tokens(&self, user_id: Uuid, now: DateTime<Utc>) -> AppResult<u64>;
 }
 
-/// Standing per-email pre-approvals — an operator "allow" recorded before the
+/// Standing per-email pre-approvals — an admin "allow" recorded before the
 /// person has an account.
 ///
 /// The registration approval decision consults this list so an allowed address

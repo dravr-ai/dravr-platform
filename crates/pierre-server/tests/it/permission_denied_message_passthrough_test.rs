@@ -1,5 +1,5 @@
 // ABOUTME: Pins that a PermissionDenied message reaches the client verbatim, and that the
-// ABOUTME: operator-only codes beside it stay replaced by their constant description.
+// ABOUTME: admin-only codes beside it stay replaced by their constant description.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -90,7 +90,7 @@ fn test_internal_and_database_messages_stay_sanitized() {
         "a database message must never reach the client"
     );
 
-    // The full text stays available to the operator on both.
+    // The full text stays available to the admin on both.
     assert!(internal.internal_details().contains("41ad3c02"));
     assert!(database.internal_details().contains("user_mcp_tokens"));
 }

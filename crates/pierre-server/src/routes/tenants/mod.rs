@@ -185,7 +185,7 @@ impl TenantRoutes {
             .ok_or_else(|| AppError::not_found("User"))?;
 
         // Generate new JWT with active_tenant_id set: the same impersonation
-        // (operator, session, no later expiry) for an impersonation token,
+        // (admin, session, no later expiry) for an impersonation token,
         // else a session still naming the client it was signed in to
         let auth_manager = &resources.auth.auth_manager;
         let jwks_manager = &resources.auth.jwks_manager;

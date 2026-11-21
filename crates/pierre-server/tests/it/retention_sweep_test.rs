@@ -563,7 +563,7 @@ async fn thirty_day_strava_override(world: World) {
     );
 }
 
-/// What an operator does: `pierre-cli config set activity_retention.provider_days
+/// What an admin does: `pierre-cli config set activity_retention.provider_days
 /// '{"strava":30}'` sends the map as its text in a global `PUT
 /// /api/admin/config`, with the device login's token; the next sweep pass
 /// expires a Strava activity not re-read for 40 days.
@@ -572,12 +572,12 @@ async fn the_override_pierre_cli_writes_through_the_admin_route_expires_strava()
     let world = World::new().await;
     let old_strava = world.read_run("strava", 40).await;
     let young_strava = world.read_run("strava", 1).await;
-    let operator = user_with_role(&world.resources, UserRole::Admin).await;
+    let admin = user_with_role(&world.resources, UserRole::Admin).await;
     let token = admin_token(
         &world.resources,
-        &format!("{DEVICE_CLI_SERVICE_PREFIX}{}", operator.id),
+        &format!("{DEVICE_CLI_SERVICE_PREFIX}{}", admin.id),
         true,
-        Some(operator.id),
+        Some(admin.id),
     )
     .await;
 

@@ -15,7 +15,7 @@
 //! with the athlete's whole authority, so a `fitness:read` token accepted
 //! there could mint a full-grant API key that outlives the grant, drive a
 //! chat turn that runs under the self grant, and reach the admin console
-//! when the athlete is an operator.
+//! when the athlete is an admin.
 //!
 //! Each refusal below is paired with the same request under the athlete's
 //! own session, answered as before: a gate that refused everything would
@@ -355,15 +355,10 @@ fn console_admin(resources: &Arc<ServerContext>) -> axum::Router {
 
 #[tokio::test]
 #[serial]
-async fn a_delegated_grant_from_an_operator_cannot_reach_admin_routes() {
+async fn a_delegated_grant_from_an_admin_cannot_reach_admin_routes() {
     let resources = create_test_server_resources().await.unwrap();
-    let operator = athlete(
-        &resources,
-        "delegation-operator@example.com",
-        UserRole::Admin,
-    )
-    .await;
-    let token = delegated(&resources, &operator, &widest_delegation());
+    let admin = athlete(&resources, "delegation-admin@example.com", UserRole::Admin).await;
+    let token = delegated(&resources, &admin, &widest_delegation());
 
     let response = AxumTestRequest::get("/api/admin/tokens")
         .header("authorization", &token)
@@ -378,23 +373,23 @@ async fn a_delegated_grant_from_an_operator_cannot_reach_admin_routes() {
     assert_refused(response, "GET /api/admin/config");
 
     let response = AxumTestRequest::get("/api/admin/tokens")
-        .header("authorization", &operator.session)
+        .header("authorization", &admin.session)
         .send(console_admin(&resources))
         .await;
     assert_eq!(
         response.status(),
         200,
-        "the operator's session still reaches the console"
+        "the admin's session still reaches the console"
     );
 
     let response = AxumTestRequest::get("/api/admin/config")
-        .header("authorization", &operator.session)
+        .header("authorization", &admin.session)
         .send(admin_config(&resources))
         .await;
     assert_eq!(
         response.status(),
         200,
-        "the operator's session still reads the configuration"
+        "the admin's session still reads the configuration"
     );
 }
 

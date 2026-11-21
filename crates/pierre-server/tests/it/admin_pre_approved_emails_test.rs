@@ -1,5 +1,5 @@
 // ABOUTME: HTTP coverage for the admin-token pre-approval routes behind pierre-cli user allow
-// ABOUTME: Allow/list/remove, pending promotion, operator attribution, the ManageUsers gate, bad input
+// ABOUTME: Allow/list/remove, pending promotion, admin attribution, the ManageUsers gate, bad input
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,12 +9,12 @@
 //! The `pre_approved_emails` table and its repository shipped with
 //! `pierre-cli user allow`, but the verb held a `DATABASE_URL` handle, so it
 //! could only ever write the laptop's local database: a deployed environment's
-//! Cloud SQL is on a private IP, and an operator with a valid super-admin
+//! Cloud SQL is on a private IP, and an admin with a valid super-admin
 //! device login had no way to pre-approve an address there. These tests drive
 //! the real bearer-token routes the CLI now calls, over one in-memory
 //! database.
 //!
-//! Every assertion is on content — the recorded note, the resolved operator,
+//! Every assertion is on content — the recorded note, the resolved admin,
 //! the promoted account's status and `approved_by`, the emptied list — so a
 //! handler that answered 200 with nothing written would fail them.
 
@@ -95,13 +95,13 @@ impl UserApprovalNotifier for RecordingNotifier {
     }
 }
 
-/// One in-memory database, its admin router, and the operator identity whose
+/// One in-memory database, its admin router, and the admin identity whose
 /// device-login token the CLI would be carrying.
 struct Harness {
     router: axum::Router,
     repos: Arc<RepositoryRegistry>,
-    operator_id: Uuid,
-    operator_email: String,
+    admin_id: Uuid,
+    admin_email: String,
     jwks: Arc<JwksManager>,
     invited: Arc<Mutex<Vec<MailedInvitation>>>,
     approved: Arc<Mutex<Vec<String>>>,
@@ -156,15 +156,14 @@ impl Harness {
 
         // The admin who approved the device login. `pierre-cli auth
         // login` mints its token against exactly this account.
-        let operator_email = "device-operator@example.com".to_owned();
-        let operator_id =
-            seed_user(&repos, &operator_email, UserStatus::Active, UserRole::Admin).await?;
+        let admin_email = "device-admin@example.com".to_owned();
+        let admin_id = seed_user(&repos, &admin_email, UserStatus::Active, UserRole::Admin).await?;
 
         Ok(Self {
             router: AdminRoutes::routes(context),
             repos,
-            operator_id,
-            operator_email,
+            admin_id,
+            admin_email,
             jwks,
             invited,
             approved,
@@ -173,13 +172,13 @@ impl Harness {
     }
 
     /// Mint the token the device flow would have handed the CLI: super-admin,
-    /// acting as the approving operator.
+    /// acting as the approving admin.
     async fn device_login_token(&self) -> Result<String> {
         self.mint_operated_token(
-            &format!("device-cli:{}", self.operator_id),
+            &format!("device-cli:{}", self.admin_id),
             None,
             true,
-            Some(self.operator_id),
+            Some(self.admin_id),
         )
         .await
     }
@@ -357,7 +356,7 @@ async fn allow_list_and_remove_round_trip_over_http() -> Result<()> {
     assert_eq!(
         listed[0]["note"].as_str(),
         Some("alpha cohort"),
-        "the operator note must survive the round trip"
+        "the admin note must survive the round trip"
     );
     assert!(
         listed[0]["account_status"].is_null(),
@@ -365,13 +364,13 @@ async fn allow_list_and_remove_round_trip_over_http() -> Result<()> {
     );
     assert_eq!(
         listed[0]["allowed_by_email"].as_str(),
-        Some(harness.operator_email.as_str()),
-        "the device-login token must attribute the allow to its approving operator"
+        Some(harness.admin_email.as_str()),
+        "the device-login token must attribute the allow to its approving admin"
     );
     assert_eq!(
         listed[0]["allowed_by"].as_str(),
-        Some(harness.operator_id.to_string().as_str()),
-        "attribution must carry the operator's real user id"
+        Some(harness.admin_id.to_string().as_str()),
+        "attribution must carry the admin's real user id"
     );
 
     let (status, body) = harness.disallow(&token, email).await;
@@ -401,14 +400,10 @@ async fn allow_list_and_remove_round_trip_over_http() -> Result<()> {
 #[tokio::test]
 async fn a_token_named_like_a_device_login_is_attributed_to_no_one() -> Result<()> {
     let harness = Harness::new().await?;
-    // What any ManageAdminTokens holder could mint before the operator was
-    // stored on the row: a super-admin token *named* for another operator.
+    // What any ManageAdminTokens holder could mint before the admin was
+    // stored on the row: a super-admin token *named* for another admin.
     let look_alike = harness
-        .mint_token(
-            &format!("device-cli:{}", harness.operator_email),
-            None,
-            true,
-        )
+        .mint_token(&format!("device-cli:{}", harness.admin_email), None, true)
         .await?;
     let email = "look-alike@example.com";
 
@@ -420,7 +415,7 @@ async fn a_token_named_like_a_device_login_is_attributed_to_no_one() -> Result<(
     assert_eq!(listed.len(), 1, "{body}");
     assert!(
         listed[0]["allowed_by"].is_null(),
-        "a name does not make a token act as the operator it names: {body}"
+        "a name does not make a token act as the admin it names: {body}"
     );
     Ok(())
 }
@@ -458,8 +453,8 @@ async fn allow_approves_a_pending_account_and_provisions_its_token() -> Result<(
     );
     assert_eq!(
         user.approved_by,
-        Some(harness.operator_id),
-        "the promotion must be attributed to the acting operator"
+        Some(harness.admin_id),
+        "the promotion must be attributed to the acting admin"
     );
 
     let tokens = harness.repos.user_mcp_tokens.list_tokens(user_id).await?;
@@ -490,7 +485,7 @@ async fn listing_reports_registration_state_per_address() -> Result<()> {
     harness
         .repos
         .pre_approved_emails
-        .allow(registered, Some(harness.operator_id), None)
+        .allow(registered, Some(harness.admin_id), None)
         .await?;
     let (status, body) = harness.allow(&token, waiting, None).await;
     assert_eq!(status, 200, "the second allow must succeed: {body}");
@@ -622,7 +617,7 @@ async fn send_invite_mails_an_address_with_no_account() -> Result<()> {
         body["message"]
             .as_str()
             .is_some_and(|m| m.contains("invitation sent: its link works once, until")),
-        "the operator must be told the invitation went out: {body}"
+        "the admin must be told the invitation went out: {body}"
     );
     let expires_at = body["data"]["invitation_expires_at"]
         .as_str()
@@ -635,11 +630,11 @@ async fn send_invite_mails_an_address_with_no_account() -> Result<()> {
     );
 
     // The mailed token is the one secret that opens the invitation, once, and
-    // it is attributed to the operator behind the device login.
+    // it is attributed to the admin behind the device login.
     let mailed = harness.invitations().remove(0);
     let redeemed = harness.redeem(&mailed.token).await?;
     assert_eq!(redeemed.email, email);
-    assert_eq!(redeemed.invited_by, Some(harness.operator_id));
+    assert_eq!(redeemed.invited_by, Some(harness.admin_id));
     assert!(
         harness.redeem(&mailed.token).await.is_err(),
         "a mailed token must redeem once"
@@ -678,7 +673,7 @@ async fn sending_again_replaces_the_earlier_link() -> Result<()> {
 }
 
 /// The mailed token is the only copy of the secret: when the mail does not go
-/// out, nobody can redeem the invitation, so it is withdrawn and the operator
+/// out, nobody can redeem the invitation, so it is withdrawn and the admin
 /// is told nothing was sent rather than "invitation sent".
 #[tokio::test]
 async fn an_invitation_whose_mail_fails_is_withdrawn_and_not_reported_sent() -> Result<()> {
@@ -699,7 +694,7 @@ async fn an_invitation_whose_mail_fails_is_withdrawn_and_not_reported_sent() -> 
         body["message"].as_str().is_some_and(|m| m.contains(
             "no invitation sent: its email could not be delivered, so the link was withdrawn"
         )),
-        "the operator must be told the invitation did not go out: {body}"
+        "the admin must be told the invitation did not go out: {body}"
     );
 
     let handed_over = harness.invitations().remove(0);
@@ -806,7 +801,7 @@ async fn an_address_is_not_mailed_past_its_hourly_budget() -> Result<()> {
         body["message"]
             .as_str()
             .is_some_and(|m| m.contains("no invitation sent")),
-        "the operator must be told why nothing went out: {body}"
+        "the admin must be told why nothing went out: {body}"
     );
     assert_eq!(
         harness.invitations().len(),
@@ -816,7 +811,7 @@ async fn an_address_is_not_mailed_past_its_hourly_budget() -> Result<()> {
     Ok(())
 }
 
-/// The operator ping for an invitation names who sent it and nothing that
+/// The admin ping for an invitation names who sent it and nothing that
 /// could open it: the token never reaches a log line.
 #[tokio::test]
 async fn an_invitation_raises_user_invited_without_logging_its_token() -> Result<()> {
@@ -838,7 +833,7 @@ async fn an_invitation_raises_user_invited_without_logging_its_token() -> Result
     assert_eq!(event.level, Level::INFO, "{event:?}");
     assert_eq!(
         event.field("invited_by"),
-        Some(format!("device-cli:{}", harness.operator_id).as_str()),
+        Some(format!("device-cli:{}", harness.admin_id).as_str()),
         "{event:?}"
     );
 
@@ -1064,7 +1059,7 @@ async fn a_returned_link_requires_an_invitation() -> Result<()> {
     Ok(())
 }
 
-/// The operator e2e path: an admin gets the accept link back instead of
+/// The admin e2e path: an admin gets the accept link back instead of
 /// a mail, and the link creates the account once.
 #[tokio::test]
 async fn a_super_admin_gets_the_link_back_and_nothing_is_mailed() -> Result<()> {
@@ -1120,7 +1115,7 @@ async fn a_super_admin_gets_the_link_back_and_nothing_is_mailed() -> Result<()> 
         lines
             .iter()
             .all(|e| e.field("event") != Some("user.invited")),
-        "a link handed to an operator raises no user.invited"
+        "a link handed to an admin raises no user.invited"
     );
 
     let redeemed = harness.redeem(&link_token).await?;

@@ -30,7 +30,7 @@
 
 #![warn(missing_docs)]
 
-/// The admin audit trail's recorder: one row per operator write (carnet#1391).
+/// The admin audit trail's recorder: one row per admin write (carnet#1391).
 pub mod audit;
 
 /// Admin authentication services (JWT-token and cookie-derived).

@@ -310,7 +310,7 @@ export function useChatThread({
   // draft rather than as typed. Cleared when the composer empties.
   const draftSeededRef = useRef(false);
   const [messageMetadata, setMessageMetadata] = useState<Map<string, MessageMetadata>>(new Map());
-  // Which model wrote a reply, and how long it took, is an operator's reading
+  // Which model wrote a reply, and how long it took, is an admin's reading
   // (carnet#1147): an athlete talks to their agent, never to a model id.
   const { user } = useAuth();
   const showsReplyModel = hasAdminRole(user);

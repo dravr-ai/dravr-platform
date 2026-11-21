@@ -1,16 +1,16 @@
-// ABOUTME: Operator routes over the deletion ledger: the hash-chained receipts and the import tombstones
+// ABOUTME: Admin routes over the deletion ledger: the hash-chained receipts and the import tombstones
 // ABOUTME: Super-admin only; pierre-cli verifies the chain from the receipts and clears a tombstone, audited
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The deletion ledger, for an operator.
+//! The deletion ledger, for an admin.
 //!
 //! Every account deletion appends a receipt chained to the one before it and
 //! leaves tombstones on the account's provider accounts and email
 //! (`pierre_database::repositories::account_deletion`). These routes read
 //! both back for `pierre-cli deletion`, which verifies the chain itself
-//! rather than trusting this server's word for it, and let an operator clear
+//! rather than trusting this server's word for it, and let an admin clear
 //! a tombstone when the person holding the identity asks them to. A receipt
 //! names its account only by the account id's SHA-256, and a tombstone its
 //! identity only by a digest.
@@ -30,7 +30,7 @@ use tracing::error;
 
 use pierre_core::admin::models::{AdminAction, AdminTokenUsage, ValidatedAdminToken};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_services::import_tombstones::clear_by_operator;
+use pierre_services::import_tombstones::clear_by_admin;
 
 use super::api_keys::json_response;
 use super::strava_pool::deny_if_not_super_admin;
@@ -158,7 +158,7 @@ async fn record_clear(
 
 /// `POST /admin/import-tombstones/{id}/clear` — clear one tombstone.
 ///
-/// Cleared as this operator, so its identity is accepted again. Idempotent:
+/// Cleared as this admin, so its identity is accepted again. Idempotent:
 /// one already cleared is answered as its first clearing left it. Audited
 /// before it runs. Answers 403 for anything but a super-admin token.
 ///
@@ -175,7 +175,7 @@ pub async fn handle_clear_import_tombstone(
         return Ok(denied);
     }
     record_clear(&context, &admin_token, &tombstone_id, None).await?;
-    let cleared = match clear_by_operator(
+    let cleared = match clear_by_admin(
         context.repos.import_tombstones.as_ref(),
         &tombstone_id,
         &admin_token.token_id,

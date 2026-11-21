@@ -9,8 +9,8 @@
 
 //! Self-serve sign-up stays bounded once it can activate itself:
 //!
-//! 1. the operator's kill switch closes every self-serve door, and the
-//!    operator's own door (the admin register route) stays open;
+//! 1. the admin's kill switch closes every self-serve door, and the
+//!    admin's own door (the admin register route) stays open;
 //! 2. the 24-hour ceiling refuses past the accounts it admits;
 //!    both refusals are a 429 reading the paused message;
 //! 3. one client address gets a window of sign-ups, resends and confirmation
@@ -229,7 +229,7 @@ async fn a_closed_switch_refuses_the_register_form_and_says_so_up_front() {
 }
 
 #[tokio::test]
-async fn a_closed_switch_closes_the_stranger_doors_but_not_the_operator_door() {
+async fn a_closed_switch_closes_the_stranger_doors_but_not_the_admin_door() {
     let resources = context().await;
     set_policy(
         &resources,
@@ -254,9 +254,9 @@ async fn a_closed_switch_closes_the_stranger_doors_but_not_the_operator_door() {
     assert!(refused.message.ends_with(SIGNUP_PAUSED));
 
     service
-        .register(request("operator-made@example.com"))
+        .register(request("admin-made@example.com"))
         .await
-        .expect("an operator's register is not a self-serve sign-up");
+        .expect("an admin's register is not a self-serve sign-up");
 }
 
 #[tokio::test]
@@ -611,13 +611,13 @@ async fn without_self_activation_a_proven_address_still_waits_for_review() {
 }
 
 #[tokio::test]
-async fn an_operator_made_account_stays_in_review_while_sign_up_self_activates() {
+async fn an_admin_made_account_stays_in_review_while_sign_up_self_activates() {
     let resources = self_activating().await;
     let response = resources
         .account_service()
         .register(RegisterRequest {
             analytics_consent: None,
-            email: "operator-pending@example.com".to_owned(),
+            email: "admin-pending@example.com".to_owned(),
             password: SecretString::from(PASSWORD.to_owned()),
             display_name: None,
         })
@@ -626,7 +626,7 @@ async fn an_operator_made_account_stays_in_review_while_sign_up_self_activates()
     assert_eq!(response.user_status, UserStatus::Pending);
     assert!(
         response.message.contains("pending admin approval"),
-        "the operator's door sends no confirmation link, so it is not told to confirm one: {}",
+        "the admin's door sends no confirmation link, so it is not told to confirm one: {}",
         response.message
     );
 }

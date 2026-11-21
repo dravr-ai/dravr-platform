@@ -135,7 +135,7 @@ fn assert_event_attributed(
 }
 
 /// A `provider.disconnected` the athlete caused: attributed, and saying so,
-/// so it never counts with an operator's or the seat reclaimer's.
+/// so it never counts with an admin's or the seat reclaimer's.
 fn assert_athlete_disconnect(
     event: &NotifyEvent,
     user_id: Uuid,

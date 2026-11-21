@@ -293,7 +293,7 @@ async fn admin_tier_override_blocks_webhook_tier_change() {
     let (plain_user, plain_tenant) = seed_starter_user_and_tenant(&db).await;
     let repos = db.repositories();
 
-    // Operator pins the first user to Enterprise (set_tier + override marker),
+    // Admin pins the first user to Enterprise (set_tier + override marker),
     // mirroring what handle_set_user_tier does.
     repos
         .users

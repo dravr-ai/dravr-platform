@@ -159,7 +159,7 @@ async fn late_subscribers_receive_replay_backlog() {
 
 /// `publish` returns `NoSlot` for an unregistered run.
 ///
-/// The sink uses that signal to log a warning so operators can spot
+/// The sink uses that signal to log a warning so admins can spot
 /// a missing `register` call instead of silently dropping events.
 #[tokio::test]
 async fn publish_distinguishes_no_slot_from_no_subscribers() {

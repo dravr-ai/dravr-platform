@@ -158,7 +158,7 @@ async fn refuse_outliving_command(
 /// Send a message and get a response with MCP tool execution.
 ///
 /// The `#[instrument]` span is the root span for every web/mobile chat
-/// turn — same shape as the messaging webhook root span — so an operator
+/// turn — same shape as the messaging webhook root span — so an admin
 /// can grep a single `turn_id` across web, mobile, and Telegram/Messenger
 /// traffic uniformly.
 #[instrument(

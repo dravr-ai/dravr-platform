@@ -13,7 +13,7 @@
 //! the request method and path. `dravr-tronc` forwards `ERROR` events to the
 //! `#dev-dravr-errors` Slack channel; before this middleware existed the
 //! forwarded event came from tower-http's default `on_failure`, which knows only
-//! the latency and status, so the operator alert never named the endpoint that
+//! the latency and status, so the admin alert never named the endpoint that
 //! failed.
 //!
 //! A `503 Service Unavailable` that carries a `Retry-After` header is graceful,

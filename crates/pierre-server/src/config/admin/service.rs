@@ -156,7 +156,7 @@ impl AdminConfigService {
     /// Warn at boot for every key an environment pin outranks a stored
     /// system-wide override on.
     ///
-    /// The pin wins by design, but the operator who saved that override sees
+    /// The pin wins by design, but the admin who saved that override sees
     /// their value simply not apply. Announcing it once at startup is what
     /// turns "the config write did nothing" into a question with an answer.
     /// Bounded by the number of pins, so this is a handful of reads at most.
@@ -643,7 +643,7 @@ impl AdminConfigService {
 pub struct UpdateConfigContext<'a> {
     /// Admin user performing the change (audit attribution).
     pub admin_user_id: &'a str,
-    /// Admin email (operator-visible attribution).
+    /// Admin email (admin-visible attribution).
     pub admin_email: &'a str,
     /// Which scope the change targets: system-wide, one tenant, or one user.
     pub scope: ConfigScope<'a>,

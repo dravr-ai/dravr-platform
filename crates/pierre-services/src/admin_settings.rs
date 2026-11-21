@@ -1,4 +1,4 @@
-// ABOUTME: System-wide settings an operator can change — auto-approval and its env shadow
+// ABOUTME: System-wide settings an admin can change — auto-approval and its env shadow
 // ABOUTME: Split from admin_ops.rs, which is about acting on users rather than configuring the system
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

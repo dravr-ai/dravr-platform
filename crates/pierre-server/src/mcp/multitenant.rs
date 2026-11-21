@@ -482,7 +482,7 @@ impl ProviderToolRouter {
                 admin_context.approval_notifier = Some(ApprovalNotifier::from_context(resources));
             }
             // The same chokepoint the athlete's own disconnect runs through, so
-            // an operator disconnect or delete revokes every grant upstream.
+            // an admin disconnect or delete revokes every grant upstream.
             admin_context.provider_disconnector = Some(Arc::new(OAuthService::new(
                 resources.data(),
                 resources.common.config.clone(),
@@ -499,7 +499,7 @@ impl ProviderToolRouter {
             // An account reset asked to delete the groups the account owns
             // archives each through the owner's own delete.
             admin_context.group_service = Some(Arc::clone(&resources.common.group_service));
-            // The operator clone stores a scrape session through the same
+            // The admin clone stores a scrape session through the same
             // write and data warm-up a sciotte login runs.
             #[cfg(all(feature = "provider-sciotte", feature = "protocol-rest"))]
             {
@@ -871,10 +871,10 @@ impl ProviderToolRouter {
     /// * `/ready` — readiness probe gated on the LLM startup probe.
     ///   Returns 200 while the probe is in flight (status `Unknown`) or
     ///   has succeeded, and 503 once the probe has reported `Unhealthy`.
-    ///   Operators who want a hard gate on LLM availability can point
+    ///   Admins who want a hard gate on LLM availability can point
     ///   Cloud Run's startup probe at this path instead of `/health`.
     /// * `/health/llm` — JSON snapshot of the latest LLM probe outcome
-    ///   for operator introspection (provider, error, timestamp).
+    ///   for admin introspection (provider, error, timestamp).
     fn create_axum_health_routes(llm_health: Arc<LlmHealthState>) -> Router {
         use axum::extract::State;
         use axum::http::StatusCode;

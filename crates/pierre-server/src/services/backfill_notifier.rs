@@ -923,7 +923,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
         // The historical backfill only ever runs on the scrape-backed mirrors,
         // so this is always a hosted-login path. A slug with no hosted login
         // means that gate widened: a wrong-brand link is worse than none, so
-        // nothing is sent and the operator hears of it.
+        // nothing is sent and the admin hears of it.
         if backend_resolver::reconnect_target(provider).is_none() {
             error!(
                 provider = %provider,

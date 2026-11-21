@@ -16,7 +16,7 @@
 //!   to the AG-UI wire format (JSON objects tagged by `type`) so
 //!   off-the-shelf AG-UI clients interop.
 //! - [`filter`] — [`AgUiEventFilter`] configuration that narrows the set
-//!   of event kinds a sink forwards. Operators can opt out of
+//!   of event kinds a sink forwards. Admins can opt out of
 //!   high-volume streams like `TEXT_MESSAGE_CONTENT` without changing
 //!   the producer code.
 //! - [`registry`] — [`RunRegistry`] maps `run_id` to a tokio broadcast

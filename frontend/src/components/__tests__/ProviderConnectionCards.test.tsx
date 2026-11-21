@@ -348,7 +348,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
   });
 
   describe('a sign-in-first card falls back to its OAuth (carnet#1477)', () => {
-    // The operator put the sign-in first: the card recommends it with seats free.
+    // The admin put the sign-in first: the card recommends it with seats free.
     const signInFirst = <T extends { seats_left: number }>(card: T) => ({ ...card, seats_left: 3 });
 
     it('opens the Strava OAuth in a new tab when the Strava sign-in cannot complete', async () => {

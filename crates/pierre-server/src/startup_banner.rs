@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! What an operator reads in the first screen of the log.
+//! What an admin reads in the first screen of the log.
 //!
 //! The binary prints this once, after the router is built, so someone
 //! starting the server locally can see which surfaces exist and where to

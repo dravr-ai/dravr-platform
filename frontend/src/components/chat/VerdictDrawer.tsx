@@ -61,9 +61,9 @@ interface VerdictDrawerProps {
   /**
    * Extra content under one card. Passed by the admin triage table, which
    * renders its knob and disposition panel here; the chat surface passes
-   * nothing. A slot rather than an import, so the operator chrome never
+   * nothing. A slot rather than an import, so the admin chrome never
    * reaches the drawer an athlete opens. Its presence also selects the
-   * operator card: every chip, and the raw ids under Provenance.
+   * admin card: every chip, and the raw ids under Provenance.
    */
   renderTriage?: (verdict: ClaimVerdict) => ReactNode;
 }
@@ -79,8 +79,8 @@ function Provenance({ label, value }: { label: string; value: string | null | un
   );
 }
 
-/** One evidence link, printed the way the operator reads it: the raw id. */
-function OperatorReference({ reference }: { reference: EvidenceRef }) {
+/** One evidence link, printed the way the admin reads it: the raw id. */
+function AdminReference({ reference }: { reference: EvidenceRef }) {
   if (!reference.href) {
     return <li className="font-mono text-xs text-on-surface">{reference.id}</li>;
   }
@@ -248,7 +248,7 @@ function VerdictCard({
 }) {
   const { t } = useTranslation();
   const references = parseEvidenceRefs(verdict.evidence_refs, verdict.evidence);
-  const operator = Boolean(renderTriage);
+  const admin = Boolean(renderTriage);
   const hasProvenance = Boolean(
     verdict.user_id || verdict.agent_id || verdict.conversation_id || verdict.message_id,
   );
@@ -263,7 +263,7 @@ function VerdictCard({
 
   return (
     <article data-testid="verdict-card" className="space-y-4 border-b ghost-border px-5 py-5 text-sm last:border-b-0">
-      {operator ? (
+      {admin ? (
         <div className="flex flex-wrap gap-2 text-xs">
           <span className={`rounded-full px-2 py-0.5 ${statusTone}`}>{statusLabel}</span>
           <span className={`rounded-full px-2 py-0.5 ${BADGE_TONE.neutral.tone}`}>
@@ -288,7 +288,7 @@ function VerdictCard({
       )}
 
       <section>
-        <h4 className={operator ? 'mb-1 text-xs font-semibold text-outline' : 'sr-only'}>{t('chat.theClaim')}</h4>
+        <h4 className={admin ? 'mb-1 text-xs font-semibold text-outline' : 'sr-only'}>{t('chat.theClaim')}</h4>
         <blockquote className="border-l-2 border-primary bg-surface-container-low p-3 text-on-surface">
           {verdict.claim_text}
         </blockquote>
@@ -296,25 +296,25 @@ function VerdictCard({
 
       {verdict.explanation ? (
         <section>
-          <h4 className={operator ? 'mb-1 text-xs font-semibold text-outline' : 'sr-only'}>
+          <h4 className={admin ? 'mb-1 text-xs font-semibold text-outline' : 'sr-only'}>
             {t('chat.detectorFindings')}
           </h4>
           <p className="text-on-surface">{verdict.explanation}</p>
         </section>
       ) : null}
 
-      {operator && references.length > 0 ? (
+      {admin && references.length > 0 ? (
         <section>
           <h4 className="mb-1 text-xs font-semibold text-outline">{t('chat.evidenceReferences')}</h4>
           <ul className="space-y-1">
             {references.map((reference) => (
-              <OperatorReference key={reference.id} reference={reference} />
+              <AdminReference key={reference.id} reference={reference} />
             ))}
           </ul>
         </section>
       ) : null}
 
-      {!operator && (references.length > 0 || source) ? (
+      {!admin && (references.length > 0 || source) ? (
         <div className="relative flex flex-wrap gap-2" data-testid="verdict-pills">
           <StudyPills references={references} />
           {source ? (
@@ -323,7 +323,7 @@ function VerdictCard({
         </div>
       ) : null}
 
-      {operator && hasProvenance ? (
+      {admin && hasProvenance ? (
         <section>
           <h4 className="mb-1 text-xs font-semibold text-outline">
             {t('chat.provenanceHeading')}

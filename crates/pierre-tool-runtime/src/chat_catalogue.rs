@@ -8,7 +8,7 @@
 //!
 //! [`offered_schemas`] is the set one turn offers: the registry's
 //! chat-callable tools, less what the turn's seat withholds and what an
-//! operator switched off for the caller ([`SwitchedOff`]). The declarations,
+//! admin switched off for the caller ([`SwitchedOff`]). The declarations,
 //! the prompt's names index and the loopback listing all read it, so none of
 //! them names a tool another leaves out. [`declarations`] turns a set into the
 //! function declarations a turn sends, [`build_mcp_tools`] does so for the
@@ -215,7 +215,7 @@ pub fn all_loaded(tools: &Tool) -> Tool {
 /// Mark every declaration outside [`LOADED_CORE`] deferred.
 ///
 /// Nothing is deferred when none of the core is in `tools`: a provider needs
-/// one loaded tool besides its search, and a turn whose seat or operator left
+/// one loaded tool besides its search, and a turn whose seat or admin left
 /// out the whole core is better served by the narrower set sent loaded.
 pub fn defer_beyond_core(tools: &mut Tool) {
     let in_core = |name: &str| LOADED_CORE.contains(&name);
@@ -231,7 +231,7 @@ pub fn defer_beyond_core(tools: &mut Tool) {
     }
 }
 
-/// The tools an operator switched off for one caller, by name
+/// The tools an admin switched off for one caller, by name
 /// ([`EffectiveTool::is_switched_off`]): globally, for the tenant, for this
 /// user, or off by catalogue default.
 ///
@@ -486,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn what_an_operator_switched_off_is_off_and_a_plan_gap_is_not() {
+    fn what_an_admin_switched_off_is_off_and_a_plan_gap_is_not() {
         let switched_off = SwitchedOff::from_effective(&[
             effective("on", true, ToolEnablementSource::Default),
             effective("catalogue_off", false, ToolEnablementSource::Default),
@@ -506,7 +506,7 @@ mod tests {
         assert_eq!(
             switched_off.len(),
             4,
-            "exactly the four operator-switched-off tools are off"
+            "exactly the four admin-switched-off tools are off"
         );
     }
 

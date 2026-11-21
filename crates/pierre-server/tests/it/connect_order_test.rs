@@ -1,4 +1,4 @@
-// ABOUTME: The operator's connect order: sign-in first by default for every provider, OAuth first as the kill switch
+// ABOUTME: The admin's connect order: sign-in first by default for every provider, OAuth first as the kill switch
 // ABOUTME: Pins the card and the reconnect reading the one order, and the super-admin route that flips it
 
 // SPDX-License-Identifier: MIT OR Apache-2.0

@@ -116,9 +116,9 @@ const CROSS_TENANT_READ_WINDOW: Duration = Duration::hours(1);
 /// A verdict quotes what an athlete was told, so another tenant's are on the
 /// trail. `target` says what came back.
 ///
-/// At most one row per operator, route and scope per
+/// At most one row per admin, route and scope per
 /// [`CROSS_TENANT_READ_WINDOW`]: a repeat within it is the access already on
-/// the trail. A credential naming no operator (a service token) is recorded
+/// the trail. A credential naming no admin (a service token) is recorded
 /// every time, since nothing tells its reads apart from another token's; so is
 /// any read whose check fails, as a trail with a repeat beats one with a gap.
 pub(crate) async fn audit_cross_tenant_sentences(

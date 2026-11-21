@@ -19,7 +19,7 @@ import { settingsPaneWebRoute } from '@pierre/shared-constants';
  * This used to be a comment on the content pane — "user tabs manage their own
  * layout" — while the gutter itself keyed off `isAdminUser`. Half the surfaces
  * honoured the comment and half assumed a parent gutter that only existed for
- * operators, so Groups, Settings and Data Providers rendered flush against the
+ * admins, so Groups, Settings and Data Providers rendered flush against the
  * viewport for every regular user, and looked correct to anyone checking as an
  * admin. A comment cannot fail a build; this table can.
  */

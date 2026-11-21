@@ -157,7 +157,7 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
         // `llm_usage`, which records a row only after a call completes and
         // carries no status, error or success column on either backend — a
         // failed call leaves no trace at all. The rate was therefore a
-        // hardcoded zero, and an operator reading "0% errors" from a metric
+        // hardcoded zero, and an admin reading "0% errors" from a metric
         // structurally incapable of reporting one is worse served than by its
         // absence. Reinstating it needs a failure signal at the write site
         // first, not a computation here.

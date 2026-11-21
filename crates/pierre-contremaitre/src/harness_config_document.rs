@@ -172,7 +172,7 @@ impl Default for HarnessMemoryConfig {
 ///
 /// Round-tripped to JSON in `system_settings.value`. Versioned via the
 /// `schema_version` field so future migrations can reject documents that
-/// predate breaking changes without losing operator data.
+/// predate breaking changes without losing admin data.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HarnessConfigDocument {
     /// Document schema version. Bump when fields are removed or renamed.

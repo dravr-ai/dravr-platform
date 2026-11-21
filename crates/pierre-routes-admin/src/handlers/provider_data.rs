@@ -1,4 +1,4 @@
-// ABOUTME: Operator route that deletes every row one provider contributed, in every tenant
+// ABOUTME: Admin route that deletes every row one provider contributed, in every tenant
 // ABOUTME: Super-admin only and audited: the termination purge, and the attestation rows every purge writes
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -168,7 +168,7 @@ pub async fn handle_purge_provider_data(
         removed = total,
         rows_removed = ?purge.rows_removed,
         connections_remaining,
-        "Operator purged every row a provider contributed, across every tenant"
+        "Admin purged every row a provider contributed, across every tenant"
     );
 
     Ok(json_response(

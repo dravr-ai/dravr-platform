@@ -434,7 +434,7 @@ async fn repeated_user_writes_upsert_rather_than_accumulate() {
     assert_eq!(
         row.config_value.as_i64(),
         Some(650),
-        "the surviving row must hold the operator's latest value"
+        "the surviving row must hold the admin's latest value"
     );
 }
 

@@ -175,7 +175,7 @@ pub fn registration_approved_html(display_name: Option<&str>, sign_in_url: Optio
 
 /// Generate the HTML body for an invitation message.
 ///
-/// Sent when an operator pre-approves an address and asks for the invitee to be
+/// Sent when an admin pre-approves an address and asks for the invitee to be
 /// told. The link is single-use and opens the app's accept page, where the
 /// invitee chooses their own password and the account is created active, so no
 /// password crosses this channel. `ttl_days` is stated in the copy so the
@@ -328,7 +328,7 @@ pub fn channel_linking_code_html(code: &str, channel_name: &str) -> String {
     )
 }
 
-/// How a coach-access request came to be, which the operator email states.
+/// How a coach-access request came to be, which the admin email states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoachAccessOrigin {
     /// The coach asked for it, from the onboarding group step or group info.
@@ -341,7 +341,7 @@ pub enum CoachAccessOrigin {
     },
 }
 
-/// Generate the HTML body of the operator email announcing a coach-access
+/// Generate the HTML body of the admin email announcing a coach-access
 /// request (carnet#738).
 ///
 /// Sent to every admin when a request opens: one a coach asked for
@@ -349,8 +349,8 @@ pub enum CoachAccessOrigin {
 /// the Intervals.icu roster of a key they linked (`origin`), which is never
 /// worded as their asking. The request grants nothing (ADR-018); the email
 /// says whose it is, how it came, for which group, and links to the console
-/// queue where the operator grants or declines it. Requester-supplied text
-/// (the name, the group name) is escaped: it reaches an operator's inbox.
+/// queue where the admin grants or declines it. Requester-supplied text
+/// (the name, the group name) is escaped: it reaches an admin's inbox.
 #[must_use]
 pub fn coach_access_requested_html(
     requester_email: &str,
@@ -465,7 +465,7 @@ pub fn coach_access_granted_html(
 /// request was declined (carnet#1521).
 ///
 /// It carries the admin's `reason` when one was given (escaped: an
-/// operator typed it). `ask_again_url` opens the app where they can ask
+/// admin typed it). `ask_again_url` opens the app where they can ask
 /// again; without one the email says so in words.
 #[must_use]
 pub fn coach_access_declined_html(
@@ -502,7 +502,7 @@ pub fn coach_access_declined_html(
     )
 }
 
-/// The operator email announcing a sign-up that no auto-approval rule
+/// The admin email announcing a sign-up that no auto-approval rule
 /// admitted (carnet#1056). Everything the applicant typed is escaped.
 #[must_use]
 pub fn signup_awaiting_approval_html(
@@ -561,7 +561,7 @@ mod tests {
         assert!(with.contains("Reason: "));
         assert!(
             !with.contains(HOSTILE),
-            "an operator's words never render as markup"
+            "an admin's words never render as markup"
         );
         assert!(with.contains("Ask again"));
 

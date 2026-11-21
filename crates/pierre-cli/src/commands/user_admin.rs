@@ -1,4 +1,4 @@
-// ABOUTME: `user get` / `set` / `disconnect` / `delete` / `reset-onboarding` — the operator's view of users over the admin API
+// ABOUTME: `user get` / `set` / `disconnect` / `delete` / `reset-onboarding` — the admin's view of users over the admin API
 // ABOUTME: HTTP rather than a direct DB handle, so one binary serves local and deployed alike
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -218,12 +218,12 @@ pub(crate) async fn get_users(client: &RemoteClient, args: &GetUsersArgs) -> App
 
 /// Resolve an email or id to a user id.
 ///
-/// The admin routes are keyed by id, but an operator reaches for the email —
+/// The admin routes are keyed by id, but an admin reaches for the email —
 /// it is what they see in Telegram, in a support thread, and in this command's
 /// own listing. A value that parses as a UUID is taken as an id; anything else
 /// is looked up by paging the listing over every status (`status=all`), so
 /// `user set jf@dravr.ai --tier ...` works without a round trip through the UI
-/// to copy an id, and the suspended account an operator is about to delete is
+/// to copy an id, and the suspended account an admin is about to delete is
 /// found as readily as an active one.
 ///
 /// # Errors
@@ -471,7 +471,7 @@ pub(crate) async fn clone_provider(
 ///
 /// Returns [`AppError::invalid_input`] when not confirmed, and the client's
 /// error when a call fails — including the server's 409 naming the groups or
-/// operator records that must be reassigned first.
+/// admin records that must be reassigned first.
 pub(crate) async fn delete_user(
     client: &RemoteClient,
     user_id: &str,
@@ -675,7 +675,7 @@ pub(crate) async fn set_user_tier(
 }
 
 /// Grant or revoke a user's `manages_roster` permission, marked as the
-/// operator's so a `TrainingPeaks` disconnect leaves a grant in place.
+/// admin's so a `TrainingPeaks` disconnect leaves a grant in place.
 ///
 /// # Errors
 ///
@@ -893,7 +893,7 @@ fn write_allowed(
                     field(entry, "email"),
                     account_label(entry),
                     allowed_at(entry),
-                    operator_label(entry),
+                    admin_label(entry),
                     note_label(entry)
                 )?;
             }
@@ -943,16 +943,16 @@ fn account_label(entry: &Value) -> String {
 }
 
 /// Minute-precision timestamp; the RFC3339 the server sends is too wide for a
-/// column an operator scans.
+/// column an admin scans.
 fn allowed_at(entry: &Value) -> String {
     let raw = field(entry, "created_at");
     raw.get(..16)
         .map_or_else(|| raw.clone(), |s| s.replace('T', " "))
 }
 
-/// The operator who recorded the allow, or `-` when it was not attributable
+/// The admin who recorded the allow, or `-` when it was not attributable
 /// (a service token, or a pre-bootstrap allow).
-fn operator_label(entry: &Value) -> String {
+fn admin_label(entry: &Value) -> String {
     let email = field(entry, "allowed_by_email");
     if email.is_empty() {
         "-".to_owned()
@@ -961,7 +961,7 @@ fn operator_label(entry: &Value) -> String {
     }
 }
 
-/// The operator note, or `-` when none was recorded.
+/// The admin note, or `-` when none was recorded.
 fn note_label(entry: &Value) -> String {
     let note = field(entry, "note");
     if note.is_empty() {
@@ -971,7 +971,7 @@ fn note_label(entry: &Value) -> String {
     }
 }
 
-/// Quote a cell that would otherwise break the CSV. Notes are operator-supplied
+/// Quote a cell that would otherwise break the CSV. Notes are admin-supplied
 /// prose and do contain commas.
 fn csv_cell(value: &str) -> String {
     if value.contains([',', '"', '\n']) {

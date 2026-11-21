@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Zone operator commands.
+//! Zone admin commands.
 //!
 //! `zones backfill` re-cuts the heart-rate and power zones stored on a
 //! tenant's physiological profiles from each profile's own inputs, so rows

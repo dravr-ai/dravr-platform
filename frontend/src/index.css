@@ -236,7 +236,7 @@
   /* Legacy `card-dark` — the Pierre dark glassmorphism panel, then a Boreal
      card. In v2.1 it is a section: a group's heading and its content on the
      page, with the forty pixels of paper the parent's spacing provides, no
-     box. Its heading takes the section title's face and size so the operator
+     box. Its heading takes the section title's face and size so the admin
      shell reads the same as the athlete's settings without editing every
      consumer; the ratchet in the validation script counts the consumers down. */
   .card-dark,

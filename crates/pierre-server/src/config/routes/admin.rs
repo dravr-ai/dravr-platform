@@ -68,12 +68,12 @@ impl AdminConfigState {
     /// Authenticate the caller, requiring admin privileges.
     ///
     /// Two credentials reach these routes. The admin console sends the
-    /// operator's own session (a user JWT, in the header or the web session
+    /// admin's own session (a user JWT, in the header or the web session
     /// cookie named by [`auth_cookie_name`]). `pierre-cli` sends the super-admin *admin token* its device
     /// login minted — accepted only when its stored row names the approving
     /// admin ([`ValidatedAdminToken::operator_user_id`], written by the
     /// device grant alone), the user every write is audited as. A service token minted by `token
-    /// generate` names no operator and is refused, whatever its permissions:
+    /// generate` names no admin and is refused, whatever its permissions:
     /// `admin_config_overrides.created_by` references `users`.
     ///
     /// Any admin account passes: the admin console is a global model, so the
@@ -107,7 +107,7 @@ impl AdminConfigState {
             // Not an admin token either: the user credential's refusal
             // stands, a spent budget as its 429.
             Err(user_jwt_error) => self
-                .device_login_operator(&auth_value)
+                .device_login_admin(&auth_value)
                 .await?
                 .ok_or_else(|| user_jwt_error.into_auth_refusal("Authentication failed"))?,
         };
@@ -127,9 +127,9 @@ impl AdminConfigState {
     /// # Errors
     ///
     /// An admin token that validates but is not super-admin, or names no
-    /// operator, is refused outright rather than falling through: the caller
+    /// admin, is refused outright rather than falling through: the caller
     /// did hold a real credential, and the message says what it lacks.
-    async fn device_login_operator(&self, auth_value: &str) -> AppResult<Option<Uuid>> {
+    async fn device_login_admin(&self, auth_value: &str) -> AppResult<Option<Uuid>> {
         let Some(token) = auth_value.strip_prefix("Bearer ") else {
             return Ok(None);
         };
@@ -145,7 +145,7 @@ impl AdminConfigState {
         // good standing: `AdminAuthService::authenticate` read that row.
         validated.operator_user_id.map(Some).ok_or_else(|| {
             AppError::auth_invalid(
-                "Admin token names no operator; admin config writes are audited per user, so sign in with `pierre-cli auth login`",
+                "Admin token names no admin; admin config writes are audited per user, so sign in with `pierre-cli auth login`",
             )
         })
     }

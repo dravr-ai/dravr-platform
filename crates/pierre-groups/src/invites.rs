@@ -163,7 +163,7 @@ impl GroupService {
 
         // Reuses the catalogued `group.joined` event (an agent redeeming a
         // coach-kind invite is still a join); the message distinguishes the
-        // agent case for operators. Emitted after the attach succeeds, so
+        // agent case for admins. Emitted after the attach succeeds, so
         // re-redeeming the same invite — which returns early above — no
         // longer double-counts the way the route-level emission did.
         info!(

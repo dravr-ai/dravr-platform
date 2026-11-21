@@ -80,7 +80,7 @@ async fn the_reaper_claims_only_launches_that_died() {
         .await
         .unwrap();
 
-    // Counts are per provider and ordered, so an operator reading the log line
+    // Counts are per provider and ordered, so an admin reading the log line
     // can tell one provider's outage from a platform-wide one.
     assert_eq!(
         reaped,

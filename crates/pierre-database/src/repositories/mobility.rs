@@ -54,7 +54,7 @@ pub trait MobilityRepository: Send + Sync {
 //
 // The one thing the two engines spell differently is the case-folding text
 // match: Postgres has `ILIKE`, `SQLite` only `LIKE`, which folds case for
-// ASCII letters alone. Each backend's shell passes its operator as the
+// ASCII letters alone. Each backend's shell passes its match operator as the
 // `$like` macro literal; see [`impl_mobility_repository`].
 
 /// The eighteen columns every read of `stretching_exercises` returns, in the

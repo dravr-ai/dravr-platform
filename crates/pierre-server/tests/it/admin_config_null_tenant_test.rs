@@ -173,7 +173,7 @@ async fn system_wide_save_updates_in_place_instead_of_appending_a_row() {
         .expect("the system-wide override must exist after two saves");
     assert_eq!(
         read_back.config_value, admins_only,
-        "the read must return the operator's latest value, not the first one written"
+        "the read must return the admin's latest value, not the first one written"
     );
 
     // The precedence walk itself now lives in `AdminConfigService` (it has an

@@ -4,11 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The three operator verbs speak HTTP to the admin API, so they are driven
+//! The three admin verbs speak HTTP to the admin API, so they are driven
 //! here end to end: the real binary against a local stub that answers the
 //! admin routes and records every request it saw. What matters is what the
 //! binary puts on the wire — a `DELETE` only after `--yes`, the reason in its
-//! body, the provider route for a disconnect — and what it tells the operator.
+//! body, the provider route for a disconnect — and what it tells the admin.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -652,7 +652,7 @@ fn user_reset_without_yes_previews_everything_and_sends_no_write() {
                     ],
                     "kept_on_onboarding_reset": ["trainingpeaks"],
                     "manages_roster": true,
-                    "manages_roster_operator_grant": null,
+                    "manages_roster_admin_grant": null,
                     "reset_blockers": [],
                 },
             }),
@@ -689,7 +689,7 @@ fn user_reset_without_yes_previews_everything_and_sends_no_write() {
         "A2A clients, with their OAuth registrations, sessions and tasks would be deleted",
         "the profile, physiology, onboarding progress and gear would be deleted",
         "imported history and uploaded files would be erased",
-        "manages_roster, earned through a TrainingPeaks coach connection, would be revoked with it (an operator grant stays)",
+        "manages_roster, earned through a TrainingPeaks coach connection, would be revoked with it (an admin grant stays)",
     ] {
         assert!(stdout.contains(line), "missing {line:?}: {stdout}");
     }
@@ -699,7 +699,7 @@ fn user_reset_without_yes_previews_everything_and_sends_no_write() {
         "{stdout}"
     );
     assert!(
-        !stdout.contains("every operator override, its API keys"),
+        !stdout.contains("every admin override, its API keys"),
         "the kept note must not claim every API key stays: {stdout}"
     );
     assert!(

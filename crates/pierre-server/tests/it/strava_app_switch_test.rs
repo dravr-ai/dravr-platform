@@ -442,7 +442,7 @@ async fn a_dead_athlete_moved_to_the_pool_has_the_env_grant_revoked_first() {
     assert_eq!(connection[0].status, ConnectionStatus::Active);
 }
 
-/// An athlete on a pool app an operator disabled reconnects onto the env app,
+/// An athlete on a pool app an admin disabled reconnects onto the env app,
 /// and the disabled app's grant is revoked under that app's own client: its
 /// secret still resolves, which is what lets the grant be withdrawn.
 #[tokio::test]

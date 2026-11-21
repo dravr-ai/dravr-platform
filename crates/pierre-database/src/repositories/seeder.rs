@@ -264,7 +264,7 @@ pub trait SeederRepository: Send + Sync {
     /// `source = 'contremaitre'`, or the transitional `'seed'` that the
     /// source-column migration stamped on rows seeded before it existed and
     /// that the seeder only re-stamps once the content hash changes.
-    /// Operator-authored system agents (`source = 'custom'`) are never
+    /// Admin-authored system agents (`source = 'custom'`) are never
     /// listed. The agent seeder diffs this against the slugs it discovered on
     /// disk and deletes the rest, so an agent retired from dravr-contremaitre
     /// leaves every database instead of lingering in the store.
@@ -304,7 +304,7 @@ pub trait SeederRepository: Send + Sync {
     /// conversation still bound to the agent would block the delete; nulling
     /// it drops that conversation to the default prompt. Groups are left
     /// alone — a group needs an agent, so a group bound to an agent with no
-    /// successor keeps blocking the delete until an operator picks one.
+    /// successor keeps blocking the delete until an admin picks one.
     /// Returns the number of conversations detached.
     async fn seed_detach_agent_conversations(&self, retired_agent_id: &str) -> AppResult<u64>;
 
@@ -331,7 +331,7 @@ pub trait SeederRepository: Send + Sync {
 ///
 /// `'contremaitre'` is the source the seeder stamps today and `'seed'` the one
 /// it claims from before that stamp existed; a row outside the pair is an
-/// operator's or an athlete's own agent and no seeder query may touch it.
+/// admin's or an athlete's own agent and no seeder query may touch it.
 /// Every catalogue query spells the same pair, so it is spelled once, as a
 /// literal the statement consts below concatenate.
 macro_rules! catalogue_source_filter {
@@ -402,7 +402,7 @@ pub const AGENT_POINTER_MERGES: [&str; 3] = [
 /// itself (a usage-only row is not one) or a copy forked from it, exactly
 /// what every membership change and every copy install or uninstall count.
 /// The author's own row on an agent they wrote for themselves is not an
-/// install: it exists before any listing does. A catalogue agent's operator
+/// install: it exists before any listing does. A catalogue agent's admin
 /// holds no such row, and joins its team by installing it like anyone. `$1`
 /// is the successor.
 ///

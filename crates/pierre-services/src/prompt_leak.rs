@@ -146,7 +146,7 @@ pub fn scan_assistant_reply(
         // recitation. No excerpt of the matched text accompanies them — this
         // branch fires on every legitimate refusal by construction, because the
         // localized refusal templates live in the system prompt, so an excerpt
-        // would drip confidential prompt text into the operator logs at the
+        // would drip confidential prompt text into the admin logs at the
         // rate of ordinary traffic.
         warn!(
             tenant_id = %tenant_id,
@@ -181,7 +181,7 @@ pub fn scan_assistant_reply(
 }
 
 /// Log a model-identity leak (« I'm GitHub Copilot CLI ») at `warn`. The
-/// operator-facing alert for a withheld identity leak is the curated
+/// admin-facing alert for a withheld identity leak is the curated
 /// `messaging.identity_leak` notify event — emitted from the messaging dispatch
 /// path and deduplicated per tenant on `#dravr-signal`. Logging this line at
 /// `error` as well would double-page: `dravr-tronc`'s `ErrorNotificationLayer`

@@ -8,14 +8,14 @@
 //!
 //! The invitation's token goes to the notifier and nowhere else, with one
 //! exception: an admin may ask for the link itself (`return_link`), and
-//! then it is answered to them instead of mailed. That is for operator-driven
+//! then it is answered to them instead of mailed. That is for admin-driven
 //! end-to-end testing on a deployed environment, where the test accounts'
 //! addresses have no mailbox anyone reads; an admin can already mint any
 //! account's access, so handing them the link grants nothing new. The link is
 //! not mailed then (a mail that failed would withdraw the very link just
 //! answered), no notifier is needed, and no `user.invited` event is raised,
-//! since a test account is not an invitation the operators' channel counts.
-//! Neither the token nor the link ever reaches the operator's sentence or a
+//! since a test account is not an invitation the admins' channel counts.
+//! Neither the token nor the link ever reaches the admin's sentence or a
 //! log line: only the response's `invite_url` carries it.
 
 use axum::http::StatusCode;
@@ -133,7 +133,7 @@ impl InviteReport {
         }
     }
 
-    /// The clause the operator reads after the allow's own sentence: empty
+    /// The clause the admin reads after the allow's own sentence: empty
     /// when no invitation was asked for, and otherwise what became of it.
     pub(super) fn sentence(&self) -> String {
         match self {
@@ -170,7 +170,7 @@ impl InviteReport {
 /// approved by the allow and gets that announcement instead; an active or
 /// suspended account already exists, so a "create your account" link would be
 /// wrong. Issuing a new invitation revokes any earlier one for the address, so
-/// asking again is how an operator re-sends.
+/// asking again is how an admin re-sends.
 ///
 /// # Errors
 ///
@@ -198,7 +198,7 @@ pub(super) async fn send_invite_if_eligible(
         return Ok(InviteReport::AccountExists);
     }
     let carrier = match delivery {
-        Delivery::Link { frontend_url } => Carrier::Operator { frontend_url },
+        Delivery::Link { frontend_url } => Carrier::Admin { frontend_url },
         Delivery::Mail => {
             let Some(notifier) = ctx.approval_notifier.as_ref() else {
                 warn!(%recipient, "No approval notifier wired — invitation not issued");
@@ -222,7 +222,7 @@ pub(super) enum Carrier<'ctx> {
     /// The notifier, which mails it.
     Notifier(&'ctx dyn UserApprovalNotifier),
     /// The admin who asked, as a link on the web app at `frontend_url`.
-    Operator { frontend_url: &'ctx str },
+    Admin { frontend_url: &'ctx str },
 }
 
 /// Issue an invitation of `kind` and hand it to `carrier`.
@@ -241,7 +241,7 @@ pub(super) async fn issue_and_deliver(
     match invitation::issue(&ctx.repos, email, admin_token.operator_user_id, kind).await? {
         InviteOutcome::Issued(issued) => match carrier {
             Carrier::Notifier(notifier) => mail(ctx, notifier, &issued, admin_token).await,
-            Carrier::Operator { frontend_url } => {
+            Carrier::Admin { frontend_url } => {
                 info!(
                     recipient = %mask_email(email),
                     token_id = %admin_token.token_id,
@@ -265,7 +265,7 @@ pub(super) async fn issue_and_deliver(
     }
 }
 
-/// Mail an issued invitation, raising `user.invited` for the operators'
+/// Mail an issued invitation, raising `user.invited` for the admins'
 /// channel once it went out, with the invitation's `kind` so a coach-seat
 /// invitation reads as one. A mailed token goes to the notifier and nowhere else,
 /// so an invitation the notifier could not mail is withdrawn at once: nobody

@@ -290,7 +290,7 @@ pub(crate) const CLAIM_REAUTH_RETRY_SQL: &str = r"
 
 /// Every connection flagged `needs_reauth` whose retry is due at `$1` (the
 /// condition [`CLAIM_REAUTH_RETRY_SQL`] claims under), longest-flagged first,
-/// at most `$2` of them — across users and tenants, for the operator sweep.
+/// at most `$2` of them — across users and tenants, for the admin sweep.
 pub(crate) const LIST_REAUTH_RETRY_DUE_SQL: &str = r"
             SELECT id, user_id, tenant_id, provider, connection_type, connected_at, last_used_at, status, metadata,
                    account_role, status_changed_at

@@ -153,7 +153,7 @@ pub(crate) async fn handle_slack_action(
 
     // Authorization, first: trust the room. Each decision's buttons are only
     // ever posted to the room its event's routing rule names — a private
-    // channel whose membership IS the set of operators. The HMAC signature
+    // channel whose membership IS the set of admins. The HMAC signature
     // (verified by the HTTP handler) proves the click is genuinely from
     // Slack; we additionally require the action to originate from that room
     // so the buttons are honored nowhere else.

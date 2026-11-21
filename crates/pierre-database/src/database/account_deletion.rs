@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use chrono::Utc;
 use pierre_core::admin::models::{
-    DELETED_ACCOUNT_LABEL, DELETED_ACCOUNT_OPERATOR, DEVICE_CLI_DELETED_ACCOUNT_SERVICE,
+    DELETED_ACCOUNT_ADMIN, DELETED_ACCOUNT_LABEL, DEVICE_CLI_DELETED_ACCOUNT_SERVICE,
 };
 use pierre_core::errors::{AppError, AppResult};
 use sqlx::Row;

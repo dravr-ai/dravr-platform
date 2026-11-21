@@ -410,17 +410,17 @@ impl FromStr for ColorScheme {
     }
 }
 
-/// A `manages_roster` grant an operator made, from the admin console or
+/// A `manages_roster` grant an admin made, from the admin console or
 /// `pierre-cli user set --manages-roster`.
 ///
 /// The `TrainingPeaks` reconciler takes back only a grant a coach connection
 /// earned, never one of these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OperatorRosterGrant {
-    /// When the operator granted it.
+pub struct AdminRosterGrant {
+    /// When the admin granted it.
     pub granted_at: DateTime<Utc>,
-    /// The operator who granted it; `None` for a service token, which names
-    /// no one, and once that operator's account is deleted.
+    /// The admin who granted it; `None` for a service token, which names
+    /// no one, and once that admin's account is deleted.
     pub granted_by: Option<Uuid>,
 }
 
@@ -495,9 +495,9 @@ pub struct User {
     /// TrainingPeaks email is the user's verified email, and revoked when that
     /// connection is disconnected or signs in as an athlete or as a coach
     /// account that is not the user's, unless another TrainingPeaks coach
-    /// connection still holds it. An operator grants or revokes it from the
+    /// connection still holds it. An admin grants or revokes it from the
     /// admin console or `pierre-cli user set --manages-roster`, and an
-    /// operator grant ([`OperatorRosterGrant`]) is never revoked by the
+    /// admin grant ([`AdminRosterGrant`]) is never revoked by the
     /// TrainingPeaks reconciler.
     pub manages_roster: bool,
     /// IANA timezone database name (e.g. `"America/Toronto"`,
@@ -1007,7 +1007,7 @@ impl UserPhysiologicalProfile {
 /// The rest name something the delete would take from other people or leave
 /// running elsewhere: a tenant only this user owns while others belong to it,
 /// an agent other users rely on, a billing subscription still live at the
-/// provider. An operator reassigns (or removes) the row first; a group owned
+/// provider. An admin reassigns (or removes) the row first; a group owned
 /// out from under its members, or an audit trail rewritten to a deleted
 /// account, is not something a delete does silently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1064,7 +1064,7 @@ impl UserReferenceKind {
         }
     }
 
-    /// An operator-facing phrase for one reference of this kind; `detail` is
+    /// An admin-facing phrase for one reference of this kind; `detail` is
     /// what the storage query names the referencing row by.
     #[must_use]
     pub fn describe(self, detail: &str) -> String {
@@ -1126,7 +1126,7 @@ pub struct UserReference {
 }
 
 impl UserReference {
-    /// The operator-facing sentence fragment naming this reference.
+    /// The admin-facing sentence fragment naming this reference.
     #[must_use]
     pub fn describe(&self) -> String {
         self.kind.describe(&self.detail)

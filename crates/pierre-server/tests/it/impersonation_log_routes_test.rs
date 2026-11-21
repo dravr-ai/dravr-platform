@@ -24,7 +24,7 @@ use serde_json::Value;
 
 async fn admin_session(resources: &Arc<ServerContext>) -> User {
     let mut user = User::new(
-        "root-operator@example.com".to_owned(),
+        "root-admin@example.com".to_owned(),
         "hash".to_owned(),
         Some("Root".to_owned()),
     );
@@ -37,11 +37,11 @@ async fn admin_session(resources: &Arc<ServerContext>) -> User {
 #[tokio::test]
 async fn an_admin_reads_the_log_and_one_session() {
     let resources = create_test_server_resources().await.unwrap();
-    let operator = admin_session(&resources).await;
+    let admin = admin_session(&resources).await;
     let (_, target) = create_test_user_with_email(&resources.agent.database, "athlete@example.com")
         .await
         .unwrap();
-    let session = ImpersonationSession::new(operator.id, target.id, Some("Ticket 4412".to_owned()));
+    let session = ImpersonationSession::new(admin.id, target.id, Some("Ticket 4412".to_owned()));
     resources
         .common
         .repos
@@ -49,10 +49,7 @@ async fn an_admin_reads_the_log_and_one_session() {
         .create_session(&session)
         .await
         .unwrap();
-    let bearer = format!(
-        "Bearer {}",
-        generate_test_token(&resources, &operator).await
-    );
+    let bearer = format!("Bearer {}", generate_test_token(&resources, &admin).await);
 
     let listed = AxumTestRequest::get("/api/admin/impersonate/sessions")
         .header("authorization", &bearer)
@@ -64,7 +61,7 @@ async fn an_admin_reads_the_log_and_one_session() {
         .as_array()
         .and_then(|rows| rows.iter().find(|r| r["id"] == session.id.as_str()))
         .unwrap_or_else(|| panic!("the session is listed: {body}"));
-    assert_eq!(row["impersonator_email"], "root-operator@example.com");
+    assert_eq!(row["impersonator_email"], "root-admin@example.com");
     assert_eq!(row["target_user_email"], "athlete@example.com");
     assert_eq!(row["is_active"], true);
 
@@ -97,13 +94,13 @@ async fn anyone_but_an_admin_is_refused_the_log() {
 #[tokio::test]
 async fn the_log_reaches_every_session_past_the_first_page() {
     let resources = create_test_server_resources().await.unwrap();
-    let operator = admin_session(&resources).await;
+    let admin = admin_session(&resources).await;
     let (_, target) = create_test_user_with_email(&resources.agent.database, "paged@example.com")
         .await
         .unwrap();
     let total = 101;
     for _ in 0..total {
-        let session = ImpersonationSession::new(operator.id, target.id, None);
+        let session = ImpersonationSession::new(admin.id, target.id, None);
         resources
             .common
             .repos
@@ -112,10 +109,7 @@ async fn the_log_reaches_every_session_past_the_first_page() {
             .await
             .unwrap();
     }
-    let bearer = format!(
-        "Bearer {}",
-        generate_test_token(&resources, &operator).await
-    );
+    let bearer = format!("Bearer {}", generate_test_token(&resources, &admin).await);
 
     let mut seen = HashSet::new();
     let mut path = "/api/admin/impersonate/sessions".to_owned();

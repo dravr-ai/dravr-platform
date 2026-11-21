@@ -539,7 +539,7 @@ test.describe('Athlete Home — mobile viewport, a connection to reconnect', () 
   });
 });
 
-test.describe('Operator shell — mobile viewport', () => {
+test.describe('Admin shell — mobile viewport', () => {
   test('on an installed iOS PWA the admin header is topmost, so it takes the inset and the band under it does not', async ({ page }) => {
     await setupAndLoginAsAdmin(page);
     const header = page.locator('main > header');

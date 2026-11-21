@@ -118,7 +118,7 @@ async fn a_refused_mint_is_an_external_auth_failure() {
     assert_eq!(err.code, ErrorCode::ExternalAuthFailed);
     assert!(
         err.message.contains("HTTP 403"),
-        "the status reaches the operator: {}",
+        "the status reaches the admin: {}",
         err.message
     );
 }

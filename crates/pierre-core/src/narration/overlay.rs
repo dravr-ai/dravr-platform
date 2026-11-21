@@ -1,4 +1,4 @@
-// ABOUTME: Runtime vocabulary overlay — operator-supplied table additions
+// ABOUTME: Runtime vocabulary overlay — admin-supplied table additions
 // ABOUTME: Split out of narration/mod.rs so each file stays legible
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

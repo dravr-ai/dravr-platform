@@ -114,7 +114,7 @@ fn a_row_with_the_old_length_cap_and_disclaimer_text_still_parses() {
 
 #[test]
 fn empty_locales_map_is_valid() {
-    // Operators are allowed to fully disable the disclaimer feature by
+    // Admins are allowed to fully disable the disclaimer feature by
     // clearing the locales map. The pass-through behavior is documented
     // on TextGuardrails::resolve_locale.
     let mut doc = HarnessConfigDocument::default();

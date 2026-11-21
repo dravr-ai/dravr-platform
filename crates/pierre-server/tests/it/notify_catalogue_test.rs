@@ -26,7 +26,7 @@
 //! `NotifyLayer` extracts them at runtime from the enclosing handler span,
 //! which may live in a different file than the emit site, so the
 //! same-file `#[instrument]` check this test does is too narrow to police
-//! them. The catalogue still lists them as required so operators know
+//! them. The catalogue still lists them as required so admins know
 //! they belong on every event.
 //!
 //! The catalogue ships embedded in the dravr-contremaitre crate, so the

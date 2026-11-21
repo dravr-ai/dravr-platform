@@ -19,7 +19,7 @@
 //! sizes a provider app's request budget by the athletes who granted it.
 //!
 //! A connect offers Garmin's OAuth only while a seat is free: under the
-//! operator's OAuth-first order ([`crate::connect_order`]), and as the
+//! admin's OAuth-first order ([`crate::connect_order`]), and as the
 //! fallback of a sign-in that fails while the sign-in goes first.
 
 use pierre_core::constants::oauth::providers as oauth_providers;

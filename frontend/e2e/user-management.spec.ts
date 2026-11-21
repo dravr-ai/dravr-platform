@@ -147,7 +147,7 @@ async function mockUserDrawer(
     user_id: user.id,
     coaching_persona: 'supportive_coach',
     manages_roster: false,
-    manages_roster_operator_grant: null,
+    manages_roster_admin_grant: null,
     installed_agents: [],
     joined_groups: [],
   });

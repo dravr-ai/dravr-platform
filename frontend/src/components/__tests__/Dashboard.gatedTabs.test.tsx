@@ -30,7 +30,7 @@ vi.mock('../ConnectProviderBanner', () => ({
 
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
-    user: { id: 'op-1', email: 'op@acme.com', display_name: 'Operator', role: 'admin' },
+    user: { id: 'op-1', email: 'op@acme.com', display_name: 'Admin', role: 'admin' },
     logout: vi.fn(),
     isAuthenticated: true,
     isLoading: false,

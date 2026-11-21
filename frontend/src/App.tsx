@@ -180,7 +180,7 @@ function AppContent() {
   // invite card, signed in or not; the code it names is read once (carnet#1649).
   const inviteCardOpen = useInviteCardOpen();
   const [inviteCardCode] = useState<string | null>(readCarriedGroupInvite);
-  // A session the card cannot serve skips it: an operator impersonating (that
+  // A session the card cannot serve skips it: an admin impersonating (that
   // session is the target's), a suspended account, or no code left to read.
   const cardUnservable =
     impersonation.isImpersonating || user?.user_status === 'suspended' || inviteCardCode === null;

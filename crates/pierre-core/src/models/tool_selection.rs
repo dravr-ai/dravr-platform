@@ -210,7 +210,7 @@ impl EffectiveTool {
     /// Whether every surface that lists tools — `tools/list` and a chat
     /// turn's declarations, index and loopback alike — leaves this one out.
     ///
-    /// It is left out when an operator switched it off — globally, for the
+    /// It is left out when an admin switched it off — globally, for the
     /// tenant, or for this user, or off by catalogue default — because that
     /// is what the deployment offers. It is not left out when the tenant's
     /// plan does not cover it: the plan is the athlete's current state, and

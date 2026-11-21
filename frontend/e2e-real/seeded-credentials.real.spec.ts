@@ -29,7 +29,7 @@ const PIERRE_URL = process.env.PIERRE_URL ?? 'http://127.0.0.1:8081';
 
 // The admin is NOT a seeder constant. The setup script reads
 // `${ADMIN_EMAIL:-admin@example.com}` / `${ADMIN_PASSWORD:-AdminPassword123}`,
-// so a developer whose .envrc sets ADMIN_EMAIL gets a different operator
+// so a developer whose .envrc sets ADMIN_EMAIL gets a different admin
 // account entirely — locally that is `admin@pierre.mcp`, while CI (no .envrc
 // override) gets the `admin@example.com` default. Hardcoding either one makes
 // this spec fail on the other machine for a reason that is not a real defect,

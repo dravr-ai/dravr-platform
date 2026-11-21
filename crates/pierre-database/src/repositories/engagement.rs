@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! What the admin Engagement screen counts, read in the scope the operator
+//! What the admin Engagement screen counts, read in the scope the admin
 //! reads it in.
 //!
 //! A tenant's members are its `tenant_users` rows, the membership

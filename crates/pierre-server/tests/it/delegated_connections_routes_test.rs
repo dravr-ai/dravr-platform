@@ -712,7 +712,7 @@ async fn the_roster_read_grants_the_coach_and_is_cached(w: &World) {
 
     // The role is recorded once, when it is learned: a live read of an
     // account already recorded as a coach's writes nothing, so it does not
-    // re-grant a permission an operator took back since.
+    // re-grant a permission an admin took back since.
     repos
         .users
         .set_manages_roster(w.coach.id, false)

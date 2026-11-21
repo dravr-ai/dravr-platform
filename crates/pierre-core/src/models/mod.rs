@@ -189,7 +189,7 @@ pub use invitation::{InvitationKind, PreApprovedEmail, UserInvitation};
 pub use sender_locale::{locale_from_language_tag, whatsapp_sender_locale};
 pub use user::{
     default_locale, locale_from_accept_language, normalize_email, page_locale, roster_display_name,
-    supported_ui_locale, CoachingPersona, ColorScheme, OperatorRosterGrant, PhysiologicalSex, User,
+    supported_ui_locale, AdminRosterGrant, CoachingPersona, ColorScheme, PhysiologicalSex, User,
     UserId, UserPhysiologicalProfile, UserReference, UserReferenceKind, UserStatus, UserTier,
     FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES,
 };

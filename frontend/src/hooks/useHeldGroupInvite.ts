@@ -99,7 +99,7 @@ interface SentForAccount {
  * page load. An active account then joins whatever the server holds, once per
  * page load — a member's invite as a member, a coach seat as the group's
  * human coach. Never while impersonating: that session is the target's, and
- * the operator's tab must not join their groups or spend their invite.
+ * the admin's tab must not join their groups or spend their invite.
  *
  * A page load that opened on an invite link starts with the invite card, and
  * nothing is held or joined until the card is answered: its join button calls

@@ -1058,7 +1058,7 @@ async fn test_create_admin_token() -> Result<()> {
 async fn test_create_admin_token_refuses_the_device_login_prefix() -> Result<()> {
     let setup = AdminTestSetup::new().await?;
 
-    // A token named like a device login, as if another operator approved it.
+    // A token named like a device login, as if another admin approved it.
     let response = AxumTestRequest::post("/admin/tokens")
         .header(
             "authorization",

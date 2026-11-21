@@ -867,7 +867,7 @@ fn describe(figures: &[AssertedFigure]) -> String {
         .map(|f| match f.unit {
             Unit::Kilometres => format!("{} km", trim_float(f.value)),
             Unit::Minutes => format!("{} min", trim_float(f.value)),
-            // The operator reading this in the admin console needs to know
+            // The admin reading this in the admin console needs to know
             // which quantity the layer adjudicated, because the two share a
             // symbol and are checked against different fields.
             Unit::ElevationMetres => format!("{} m D+", trim_float(f.value)),
@@ -913,7 +913,7 @@ fn extract_figures(text: &str) -> Vec<AssertedFigure> {
         // every French reply writes distance ("21,4 km"). Scanning digits alone
         // would end the number at the comma, then re-enter the loop at `4` and
         // record a 4 km figure — a value the athlete never said, matched against
-        // the wrong activity and printed back in the operator explanation.
+        // the wrong activity and printed back in the admin explanation.
         while i < bytes.len()
             && (bytes[i].is_ascii_digit()
                 || bytes[i] == b'.'

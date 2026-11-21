@@ -8,7 +8,7 @@
 //! it does, and those calls are recorded by the server's audit layer. The
 //! commands below open the database themselves instead, so they write their
 //! own row of the same trail (carnet#1391), with the source `cli_database`:
-//! there is no signed-in operator, so the row names the machine's account
+//! there is no signed-in admin, so the row names the machine's account
 //! (`$USER`) in its metadata, and never a password.
 //!
 //! Not covered, because they run before the repository registry this module

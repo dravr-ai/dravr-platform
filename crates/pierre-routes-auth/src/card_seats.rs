@@ -1,5 +1,5 @@
 // ABOUTME: The seats left on the server's Strava and Garmin OAuth clients, read once per provider list
-// ABOUTME: A new connection follows the operator's order and the seats; a reconnect always signs in through the mirror
+// ABOUTME: A new connection follows the admin's order and the seats; a reconnect always signs in through the mirror
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,7 @@
 //!
 //! Both providers cap the athletes one client may connect. A new connection
 //! signs in through the mirror by default, and goes through the provider's
-//! OAuth while a seat remains only under the operator's OAuth-first order
+//! OAuth while a seat remains only under the admin's OAuth-first order
 //! (carnet#1472). A reconnect signs in through the mirror whatever the order
 //! and the seats: a dead grant reconnects only through the hosted sign-in
 //! (carnet#1494). A count that fails, or a server with no client configured,
@@ -25,7 +25,7 @@ use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 
-/// Seats left on each capped OAuth client, and the operator's connect order
+/// Seats left on each capped OAuth client, and the admin's connect order
 /// for each (carnet#1472).
 pub(crate) struct CardSeats {
     strava: u32,
@@ -74,7 +74,7 @@ impl CardSeats {
     ///
     /// The Sciotte entries are the user-facing "Strava" and "Garmin" cards:
     /// `oauth` (the card's provider's authorization) only while the
-    /// operator's order puts the OAuth first ([`ConnectOrder::OAuthFirst`])
+    /// admin's order puts the OAuth first ([`ConnectOrder::OAuthFirst`])
     /// and a seat remains, else `mirror`. A card asking for a reconnect
     /// recommends `mirror` whatever the order and the seats: a dead grant
     /// reconnects through the hosted sign-in, as a dead session does. Any

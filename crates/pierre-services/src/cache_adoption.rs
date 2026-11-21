@@ -75,7 +75,7 @@ pub enum AdoptionOutcome {
 }
 
 impl AdoptionOutcome {
-    /// Whether the operator has to act on it: the counts differ, or the rows
+    /// Whether the admin has to act on it: the counts differ, or the rows
     /// cannot be adopted at all.
     #[must_use]
     pub const fn is_failure(self) -> bool {
@@ -115,7 +115,7 @@ pub struct AdoptionReport {
 }
 
 impl AdoptionReport {
-    /// How many rows the operator has to act on ([`AdoptionOutcome::is_failure`]).
+    /// How many rows the admin has to act on ([`AdoptionOutcome::is_failure`]).
     #[must_use]
     pub fn failures(&self) -> usize {
         self.rows

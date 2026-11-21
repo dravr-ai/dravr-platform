@@ -79,7 +79,7 @@ fn tronc_context(user_id: Uuid, tenant_id: Option<TenantId>, is_admin: bool) -> 
 
 /// An admin caller with the user and tenant `tools/list` needs: the call path
 /// refuses a caller with no user or no tenant, so the listing offers such a
-/// caller nothing, and an admin is listed every tool no operator switched off.
+/// caller nothing, and an admin is listed every tool no admin switched off.
 async fn listing_admin_context(resources: &Arc<ServerContext>) -> ToolContext {
     let (user_id, _) = create_test_user(&resources.agent.database)
         .await

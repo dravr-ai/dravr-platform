@@ -1,4 +1,4 @@
-// ABOUTME: Self-serve sign-up on AuthService: the operator's bounds on a stranger's door, activation on a proven address
+// ABOUTME: Self-serve sign-up on AuthService: the admin's bounds on a stranger's door, activation on a proven address
 // ABOUTME: Split from auth.rs; the bounds themselves live in crate::signup_policy (carnet#1063)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -24,7 +24,7 @@ impl AuthService {
     /// Register an account through a door any stranger can reach: the public
     /// form, the messaging link page, in-chat sign-up.
     ///
-    /// The operator's bounds apply first ([`admit_self_signup`]): a closed
+    /// The admin's bounds apply first ([`admit_self_signup`]): a closed
     /// kill switch or a reached 24-hour ceiling refuses before anything is
     /// validated or written. Then it is [`Self::register`], as a self-serve
     /// account.
@@ -38,7 +38,7 @@ impl AuthService {
         self.register_through(request, true, false).await
     }
 
-    /// Refuse a self-serve sign-up the operator's bounds do not admit
+    /// Refuse a self-serve sign-up the admin's bounds do not admit
     /// ([`admit_self_signup`]).
     pub(super) async fn admit_self_signup(&self) -> AppResult<()> {
         admit_self_signup(self.data.database(), self.data.repos().users.as_ref()).await
@@ -54,7 +54,7 @@ impl AuthService {
 
     /// Whether proving `email` activates its new account: sign-up is open to
     /// verified addresses and no tombstone holds the address. A deleted
-    /// account's email waits for an operator or an explicit clear.
+    /// account's email waits for an admin or an explicit clear.
     pub(super) async fn activates_on_verified(&self, email: &str) -> bool {
         self.activates_on_verified_email().await && !email_held(self.data.repos(), email).await
     }
@@ -120,7 +120,7 @@ impl AuthService {
             .pre_approval_for(&user.email)
             .await
             .and_then(|entry| entry.allowed_by);
-        let rule = AccountCaller::sign_up_rule(self.existing_operator(allowed_by).await);
+        let rule = AccountCaller::sign_up_rule(self.existing_admin(allowed_by).await);
         let activation =
             activate_pending_sign_up(self.data.repos(), &rule.acting_on(user.clone())?).await?;
         // Said only of an activation that landed; one that did not is
@@ -157,7 +157,7 @@ impl AuthService {
     }
 
     /// Whether `user`, still Pending, waits only on proving its address: no
-    /// operator is asked to review it, so the next step is the confirmation
+    /// admin is asked to review it, so the next step is the confirmation
     /// link, not an approval. That holds while sign-up is open to verified
     /// addresses (and no tombstone holds the address), or when a signup code
     /// it redeemed waits for the proof (carnet#1128). A state that cannot be

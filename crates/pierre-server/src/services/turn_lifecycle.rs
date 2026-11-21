@@ -268,7 +268,7 @@ const TURN_DRAIN_GRACE: Duration = Duration::from_secs(5);
 /// replacing the "thinking…" placeholder with the notice.
 const TURN_DRAIN_SIGNAL_WINDOW: Duration = Duration::from_secs(2);
 
-/// Floor on the whole shutdown path, so the operator "stopping" notice has
+/// Floor on the whole shutdown path, so the admin "stopping" notice has
 /// time to leave the process.
 ///
 /// It is an async Slack post with no one left to await it. An instance with no

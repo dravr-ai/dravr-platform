@@ -646,7 +646,7 @@ async fn no_whoop_record_is_kept_until_the_owner_authorizes_it() {
     let whoop_ds = data_source(&repos, user_id, tenant, "whoop").await;
     let garmin_ds = data_source(&repos, user_id, tenant, "garmin").await;
     // The exposure-notice flag left off for this account, as for every
-    // account an operator has not armed: WHOOP's terms bind it all the same.
+    // account an admin has not armed: WHOOP's terms bind it all the same.
     repos
         .feature_flags
         .set_user_override(user_id, FeatureKey::ProviderExposureNotice, false, None)

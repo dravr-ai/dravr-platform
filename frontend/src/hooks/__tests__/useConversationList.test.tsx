@@ -258,7 +258,7 @@ describe('usePersonalConversation', () => {
     expect(getPersonalConversation).toHaveBeenCalledTimes(2);
   });
 
-  it('never asks for an operator, who has no Home thread', () => {
+  it('never asks for an admin, who has no Home thread', () => {
     const { result } = renderHook(() => usePersonalConversation(false), { wrapper: wrapperFor(newClient()) });
 
     expect(result.current).toEqual({ id: null, agentId: null, isLoading: false });

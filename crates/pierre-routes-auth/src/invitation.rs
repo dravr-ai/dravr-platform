@@ -34,7 +34,7 @@ const fn signup_source(kind: InvitationKind) -> &'static str {
 ///
 /// Public: the single-use token from the link is the authorization, as a
 /// password-reset token is for `/api/auth/complete-reset`. The account lands
-/// active with `approved_by` set to the inviting operator, and the response is
+/// active with `approved_by` set to the inviting admin, and the response is
 /// the registration response, so the web app shows the same next step. A
 /// coach-seat invitation's account also holds coach access and the coach role
 /// (carnet#1524).

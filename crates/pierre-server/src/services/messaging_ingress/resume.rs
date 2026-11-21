@@ -668,7 +668,7 @@ async fn re_enqueue_stale(
     row: &ResumableTurnRow,
 ) {
     let Ok(tenant_id) = TenantId::parse_str(&row.tenant_id) else {
-        warn!(row_id = %row.id, "stale turn carries a malformed tenant id; leaving it for an operator");
+        warn!(row_id = %row.id, "stale turn carries a malformed tenant id; leaving it for an admin");
         return;
     };
     let seq = match repo.bump_resumable_turn_enqueue(tenant_id, &row.id).await {
@@ -918,7 +918,7 @@ fn parse_tenant(raw: &str) -> Option<TenantId> {
     match TenantId::parse_str(raw) {
         Ok(id) => Some(id),
         Err(e) => {
-            warn!(error = %e, "recorded turn carries a malformed tenant id; leaving the row for an operator");
+            warn!(error = %e, "recorded turn carries a malformed tenant id; leaving the row for an admin");
             None
         }
     }

@@ -47,9 +47,11 @@ pub struct AdminToken {
     pub is_active: bool,
     /// Tenant this token is scoped to (`None` for super-admin / global tokens)
     pub tenant_id: Option<String>,
-    /// The operator this token acts as: the admin who approved the
+    /// The admin this token acts as: the admin who approved the
     /// device login that minted it. `None` for a service token, which names
     /// no person.
+    /// Named after the `admin_tokens.operator_user_id` column, which is never
+    /// renamed: a column rename makes a rollback deploy unsafe.
     pub operator_user_id: Option<Uuid>,
     /// The id of the token a rotation replaced this one with. `None` for a
     /// live token and for a revoked one, and for a token rotated before the
@@ -116,9 +118,11 @@ pub struct AdminTokenSummary {
     pub is_active: bool,
     /// Tenant this token is scoped to (`None` for super-admin / global tokens)
     pub tenant_id: Option<String>,
-    /// The operator this token acts as: the admin who approved the
+    /// The admin this token acts as: the admin who approved the
     /// device login that minted it. `None` for a service token, which names
     /// no person.
+    /// Named after the `admin_tokens.operator_user_id` column, which is never
+    /// renamed: a column rename makes a rollback deploy unsafe.
     pub operator_user_id: Option<Uuid>,
     /// The id of the token a rotation replaced this one with, when one did:
     /// what tells a rotated token from a revoked one among the inactive.
@@ -347,9 +351,11 @@ pub struct CreateAdminTokenRequest {
     pub is_super_admin: bool,
     /// Tenant to scope this token to (`None` for global / super-admin)
     pub tenant_id: Option<String>,
-    /// The operator the token acts as, set only by the device grant from the
+    /// The admin the token acts as, set only by the device grant from the
     /// approving admin's account. Never read from a request body: an
-    /// operator identity is earned by approving a login, not named.
+    /// admin identity is earned by approving a login, not named.
+    /// Named after the `admin_tokens.operator_user_id` column, which is never
+    /// renamed: a column rename makes a rollback deploy unsafe.
     #[serde(skip)]
     pub operator_user_id: Option<Uuid>,
 }
@@ -439,11 +445,11 @@ impl CreateAdminTokenRequest {
     /// The lifetime is the caller's: `expires_in_days` from now, `0` for a
     /// replacement that never expires.
     ///
-    /// The operator it acts as carries over only when `rotated_by` is that
-    /// operator, so a rotation never hands one admin's identity to whoever
+    /// The admin it acts as carries over only when `rotated_by` is that
+    /// admin, so a rotation never hands one admin's identity to whoever
     /// rotated the token; a caller that is no admin's session (a service
-    /// token, `pierre-cli` on the host) passes `None`. One operator carries
-    /// over whoever rotates: [`DELETED_ACCOUNT_OPERATOR`]. It is no one's
+    /// token, `pierre-cli` on the host) passes `None`. One admin carries
+    /// over whoever rotates: [`DELETED_ACCOUNT_ADMIN`]. It is no one's
     /// identity to hand over, and a replacement without it would be a
     /// service credential minted from a deleted account's device login.
     ///
@@ -479,9 +485,9 @@ impl CreateAdminTokenRequest {
             expires_in_days: Some(expires_in_days),
             is_super_admin: existing.is_super_admin,
             tenant_id: existing.tenant_id,
-            operator_user_id: existing.operator_user_id.filter(|operator| {
-                *operator == DELETED_ACCOUNT_OPERATOR || rotated_by == Some(*operator)
-            }),
+            operator_user_id: existing
+                .operator_user_id
+                .filter(|admin| *admin == DELETED_ACCOUNT_ADMIN || rotated_by == Some(*admin)),
         })
     }
 
@@ -489,7 +495,7 @@ impl CreateAdminTokenRequest {
     ///
     /// Names starting with [`DEVICE_CLI_SERVICE_PREFIX`] belong to the device
     /// grant alone, so a token named like one was minted by an approved login.
-    /// The operator a token acts as is its `operator_user_id`, never its name,
+    /// The admin a token acts as is its `operator_user_id`, never its name,
     /// so a look-alike could not borrow an identity either way — this keeps
     /// the token list from showing one.
     ///
@@ -509,10 +515,10 @@ impl CreateAdminTokenRequest {
         Ok(self)
     }
 
-    /// The same request, for a token that acts as `operator_user_id`.
+    /// The same request, for a token that acts as `admin`.
     #[must_use]
-    pub const fn operated_by(mut self, operator_user_id: Uuid) -> Self {
-        self.operator_user_id = Some(operator_user_id);
+    pub const fn operated_by(mut self, admin: Uuid) -> Self {
+        self.operator_user_id = Some(admin);
         self
     }
 }
@@ -543,23 +549,23 @@ pub const DELETED_ACCOUNT_LABEL: &str = "deleted-account";
 /// a label on a token that acts as no one. The account deletion rewrites
 /// that label to this one, and gives the same name to the device logins the
 /// account approved, which it keeps as rows that act as
-/// [`DELETED_ACCOUNT_OPERATOR`]: nothing in `admin_tokens` names a deleted
+/// [`DELETED_ACCOUNT_ADMIN`]: nothing in `admin_tokens` names a deleted
 /// account.
 pub const DEVICE_CLI_DELETED_ACCOUNT_SERVICE: &str = "device-cli:deleted-account";
 
-/// The operator a deleted account's device logins are left with: the nil
+/// The admin a deleted account's device logins are left with: the nil
 /// UUID, which is no account's id (ids are random version-4 UUIDs, and the
 /// two statements that insert a `users` row refuse this one).
 ///
 /// The account deletion keeps those rows, so the request log and the record
 /// of the keys they provisioned stay, and rewrites who they act as to this.
-/// It is never `NULL`: a token with no operator is a service credential,
+/// It is never `NULL`: a token with no admin is a service credential,
 /// which no admin's standing guards. A token that acts as this one is
 /// refused by the admin gate for as long as it exists, whatever its row says
-/// about being active, because the operator it names is no admin; and a
+/// about being active, because the admin it names is no admin; and a
 /// rotation carries it over ([`CreateAdminTokenRequest::rotation_of`]), so
 /// neither is its replacement.
-pub const DELETED_ACCOUNT_OPERATOR: Uuid = Uuid::nil();
+pub const DELETED_ACCOUNT_ADMIN: Uuid = Uuid::nil();
 
 /// Generated admin token response
 #[derive(Debug, Clone, Serialize)]
@@ -727,9 +733,11 @@ pub struct ValidatedAdminToken {
     pub is_super_admin: bool,
     /// Tenant this token is scoped to (`None` for super-admin / global tokens)
     pub tenant_id: Option<String>,
-    /// The operator the token acts as: the approving admin for a
+    /// The admin the token acts as: the approving admin for a
     /// device-login token (from its stored row), the signed-in admin for a
     /// console session; `None` for a service token, which names no person
+    /// Named after the `admin_tokens.operator_user_id` column, which is never
+    /// renamed: a column rename makes a rollback deploy unsafe.
     pub operator_user_id: Option<Uuid>,
     /// Additional user info from JWT claims
     pub user_info: Option<serde_json::Value>,

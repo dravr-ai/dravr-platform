@@ -160,7 +160,7 @@ async fn the_seeded_catalog_and_the_registry_name_the_same_tools() {
         "{} registered tool(s) with no seeded tool_catalog row. Until the first boot \
          syncs one in, no tenant can disable them and tenant_tool_enabled always allows \
          (carnet#143); the synthesised row then carries the LLM-facing tool description \
-         as its operator display text. Seed a row on both backends (migrations/ and \
+         as its admin display text. Seed a row on both backends (migrations/ and \
          migrations_pg/): {}",
         unseeded.len(),
         unseeded.join(", ")

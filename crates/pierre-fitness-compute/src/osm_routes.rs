@@ -335,7 +335,7 @@ impl RouteDiscoveryService {
 /// Build the Overpass query for a sport, or `None` when the sport has no
 /// land or snow route surface to search.
 ///
-/// Public so an operator can paste the exact query the agent ran into
+/// Public so an admin can paste the exact query the agent ran into
 /// overpass-turbo and see the same elements come back.
 #[must_use]
 pub fn build_overpass_query(

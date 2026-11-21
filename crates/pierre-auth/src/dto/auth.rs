@@ -45,7 +45,7 @@ pub enum RegistrationActivation {
     Active,
     /// The confirmation link mailed to the address activates it.
     ConfirmEmail,
-    /// An operator reviews it.
+    /// An admin reviews it.
     Review,
 }
 
@@ -235,7 +235,7 @@ pub struct UserInfo {
     pub email_tombstone: Option<EmailTombstoneInfo>,
     /// What the account waits on, the value its registration answered with:
     /// `active`, `confirm_email` for a Pending account a proven address
-    /// activates, `review` for one an operator decides. Lets the waiting
+    /// activates, `review` for one an admin decides. Lets the waiting
     /// screen say so on any tab or device, not only in the tab that signed
     /// up. Absent for a suspended account and on surfaces that did not
     /// resolve it.

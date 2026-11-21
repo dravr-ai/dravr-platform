@@ -1844,7 +1844,7 @@ async fn the_hosted_login_cookie_signs_in_the_authorize_flow_only() {
         .starts_with("/oauth2/login?"));
 }
 
-// ── K: the operator's sign-up bounds on the connector door (carnet#1057) ────
+// ── K: the admin's sign-up bounds on the connector door (carnet#1057) ────
 
 impl Fixture {
     async fn signup_policy(&self, update: SignupPolicyUpdate) {
@@ -1916,7 +1916,7 @@ async fn with_sign_up_open_to_verified_addresses_a_fresh_google_identity_reaches
     assert!(f.verified(user.id).await);
     assert!(
         named(&events, "user.pending_approval").is_empty(),
-        "nothing waits for an operator"
+        "nothing waits for an admin"
     );
     assert_eq!(only(&events, "user.signed_up").field("source"), "google");
 
@@ -1997,7 +1997,7 @@ async fn without_self_activation_a_fresh_google_identity_waits_and_consent_says_
     let text = page.body_text();
     assert!(
         text.contains("en attente d’approbation") && text.contains("une fois le compte approuvé"),
-        "the next step is an operator's approval: {text}"
+        "the next step is an admin's approval: {text}"
     );
     assert!(!text.contains("csrf_token"), "no consent form: {text}");
 }
@@ -2041,7 +2041,7 @@ async fn a_self_activating_account_not_yet_confirmed_is_told_to_confirm_its_emai
     let text = page.body_text();
     assert!(
         text.contains("la confirmation de votre adresse courriel"),
-        "no operator reviews it, so the link is the next step: {text}"
+        "no admin reviews it, so the link is the next step: {text}"
     );
     assert!(!text.contains("en attente d’approbation"), "{text}");
     assert!(!text.contains("csrf_token"), "no consent form: {text}");

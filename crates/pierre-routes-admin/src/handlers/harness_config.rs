@@ -128,7 +128,7 @@ pub(crate) struct HarnessConfigPutRequest {
 ///
 /// Returns the persisted document or [`HarnessConfigDocument::default`]
 /// when no row has ever been written. The `source` field tells the UI
-/// whether the values are operator-written (`persisted`) or compiled-in
+/// whether the values are admin-written (`persisted`) or compiled-in
 /// defaults (`default`).
 pub(crate) async fn handle_get_harness_config(
     State(context): State<Arc<AdminApiContext>>,

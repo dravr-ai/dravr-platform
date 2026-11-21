@@ -568,7 +568,7 @@ async fn fetch_single_member_snapshot(
         fetch_member_activities_across_tenants(runtime, user_id, &tenants),
     )
     .await;
-    // Emit one log line per fetched activity so an operator can verify
+    // Emit one log line per fetched activity so an admin can verify
     // what reached the training-load calc when a snapshot looks stale
     // (e.g. "Phil rode 250km yesterday but ATL=19" — either the ride
     // isn't on the provider yet, or its TSS was skipped for missing

@@ -10,11 +10,11 @@
 //! cache-rate semantics live in [`embacle::pricing`], keyed on the name each
 //! embacle runner reports. What is platform-shaped stays here:
 //!
-//! - [`PricingRegistry`] layers per-tenant and global operator overrides on
+//! - [`PricingRegistry`] layers per-tenant and global admin overrides on
 //!   top of the table. Overrides are fetched from `admin_config_overrides`
 //!   under the `cat_llm_pricing` category by [`crate::pricing_loader`] and
 //!   cached in-process; the table remains the fallback for models the
-//!   operator has not repriced.
+//!   admin has not repriced.
 //! - [`cost_for_record`] prices a stored `llm_usage` row and
 //!   [`cost_of_usage_group`] an aggregate of them, so every read path credits
 //!   cache reads the same way and no reader prices summed tokens at a rate that
@@ -54,7 +54,7 @@ pub type PricingOverrideMap = HashMap<(String, String), ModelPricing>;
 /// 3. Compile-time [`embacle::pricing::PRICING_TABLE`] entry
 ///
 /// All override keys use the same longest-prefix matching rule as the
-/// compile-time table so operators can reprice a family without listing
+/// compile-time table so admins can reprice a family without listing
 /// every model variant.
 #[derive(Debug, Default)]
 pub struct PricingRegistry {
@@ -91,7 +91,7 @@ impl PricingRegistry {
     /// scope, applying longest-prefix matching at each layer.
     ///
     /// A pooled account prices as its provider (`anthropic#2` as `anthropic`)
-    /// at every layer, so an operator override for the provider covers each
+    /// at every layer, so an admin override for the provider covers each
     /// of its accounts as the compile-time table already does.
     fn resolve(
         &self,
@@ -351,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn an_operator_override_for_the_provider_covers_its_pooled_accounts() {
+    fn an_admin_override_for_the_provider_covers_its_pooled_accounts() {
         let registry = PricingRegistry::new();
         registry.replace_global(HashMap::from([(
             ("anthropic".to_owned(), "claude-haiku-5-5".to_owned()),

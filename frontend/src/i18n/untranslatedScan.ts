@@ -246,7 +246,7 @@ function decodeEntities(text: string): string {
  *
  * Entry points change when navigation changes. A component list changes every
  * time anyone adds a tab, and nothing fails when they forget — which is how a
- * GDPR disclosure came to be scored as operator chrome.
+ * GDPR disclosure came to be scored as admin chrome.
  */
 const WEB_ENTRY_POINTS = [
   // Sidebar destinations a non-admin gets — `regularTabs` in Dashboard.tsx.
@@ -274,32 +274,32 @@ const WEB_ENTRY_POINTS = [
 ];
 
 /**
- * The operator console ships English, and that is now a decision rather than an
+ * The admin console ships English, and that is now a decision rather than an
  * inference from an empty scan.
  *
  * 683 distinct strings once the athlete surface reached zero: user management,
- * tool and harness config, claim verdicts, API-token administration. Operators
+ * tool and harness config, claim verdicts, API-token administration. Admins
  * are internal staff, the console has never been translated, and nothing in the
  * product offers to translate it.
  *
  * What makes it a decision and not an omission is that the alternative was
  * measured. `users.locale` is `NOT NULL DEFAULT 'fr'` on `users` — not on an
- * athlete table — so every operator carries a locale, and `App.tsx` mounts the
+ * athlete table — so every admin carries a locale, and `App.tsx` mounts the
  * language switcher with no role gate. The console ignores it: the admin rail
- * and every admin-only screen are English in any session, so an operator on the
+ * and every admin-only screen are English in any session, so an admin on the
  * default locale never reads French navigation around English screens, and
- * translating 663 operator strings buys nothing for an internal audience. What
+ * translating 663 admin strings buys nothing for an internal audience. What
  * an athlete also renders (the settings panes, the notifications panel, shared
- * components) keeps the viewer's locale for an operator too.
+ * components) keeps the viewer's locale for an admin too.
  *
  * The figure ROSE from 668 while athlete strings were being translated, which
  * looks wrong and is not. `countsByScope` gives a string rendered on both
  * surfaces to the athlete, so a word like `Cancel` sitting in an athlete file
- * and an operator one counted once, as athlete. Translating the athlete copy
- * leaves the operator copy alone in the count. Nothing was added.
+ * and an admin one counted once, as athlete. Translating the athlete copy
+ * leaves the admin copy alone in the count. Nothing was added.
  *
  * The number is recorded rather than asserted, so it says what was decided
- * without failing a build when an operator surface legitimately grows. The
+ * without failing a build when an admin surface legitimately grows. The
  * ratchet prints the live figure on every run; a reader comparing the two sees
  * drift immediately.
  *
@@ -326,7 +326,7 @@ function repoRootOf(file: string): string | null {
  * resolves into that workspace package's `src/` — the label tables in
  * `@pierre/shared-constants` and the verdict vocabulary in `@pierre/shared-types`
  * are read by the athlete's screens exactly as a component is, so the walk
- * follows them; a package no athlete entry point reaches stays operator scope
+ * follows them; a package no athlete entry point reaches stays admin scope
  * by the same rule that governs a component.
  */
 function resolveImport(fromFile: string, spec: string): string | null {
@@ -369,7 +369,7 @@ function resolveImport(fromFile: string, spec: string): string | null {
 // The window between `export {` and `from` is wide: `@pierre/shared-types`'s
 // barrel re-exports twenty names per line group, and a 400-character window
 // stopped short of the specifier, which left `verdict.ts` unreachable and its
-// chip vocabulary scored as operator chrome. Lazy, so it still stops at the
+// chip vocabulary scored as admin chrome. Lazy, so it still stops at the
 // nearest `from`.
 const IMPORT_SPEC =
   /(?:(?:import|export)[\s\S]{0,4000}?from\s*|import\s*\(\s*|^\s*import\s+)['"]([^'"]+)['"]/gm;
@@ -428,7 +428,7 @@ function webRootOf(file: string): string | null {
 /**
  * Whether a component renders on a surface an athlete can reach.
  *
- * Mobile is unconditional: the app has no operator console, so every file in it
+ * Mobile is unconditional: the app has no admin console, so every file in it
  * is athlete-facing. Fifteen `screens/*` fragments used to stand in for that
  * rule, and anything outside `screens/` fell through — which is how
  * `Server unreachable`, `Checking...` and `Something went wrong. Please try
@@ -454,8 +454,8 @@ export function isAthleteSurface(file: string): boolean {
 export interface UntranslatedString {
   file: string;
   text: string;
-  /** `athlete` strings are in scope for translation; `operator` ship English. */
-  scope: 'athlete' | 'operator';
+  /** `athlete` strings are in scope for translation; `admin` ship English. */
+  scope: 'athlete' | 'admin';
 }
 
 /**
@@ -751,7 +751,7 @@ export function scanUntranslated(roots: string[]): UntranslatedString[] {
       if (isDataModule(file)) {
         continue;
       }
-      const scope = isAthleteSurface(file) ? 'athlete' : 'operator';
+      const scope = isAthleteSurface(file) ? 'athlete' : 'admin';
       for (const text of collect(fs.readFileSync(file, 'utf-8'))) {
         hits.push({ file, text, scope });
       }
@@ -768,14 +768,14 @@ export function distinctCount(hits: UntranslatedString[]): number {
 /**
  * Distinct strings per scope.
  *
- * A string rendered on both an athlete and an operator surface counts as
+ * A string rendered on both an athlete and an admin surface counts as
  * athlete: an athlete reads it, so it needs translating regardless of where
  * else it appears.
  */
-export function countsByScope(hits: UntranslatedString[]): { athlete: number; operator: number } {
+export function countsByScope(hits: UntranslatedString[]): { athlete: number; admin: number } {
   const athlete = new Set(hits.filter((h) => h.scope === 'athlete').map((h) => h.text));
-  const operator = new Set(
-    hits.filter((h) => h.scope === 'operator').map((h) => h.text).filter((t) => !athlete.has(t)),
+  const admin = new Set(
+    hits.filter((h) => h.scope === 'admin').map((h) => h.text).filter((t) => !athlete.has(t)),
   );
-  return { athlete: athlete.size, operator: operator.size };
+  return { athlete: athlete.size, admin: admin.size };
 }

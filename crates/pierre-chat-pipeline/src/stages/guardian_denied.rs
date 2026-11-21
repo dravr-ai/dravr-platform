@@ -125,7 +125,7 @@ pub(crate) fn apply_guardian_denied(
         ));
     }
 
-    // The blocked tool's name and the machine reason are for operators only.
+    // The blocked tool's name and the machine reason are for admins only.
     warn!(
         tool_name = %denial.tool_name,
         guardian.reason = %denial.reason,

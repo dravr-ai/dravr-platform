@@ -1,4 +1,4 @@
-// ABOUTME: The operator's bounds on self-serve sign-up: kill switch, 24-hour ceiling, activation on a proven address
+// ABOUTME: The admin's bounds on self-serve sign-up: kill switch, 24-hour ceiling, activation on a proven address
 // ABOUTME: Read from system_settings per sign-up, so tripping the switch needs no deploy (carnet#1063)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,12 +6,12 @@
 
 //! What lets a stranger create an account, and what bounds it.
 //!
-//! Three operator knobs in `system_settings`:
+//! Three admin knobs in `system_settings`:
 //!
 //! - **open** — the kill switch. Closed, every self-serve door refuses: the
 //!   public register form, the messaging link page, in-chat sign-up and a
-//!   first Google sign-in. An operator's own doors (the admin register route,
-//!   an invitation) stay open, since an operator vouches for those accounts.
+//!   first Google sign-in. An admin's own doors (the admin register route,
+//!   an invitation) stay open, since an admin vouches for those accounts.
 //! - **daily limit** — the most accounts self-serve sign-up admits in any 24
 //!   hours. Counted from the `users` table, whatever created the rows, because
 //!   that is the one count every replica and every deploy agrees on.
@@ -20,7 +20,7 @@
 //!   opens without `AUTO_APPROVE_USERS`, which admits an address nobody proved.
 //!
 //! None has an environment tier: the row is the only authority, so an
-//! operator trips the switch from the console or `pierre-cli settings signup`
+//! admin trips the switch from the console or `pierre-cli settings signup`
 //! and every replica reads it on the next sign-up.
 
 use chrono::{DateTime, Duration, Utc};
@@ -41,12 +41,12 @@ use crate::email_verification::resolve_clamped;
 /// It names neither: whoever is refused only needs to know to come back.
 pub const SIGNUP_PAUSED: &str = "Sign-up is paused right now. Please try again later.";
 
-/// The refusal of a sign-up the operator's bounds do not admit.
+/// The refusal of a sign-up the admin's bounds do not admit.
 fn paused() -> AppError {
     AppError::new(ErrorCode::QuotaExceeded, SIGNUP_PAUSED)
 }
 
-/// Whether `error` is the operator's bounds refusing a sign-up (a closed kill
+/// Whether `error` is the admin's bounds refusing a sign-up (a closed kill
 /// switch or a reached ceiling), so a door can say [`SIGNUP_PAUSED`] instead
 /// of a refusal that blames the person's account or input.
 #[must_use]
@@ -75,7 +75,7 @@ impl Default for SignupPolicy {
     }
 }
 
-/// The fields an operator changes; `None` leaves a field as stored.
+/// The fields an admin changes; `None` leaves a field as stored.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SignupPolicyUpdate {
     /// The kill switch
@@ -247,7 +247,7 @@ const fn admits(policy: &SignupPolicy, recent: i64) -> bool {
     policy.open && (policy.daily_limit == 0 || recent < policy.daily_limit)
 }
 
-/// Why the operator's bounds refuse a self-serve sign-up.
+/// Why the admin's bounds refuse a self-serve sign-up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignupRefusal {
     /// The kill switch is closed
@@ -261,12 +261,12 @@ pub enum SignupRefusal {
     },
 }
 
-/// What the operator's bounds say to one more self-serve sign-up right now:
+/// What the admin's bounds say to one more self-serve sign-up right now:
 /// `None` admits it.
 ///
 /// A count that fails admits the sign-up: the account write that follows
 /// fails on the same database anyway, and a refusal would misreport an outage
-/// as an operator's pause.
+/// as an admin's pause.
 pub async fn signup_refusal(db: &Database, users: &dyn UserRepository) -> Option<SignupRefusal> {
     let policy = resolve_signup_policy(db).await;
     if !policy.open {
@@ -302,7 +302,7 @@ pub async fn admit_self_signup(db: &Database, users: &dyn UserRepository) -> App
     match signup_refusal(db, users).await {
         None => Ok(()),
         Some(SignupRefusal::Closed) => {
-            warn!("Self-serve sign-up refused: sign-up is closed by an operator");
+            warn!("Self-serve sign-up refused: sign-up is closed by an admin");
             Err(paused())
         }
         Some(SignupRefusal::CeilingReached {

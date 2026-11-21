@@ -80,7 +80,7 @@ async fn setup_with(config: ServerConfig) -> (Arc<ServerContext>, Uuid, TenantId
     (resources, user_id, tenant_id)
 }
 
-/// Arm the `provider_exposure_notice` flag for `user_id`, as an operator
+/// Arm the `provider_exposure_notice` flag for `user_id`, as an admin
 /// onboarding the athlete does; it is off by default.
 async fn arm_notice(resources: &Arc<ServerContext>, user_id: Uuid) {
     resources

@@ -47,7 +47,7 @@ use crate::tool_bridge::with_tool_defs;
 
 /// Name every retired chain variable the environment still sets.
 ///
-/// With `PIERRE_LLM_CHAIN` unset they are an operator's chain the process is
+/// With `PIERRE_LLM_CHAIN` unset they are an admin's chain the process is
 /// ignoring — a binary deployed before its environment moved to the chain, or
 /// a stale `.envrc` — and the platform default (Gemini alone) serves every
 /// turn, so it is an error. With the chain set they are only inert.
@@ -246,7 +246,7 @@ impl ChatProvider {
     ///
     /// A missing tier is never fatal while another built: the tiers behind it
     /// move up. Only every tier failing is an error. The warnings are the
-    /// operator's only signal that a configured tier is absent.
+    /// admin's only signal that a configured tier is absent.
     ///
     /// Public so the assembly can be driven with scripted tiers; production
     /// reaches it through [`Self::from_env`].

@@ -9,7 +9,7 @@
 //! A coach whose onboarding group came back coachless asks for coach access in
 //! one tap; an admin grants or declines it. The table is scoped by
 //! `user_id`: coach access (`manages_roster`) belongs to the account, not to a
-//! tenant, and the admin queue is the global operator's. `group_tenant_id`
+//! tenant, and the admin queue is the global admin's. `group_tenant_id`
 //! only locates the group a grant attaches the coach to.
 //!
 //! At most one request per user is pending, held by a partial unique index, so

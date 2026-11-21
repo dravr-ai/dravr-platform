@@ -17,7 +17,7 @@ import type {
   VerdictDisposition,
 } from '@pierre/shared-types';
 
-/// One standing pre-approval: an address an operator allowed before the person
+/// One standing pre-approval: an address an admin allowed before the person
 /// registered, with the account state that allow is waiting on.
 export interface PreApprovedEmail {
   email: string;
@@ -64,7 +64,7 @@ export interface AutoApprovalSetting {
   description: string;
 }
 
-/// The sign-up guards an operator controls (carnet#1063). `open` is the kill
+/// The sign-up guards an admin controls (carnet#1063). `open` is the kill
 /// switch; `daily_limit` caps accounts created per day (0 = no ceiling);
 /// `activate_on_verified_email` makes confirming the address activate the
 /// account. `counted`, `counted_since` and `turnstile_configured` are
@@ -195,10 +195,10 @@ export interface SignupSettingUpdate {
 
 /// A one-time password reset token, returned once. The user redeems it at
 /// `POST /api/auth/complete-reset` with their new password before it expires.
-/** A `manages_roster` grant an operator made; a TrainingPeaks disconnect leaves it in place. */
-export interface RosterOperatorGrant {
+/** A `manages_roster` grant an admin made; a TrainingPeaks disconnect leaves it in place. */
+export interface RosterAdminGrant {
   granted_at: string;
-  /** The operator's user id; null for a service token, or once that account is deleted. */
+  /** The admin's user id; null for a service token, or once that account is deleted. */
   granted_by: string | null;
 }
 
@@ -310,7 +310,7 @@ export interface ImpersonationSessionsCursor {
 }
 
 /**
- * How an audited operator action ended: done, refused by a check, or errored.
+ * How an audited admin action ended: done, refused by a check, or errored.
  * `started` is an admin-only tool call whose outcome could not be written
  * after it ran: the row written before the call is all there is.
  */
@@ -332,7 +332,7 @@ export interface AuditEventMetadata {
   [key: string]: unknown;
 }
 
-/** One operator action as GET /api/admin/audit-events lists it. */
+/** One admin action as GET /api/admin/audit-events lists it. */
 export interface AuditEvent {
   id: string;
   occurred_at: string;
@@ -374,7 +374,7 @@ function scopeQuery(tenantId?: string): URLSearchParams {
 
 export const adminApi = {
   // ==================== AUDIT TRAIL ====================
-  /** One page of what operators did, newest first. */
+  /** One page of what admins did, newest first. */
   async getAuditEvents(query: AuditEventsQuery = {}): Promise<AuditEventsPage> {
     const params = new URLSearchParams();
     if (query.limit !== undefined) params.append('limit', String(query.limit));
@@ -672,7 +672,7 @@ export const adminApi = {
     coaching_persona: string;
     default_coach_id: string | null;
     manages_roster: boolean;
-    manages_roster_operator_grant: RosterOperatorGrant | null;
+    manages_roster_admin_grant: RosterAdminGrant | null;
     installed_agents: Array<{
       agent_id: string;
       title: string;
@@ -704,7 +704,7 @@ export const adminApi = {
     user_id: string;
     email: string;
     manages_roster: boolean;
-    manages_roster_operator_grant: RosterOperatorGrant | null;
+    manages_roster_admin_grant: RosterAdminGrant | null;
   }> {
     const response = await axios.post(`/api/admin/users/${userId}/manages-roster`, {
       manages_roster: managesRoster,

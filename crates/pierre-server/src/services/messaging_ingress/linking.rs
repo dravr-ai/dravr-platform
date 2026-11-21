@@ -297,7 +297,7 @@ pub(super) async fn link_time_reply(
                     reg.get(key, &locale)
                 }
             } else {
-                // Operator-category failure (DB blip, etc.). Log and fall
+                // Admin-category failure (DB blip, etc.). Log and fall
                 // back to the link-success template — the link is real, the
                 // next inbound message hits the gate again.
                 warn!(error = %e, channel = %channel, "Link-time auth check failed; using success template");
@@ -330,7 +330,7 @@ pub(super) fn emit_linking_success(
 }
 
 /// Emit the `messaging.linking_failed` notify event. `failure_reason` is the
-/// operator-facing detail string from the `DeepLinkError`.
+/// admin-facing detail string from the `DeepLinkError`.
 fn emit_linking_failed(tenant_id: TenantId, channel: &str, failure_reason: &str) {
     info!(
         target: "notify",

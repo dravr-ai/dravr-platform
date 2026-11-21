@@ -7,8 +7,8 @@
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    normalize_email, CoachingPersona, OperatorRosterGrant, TenantId, User, UserReference,
-    UserStatus, UserTier,
+    normalize_email, AdminRosterGrant, CoachingPersona, TenantId, User, UserReference, UserStatus,
+    UserTier,
 };
 use pierre_core::pagination::{Cursor, CursorPage, PaginationParams};
 use pierre_core::permissions::UserRole;
@@ -22,7 +22,7 @@ use uuid::Uuid;
 use super::user_preferences as preferences;
 use crate::backends::postgres::PostgresDatabase;
 use crate::backends::shared::enums::user_status_to_str;
-use crate::repositories::admin::DEACTIVATE_OPERATOR_TOKENS_SQL;
+use crate::repositories::admin::DEACTIVATE_ADMIN_TOKENS_SQL;
 use crate::repositories::admin_standing::impl_admin_standing_writes;
 use crate::repositories::impersonation::{END_ALL_SESSIONS_SQL, END_SESSIONS_OF_TARGET_SQL};
 use crate::repositories::user_profiles::{

@@ -288,20 +288,16 @@ async fn an_api_key_or_mcp_token_cannot_export() {
 }
 
 #[tokio::test]
-async fn an_operators_impersonation_token_cannot_export() {
+async fn an_admins_impersonation_token_cannot_export() {
     let setup = Setup::new().await;
     let registry = setup.repos();
     let repos = registry.as_ref();
     let (ana, _) = seed_athlete(repos, "ana").await;
     // An admin opens it: the middleware refuses a session whose opener is
     // not one, which would be a 401 and not the export's own refusal.
-    let (operator, _) = seed_athlete(repos, "operator").await;
-    repos
-        .users
-        .set_admin_status(operator.id, true)
-        .await
-        .unwrap();
-    let session = ImpersonationSession::new(operator.id, ana.id, Some("support".to_owned()));
+    let (admin, _) = seed_athlete(repos, "admin").await;
+    repos.users.set_admin_status(admin.id, true).await.unwrap();
+    let session = ImpersonationSession::new(admin.id, ana.id, Some("support".to_owned()));
     repos.impersonation.create_session(&session).await.unwrap();
     let token = setup
         .resources
@@ -309,7 +305,7 @@ async fn an_operators_impersonation_token_cannot_export() {
         .auth_manager
         .generate_impersonation_token(
             &ana,
-            operator.id,
+            admin.id,
             &session.id,
             &setup.resources.auth.jwks_manager,
             None,

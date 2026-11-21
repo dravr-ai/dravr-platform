@@ -67,7 +67,7 @@ pub mod security;
 pub mod sleep_tool_params;
 /// The three-zone cuts as admin parameters (`tid_cuts.*`) and their `TidCuts` builder
 pub mod tid_cuts;
-/// Operator-tunable request-path time bounds captured at startup
+/// Admin-tunable request-path time bounds captured at startup
 pub mod timeouts;
 /// Tool selection configuration for global tool disabling via environment variables
 pub mod tool_selection;

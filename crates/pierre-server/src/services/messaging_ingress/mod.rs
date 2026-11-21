@@ -1092,7 +1092,7 @@ async fn send_unlinked_user_prompt(
 /// row on success. Returns `Ok(Some((auth_result, session)))` for authorized
 /// linked users, `Ok(None)` after surfacing the right reply (no link → prompt;
 /// pending / suspended / rate-limited → translated denial), or `Err(())` on
-/// operator-category failure.
+/// admin-category failure.
 async fn resolve_or_prompt(
     resources: &ServerContext,
     db: &dyn MessagingRepository,
@@ -1160,7 +1160,7 @@ async fn resolve_or_prompt(
         Ok(Some(session)) => Ok(Some((auth_result, session))),
         Ok(None) => {
             // authenticate_channel succeeded but channel link disappeared
-            // between calls — race or operator action. Treat as unlinked.
+            // between calls — race or admin action. Treat as unlinked.
             send_unlinked_user_prompt(
                 resources,
                 db,
@@ -1176,7 +1176,7 @@ async fn resolve_or_prompt(
         Err(e) => {
             // Error-level: the user sent a message and got no reply — this is a
             // production incident, not a warning. Triggers the dravr-tronc
-            // Slack notifier so operators see the outage within seconds.
+            // Slack notifier so admins see the outage within seconds.
             error!(
                 error = %e,
                 sender_id = %mask_recipient(&message.sender_id),

@@ -123,7 +123,7 @@ pub fn set_notify_actions(actions: Arc<dyn NotifyActions>) {
 /// Host identity for outbound alerts: the Cloud Run revision name when
 /// deployed (`K_REVISION`), else the machine hostname. Resolved once per
 /// process. Alert layers and the notify enricher stamp it on everything
-/// they send so operators can tell a dev laptop from the deployed service
+/// they send so admins can tell a dev laptop from the deployed service
 /// — both report the same `service_name`/`environment` otherwise.
 static HOST_IDENTITY: LazyLock<Option<String>> = LazyLock::new(|| {
     env::var("K_REVISION")
@@ -668,7 +668,7 @@ impl LoggingConfig {
     }
 
     /// The Slack-routed builder: `routing`'s rules, the buttons an event asks
-    /// an operator to press under its immediate post, and the `PostHog` sink
+    /// an admin to press under its immediate post, and the `PostHog` sink
     /// beside Slack when one is configured.
     fn slack_notify_builder(
         environment: &str,

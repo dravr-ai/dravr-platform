@@ -4,12 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! What stands between an operator and a user delete.
+//! What stands between an admin and a user delete.
 //!
 //! Most rows referencing `users(id)` cascade or set NULL, and a delete takes
 //! them along. The ones in [`DELETION_BLOCKERS_SQL`] do neither: deleting the
 //! user while one exists fails in the database. They are group ownership and
-//! coaching, invites, and operator or audit attribution: things an operator
+//! coaching, invites, and admin or audit attribution: things an admin
 //! reassigns deliberately rather than things a delete should decide. The
 //! statement names each one so the refusal can say what to reassign.
 //!
@@ -222,7 +222,7 @@ macro_rules! user_owned_tables {
         /// (`chat_messages` and `compaction_blocks` by `about_user_id`).
         ///
         /// The admin audit trail's rows that name the user as the *target* of
-        /// an operator's action, by id or by email, go too (carnet#1391): the
+        /// an admin's action, by id or by email, go too (carnet#1391): the
         /// trail keeps that an action happened, never whom a deleted account
         /// was. The email is matched as a whole quoted JSON string with its
         /// `LIKE` wildcards escaped, so deleting `bob@x.com` or `j_doe@x.com`
@@ -242,14 +242,14 @@ macro_rules! user_owned_tables {
         /// provisioned (`admin_provisioned_keys`: the record, never the
         /// keys, which stay with their users). So the account delete
         /// rewrites each such row instead (`RETIRE_DEVICE_LOGINS_SQL`):
-        /// inactive, named as no one's, acting as an operator that is no
+        /// inactive, named as no one's, acting as an admin that is no
         /// account. Never as none: a row scrubbed to `NULL` would read as a
         /// service credential, which no admin's standing guards. The log
         /// under each row keeps its requests and loses the address and
         /// user agent each came from (`SCRUB_DEVICE_LOGIN_REQUESTS_SQL`).
         /// The two tables are named apart ([`UserPurge::kept`]): nothing clears
         /// them, and the survivor read refuses the delete while a row of
-        /// either still carries the id, as an operator or inside a name.
+        /// either still carries the id, as an admin or inside a name.
         ///
         /// The `pierre-cli` logins the user approved as an admin and nobody
         /// has collected yet go too (`device_authorization`, by its
@@ -370,7 +370,7 @@ user_owned_tables!(
 
 /// Retire every device login a deleted account approved, live or already
 /// withdrawn, and take the account out of it, naming the logins retired:
-/// `$1` the operator that is no account (`DELETED_ACCOUNT_OPERATOR`, as
+/// `$1` the admin that is no account (`DELETED_ACCOUNT_ADMIN`, as
 /// text), `$2` the name that names no one, `$3` the account's id as text.
 /// The row stays, inactive, so the request log and the record of the keys
 /// it provisioned stay under it; the address its admin last used it from
@@ -691,7 +691,7 @@ where
 ///
 /// A foreign-key violation means a row still references the user — one
 /// [`DELETION_BLOCKERS_SQL`] could not see, or one written between that read
-/// and the delete. That is a conflict the operator resolves by reassigning the
+/// and the delete. That is a conflict the admin resolves by reassigning the
 /// row, so it maps to [`ErrorCode::ResourceLocked`] (409), never to the 500 a
 /// database fault gets. Both drivers classify the violation, so this reads
 /// the same on either engine.

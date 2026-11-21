@@ -95,7 +95,7 @@ fn custom_agent_reads_db_column_ignoring_registry() {
 /// contremaitre sync has not landed) falls back to the DB column. The
 /// DB column is the cold cache for exactly this scenario, populated by
 /// the seeder. A miss also logs a `warn!` (not asserted here — covered
-/// by tracing-test elsewhere) so an operator can see hot-reload drift.
+/// by tracing-test elsewhere) so an admin can see hot-reload drift.
 #[test]
 fn contremaitre_agent_falls_back_to_db_on_registry_miss() {
     let registry = Arc::new(PromptRegistry::new());

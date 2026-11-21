@@ -1346,7 +1346,7 @@ async fn group_create_by_a_non_coach_leaves_the_group_coachless() {
     let repos = &resources.common.repos;
     for (email, is_admin) in [
         ("group-athlete@test.com", false),
-        ("group-operator@test.com", true),
+        ("group-admin@test.com", true),
     ] {
         let (user_id, tenant_id, auth) = seed_user_tenant(&resources, email, "professional").await;
         repos
@@ -1680,11 +1680,11 @@ async fn group_join_with_a_coach_invite_attaches_an_eligible_roster_coach_only()
 }
 
 /// A coach with no TrainingPeaks coach account — an Intervals.icu coach — is
-/// refused a group's coach invite until an operator grants `manages_roster`
+/// refused a group's coach invite until an admin grants `manages_roster`
 /// (carnet#643), is attached once it is granted, and keeps the grant through
 /// the reconciler's revoke a TrainingPeaks disconnect runs.
 #[tokio::test]
-async fn an_operator_grant_lets_a_coach_without_trainingpeaks_join_as_coach() {
+async fn an_admin_grant_lets_a_coach_without_trainingpeaks_join_as_coach() {
     let resources = create_test_server_resources().await.unwrap();
     let (owner_id, owner_tenant, _owner_auth) =
         seed_user_tenant(&resources, "granted-owner@test.com", "professional").await;
@@ -1739,7 +1739,7 @@ async fn an_operator_grant_lets_a_coach_without_trainingpeaks_join_as_coach() {
     assert_eq!(group.coach_user_id, Some(coach_user_id));
 
     // The revoke a TrainingPeaks disconnect runs takes back only what a coach
-    // connection earned; this grant is the operator's.
+    // connection earned; this grant is the admin's.
     revoke_roster_for_coach_connection(repos, coach_user_id, owner_tenant)
         .await
         .unwrap();
@@ -1751,7 +1751,7 @@ async fn an_operator_grant_lets_a_coach_without_trainingpeaks_join_as_coach() {
             .unwrap()
             .unwrap()
             .manages_roster,
-        "the TrainingPeaks reconciler never revokes an operator grant"
+        "the TrainingPeaks reconciler never revokes an admin grant"
     );
 }
 

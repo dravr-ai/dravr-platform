@@ -199,7 +199,7 @@ pub(super) fn failed_read(error: &ProtocolError) -> UniversalResponse {
 ///
 /// The model reads the error's tool-facing message ([`AppError::tool_message`]),
 /// which names the provider the athlete knows and never a backend, a service
-/// or a request id; an operator reads the whole error in the log line.
+/// or a request id; an admin reads the whole error in the log line.
 ///
 /// A session-read cap's refusal (carnet#1661) is tagged with its wait under
 /// [`META_READ_LIMIT_RETRY_AFTER_SECS`], so a copy standing in says the live

@@ -115,7 +115,7 @@ impl Default for LlmHealthSnapshot {
 /// the `/ready` and `/health/llm` Axum handlers.
 ///
 /// Cloud Run's startup probe defaults to `/health` (matched by the Docker
-/// `HEALTHCHECK`). Operators who want a hard gate on the boot-time LLM
+/// `HEALTHCHECK`). Admins who want a hard gate on the boot-time LLM
 /// round-trip can point the startup probe at `/ready` instead — that
 /// handler returns 503 while `status == Unhealthy`.
 #[derive(Debug)]

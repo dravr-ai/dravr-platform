@@ -8,7 +8,7 @@
 //!
 //! Thin HTTP wrappers over the `/admin/strava-pool/apps` and `/seats` endpoints, authenticated
 //! with the cached super-admin token from `pierre-cli auth login`. Adding a pool
-//! app here is how an operator restores Strava OAuth capacity when the env app
+//! app here is how an admin restores Strava OAuth capacity when the env app
 //! hits Strava's athlete cap.
 
 use chrono::Utc;

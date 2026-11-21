@@ -429,7 +429,7 @@ export default function Dashboard({
   // The Dravr team's replies in the feedback thread the athlete has not opened.
   const feedbackUnread = useFeedbackUnread();
   // Unread rows, one badge per side of the app: Groups counts the rooms, Home
-  // the athlete's own threads. An operator has neither tab, so the list is
+  // the athlete's own threads. An admin has neither tab, so the list is
   // never fetched for them.
   const unreadGroupsCount = useUnreadConversationsCount("groups", !isAdminUser);
   const unreadPersonalCount = useUnreadConversationsCount(
@@ -963,7 +963,7 @@ export default function Dashboard({
           </svg>
         ),
       },
-      // What operators did, from the console, pierre-cli and service tokens (carnet#1391).
+      // What admins did, from the console, pierre-cli and service tokens (carnet#1391).
       {
         id: "audit",
         name: "Audit",
@@ -1370,7 +1370,7 @@ export default function Dashboard({
   }, [isMobile]);
 
   // The rail is what an athlete sees; the conversation list lives inside the
-  // chat pane. An operator keeps the expanded sidebar — twenty destinations
+  // chat pane. An admin keeps the expanded sidebar — twenty destinations
   // do not fit a column of icons.
   const railWidth = 72;
   const asideWidth = isAdminUser
@@ -1784,7 +1784,7 @@ export default function Dashboard({
         {/* Content Area. The gutter is a property of the surface, declared in
             constants/surfaceLayout.ts — never of the viewer's role. It used to
             read `isAdminUser && activeTab !== 'chat'`, which padded every page
-            for an operator and left Settings and Data Providers flush
+            for an admin and left Settings and Data Providers flush
             against the viewport for every regular user.
             `data-page-shell` / `data-page-layout` are what the layout gate in
             e2e/design-sweep.visual.spec.ts measures against. */}
@@ -1810,7 +1810,7 @@ export default function Dashboard({
 
           {/* Each admin screen opens with its theory: the question it answers,
             how its numbers are computed, since when, and its commits
-            (carnet#1441). Operators only; a tab with no entry draws nothing.
+            (carnet#1441). Admins only; a tab with no entry draws nothing.
             Settings is a bleed route, so its panel sits inside its gutter. */}
           {isAdminUser && activeTab !== "settings" && (
             <Suspense fallback={null}>
@@ -2140,7 +2140,7 @@ export default function Dashboard({
           {/* An athlete's settings are a menu beside the open section — the
             shape of every messenger's settings pane. A provider connection is
             one of those sections, reached at #settings/connections like any
-            other. Admins are platform operators and keep the strip without it. */}
+            other. Admins run the platform and keep the strip without it. */}
           {activeTab === "settings" && !isAdminUser && (
             <SettingsShell
               tab={settingsTab}

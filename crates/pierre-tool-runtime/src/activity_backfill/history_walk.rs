@@ -51,7 +51,7 @@
 //!   by the step that stopped ([`AfterStep::AskAgain`]), by a reconnect, or
 //!   by the resume sweep when the step died or ended on a write that failed
 //!   — and reopened below the session's own rows when a grant is live.
-//! - The operator's whole-provider purge deletes data, never tokens, so the
+//! - The admin's whole-provider purge deletes data, never tokens, so the
 //!   terminated provider's grants still stand. It settles the row as its
 //!   session walked alone, owed nothing, a row it finds already owed a
 //!   reopen included: neither the step that stops nor the resume sweep

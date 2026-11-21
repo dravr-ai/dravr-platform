@@ -309,7 +309,7 @@ async fn each_signing_app_spends_its_own_windows() {
     );
 }
 
-/// A tenant's own app carries the daily budget its operator registered, in
+/// A tenant's own app carries the daily budget its admin registered, in
 /// place of the provider's, and keeps the provider's other windows.
 #[tokio::test]
 async fn a_tenant_apps_own_daily_limit_replaces_the_providers() {
@@ -612,7 +612,7 @@ async fn a_backfill_stops_at_a_quarter_of_the_pool_and_reads_keep_the_rest() {
     assert_eq!(spent(&repos, &app, ONE_DAY).await, 1_251);
 }
 
-/// A tenant's own Intervals.icu app carries the daily budget its operator
+/// A tenant's own Intervals.icu app carries the daily budget its admin
 /// registered in place of the pool the server's app grants size.
 #[tokio::test]
 async fn a_tenant_apps_registered_day_replaces_the_pool() {

@@ -237,7 +237,7 @@ async fn tenant_admin_denied_cross_tenant_default_write() {
 
 /// Regression: a cookie super-admin token reads user overrides regardless of
 /// the DB role of the underlying admin. Previously the handler re-loaded the
-/// DB role and returned 403 for an `Admin` (non-`SuperAdmin`) operator.
+/// DB role and returned 403 for an `Admin` (non-`SuperAdmin`) admin.
 #[tokio::test]
 async fn admin_lists_user_overrides_without_db_role_lookup() {
     let (context, _repos) = build_context().await;

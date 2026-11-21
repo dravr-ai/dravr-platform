@@ -13,12 +13,12 @@
 //! (`webhook_owner`), and an OAuth connect or an intervals.icu link is
 //! refused with [`refusal`], which names the tombstone and when the data was
 //! deleted. A new sign-up with the email is never admitted straight to
-//! Active ([`email_held`]); an operator, or the person clearing the
+//! Active ([`email_held`]); an admin, or the person clearing the
 //! tombstone, decides.
 //!
 //! Nothing reopens on its own: the person who now holds the identity clears
-//! the tombstone explicitly ([`clear_for_account`]), or an operator does
-//! ([`clear_by_operator`]). A provider-account tombstone is cleared by the
+//! the tombstone explicitly ([`clear_for_account`]), or an admin does
+//! ([`clear_by_admin`]). A provider-account tombstone is cleared by the
 //! account that proved it holds that provider account: being refused after
 //! completing the provider's authorization records that proof on the
 //! tombstone ([`refuse_provider_account`]), and it stands for
@@ -275,28 +275,28 @@ pub async fn clear_for_account(
     Ok(vec![cleared])
 }
 
-/// Clear the tombstone `tombstone_id` as the operator `operator` (an admin
+/// Clear the tombstone `tombstone_id` as the admin `admin` (an admin
 /// token id). Idempotent.
 ///
 /// # Errors
 /// Returns a not-found error for an unknown id and a database error when the
 /// clear fails.
-pub async fn clear_by_operator(
+pub async fn clear_by_admin(
     tombstones: &dyn ImportTombstoneRepository,
     tombstone_id: &str,
-    operator: &str,
+    admin: &str,
 ) -> AppResult<ImportTombstone> {
     let cleared = clear(
         tombstones,
         tombstone_id,
-        &format!("operator:{operator}"),
+        &format!("admin:{admin}"),
         Utc::now(),
     )
     .await?;
     info!(
         tombstone_id = %cleared.id,
-        operator = %operator,
-        "Tombstone cleared by an operator"
+        admin = %admin,
+        "Tombstone cleared by an admin"
     );
     Ok(cleared)
 }

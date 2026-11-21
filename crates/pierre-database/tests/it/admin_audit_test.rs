@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Several operator writes can land in one instant (a bulk console action, a
+//! Several admin writes can land in one instant (a bulk console action, a
 //! coarse clock). A cursor on the timestamp alone asked for rows strictly older
 //! than the boundary, so the tied rows past it were never shown.
 
@@ -22,7 +22,7 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::admin_operator_tokens_test::account;
+use crate::admin_tokens_test::account;
 
 /// Move every row of `action` to one instant: the repository stamps `now`,
 /// which no test can make two rows share.

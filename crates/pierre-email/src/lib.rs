@@ -38,16 +38,16 @@ pub const SUBJECT_EMAIL_VERIFICATION: &str = "Confirm your email for Dravr";
 /// Subject line for the dravr.ai docs sign-in link.
 pub const SUBJECT_WEBSITE_SIGN_IN: &str = "Your sign-in link for the Dravr docs";
 
-/// Subject line for the operator-sent invitation.
+/// Subject line for the admin-sent invitation.
 pub const SUBJECT_INVITATION: &str = "You're invited to Dravr";
 
 /// Subject line for an admin's coach-seat invitation (carnet#1524).
 pub const SUBJECT_COACH_SEAT_INVITATION: &str = "Your Dravr coach seat is ready";
 
-/// Subject line of the operator email announcing a coach-access request a
+/// Subject line of the admin email announcing a coach-access request a
 /// coach asked for.
 pub const SUBJECT_COACH_ACCESS_REQUESTED: &str = "Dravr: a coach is asking for coach access";
-/// Subject line of the operator email announcing a coach-access request filed
+/// Subject line of the admin email announcing a coach-access request filed
 /// for a coach from the Intervals.icu roster of a key they linked.
 pub const SUBJECT_COACH_ACCESS_FILED: &str =
     "Dravr: a coach-access request was filed from an Intervals.icu roster";
@@ -59,7 +59,7 @@ pub const SUBJECT_COACH_ACCESS_GRANTED: &str = "Your Dravr coach access is on";
 /// declined.
 pub const SUBJECT_COACH_ACCESS_DECLINED: &str = "Your Dravr coach access request was declined";
 
-/// Subject line of the operator email announcing a sign-up awaiting approval.
+/// Subject line of the admin email announcing a sign-up awaiting approval.
 pub const SUBJECT_SIGNUP_AWAITING_APPROVAL: &str = "Dravr: a new account is waiting for approval";
 
 /// Email service backed by the Resend transactional email API.

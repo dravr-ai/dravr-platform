@@ -60,7 +60,7 @@ const DEFAULT_TURN_WATCHDOG_SECS: u64 = 960;
 /// The per-turn watchdog, as the server's config holds it
 /// (`MESSAGING_TURN_WATCHDOG_SECS`, else [`DEFAULT_TURN_WATCHDOG_SECS`]).
 ///
-/// Operator-set for the same reason its siblings under it are
+/// Admin-set for the same reason its siblings under it are
 /// (`EMBACLE_ACP_PROMPT_TIMEOUT_SECS`, `EMBACLE_ACP_MESSAGE_TIMEOUT_SECS`):
 /// the number that is right depends on the deployed provider chain, and
 /// re-tuning it should not need a binary. Zero or unparseable is read as unset

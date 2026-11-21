@@ -26,7 +26,7 @@ import { ADMIN_LOCALE, describeAdminError } from "../utils/adminLocale";
 const HARNESS_CONFIG_QUERY_KEY = ["admin", "harness-config"] as const;
 
 /// BCP-47 short codes editable from this tab. Server defaults ship the same
-/// five; operators can add more by extending the locales map manually but
+/// five; admins can add more by extending the locales map manually but
 /// the UI surfaces the supported set.
 const SUPPORTED_LOCALES: readonly string[] = ["en", "fr", "es", "de", "pt"];
 

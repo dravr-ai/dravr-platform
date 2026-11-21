@@ -9,7 +9,7 @@
 
 //! # Only the server's own failures page
 //!
-//! `dravr-tronc`'s error notifier posts every `ERROR` event to the operators'
+//! `dravr-tronc`'s error notifier posts every `ERROR` event to the admins'
 //! Slack channel and inbox. On 2026-09-26 a rate-limit probe sent bad
 //! `POST /oauth2/token` calls as client `rl-probe`, and each one logged
 //! "OAuth client validation failed" at `ERROR`: 284 events in the ops channel
