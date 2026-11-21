@@ -206,11 +206,12 @@ pub enum NoticeKind {
     /// gates the connect and nothing after it, so there is nothing to
     /// withdraw: a disconnect ends the exposure.
     TermsExposure,
-    /// Consent to hand the provider's data to an AI model, which the
-    /// provider's terms let the athlete withdraw at any time, as simply as it
-    /// was given. While it is not given, or once it is withdrawn, no model
-    /// reads that provider's data; the athlete still sees what is stored and
-    /// the connection stays live.
+    /// Consent to hand the provider's data — or, for a consent class
+    /// ([`CONSENT_CLASSES`]), every record of its tier — to an AI model,
+    /// which the athlete can withdraw at any time, as simply as it was given.
+    /// While it is not given, or once it is withdrawn, no model reads that
+    /// data; the athlete still sees what is stored and the connection stays
+    /// live.
     AiConsent,
 }
 
@@ -247,13 +248,27 @@ impl ProviderNotice {
 ///   after which no model reads WHOOP data and health sync keeps no new WHOOP
 ///   record until it is given again (carnet#726).
 ///
+/// - **Consent classes.** [`SENSITIVE_T2`] is no provider: it is the
+///   athlete's consent to AI use of every record of one sensitivity tier,
+///   owl's T2 (labs, clinical records, self-measured glucose), whichever
+///   provider or import holds it (J2, 2026-11-12). It guards no connect,
+///   since nothing connects under it; it rides this table only so the one
+///   AI-consent set withholds it until given, exactly like WHOOP's
+///   authorization, and so one acceptance record holds every consent to AI
+///   use. Asked of every account ([`NoticeAudience::EveryAccount`]) as a
+///   [`NoticeKind::AiConsent`]: given and withdrawn from the privacy
+///   settings. No provider descriptor is registered under its key
+///   ([`is_consent_class`]); a refusal or a route names it by
+///   [`sensitive_display_name`], never by the key. T3 has no class yet: no
+///   model or human coach reads a T3 record.
+///
 /// A connect to one of these backends — a credential login or the start of an
 /// OAuth flow — is refused until an account asked for the notice accepts its
 /// current version; the web and mobile connect surfaces and the hosted pages
 /// show it. An account that accepted a version connects again without being
 /// asked. Bump a provider's version whenever its notice text changes on any
 /// surface or in any locale, so every account is asked again.
-pub const PROVIDER_NOTICES: [ProviderNotice; 3] = [
+pub const PROVIDER_NOTICES: [ProviderNotice; 4] = [
     ProviderNotice {
         backend: SCIOTTE_TRAININGPEAKS,
         version: "2026-09-24",
@@ -272,7 +287,40 @@ pub const PROVIDER_NOTICES: [ProviderNotice; 3] = [
         audience: NoticeAudience::EveryAccount,
         kind: NoticeKind::AiConsent,
     },
+    ProviderNotice {
+        backend: SENSITIVE_T2,
+        version: "2026-11-20",
+        audience: NoticeAudience::EveryAccount,
+        kind: NoticeKind::AiConsent,
+    },
 ];
+
+/// The consent class of the athlete's T2 records.
+///
+/// Labs, medications, conditions, clinical records and self-measured
+/// glucose, whichever provider or import holds them: while it is not given,
+/// no model and no human coach reads one ([`PROVIDER_NOTICES`]). Its
+/// acceptance is a row of `provider_terms_consents` under this key.
+pub const SENSITIVE_T2: &str = "sensitive_t2";
+
+/// Every consent class [`PROVIDER_NOTICES`] carries.
+pub const CONSENT_CLASSES: [&str; 1] = [SENSITIVE_T2];
+
+/// Whether `key` names a consent class rather than a provider.
+#[must_use]
+pub fn is_consent_class(key: &str) -> bool {
+    CONSENT_CLASSES.contains(&key)
+}
+
+/// The name a refusal and a route give a consent class, in place of its key;
+/// `None` for any other key.
+#[must_use]
+pub fn sensitive_display_name(key: &str) -> Option<&'static str> {
+    match key {
+        SENSITIVE_T2 => Some("Health records"),
+        _ => None,
+    }
+}
 
 /// The attribution shown beside data a Garmin device recorded.
 ///

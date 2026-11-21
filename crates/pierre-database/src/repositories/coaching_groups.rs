@@ -336,6 +336,9 @@ macro_rules! impl_coaching_group_repository {
                     calendar_write_at: column(r, "coach_calendar_write_at")?,
                     wellness_read: column(r, "coach_wellness_read")?,
                     wellness_read_at: column(r, "coach_wellness_read_at")?,
+                    sensitive_t2_read: column(r, "coach_sensitive_t2_read")?,
+                    sensitive_t2_read_at: column(r, "coach_sensitive_t2_read_at")?,
+                    sensitive_t2_read_until: column(r, "coach_sensitive_t2_read_until")?,
                 },
                 consent_given_at: instant(r, "consent_given_at")?,
                 joined_at: instant(r, "joined_at")?,
@@ -838,12 +841,13 @@ macro_rules! impl_coaching_group_repository {
                 Ok(result.rows_affected() > 0)
             }
 
-            async fn set_coach_consents(
+            async fn set_coach_sensitive_reads(
                 &self,
                 group_id: &str,
                 user_id: Uuid,
                 calendar_write: Option<bool>,
                 wellness_read: Option<bool>,
+                t2_read: Option<(bool, Option<DateTime<Utc>>)>,
                 now: DateTime<Utc>,
             ) -> AppResult<Option<GroupMember>> {
                 let result = sqlx::query(SET_COACH_CONSENTS_SQL)
@@ -852,6 +856,8 @@ macro_rules! impl_coaching_group_repository {
                     .bind(now)
                     .bind($ids::bind_text(group_id)?)
                     .bind($ids::bind(user_id))
+                    .bind(t2_read.map(|(read, _)| read))
+                    .bind(t2_read.and_then(|(_, until)| until))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

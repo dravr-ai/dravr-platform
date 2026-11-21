@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for the privacy settings' consent-to-AI-use switches — one tap withdraws, one tap gives it back
+// ABOUTME: Tests for the privacy settings' consent-to-AI-use switches — one tap withdraws, one tap gives it back, health records too
 // ABOUTME: The oauth API is mocked at the services barrel; assertions read the switch state, the calls and the status line
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -13,12 +13,14 @@ import AiConsentSettings from '../AiConsentSettings';
 const getProvidersStatus = vi.fn();
 const grantAiConsent = vi.fn();
 const withdrawAiConsent = vi.fn();
+const getAiConsent = vi.fn();
 
 vi.mock('../../../services/api', () => ({
   oauthApi: {
     getProvidersStatus: (...a: unknown[]) => getProvidersStatus(...a),
     grantAiConsent: (...a: unknown[]) => grantAiConsent(...a),
     withdrawAiConsent: (...a: unknown[]) => withdrawAiConsent(...a),
+    getAiConsent: (...a: unknown[]) => getAiConsent(...a),
   },
 }));
 
@@ -53,10 +55,13 @@ function renderPane() {
 
 describe('AiConsentSettings', () => {
   let whoopConsent: boolean;
+  let recordsConsent: boolean;
 
   beforeEach(() => {
     vi.clearAllMocks();
     whoopConsent = true;
+    recordsConsent = false;
+    getAiConsent.mockImplementation(async (key: string) => (key === 'sensitive_t2' ? recordsConsent : null));
     getProvidersStatus.mockImplementation(async () => ({
       providers: [
         card('whoop', 'WHOOP', true, whoopConsent),
@@ -64,11 +69,13 @@ describe('AiConsentSettings', () => {
         card('nolio', 'Nolio', false, true),
       ],
     }));
-    withdrawAiConsent.mockImplementation(async () => {
-      whoopConsent = false;
+    withdrawAiConsent.mockImplementation(async (key: string) => {
+      if (key === 'sensitive_t2') recordsConsent = false;
+      else whoopConsent = false;
     });
-    grantAiConsent.mockImplementation(async () => {
-      whoopConsent = true;
+    grantAiConsent.mockImplementation(async (key: string) => {
+      if (key === 'sensitive_t2') recordsConsent = true;
+      else whoopConsent = true;
     });
   });
 
@@ -109,10 +116,36 @@ describe('AiConsentSettings', () => {
     expect(screen.getByTestId('ai-consent-switch-whoop')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('renders nothing while no such provider is connected', async () => {
+  it('shows the health records switch to an account with no such provider connected', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [card('strava', 'Strava', true)] });
-    const { container } = renderPane();
-    await vi.waitFor(() => expect(getProvidersStatus).toHaveBeenCalled());
-    expect(container).toBeEmptyDOMElement();
+    renderPane();
+    const records = await screen.findByRole('switch', {
+      name: 'Let my AI agent read my health records (lab results, clinical records, blood glucose)',
+    });
+    await vi.waitFor(() => expect(records).toHaveAttribute('aria-checked', 'false'));
+    expect(screen.getByText('Sensitive health records')).toBeInTheDocument();
+    expect(screen.queryByTestId('ai-consent-switch-whoop')).not.toBeInTheDocument();
+    expect(getAiConsent).toHaveBeenCalledWith('sensitive_t2');
+  });
+
+  it('allows the health records in one tap and withdraws them in one tap', async () => {
+    const user = userEvent.setup();
+    renderPane();
+    const records = await screen.findByTestId('ai-consent-switch-sensitive_t2');
+    await vi.waitFor(() => expect(records).not.toBeDisabled());
+
+    await user.click(records);
+    expect(grantAiConsent).toHaveBeenCalledWith('sensitive_t2');
+    expect(await screen.findByRole('status')).toHaveTextContent('Your agent reads these records from now on');
+    await vi.waitFor(() =>
+      expect(screen.getByTestId('ai-consent-switch-sensitive_t2')).toHaveAttribute('aria-checked', 'true'),
+    );
+
+    await user.click(screen.getByTestId('ai-consent-switch-sensitive_t2'));
+    expect(withdrawAiConsent).toHaveBeenCalledWith('sensitive_t2');
+    await vi.waitFor(() =>
+      expect(screen.getByTestId('ai-consent-switch-sensitive_t2')).toHaveAttribute('aria-checked', 'false'),
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Your agent no longer reads these records');
   });
 });

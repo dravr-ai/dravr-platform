@@ -201,9 +201,12 @@ fn is_ai_consent(backend: &str) -> bool {
     provider_notice(backend).is_some_and(ProviderNotice::withdrawable)
 }
 
-/// The providers whose data this account has not consented to hand to AI.
+/// The providers whose data this account has not consented to hand to AI,
+/// and the consent classes
+/// ([`CONSENT_CLASSES`](pierre_core::constants::oauth_providers::CONSENT_CLASSES))
+/// it has not given.
 ///
-/// Every backend whose notice is a consent to AI use
+/// Every key whose notice is a consent to AI use
 /// ([`NoticeKind::AiConsent`](pierre_core::constants::oauth_providers::NoticeKind::AiConsent)),
 /// in force for this account, that the account has not accepted in its current
 /// version or has withdrawn (carnet#726).

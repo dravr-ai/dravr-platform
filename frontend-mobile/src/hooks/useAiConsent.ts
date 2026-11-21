@@ -4,7 +4,7 @@
 // ABOUTME: The mobile binding of the AI-consent hook — the shared React Query mutation over this client's OAuth API
 // ABOUTME: One call either way (carnet#726) — the Privacy switch and the Connections card share it
 
-import { createAiConsentHook } from '@pierre/ui-logic';
+import { createAiConsentHook, createAiConsentStateHook } from '@pierre/ui-logic';
 import { oauthApi } from '../services/api';
 
 /**
@@ -15,4 +15,12 @@ import { oauthApi } from '../services/api';
 export const useAiConsent = createAiConsentHook({
   grantAiConsent: (provider) => oauthApi.grantAiConsent(provider),
   withdrawAiConsent: (provider) => oauthApi.withdrawAiConsent(provider),
+});
+
+/**
+ * The account's answer to one consent to AI use, read by key — how the
+ * Sensitive health records switch, which has no provider card, reads it.
+ */
+export const useAiConsentState = createAiConsentStateHook({
+  getAiConsent: (provider) => oauthApi.getAiConsent(provider),
 });

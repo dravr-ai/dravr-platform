@@ -302,6 +302,22 @@ export const AI_CONSENT_KEYS = {
   failed: 'providers.aiConsent.failed',
 } as const;
 
+/**
+ * The consent class of the athlete's health records (lab results, clinical
+ * records, blood glucose): a consent to AI use with no provider card, read
+ * and changed through the same `ai-consent` endpoints as a provider's.
+ */
+export const SENSITIVE_T2_CONSENT = 'sensitive_t2';
+
+/** The privacy settings' Sensitive health records block, shown to every account. */
+export const SENSITIVE_CONSENT_KEYS = {
+  title: 'providers.aiConsent.sensitive.title',
+  blurb: 'providers.aiConsent.sensitive.blurb',
+  t2Label: 'providers.aiConsent.sensitive.t2Label',
+  allowed: 'providers.aiConsent.sensitive.allowed',
+  withdrawn: 'providers.aiConsent.sensitive.withdrawn',
+} as const;
+
 /** The fields of a provider card the AI-consent controls read. */
 export interface AiConsentCard {
   provider: string;

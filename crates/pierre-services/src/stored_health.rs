@@ -53,6 +53,7 @@
 //! was stored under.
 
 use chrono::{DateTime, Utc};
+use dravr_barrage::Tier;
 use dravr_equilibre_sync::{
     merge_daily_activity, merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions,
     Merged, Source, Sourced,
@@ -261,15 +262,26 @@ pub async fn merged_recovery(
     .await
 }
 
-/// Blood pressure and glucose are clinical readings: an external transport
-/// reads the rest of a body record without them, whichever source wrote them.
+/// Blood pressure and glucose are clinical readings, whichever source wrote
+/// them: an external transport reads the rest of a body record without its
+/// blood pressure, and self-measured glucose, a T2 record, is read only
+/// where the tier gate lets it ([`ai_scope::tier_readable`]): never over an
+/// external transport, and by a model or a human coach only once the
+/// athlete allowed their health records' AI use, each nulled reading tallied
+/// once. One gate, no second filter.
 fn withhold_clinical_readings(rows: &mut [StoredHealthMetrics]) {
     if ai_scope::serving_external() {
-        for row in rows {
+        for row in rows.iter_mut() {
             row.systolic_bp = None;
             row.diastolic_bp = None;
-            row.blood_glucose = None;
         }
+    }
+    if ai_scope::tier_readable(Tier::T2) {
+        return;
+    }
+    for row in rows.iter_mut().filter(|row| row.blood_glucose.is_some()) {
+        row.blood_glucose = None;
+        ai_scope::withhold_tier(Tier::T2);
     }
 }
 

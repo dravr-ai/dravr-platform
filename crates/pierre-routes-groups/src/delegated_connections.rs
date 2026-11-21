@@ -47,7 +47,8 @@ use pierre_providers::request_budget::in_background;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::coach_consents::{
     consent_offer, link_consents, link_offer, link_reads_wellness, set_coach_consents,
-    wellness_notice_due, wellness_read_skipped, ConsentChange, ConsentOffer, WellnessReadSkip,
+    wellness_notice_due, wellness_read_skipped, ConsentChange, ConsentOffer, SensitiveWindow,
+    WellnessReadSkip,
 };
 use pierre_services::coach_platform::{check_roster_transport, roster_platform};
 use pierre_services::delegated_connections::{
@@ -216,6 +217,15 @@ pub struct UpdateCoachConsentsRequest {
     /// deletes the wellness the member's links synced
     #[serde(default)]
     pub wellness_read: Option<bool>,
+    /// Grant (`true`) or revoke (`false`) the coach's reads of the member's
+    /// health records (T2: labs, clinical records, blood glucose), its own
+    /// grant beside `wellness_read`
+    #[serde(default)]
+    pub sensitive_t2_read: Option<bool>,
+    /// How long a `sensitive_t2_read` grant holds: 30 days, or left out for
+    /// until revoked; any other number is refused
+    #[serde(default)]
+    pub sensitive_days: Option<u32>,
 }
 
 /// What a member lets their group's coach do beyond reading their training,
@@ -248,6 +258,19 @@ pub struct CoachConsentsResponse {
     /// widening to every app they connect, so the apps tell them and ask
     /// whether to keep it; keeping it is a fresh grant, which clears this
     pub wellness_notice_due: bool,
+    /// The group's coach may read the member's health records (T2) now: the
+    /// grant is given and has not lapsed. It reaches a read only alongside
+    /// `wellness_read`, and the member's own consent to AI use of those
+    /// records still applies
+    pub sensitive_t2_read: bool,
+    /// When the member last granted or revoked `sensitive_t2_read` (RFC 3339)
+    pub sensitive_t2_read_at: Option<String>,
+    /// When a `sensitive_t2_read` grant lapses (RFC 3339); `None` while it
+    /// holds until revoked
+    pub sensitive_t2_read_until: Option<String>,
+    /// Whether the group has a human coach, so the member can be asked for
+    /// `sensitive_t2_read`
+    pub sensitive_t2_read_supported: bool,
 }
 
 /// Query for the roster read
@@ -694,6 +717,10 @@ impl DelegatedConnectionRoutes {
             wellness_read_supported: offer.wellness_read,
             wellness_read_skipped: skipped.map(|skip| skip.as_str().to_owned()),
             wellness_notice_due: wellness_notice_due(offer, consents),
+            sensitive_t2_read: consents.sensitive_t2_standing(Utc::now()),
+            sensitive_t2_read_at: consents.sensitive_t2_read_at.map(|at| at.to_rfc3339()),
+            sensitive_t2_read_until: consents.sensitive_t2_read_until.map(|at| at.to_rfc3339()),
+            sensitive_t2_read_supported: offer.wellness_read,
         })
     }
 
@@ -739,6 +766,8 @@ impl DelegatedConnectionRoutes {
         let change = ConsentChange {
             calendar_write: body.calendar_write,
             wellness_read: body.wellness_read,
+            sensitive_t2_read: body.sensitive_t2_read,
+            sensitive_window: SensitiveWindow::try_from_days(body.sensitive_days)?,
         };
         // A consent is the member's own; a support session revokes, never grants.
         if change.grants_any() {

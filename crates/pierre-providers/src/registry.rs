@@ -1050,6 +1050,25 @@ pub fn create_registry_with_external_providers(bundles: Vec<ProviderBundle>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_core::constants::oauth_providers::is_consent_class;
+
+    /// A consent class (`sensitive_t2`) rides the AI-consent set beside the
+    /// providers, so no provider may ever be registered under its key.
+    #[test]
+    fn no_registered_provider_is_keyed_as_a_consent_class() {
+        let registry = ProviderRegistry::new();
+        let keys = registry.supported_providers();
+        assert!(
+            !keys.is_empty(),
+            "bug: the built-in registry registers no provider, so the guard checks nothing"
+        );
+        for key in keys {
+            assert!(
+                !is_consent_class(key),
+                "bug: {key} is a consent class, never a provider"
+            );
+        }
+    }
 
     /// A built-in factory that builds delegated reads is read on a coached
     /// athlete's behalf only through its descriptor's `COACH_ROSTER`, so one

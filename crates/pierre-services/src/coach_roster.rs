@@ -48,6 +48,7 @@ use futures_util::stream::{self, StreamExt, TryStreamExt};
 use serde::Serialize;
 use uuid::Uuid;
 
+use pierre_core::constants::oauth_providers::is_consent_class;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{CoachingGroup, GroupMember};
 use pierre_core::models::{Activity, TenantId};
@@ -487,7 +488,9 @@ async fn last_consented_activity(
     if member.source_tenants.is_empty() {
         return Ok(None);
     }
-    let withheld = ai_consent_withheld(repos, member.tenant.as_uuid(), member.user_id).await;
+    // Providers only: a consent class names no provider's sessions.
+    let mut withheld = ai_consent_withheld(repos, member.tenant.as_uuid(), member.user_id).await;
+    withheld.retain(|key| !is_consent_class(key));
     let mut latest = None;
     for tenant in &member.source_tenants {
         let start = if withheld.is_empty() {

@@ -198,6 +198,25 @@ export const DELEGATION_CONSENT_KEYS: Record<DelegationConsent, { label: string;
   },
 };
 
+/**
+ * The words of the coach's health-records flag (`sensitive_t2_read`), its own
+ * control beside the {@link DelegationConsent} switches, shown only while the
+ * member shares their wellness: its label and hint (naming `{{coach}}`), the
+ * toast of a grant, and its two windows. `until` names `{{date}}`, the day a
+ * 30-day grant lapses.
+ */
+export const SENSITIVE_T2_FLAG_KEYS = {
+  label: 'delegation.sensitiveT2Label',
+  hint: 'delegation.sensitiveHint',
+  granted: 'delegation.sensitiveT2Granted',
+  forever: 'delegation.sensitiveForever',
+  thirtyDays: 'delegation.sensitiveFor30Days',
+  until: 'delegation.sensitiveUntil',
+} as const;
+
+/** The one window length a health-records grant may take besides "until revoked". */
+export const SENSITIVE_WINDOW_DAYS = 30;
+
 /** The platform `{{platform}}` names in each consent's words. */
 const DELEGATION_CONSENT_PLATFORM: Record<DelegationConsent, CoachPlatformProvider> = {
   calendar_write: COACH_CALENDAR_PLATFORM,

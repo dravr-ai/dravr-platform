@@ -786,6 +786,19 @@ export interface CoachConsentsResponse {
    * Keeping it is a fresh grant (`wellness_read: true`), which clears this.
    */
   wellness_notice_due: boolean;
+  /**
+   * The coach may read the member's health records (lab results, clinical
+   * records, blood glucose) now: granted and not lapsed. Its own grant, read
+   * only alongside `wellness_read`; the member's own Sensitive health records
+   * switch in Privacy & Data still applies.
+   */
+  sensitive_t2_read: boolean;
+  /** When the member last granted or revoked `sensitive_t2_read` (RFC 3339). */
+  sensitive_t2_read_at: string | null;
+  /** When a `sensitive_t2_read` grant lapses (RFC 3339); `null` while it holds until revoked. */
+  sensitive_t2_read_until: string | null;
+  /** The group has a human coach, so the member can be asked for `sensitive_t2_read`. */
+  sensitive_t2_read_supported: boolean;
 }
 
 /**
@@ -798,6 +811,10 @@ export interface CoachConsentsResponse {
 export interface UpdateCoachConsentsRequest {
   calendar_write?: boolean;
   wellness_read?: boolean;
+  /** Grant or revoke the coach's reads of the member's health records. */
+  sensitive_t2_read?: boolean;
+  /** How long a `sensitive_t2_read` grant holds: 30 days, or left out for until revoked. */
+  sensitive_days?: 30;
 }
 
 /**

@@ -2,9 +2,9 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: React Query mutation that gives or withdraws consent to AI use of one provider's data, per client's OAuth API
-// ABOUTME: One call either way (carnet#726); every consent control on both clients shares it and rereads both provider reads
+// ABOUTME: One call either way (carnet#726); rereads both provider reads and the key's own answer; a sibling query reads that answer
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { OAuthApi } from '@pierre/api-client';
 
@@ -28,12 +28,30 @@ export function createAiConsentHook(oauthApi: Pick<OAuthApi, 'grantAiConsent' | 
     return useMutation({
       mutationFn: ({ provider, allow }: AiConsentChange) =>
         allow ? oauthApi.grantAiConsent(provider) : oauthApi.withdrawAiConsent(provider),
-      onSettled: async () => {
+      onSettled: async (_answer, _error, { provider }) => {
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() }),
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() }),
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.aiConsent(provider) }),
         ]);
       },
+    });
+  };
+}
+
+/**
+ * Build `useAiConsentState` over one client's OAuth API: the account's answer
+ * to one consent to AI use, read by key. A consent class such as
+ * `sensitive_t2` has no provider card, so this is how its switch reads it;
+ * {@link createAiConsentHook}'s mutation rereads it after every change.
+ * `data` is `true` given, `false` not given, `null` when none is asked.
+ */
+export function createAiConsentStateHook(oauthApi: Pick<OAuthApi, 'getAiConsent'>) {
+  return function useAiConsentState(provider: string, enabled = true) {
+    return useQuery({
+      queryKey: QUERY_KEYS.providers.aiConsent(provider),
+      queryFn: () => oauthApi.getAiConsent(provider),
+      enabled,
     });
   };
 }

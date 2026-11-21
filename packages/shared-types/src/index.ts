@@ -63,6 +63,7 @@ export type {
   HistoryStatus,
   SciotteTarget,
   ProvidersStatusResponse,
+  AiConsentStateResponse,
   OAuthApp,
   OAuthAppCredentials,
   OAuthProvider,

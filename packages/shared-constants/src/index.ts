@@ -191,6 +191,8 @@ export {
   SCIOTTE_LOGIN_PRESETS,
   SCIOTTE_TAKEOVER_ENDED,
   SCIOTTE_TAKEOVER_MAX_TEXT_BYTES,
+  SENSITIVE_CONSENT_KEYS,
+  SENSITIVE_T2_CONSENT,
   aiConsentCards,
   cardHistoryState,
   intervalsConnectPath,
@@ -324,6 +326,8 @@ export {
   DELEGATION_REVOKE_CONFIRM_KEYS,
   consentChangeConfirm,
   COACH_CONSENTS_KEYS,
+  SENSITIVE_T2_FLAG_KEYS,
+  SENSITIVE_WINDOW_DAYS,
 } from './delegation';
 export type { DelegationConsent, ConsentChangeConfirmKeys } from './delegation';
 export {

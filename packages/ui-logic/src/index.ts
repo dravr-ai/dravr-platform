@@ -208,7 +208,7 @@ export {
 export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFlagsHook';
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
 // Consent to AI use of one provider's data: the privacy toggle and the connection card share it (carnet#726).
-export { type AiConsentChange, createAiConsentHook } from './aiConsentHook';
+export { type AiConsentChange, createAiConsentHook, createAiConsentStateHook } from './aiConsentHook';
 // Statutory access requests to a company: the letter the athlete sends and its legal deadline (carnet#1646).
 export {
   type DataAccessAction,

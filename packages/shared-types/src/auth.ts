@@ -712,6 +712,17 @@ export interface ProvidersStatusResponse {
   providers: ExtendedProviderStatus[];
 }
 
+/**
+ * `GET /api/providers/{provider}/ai-consent`: the account's answer to one
+ * consent to AI use, a provider's or a consent class's (`sensitive_t2`).
+ * `ai_consent` is `true` while given in the current version, `false` while
+ * not, `null` for a key that asks no such consent of this account.
+ */
+export interface AiConsentStateResponse {
+  provider: string;
+  ai_consent: boolean | null;
+}
+
 /** OAuth app credentials (user-provided) */
 export interface OAuthApp {
   provider: string;

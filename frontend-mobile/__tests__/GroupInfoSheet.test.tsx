@@ -60,6 +60,10 @@ function coachConsents(overrides: Record<string, unknown> = {}) {
     wellness_read_supported: false,
     wellness_read_skipped: null,
     wellness_notice_due: false,
+    sensitive_t2_read: false,
+    sensitive_t2_read_at: null,
+    sensitive_t2_read_until: null,
+    sensitive_t2_read_supported: true,
     ...overrides,
   };
 }

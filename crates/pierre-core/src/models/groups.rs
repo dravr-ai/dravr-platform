@@ -326,6 +326,29 @@ pub struct CoachConsents {
     /// When the member last granted or revoked `wellness_read`, every grant
     /// stamped even over a standing one; `None` while it was never granted.
     pub wellness_read_at: Option<DateTime<Utc>>,
+    /// The group's coach may also read the member's health records (owl tier
+    /// T2: labs, clinical records, self-measured glucose) while
+    /// `sensitive_t2_read_until` has not passed. Its own grant: it reaches a
+    /// read only alongside `wellness_read`, and the member's own consent to
+    /// AI use of those records still applies on top (row 64).
+    #[serde(default)]
+    pub sensitive_t2_read: bool,
+    /// When the member last granted or revoked `sensitive_t2_read`; `None`
+    /// while it was never granted.
+    #[serde(default)]
+    pub sensitive_t2_read_at: Option<DateTime<Utc>>,
+    /// When a `sensitive_t2_read` grant lapses; `None` while it holds until
+    /// the member revokes it.
+    #[serde(default)]
+    pub sensitive_t2_read_until: Option<DateTime<Utc>>,
+}
+
+impl CoachConsents {
+    /// Whether `sensitive_t2_read` is given and has not lapsed at `now`.
+    #[must_use]
+    pub fn sensitive_t2_standing(&self, now: DateTime<Utc>) -> bool {
+        self.sensitive_t2_read && self.sensitive_t2_read_until.is_none_or(|until| now < until)
+    }
 }
 
 /// A member within a coaching group
@@ -1093,4 +1116,46 @@ pub struct GroupContext {
     pub requester_is_admin: bool,
     /// The requesting user's ID
     pub requester_user_id: Uuid,
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Duration;
+
+    use super::*;
+
+    #[test]
+    fn a_sensitive_grant_stands_until_its_window_passes() {
+        let now = Utc::now();
+        let forever = CoachConsents {
+            sensitive_t2_read: true,
+            ..CoachConsents::default()
+        };
+        assert!(
+            forever.sensitive_t2_standing(now + Duration::days(400)),
+            "bug: a grant with no window holds until revoked"
+        );
+
+        let windowed = CoachConsents {
+            sensitive_t2_read: true,
+            sensitive_t2_read_until: Some(now + Duration::days(30)),
+            ..CoachConsents::default()
+        };
+        assert!(
+            windowed.sensitive_t2_standing(now),
+            "bug: a grant stands inside its window"
+        );
+        assert!(
+            !windowed.sensitive_t2_standing(now + Duration::days(30)),
+            "bug: a grant lapses at its window's end"
+        );
+        let revoked = CoachConsents {
+            sensitive_t2_read_until: Some(now + Duration::days(30)),
+            ..CoachConsents::default()
+        };
+        assert!(
+            !revoked.sensitive_t2_standing(now),
+            "bug: a revoked grant stands nowhere, whatever window it kept"
+        );
+    }
 }

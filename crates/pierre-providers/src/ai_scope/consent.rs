@@ -28,8 +28,11 @@ use std::collections::BTreeSet;
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use dravr_barrage::Tier;
 use pierre_core::ai_policy::Withheld;
-use pierre_core::constants::oauth_providers::ai_consent_backends;
+use pierre_core::constants::oauth_providers::{
+    ai_consent_backends, is_consent_class, SENSITIVE_T2,
+};
 use pierre_core::errors::{AppError, AppResult};
 
 use super::{exposure, record_withheld};
@@ -114,15 +117,31 @@ fn record_subject(withheld: &BTreeSet<String>) {
     });
 }
 
-/// The providers whose data the athlete has not consented to hand to AI.
+/// The providers whose data the athlete has not consented to hand to AI, and
+/// the consent classes ([`SENSITIVE_T2`]) they have not given.
 ///
-/// As the current call declared them ([`with_ai_consent`]), or every provider
-/// whose notice is a consent to AI use when it declared none.
+/// As the current call declared them ([`with_ai_consent`]), or every key
+/// whose notice is a consent to AI use when it declared none. A reader that
+/// matches it against provider names reads [`withheld_providers`].
 #[must_use]
 pub fn ai_consent_withheld() -> Arc<BTreeSet<String>> {
     AI_CONSENT_WITHHELD
         .try_with(Arc::clone)
         .unwrap_or_else(|_| Arc::new(ai_consent_backends().map(str::to_ascii_lowercase).collect()))
+}
+
+/// The providers alone of [`ai_consent_withheld`].
+///
+/// The set every reader that matches it against provider names reads, so a
+/// consent class ([`SENSITIVE_T2`]) never reads as a withheld provider: it is
+/// no provider, and only the tier gate ([`tier_readable`]) answers it.
+#[must_use]
+pub fn withheld_providers() -> BTreeSet<String> {
+    ai_consent_withheld()
+        .iter()
+        .filter(|key| !is_consent_class(key))
+        .cloned()
+        .collect()
 }
 
 /// Refuse a model's or a human coach's untagged read of a provider lacking the
@@ -139,7 +158,7 @@ pub fn ai_consent_withheld() -> Arc<BTreeSet<String>> {
 /// when a model or a human coach reads and `provider`'s AI consent is withheld.
 pub fn consented_read(provider: &str) -> AppResult<()> {
     let for_model = exposure().is_some_and(|gate| gate.to_model);
-    if !for_model || !ai_consent_withheld().contains(&provider.to_ascii_lowercase()) {
+    if !for_model || !withheld_providers().contains(&provider.to_ascii_lowercase()) {
         return Ok(());
     }
     let mut withheld = Withheld {
@@ -153,6 +172,70 @@ pub fn consented_read(provider: &str) -> AppResult<()> {
     )))
 }
 
+/// Why a read of a sensitive record is refused here, or `None` when it may
+/// be read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TierRefusal {
+    /// Served over an external transport: a delegated grant's ceiling is T1.
+    External,
+    /// A model's or a human coach's read the athlete has not allowed.
+    Withheld,
+}
+
+/// Why a `tier` record read now is refused, or `None` when it may be read.
+///
+/// T0 and T1 are always read (D1). A T2 or T3 record is refused over an
+/// external transport (MCP, A2A, an API key), consent or not. A T2 record is
+/// refused under a model read or a human coach's read
+/// ([`for_human_coach`](super::for_human_coach)) while the athlete withholds
+/// [`SENSITIVE_T2`] ([`ai_consent_withheld`]); a T3 record has no consent
+/// class, so every such read refuses it. Anywhere else — the athlete's own
+/// screens — every tier is read.
+fn tier_refusal(tier: Tier) -> Option<TierRefusal> {
+    let gate = exposure()?;
+    let class = match tier {
+        Tier::T0 | Tier::T1 => return None,
+        Tier::T2 => Some(SENSITIVE_T2),
+        Tier::T3 => None,
+    };
+    if gate.external {
+        return Some(TierRefusal::External);
+    }
+    let withheld = gate.to_model && class.is_none_or(|class| ai_consent_withheld().contains(class));
+    withheld.then_some(TierRefusal::Withheld)
+}
+
+/// Tally one sensitive record or field `refusal` withheld.
+fn tally_refusal(refusal: TierRefusal) {
+    record_withheld(match refusal {
+        TierRefusal::External => Withheld {
+            off_interface: 1,
+            ..Withheld::default()
+        },
+        TierRefusal::Withheld => Withheld {
+            sensitive_reduced: 1,
+            ..Withheld::default()
+        },
+    });
+}
+
+/// Whether a `tier` record read now may be served, the gate every sensitive
+/// read asks, for a filter that nulls a field: nothing is tallied,
+/// so the caller tallies each row it nulls ([`withhold_tier`]).
+#[must_use]
+pub fn tier_readable(tier: Tier) -> bool {
+    tier_refusal(tier).is_none()
+}
+
+/// Tally one field of `tier` a filter nulled because [`tier_readable`] said
+/// no: under the athlete's tier consent as a sensitive reduction, over an
+/// external transport as data not served over this interface.
+pub fn withhold_tier(tier: Tier) {
+    if let Some(refusal) = tier_refusal(tier) {
+        tally_refusal(refusal);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::{TimeZone, Utc};
@@ -162,8 +245,25 @@ mod tests {
     use pierre_core::transport::{Transport, TransportPolicy};
 
     use super::*;
+
     use crate::ai_scope::{ai_read, filter_activities, serve_over, tallied};
     use crate::provider_terms::WHOOP;
+
+    /// A sensitive read as a refusing reader asks it: [`tier_readable`],
+    /// tallied once when refused, and answered as the read refusal a
+    /// tool returns.
+    fn consented_tier(tier: Tier) -> AppResult<()> {
+        let Some(refusal) = tier_refusal(tier) else {
+            return Ok(());
+        };
+        tally_refusal(refusal);
+        Err(AppError::not_found(match refusal {
+            TierRefusal::External => "Sensitive health records are not served over this interface",
+            TierRefusal::Withheld => {
+                "Sensitive health records are withheld from AI: the athlete has not allowed their AI use"
+            }
+        }))
+    }
 
     /// WHOOP's declared terms, and no others.
     struct WhoopTerms;
@@ -258,6 +358,161 @@ mod tests {
         }))
         .await;
         assert!(athlete.is_ok(), "outside a model read the athlete reads it");
+    }
+
+    fn t2_withheld() -> BTreeSet<String> {
+        BTreeSet::from([SENSITIVE_T2.to_owned()])
+    }
+
+    #[tokio::test]
+    async fn a_model_reads_t2_only_once_its_class_is_given_and_t3_never() {
+        let (refused, tally) = serve_over(
+            Transport::WebApp,
+            with_ai_consent(t2_withheld(), ai_read(async { consented_tier(Tier::T2) })),
+        )
+        .await;
+        assert_eq!(
+            refused.expect_err("bug: T2 withheld from a model").code,
+            ErrorCode::ResourceNotFound
+        );
+        assert_eq!(
+            (tally.sensitive_reduced, tally.dropped, tally.off_interface),
+            (1, 0, 0),
+            "the refusal is tallied under its own reason, never the provider terms: {tally:?}"
+        );
+
+        let (given, tally) = serve_over(
+            Transport::WebApp,
+            with_ai_consent(
+                BTreeSet::new(),
+                ai_read(async { (consented_tier(Tier::T2), tier_readable(Tier::T3)) }),
+            ),
+        )
+        .await;
+        assert!(given.0.is_ok(), "T2 is given: the model reads it");
+        assert!(!given.1, "bug: T3 has no consent yet, so no model reads it");
+        assert!(tally.is_empty(), "the predicate tallies nothing: {tally:?}");
+    }
+
+    #[tokio::test]
+    async fn t0_and_t1_are_read_on_every_gate_without_consent() {
+        for transport in [Transport::WebApp, Transport::McpHttp, Transport::ApiKey] {
+            let (read, tally) = serve_over(
+                transport,
+                with_ai_consent(
+                    t2_withheld(),
+                    ai_read(async { (consented_tier(Tier::T0), consented_tier(Tier::T1)) }),
+                ),
+            )
+            .await;
+            assert!(read.0.is_ok() && read.1.is_ok(), "{transport:?}");
+            assert!(tally.is_empty(), "{transport:?}: {tally:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_external_transport_never_reads_t2_even_with_consent() {
+        for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
+            let (read, tally) = serve_over(
+                transport,
+                with_ai_consent(
+                    BTreeSet::new(),
+                    ai_read(async {
+                        withhold_tier(Tier::T2);
+                        consented_tier(Tier::T2)
+                    }),
+                ),
+            )
+            .await;
+            assert!(
+                read.is_err(),
+                "bug: a delegated grant's ceiling is T1 ({transport:?})"
+            );
+            assert_eq!(
+                (tally.off_interface, tally.sensitive_reduced),
+                (2, 0),
+                "{transport:?}: {tally:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_human_coachs_read_needs_the_athletes_consent_and_the_athletes_own_screen_does_not() {
+        let (coach, tally) = serve_over(
+            Transport::WebApp,
+            with_ai_consent(
+                t2_withheld(),
+                tallied(super::super::for_human_coach(async {
+                    consented_tier(Tier::T2)
+                })),
+            ),
+        )
+        .await;
+        assert!(
+            coach.is_err(),
+            "bug: a human coach reads T2 only under consent"
+        );
+        assert_eq!(
+            tally.sensitive_reduced, 1,
+            "bug: the coach's refusal is tallied once: {tally:?}"
+        );
+
+        let (consented, _) = serve_over(
+            Transport::WebApp,
+            with_ai_consent(
+                BTreeSet::new(),
+                tallied(super::super::for_human_coach(async {
+                    consented_tier(Tier::T2)
+                })),
+            ),
+        )
+        .await;
+        assert!(
+            consented.is_ok(),
+            "the athlete gave T2: their coach reads it"
+        );
+
+        let (own, tally) = serve_over(
+            Transport::WebApp,
+            with_ai_consent(
+                t2_withheld(),
+                tallied(async { (consented_tier(Tier::T2), consented_tier(Tier::T3)) }),
+            ),
+        )
+        .await;
+        assert!(
+            own.0.is_ok() && own.1.is_ok(),
+            "the athlete's own screens read every tier"
+        );
+        assert!(
+            tally.is_empty(),
+            "bug: the athlete's own read withholds nothing: {tally:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_provider_view_of_the_consent_set_never_names_a_class() {
+        let (providers, full) = with_ai_consent(
+            BTreeSet::from(["whoop".to_owned(), SENSITIVE_T2.to_owned()]),
+            async { (withheld_providers(), ai_consent_withheld()) },
+        )
+        .await;
+        assert_eq!(
+            providers,
+            BTreeSet::from(["whoop".to_owned()]),
+            "bug: the provider view names providers alone"
+        );
+        assert!(full.contains(SENSITIVE_T2), "the tier gate still reads it");
+    }
+
+    #[tokio::test]
+    async fn an_ai_read_that_declared_no_consent_withholds_t2() {
+        let (read, _) = serve_over(
+            Transport::WebApp,
+            ai_read(async { consented_tier(Tier::T2) }),
+        )
+        .await;
+        assert!(read.is_err(), "a forgotten declaration withholds the class");
     }
 
     /// A model read of `week()` made for a caller whose consents are
