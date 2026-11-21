@@ -34,7 +34,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
     HealthRecordRepository, ProviderDataPurge, ProviderDataRepository, ProviderPurge, PurgeReason,
-    LAB_DOCUMENT_PROVIDER,
+    LAB_DOCUMENT_PROVIDER, LAB_DOCUMENT_SOURCE_MARKER,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_providers::originals::OriginalsStore;
@@ -175,7 +175,10 @@ impl ProviderPurge for ProviderPurgeService {
         source: &str,
         reason: PurgeReason,
     ) -> AppResult<ProviderDataPurge> {
-        self.delete_lab_files(user_id, tenant_id, provider).await?;
+        // The statements delete lab documents only under their own source.
+        if source == LAB_DOCUMENT_SOURCE_MARKER {
+            self.delete_lab_files(user_id, tenant_id, provider).await?;
+        }
         self.data
             .purge_user_provider_source_wellness(user_id, tenant_id, provider, source, reason)
             .await
@@ -189,7 +192,10 @@ impl ProviderPurge for ProviderPurgeService {
         source: &str,
         reason: PurgeReason,
     ) -> AppResult<ProviderDataPurge> {
-        self.delete_lab_files(user_id, tenant_id, provider).await?;
+        // The statements delete lab documents only under their own source.
+        if source == LAB_DOCUMENT_SOURCE_MARKER {
+            self.delete_lab_files(user_id, tenant_id, provider).await?;
+        }
         let purge = self
             .data
             .purge_user_provider_source_data(user_id, tenant_id, provider, source, reason)

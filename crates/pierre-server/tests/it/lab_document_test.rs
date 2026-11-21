@@ -507,3 +507,41 @@ async fn purging_the_lab_document_source_deletes_the_documents_and_their_pdfs() 
         "bug: the purged document's PDF is still kept"
     );
 }
+
+#[tokio::test]
+async fn the_operators_lab_document_purge_deletes_every_document_and_pdf() {
+    let resources = context(LabReaderModel::rules()).await;
+    let athlete = seed_athlete(&resources, "lab-terminate").await;
+    let (tenant, user) = (athlete.tenant, athlete.user_id);
+    upload_lab_document(&resources, tenant, user, Bytes::from_static(REPORT))
+        .await
+        .unwrap();
+    let file = Sha256::of(REPORT).to_hex();
+    resources
+        .common
+        .provider_purge
+        .purge_provider_data(LAB_DOCUMENT_PROVIDER)
+        .await
+        .unwrap();
+    assert!(
+        resources
+            .common
+            .repos
+            .health_records
+            .list_lab_documents(&tenant, user)
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: a lab document outlived the provider's purge"
+    );
+    assert_eq!(
+        resources
+            .common
+            .originals
+            .get_named_file(&tenant, user, &file)
+            .await
+            .unwrap(),
+        None,
+        "bug: the provider purge left a PDF"
+    );
+}

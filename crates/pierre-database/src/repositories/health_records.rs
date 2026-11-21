@@ -603,6 +603,11 @@ pub(crate) const DELETE_LAB_DOCUMENT_SQL: &str = r"
     DELETE FROM lab_documents WHERE tenant_id = $1 AND user_id = $2 AND id = $3";
 
 /// Every lab document's file, its owner ids as text on both engines.
+///
+/// ISOLATION EXEMPTION: no `tenant_id` or `user_id` filter, on purpose. It
+/// serves only the operator's whole-provider purge of `lab_document`
+/// (`PROVIDER_PURGE_SQL`), reachable from the super-admin route that audits
+/// the call. No tenant- or user-facing path may run it.
 pub(crate) const LIST_EVERY_LAB_DOCUMENT_FILE_SQL: &str = r"
     SELECT CAST(tenant_id AS TEXT) AS tenant_id, CAST(user_id AS TEXT) AS user_id, file_sha256
     FROM lab_documents ORDER BY tenant_id, user_id, id";
