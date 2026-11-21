@@ -42,15 +42,18 @@ use pierre_core::models::{
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_providers::ai_scope;
 use pierre_services::parq;
 use pierre_services::plan_fueling::FUELING_WITHHELD_CLAUSE;
+use pierre_tool_runtime::context::{DispatchOrigin, TurnAsk, DISPATCH_ORIGIN, TURN_ASK};
+use pierre_tool_runtime::guardian::{CallFate, TurnKey, TurnState};
 use pierre_tool_runtime::implementations::endurance_workouts::PrescribeWorkoutTool;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
-use pierre_tool_runtime::McpTool;
+use pierre_tool_runtime::{McpTool, SecurityLabels};
 use serde_json::{json, Value};
 use sqlx::Row;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -83,8 +86,8 @@ enum Mode {
 
 /// A fake Intervals.icu on loopback: one athlete's events collection, plus a
 /// record of every full request (head + body) it served.
-struct Stub {
-    base_url: String,
+pub(crate) struct Stub {
+    pub(crate) base_url: String,
     requests: Arc<Mutex<Vec<String>>>,
     events: Arc<Mutex<Vec<FakeEvent>>>,
     handle: JoinHandle<()>,
@@ -125,6 +128,21 @@ impl Stub {
     }
 
     /// The calendar as the fake holds it now.
+    /// How many times a push read the calendar's window: once per push.
+    pub(crate) async fn window_reads(&self) -> usize {
+        let read = format!("GET /api/v1/athlete/{ATHLETE_ID}/events");
+        self.requests()
+            .await
+            .iter()
+            .filter(|request| request.starts_with(&read))
+            .count()
+    }
+
+    /// How many events the fake calendar holds.
+    pub(crate) async fn event_count(&self) -> usize {
+        self.events.lock().await.len()
+    }
+
     async fn events(&self) -> Vec<FakeEvent> {
         self.events.lock().await.clone()
     }
@@ -332,13 +350,68 @@ async fn stub_inner(
 }
 
 /// A live fake whose first created event gets `first_id`.
-async fn stub_live(first_id: i64) -> Stub {
+pub(crate) async fn stub_live(first_id: i64) -> Stub {
     stub_with(Mode::Live, first_id).await
 }
 
 /// A fake that refuses everything with `status_line`.
 async fn stub_refusing(status_line: &'static str) -> Stub {
     stub_with(Mode::Refuse(status_line), 1).await
+}
+
+/// `resources` with Intervals.icu served by the fake at `base_url`.
+pub(crate) fn serving_intervals_at(
+    resources: &ServerContext,
+    base_url: &str,
+) -> Arc<ServerContext> {
+    let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
+    base_url.clone_into(&mut config.api_base_url);
+    let mut registry = offline_provider_registry();
+    registry.set_default_config(INTERVALS_ICU, config);
+    let mut context = resources.clone();
+    context.fitness.provider_registry = Arc::new(registry);
+    Arc::new(context)
+}
+
+/// Connect `user_id` to Intervals.icu with an API key, the calendar Dravr
+/// writes for them.
+pub(crate) async fn connect_intervals_icu(
+    resources: &dyn ToolRuntime,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> Result<()> {
+    let now = Utc::now();
+    resources
+        .repos()
+        .oauth_tokens
+        .upsert_token(&UserOAuthToken {
+            id: Uuid::new_v4().to_string(),
+            user_id,
+            tenant_id: tenant.to_string(),
+            provider: INTERVALS_ICU.to_owned(),
+            access_token: SecretString::from("test-api-key"),
+            refresh_token: None,
+            token_type: "api_key".to_owned(),
+            expires_at: None,
+            scope: None,
+            provider_user_id: Some(ATHLETE_ID.to_owned()),
+            oauth_app_client_id: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .await?;
+    resources
+        .repos()
+        .provider_connections
+        .register_connection(
+            user_id,
+            tenant,
+            INTERVALS_ICU,
+            &ConnectionType::Manual,
+            None,
+        )
+        .await?;
+    Ok(())
 }
 
 /// An athlete with a connected provider, and the executor that serves them.
@@ -557,14 +630,9 @@ async fn fixture(base_url: &str, connect_intervals: bool) -> Result<Fixture> {
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
 
-    let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
-    config.api_base_url = base_url.to_owned();
-    let mut registry = offline_provider_registry();
-    registry.set_default_config(INTERVALS_ICU, config);
-    let mut context = (*resources).clone();
-    context.fitness.provider_registry = Arc::new(registry);
     let executor = Arc::new(
-        UniversalToolExecutor::new(Arc::new(context)).with_scopes(OAuthScope::self_grant()),
+        UniversalToolExecutor::new(serving_intervals_at(&resources, base_url))
+            .with_scopes(OAuthScope::self_grant()),
     );
     let resources = &executor.resources;
 
@@ -578,38 +646,15 @@ async fn fixture(base_url: &str, connect_intervals: bool) -> Result<Fixture> {
         .map(|t| t.id)
         .expect("user owns a tenant");
 
-    let (provider, connection_type) = if connect_intervals {
-        (INTERVALS_ICU, ConnectionType::Manual)
-    } else {
-        ("strava", ConnectionType::OAuth)
-    };
     if connect_intervals {
-        let now = Utc::now();
+        connect_intervals_icu(resources.as_ref(), user_id, tenant).await?;
+    } else {
         resources
             .repos()
-            .oauth_tokens
-            .upsert_token(&UserOAuthToken {
-                id: Uuid::new_v4().to_string(),
-                user_id,
-                tenant_id: tenant.to_string(),
-                provider: INTERVALS_ICU.to_owned(),
-                access_token: SecretString::from("test-api-key"),
-                refresh_token: None,
-                token_type: "api_key".to_owned(),
-                expires_at: None,
-                scope: None,
-                provider_user_id: Some(ATHLETE_ID.to_owned()),
-                oauth_app_client_id: None,
-                created_at: now,
-                updated_at: now,
-            })
+            .provider_connections
+            .register_connection(user_id, tenant, "strava", &ConnectionType::OAuth, None)
             .await?;
     }
-    resources
-        .repos()
-        .provider_connections
-        .register_connection(user_id, tenant, provider, &connection_type, None)
-        .await?;
 
     Ok(Fixture {
         executor: Arc::clone(&executor),
@@ -2351,6 +2396,186 @@ async fn a_calendar_that_refuses_the_saves_push_never_undoes_the_save() -> Resul
         0,
         "nothing is recorded as live on a calendar that refused"
     );
+    Ok(())
+}
+
+// ── A plan saved in batches in one chat turn (carnet#1702) ────────────────
+
+/// The executor of one chat turn over the fixture's resources: its turn token
+/// and the turn ask the pipeline scopes before it builds one, so a call it
+/// runs can hand an effect to the turn's end.
+fn chat_turn_executor(fixture: &Fixture, turn: &str) -> UniversalToolExecutor {
+    let ask = TurnAsk {
+        turn_id: turn.to_owned(),
+        user_message_id: None,
+    };
+    TURN_ASK.sync_scope(Some(ask), || {
+        UniversalToolExecutor::new(Arc::clone(&fixture.executor.resources))
+            .with_scopes(OAuthScope::self_grant())
+            .with_turn_token(turn.to_owned())
+    })
+}
+
+/// `tool` called with `params` on `executor`, as the fixture's athlete.
+async fn run_on(
+    executor: &UniversalToolExecutor,
+    fixture: &Fixture,
+    tool: &str,
+    params: Value,
+) -> Result<UniversalResponse> {
+    Ok(executor
+        .execute_tool(UniversalRequest {
+            tool_name: tool.to_owned(),
+            parameters: params,
+            user_id: fixture.user_id.to_string(),
+            protocol: "chat".to_owned(),
+            tenant_id: Some(fixture.tenant_str()),
+        })
+        .await?)
+}
+
+/// What the turn under `key` has spent: its destructive charges and writes.
+fn spent(fixture: &Fixture, key: &TurnKey) -> (u16, u16) {
+    fixture
+        .executor
+        .resources
+        .guardian_turns()
+        .decide_and_reserve(
+            key,
+            SecurityLabels::empty(),
+            false,
+            |state: &TurnState| (state.destructive_count(), state.write_count()),
+            |_| CallFate::Unchanged,
+        )
+        .0
+}
+
+/// Four batches of one plan, saved in one chat turn, each a week of two runs.
+async fn save_four_batches(
+    fixture: &Fixture,
+    executor: &UniversalToolExecutor,
+    monday: NaiveDate,
+) -> Result<Vec<Value>> {
+    let mut replies = Vec::new();
+    for batch in 0..4 {
+        let saved = run_on(
+            executor,
+            fixture,
+            "save_training_plan",
+            two_runs(monday + Duration::weeks(batch)),
+        )
+        .await?;
+        assert!(
+            saved.success,
+            "bug: batch {} of one plan was refused: {:?}",
+            batch + 1,
+            saved.error
+        );
+        replies.push(saved.result.expect("result payload"));
+    }
+    Ok(replies)
+}
+
+#[tokio::test]
+async fn a_plan_saved_in_four_batches_reaches_the_calendar_once_after_the_turn() -> Result<()> {
+    let stub = stub_live(9000).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let monday = next_plan_monday();
+    lay_season(&fixture, monday).await;
+    let turn = format!("batched-plan-{}", Uuid::new_v4());
+    let key = TurnKey::new(Some(fixture.tenant.as_uuid()), turn.clone());
+    let executor = chat_turn_executor(&fixture, &turn);
+
+    for saved in save_four_batches(&fixture, &executor, monday).await? {
+        assert_eq!(saved["calendar_push"]["status"], "queued", "got: {saved}");
+        assert_eq!(
+            saved["calendar_push"]["provider"], INTERVALS_ICU,
+            "got: {saved}"
+        );
+        assert!(
+            saved.get("calendar").is_none(),
+            "nothing is previewed for a push the turn will run: {saved}"
+        );
+    }
+    assert!(
+        stub.requests().await.is_empty(),
+        "bug: a batch reached the calendar before the turn's end"
+    );
+    assert_eq!(
+        spent(&fixture, &key),
+        (0, 4),
+        "four writes, and no destructive charge until the push runs"
+    );
+
+    let handed = fixture.executor.resources.turn_end_dispatches().take(&key);
+    assert_eq!(handed.len(), 1, "bug: four batches queued {handed:?}");
+    let push = handed[0].dispatch;
+    assert_eq!(
+        (push.tool, push.trigger),
+        ("push_training_plan", "save_training_plan"),
+        "bug: the turn's end must push the plan, reported as the saves'"
+    );
+
+    // What the chat pipeline runs when the turn ends: one push on the turn's
+    // executor, reported as the saves'.
+    let ran = DISPATCH_ORIGIN
+        .scope(
+            DispatchOrigin::TurnEnd {
+                trigger: push.trigger,
+            },
+            run_on(&executor, &fixture, push.tool, json!({})),
+        )
+        .await?;
+    assert!(ran.success, "the turn's push runs: {:?}", ran.error);
+    let report = ran.result.expect("push report");
+    assert_eq!(report["created"].as_u64(), Some(8), "got: {report}");
+    assert_eq!(stub.events().await.len(), 8, "every saved day is on it");
+    assert_eq!(
+        stub.window_reads().await,
+        1,
+        "the calendar was reconciled once"
+    );
+    assert_eq!(fixture.live().await.len(), 8, "one ledger row per day");
+    assert_eq!(
+        spent(&fixture, &key),
+        (1, 5),
+        "the whole plan cost one destructive charge"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_athlete_with_no_calendar_saves_four_batches_in_one_turn() -> Result<()> {
+    let stub = stub_live(9500).await;
+    // Strava-connected only: nothing Dravr writes a calendar on.
+    let fixture = Box::pin(fixture(&stub.base_url, false)).await?;
+    let monday = next_plan_monday();
+    lay_season(&fixture, monday).await;
+    let turn = format!("batched-plan-{}", Uuid::new_v4());
+    let key = TurnKey::new(Some(fixture.tenant.as_uuid()), turn.clone());
+    let executor = chat_turn_executor(&fixture, &turn);
+
+    for saved in save_four_batches(&fixture, &executor, monday).await? {
+        assert!(
+            saved.get("calendar_push").is_none(),
+            "an athlete without a calendar is not told about one: {saved}"
+        );
+    }
+    assert_eq!(
+        spent(&fixture, &key),
+        (0, 4),
+        "bug: a save that reached no calendar spent a destructive charge"
+    );
+    assert!(
+        fixture
+            .executor
+            .resources
+            .turn_end_dispatches()
+            .take(&key)
+            .is_empty(),
+        "no push is queued for an athlete with no calendar"
+    );
+    assert!(stub.requests().await.is_empty(), "no calendar was called");
     Ok(())
 }
 

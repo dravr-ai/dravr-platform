@@ -541,10 +541,17 @@ async fn run_turn(
     // dispatches then knows the message it answers ([`TURN_ASK`]).
     let msg_result = store_turn_prompt(ctx, &input, profile, hooks).await?;
     let ask = turn_ask(&input, &msg_result.message);
+    // What the turn's calls hand to its end runs once the turn is answered,
+    // however it was: the writes that handed it over landed (carnet#1702).
+    let turn_end = stages::turn_end::TurnEndRun::of(&input);
     // Erased behind `dyn`: the rest of the turn is the deepest future the
     // pipeline builds, and every caller proving its own `Send` would walk it.
     let answer: Pin<Box<dyn Future<Output = AppResult<TurnEnvelope>> + Send + '_>> =
-        Box::pin(answer_stored_turn(ctx, input, profile, hooks, msg_result));
+        Box::pin(async move {
+            let answered = answer_stored_turn(ctx, input, profile, hooks, msg_result).await;
+            turn_end.run(ctx).await;
+            answered
+        });
     TURN_ASK.scope(Some(ask), answer).await
 }
 

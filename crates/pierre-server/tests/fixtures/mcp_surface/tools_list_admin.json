@@ -27637,7 +27637,7 @@
             "type": "object"
           },
           "CalendarPushOutcome": {
-            "description": "What a save or a publish did to the athlete's calendar on its own\n(carnet#1492): the plan reconciled onto their chosen calendar, or why\nnothing was written there.\n\nThe write it follows never fails because of it. A gate that refuses the\npush, or a push that fails, is reported here beside a plan that landed.",
+            "description": "What a save or a publish did to the athlete's calendar on its own\n(carnet#1492): the plan reconciled onto their chosen calendar, queued for\nthe end of a chat turn, or why nothing was written there.\n\nThe write it follows never fails because of it. A gate that refuses the\npush, or a push that fails, is reported here beside a plan that landed.",
             "oneOf": [
               {
                 "description": "The plan was reconciled onto the athlete's calendar.",
@@ -27654,6 +27654,29 @@
                 "required": [
                   "status",
                   "report"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Every gate passed, and the push runs once this chat turn's reply is\nwritten, however many of the turn's saves queued it (carnet#1702).",
+                "properties": {
+                  "message": {
+                    "description": "When it lands, in words to relay.",
+                    "type": "string"
+                  },
+                  "provider": {
+                    "description": "The calendar backend the push will write.",
+                    "type": "string"
+                  },
+                  "status": {
+                    "const": "queued",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status",
+                  "provider",
+                  "message"
                 ],
                 "type": "object"
               },
@@ -31849,7 +31872,7 @@
     },
     {
       "name": "save_training_plan",
-      "description": "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving also puts the plan on the athlete's chosen calendar: relay calendar_push when it is not_pushed, and any day it skipped or failed; calendar.pushed_by human_coach means their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.",
+      "description": "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving also puts the plan on the athlete's chosen calendar: relay calendar_push when it is not_pushed, and any day it skipped or failed (queued: it lands after your reply); calendar.pushed_by human_coach means their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.",
       "inputSchema": {
         "properties": {
           "agent_id": {
@@ -32375,7 +32398,7 @@
             "type": "object"
           },
           "CalendarPushOutcome": {
-            "description": "What a save or a publish did to the athlete's calendar on its own\n(carnet#1492): the plan reconciled onto their chosen calendar, or why\nnothing was written there.\n\nThe write it follows never fails because of it. A gate that refuses the\npush, or a push that fails, is reported here beside a plan that landed.",
+            "description": "What a save or a publish did to the athlete's calendar on its own\n(carnet#1492): the plan reconciled onto their chosen calendar, queued for\nthe end of a chat turn, or why nothing was written there.\n\nThe write it follows never fails because of it. A gate that refuses the\npush, or a push that fails, is reported here beside a plan that landed.",
             "oneOf": [
               {
                 "description": "The plan was reconciled onto the athlete's calendar.",
@@ -32392,6 +32415,29 @@
                 "required": [
                   "status",
                   "report"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Every gate passed, and the push runs once this chat turn's reply is\nwritten, however many of the turn's saves queued it (carnet#1702).",
+                "properties": {
+                  "message": {
+                    "description": "When it lands, in words to relay.",
+                    "type": "string"
+                  },
+                  "provider": {
+                    "description": "The calendar backend the push will write.",
+                    "type": "string"
+                  },
+                  "status": {
+                    "const": "queued",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status",
+                  "provider",
+                  "message"
                 ],
                 "type": "object"
               },
@@ -33489,7 +33535,7 @@
                 "type": "null"
               }
             ],
-            "description": "The athlete's own save put on their chosen calendar, or why it was\nnot. Absent on a draft save, when the athlete holds no calendar Dravr\nwrites, and when their tenant switched `push_training_plan` off — what\nwould repeat on every save is not said on every save."
+            "description": "The athlete's own save put on their chosen calendar — in a chat turn,\nqueued for once the reply is written (carnet#1702) — or why it was\nnot. Absent on a draft save, when the athlete holds no calendar Dravr\nwrites, and when their tenant switched `push_training_plan` off — what\nwould repeat on every save is not said on every save."
           },
           "draft": {
             "description": "`true` when a group's human coach saved for a coached athlete: the\nsave went into the coach's draft, which the athlete does not see\nuntil the coach publishes it with `publish_training_plan`. `plan_id`\nis then the draft's.",

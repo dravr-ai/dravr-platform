@@ -163,6 +163,7 @@ mod backfill_job_kinds_migration_test;
 mod backfill_notifier_test;
 mod backfill_notify_kind_dispatch_test;
 mod backfill_placeholder_message_test;
+mod batched_plan_save_turn_test;
 mod billing_checkout_auth_test;
 mod billing_dummy_webhook_refused_test;
 mod billing_stripe_webhook_test;

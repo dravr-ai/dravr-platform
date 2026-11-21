@@ -739,7 +739,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         let schema = object_schema(properties, None);
         answers_with::<SaveTrainingPlanResult>(tool_definition(
             "save_training_plan",
-            "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving also puts the plan on the athlete's chosen calendar: relay calendar_push when it is not_pushed, and any day it skipped or failed; calendar.pushed_by human_coach means their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.",
+            "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving also puts the plan on the athlete's chosen calendar: relay calendar_push when it is not_pushed, and any day it skipped or failed (queued: it lands after your reply); calendar.pushed_by human_coach means their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.",
             schema,
             // The athlete's own save reconciles their calendar, removing the
             // days Dravr put there that the plan dropped (carnet#1492).
@@ -1139,8 +1139,8 @@ pub fn create_training_plan_tools() -> Vec<Box<dyn RuntimeTool>> {
 crate::declare_security!(GetTrainingPlanTool => empty);
 // The athlete's own save deletes on the provider the entries the plan dropped
 // (carnet#1492), so it spends the per-turn destructive budget as a push does:
-// the cap keeps a save loop off the calendar. A refused save refunds it; a
-// coach's draft save spends one too, since the label is the tool's.
+// the cap keeps a save loop off the calendar. A refused save refunds it, and in
+// a chat turn every save gives it back: the turn's end pushes at most once (carnet#1702).
 crate::declare_security!(SaveTrainingPlanTool => IRREVERSIBLE);
 
 #[cfg(test)]

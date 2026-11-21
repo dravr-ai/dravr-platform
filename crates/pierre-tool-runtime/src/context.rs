@@ -149,9 +149,10 @@ tokio::task_local! {
 
     /// Who decided the in-flight tool call should run. Scoped by the chat
     /// pipeline around a read it runs on the athlete's behalf before the model
-    /// has said anything; absent everywhere else, which means the model asked.
-    /// Inherited by a nested dispatch on the same task, so what a prefetched tool
-    /// reads through another counts as prefetched too.
+    /// has said anything, and around a tool it runs once the reply is written;
+    /// absent everywhere else, which means the model asked. Inherited by a
+    /// nested dispatch on the same task, so what a prefetched tool reads
+    /// through another counts as prefetched too.
     pub static DISPATCH_ORIGIN: DispatchOrigin;
 
     /// The admin's support session the in-flight chat turn runs in, when an
@@ -201,6 +202,12 @@ pub enum DispatchOrigin {
     Model,
     /// The chat pipeline ran it before the model said anything.
     Prefetch,
+    /// The chat pipeline ran it once the reply was written, because calls of
+    /// the turn handed it over ([`crate::turn_end`]).
+    TurnEnd {
+        /// Registry name of the tool whose calls handed it over.
+        trigger: &'static str,
+    },
 }
 
 impl DispatchOrigin {
@@ -209,6 +216,16 @@ impl DispatchOrigin {
         DISPATCH_ORIGIN
             .try_with(|origin| *origin)
             .unwrap_or_default()
+    }
+
+    /// The tool whose calls handed this run over, for a run the turn's end
+    /// made.
+    #[must_use]
+    pub(crate) const fn trigger(self) -> Option<&'static str> {
+        match self {
+            Self::TurnEnd { trigger } => Some(trigger),
+            Self::Model | Self::Prefetch => None,
+        }
     }
 }
 

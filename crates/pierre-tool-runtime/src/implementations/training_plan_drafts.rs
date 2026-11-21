@@ -53,7 +53,9 @@ use uuid::Uuid;
 
 use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest, PlanSubject};
 use super::training_plan_authorship::load_conversation;
-use super::training_plan_push::{calendar_preview_after_save, push_after_write, AthleteNotice};
+use super::training_plan_push::{
+    calendar_preview_after_save, push_after_write, AthleteNotice, PushStep,
+};
 use super::training_plan_rails::{draft_plan_safety, run_live_plan_rails, LivePlanWrite};
 use super::training_plans_output::{
     race_summary, saved_weeks, CalendarPushOutcome, DraftSection, PlanEnvelopeReport,
@@ -65,6 +67,7 @@ use crate::conversions::{
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use crate::turn_end::{Handoff, TurnEnd};
 
 /// The tool's name, as the scope check and the log lines name it.
 const PUBLISH_TOOL: &str = "publish_training_plan";
@@ -118,6 +121,12 @@ pub(super) async fn save_into_draft(
             transport_policy: ai_scope::derived_policy(),
         })
         .await?;
+    // A draft reaches no calendar, so in a chat turn the save gives back the
+    // destructive charge its label took, and a draft written in batches is
+    // not refused at its fourth (carnet#1702).
+    if let Some(end) = TurnEnd::here() {
+        end.hand_over(Handoff::NothingToCarry);
+    }
     let draft = &saved.draft.plan;
     info!(
         athlete_user_id = %target.athlete(),
@@ -301,6 +310,7 @@ pub async fn publish_draft_live(
         &push_args,
         publish.trigger,
         AthleteNotice::ToldByPublish,
+        PushStep::Run,
     ))
     .await;
     Ok(DraftPublishOutcome::Published(Box::new(
@@ -600,7 +610,7 @@ async fn publish(
     // A publish whose push did not run says what one would now change, when
     // the calendar already carries this plan.
     let calendar = match &calendar_push {
-        CalendarPushOutcome::Pushed { .. } => None,
+        CalendarPushOutcome::Pushed { .. } | CalendarPushOutcome::Queued { .. } => None,
         CalendarPushOutcome::NotPushed { .. } => {
             calendar_preview_after_save(context, scope, &published.plan.id, today).await
         }
@@ -620,6 +630,9 @@ async fn publish(
             "It is on {name}'s calendar too: calendar_push.report says what changed, and any day \
              it skipped or failed to write."
         ),
+        CalendarPushOutcome::Queued { .. } => {
+            format!("It goes onto {name}'s calendar once this reply is sent.")
+        }
         CalendarPushOutcome::NotPushed { message, .. } => {
             let message = message.trim_end();
             let stop = if message.ends_with(['.', '!', '?']) {

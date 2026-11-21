@@ -27,6 +27,7 @@ use tracing::warn;
 
 use crate::guardian::{GuardianTurns, TurnKey};
 use crate::security::SecurityLabels;
+use crate::turn_end::Handoff;
 
 /// How far the dispatch holding a reservation has got.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -76,8 +77,26 @@ impl<'dispatch> BudgetReservation<'dispatch> {
     }
 
     /// The call succeeded: its budget stays spent.
-    pub(super) fn keep(mut self) {
+    fn keep(mut self) {
         self.stage = Stage::Settled;
+    }
+
+    /// The call succeeded: its budget stays spent — all of it, unless it
+    /// handed its destructive effect to its turn's end ([`crate::turn_end`]).
+    pub(super) fn keep_unless_handed_over(self, handed: Option<Handoff>) {
+        if handed.is_some() {
+            self.keep_handing_destructive_over();
+        } else {
+            self.keep();
+        }
+    }
+
+    /// The call succeeded and handed its destructive effect to its turn's end:
+    /// its write stays spent, and its destructive charge comes back for the
+    /// run that carries the effect to spend once.
+    fn keep_handing_destructive_over(mut self) {
+        self.stage = Stage::Settled;
+        self.turns.refund(self.turn_key, self.labels, false);
     }
 
     /// The call returned a failure: all of its budget comes back.
@@ -178,6 +197,28 @@ mod tests {
             turns.unconfirmed(&key),
             ["tool"],
             "the push may have landed, so the reply has to name it"
+        );
+    }
+
+    #[test]
+    fn a_call_that_hands_its_effect_over_keeps_only_its_write() {
+        let turns = GuardianTurns::new();
+        let key = TurnKey::new(None, "turn");
+        for _ in 0..4 {
+            reserve(&turns, &key);
+            let mut reservation = held(&turns, &key);
+            reservation.start();
+            reservation.keep_unless_handed_over(Some(Handoff::NothingToCarry));
+        }
+        assert_eq!(
+            spent(&turns, &key),
+            (0, 4),
+            "bug: four batches of one plan spent the destructive budget their turn's end spends once"
+        );
+        assert_eq!(
+            turns.unconfirmed(&key),
+            Vec::<String>::new(),
+            "each settled"
         );
     }
 

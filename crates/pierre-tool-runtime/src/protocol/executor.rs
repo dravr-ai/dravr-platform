@@ -21,7 +21,7 @@ use crate::context::{
     TURN_DIRECT_MESSAGE, TURN_LOCALE,
 };
 use crate::first_party_tools;
-use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, ReadFingerprint, TurnKey};
+use crate::guardian::{self, GateOutcome, ReadFingerprint, TurnKey};
 use crate::protocol::data_source::athlete_has_data_source;
 use crate::protocol::provider_helpers::no_provider_refusal;
 use crate::protocol::provider_offer::{
@@ -35,6 +35,7 @@ use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
 use crate::tool_data::ToolData;
+use crate::turn_end::{self, HandoffSlot};
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use futures_util::future::Either;
@@ -58,6 +59,8 @@ use uuid::Uuid;
 
 /// Admin-only tool calls from outside Dravr's own surfaces, on the audit trail.
 mod admin_call_audit;
+/// Answering a call the Guardian blocked, and leaving the block for the turn.
+mod guardian_block;
 /// Whose data a dispatched call reads (carnet#1387).
 mod subject;
 mod tier_gate;
@@ -793,6 +796,14 @@ impl UniversalExecutor {
                 None => tool.execute(&self.resources, &ctx, args).await,
             }
         });
+        // A call that answers a chat turn under its real turn token may hand
+        // an effect the turn's next call would only repeat to the turn's end
+        // (carnet#1702). A one-shot MCP or A2A call is its own turn, with no
+        // end to hand anything to, and a read of a coached athlete answers into
+        // no conversation.
+        let handoff = (self.turn_token.is_some() && self.turn_ask.is_some() && in_conversation)
+            .then(HandoffSlot::default);
+        let execute = turn_end::with_handoff(handoff.clone(), execute);
         let body = ai_scope::ai_read(CONVERSATION_ID.scope(
             self.conversation_id.clone().filter(|_| in_conversation),
             CONVERSATION_TENANT.scope(
@@ -885,9 +896,12 @@ impl UniversalExecutor {
                 reservation.refund();
             }
         } else {
+            let handed = handoff.as_ref().and_then(HandoffSlot::handed);
             if let Some(reservation) = reservation {
-                reservation.keep();
+                reservation.keep_unless_handed_over(handed);
             }
+            let turn_end = self.resources.turn_end_dispatches();
+            turn_end.record_handoff(&turn_key, handed, self.seat);
             if writes_data || labels.is_irreversible() {
                 turns.record_committed(&turn_key, &tool_name);
             }
@@ -992,8 +1006,9 @@ impl UniversalExecutor {
         // reads the slug off its own result and has no turn to report to, and a
         // window the pipeline prefetched offers nothing: the model never asked
         // for it, and most turns prefetch, so it would ask an athlete with one
-        // dead connection to reconnect on every message.
-        if self.turn_token.is_some() && DispatchOrigin::current() != DispatchOrigin::Prefetch {
+        // dead connection to reconnect on every message. A run the turn's end
+        // made has no loop left to take a slug: its reply is written.
+        if self.turn_token.is_some() && DispatchOrigin::current() == DispatchOrigin::Model {
             turn_signals::record(
                 &*self.resources,
                 &turn_key,
@@ -1122,55 +1137,6 @@ impl UniversalExecutor {
     #[must_use]
     pub fn turn_token(&self) -> Option<&str> {
         self.turn_token.as_deref()
-    }
-
-    /// Answer a call the Guardian blocked: tell admins, leave the block for
-    /// the turn's tool loop, and refuse the call in-band.
-    fn refuse_blocked(
-        &self,
-        turn_key: &TurnKey,
-        tenant: Option<Uuid>,
-        channel: &str,
-        tool_name: &str,
-        reason: DenyReason,
-    ) -> UniversalResponse {
-        // Admins see every block, whatever transport raised it.
-        let tenant_id = tenant.map_or_default(|t| t.to_string());
-        info!(
-            target: "notify",
-            event = "guardian.denied",
-            tenant_id = %tenant_id,
-            channel = %channel,
-            tool_name = %tool_name,
-            reason = reason.as_str(),
-            "guardian denied tool dispatch"
-        );
-        // #10: record the block under the turn it fired in, so the turn's tool
-        // loop surfaces a deterministic refusal for one raised inside an ACP
-        // agent's tool-host session (a separate task that can't return this
-        // out-of-band). A `TurnBlocked` refusal is a consequence of the block
-        // already recorded, never the first.
-        if reason != DenyReason::TurnBlocked {
-            self.record_turn_block(
-                turn_key,
-                HeadlessBlock {
-                    tool_name: tool_name.to_owned(),
-                    reason,
-                },
-            );
-        }
-        refusal_response::guardian_denied_response(tool_name, reason)
-    }
-
-    /// Record `block` for the turn's tool loop to render, when this call runs in
-    /// a turn. A one-shot MCP or A2A call answers its caller in-band, and an
-    /// entry under its nonce would never be taken (carnet#1404).
-    fn record_turn_block(&self, turn_key: &TurnKey, block: HeadlessBlock) {
-        if self.turn_token.is_some() {
-            self.resources
-                .guardian_turns()
-                .record_block(turn_key, block);
-        }
     }
 }
 

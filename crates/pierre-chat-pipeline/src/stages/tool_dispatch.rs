@@ -8,7 +8,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{AgentRuntimeContext, MemberFitnessSnapshot};
+use pierre_core::models::{AgentRuntimeContext, MemberFitnessSnapshot, TenantId};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::MessageRecord;
 use pierre_llm::call_record::LlmCallRecorder;
@@ -19,6 +20,7 @@ use pierre_services::provider_error_filter::detect_leaked_provider_error;
 use pierre_tool_runtime::chat_catalogue::{self, measure_catalogue, SwitchedOff};
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::UniversalExecutor;
+use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use pierre_tool_runtime::tool_loop_io::{ToolLoopParams, ToolLoopResult, ToolMessageRecorder};
 use tracing::{info, warn};
@@ -57,17 +59,58 @@ pub(crate) fn turn_executor(
     input: &TurnInput,
     seat: TurnSeat,
 ) -> UniversalExecutor {
-    UniversalExecutor::new(Arc::clone(&ctx.tool_runtime))
-        .with_scopes(input.grant.clone())
+    executor_for(ctx, &TurnBinding::of(input), seat)
+}
+
+/// What a turn's executor is bound to, held apart from the turn's input so a
+/// step that runs after the input is spent builds the same executor.
+#[derive(Debug, Clone)]
+pub(crate) struct TurnBinding {
+    grant: Vec<OAuthScope>,
+    conversation_id: String,
+    conversation_tenant_id: TenantId,
+    turn_id: String,
+}
+
+impl TurnBinding {
+    /// The binding of `input`'s turn.
+    pub(crate) fn of(input: &TurnInput) -> Self {
+        Self {
+            grant: input.grant.clone(),
+            conversation_id: input.conversation_id.clone(),
+            conversation_tenant_id: input.conversation_tenant_id,
+            turn_id: input.turn_id.0.to_string(),
+        }
+    }
+}
+
+/// [`turn_executor`] from a turn's binding.
+pub(crate) fn executor_for(
+    ctx: &ChatPipelineContext,
+    binding: &TurnBinding,
+    seat: TurnSeat,
+) -> UniversalExecutor {
+    executor_on(Arc::clone(&ctx.tool_runtime), binding, seat)
+}
+
+/// [`executor_for`] over `runtime`, for a step that holds the runtime rather
+/// than the pipeline's context.
+pub(crate) fn executor_on(
+    runtime: Arc<dyn ToolRuntime>,
+    binding: &TurnBinding,
+    seat: TurnSeat,
+) -> UniversalExecutor {
+    UniversalExecutor::new(runtime)
+        .with_scopes(binding.grant.clone())
         // Bound so a tool that spawns detached work (e.g. a historical
         // activity backfill) can route a completion notice back to the channel
         // that triggered it, and so a coach's thread resolves its athlete.
-        .with_conversation_id(input.conversation_id.clone())
-        .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
+        .with_conversation_id(binding.conversation_id.clone())
+        .with_conversation_tenant(binding.conversation_tenant_id.as_uuid())
         // Guardian turn key = the per-utterance turn_id, so budgets
         // accumulate across THIS message's ReAct loop and reset next message
         // (not across the whole conversation).
-        .with_turn_token(input.turn_id.0.to_string())
+        .with_turn_token(binding.turn_id.clone())
         // The coach's seats refuse what they withhold (carnet#742,
         // carnet#1070) and read the thread's athlete (carnet#1387).
         .with_seat(seat)
