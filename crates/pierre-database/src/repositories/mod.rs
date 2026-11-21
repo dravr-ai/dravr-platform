@@ -374,9 +374,9 @@ pub use harness_memory::*;
 pub use health::*;
 pub use health_records::{
     ClinicalRecordWrite, ClinicalSelection, HealthRecordRepository, LabDocumentFile,
-    LabDocumentWrite, RecordFiling,
-    RecordWindow, ReviewDecision, SelfReportWrite, StoredClinicalRecord, StoredLabDocument,
-    StoredSelfReport, LAB_DOCUMENT_PROVIDER, LAB_DOCUMENT_SOURCE_MARKER, MAX_HEALTH_RECORDS_PAGE,
+    LabDocumentWrite, RecordFiling, RecordWindow, ReviewDecision, SelfReportWrite,
+    StoredClinicalRecord, StoredLabDocument, StoredSelfReport, LAB_DOCUMENT_PROVIDER,
+    LAB_DOCUMENT_SOURCE_MARKER, MAX_HEALTH_RECORDS_PAGE,
 };
 pub use impersonation::*;
 pub use import_tombstones::{

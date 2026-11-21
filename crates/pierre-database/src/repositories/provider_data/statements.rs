@@ -649,7 +649,8 @@ mod tests {
             );
         }
         assert!(
-            lab(&USER_SOURCE_WELLNESS_ROWS_SQL).contains(&format!("'{LAB_DOCUMENT_SOURCE_MARKER}'")),
+            lab(&USER_SOURCE_WELLNESS_ROWS_SQL)
+                .contains(&format!("'{LAB_DOCUMENT_SOURCE_MARKER}'")),
             "bug: the source-scoped purge names another marker"
         );
     }

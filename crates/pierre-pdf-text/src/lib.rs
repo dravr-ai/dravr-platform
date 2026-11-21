@@ -131,7 +131,9 @@ pub fn read_pages(bytes: &[u8]) -> Outcome {
 pub fn run(input: impl Read, mut output: impl Write) -> ExitCode {
     let mut bytes = Vec::new();
     // One byte past the bound tells a body at the bound from one past it.
-    let limit = u64::try_from(MAX_PDF_BYTES).unwrap_or(u64::MAX).saturating_add(1);
+    let limit = u64::try_from(MAX_PDF_BYTES)
+        .unwrap_or(u64::MAX)
+        .saturating_add(1);
     if input.take(limit).read_to_end(&mut bytes).is_err() {
         return ExitCode::FAILURE;
     }

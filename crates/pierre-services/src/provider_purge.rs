@@ -207,7 +207,10 @@ impl ProviderPurge for ProviderPurgeService {
                     .delete_named_file(&file.tenant_id, file.user_id, &file.file_sha256)
                     .await?;
             }
-            info!(files = files.len(), "Deleted every lab document's file for the provider purge");
+            info!(
+                files = files.len(),
+                "Deleted every lab document's file for the provider purge"
+            );
         }
         let purge = self.data.purge_provider_data(provider).await?;
         if self.live.keeps(provider) {

@@ -955,12 +955,15 @@ macro_rules! impl_health_record_repository {
                 let rows = sqlx::query(LIST_EVERY_LAB_DOCUMENT_FILE_SQL)
                     .fetch_all(self.pool())
                     .await
-                    .map_err(|e| AppError::database(format!("list_every_lab_document_file: {e}")))?;
+                    .map_err(|e| {
+                        AppError::database(format!("list_every_lab_document_file: {e}"))
+                    })?;
                 let column = health_column("lab_documents");
                 let id = |row: &$row, name: &str| -> AppResult<Uuid> {
                     let text: String = row.try_get(name).map_err(&column)?;
-                    Uuid::parse_str(&text)
-                        .map_err(|e| AppError::database(format!("Invalid lab_documents {name}: {e}")))
+                    Uuid::parse_str(&text).map_err(|e| {
+                        AppError::database(format!("Invalid lab_documents {name}: {e}"))
+                    })
                 };
                 rows.iter()
                     .map(|row| {

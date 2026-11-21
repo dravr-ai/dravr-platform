@@ -468,7 +468,12 @@ async fn purging_the_lab_document_source_deletes_the_documents_and_their_pdfs() 
     let purge = resources
         .common
         .provider_purge
-        .purge_user_provider_data(user, &tenant, LAB_DOCUMENT_PROVIDER, PurgeReason::AthleteDisconnect)
+        .purge_user_provider_data(
+            user,
+            &tenant,
+            LAB_DOCUMENT_PROVIDER,
+            PurgeReason::AthleteDisconnect,
+        )
         .await
         .unwrap();
     assert!(purge.total() > 0, "bug: the purge removed nothing");
@@ -502,4 +507,3 @@ async fn purging_the_lab_document_source_deletes_the_documents_and_their_pdfs() 
         "bug: the purged document's PDF is still kept"
     );
 }
-

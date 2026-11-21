@@ -329,11 +329,7 @@ pub(crate) mod tests {
     /// One page drawing a chain of `forms` forms, each drawing the next; the
     /// last draws form `back_to` when one is named. The page is its own
     /// parent when `own_parent` holds.
-    pub(crate) fn document(
-        forms: usize,
-        back_to: Option<usize>,
-        own_parent: bool,
-    ) -> Document {
+    pub(crate) fn document(forms: usize, back_to: Option<usize>, own_parent: bool) -> Document {
         fanned_document(forms, 1, (back_to, own_parent))
     }
 

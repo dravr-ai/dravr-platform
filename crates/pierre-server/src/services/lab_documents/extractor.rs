@@ -104,10 +104,7 @@ fn command(program: &Path) -> Command {
 /// # Errors
 ///
 /// The [`ExtractFailure`] that applies.
-pub(super) async fn extract(
-    program: &Path,
-    bytes: Vec<u8>,
-) -> Result<Vec<String>, ExtractFailure> {
+pub(super) async fn extract(program: &Path, bytes: Vec<u8>) -> Result<Vec<String>, ExtractFailure> {
     let mut child = command(program)
         .spawn()
         .map_err(ExtractFailure::Unavailable)?;
