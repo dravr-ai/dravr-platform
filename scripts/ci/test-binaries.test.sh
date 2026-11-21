@@ -179,16 +179,29 @@ echo "test slow::finishes ... ok"
 exec sleep 30
 HUNG
 printf '#!/bin/sh\nexec sleep 30\n' >"$RUNBIN/silent"
-chmod +x "$RUNBIN/hung" "$RUNBIN/silent"
+# A binary still completing tests, a result every half second: slow, never hung.
+cat >"$RUNBIN/busy" <<'BUSY'
+#!/bin/sh
+echo "running 40 tests"
+i=0
+while [ "$i" -lt "${BUSY_TESTS:-40}" ]; do
+    sleep 0.5
+    echo "test busy::t$i ... ok"
+    i=$((i + 1))
+done
+echo "test result: ok. ${BUSY_TESTS:-40} passed; 0 failed"
+BUSY
+chmod +x "$RUNBIN/hung" "$RUNBIN/silent" "$RUNBIN/busy"
 printf 'smoke_test\t%s\t%s\n' "$TREE/crates/pierre-database" "$RUNBIN/hung" >"$WORK/hung-map.tsv"
 printf 'smoke_test\t%s\t%s\n' "$TREE/crates/pierre-database" "$RUNBIN/silent" >"$WORK/silent-map.tsv"
+printf 'smoke_test\t%s\t%s\n' "$TREE/crates/pierre-database" "$RUNBIN/busy" >"$WORK/busy-map.tsv"
 started=$SECONDS
-TEST_BINARY_DEADLINE_SECS=2 expect "a run whose binary passes its deadline fails" 1 "$TREE" \
+TEST_BINARY_IDLE_SECS=2 expect "a run whose binary goes quiet fails" 1 "$TREE" \
     run "$WORK/hung-map.tsv" "$TREE/crates/pierre-database" smoke_test
-if [ $((SECONDS - started)) -lt 20 ]; then pass "the deadline stops the binary instead of waiting it out"; else
-    fail "the deadline stops the binary instead of waiting it out ($((SECONDS - started))s)"
+if [ $((SECONDS - started)) -lt 20 ]; then pass "the idle bound stops the binary instead of waiting it out"; else
+    fail "the idle bound stops the binary instead of waiting it out ($((SECONDS - started))s)"
 fi
-if grep -qF "ran past its 2s deadline and was stopped; still running: slow::hangs" "$OUT" \
+if grep -qF "printed nothing for 2s and was stopped" "$OUT" && grep -qF "; still running: slow::hangs" "$OUT" \
     && ! grep -qF "still running: slow::finishes" "$OUT" && ! grep -qF " slow::hangs slow::finishes" "$OUT"; then
     pass "the failure names the test that never finished, and only it"
 else
@@ -199,7 +212,7 @@ if grep -qF "test slow::finishes ... ok" "$OUT"; then pass "the binary's own out
     fail "the binary's own output still streams through"
     sed 's/^/      /' "$OUT"
 fi
-TEST_BINARY_DEADLINE_SECS=1 expect "a binary that hangs outside any test fails" 1 "$TREE" \
+TEST_BINARY_IDLE_SECS=1 expect "a binary that hangs outside any test fails" 1 "$TREE" \
     run "$WORK/silent-map.tsv" "$TREE/crates/pierre-database" smoke_test
 if grep -qF "no test had run for over 60 seconds, so the binary itself hung" "$OUT"; then
     pass "a hang with no slow test says the binary hung"
@@ -207,7 +220,20 @@ else
     fail "a hang with no slow test says the binary hung"
     sed 's/^/      /' "$OUT"
 fi
+BUSY_TESTS=8 TEST_BINARY_IDLE_SECS=2 expect "a binary still completing tests is never taken for a hung one" 0 "$TREE" \
+    run "$WORK/busy-map.tsv" "$TREE/crates/pierre-database" smoke_test
+TEST_BINARY_DEADLINE_SECS=2 TEST_BINARY_IDLE_SECS=2 expect "a binary past its deadline fails though it still completes tests" 1 "$TREE" \
+    run "$WORK/busy-map.tsv" "$TREE/crates/pierre-database" smoke_test
+if grep -qF "ran past its 2s deadline and was stopped while still completing tests" "$OUT" \
+    && grep -qF "it is slow, not hung" "$OUT" && ! grep -qF "the binary itself hung" "$OUT"; then
+    pass "a binary stopped at its deadline is called slow, never hung"
+else
+    fail "a binary stopped at its deadline is called slow, never hung"
+    sed 's/^/      /' "$OUT"
+fi
 TEST_BINARY_DEADLINE_SECS=soon expect "a deadline that is not a number of seconds is refused" 1 "$TREE" \
+    run "$RUNMAP" "$TREE/crates/pierre-database" smoke_test
+TEST_BINARY_IDLE_SECS=0 expect "an idle bound that is not a positive number of seconds is refused" 1 "$TREE" \
     run "$RUNMAP" "$TREE/crates/pierre-database" smoke_test
 
 mkdir -p "$WORK/elsewhere"
