@@ -28,7 +28,7 @@
 //!   the account deletion writes in its own transaction.
 //! - A screenshot an athlete attaches to a feedback message is a file they
 //!   uploaded too, kept under the same upload key
-//!   ([`OriginalsStore::put_feedback_image`]); the `feedback_messages` row
+//!   ([`OriginalsStore::put_named_file`]); the `feedback_messages` row
 //!   names it and scopes its read, as `uploaded_activity_files` does for an
 //!   activity file (carnet#1392). The erasure takes it with the rest.
 //!
@@ -55,6 +55,9 @@ use crate::models::TenantId;
 
 /// The media type an uploaded activity file is stored with.
 const FIT_MEDIA_TYPE: &str = "application/vnd.ant.fit";
+
+/// The media type an uploaded lab report is stored with.
+pub const LAB_DOCUMENT_MEDIA_TYPE: &str = "application/pdf";
 
 /// The files athletes uploaded, over the blob store and the table naming them.
 pub struct OriginalsStore {
@@ -197,9 +200,11 @@ impl OriginalsStore {
             .await
     }
 
-    /// Keep a screenshot the athlete attached to a feedback message in this
-    /// tenant, under the upload key its digest names. The caller writes the
-    /// `feedback_messages` row that names it once this returns.
+    /// Keep a file the athlete uploaded in this tenant that its own table's
+    /// row names — a screenshot attached to a feedback message
+    /// (`feedback_messages`), a lab report (`lab_documents`) — under the
+    /// upload key its digest names. The caller writes that row once this
+    /// returns.
     ///
     /// # Errors
     ///
@@ -207,7 +212,7 @@ impl OriginalsStore {
     /// before anything is written; [`AppError::invalid_input`] when the hash
     /// is not 64 lowercase hex characters; an internal error when the blob
     /// store reports other bytes than the hash names.
-    pub async fn put_feedback_image(
+    pub async fn put_named_file(
         &self,
         tenant_id: &TenantId,
         user_id: Uuid,
@@ -226,16 +231,16 @@ impl OriginalsStore {
         .await
     }
 
-    /// The bytes of a screenshot the athlete attached in this tenant, whose
-    /// `feedback_messages` row the caller has already read; `None` when the
-    /// blob store no longer holds them.
+    /// The bytes of a file the athlete uploaded in this tenant that its own
+    /// table's row names, whose row the caller has already read; `None` when
+    /// the blob store no longer holds them.
     ///
     /// # Errors
     ///
     /// [`AppError::resource_unavailable`] when no blob store is placed here;
     /// [`AppError::invalid_input`] for a malformed hash; the blob store's
     /// error.
-    pub async fn get_feedback_image(
+    pub async fn get_named_file(
         &self,
         tenant_id: &TenantId,
         user_id: Uuid,
@@ -243,6 +248,28 @@ impl OriginalsStore {
     ) -> AppResult<Option<Bytes>> {
         let key = upload_key(tenant_id, user_id, image_sha256)?;
         self.blobs()?.get(&key).await.map_err(|e| blob_error(&e))
+    }
+
+    /// Delete a file the athlete uploaded in this tenant that its own table's
+    /// row names, before the caller deletes that row, so no row ever names
+    /// bytes that are gone while a failure leaves the row for a retry.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError::resource_unavailable`] when no blob store is placed here;
+    /// [`AppError::invalid_input`] for a malformed hash; the blob store's
+    /// error.
+    pub async fn delete_named_file(
+        &self,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        file_sha256: &str,
+    ) -> AppResult<()> {
+        let key = upload_key(tenant_id, user_id, file_sha256)?;
+        self.blobs()?
+            .delete(&key)
+            .await
+            .map_err(|e| blob_error(&e))
     }
 
     /// Erase every file the account `user_id` uploaded, in every tenant,

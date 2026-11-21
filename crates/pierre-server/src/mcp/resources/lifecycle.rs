@@ -81,6 +81,7 @@ use pierre_runtime_context::ProviderConnectLog;
 use pierre_services::barrage_live_store::{live_store, BarrageLiveStore};
 use pierre_services::live_activities::LiveActivityStore;
 use pierre_services::originals_bundle::OriginalsBundleService;
+use pierre_services::lab_document_model::LabReaderModel;
 use pierre_services::provider_purge::ProviderPurgeService;
 
 #[cfg(feature = "slash-commands")]
@@ -247,6 +248,10 @@ impl ServerContext {
             blobs,
             Arc::clone(&repos.uploaded_activity_files),
         ));
+        let lab_reader = match options.lab_reader {
+            Some(model) => model,
+            None => LabReaderModel::from_env().await,
+        };
 
         let auth_manager_arc = Arc::new(auth_manager);
 
@@ -566,6 +571,7 @@ impl ServerContext {
             provider_purge,
             connect_log,
             originals,
+            lab_reader,
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
             photograveur: Arc::new(PhotograveurClient::from_env()),
             config,

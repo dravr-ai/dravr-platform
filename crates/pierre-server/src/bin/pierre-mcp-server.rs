@@ -556,6 +556,7 @@ async fn create_server(
             archive_imports: Some(archive_imports),
             live_records: Some(Arc::clone(&live_records)),
             blobs: Some(blobs.clone()),
+            lab_reader: None,
             // The production factory, named by this binary and by no
             // constructor of the options: the adapter each tenant's stored
             // channel config names.

@@ -131,6 +131,8 @@ pub mod contremaitre_webhook;
 /// Athlete Home read-side endpoints (`GET /api/me/activities/recent`, one
 /// activity's route, `GET /api/me/training-plan`).
 pub mod athlete_home;
+/// The athlete's own health records: the served list, the review queue, lab report upload (carnet#1544).
+pub mod health_records;
 
 /// The athlete's gear ledger (`/api/me/gear`).
 pub mod athlete_gear;
