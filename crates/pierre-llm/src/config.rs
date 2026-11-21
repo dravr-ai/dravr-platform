@@ -751,7 +751,13 @@ mod tests {
     #[test]
     fn only_the_http_apis_read_without_tools() {
         for name in [
-            "gemini", "groq", "cohere", "openrouter", "anthropic", "ollama", "openai_api",
+            "gemini",
+            "groq",
+            "cohere",
+            "openrouter",
+            "anthropic",
+            "ollama",
+            "openai_api",
         ] {
             let provider = LlmProviderType::parse(name).unwrap();
             assert!(
@@ -760,7 +766,12 @@ mod tests {
             );
         }
         for name in [
-            "claude_code", "copilot", "copilot_headless", "copilot_sdk", "router", "gemini_cli",
+            "claude_code",
+            "copilot",
+            "copilot_headless",
+            "copilot_sdk",
+            "router",
+            "gemini_cli",
         ] {
             let provider = LlmProviderType::parse(name).unwrap();
             assert!(

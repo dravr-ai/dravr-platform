@@ -115,8 +115,6 @@ pub mod feature_flags;
 pub mod federated_identities;
 /// Repository trait for the in-app feedback thread with the Dravr team (carnet#1235).
 pub mod feedback_messages;
-/// The T2–T3 health records an import or a lab document yields (carnet#1544).
-pub mod health_records;
 /// The outbox of Firebase identities still to delete at Google after their account went.
 pub mod firebase_identity_deletions;
 /// Repository trait for the days each athlete met a first-run flow's done rule (carnet#1099).
@@ -141,6 +139,8 @@ pub mod harness_memory;
 pub mod health;
 /// Shared statements, row decoders and body for data sources, sleep, recovery and health snapshots.
 pub mod health_persistence;
+/// The T2–T3 health records an import or a lab document yields (carnet#1544).
+pub mod health_records;
 /// Repository trait, statements and shared body for admin impersonation sessions.
 pub mod impersonation;
 /// Tombstones of a deleted account's provider accounts and email, by hash, refused until cleared.
@@ -372,6 +372,11 @@ pub use garmin_push_inbox::*;
 pub use group_chat_connect::GroupChatConnectRepository;
 pub use harness_memory::*;
 pub use health::*;
+pub use health_records::{
+    ClinicalRecordWrite, ClinicalSelection, HealthRecordRepository, LabDocumentWrite, RecordFiling,
+    RecordWindow, ReviewDecision, SelfReportWrite, StoredClinicalRecord, StoredLabDocument,
+    StoredSelfReport, LAB_DOCUMENT_PROVIDER, MAX_HEALTH_RECORDS_PAGE,
+};
 pub use impersonation::*;
 pub use import_tombstones::{
     athlete_marker, email_identity_hash, provider_identity_hash, subject_hash, ImportTombstone,
@@ -408,11 +413,6 @@ pub use system_settings::SystemSettingsRepository;
 pub use tenants::*;
 pub use tool_selection::*;
 pub use training_plans::*;
-pub use health_records::{
-    ClinicalRecordWrite, ClinicalSelection, HealthRecordRepository, LabDocumentWrite,
-    RecordFiling, RecordWindow, ReviewDecision, SelfReportWrite, StoredClinicalRecord,
-    StoredLabDocument, StoredSelfReport, LAB_DOCUMENT_PROVIDER, MAX_HEALTH_RECORDS_PAGE,
-};
 pub use uploaded_activity_files::{UploadedActivityFileRepository, UPLOAD_ORIGIN};
 pub use usage::*;
 pub use use_case_exposures::{UseCaseExposure, UseCaseExposureRepository};

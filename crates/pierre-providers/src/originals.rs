@@ -266,10 +266,7 @@ impl OriginalsStore {
         file_sha256: &str,
     ) -> AppResult<()> {
         let key = upload_key(tenant_id, user_id, file_sha256)?;
-        self.blobs()?
-            .delete(&key)
-            .await
-            .map_err(|e| blob_error(&e))
+        self.blobs()?.delete(&key).await.map_err(|e| blob_error(&e))
     }
 
     /// Erase every file the account `user_id` uploaded, in every tenant,

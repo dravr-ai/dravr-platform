@@ -39,9 +39,9 @@ use dravr_barrage::import::ingest_reader::{DocumentReading, LabDocument, LabDocu
 use dravr_barrage::Tier;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConversationTurnId, DataSource, DeviceType, TenantId};
+use pierre_core::transport::Transport;
 use pierre_database::repositories::{
-    LabDocumentWrite, RecordFiling, StoredClinicalRecord, StoredLabDocument,
-    LAB_DOCUMENT_PROVIDER,
+    LabDocumentWrite, RecordFiling, StoredClinicalRecord, StoredLabDocument, LAB_DOCUMENT_PROVIDER,
 };
 use pierre_llm::call_record::LlmCallRecorder;
 use pierre_providers::ai_scope;
@@ -52,6 +52,7 @@ use pierre_services::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use pierre_services::provider_notice::under_ai_consent;
 use pierre_services::wellness_store::WellnessStore;
 use serde::Serialize;
+use tokio::task::spawn_blocking;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -180,12 +181,10 @@ pub async fn pdf_text(bytes: Bytes) -> AppResult<Vec<String>> {
     }
     // The extractor parses an untrusted file: off the async workers, and a
     // panic in it is the file's fault, not the server's.
-    let pages = tokio::task::spawn_blocking(move || {
-        pdf_extract::extract_text_from_mem_by_pages(&bytes)
-    })
-    .await
-    .map_err(|_| AppError::invalid_input("The PDF could not be read"))?
-    .map_err(|e| AppError::invalid_input(format!("The PDF could not be read: {e}")))?;
+    let pages = spawn_blocking(move || pdf_extract::extract_text_from_mem_by_pages(&bytes))
+        .await
+        .map_err(|_| AppError::invalid_input("The PDF could not be read"))?
+        .map_err(|e| AppError::invalid_input(format!("The PDF could not be read: {e}")))?;
     if pages.len() > MAX_LAB_DOCUMENT_PAGES {
         return Err(AppError::invalid_input(format!(
             "A lab report is read up to {MAX_LAB_DOCUMENT_PAGES} pages; this one has {}",
@@ -202,12 +201,20 @@ pub async fn pdf_text(bytes: Bytes) -> AppResult<Vec<String>> {
 
 /// Whether the athlete's lab report may be read by a model: the tier rule,
 /// under a model read and their own consents, lets a model read T2.
+///
+/// The read is work the platform runs for the athlete, whose records reach
+/// only their own review queue: it is served as a platform job, whichever
+/// first-party surface the upload came from (an outside credential never
+/// reaches the upload route).
 async fn model_may_read(resources: &ServerContext, tenant_id: TenantId, user_id: Uuid) -> bool {
-    let (readable, _) = under_ai_consent(
-        &resources.common.repos,
-        tenant_id.as_uuid(),
-        user_id,
-        ai_scope::ai_read(async { ai_scope::tier_readable(Tier::T2) }),
+    let (readable, _) = ai_scope::serve_over(
+        Transport::PlatformJob,
+        under_ai_consent(
+            &resources.common.repos,
+            tenant_id.as_uuid(),
+            user_id,
+            ai_scope::ai_read(async { ai_scope::tier_readable(Tier::T2) }),
+        ),
     )
     .await;
     readable
@@ -294,6 +301,88 @@ async fn view_of(
     })
 }
 
+/// The reading of a report's `pages`, or `None` when none holds text (a
+/// scan): nothing is read from it.
+async fn read_pages(
+    resources: &ServerContext,
+    (tenant_id, user_id): (TenantId, Uuid),
+    pages: Vec<String>,
+    sha256: Sha256,
+    received: chrono::DateTime<Utc>,
+) -> AppResult<Option<DocumentReading>> {
+    if !pages.iter().any(|page| !page.trim().is_empty()) {
+        return Ok(None);
+    }
+    let reader = reader_for(resources, tenant_id, user_id).await;
+    let document = LabDocument {
+        pages,
+        sha256,
+        received,
+    };
+    reader
+        .read(&document)
+        .await
+        .map(Some)
+        .map_err(|e| AppError::internal(format!("lab reader: {e}")))
+}
+
+/// The row a report is stored as: `(file_sha256, size_bytes, pages)` and what
+/// its reading yielded.
+fn document_write(
+    (file_sha256, size_bytes, pages): (String, u64, u32),
+    reading: Option<&DocumentReading>,
+    received_at: chrono::DateTime<Utc>,
+) -> LabDocumentWrite {
+    let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    LabDocumentWrite {
+        file_sha256,
+        size_bytes,
+        pages,
+        status: if reading.is_some() {
+            STATUS_READ
+        } else {
+            STATUS_NO_TEXT
+        }
+        .to_owned(),
+        engine: reading.map(|reading| reading.engine.label()),
+        flagged_lines: reading.map_or(0, |reading| count(reading.flagged_lines.len())),
+        skipped: reading.map_or(0, |reading| reading.skipped),
+        dropped: reading.map_or(0, |reading| reading.dropped),
+        model_failure: reading.and_then(failure_name),
+        received_at,
+    }
+}
+
+/// Store the Observations `reading` yielded as the document's pending records.
+async fn store_records(
+    resources: &ServerContext,
+    (tenant_id, user_id): (&TenantId, Uuid),
+    document_id: &str,
+    reading: &DocumentReading,
+) -> AppResult<()> {
+    let records = reading
+        .labs
+        .iter()
+        .map(|lab| clinical_write(lab, Some(document_id)))
+        .collect::<AppResult<Vec<_>>>()?;
+    let data_source_id = lab_data_source(resources, tenant_id, user_id).await?;
+    resources
+        .common
+        .repos
+        .health_records
+        .upsert_clinical_records(
+            RecordFiling {
+                tenant_id,
+                user_id,
+                provider: LAB_DOCUMENT_PROVIDER,
+                data_source_id: &data_source_id,
+            },
+            &records,
+        )
+        .await?;
+    Ok(())
+}
+
 /// Keep the lab report `body` the athlete uploaded and read it into pending
 /// records.
 ///
@@ -333,37 +422,12 @@ pub async fn upload_lab_document(
         )
         .await?;
     let received_at = Utc::now();
-    let has_text = pages.iter().any(|page| !page.trim().is_empty());
-    let reading = if has_text {
-        let reader = reader_for(resources, tenant_id, user_id).await;
-        let document = LabDocument {
-            pages,
-            sha256: digest,
-            received: received_at,
-        };
-        Some(
-            reader
-                .read(&document)
-                .await
-                .map_err(|e| AppError::internal(format!("lab reader: {e}")))?,
-        )
-    } else {
-        None
-    };
-    let write = LabDocumentWrite {
-        file_sha256: file_sha256.clone(),
-        size_bytes,
-        pages: page_count,
-        status: if has_text { STATUS_READ } else { STATUS_NO_TEXT }.to_owned(),
-        engine: reading.as_ref().map(|reading| reading.engine.label()),
-        flagged_lines: reading.as_ref().map_or(0, |reading| {
-            u32::try_from(reading.flagged_lines.len()).unwrap_or(u32::MAX)
-        }),
-        skipped: reading.as_ref().map_or(0, |reading| reading.skipped),
-        dropped: reading.as_ref().map_or(0, |reading| reading.dropped),
-        model_failure: reading.as_ref().and_then(failure_name),
+    let reading = read_pages(resources, (tenant_id, user_id), pages, digest, received_at).await?;
+    let write = document_write(
+        (file_sha256.clone(), size_bytes, page_count),
+        reading.as_ref(),
         received_at,
-    };
+    );
     let Some(document_id) = repos
         .health_records
         .insert_lab_document(&tenant_id, user_id, &write)
@@ -377,43 +441,44 @@ pub async fn upload_lab_document(
             .ok_or_else(|| AppError::internal("a lab document vanished while it was stored"))?;
         return view_of(resources, &tenant_id, user_id, held, false).await;
     };
-    if let Some(reading) = &reading {
-        let records = reading
-            .labs
-            .iter()
-            .map(|lab| clinical_write(lab, Some(&document_id)))
-            .collect::<AppResult<Vec<_>>>()?;
-        let data_source_id = lab_data_source(resources, &tenant_id, user_id).await?;
-        repos
-            .health_records
-            .upsert_clinical_records(
-                RecordFiling {
-                    tenant_id: &tenant_id,
-                    user_id,
-                    provider: LAB_DOCUMENT_PROVIDER,
-                    data_source_id: &data_source_id,
-                },
-                &records,
-            )
-            .await?;
+    stored_view(
+        resources,
+        (&tenant_id, user_id),
+        &document_id,
+        (reading.as_ref(), &write),
+    )
+    .await
+}
+
+/// Store a new document's records, then answer it as the athlete sees it.
+async fn stored_view(
+    resources: &ServerContext,
+    (tenant_id, user_id): (&TenantId, Uuid),
+    document_id: &str,
+    (reading, write): (Option<&DocumentReading>, &LabDocumentWrite),
+) -> AppResult<LabDocumentView> {
+    if let Some(reading) = reading {
+        store_records(resources, (tenant_id, user_id), document_id, reading).await?;
         if let Some(failure) = &write.model_failure {
             warn!(%user_id, failure = %failure, "The lab reader's model was not used; the rules read");
         }
     }
     info!(
         %user_id,
-        pages = page_count,
+        pages = write.pages,
         status = %write.status,
         engine = write.engine.as_deref().unwrap_or("none"),
-        records = reading.as_ref().map_or(0, |reading| reading.labs.len()),
+        records = reading.map_or(0, |reading| reading.labs.len()),
         "lab document stored"
     );
-    let stored = repos
+    let stored = resources
+        .common
+        .repos
         .health_records
-        .get_lab_document(&tenant_id, user_id, &document_id)
+        .get_lab_document(tenant_id, user_id, document_id)
         .await?
         .ok_or_else(|| AppError::internal("a lab document vanished once stored"))?;
-    view_of(resources, &tenant_id, user_id, stored, true).await
+    view_of(resources, tenant_id, user_id, stored, true).await
 }
 
 /// The athlete's lab documents, newest first, each with its records.
