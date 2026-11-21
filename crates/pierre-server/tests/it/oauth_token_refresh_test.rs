@@ -416,6 +416,7 @@ async fn create_test_executor_with(
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -459,6 +460,7 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

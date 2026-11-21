@@ -99,6 +99,7 @@ use pierre_middleware::McpAuthMiddleware;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 use pierre_providers::originals::OriginalsStore;
+use pierre_services::lab_document_model::LabReaderModel;
 use pierre_providers::registry::ProviderRegistry;
 #[cfg(feature = "client-messaging")]
 use pierre_services::channel_adapters::ChannelAdapterFactory;
@@ -173,6 +174,9 @@ pub struct CommonSlice {
     /// (the one archive imports keep their originals in), or the reason no
     /// blob store is placed here. Chosen once at boot.
     pub originals: Arc<OriginalsStore>,
+    /// The model the lab reader reads uploaded lab reports with, or none (the
+    /// rules read): `LAB_READER_MODEL`, chosen once at boot (carnet#1544).
+    pub lab_reader: LabReaderModel,
     /// Client for the photograveur press service.
     ///
     /// Disabled when `PHOTOGRAVEUR_URL` is unset, so a stack without the

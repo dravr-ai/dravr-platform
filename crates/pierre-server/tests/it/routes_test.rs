@@ -175,6 +175,7 @@ async fn test_register_user() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -331,6 +332,7 @@ async fn test_register_duplicate_user() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

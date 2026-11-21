@@ -19,6 +19,9 @@
 //!   ([`HealthRecordRepository`]), each keyed by its barrage id, so a
 //!   re-import replaces its rows and never an athlete's review decision.
 
+/// Reading them: one reader for the athlete, Dravr's agent and a coach's read.
+pub mod read;
+
 use chrono::{DateTime, NaiveDate, Utc};
 use dravr_barrage::{ClinicalResource, GlucoseReading, SelfReport, WellnessRecords};
 use pierre_core::errors::{AppError, AppResult};

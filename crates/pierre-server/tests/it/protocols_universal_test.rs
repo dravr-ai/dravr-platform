@@ -187,6 +187,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -571,6 +572,7 @@ async fn test_set_goal_tool() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1460,6 +1462,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

@@ -184,6 +184,7 @@ async fn test_oauth_authorization_url_generation() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -487,6 +488,7 @@ async fn test_oauth_state_validation() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -688,6 +690,7 @@ async fn test_connection_status_no_providers() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -868,6 +871,7 @@ async fn test_invalid_provider_error() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1041,6 +1045,7 @@ async fn test_disconnect_provider() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1347,6 +1352,7 @@ async fn test_oauth_urls_contain_required_parameters() {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

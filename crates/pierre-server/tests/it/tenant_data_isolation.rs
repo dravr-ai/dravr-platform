@@ -473,6 +473,7 @@ async fn test_mcp_server_tenant_isolation() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

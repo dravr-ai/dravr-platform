@@ -10,6 +10,7 @@ use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
 #[cfg(feature = "client-messaging")]
 use pierre_services::channel_adapters::ChannelAdapterFactory;
+use pierre_services::lab_document_model::LabReaderModel;
 use pierre_tool_runtime::RuntimeTool;
 use std::fmt;
 use std::sync::Arc;
@@ -81,6 +82,9 @@ pub struct ServerContextOptions {
     /// import's originals (`services::originals::blob_store_from_env`), or
     /// why there is none. Unset, uploads are kept in memory, as a test wants.
     pub blobs: Option<Result<Arc<dyn BlobStore>, String>>,
+    /// The model the lab reader reads with: a test passes a scripted one.
+    /// Unset, `LAB_READER_MODEL` chooses (unset there too, the rules read).
+    pub lab_reader: Option<LabReaderModel>,
     /// What builds the channel adapter every message of this context is
     /// verified or sent through: the webhook routes, the retry and resume
     /// workers, and the proactive senders (carnet#1600). The server binary
@@ -131,6 +135,7 @@ impl ServerContextOptions {
             archive_imports: None,
             live_records: None,
             blobs: None,
+            lab_reader: None,
             #[cfg(feature = "client-messaging")]
             channel_adapters,
         }

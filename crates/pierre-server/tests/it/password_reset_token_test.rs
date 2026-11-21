@@ -84,6 +84,7 @@ impl ResetTokenTestSetup {
                     archive_imports: None,
                     live_records: None,
                     blobs: None,
+                    lab_reader: None,
                     #[cfg(feature = "client-messaging")]
                     channel_adapters: common::offline_adapters(),
                 },

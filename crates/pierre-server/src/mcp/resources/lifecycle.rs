@@ -77,6 +77,7 @@ use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 #[cfg(feature = "client-notifications")]
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_providers::originals::OriginalsStore;
+use pierre_services::lab_document_model::LabReaderModel;
 use pierre_services::provider_purge::ProviderPurgeService;
 use pierre_services::{barrage_live_store::live_store, originals_bundle::OriginalsBundleService};
 
@@ -240,6 +241,10 @@ impl ServerContext {
             blobs,
             Arc::clone(&repos.uploaded_activity_files),
         ));
+        let lab_reader = match options.lab_reader {
+            Some(model) => model,
+            None => LabReaderModel::from_env().await,
+        };
 
         let auth_manager_arc = Arc::new(auth_manager);
 
@@ -558,6 +563,7 @@ impl ServerContext {
             originals_bundles,
             provider_purge,
             originals,
+            lab_reader,
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
             photograveur: Arc::new(PhotograveurClient::from_env()),
             config,

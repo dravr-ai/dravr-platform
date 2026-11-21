@@ -377,7 +377,7 @@ async fn uploads_and_feedback_images_are_in_the_bundle() {
         .resources
         .common
         .originals
-        .put_feedback_image(
+        .put_named_file(
             &tenant,
             ana.id,
             &png_sha.to_hex(),
