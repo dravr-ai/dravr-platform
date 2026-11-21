@@ -19,6 +19,10 @@ use sqlx::postgres::PgRow;
 use uuid::Uuid;
 
 use crate::backends::postgres::PostgresDatabase;
+use crate::repositories::coach_assistant::{
+    impl_coach_assistant_repository, CoachAssistantRepository, ANSWER_ASSISTANT_NOTICE_SQL,
+    GET_ASSISTANT_NOTICE_ANSWERED_SQL, SET_COACH_ASSISTANT_READ_SQL,
+};
 use crate::repositories::coaching_groups::{column, impl_coaching_group_repository, instant};
 use crate::repositories::coaching_groups::{
     ARCHIVE_GROUP_SQL, COUNT_GROUPS_FOR_OWNER_SQL, DEACTIVATE_GROUP_INVITES_SQL,
@@ -41,10 +45,9 @@ use crate::repositories::group_invite_sql::{
     INSERT_INVITE_SQL, LIST_INVITES_SQL, LIST_SIGNUP_INVITES_SQL,
 };
 use crate::repositories::group_member_sql::{
-    ANSWER_ASSISTANT_NOTICE_SQL, COUNT_MEMBERS_SQL, GET_ASSISTANT_NOTICE_ANSWERED_SQL,
-    GET_MEMBER_SQL, GROUP_SETUP_TIMELINE_SQL, INSERT_MEMBER_SQL, LIST_MEMBERS_SQL,
-    REMOVE_MEMBER_SQL, SET_COACH_ASSISTANT_READ_SQL, SET_COACH_CONSENTS_SQL,
-    UPDATE_COACH_SHARING_CONSENT_SQL, UPDATE_MEMBER_ROLE_SQL, UPDATE_PEER_SHARING_CONSENT_SQL,
+    COUNT_MEMBERS_SQL, GET_MEMBER_SQL, GROUP_SETUP_TIMELINE_SQL, INSERT_MEMBER_SQL,
+    LIST_MEMBERS_SQL, REMOVE_MEMBER_SQL, SET_COACH_CONSENTS_SQL, UPDATE_COACH_SHARING_CONSENT_SQL,
+    UPDATE_MEMBER_ROLE_SQL, UPDATE_PEER_SHARING_CONSENT_SQL,
 };
 use crate::repositories::group_transcript::{
     GET_ROOM_TRANSCRIPT_ENTRY_SQL, INSERT_TRANSCRIPT_ENTRY_SQL, LIST_ROOM_TRANSCRIPT_SQL,
@@ -55,3 +58,4 @@ use crate::repositories::CoachingGroupRepository;
 
 impl_coaching_group_repository!(PostgresDatabase, PgRow, NativeUuid);
 impl_group_chat_connect_repository!(PostgresDatabase, NativeUuid);
+impl_coach_assistant_repository!(PostgresDatabase, NativeUuid);

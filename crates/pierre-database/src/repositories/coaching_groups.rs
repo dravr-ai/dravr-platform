@@ -625,45 +625,6 @@ macro_rules! impl_coaching_group_repository {
                 Ok(result.rows_affected() > 0)
             }
 
-            async fn assistant_notice_answered_at(
-                &self,
-                group_id: &str,
-                user_id: Uuid,
-            ) -> AppResult<Option<DateTime<Utc>>> {
-                let row = sqlx::query(GET_ASSISTANT_NOTICE_ANSWERED_SQL)
-                    .bind($ids::bind_text(group_id)?)
-                    .bind($ids::bind(user_id))
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to read when a member answered the coach tools notice: {e}"
-                        ))
-                    })?;
-                row.map_or(Ok(None), |r| column(&r, "assistant_notice_answered_at"))
-            }
-
-            async fn answer_assistant_notice(
-                &self,
-                group_id: &str,
-                user_id: Uuid,
-                at: DateTime<Utc>,
-            ) -> AppResult<bool> {
-                let result = sqlx::query(ANSWER_ASSISTANT_NOTICE_SQL)
-                    .bind(at)
-                    .bind($ids::bind_text(group_id)?)
-                    .bind($ids::bind(user_id))
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to record a member's answer to the coach tools notice: {e}"
-                        ))
-                    })?;
-
-                Ok(result.rows_affected() > 0)
-            }
-
             async fn set_coach_sensitive_reads(
                 &self,
                 group_id: &str,
@@ -685,31 +646,6 @@ macro_rules! impl_coaching_group_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to set a member's coach consents: {e}"))
-                    })?;
-                if result.rows_affected() == 0 {
-                    return Ok(None);
-                }
-                self.get_member(group_id, user_id).await
-            }
-
-            async fn set_coach_assistant_read(
-                &self,
-                group_id: &str,
-                user_id: Uuid,
-                granted: bool,
-                now: DateTime<Utc>,
-            ) -> AppResult<Option<GroupMember>> {
-                let result = sqlx::query(SET_COACH_ASSISTANT_READ_SQL)
-                    .bind(granted)
-                    .bind(now)
-                    .bind($ids::bind_text(group_id)?)
-                    .bind($ids::bind(user_id))
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to set a member's coach assistant opt-in: {e}"
-                        ))
                     })?;
                 if result.rows_affected() == 0 {
                     return Ok(None);

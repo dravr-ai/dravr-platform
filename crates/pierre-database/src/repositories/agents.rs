@@ -19,6 +19,7 @@ use pierre_core::models::groups::{
     GroupTranscriptEntry, NewGroupTranscriptEntry, RoomTranscriptEntry, UpdateGroupRequest,
 };
 
+use super::coach_assistant::CoachAssistantRepository;
 use super::group_chat_connect::GroupChatConnectRepository;
 
 use pierre_core::models::AgentRuntimeContext;
@@ -328,7 +329,9 @@ pub trait AgentsRepository: Send + Sync {
 /// [`GroupChatConnectRepository`]'s, a supertrait, so the same repository
 /// object answers both.
 #[async_trait]
-pub trait CoachingGroupRepository: GroupChatConnectRepository + Send + Sync {
+pub trait CoachingGroupRepository:
+    GroupChatConnectRepository + CoachAssistantRepository + Send + Sync
+{
     // -- Group CRUD --
 
     /// Create a new coaching group
@@ -499,27 +502,6 @@ pub trait CoachingGroupRepository: GroupChatConnectRepository + Send + Sync {
         consent: bool,
     ) -> AppResult<bool>;
 
-    /// When the live member `user_id` of `group_id` answered the one-time
-    /// notice of their coach's AI tools; `None` while they have not, or when
-    /// they are not a live member. No tenant filter, as
-    /// [`Self::update_coach_sharing_consent`].
-    async fn assistant_notice_answered_at(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-    ) -> AppResult<Option<DateTime<Utc>>>;
-
-    /// Record that the live member `user_id` of `group_id` answered the
-    /// one-time notice of their coach's AI tools at `at`. Returns `false`
-    /// when `user_id` is not a live member. No tenant filter, as
-    /// [`Self::update_coach_sharing_consent`].
-    async fn answer_assistant_notice(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-        at: DateTime<Utc>,
-    ) -> AppResult<bool>;
-
     /// The live member `user_id` of `group_id` grants or revokes what their
     /// coach may do beyond reading their training: each `Some` sets that
     /// consent, each `None` leaves it as it stands, and a consent whose value
@@ -556,20 +538,6 @@ pub trait CoachingGroupRepository: GroupChatConnectRepository + Send + Sync {
         calendar_write: Option<bool>,
         wellness_read: Option<bool>,
         t2_read: Option<(bool, Option<DateTime<Utc>>)>,
-        now: DateTime<Utc>,
-    ) -> AppResult<Option<GroupMember>>;
-
-    /// The live member `user_id` of `group_id` turns on (`granted`) or off
-    /// their human coach's AI assistant including them in the roster tools
-    /// (carnet#1511), stamped `now` when the value changes. Scoped to the
-    /// member's own row, so no coach can change it. Returns the membership as
-    /// it now stands, or `None` when `user_id` is not a live member. No
-    /// tenant filter, as [`Self::set_coach_consents`].
-    async fn set_coach_assistant_read(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-        granted: bool,
         now: DateTime<Utc>,
     ) -> AppResult<Option<GroupMember>>;
 

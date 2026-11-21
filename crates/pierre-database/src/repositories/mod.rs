@@ -89,6 +89,8 @@ pub mod claim_verdict_grading;
 pub mod claim_verdicts;
 /// Repository trait and shared body for coach-access requests (carnet#738).
 pub mod coach_access_requests;
+/// What a member answers about their coach's AI assistant (carnet#1511): its repository trait and shared body.
+pub mod coach_assistant;
 /// Repository trait and shared body for a coach's "Traité" on Coach Home attention reasons (carnet#1252).
 pub mod coach_attention_dismissals;
 /// The athlete's record of their human coach's reads of their data (carnet#1445).
@@ -339,6 +341,7 @@ pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread, SubjectThrea
 pub use check_in_preferences::{CheckInPreferenceRepository, CheckInSubscriber};
 pub use claim_verdicts::*;
 pub use coach_access_requests::CoachAccessRequestRepository;
+pub use coach_assistant::CoachAssistantRepository;
 pub use coach_attention_dismissals::{
     AttentionDismissal, AttentionDismissalKey, CoachAttentionDismissalRepository,
 };
