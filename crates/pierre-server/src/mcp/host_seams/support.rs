@@ -8,16 +8,19 @@
 //! ([`pierre_tool_runtime::support_session`], carnet#1511), as `/mcp` serves
 //! it.
 //!
-//! The auth hook resolves the admin's own context; the dispatcher asks here
-//! whether a session started through this very connection is live, and if
-//! so lists and dispatches as the user. The two session tools are the one
+//! The auth hook resolves the admin's own context and records the
+//! credential it admitted ([`pierre_middleware::rate_limiting::request_credential`]:
+//! the engine's context has no slot for it); the dispatcher asks here
+//! whether a session started with that very credential is live, and if so
+//! lists and dispatches as the user. The two session tools are the one
 //! exception: they run as the admin, so the session can always be ended.
 
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_core::errors::AppResult;
+use pierre_core::permissions::impersonation::BoundCredential;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
-use pierre_tool_runtime::context::AuthMethod;
+use pierre_middleware::rate_limiting::request_credential;
 use pierre_tool_runtime::support_session::{
     self, grant_for_user, LiveSupport, END_TOOL, START_TOOL,
 };
@@ -25,14 +28,16 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 
-/// The connection a `/mcp` call came through, as a support session binds it:
-/// the OAuth client its token was issued to, or the admin's API keys.
-pub(super) fn binding(ctx: &ToolContext) -> Option<String> {
-    let api_key = ctx.auth_method.as_deref() == Some(AuthMethod::ApiKey.as_str());
-    support_session::binding_of(api_key, ctx.client_id.as_deref())
+/// The credential a `/mcp` call came through, as a support session binds
+/// it: the API key, or the OAuth grant its token was minted under, as the
+/// auth hook recorded it for this request. `None` outside an HTTP request,
+/// which starts and serves no session.
+pub(super) fn binding() -> Option<BoundCredential> {
+    request_credential()
 }
 
-/// The support session live for the admin `ctx` names on this connection.
+/// The support session live for the admin `ctx` names on the credential
+/// `binding` names ([`binding`], read once per call by the caller).
 ///
 /// # Errors
 ///
@@ -41,6 +46,7 @@ pub(super) fn binding(ctx: &ToolContext) -> Option<String> {
 pub(super) async fn live(
     resources: &ServerContext,
     ctx: &ToolContext,
+    binding: Option<&BoundCredential>,
 ) -> AppResult<Option<LiveSupport>> {
     let Some(admin) = ctx
         .user_id
@@ -54,7 +60,7 @@ pub(super) async fn live(
         &resources.common.repos,
         admin,
         &grant,
-        binding(ctx).as_deref(),
+        binding,
         Transport::McpHttp,
     )
     .await

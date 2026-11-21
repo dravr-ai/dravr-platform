@@ -47,7 +47,7 @@ use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
-use pierre_middleware::rate_limiting::report_request_operation;
+use pierre_middleware::rate_limiting::{report_request_credential, report_request_operation};
 use pierre_tool_runtime::context::{AuthMethod, SUPPORT_SESSION};
 use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::protocol::provider_offer::accept_no_provider_answer;
@@ -353,6 +353,9 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         // The usage row an API key's request writes names the tool it
         // called, not `POST /mcp`, which serves every tool.
         report_request_operation(mcp_operation(request));
+        // The credential a support session binds to (carnet#1511), which the
+        // engine's context cannot carry to the dispatcher.
+        report_request_credential(auth_result.bound_credential());
 
         match extract_tenant_context_internal(
             &self.resources.common.repos,
@@ -719,7 +722,8 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         // A support session started through this connection lists the user's
         // tools, and the one that ends it (carnet#1511). A session that cannot
         // be read lists nothing rather than the admin's own tools.
-        let support = match support::live(&self.resources, ctx).await {
+        let binding = support::binding();
+        let support = match support::live(&self.resources, ctx, binding.as_ref()).await {
             Ok(support) => support,
             Err(e) => {
                 error!(error = %e, "tools/list: the support-session lookup failed; listing nothing");
@@ -819,8 +823,9 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         // as the user, inside the session (carnet#1511); the two session
         // tools run as the admin. The connection is declared either way, for
         // the session tools to bind to.
-        let binding = support::binding(ctx);
-        let (call_ctx, session) = match support::live(&self.resources, ctx).await {
+        let binding = support::binding();
+        let (call_ctx, session) = match support::live(&self.resources, ctx, binding.as_ref()).await
+        {
             Ok(Some(live)) if !support::runs_as_admin(name) => {
                 (support::as_user(ctx, &live), Some(live.grant()))
             }
@@ -1037,6 +1042,7 @@ mod tests {
             active_tenant_id: None,
             scopes,
             client_id: client_id.map(str::to_owned),
+            grant_id: None,
         }
     }
 

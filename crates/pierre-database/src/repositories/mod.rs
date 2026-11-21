@@ -226,6 +226,8 @@ pub(crate) mod store_listings_backend;
 pub mod strava_seat_reclaim_warnings;
 /// `SubscriptionsRepository`: provider-agnostic billing subscriptions and webhook event dedupe.
 pub mod subscriptions;
+/// Ends the support sessions bound to a credential inside the write that revokes it (carnet#1511).
+pub mod support_binding;
 /// Shared statements, decoders and body for provider sync cursors and the connected-user roster.
 pub mod sync_cursors;
 /// The one body of the system-settings key/value store, emitted per backend.

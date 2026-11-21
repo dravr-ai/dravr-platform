@@ -30,17 +30,45 @@ pub struct ImpersonationSession {
     pub is_active: bool,
     /// Record creation timestamp
     pub created_at: DateTime<Utc>,
-    /// The assistant connection the session was started through over MCP or
-    /// A2A, and the only one it changes: an OAuth application's client id,
-    /// or [`API_KEY_BINDING`] for the admin's API keys. `None` for a session
-    /// the admin console started on the web (carnet#1511).
+    /// The OAuth grant a support session through an admin's assistant was
+    /// started with, and the only one it changes: the refresh-token family
+    /// its access token was minted in ([`BoundCredential::Grant`]). `None`
+    /// for a session started with an API key or on the web (carnet#1511).
     #[serde(default)]
-    pub bound_client: Option<String>,
+    pub grant_id: Option<String>,
+    /// The admin's API key a support session through their assistant was
+    /// started with, and the only one it changes
+    /// ([`BoundCredential::ApiKey`]). `None` for a session started over
+    /// OAuth or on the web.
+    #[serde(default)]
+    pub api_key_id: Option<String>,
 }
 
-/// [`ImpersonationSession::bound_client`] of a session an admin started
-/// through one of their API keys.
-pub const API_KEY_BINDING: &str = "api_key";
+/// The one credential a support session through an admin's assistant acts
+/// through.
+///
+/// JF, Q21: "the session is bound to the grant or API key that started
+/// it". Any other credential of the same admin, another key or another
+/// grant of the same application, acts as the admin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BoundCredential {
+    /// An OAuth grant: the refresh-token family the access token was minted
+    /// in. One authorization starts one family, so a second connection of
+    /// the same application is another grant.
+    Grant(String),
+    /// One of the admin's API keys, by id.
+    ApiKey(String),
+}
+
+/// `audit_events.action` of a support session an assistant started.
+pub const STARTED_ACTION: &str = "impersonation.started";
+
+/// `audit_events.action` of a support session an assistant ended, or that
+/// ended with the credential it was bound to.
+pub const ENDED_ACTION: &str = "impersonation.ended";
+
+/// `audit_events.action` of a support session ended by its hour.
+pub const EXPIRED_ACTION: &str = "impersonation.expired";
 
 /// How long a support session acts as its user from its start, never
 /// renewed: on the web console (the impersonation token's life) and through
@@ -83,23 +111,40 @@ impl ImpersonationSession {
             ended_at: None,
             is_active: true,
             created_at: now,
-            bound_client: None,
+            grant_id: None,
+            api_key_id: None,
         }
     }
 
-    /// A session an admin's assistant starts through the connection
-    /// `bound_client` names ([`Self::bound_client`]).
+    /// A session an admin's assistant starts with `credential`, the only
+    /// credential it changes ([`Self::bound_credential`]).
     #[must_use]
     pub fn bound_to(
         impersonator_id: Uuid,
         target_user_id: Uuid,
         reason: Option<String>,
-        bound_client: String,
+        credential: &BoundCredential,
     ) -> Self {
-        Self {
-            bound_client: Some(bound_client),
-            ..Self::new(impersonator_id, target_user_id, reason)
+        let session = Self::new(impersonator_id, target_user_id, reason);
+        match credential {
+            BoundCredential::Grant(id) => Self {
+                grant_id: Some(id.clone()),
+                ..session
+            },
+            BoundCredential::ApiKey(id) => Self {
+                api_key_id: Some(id.clone()),
+                ..session
+            },
         }
+    }
+
+    /// The credential the session is bound to; `None` for a web session.
+    #[must_use]
+    pub fn bound_credential(&self) -> Option<BoundCredential> {
+        self.grant_id
+            .clone()
+            .map(BoundCredential::Grant)
+            .or_else(|| self.api_key_id.clone().map(BoundCredential::ApiKey))
     }
 
     /// End the impersonation session

@@ -27,7 +27,8 @@ use axum::http::Request;
 use axum::Router;
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Duration, SubsecRound, Utc};
-use pierre_auth::auth::DelegatedGrant;
+use jsonwebtoken::dangerous::insecure_decode;
+use pierre_auth::auth::{Claims, DelegatedGrant};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::endpoints::OAuth2AuthorizationServer;
 use pierre_auth::oauth2_server::first_party::{MOBILE_CLIENT_ID, WEB_CLIENT_ID};
@@ -251,6 +252,49 @@ fn assert_invalid_grant(response: &AxumTestResponse) {
     assert_eq!(response.status(), 400, "{}", response.body_text());
     let body: Value = serde_json::from_str(&response.body_text()).unwrap();
     assert_eq!(body["error"], "invalid_grant", "{body}");
+}
+
+/// Every access token of one authorization names its refresh family as its
+/// `grant_id`: the grant an admin's support session is bound to, and that
+/// a revocation ends it with (carnet#1511). The code exchange starts the
+/// family, a refresh keeps it, and another authorization is another family.
+#[tokio::test]
+async fn every_access_token_of_one_authorization_names_its_refresh_family() {
+    let world = world().await;
+    let connection = connect(&world).await;
+    let family = world
+        .resources
+        .common
+        .repos
+        .oauth2_server
+        .get_refresh_token_by_value(&connection.refresh_token)
+        .await
+        .unwrap()
+        .expect("the stored refresh token")
+        .family_id;
+    let grant_of = |token: &str| insecure_decode::<Claims>(token).unwrap().claims.grant_id;
+    assert_eq!(
+        grant_of(&connection.access_token).as_deref(),
+        Some(family.as_str()),
+        "bug: the code exchange's token names the family it starts"
+    );
+
+    let response = refresh(&world, &connection.client, &connection.refresh_token).await;
+    assert_eq!(response.status(), 200, "{}", response.body_text());
+    let body: Value = response.json();
+    let rotated = body["access_token"].as_str().unwrap();
+    assert_eq!(
+        grant_of(rotated).as_deref(),
+        Some(family.as_str()),
+        "bug: a refreshed token keeps its family"
+    );
+
+    let other = connect(&world).await;
+    assert_ne!(
+        grant_of(&other.access_token),
+        Some(family),
+        "bug: another authorization is another grant"
+    );
 }
 
 /// O6: the defect. Revoking the grant leaves the refresh token alive.

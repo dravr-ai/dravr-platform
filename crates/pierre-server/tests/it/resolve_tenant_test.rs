@@ -28,6 +28,7 @@ fn auth_for(user_id: Uuid, active_tenant_id: Option<Uuid>) -> AuthResult {
         // first-party credential's grant keeps it representative.
         scopes: OAuthScope::self_grant(),
         client_id: None,
+        grant_id: None,
         user_id,
         auth_method: AuthMethod::JwtToken {
             tier: "starter".to_owned(),

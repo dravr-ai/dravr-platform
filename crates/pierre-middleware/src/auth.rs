@@ -578,6 +578,7 @@ impl McpAuthMiddleware {
                 // An API key is issued to the athlete, not to a registered
                 // client, so it names none.
                 client_id: None,
+                grant_id: None,
             },
             budget,
         })
@@ -669,6 +670,7 @@ impl McpAuthMiddleware {
                 // Minted in Settings and pasted into a client, not issued to
                 // a registered one: no client was verified.
                 client_id: None,
+                grant_id: None,
             },
             budget,
         })
@@ -809,6 +811,7 @@ impl McpAuthMiddleware {
             // still decides admin independently.
             scopes: OAuthScope::self_grant(),
             client_id: None,
+            grant_id: None,
         })
     }
 
@@ -959,6 +962,7 @@ impl McpAuthMiddleware {
                 active_tenant_id,
                 scopes,
                 client_id: claims.client_id,
+                grant_id: claims.grant_id,
             },
             budget,
         })
@@ -1141,6 +1145,7 @@ mod tests {
             impersonation_session_id: None,
             scope: String::new(),
             client_id: client_id.map(str::to_owned),
+            grant_id: None,
         }
     }
 

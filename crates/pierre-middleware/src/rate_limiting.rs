@@ -70,6 +70,7 @@ use http::{HeaderMap, HeaderValue, StatusCode};
 use pierre_auth::rate_limiting::RequestBudget;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{A2AUsage, ApiKeyUsage};
+use pierre_core::permissions::impersonation::BoundCredential;
 use pierre_core::usage_log::{self, LimitHit};
 use pierre_database::backends::{A2ARepository, UsageRepository};
 use pierre_database::RepositoryRegistry;
@@ -131,6 +132,9 @@ struct RequestReport {
     caller: Option<MeteredCaller>,
     /// The operation the request performed, when its route serves many.
     operation: Option<String>,
+    /// The credential that admitted the request, as a support session binds
+    /// it, for the handler to read back ([`request_credential`]).
+    credential: Option<BoundCredential>,
 }
 
 /// One request's report. `Arc` because two owners need it: the task-local
@@ -212,6 +216,33 @@ pub fn report_api_key_request(api_key_id: &str) {
 pub fn report_a2a_client_request(call: A2AClientCall) {
     let caller = MeteredCaller::A2AClient(call);
     report(|slot| slot.caller = Some(caller));
+}
+
+/// Record the credential that admitted this request, as a support session
+/// binds it (carnet#1511): the API key, or the OAuth grant its token was
+/// minted under.
+///
+/// For a door whose handler cannot be handed it directly: `/mcp` serves
+/// every call through the MCP engine's context, which has no slot for it.
+/// Outside a request scope it is dropped, and [`request_credential`] then
+/// answers `None`, which starts or serves no support session.
+pub fn report_request_credential(credential: Option<BoundCredential>) {
+    report(|slot| slot.credential = credential);
+}
+
+/// The credential [`report_request_credential`] recorded for this request;
+/// `None` outside a request scope or when none was recorded.
+#[must_use]
+pub fn request_credential() -> Option<BoundCredential> {
+    REQUEST_REPORT
+        .try_with(|slot| {
+            slot.lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .credential
+                .clone()
+        })
+        .ok()
+        .flatten()
 }
 
 /// Name the operation this request performed, for a route that serves many.

@@ -171,7 +171,7 @@ impl OAuth2AuthorizationServer {
             return Ok(Self::create_retry_later_response(refusal));
         }
 
-        let (_, new_refresh_token_value, granted) = self
+        let (consumed, new_refresh_token_value, granted) = self
             .rotate_refresh_token(refresh_token_value, &refresh_token_data.client_id)
             .await?
             .ok_or_else(|| {
@@ -188,6 +188,7 @@ impl OAuth2AuthorizationServer {
                     refresh_token_data.user_id,
                     refresh_token_data.tenant_id.as_str(),
                 )),
+                Some(&consumed.family_id),
                 &granted,
                 audience.as_deref(),
             )

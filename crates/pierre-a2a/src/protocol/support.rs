@@ -6,10 +6,13 @@
 
 //! An admin's support session through their agent
 //! ([`pierre_tool_runtime::support_session`], carnet#1511), as A2A serves
-//! it: bound to the OAuth application the agent's user token was issued
-//! to. A client-credentials agent never holds `admin`, so it never has one.
+//! it: bound to the OAuth grant the agent's user token was minted under
+//! (its refresh family), so another connection of the same application
+//! acts as the admin. A client-credentials agent never holds `admin`, so it
+//! never has one.
 
 use pierre_core::models::TenantId;
+use pierre_core::permissions::impersonation::BoundCredential;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_runtime_context::A2ACtx;
@@ -51,7 +54,7 @@ impl A2AServer {
             ctx.repos(),
             principal.user_id,
             &principal.scopes,
-            binding(principal).as_deref(),
+            binding(principal).as_ref(),
             Transport::A2a,
         )
         .await
@@ -121,9 +124,9 @@ impl Acting {
     }
 }
 
-/// The connection an A2A call came through, as a support session binds it:
-/// the OAuth application `principal`'s user token was issued to. A
+/// The credential an A2A call came through, as a support session binds it:
+/// the OAuth grant `principal`'s user token was minted under. A
 /// client-credentials agent binds nothing.
-pub(super) fn binding(principal: &AuthPrincipal) -> Option<String> {
-    support_session::binding_of(false, principal.credential_client.as_deref())
+pub(super) fn binding(principal: &AuthPrincipal) -> Option<BoundCredential> {
+    principal.credential.clone()
 }

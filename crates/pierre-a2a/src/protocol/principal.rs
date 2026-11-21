@@ -14,6 +14,7 @@ use chrono::Utc;
 use pierre_auth::rate_limiting::{a2a_client_window_start, calculate_a2a_client_rate_limit};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::a2a::{user_task_key, A2AClient};
+use pierre_core::permissions::impersonation::BoundCredential;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_logging::record_identity;
 use pierre_middleware::rate_limiting::{
@@ -46,10 +47,11 @@ pub(super) struct AuthPrincipal {
     /// client-credentials token, which acts as its registering user in that
     /// user's own tenant.
     pub(super) active_tenant_id: Option<Uuid>,
-    /// The OAuth application a user token was issued to, which an admin's
-    /// support session through this agent is bound to (carnet#1511). `None`
-    /// for a client-credentials token: a machine client never holds `admin`.
-    pub(super) credential_client: Option<String>,
+    /// The credential an admin's support session through this agent is
+    /// bound to (carnet#1511): the OAuth grant a user token was minted
+    /// under. `None` for a client-credentials token: a machine client never
+    /// holds `admin`.
+    pub(super) credential: Option<BoundCredential>,
 }
 
 /// A call refused before it reached its handler, and whom its credential
@@ -204,12 +206,13 @@ impl A2AServer {
                     )),
                 });
             };
+            let credential = admitted.bound_credential();
             return Ok(AuthPrincipal {
                 user_id: admitted.user_id,
                 client_id: None,
                 scopes: admitted.scopes,
                 active_tenant_id: Some(active_tenant_id),
-                credential_client: admitted.client_id,
+                credential,
             });
         }
 
@@ -281,7 +284,7 @@ impl A2AServer {
             client_id: Some(client.id),
             scopes,
             active_tenant_id: None,
-            credential_client: None,
+            credential: None,
         })
     }
 

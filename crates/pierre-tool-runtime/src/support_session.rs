@@ -15,8 +15,10 @@
 //!   Never of another admin, never of themselves. The two
 //!   tools that start and end it are `ADMIN_ONLY`, so the one access
 //!   predicate ([`crate::tool_access`]) refuses them to anyone else.
-//! - **Bound to the connection that started it** ([`SUPPORT_BINDING`]): an
-//!   OAuth application's client id, or the admin's API keys. A session the
+//! - **Bound to the credential that started it** ([`SUPPORT_BINDING`], JF
+//!   Q21): the OAuth grant (the refresh family its access token was minted
+//!   in) or the one API key. Another key of the same admin, or another
+//!   connection of the same application, acts as the admin. A session the
 //!   web console started never turns an assistant into the user, and one an
 //!   assistant started never changes the console's. One live session per
 //!   admin across surfaces: a start ends every earlier one, as on the web.
@@ -36,21 +38,26 @@
 //!   in the session, written before it runs, and a row that cannot be
 //!   written refuses the call (the executor's admin-call audit).
 //! - **It ends** with [`END_TOOL`], the web console's end, the hour, a new
-//!   start on any surface, the admin losing the admin role, or the user
-//!   gaining it.
+//!   start on any surface, the admin losing the admin role, the user gaining
+//!   it, or its credential being revoked: the key deactivated, the grant's
+//!   family revoked, its consent withdrawn or its application deleted. The
+//!   revoking write ends it in its own transaction and audits it
+//!   (`pierre_database::repositories::support_binding`); a grant that ran
+//!   out is ended here at the next lookup.
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_auth::auth::ImpersonationGrant;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{TenantId, User};
 use pierre_core::permissions::impersonation::{
-    self, ImpersonationSession, API_KEY_BINDING, SESSION_MINUTES,
+    self, BoundCredential, ImpersonationSession, SESSION_MINUTES,
 };
+pub use pierre_core::permissions::impersonation::{ENDED_ACTION, EXPIRED_ACTION, STARTED_ACTION};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
-use pierre_database::repositories::{AuditOutcome, AuditSource, NewAuditEvent};
+use pierre_database::repositories::support_binding::support_session_event;
+use pierre_database::repositories::NewAuditEvent;
 use pierre_database::RepositoryRegistry;
-use serde_json::json;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -61,39 +68,17 @@ pub const START_TOOL: &str = "admin_impersonate_start";
 /// a live session serves as the admin, never as the user.
 pub const END_TOOL: &str = "admin_impersonate_end";
 
-/// `audit_events.action` of a support session an assistant started.
-pub const STARTED_ACTION: &str = "impersonation.started";
-
-/// `audit_events.action` of a support session an assistant ended.
-pub const ENDED_ACTION: &str = "impersonation.ended";
-
-/// `audit_events.action` of a support session ended by its hour.
-pub const EXPIRED_ACTION: &str = "impersonation.expired";
-
 tokio::task_local! {
-    /// The assistant connection the in-flight external call came through,
-    /// as a support session binds it ([`binding_of`]): set by the `/mcp`
+    /// The credential the in-flight external call came through, as a
+    /// support session binds it ([`BoundCredential`]): set by the `/mcp`
     /// dispatcher and the A2A executor around each call. Absent on Dravr's
     /// own surfaces, where [`START_TOOL`] has nothing to bind and refuses.
-    pub static SUPPORT_BINDING: Option<String>;
+    pub static SUPPORT_BINDING: Option<BoundCredential>;
 }
 
-/// The binding of an external call.
-///
-/// The OAuth application's client id the credential was issued to, or
-/// [`API_KEY_BINDING`] for an API key. `None` for any other credential (a
-/// personal MCP token never holds `admin`).
+/// The credential the in-flight call declared, if any.
 #[must_use]
-pub fn binding_of(api_key: bool, client_id: Option<&str>) -> Option<String> {
-    if api_key {
-        return Some(API_KEY_BINDING.to_owned());
-    }
-    client_id.map(str::to_owned)
-}
-
-/// The binding the in-flight call declared, if any.
-#[must_use]
-pub fn current_binding() -> Option<String> {
+pub fn current_binding() -> Option<BoundCredential> {
     SUPPORT_BINDING.try_with(Clone::clone).ok().flatten()
 }
 
@@ -143,13 +128,16 @@ pub fn grant_for_user(grant: &[OAuthScope]) -> Vec<OAuthScope> {
         .collect()
 }
 
-/// The support session live for `admin` on the connection `binding` names,
+/// The support session live for `admin` on the credential `binding` names,
 /// under `grant`, or `None`.
 ///
 /// `None` without a lookup when the grant does not hold `admin`: a session
 /// is never served to a connection that could not have started it. A
-/// session past its hour, or whose admin is no longer one, or whose user has
-/// become one, is ended here and answers `None`.
+/// session past its hour, whose admin is no longer one, whose user has
+/// become one, or whose OAuth grant ran out, is ended here and answers
+/// `None`. A revoked credential's sessions were ended by the revocation;
+/// an API key's call proves the key live, since a revoked or expired key
+/// does not authenticate.
 ///
 /// # Errors
 ///
@@ -159,7 +147,7 @@ pub async fn live_support(
     repos: &RepositoryRegistry,
     admin: Uuid,
     grant: &[OAuthScope],
-    binding: Option<&str>,
+    binding: Option<&BoundCredential>,
     transport: Transport,
 ) -> AppResult<Option<LiveSupport>> {
     let Some(binding) = binding else {
@@ -175,9 +163,25 @@ pub async fn live_support(
     else {
         return Ok(None);
     };
-    if Utc::now() >= expires_at(&session) {
+    let now = Utc::now();
+    if now >= expires_at(&session) {
         close(repos, &session, EXPIRED_ACTION, transport).await?;
         return Ok(None);
+    }
+    if let BoundCredential::Grant(grant_id) = binding {
+        if !repos
+            .impersonation
+            .grant_unexpired(admin, grant_id, now)
+            .await?
+        {
+            warn!(
+                impersonator_id = %admin,
+                session_id = %session.id,
+                "support session through an assistant ended: its OAuth grant ran out"
+            );
+            close(repos, &session, ENDED_ACTION, transport).await?;
+            return Ok(None);
+        }
     }
     // SECURITY: Global lookups — the admin and the user act across tenants
     let admin_in_standing = repos
@@ -221,7 +225,7 @@ pub struct StartedSupport {
     pub expires_at: DateTime<Utc>,
 }
 
-/// Start a support session for `admin` on the connection `binding` names,
+/// Start a support session for `admin` on the credential `binding` names,
 /// acting as `user` (an email or an account id), for `reason`.
 ///
 /// Every earlier session of the admin ends first, on every surface. The
@@ -237,7 +241,7 @@ pub struct StartedSupport {
 pub async fn start(
     repos: &RepositoryRegistry,
     admin: Uuid,
-    binding: Option<&str>,
+    binding: Option<&BoundCredential>,
     user: &str,
     reason: &str,
     transport: Transport,
@@ -281,12 +285,8 @@ pub async fn start(
     }
 
     repos.impersonation.end_all_sessions(admin).await?;
-    let session = ImpersonationSession::bound_to(
-        admin,
-        target.id,
-        Some(reason.to_owned()),
-        binding.to_owned(),
-    );
+    let session =
+        ImpersonationSession::bound_to(admin, target.id, Some(reason.to_owned()), binding);
     repos.impersonation.create_session(&session).await?;
     let event = event(&session, STARTED_ACTION, "started", transport);
     if let Err(e) = repos.admin_audit.record(&event).await {
@@ -304,7 +304,7 @@ pub async fn start(
         impersonator_id = %admin,
         target_user_id = %target.id,
         session_id = %session.id,
-        bound_client = %binding,
+        bound_to = credential_kind(binding),
         "Admin started a support session through their assistant"
     );
     Ok(StartedSupport {
@@ -314,8 +314,9 @@ pub async fn start(
     })
 }
 
-/// End the live support session `admin` started on the connection `binding`
-/// names, and write the end to the audit trail. `None` when none is live.
+/// End the live support session `admin` started with the credential
+/// `binding` names, and write the end to the audit trail. `None` when none
+/// is live.
 ///
 /// # Errors
 ///
@@ -324,7 +325,7 @@ pub async fn start(
 pub async fn end(
     repos: &RepositoryRegistry,
     admin: Uuid,
-    binding: Option<&str>,
+    binding: Option<&BoundCredential>,
     transport: Transport,
 ) -> AppResult<Option<ImpersonationSession>> {
     let Some(binding) = binding else {
@@ -381,45 +382,26 @@ fn event(
     transport: Transport,
 ) -> NewAuditEvent {
     let label = Transport::label_of(Some(transport));
-    NewAuditEvent {
-        action: action.to_owned(),
-        summary: format!("Support session through an assistant {verb} over {label}"),
-        outcome: AuditOutcome::Success,
-        source: AuditSource::ToolCall,
-        actor_user_id: Some(session.impersonator_id),
-        // The user's tenant, not the admin's: only a view of the whole trail
-        // reads it, as every row reaching past the tenant its admin acts in.
-        tenant_id: None,
-        ip_address: None,
-        user_agent: None,
-        metadata: json!({
-            "target": { "user_id": session.target_user_id },
-            "impersonation_session_id": session.id,
-            "bound_client": session.bound_client,
-            "reason": session.reason,
-            "transport": label,
-        }),
+    support_session_event(
+        session,
+        action,
+        format!("Support session through an assistant {verb} over {label}"),
+        Some(label),
+    )
+}
+
+/// Which kind of credential a session is bound to, for a log line: never
+/// the id itself.
+const fn credential_kind(credential: &BoundCredential) -> &'static str {
+    match credential {
+        BoundCredential::Grant(_) => "oauth_grant",
+        BoundCredential::ApiKey(_) => "api_key",
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn an_api_key_binds_as_the_admins_keys_and_an_oauth_token_as_its_client() {
-        assert_eq!(
-            binding_of(true, None).as_deref(),
-            Some(API_KEY_BINDING),
-            "bug: an API key binds as the admin's keys"
-        );
-        assert_eq!(
-            binding_of(false, Some("claude-ai")).as_deref(),
-            Some("claude-ai"),
-            "bug: an OAuth token binds as its client"
-        );
-        assert_eq!(binding_of(false, None), None, "nothing to bind to");
-    }
 
     #[test]
     fn the_user_is_served_without_admin() {

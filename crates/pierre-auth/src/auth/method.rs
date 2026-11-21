@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::permissions::impersonation::BoundCredential;
 use pierre_database::repositories::admin_audit::{
     AdminAuditRepository, AuditOutcome, AuditSource, NewAuditEvent,
 };
@@ -186,6 +187,19 @@ impl AuthMethod {
 }
 
 impl AuthResult {
+    /// The credential a support session started through it is bound to
+    /// (carnet#1511): the API key, or the OAuth grant a delegated token was
+    /// minted under. `None` for any other credential, which never starts
+    /// one.
+    #[must_use]
+    pub fn bound_credential(&self) -> Option<BoundCredential> {
+        match &self.auth_method {
+            AuthMethod::ApiKey { key_id, .. } => Some(BoundCredential::ApiKey(key_id.clone())),
+            AuthMethod::JwtToken { .. } => self.grant_id.clone().map(BoundCredential::Grant),
+            AuthMethod::McpToken { .. } | AuthMethod::ChannelLink { .. } => None,
+        }
+    }
+
     /// Whether the credential is an outside client's acting for the user: an
     /// API key, an MCP token, or a token naming an OAuth application that is
     /// not one of Dravr's own apps ([`names_third_party`]).

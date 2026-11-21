@@ -23,7 +23,7 @@ use super::rate_limiting::OAuth2RateLimiter;
 use super::request_text::{refuse_control_characters, refuse_oversized_state};
 use super::resource::bound_audience;
 use crate::admin::jwks::JwksManager;
-use crate::auth::{AuthManager, DelegatedGrant};
+use crate::auth::AuthManager;
 use crate::config::oauth::ClientRetentionConfig;
 use crate::config::OAuth2ServerConfig;
 use crate::refresh_rotation::{
@@ -43,6 +43,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// Admin access at consent: the one way a grant holds `admin` (carnet#1511)
+mod access_token;
 mod admin_grant;
 pub use admin_grant::{without_admin, AdminAccess};
 /// Access-token validation with refresh, `validate_and_refresh`
@@ -667,10 +668,14 @@ impl OAuth2AuthorizationServer {
                 auth_code.resource.as_deref(),
             )
             .await;
+        // The grant starts a refresh family, which its every access token
+        // names (carnet#1511).
+        let family_id = Uuid::new_v4().to_string();
         let access_token = self
             .generate_access_token(
                 &request.client_id,
                 Some((auth_code.user_id, auth_code.tenant_id.as_str())),
+                Some(&family_id),
                 &granted,
                 audience.as_deref(),
             )
@@ -705,7 +710,7 @@ impl OAuth2AuthorizationServer {
             expires_at,
             created_at: now,
             revoked: false,
-            family_id: Uuid::new_v4().to_string(),
+            family_id,
             // The first token of a chain stamps when the chain began.
             family_created_at: Some(now),
             // The grant keeps the resource it was authorized for; a token
@@ -752,6 +757,7 @@ impl OAuth2AuthorizationServer {
             .generate_access_token(
                 &request.client_id,
                 None, // No user for client credentials
+                None,
                 &granted,
                 audience.as_deref(),
             )
@@ -831,6 +837,7 @@ impl OAuth2AuthorizationServer {
                     old_refresh_token.user_id,
                     old_refresh_token.tenant_id.as_str(),
                 )),
+                Some(&old_refresh_token.family_id),
                 &granted,
                 audience.as_deref(),
             )
@@ -1100,79 +1107,6 @@ impl OAuth2AuthorizationServer {
     #[must_use]
     pub fn default_scope_display() -> String {
         OAuthScope::render_granted(&OAuthScope::default_grant())
-    }
-
-    /// Generate JWT access token with RS256 asymmetric signing.
-    ///
-    /// Async because a user-bound token has to carry the athlete's real
-    /// connected providers. That field used to be filled with the granted
-    /// scopes, which is how an OAuth-minted token came to report `fitness:read`
-    /// as a connected provider; the grant now rides in the token's own `scope`
-    /// claim and `providers` means what it means everywhere else.
-    ///
-    /// `audience` is the RFC 8707 resource the token is bound to, `None` for
-    /// the platform audience. `subject` is the user the grant acts for and the
-    /// tenant it was authorized in, which the caller confirmed the user still
-    /// belongs to ([`Self::require_grant_tenant`]); the token carries it as
-    /// `active_tenant_id`. A user token is never minted without one.
-    async fn generate_access_token(
-        &self,
-        client_id: &str,
-        subject: Option<(Uuid, &str)>,
-        granted: &[OAuthScope],
-        audience: Option<&str>,
-    ) -> AppResult<String> {
-        if granted.is_empty() {
-            debug!(
-                client_id = %client_id,
-                user_id = ?subject.map(|(user_id, _)| user_id),
-                "Minting an access token with an empty grant"
-            );
-        }
-        let scopes: Vec<String> = granted
-            .iter()
-            .map(|scope| scope.as_str().to_owned())
-            .collect();
-
-        let Some((uid, tenant_id)) = subject else {
-            return self
-                .auth_manager
-                .generate_client_credentials_token(
-                    &self.jwks_manager,
-                    client_id,
-                    &scopes,
-                    None, // tenant_id for client credentials
-                    audience,
-                )
-                .map_err(|e| {
-                    AppError::internal(format!("Failed to generate client credentials token: {e}"))
-                });
-        };
-
-        // SECURITY: Global lookup — OAuth2 token minting, no tenant context.
-        // A user who cannot be read has no providers to report; the token is
-        // still minted, because the grant is what authorizes it and the
-        // provider list is descriptive.
-        let providers = self
-            .users
-            .get_global(uid)
-            .await
-            .ok()
-            .flatten()
-            .map_or_default(|user| user.available_providers());
-        self.auth_manager
-            .generate_oauth_access_token(
-                &self.jwks_manager,
-                &DelegatedGrant {
-                    client_id,
-                    scopes: &scopes,
-                    audience,
-                },
-                &uid,
-                &providers,
-                Some(tenant_id.to_owned()),
-            )
-            .map_err(|e| AppError::internal(format!("Failed to generate OAuth access token: {e}")))
     }
 
     /// Generate random string for codes

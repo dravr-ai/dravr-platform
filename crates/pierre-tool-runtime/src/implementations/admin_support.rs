@@ -7,11 +7,11 @@
 //! # `admin_impersonate_start` and `admin_impersonate_end` (carnet#1511)
 //!
 //! An admin's assistant acts as a user for up to an hour: from the next
-//! call on, the connection that started the session is offered and served
-//! exactly what that user's own assistant is, plus
-//! [`END_TOOL`](crate::support_session::END_TOOL). Both tools are
-//! `ADMIN_ONLY`, so they need an admin whose grant holds `admin` (their API
-//! key; no OAuth connection holds it while `admin` is not delegable), and the
+//! call on, the credential that started the session (that OAuth grant, or
+//! that API key) is offered and served exactly what that user's own
+//! assistant is, plus [`END_TOOL`](crate::support_session::END_TOOL). Both
+//! tools are `ADMIN_ONLY`, so they need an admin whose grant holds `admin`
+//! (their API key, or an OAuth connection with Admin access ticked), and the
 //! one access predicate refuses them to anyone else. Neither is offered in
 //! Dravr's own chat: the web console starts its own support sessions.
 
@@ -153,7 +153,7 @@ impl McpTool<dyn ToolRuntime> for AdminImpersonateStartTool {
             let started = support_session::start(
                 context.resources.repos(),
                 context.user_id,
-                support_session::current_binding().as_deref(),
+                support_session::current_binding().as_ref(),
                 field("user"),
                 field("reason"),
                 transport,
@@ -218,7 +218,7 @@ impl McpTool<dyn ToolRuntime> for AdminImpersonateEndTool {
             let ended = support_session::end(
                 context.resources.repos(),
                 context.user_id,
-                support_session::current_binding().as_deref(),
+                support_session::current_binding().as_ref(),
                 transport,
             )
             .await?;

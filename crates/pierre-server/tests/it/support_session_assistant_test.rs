@@ -1,5 +1,5 @@
-// ABOUTME: An admin's AI assistant acts as a user over /mcp and /a2a: a support session bound to the connection that starts it
-// ABOUTME: Refused without admin in the grant; never of an admin; leaves nothing behind; every call audited; ends with the session
+// ABOUTME: An admin's AI assistant acts as a user over /mcp and /a2a: a support session bound to the credential that starts it
+// ABOUTME: Only that grant or key acts as the user; revoking it ends the session; never of an admin; every call audited
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,9 +11,11 @@
 //!
 //! JF, 2026-11-19: "Build it over MCP/A2A". An admin's assistant starts a
 //! support session with `admin_impersonate_start`, and from the next call
-//! on the connection that started it lists and runs exactly what the user's
-//! own assistant does; `admin_impersonate_end` ends it. Each case drives the
-//! real entry points, `POST /mcp` and `POST /a2a/jsonrpc`.
+//! on the credential that started it lists and runs exactly what the user's
+//! own assistant does; `admin_impersonate_end` ends it. JF, Q21: "the
+//! session is bound to the grant or API key that started it", and revoking
+//! the grant ends the session. Each case drives the real entry points,
+//! `POST /mcp` and `POST /a2a/jsonrpc`.
 
 #[cfg(feature = "tools-groups")]
 mod support_session_assistant_tests {
@@ -30,14 +32,17 @@ mod support_session_assistant_tests {
     use axum::Router;
     use chrono::{Duration, Utc};
     use pierre_auth::auth::{DelegatedGrant, IMPERSONATION_WRITE_REFUSED};
-    use pierre_core::permissions::impersonation::{ImpersonationSession, API_KEY_BINDING};
+    use pierre_core::models::{OAuth2Client, OAuth2RefreshToken, OAuthClientGrant};
+    use pierre_core::permissions::impersonation::{BoundCredential, ImpersonationSession};
     use pierre_core::permissions::scopes::OAuthScope;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::repositories::admin_audit::AuditEventFilter;
     use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_tool_runtime::support_session::{
         ENDED_ACTION, END_TOOL, EXPIRED_ACTION, STARTED_ACTION, START_TOOL,
     };
+    use secrecy::SecretString;
     use serde_json::{json, Value};
     use tower::ServiceExt;
     use uuid::Uuid;
@@ -90,17 +95,167 @@ mod support_session_assistant_tests {
         }
     }
 
+    /// One of the admin's API keys: the bearer an assistant sends and the
+    /// key's id, which a session it starts is bound to.
+    struct Key {
+        bearer: String,
+        id: String,
+    }
+
+    /// One authorization of [`ADMIN_CLIENT`]: its refresh family, stored as
+    /// the token endpoint stores it, and an access token minted in it.
+    struct Grant {
+        bearer: String,
+        family: String,
+        refresh: String,
+    }
+
     impl World {
         /// The admin's own API key: the self grant, `admin` included.
         async fn admin_key(&self) -> String {
-            let key = common::issue_test_api_key(
-                &self.res.agent.database,
-                self.admin.id,
-                "admin assistant",
-            )
-            .await
-            .unwrap();
-            format!("Bearer {key}")
+            self.admin_key_named("admin assistant").await.bearer
+        }
+
+        /// A new API key of the admin's, named `name`.
+        async fn admin_key_named(&self, name: &str) -> Key {
+            let key = common::issue_test_api_key(&self.res.agent.database, self.admin.id, name)
+                .await
+                .unwrap();
+            let id = self
+                .res
+                .common
+                .repos
+                .api_keys
+                .get_for_user(self.admin.id)
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|stored| stored.name == name)
+                .expect("the key just issued")
+                .id;
+            Key {
+                bearer: format!("Bearer {key}"),
+                id,
+            }
+        }
+
+        /// A new authorization of [`ADMIN_CLIENT`] by `who` with `scopes`:
+        /// a refresh family of its own, and an access token minted in it.
+        /// Each call is another grant of the same application.
+        async fn grant(&self, who: &Person, scopes: &[&str]) -> Grant {
+            let oauth = &self.res.common.repos.oauth2_server;
+            if oauth.get_client(ADMIN_CLIENT).await.unwrap().is_none() {
+                oauth
+                    .store_client(&OAuth2Client {
+                        id: Uuid::new_v4().to_string(),
+                        client_id: ADMIN_CLIENT.to_owned(),
+                        client_secret_hash: String::new(),
+                        redirect_uris: Vec::new(),
+                        grant_types: vec![
+                            "authorization_code".to_owned(),
+                            "refresh_token".to_owned(),
+                        ],
+                        response_types: vec!["code".to_owned()],
+                        client_name: Some("Admin assistant".to_owned()),
+                        client_uri: None,
+                        scope: None,
+                        created_at: Utc::now(),
+                        expires_at: None,
+                    })
+                    .await
+                    .unwrap();
+            }
+            let family = Uuid::new_v4().to_string();
+            let refresh = format!("rt_{}", Uuid::new_v4().simple());
+            let now = Utc::now();
+            oauth
+                .store_refresh_token(&OAuth2RefreshToken {
+                    token: SecretString::from(refresh.clone()),
+                    client_id: ADMIN_CLIENT.to_owned(),
+                    user_id: who.id,
+                    tenant_id: who.tenant.to_string(),
+                    scope: Some(scopes.join(" ")),
+                    expires_at: now + Duration::days(1),
+                    created_at: now,
+                    revoked: false,
+                    family_id: family.clone(),
+                    resource: None,
+                    family_created_at: Some(now),
+                })
+                .await
+                .unwrap();
+            let scopes: Vec<String> = scopes.iter().map(|s| (*s).to_owned()).collect();
+            let token = self
+                .res
+                .auth
+                .auth_manager
+                .generate_oauth_access_token_in_grant(
+                    &self.res.auth.jwks_manager,
+                    &DelegatedGrant {
+                        client_id: ADMIN_CLIENT,
+                        scopes: &scopes,
+                        audience: None,
+                    },
+                    &family,
+                    &who.id,
+                    &[],
+                    Some(who.tenant.to_string()),
+                )
+                .unwrap();
+            Grant {
+                bearer: format!("Bearer {token}"),
+                family,
+                refresh,
+            }
+        }
+
+        /// An admin grant of [`ADMIN_CLIENT`]: every delegable scope and
+        /// `admin`, as an admin who ticked Admin access holds.
+        async fn admin_grant(&self) -> Grant {
+            let mut every = OAuthScope::delegable_as_str();
+            every.push("admin");
+            self.grant(&self.admin, &every).await
+        }
+
+        /// The session `id`, as stored.
+        async fn session(&self, id: &str) -> ImpersonationSession {
+            self.res
+                .common
+                .repos
+                .impersonation
+                .get_session(id)
+                .await
+                .unwrap()
+                .expect("the session row")
+        }
+
+        /// The live session the admin started with `credential`.
+        async fn bound(&self, credential: &BoundCredential) -> Option<ImpersonationSession> {
+            self.res
+                .common
+                .repos
+                .impersonation
+                .get_active_bound_session(self.admin.id, credential)
+                .await
+                .unwrap()
+        }
+
+        /// The `impersonation.ended` rows naming session `id`.
+        async fn ended_rows(&self, id: &str) -> Vec<Value> {
+            self.trail(ENDED_ACTION)
+                .await
+                .into_iter()
+                .filter(|row| row["metadata"]["impersonation_session_id"] == id)
+                .collect()
+        }
+
+        /// Whether `authorization` reads the coach's member by name: the
+        /// roster as the coach's assistant sees it.
+        async fn sees_as_coach(&self, authorization: &str) -> bool {
+            let roster = self
+                .call(authorization, "get_roster_overview", json!({}))
+                .await;
+            text(&roster).contains("Bea Bright")
         }
 
         /// A token an OAuth application holds for `who`, with `scopes`.
@@ -418,9 +573,10 @@ mod support_session_assistant_tests {
     /// into the user; one past its hour is ended on the next call, and the
     /// expiry is on the trail.
     #[tokio::test]
-    async fn only_a_live_session_this_connection_started_changes_it() {
+    async fn only_a_live_session_this_credential_started_changes_it() {
         let world = world().await;
-        let key = world.admin_key().await;
+        let own_key = world.admin_key_named("admin assistant").await;
+        let key = own_key.bearer.clone();
         let sessions = &world.res.common.repos.impersonation;
 
         let web = ImpersonationSession::new(world.admin.id, world.casey.id, Some("web".to_owned()));
@@ -435,7 +591,7 @@ mod support_session_assistant_tests {
                 world.admin.id,
                 world.casey.id,
                 Some("stale".to_owned()),
-                API_KEY_BINDING.to_owned(),
+                &BoundCredential::ApiKey(own_key.id.clone()),
             )
         };
         sessions.create_session(&stale).await.unwrap();
@@ -449,13 +605,13 @@ mod support_session_assistant_tests {
             "bug: the expiry is one audit row"
         );
 
-        // And a session bound to another connection of the admin's leaves
+        // And a session bound to another credential of the admin's leaves
         // this one alone.
         let elsewhere = ImpersonationSession::bound_to(
             world.admin.id,
             world.casey.id,
             Some("elsewhere".to_owned()),
-            "some_other_client".to_owned(),
+            &BoundCredential::ApiKey("some_other_key".to_owned()),
         );
         sessions.create_session(&elsewhere).await.unwrap();
         assert!(
@@ -483,9 +639,8 @@ mod support_session_assistant_tests {
         assert!(!text(&refused).contains("\"session_id\""), "{refused}");
         assert!(world.trail(STARTED_ACTION).await.is_empty(), "{refused}");
 
-        let mut every = delegated.clone();
-        every.push("admin");
-        let grant = world.oauth(&world.admin, &every);
+        let admin_grant = world.admin_grant().await;
+        let grant = admin_grant.bearer.clone();
         let started = world
             .a2a(
                 &grant,
@@ -495,14 +650,9 @@ mod support_session_assistant_tests {
             .await;
         assert!(text(&started).contains("\"session_id\""), "{started}");
         let session = world
-            .res
-            .common
-            .repos
-            .impersonation
-            .get_active_bound_session(world.admin.id, ADMIN_CLIENT)
+            .bound(&BoundCredential::Grant(admin_grant.family.clone()))
             .await
-            .unwrap()
-            .expect("bound to the agent's application");
+            .expect("bound to the agent's grant");
         assert_eq!(
             session.target_user_id, world.casey.id,
             "bug: the A2A session acts as the coach it named"
@@ -541,5 +691,411 @@ mod support_session_assistant_tests {
         assert!(text(&ended).contains("\"ended\":true"), "{ended}");
         let roster = world.a2a(&grant, "get_roster_overview", json!({})).await;
         assert!(!text(&roster).contains("Bea Bright"), "{roster}");
+    }
+
+    /// JF Q21 over `/mcp` with API keys: the session is the key's that
+    /// started it. Another key of the same admin acts as the admin, and the
+    /// start names the key on the trail.
+    #[tokio::test]
+    async fn only_the_key_that_started_a_session_acts_as_the_user() {
+        let world = world().await;
+        let first = world.admin_key_named("first key").await;
+        let second = world.admin_key_named("second key").await;
+
+        let started = world
+            .start(&first.bearer, "casey@support-session.test")
+            .await;
+        assert_eq!(started["result"]["isError"], false, "{started}");
+        let session = world
+            .bound(&BoundCredential::ApiKey(first.id.clone()))
+            .await
+            .expect("bound to the first key");
+        assert_eq!(session.api_key_id.as_deref(), Some(first.id.as_str()));
+        assert_eq!(
+            session.grant_id, None,
+            "bug: a key's session names no grant"
+        );
+
+        assert!(
+            world.sees_as_coach(&first.bearer).await,
+            "the first key is the coach"
+        );
+        let listed = world.listed(&second.bearer).await;
+        assert!(
+            listed.contains(START_TOOL),
+            "bug: another key of the same admin is the admin: {listed:?}"
+        );
+        assert!(
+            !world.sees_as_coach(&second.bearer).await,
+            "bug: another key of the same admin never acts as the coach"
+        );
+
+        let started_rows = world.trail(STARTED_ACTION).await;
+        assert_eq!(started_rows.len(), 1, "{started_rows:#?}");
+        assert_eq!(
+            started_rows[0]["metadata"]["api_key_id"], first.id,
+            "bug: the start names the key it is bound to"
+        );
+    }
+
+    /// JF Q21 over `/mcp` with OAuth: the session is the grant's (the
+    /// refresh family) that started it. Another authorization of the same
+    /// application acts as the admin.
+    #[tokio::test]
+    async fn only_the_grant_that_started_a_session_acts_as_the_user() {
+        let world = world().await;
+        let first = world.admin_grant().await;
+        let second = world.admin_grant().await;
+        assert_ne!(
+            first.family, second.family,
+            "two authorizations, two grants"
+        );
+
+        let started = world
+            .start(&first.bearer, "casey@support-session.test")
+            .await;
+        assert_eq!(started["result"]["isError"], false, "{started}");
+        let session = world
+            .bound(&BoundCredential::Grant(first.family.clone()))
+            .await
+            .expect("bound to the first grant");
+        assert_eq!(
+            session.api_key_id, None,
+            "bug: a grant's session names no key"
+        );
+
+        assert!(
+            world.sees_as_coach(&first.bearer).await,
+            "the first grant is the coach"
+        );
+        let listed = world.listed(&second.bearer).await;
+        assert!(
+            listed.contains(START_TOOL),
+            "bug: another grant of the same application is the admin: {listed:?}"
+        );
+        assert!(
+            !world.sees_as_coach(&second.bearer).await,
+            "bug: another grant of the same application never acts as the coach"
+        );
+        let key = world.admin_key().await;
+        assert!(
+            !world.sees_as_coach(&key).await,
+            "bug: the admin's API key never acts as a grant's session"
+        );
+        assert_eq!(
+            world.trail(STARTED_ACTION).await[0]["metadata"]["grant_id"],
+            first.family,
+            "bug: the start names the grant it is bound to"
+        );
+    }
+
+    /// Deactivating the key ends its session, in the same write, with a row
+    /// on the trail; the other keys never were the user.
+    #[tokio::test]
+    async fn deactivating_the_key_ends_its_support_session() {
+        let world = world().await;
+        let key = world.admin_key_named("revoked key").await;
+        let other = world.admin_key_named("kept key").await;
+        let started = world.start(&key.bearer, "casey@support-session.test").await;
+        assert_eq!(started["result"]["isError"], false, "{started}");
+        let session = world
+            .bound(&BoundCredential::ApiKey(key.id.clone()))
+            .await
+            .expect("live");
+
+        world
+            .res
+            .common
+            .repos
+            .api_keys
+            .deactivate(&key.id, world.admin.id)
+            .await
+            .unwrap();
+
+        let row = world.session(&session.id).await;
+        assert!(!row.is_active, "bug: deactivating the key ends the session");
+        assert!(row.ended_at.is_some(), "bug: the end is stamped");
+        let ended = world.ended_rows(&session.id).await;
+        assert_eq!(ended.len(), 1, "bug: the end is one audit row: {ended:#?}");
+        assert_eq!(ended[0]["metadata"]["api_key_id"], key.id);
+        assert_eq!(ended[0]["actor_user_id"], world.admin.id.to_string());
+
+        let (status, _) = world
+            .post("/mcp", &key.bearer, rpc("tools/list", &json!({})))
+            .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "the key is gone");
+        assert!(
+            world.listed(&other.bearer).await.contains(START_TOOL),
+            "the admin's other key is the admin"
+        );
+    }
+
+    /// Revoking the grant's refresh family (a replayed token, the client's
+    /// own revocation of it) ends its session and audits the end. The
+    /// family's access token still authenticates until it expires, and a
+    /// call with it acts as the admin, never as the user.
+    #[tokio::test]
+    async fn revoking_the_grants_family_ends_its_support_session() {
+        let world = world().await;
+        let grant = world.admin_grant().await;
+        let kept = world.admin_grant().await;
+        world
+            .start(&grant.bearer, "casey@support-session.test")
+            .await;
+        let session = world
+            .bound(&BoundCredential::Grant(grant.family.clone()))
+            .await
+            .expect("live");
+
+        let revoked = world
+            .res
+            .common
+            .repos
+            .oauth2_server
+            .revoke_refresh_token_family(&grant.refresh)
+            .await
+            .unwrap();
+        assert_eq!(revoked, 1, "the family's one token");
+
+        let row = world.session(&session.id).await;
+        assert!(!row.is_active, "bug: revoking the family ends the session");
+        let ended = world.ended_rows(&session.id).await;
+        assert_eq!(ended.len(), 1, "bug: the end is one audit row: {ended:#?}");
+        assert_eq!(ended[0]["metadata"]["grant_id"], grant.family);
+
+        let listed = world.listed(&grant.bearer).await;
+        assert!(
+            listed.contains(START_TOOL),
+            "bug: a call after the revocation is the admin's: {listed:?}"
+        );
+        assert!(
+            !world.sees_as_coach(&grant.bearer).await,
+            "bug: a call after the revocation never acts as the user"
+        );
+        // The application's other grant still refreshes: only the family
+        // that started the session was revoked.
+        let other = world
+            .res
+            .common
+            .repos
+            .oauth2_server
+            .get_refresh_token_by_value(&kept.refresh)
+            .await
+            .unwrap()
+            .expect("the other grant's token");
+        assert!(!other.revoked, "another grant is untouched");
+    }
+
+    /// Withdrawing the consent behind the grant at Connected apps ends the
+    /// session in the same write, with a row on the trail, and the grant's
+    /// token is refused from then on.
+    #[tokio::test]
+    async fn revoking_the_consent_ends_its_support_session() {
+        let world = world().await;
+        let grant = world.admin_grant().await;
+        let consent = Uuid::new_v4().to_string();
+        let oauth = &world.res.common.repos.oauth2_server;
+        oauth
+            .store_client_grant(&OAuthClientGrant {
+                id: consent.clone(),
+                user_id: world.admin.id.to_string(),
+                tenant_id: world.admin.tenant.to_string(),
+                client_id: ADMIN_CLIENT.to_owned(),
+                scope: "admin".to_owned(),
+                granted_at: Utc::now(),
+                revoked_at: None,
+                consent_version: None,
+                consent_locale: None,
+            })
+            .await
+            .unwrap();
+        world
+            .start(&grant.bearer, "casey@support-session.test")
+            .await;
+        let session = world
+            .bound(&BoundCredential::Grant(grant.family.clone()))
+            .await
+            .expect("live");
+
+        assert!(oauth
+            .revoke_client_grant(
+                &consent,
+                &world.admin.id.to_string(),
+                &world.admin.tenant.to_string(),
+            )
+            .await
+            .unwrap());
+        world
+            .res
+            .account_service()
+            .grant_standings()
+            .forget(
+                world.admin.id,
+                &world.admin.tenant.to_string(),
+                ADMIN_CLIENT,
+            )
+            .await;
+
+        let row = world.session(&session.id).await;
+        assert!(!row.is_active, "bug: revoking the consent ends the session");
+        let ended = world.ended_rows(&session.id).await;
+        assert_eq!(ended.len(), 1, "bug: the end is one audit row: {ended:#?}");
+        assert_eq!(ended[0]["metadata"]["grant_id"], grant.family);
+
+        let (status, body) = world
+            .post("/mcp", &grant.bearer, rpc("tools/list", &json!({})))
+            .await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "the withdrawn consent's token is refused: {body}"
+        );
+    }
+
+    /// The client's own revocation (RFC 7009, which withdraws its access)
+    /// and the application's deletion each end the session bound to its
+    /// grant, audited.
+    #[tokio::test]
+    async fn the_clients_revocation_and_its_deletion_end_its_support_session() {
+        let world = world().await;
+        let oauth = &world.res.common.repos.oauth2_server;
+
+        let grant = world.admin_grant().await;
+        world
+            .start(&grant.bearer, "casey@support-session.test")
+            .await;
+        let withdrawn = world
+            .bound(&BoundCredential::Grant(grant.family.clone()))
+            .await
+            .expect("live");
+        oauth
+            .withdraw_client_access(
+                &world.admin.id.to_string(),
+                &world.admin.tenant.to_string(),
+                ADMIN_CLIENT,
+                "admin",
+            )
+            .await
+            .unwrap();
+        assert!(
+            !world.session(&withdrawn.id).await.is_active,
+            "bug: the client's revocation ends the session"
+        );
+        assert_eq!(world.ended_rows(&withdrawn.id).await.len(), 1);
+
+        let grant = world.admin_grant().await;
+        world
+            .start(&grant.bearer, "casey@support-session.test")
+            .await;
+        let deleted = world
+            .bound(&BoundCredential::Grant(grant.family.clone()))
+            .await
+            .expect("live");
+        assert!(oauth.delete_client(ADMIN_CLIENT).await.unwrap());
+        assert!(
+            !world.session(&deleted.id).await.is_active,
+            "bug: deleting the application ends the session"
+        );
+        assert_eq!(world.ended_rows(&deleted.id).await.len(), 1);
+    }
+
+    /// A grant that ran out while its access token still authenticates
+    /// ends its session at the next call, which is the admin's.
+    #[tokio::test]
+    async fn a_grant_that_ran_out_ends_its_support_session_at_the_next_call() {
+        let world = world().await;
+        let grant = world.admin_grant().await;
+        world
+            .start(&grant.bearer, "casey@support-session.test")
+            .await;
+        let session = world
+            .bound(&BoundCredential::Grant(grant.family.clone()))
+            .await
+            .expect("live");
+        expire_family(&world, &grant.family).await;
+
+        let listed = world.listed(&grant.bearer).await;
+        assert!(listed.contains(START_TOOL), "the admin again: {listed:?}");
+        assert!(!world.session(&session.id).await.is_active);
+        assert_eq!(world.ended_rows(&session.id).await.len(), 1);
+    }
+
+    /// The same binding over `/a2a`: another grant of the same application
+    /// acts as the admin, and revoking the family that started the session
+    /// ends it, audited, so the agent's next call is the admin's.
+    #[tokio::test]
+    async fn over_a2a_only_the_grant_that_started_a_session_acts_as_the_user() {
+        let world = world().await;
+        let grant = world.admin_grant().await;
+        let other = world.admin_grant().await;
+        let started = world
+            .a2a(
+                &grant.bearer,
+                START_TOOL,
+                json!({ "user": "casey@support-session.test", "reason": "carnet #42" }),
+            )
+            .await;
+        assert!(text(&started).contains("\"session_id\""), "{started}");
+        let session = world
+            .bound(&BoundCredential::Grant(grant.family.clone()))
+            .await
+            .expect("bound to the agent's grant");
+
+        let roster = world
+            .a2a(&grant.bearer, "get_roster_overview", json!({}))
+            .await;
+        assert!(text(&roster).contains("Bea Bright"), "{roster}");
+        let roster = world
+            .a2a(&other.bearer, "get_roster_overview", json!({}))
+            .await;
+        assert!(
+            !text(&roster).contains("Bea Bright"),
+            "bug: another grant of the same application is the admin over A2A: {roster}"
+        );
+
+        world
+            .res
+            .common
+            .repos
+            .oauth2_server
+            .revoke_refresh_token_family(&grant.refresh)
+            .await
+            .unwrap();
+        assert!(!world.session(&session.id).await.is_active);
+        assert_eq!(world.ended_rows(&session.id).await.len(), 1);
+        let roster = world
+            .a2a(&grant.bearer, "get_roster_overview", json!({}))
+            .await;
+        assert!(
+            !text(&roster).contains("Bea Bright"),
+            "bug: after the revocation the agent is the admin: {roster}"
+        );
+    }
+
+    /// Push every token of `family` past its expiry, as a grant whose life
+    /// ran out.
+    async fn expire_family(world: &World, family: &str) {
+        const EXPIRE: &str =
+            "UPDATE oauth2_refresh_tokens SET expires_at = $1 WHERE family_id = $2";
+        let past = Utc::now() - Duration::minutes(1);
+        match world.res.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => {
+                sqlx::query(EXPIRE)
+                    .bind(past)
+                    .bind(family)
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(db) => {
+                sqlx::query(EXPIRE)
+                    .bind(past)
+                    .bind(family)
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+            }
+        }
     }
 }

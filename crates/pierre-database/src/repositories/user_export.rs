@@ -404,7 +404,8 @@ user_export_tables_sql!(
     "notification_preferences" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "scheduled_notifications" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "oauth_client_grants" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
-    "impersonation_sessions" { rows: [uuid "target_user_id"], tenant: none, except: ["impersonator_id"], page: 50, key: [text "id"] },
+    // The admin and the credential they acted through are theirs, not the user's.
+    "impersonation_sessions" { rows: [uuid "target_user_id"], tenant: none, except: ["impersonator_id", "grant_id", "api_key_id"], page: 50, key: [text "id"] },
     "permission_delegations" { rows: [uuid "grantor_id"], tenant: none, except: [], page: 50, key: [text "id"] },
     // What providers delivered.
     "provider_connections" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },

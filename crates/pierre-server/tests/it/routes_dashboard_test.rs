@@ -401,6 +401,7 @@ impl DashboardTestSetup {
         AuthResult {
             scopes: OAuthScope::self_grant(),
             client_id: None,
+            grant_id: None,
             user_id: self.user_id,
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),
@@ -577,6 +578,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
             AuthResult {
                 scopes: OAuthScope::self_grant(),
                 client_id: None,
+                grant_id: None,
                 user_id: Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
@@ -596,6 +598,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
             AuthResult {
                 scopes: OAuthScope::self_grant(),
                 client_id: None,
+                grant_id: None,
                 user_id: Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),

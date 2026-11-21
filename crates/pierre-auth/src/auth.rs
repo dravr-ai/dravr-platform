@@ -32,7 +32,6 @@ use uuid::Uuid;
 use crate::admin::jwks::JwksManager;
 use crate::oauth2_server::first_party::names_third_party;
 use pierre_core::constants::{
-    limits::OAUTH_ACCESS_TOKEN_EXPIRY_HOURS,
     service_names::{MCP, OAUTH2_AUTHORIZE, PIERRE_MCP_SERVER},
     time_constants::SECONDS_PER_HOUR,
 };
@@ -43,6 +42,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::backends::UserRepository;
 
+mod delegated_token;
 mod method;
 mod session_token;
 pub use method::{
@@ -232,6 +232,14 @@ pub struct Claims {
     /// a token minted before this claim existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
+    /// The OAuth grant a delegated access token was minted under: the
+    /// refresh-token family its authorization started, which every token
+    /// rotated from it keeps. One authorization is one family, so two
+    /// connections of the same application hold two. A support session an
+    /// admin's assistant starts is bound to it (carnet#1511). `None` on any
+    /// other token, and on one minted before this claim existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_id: Option<String>,
 }
 
 impl Claims {
@@ -312,6 +320,9 @@ pub struct AuthResult {
     /// `None` for an API key, a personal MCP token or a channel link, which
     /// no registered client holds, and for a session no client signed in to.
     pub client_id: Option<String>,
+    /// The OAuth grant a delegated token was minted under
+    /// ([`Claims::grant_id`]); `None` for every other credential.
+    pub grant_id: Option<String>,
 }
 
 /// Authentication manager for `JWT` tokens and user sessions
@@ -464,6 +475,7 @@ impl AuthManager {
             impersonator_id: None,
             impersonation_session_id: None,
             client_id: client_id.map(str::to_owned),
+            grant_id: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -562,6 +574,7 @@ impl AuthManager {
             impersonation_session_id: Some(session_id.to_owned()),
             // An operator acting as the athlete, through no client.
             client_id: None,
+            grant_id: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -996,67 +1009,6 @@ impl AuthManager {
         }
     }
 
-    /// Generate OAuth access token with RS256 asymmetric signing
-    ///
-    /// This method uses RSA private key from JWKS manager for token signing.
-    /// Clients can verify tokens using the public key from /.well-known/jwks.json
-    ///
-    /// `grant` is what the authorization server decided: the registered
-    /// client the token is issued to, which it carries in
-    /// [`Claims::client_id`], its scope, and its audience.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - JWT token generation fails
-    /// - System time is unavailable
-    /// - JWKS manager has no active key
-    pub fn generate_oauth_access_token(
-        &self,
-        jwks_manager: &JwksManager,
-        grant: &DelegatedGrant<'_>,
-        user_id: &Uuid,
-        providers: &[String],
-        active_tenant_id: Option<String>,
-    ) -> AppResult<String> {
-        let now = Utc::now();
-        let expiry = now + Duration::hours(OAUTH_ACCESS_TOKEN_EXPIRY_HOURS);
-
-        let claims = Claims {
-            sub: user_id.to_string(),
-            email: format!("oauth_{user_id}@system.local"),
-            iat: now.timestamp(),
-            exp: expiry.timestamp(),
-            iss: PIERRE_MCP_SERVER.to_owned(),
-            jti: Uuid::new_v4().to_string(),
-            // The athlete's connected fitness providers — what this field
-            // means everywhere else it is written. It used to receive `scopes`
-            // here, so a token minted at the token endpoint reported
-            // `fitness:read` as a connected provider; the grant now rides in
-            // `scope`, where a resource server can read it.
-            providers: providers.to_vec(),
-            scope: grant.scopes.join(" "),
-            aud: grant.audience.unwrap_or(MCP).to_owned(),
-            active_tenant_id,
-            impersonator_id: None,
-            impersonation_session_id: None,
-            client_id: Some(grant.client_id.to_owned()),
-        };
-
-        // Get active RSA key from JWKS manager
-        let active_key = jwks_manager.get_active_key()?;
-        let encoding_key = active_key.encoding_key()?;
-
-        // Create RS256 header with kid
-        let mut header = Header::new(Algorithm::RS256);
-        header.kid = Some(active_key.kid.clone());
-
-        let token = encode(&header, &claims, &encoding_key)
-            .map_err(|e| AppError::internal(format!("Failed to encode JWT token: {e}")))?;
-
-        Ok(token)
-    }
-
     /// Generate client credentials token with RS256 asymmetric signing
     ///
     /// This method uses RSA private key from JWKS manager for token signing.
@@ -1103,6 +1055,7 @@ impl AuthManager {
             impersonator_id: None,
             impersonation_session_id: None,
             client_id: Some(client_id.to_owned()),
+            grant_id: None,
         };
 
         // Get active RSA key from JWKS manager

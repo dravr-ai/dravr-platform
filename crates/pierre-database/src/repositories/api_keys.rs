@@ -41,7 +41,8 @@ pub trait ApiKeyRepository: Send + Sync {
     async fn get_for_user(&self, user_id: Uuid) -> AppResult<Vec<ApiKey>>;
     /// Update API key last used timestamp
     async fn update_last_used(&self, api_key_id: &str) -> AppResult<()>;
-    /// Deactivate an API key
+    /// Deactivate an API key, ending in the same transaction the support
+    /// sessions an admin started with it (carnet#1511)
     async fn deactivate(&self, api_key_id: &str, user_id: Uuid) -> AppResult<()>;
     /// Get API key by ID, optionally scoped to a specific user for ownership enforcement
     async fn get_by_id(&self, api_key_id: &str, user_id: Option<Uuid>)
@@ -339,14 +340,24 @@ macro_rules! impl_api_key_repository {
             }
 
             async fn deactivate(&self, api_key_id: &str, user_id: Uuid) -> AppResult<()> {
+                let deactivate_error = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to deactivate API key: {e}"))
+                };
+                let mut tx = self.pool().begin().await.map_err(deactivate_error)?;
                 sqlx::query(DEACTIVATE_API_KEY_SQL)
                     .bind(api_key_id)
                     .bind($ids::bind(user_id))
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to deactivate API key: {e}"))
-                    })?;
+                    .map_err(deactivate_error)?;
+                // A support session started with this key ends with it
+                // (carnet#1511).
+                let key = $crate::repositories::support_binding::RevokedCredential::ApiKey {
+                    key_id: api_key_id,
+                    user_id,
+                };
+                Self::end_sessions_of_revoked(&mut tx, key).await?;
+                tx.commit().await.map_err(deactivate_error)?;
 
                 Ok(())
             }

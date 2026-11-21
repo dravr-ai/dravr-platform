@@ -506,6 +506,13 @@ macro_rules! impl_oauth2_server_repository {
                     .execute(&mut *tx)
                     .await
                     .map_err(delete_error)?;
+                // Its refresh families went with it: so do the support
+                // sessions bound to one (carnet#1511).
+                Self::end_sessions_of_revoked(
+                    &mut tx,
+                    $crate::repositories::support_binding::RevokedCredential::DeletedFamilies,
+                )
+                .await?;
 
                 tx.commit().await.map_err(delete_error)?;
                 Ok(deleted > 0)
@@ -538,6 +545,11 @@ macro_rules! impl_oauth2_server_repository {
                     .await
                     .map_err(sweep_error)?
                     .rows_affected();
+                Self::end_sessions_of_revoked(
+                    &mut tx,
+                    $crate::repositories::support_binding::RevokedCredential::DeletedFamilies,
+                )
+                .await?;
 
                 tx.commit().await.map_err(sweep_error)?;
 
@@ -688,15 +700,23 @@ macro_rules! impl_oauth2_server_repository {
             async fn revoke_refresh_token_family(&self, token: &str) -> AppResult<u64> {
                 let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
 
+                let revoke_error = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to revoke OAuth2 refresh token family: {e}"))
+                };
+                let mut tx = self.pool().begin().await.map_err(revoke_error)?;
                 let result = sqlx::query(REVOKE_OAUTH2_REFRESH_TOKEN_FAMILY_SQL)
                     .bind(&token_hash)
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to revoke OAuth2 refresh token family: {e}"
-                        ))
-                    })?;
+                    .map_err(revoke_error)?;
+                Self::end_sessions_of_revoked(
+                    &mut tx,
+                    $crate::repositories::support_binding::RevokedCredential::FamilyOfToken(
+                        &token_hash,
+                    ),
+                )
+                .await?;
+                tx.commit().await.map_err(revoke_error)?;
 
                 Ok(result.rows_affected())
             }
@@ -706,16 +726,25 @@ macro_rules! impl_oauth2_server_repository {
                 user_id: &str,
                 tenant_id: &str,
             ) -> AppResult<u64> {
+                let revoke_error = |e: sqlx::Error| {
+                    AppError::database(format!(
+                        "Failed to revoke the user's OAuth2 refresh tokens: {e}"
+                    ))
+                };
+                let mut tx = self.pool().begin().await.map_err(revoke_error)?;
                 let result = sqlx::query(REVOKE_USER_OAUTH2_REFRESH_TOKENS_SQL)
                     .bind(tenant_id)
                     .bind(user_id)
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to revoke the user's OAuth2 refresh tokens: {e}"
-                        ))
-                    })?;
+                    .map_err(revoke_error)?;
+                let families =
+                    $crate::repositories::support_binding::RevokedCredential::UserFamilies {
+                        tenant_id,
+                        user_id,
+                    };
+                Self::end_sessions_of_revoked(&mut tx, families).await?;
+                tx.commit().await.map_err(revoke_error)?;
 
                 Ok(result.rows_affected())
             }
@@ -882,6 +911,13 @@ macro_rules! impl_oauth2_server_repository {
                     .execute(&mut *tx)
                     .await
                     .map_err(revoke_error)?;
+                let families =
+                    $crate::repositories::support_binding::RevokedCredential::ClientFamilies {
+                        tenant_id,
+                        user_id,
+                        client_id: &client_id,
+                    };
+                Self::end_sessions_of_revoked(&mut tx, families).await?;
 
                 tx.commit().await.map_err(revoke_error)?;
 
@@ -979,6 +1015,13 @@ macro_rules! impl_oauth2_server_repository {
                     .execute(&mut *tx)
                     .await
                     .map_err(withdraw_error)?;
+                let families =
+                    $crate::repositories::support_binding::RevokedCredential::ClientFamilies {
+                        tenant_id,
+                        user_id,
+                        client_id,
+                    };
+                Self::end_sessions_of_revoked(&mut tx, families).await?;
 
                 tx.commit().await.map_err(withdraw_error)
             }
@@ -989,18 +1032,31 @@ macro_rules! impl_oauth2_server_repository {
                 tenant_id: &str,
                 client_id: &str,
             ) -> AppResult<bool> {
+                let revoke_error = |e: sqlx::Error| {
+                    AppError::database(format!(
+                        "Failed to revoke the refresh tokens of a withdrawn grant: {e}"
+                    ))
+                };
+                let mut tx = self.pool().begin().await.map_err(revoke_error)?;
                 let result = sqlx::query(REVOKE_WITHDRAWN_OAUTH2_REFRESH_TOKENS_SQL)
                     .bind(tenant_id)
                     .bind(user_id)
                     .bind(client_id)
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to revoke the refresh tokens of a withdrawn grant: {e}"
-                        ))
-                    })?;
-                Ok(result.rows_affected() > 0)
+                    .map_err(revoke_error)?;
+                let revoked = result.rows_affected() > 0;
+                if revoked {
+                    let families =
+                        $crate::repositories::support_binding::RevokedCredential::ClientFamilies {
+                            tenant_id,
+                            user_id,
+                            client_id,
+                        };
+                    Self::end_sessions_of_revoked(&mut tx, families).await?;
+                }
+                tx.commit().await.map_err(revoke_error)?;
+                Ok(revoked)
             }
 
             async fn create_device_authorization(&self, da: &DeviceAuthorization) -> AppResult<()> {
