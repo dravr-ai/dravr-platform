@@ -235,7 +235,8 @@ pub struct StartedSupport {
 /// # Errors
 ///
 /// `PermissionDenied` when the caller is not an active admin, the user is an
-/// admin or the caller, or no binding was declared; `InvalidInput` for an
+/// admin or the caller, no binding was declared, or the bound OAuth grant
+/// was revoked or ran out; `InvalidInput` for an
 /// empty reason; `NotFound` for an unknown user; the repository error
 /// otherwise.
 pub async fn start(
@@ -282,6 +283,22 @@ pub async fn start(
             ErrorCode::PermissionDenied,
             "That user belongs to no tenant, so there is nothing to act as",
         ));
+    }
+
+    if let BoundCredential::Grant(grant_id) = binding {
+        // The grant's access token outlives a revoked family by up to an
+        // hour: such a token never starts a session it would be bound to.
+        if !repos
+            .impersonation
+            .grant_live(admin, grant_id, Utc::now())
+            .await?
+        {
+            return Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "This connection's authorization was revoked or has run out: connect again to \
+                 start a support session",
+            ));
+        }
     }
 
     repos.impersonation.end_all_sessions(admin).await?;

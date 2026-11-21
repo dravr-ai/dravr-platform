@@ -14,8 +14,9 @@
 //! on the credential that started it lists and runs exactly what the user's
 //! own assistant does; `admin_impersonate_end` ends it. JF, Q21: "the
 //! session is bound to the grant or API key that started it", and revoking
-//! the grant ends the session. Each case drives the real entry points,
-//! `POST /mcp` and `POST /a2a/jsonrpc`.
+//! the grant ends the session. Each call drives the real entry points,
+//! `POST /mcp` and `POST /a2a/jsonrpc`; a revocation is the repository write
+//! every revoking route makes.
 
 #[cfg(feature = "tools-groups")]
 mod support_session_assistant_tests {
@@ -872,6 +873,21 @@ mod support_session_assistant_tests {
             !world.sees_as_coach(&grant.bearer).await,
             "bug: a call after the revocation never acts as the user"
         );
+        // Nor can the revoked grant's token, still good for its hour, start
+        // a session again.
+        let restarted = world.start(&grant.bearer, "casey@support-session.test").await;
+        assert_eq!(
+            restarted["result"]["isError"], true,
+            "bug: a revoked grant starts no session: {restarted}"
+        );
+        assert!(
+            world
+                .bound(&BoundCredential::Grant(grant.family.clone()))
+                .await
+                .is_none(),
+            "bug: no session is bound to a revoked grant"
+        );
+
         // The application's other grant still refreshes: only the family
         // that started the session was revoked.
         let other = world
@@ -949,6 +965,67 @@ mod support_session_assistant_tests {
             status,
             StatusCode::UNAUTHORIZED,
             "the withdrawn consent's token is refused: {body}"
+        );
+    }
+
+    /// A refresh consumes the presented token before it stores the
+    /// successor. Between the two the family holds no live token, and a call
+    /// then still acts as the user: the session is neither ended nor left.
+    #[tokio::test]
+    async fn a_refresh_in_flight_never_ends_the_support_session() {
+        let world = world().await;
+        let grant = world.admin_grant().await;
+        world.start(&grant.bearer, "casey@support-session.test").await;
+        let session = world
+            .bound(&BoundCredential::Grant(grant.family.clone()))
+            .await
+            .expect("live");
+        let consumed = world
+            .res
+            .common
+            .repos
+            .oauth2_server
+            .consume_refresh_token(&grant.refresh, ADMIN_CLIENT, Utc::now())
+            .await
+            .unwrap();
+        assert!(consumed.is_some(), "the rotation consumed the token");
+
+        assert!(
+            world.sees_as_coach(&grant.bearer).await,
+            "bug: a call mid-rotation still acts as the user"
+        );
+        assert!(
+            world.session(&session.id).await.is_active,
+            "bug: a rotation never ends the session"
+        );
+    }
+
+    /// A client that accepts a stream (`text/event-stream`, as MCP clients
+    /// send) is served the session as one that accepts JSON only.
+    #[tokio::test]
+    async fn a_streaming_client_is_served_its_support_session() {
+        let world = world().await;
+        let key = world.admin_key().await;
+        world.start(&key, "casey@support-session.test").await;
+        let request = Request::post("/mcp")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .header("authorization", &key)
+            .body(Body::from(
+                rpc(
+                    "tools/call",
+                    &json!({ "name": "get_roster_overview", "arguments": {} }),
+                )
+                .to_string(),
+            ))
+            .unwrap();
+        let response = world.app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = String::from_utf8_lossy(&bytes);
+        assert!(
+            body.contains("Bea Bright"),
+            "bug: a streaming client's call acts as the user: {body}"
         );
     }
 

@@ -47,6 +47,16 @@ pub trait ImpersonationRepository: Send + Sync {
         grant_id: &str,
         now: DateTime<Utc>,
     ) -> AppResult<bool>;
+    /// Whether the OAuth grant `grant_id` that `user_id` holds has a token
+    /// neither revoked nor expired at `now`: the grant may start a support
+    /// session. Strict where [`Self::grant_unexpired`] is not, because a
+    /// start refused mid-rotation is retried and ends nothing.
+    async fn grant_live(
+        &self,
+        user_id: Uuid,
+        grant_id: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<bool>;
     /// End an impersonation session
     async fn end_session(&self, session_id: &str) -> AppResult<()>;
     /// End all active impersonation sessions for an impersonator
@@ -131,6 +141,12 @@ pub(crate) const GET_ACTIVE_API_KEY_SESSION_SQL: &str = concat!(
      WHERE impersonator_id = $1 AND api_key_id = $2 AND is_active = TRUE \
      ORDER BY started_at DESC LIMIT 1"
 );
+
+/// One token of a refresh family the user holds, unrevoked and unexpired at
+/// `$3`.
+pub(crate) const GRANT_LIVE_SQL: &str = "SELECT family_id FROM oauth2_refresh_tokens \
+     WHERE family_id = $1 AND user_id = $2 AND revoked = FALSE AND expires_at > $3 \
+     LIMIT 1";
 
 /// One token of a refresh family the user holds, unexpired at `$3`. Every
 /// `oauth2_refresh_tokens` id column is `TEXT` on both backends.
@@ -307,6 +323,27 @@ macro_rules! impl_impersonation_repository {
                     .map_err(|e| {
                         AppError::database(format!(
                             "Failed to read the grant a support session is bound to: {e}"
+                        ))
+                    })?;
+
+                Ok(row.is_some())
+            }
+
+            async fn grant_live(
+                &self,
+                user_id: Uuid,
+                grant_id: &str,
+                now: DateTime<Utc>,
+            ) -> AppResult<bool> {
+                let row = sqlx::query(GRANT_LIVE_SQL)
+                    .bind(grant_id)
+                    .bind(user_id.to_string())
+                    .bind(now)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to read the grant a support session would bind to: {e}"
                         ))
                     })?;
 
