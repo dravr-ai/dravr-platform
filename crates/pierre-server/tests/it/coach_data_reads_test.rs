@@ -1163,7 +1163,7 @@ const READS_TEMPLATES: [(&str, &str); 17] = [
     ),
     (
         "humanCoach.reads_support_read",
-        "read by Dravr support's AI tool while helping your coach", // humanCoach.reads_support_read
+        "read by Dravr support while helping your coach", // humanCoach.reads_support_read
     ),
 ];
 
@@ -1395,7 +1395,7 @@ async fn a_read_in_a_support_session_is_recorded_and_listed_as_supports() {
     let listed = group_reads(&f.res, f.athlete).await;
     let support_lines: Vec<&str> = listed
         .lines()
-        .filter(|line| line.contains("read by Dravr support's AI tool")) // humanCoach.reads_support_read
+        .filter(|line| line.contains("read by Dravr support while helping")) // humanCoach.reads_support_read
         .collect();
     assert_eq!(
         support_lines.len(),
