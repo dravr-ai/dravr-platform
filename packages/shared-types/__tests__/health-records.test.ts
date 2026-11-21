@@ -113,10 +113,13 @@ describe('parseLabRecord', () => {
     expect(parseLabRecord({ ...LAB_RECORD, flat: null, checks: null })).toMatchObject({ flat: null, checks: [] });
   });
 
+  it('reads a flat of another shape as none, as the server serves a column it cannot parse', () => {
+    expect(parseLabRecord({ ...LAB_RECORD, flat: { ...FLAT, value: '150' } })?.flat).toBeNull();
+  });
+
   it('refuses an unknown decision and a non-string check', () => {
     expect(parseLabRecord({ ...LAB_RECORD, review_decision: 'maybe' })).toBeNull();
     expect(parseLabRecord({ ...LAB_RECORD, checks: [3] })).toBeNull();
-    expect(parseLabRecord({ ...LAB_RECORD, flat: { ...FLAT, value: '150' } })).toBeNull();
   });
 });
 

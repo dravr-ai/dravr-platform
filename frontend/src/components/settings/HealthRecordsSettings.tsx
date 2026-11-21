@@ -86,24 +86,28 @@ function ReviewRow({ record }: { record: LabRecord }) {
   );
 }
 
-/** The served records of the chosen kind. */
-function RecordsOfKind({ kind }: { kind: HealthRecordKind }) {
-  const { t, language } = useTranslation();
-  const { data, isPending, isError } = useHealthRecords(kind);
-  if (isPending) {
-    return (
-      <div className="flex py-3" role="status" aria-label={t('common.loading')}>
-        <div className="pierre-spinner" />
-      </div>
-    );
-  }
+/** A read still under way, or one that failed: neither is said as "none". */
+function ReadState({ isError, testId }: { isError: boolean; testId: string }) {
+  const { t } = useTranslation();
   if (isError) {
     return (
-      <p role="alert" className="text-sm text-error">
+      <p role="alert" className="text-sm text-error" data-testid={`${testId}-failed`}>
         {t(HEALTH_RECORDS_KEYS.failed)}
       </p>
     );
   }
+  return (
+    <div className="flex py-3" role="status" aria-label={t('common.loading')}>
+      <div className="pierre-spinner" />
+    </div>
+  );
+}
+
+/** The served records of the chosen kind. */
+function RecordsOfKind({ kind }: { kind: HealthRecordKind }) {
+  const { t, language } = useTranslation();
+  const { data, isPending, isError } = useHealthRecords(kind);
+  if (isPending || isError) return <ReadState isError={isError} testId="health-records-served" />;
   const empty =
     data.records.length === 0 && data.selfReports.length === 0 && data.readings.length === 0 && data.daily.length === 0;
   if (empty) {
@@ -126,7 +130,7 @@ function RecordsOfKind({ kind }: { kind: HealthRecordKind }) {
                 <span className="text-on-surface-variant text-right">
                   {observationValue(record.flat)}
                   {range && <span className="ml-2">({range})</span>}
-                  {record.effectiveAt && <span className="ml-2">{formatDate(record.effectiveAt, language)}</span>}
+                  {record.effectiveAt && <span className="ml-2">{formatDate(record.effectiveAt, language, 'UTC')}</span>}
                 </span>
               </li>
             );
@@ -190,8 +194,6 @@ export default function HealthRecordsSettings() {
   const deletion = useDeleteLabDocument();
   const [kind, setKind] = useState<HealthRecordKind>('labs');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const pending = review.data ?? [];
-  const reports = documents.data ?? [];
 
   const remove = (id: string) => {
     setMessage(null);
@@ -234,7 +236,9 @@ export default function HealthRecordsSettings() {
 
       <div data-testid="health-records-review">
         <h3 className="text-sm font-medium text-on-surface mb-2">{t(HEALTH_RECORDS_KEYS.reviewTitle)}</h3>
-        {pending.length === 0 ? (
+        {review.data === undefined ? (
+          <ReadState isError={review.isError} testId="health-records-review" />
+        ) : review.data.length === 0 ? (
           <p className="text-sm text-on-surface-variant" data-testid="health-records-review-empty">
             {t(HEALTH_RECORDS_KEYS.reviewEmpty)}
           </p>
@@ -242,7 +246,7 @@ export default function HealthRecordsSettings() {
           <>
             <p className="text-sm text-on-surface-variant leading-relaxed mb-2">{t(HEALTH_RECORDS_KEYS.reviewHint)}</p>
             <ul>
-              {pending.map((record) => (
+              {review.data.map((record) => (
                 <ReviewRow key={record.id} record={record} />
               ))}
             </ul>
@@ -252,13 +256,15 @@ export default function HealthRecordsSettings() {
 
       <div data-testid="health-records-documents">
         <h3 className="text-sm font-medium text-on-surface mb-2">{t(HEALTH_RECORDS_KEYS.documentsTitle)}</h3>
-        {reports.length === 0 ? (
+        {documents.data === undefined ? (
+          <ReadState isError={documents.isError} testId="health-records-documents" />
+        ) : documents.data.length === 0 ? (
           <p className="text-sm text-on-surface-variant" data-testid="health-records-documents-empty">
             {t(HEALTH_RECORDS_KEYS.documentsEmpty)}
           </p>
         ) : (
           <ul>
-            {reports.map(({ document }) => (
+            {documents.data.map(({ document }) => (
               <li
                 key={document.id}
                 className="flex items-center justify-between gap-4 py-2 border-b ghost-border-faint last:border-b-0"
