@@ -4817,7 +4817,6 @@ dependencies = [
  "ed25519-dalek",
  "embacle",
  "embacle-tool-host",
- "flate2",
  "futures-util",
  "hex",
  "hmac",
