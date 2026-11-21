@@ -16,6 +16,10 @@ import {
   observationName,
   observationRange,
   observationValue,
+  checkLabel,
+  selfReportKindLabel,
+  selfReportValue,
+  selfReportValueLabel,
 } from '../src/healthRecordsHook';
 
 const api = {
@@ -199,5 +203,32 @@ describe('observation words', () => {
     expect(
       observationValue({ ...pressure, components: [pressure.components[0], { code: 'x', value: 5, unit: 'kg' }] }),
     ).toBe('120 mm[Hg] / 5 kg');
+  });
+});
+
+describe('code labels', () => {
+  const labels: Record<string, string> = {
+    'healthRecords.checks.date_missing': 'No date was found for this result',
+    'healthRecords.selfReport.kind.menstrual_flow': 'Menstrual flow',
+    'healthRecords.selfReport.value.light': 'Light',
+  };
+  const t = (key: string, params?: Record<string, string | number>) =>
+    labels[key] ?? String(params?.defaultValue ?? key);
+
+  it('says each code by its catalogue key', () => {
+    expect(checkLabel('date_missing', t)).toBe('No date was found for this result');
+    expect(selfReportKindLabel('menstrual_flow', t)).toBe('Menstrual flow');
+    expect(selfReportValueLabel('light', t)).toBe('Light');
+  });
+
+  it('falls back on the code itself when the catalogue has no label', () => {
+    expect(checkLabel('new_check', t)).toBe('new_check');
+    expect(selfReportKindLabel('new_kind', t)).toBe('new_kind');
+  });
+
+  it('says a value as its quantity, else its code in words, else nothing', () => {
+    expect(selfReportValue({ value: 36.4, unit: 'degC', valueCode: null }, t)).toBe('36.4 degC');
+    expect(selfReportValue({ value: null, unit: null, valueCode: 'light' }, t)).toBe('Light');
+    expect(selfReportValue({ value: null, unit: null, valueCode: null }, t)).toBeNull();
   });
 });

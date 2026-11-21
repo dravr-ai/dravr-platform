@@ -39,7 +39,46 @@ export const HEALTH_RECORDS_KEYS = {
   recordsTitle: 'healthRecords.recordsTitle',
   recordsEmpty: 'healthRecords.recordsEmpty',
   dailyGlucose: 'healthRecords.dailyGlucose',
+  deleteConfirmTitle: 'healthRecords.deleteConfirmTitle',
+  deleteConfirmBody: 'healthRecords.deleteConfirmBody',
+  cancel: 'common.cancel',
 } as const;
+
+/** A translator that takes i18next's `defaultValue`, which each code label falls back on. */
+type Translate = (key: string, params?: Record<string, string | number>) => string;
+
+/**
+ * A code the server emits, said in words: `healthRecords.<group>.<code>`, or
+ * the code itself when the catalogue has no label for it yet — a code the
+ * reader learns before the catalogue does stays readable, never blank.
+ */
+function codeLabel(group: string, code: string, t: Translate): string {
+  return t(`healthRecords.${group}.${code}`, { defaultValue: code });
+}
+
+/** A check the lab reader failed a result on (`date_missing`, `flag_inconsistent`, …), in words. */
+export function checkLabel(code: string, t: Translate): string {
+  return codeLabel('checks', code, t);
+}
+
+/** A cycle-tracking entry's kind (`menstrual_flow`, `ovulation_test`, …), in words. */
+export function selfReportKindLabel(kind: string, t: Translate): string {
+  return codeLabel('selfReport.kind', kind, t);
+}
+
+/** A cycle-tracking entry's coded value (`light`, `lh_surge`, `egg_white`, …), in words. */
+export function selfReportValueLabel(code: string, t: Translate): string {
+  return codeLabel('selfReport.value', code, t);
+}
+
+/** A cycle-tracking entry's value: its quantity with its unit, else its code in words, else `null` (a presence). */
+export function selfReportValue(
+  report: { value: number | null; unit: string | null; valueCode: string | null },
+  t: Translate,
+): string | null {
+  if (report.value !== null) return report.unit ? `${report.value} ${report.unit}` : String(report.value);
+  return report.valueCode ? selfReportValueLabel(report.valueCode, t) : null;
+}
 
 /** The label key of each kind the records selector offers. */
 export const HEALTH_RECORD_KIND_LABEL_KEY: Record<HealthRecordKind, string> = {

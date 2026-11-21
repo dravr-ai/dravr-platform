@@ -14,6 +14,9 @@ import {
   observationName,
   observationRange,
   observationValue,
+  checkLabel,
+  selfReportKindLabel,
+  selfReportValue,
 } from '@pierre/ui-logic';
 import { HEALTH_RECORD_KINDS, type HealthRecordKind, type LabRecord } from '@pierre/shared-types';
 import { useAuth } from '../../hooks/useAuth';
@@ -25,7 +28,7 @@ import {
   useLabDocuments,
   useReviewAnswer,
 } from '../../hooks/useHealthRecords';
-import { Button } from '../ui';
+import { Button, ConfirmDialog } from '../ui';
 import { FilePickerButton } from '../ui/FilePickerButton';
 
 /** A blood glucose value as the athlete reads it. */
@@ -52,7 +55,7 @@ function ReviewRow({ record }: { record: LabRecord }) {
           </p>
           {record.checks.length > 0 && (
             <p className="mt-1 text-xs text-on-surface-variant" data-testid={`health-review-checks-${record.id}`}>
-              {t(HEALTH_RECORDS_KEYS.checksLabel)}: {record.checks.join(', ')}
+              {t(HEALTH_RECORDS_KEYS.checksLabel)}: {record.checks.map((code) => checkLabel(code, t)).join(' · ')}
             </p>
           )}
         </div>
@@ -141,9 +144,9 @@ function RecordsOfKind({ kind }: { kind: HealthRecordKind }) {
         <ul>
           {data.selfReports.map((report) => (
             <li key={report.id} className={row} data-testid={`health-self-report-${report.id}`}>
-              <span className="text-on-surface">{formatDate(report.start, language)}</span>
-              <span className="text-on-surface-variant">
-                {report.value !== null ? `${report.value}${report.unit ? ` ${report.unit}` : ''}` : report.valueCode}
+              <span className="text-on-surface">{selfReportKindLabel(report.kind, t)}</span>
+              <span className="text-on-surface-variant text-right">
+                {[selfReportValue(report, t), formatDate(report.start, language)].filter(Boolean).join(' · ')}
               </span>
             </li>
           ))}
@@ -195,11 +198,14 @@ export default function HealthRecordsSettings() {
   const [kind, setKind] = useState<HealthRecordKind>('labs');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Deleting a report takes every result read from it, confirmed ones too: asked first.
+  const [deleting, setDeleting] = useState<string | null>(null);
   const remove = (id: string) => {
     setMessage(null);
     deletion.mutate(id, {
       onSuccess: () => setMessage({ type: 'success', text: t(HEALTH_RECORDS_KEYS.deleted) }),
       onError: () => setMessage({ type: 'error', text: t(HEALTH_RECORDS_KEYS.failed) }),
+      onSettled: () => setDeleting(null),
     });
   };
 
@@ -213,7 +219,7 @@ export default function HealthRecordsSettings() {
           accept="application/pdf,.pdf"
           onPick={(file) => uploader.uploadFile({ size: file.size, read: () => file.arrayBuffer() })}
           disabled={uploader.isUploading}
-          className="btn-base btn-secondary btn-sm focus-ring disabled:opacity-60"
+          className="rounded text-sm font-medium text-primary hover:underline focus-ring touch-target disabled:opacity-60 disabled:no-underline"
           data-testid="health-records-upload"
         >
           {t(HEALTH_RECORDS_KEYS.uploadLabel)}
@@ -279,7 +285,7 @@ export default function HealthRecordsSettings() {
                 <Button
                   variant="danger-outline"
                   size="sm"
-                  onClick={() => remove(document.id)}
+                  onClick={() => setDeleting(document.id)}
                   disabled={deletion.isPending}
                   data-testid={`health-document-delete-${document.id}`}
                 >
@@ -317,6 +323,18 @@ export default function HealthRecordsSettings() {
           {message.text}
         </p>
       )}
+
+      <ConfirmDialog
+        isOpen={deleting !== null}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => deleting !== null && remove(deleting)}
+        title={t(HEALTH_RECORDS_KEYS.deleteConfirmTitle)}
+        message={t(HEALTH_RECORDS_KEYS.deleteConfirmBody)}
+        confirmLabel={t(HEALTH_RECORDS_KEYS.deleteDocument)}
+        cancelLabel={t(HEALTH_RECORDS_KEYS.cancel)}
+        variant="danger"
+        isLoading={deletion.isPending}
+      />
     </div>
   );
 }

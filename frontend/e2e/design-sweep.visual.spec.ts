@@ -165,6 +165,39 @@ async function sweepSettings(page: Page, theme: (typeof THEMES)[number]) {
       }),
     }),
   );
+  // The privacy pane's health records block holds one result waiting for
+  // review (with a check it failed), one lab report and one served result, so
+  // each of its row shapes reaches the capture rather than its empty lines.
+  const flat = {
+    code_system: 'http://loinc.org', code: '718-7', display: 'Hemoglobin', value: 150, unit: 'g/L',
+    value_code: null, interpretation: null, ref_low: 135, ref_high: 175, status: 'final', components: [],
+    effective_at: '2026-05-05',
+  };
+  const pending = {
+    id: 'rec-1', flat, checks: ['flag_not_printed'], locator: 'text:page=1;line=4',
+    review_decision: null, effective_at: '2026-05-05T00:00:00Z',
+  };
+  const labDocument = {
+    id: 'doc-1', status: 'read', pages: 2, size_bytes: 48_000, engine: 'rules', flagged_lines: 0,
+    skipped: 0, dropped: 0, model_failure: null, received_at: '2026-11-20T15:00:00Z',
+  };
+  const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  await page.route('**/api/me/health-records/review', (route) => route.fulfill(json({ pending: [pending] })));
+  await page.route('**/api/me/health-records?*', (route) =>
+    route.fulfill(
+      json({
+        records: [
+          {
+            id: 'served-1', resource_type: 'Observation', tier: 't2', effective_at: '2026-05-05T00:00:00Z',
+            source: 'upload', resource: {}, flat, derivation: 'confirmed', read_by: 'rules',
+          },
+        ],
+      }),
+    ),
+  );
+  await page.route('**/api/me/lab-documents', (route) =>
+    route.fulfill(json({ documents: [{ document: labDocument, records: [pending], new: false }] })),
+  );
   await loginToDashboard(page);
   page.setDefaultTimeout(5_000);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -183,6 +216,20 @@ async function sweepSettings(page: Page, theme: (typeof THEMES)[number]) {
     await setTheme(page, theme);
     await page.screenshot({ path: `design-sweep/${theme}/user-settings-${id}.png`, fullPage: true });
     layoutFailures.push(...describeLayoutFailures(`user/settings-${id}`, await measurePageLayout(page)));
+    if (id === 'privacy') {
+      // The health records block on its own, then the confirmation its
+      // delete asks for: both are read in this pane only.
+      const records = page.getByTestId('health-records-settings');
+      await expect(page.getByTestId('health-review-rec-1')).toBeVisible();
+      await records.scrollIntoViewIfNeeded();
+      await records.screenshot({ path: `design-sweep/${theme}/user-settings-health-records.png` });
+      await page.getByTestId('health-document-delete-doc-1').click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: `design-sweep/${theme}/user-settings-health-records-delete.png` });
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    }
   }
   expect(layoutFailures, `layout contract broken on ${layoutFailures.length} pane(s):\n${layoutFailures.join('\n')}`).toEqual([]);
 }

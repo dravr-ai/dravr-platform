@@ -299,12 +299,16 @@ export {
   type UseLabDocumentUploadResult,
   HEALTH_RECORDS_KEYS,
   HEALTH_RECORD_KIND_LABEL_KEY,
+  checkLabel,
   createHealthRecordsHooks,
   describeLabUpload,
   labUploadOutcome,
   observationName,
   observationRange,
   observationValue,
+  selfReportKindLabel,
+  selfReportValue,
+  selfReportValueLabel,
 } from './healthRecordsHook';
 
 // Composer palettes. Platform-free: each composer reads its own key event and

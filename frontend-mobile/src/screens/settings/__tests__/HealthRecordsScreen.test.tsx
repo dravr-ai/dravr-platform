@@ -123,7 +123,7 @@ describe('HealthRecordsScreen', () => {
     expect(await screen.findByTestId('health-review-value-rec-1')).toHaveTextContent('150 g/L (135–175)');
     expect(screen.getByText('Hemoglobin')).toBeTruthy();
     expect(screen.getByTestId('health-review-checks-rec-1')).toHaveTextContent(
-      `${i18n.t('healthRecords.checksLabel')}: date_missing`,
+      `${i18n.t('healthRecords.checksLabel')}: ${i18n.t('healthRecords.checks.date_missing', { defaultValue: 'date_missing' })}`,
     );
   });
 
@@ -219,9 +219,23 @@ describe('HealthRecordsScreen', () => {
     );
   });
 
-  it('deletes a lab report', async () => {
+  it('asks before deleting a lab report, and deletes it once confirmed', async () => {
     renderScreen();
     fireEvent.press(await screen.findByTestId('health-document-delete-doc-1'));
+    const alert = jest.mocked(Alert.alert);
+    expect(alert).toHaveBeenCalledWith(
+      i18n.t('healthRecords.deleteConfirmTitle'),
+      i18n.t('healthRecords.deleteConfirmBody'),
+      expect.any(Array),
+    );
+    expect(api.deleteLabDocument).not.toHaveBeenCalled();
+    const buttons = alert.mock.calls[0][2] ?? [];
+    expect(buttons.map((button) => button.text)).toEqual([
+      i18n.t('common.cancel'),
+      i18n.t('healthRecords.deleteDocument'),
+    ]);
+    expect(buttons[1].style).toBe('destructive');
+    buttons[1].onPress?.();
     await waitFor(() => expect(api.deleteLabDocument).toHaveBeenCalledWith('doc-1'));
     await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith(i18n.t('healthRecords.deleted')));
   });
@@ -245,4 +259,69 @@ describe('HealthRecordsScreen', () => {
     expect(screen.getByTestId('health-glucose-day')).toHaveTextContent('101 mg/dL', { exact: false });
     expect(screen.getByText(i18n.t('healthRecords.dailyGlucose'))).toBeTruthy();
   });
+
+  it('names a cycle-tracking entry by its kind and its coded value', async () => {
+    api.listRecords.mockImplementation(async (kind) =>
+      kind === 'self_reports'
+        ? {
+            ...EMPTY_PAGE,
+            selfReports: [
+              {
+                id: 's1',
+                kind: 'menstrual_flow',
+                start: '2026-11-20T00:00:00Z',
+                end: '2026-11-20T00:00:00Z',
+                valueCode: 'light',
+                value: null,
+                unit: null,
+                cycleStart: true,
+                source: 'apple_health',
+              },
+            ],
+          }
+        : EMPTY_PAGE,
+    );
+    renderScreen();
+    await screen.findByTestId('health-records-empty');
+    fireEvent.press(screen.getByTestId('health-records-kind-self_reports'));
+    const row = await screen.findByTestId('health-self-report-s1');
+    expect(row).toHaveTextContent(
+      i18n.t('healthRecords.selfReport.kind.menstrual_flow', { defaultValue: 'menstrual_flow' }),
+      { exact: false },
+    );
+    expect(row).toHaveTextContent(i18n.t('healthRecords.selfReport.value.light', { defaultValue: 'light' }), {
+      exact: false,
+    });
+  });
+
+  it('paints every ink and fill from a theme token, so both schemes resolve it', async () => {
+    // Colour on the phone is NativeWind classes over the token tree, which
+    // binds each token per scheme: a class naming a token renders in light and
+    // dark alike, a stock palette class or a literal does not.
+    const tailwind = require('../../../../tailwind.config.js') as { theme: { extend: { colors: object } } };
+    const tokens = new Set<string>();
+    const walk = (node: object, prefix: string) => {
+      for (const [key, value] of Object.entries(node)) {
+        const name = key === 'DEFAULT' ? prefix.replace(/-$/, '') : `${prefix}${key}`;
+        if (typeof value === 'object' && value !== null) walk(value, `${name}-`);
+        else tokens.add(name);
+      }
+    };
+    walk(tailwind.theme.extend.colors, '');
+    const view = renderScreen();
+    await screen.findByTestId('health-review-rec-1');
+    await screen.findByTestId('health-document-doc-1');
+    await screen.findByTestId('health-records-empty');
+    const classes = view.UNSAFE_root.findAll((node) => typeof node.props.className === 'string').flatMap(
+      (node) => (node.props.className as string).split(/\s+/),
+    );
+    const colours = classes.filter((cls) => /^(text|bg|border)-/.test(cls)).filter(
+      (cls) => !/^text-(xs|sm|base|lg|xl|\dxl|left|right|center)$/.test(cls) && !/^border(-[trblxy])?(-[0-9]+)?$/.test(cls) &&
+        !/^(bg|border|text)-transparent$/.test(cls),
+    );
+    expect(colours.length).toBeGreaterThan(0);
+    const untokened = colours.filter((cls) => !tokens.has(cls.replace(/^(text|bg|border)-/, '').replace(/\/\d+$/, '')));
+    expect(untokened).toEqual([]);
+  });
 });
+

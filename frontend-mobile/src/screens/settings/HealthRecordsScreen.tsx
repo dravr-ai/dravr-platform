@@ -17,6 +17,9 @@ import {
   observationName,
   observationRange,
   observationValue,
+  checkLabel,
+  selfReportKindLabel,
+  selfReportValue,
   type UseLabDocumentUploadResult,
 } from '@pierre/ui-logic';
 import { HEALTH_RECORD_KINDS, type HealthRecordKind, type LabRecord } from '@pierre/shared-types';
@@ -79,7 +82,7 @@ function ReviewRow({ record }: { record: LabRecord }) {
       </Text>
       {record.checks.length > 0 && (
         <Text className="text-xs text-text-secondary" testID={`health-review-checks-${record.id}`}>
-          {`${t(HEALTH_RECORDS_KEYS.checksLabel)}: ${record.checks.join(', ')}`}
+          {`${t(HEALTH_RECORDS_KEYS.checksLabel)}: ${record.checks.map((code) => checkLabel(code, t)).join(' · ')}`}
         </Text>
       )}
       <View className="flex-row gap-2">
@@ -142,10 +145,8 @@ function RecordsOfKind({ kind }: { kind: HealthRecordKind }) {
       {data.selfReports.map((report) => (
         <Line
           key={report.id}
-          name={formatDate(report.start, language)}
-          figure={
-            report.value !== null ? `${report.value}${report.unit ? ` ${report.unit}` : ''}` : (report.valueCode ?? '')
-          }
+          name={selfReportKindLabel(report.kind, t)}
+          figure={[selfReportValue(report, t), formatDate(report.start, language)].filter(Boolean).join(' · ')}
           testID={`health-self-report-${report.id}`}
         />
       ))}
@@ -191,11 +192,20 @@ export function HealthRecordsScreen(): React.JSX.Element {
   const reports = documents.data;
   const outcome = uploader.outcome;
 
+  // Deleting a report takes every result read from it, confirmed ones too: asked first.
   const remove = (id: string) =>
-    deletion.mutate(id, {
-      onSuccess: () => Alert.alert(t(HEALTH_RECORDS_KEYS.deleted)),
-      onError: () => Alert.alert(t('common.error'), t(HEALTH_RECORDS_KEYS.failed)),
-    });
+    Alert.alert(t(HEALTH_RECORDS_KEYS.deleteConfirmTitle), t(HEALTH_RECORDS_KEYS.deleteConfirmBody), [
+      { text: t(HEALTH_RECORDS_KEYS.cancel), style: 'cancel' },
+      {
+        text: t(HEALTH_RECORDS_KEYS.deleteDocument),
+        style: 'destructive',
+        onPress: () =>
+          deletion.mutate(id, {
+            onSuccess: () => Alert.alert(t(HEALTH_RECORDS_KEYS.deleted)),
+            onError: () => Alert.alert(t('common.error'), t(HEALTH_RECORDS_KEYS.failed)),
+          }),
+      },
+    ]);
 
   return (
     <View className="flex-1 bg-background-primary" testID="health-records-screen">

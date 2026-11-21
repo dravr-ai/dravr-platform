@@ -136,7 +136,7 @@ describe('HealthRecordsSettings', () => {
     expect(screen.getByTestId('health-review-value-rec-1')).toHaveTextContent('150 g/L');
     expect(screen.getByTestId('health-review-value-rec-1')).toHaveTextContent('135–175');
     expect(screen.getByTestId('health-review-checks-rec-1')).toHaveTextContent(
-      `${i18n.t('healthRecords.checksLabel')}: date_missing`,
+      `${i18n.t('healthRecords.checksLabel')}: ${i18n.t('healthRecords.checks.date_missing', { defaultValue: 'date_missing' })}`,
     );
   });
 
@@ -191,10 +191,23 @@ describe('HealthRecordsSettings', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(i18n.t('healthRecords.uploadFailed'));
   });
 
-  it('deletes a lab report', async () => {
+  it('asks before deleting a lab report, and keeps it when the athlete cancels', async () => {
     const user = userEvent.setup();
     renderPane();
     await user.click(await screen.findByTestId('health-document-delete-doc-1'));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(i18n.t('healthRecords.deleteConfirmTitle'))).toBeInTheDocument();
+    expect(within(dialog).getByText(i18n.t('healthRecords.deleteConfirmBody'))).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: i18n.t('common.cancel') }));
+    expect(deleteLabDocument).not.toHaveBeenCalled();
+  });
+
+  it('deletes a lab report once confirmed', async () => {
+    const user = userEvent.setup();
+    renderPane();
+    await user.click(await screen.findByTestId('health-document-delete-doc-1'));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: i18n.t('healthRecords.deleteDocument') }));
     expect(deleteLabDocument).toHaveBeenCalledWith('doc-1');
     expect(await screen.findByRole('status')).toHaveTextContent(i18n.t('healthRecords.deleted'));
   });
@@ -266,5 +279,37 @@ describe('HealthRecordsSettings', () => {
     // A lab date is a day, stored at midnight UTC: it is said as that day wherever the athlete is.
     expect(row).toHaveTextContent(formatDate('2026-05-05T00:00:00Z', i18n.language, 'UTC'));
     expect(formatDate('2026-05-05T00:00:00Z', i18n.language, 'UTC')).toContain('5');
+  });
+
+  it('names a cycle-tracking entry by its kind and its coded value', async () => {
+    listRecords.mockImplementation(async (kind: string) =>
+      kind === 'self_reports'
+        ? {
+            ...EMPTY_PAGE,
+            selfReports: [
+              {
+                id: 's1',
+                kind: 'menstrual_flow',
+                start: '2026-11-20T00:00:00Z',
+                end: '2026-11-20T00:00:00Z',
+                valueCode: 'light',
+                value: null,
+                unit: null,
+                cycleStart: true,
+                source: 'apple_health',
+              },
+            ],
+          }
+        : EMPTY_PAGE,
+    );
+    const user = userEvent.setup();
+    renderPane();
+    await screen.findByTestId('health-records-empty');
+    await user.click(screen.getByTestId('health-records-kind-self_reports'));
+    const row = await screen.findByTestId('health-self-report-s1');
+    expect(row).toHaveTextContent(
+      i18n.t('healthRecords.selfReport.kind.menstrual_flow', { defaultValue: 'menstrual_flow' }),
+    );
+    expect(row).toHaveTextContent(i18n.t('healthRecords.selfReport.value.light', { defaultValue: 'light' }));
   });
 });
