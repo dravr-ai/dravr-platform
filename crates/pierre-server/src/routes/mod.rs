@@ -164,6 +164,9 @@ pub mod i18n;
 /// The Garmin push webhook: the path token and client id, the batch stored before the 200, then ingested.
 #[cfg(all(feature = "health-sync", feature = "provider-garmin"))]
 pub mod garmin_webhook;
+/// The support session a REST request made under an admin's web
+/// impersonation is served in, declared before any route runs (carnet#1511).
+pub mod request_support;
 /// The transport each HTTP request is served over, declared from its
 /// credential before any route runs (carnet#724).
 pub mod request_transport;

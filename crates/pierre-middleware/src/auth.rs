@@ -10,7 +10,7 @@ use chrono::{Duration, Utc};
 use futures_util::future::BoxFuture;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::ApiKeyManager;
-use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult, Claims, ImpersonationGrant};
+use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult, Claims};
 use pierre_auth::oauth2_server::grant_standing::GrantStandings;
 use pierre_auth::rate_limiting::{
     api_key_window_start, calculate_api_key_rate_limit, calculate_jwt_rate_limit,
@@ -856,18 +856,9 @@ impl McpAuthMiddleware {
     /// grant the path takes, an account in good standing, consent not
     /// withdrawn, a monthly budget unspent.
     async fn admit_jwt(&self, claims: Claims, user_id: Uuid, policy: GrantPolicy<'_>) -> Checked {
-        // An impersonation token acts only while its session is live: ending
-        // the session revokes it, rather than leaving it good until its hour
-        // runs out. The impersonation rides on the credential, so a handler
-        // minting a token from it can keep it an impersonation.
-        let impersonation = match claims.impersonation_session_id.as_deref() {
-            Some(session_id) => Some(ImpersonationGrant {
-                session_id: session_id.to_owned(),
-                impersonator_id: self.require_live_impersonation(session_id, user_id).await?,
-                expires_at: claims.exp,
-            }),
-            None => None,
-        };
+        // The impersonation rides on the credential, so a handler minting a
+        // token from it can keep it an impersonation.
+        let impersonation = self.live_impersonation(&claims, user_id).await?;
 
         // Whatever the token was minted with. A first-party session was minted
         // with the full self grant; a delegated OAuth token stays as narrow as
