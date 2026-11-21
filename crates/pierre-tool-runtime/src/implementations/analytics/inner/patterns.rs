@@ -312,20 +312,6 @@ fn format_overtraining_signals(
 
     let mut warning_signs = Vec::new();
 
-    if signals.hr_drift_detected {
-        if let Some(drift_pct) = signals.hr_drift_percent {
-            warning_signs.push(format!(
-                "Heart rate drift detected: {drift_pct:.1}% increase - possible fatigue"
-            ));
-        } else {
-            warning_signs.push("Heart rate drift detected - possible fatigue".to_owned());
-        }
-    }
-
-    if signals.performance_decline {
-        warning_signs.push("Performance declining despite training - check recovery".to_owned());
-    }
-
     if signals.insufficient_recovery {
         warning_signs.push("Insufficient recovery time between hard efforts".to_owned());
     }
@@ -366,8 +352,6 @@ fn format_overtraining_signals(
             warning_signs.clone()
         },
         warning_signs,
-        hr_drift_detected: signals.hr_drift_detected,
-        performance_decline: signals.performance_decline,
         insufficient_recovery: signals.insufficient_recovery,
         confidence: "medium".to_owned(),
         recommendations: recommendations.into_iter().map(ToOwned::to_owned).collect(),

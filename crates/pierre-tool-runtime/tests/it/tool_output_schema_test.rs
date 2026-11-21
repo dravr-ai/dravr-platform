@@ -2764,11 +2764,9 @@ fn every_detect_patterns_shape_matches_exactly_one_arm() {
             PatternsResult::Overtraining(Box::new(OvertrainingResult {
                 pattern_type: "overtraining".to_owned(),
                 risk_level: "moderate".to_owned(),
-                warning_signs: vec!["Heart rate drift detected: 4.2% increase".to_owned()],
-                insights: vec!["Heart rate drift detected: 4.2% increase".to_owned()],
-                hr_drift_detected: true,
-                performance_decline: false,
-                insufficient_recovery: false,
+                warning_signs: vec!["Insufficient recovery time between hard efforts".to_owned()],
+                insights: vec!["Insufficient recovery time between hard efforts".to_owned()],
+                insufficient_recovery: true,
                 confidence: "medium".to_owned(),
                 recommendations: vec!["Monitor recovery closely".to_owned()],
                 hr_zones_unavailable: Some(

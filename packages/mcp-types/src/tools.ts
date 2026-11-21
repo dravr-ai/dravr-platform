@@ -318,7 +318,7 @@ export interface DetectPatternsParams {
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
-  /** 'weekly_schedule' (default; training days, consistency), 'training_blocks' (hard/easy share, recovery between hard efforts), 'progression' (weekly volume, spike weeks) or 'overtraining' (heart-rate drift, performance decline, short recovery); any other value is refused. */
+  /** 'weekly_schedule' (default; training days, consistency), 'training_blocks' (hard/easy share, recovery between hard efforts), 'progression' (weekly volume, spike weeks) or 'overtraining' (short recovery between hard efforts); any other value is refused. */
   pattern_type?: string;
 
   /** Provider or `upload`; default is their best source. */

@@ -222,10 +222,6 @@ pub struct OvertrainingResult {
     pub warning_signs: Vec<String>,
     /// The warning signs, or a note that none were found.
     pub insights: Vec<String>,
-    /// Whether heart rate climbed for the same effort.
-    pub hr_drift_detected: bool,
-    /// Whether performance fell while training continued.
-    pub performance_decline: bool,
     /// Whether hard efforts came too close together.
     pub insufficient_recovery: bool,
     /// Always `medium`.

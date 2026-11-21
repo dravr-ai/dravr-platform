@@ -10,7 +10,6 @@
 use chrono::{Duration, TimeZone, Utc};
 use chrono_tz::UTC;
 use dravr_cageux::pattern_detection::PatternDetector;
-use dravr_cageux::training_load::RiskLevel;
 use dravr_cageux::zones::HrZones;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 
@@ -86,23 +85,6 @@ fn test_hard_easy_pattern_detection() {
     let blind = PatternDetector::detect_hard_easy_pattern(&activities, None);
     assert!(!blind.pattern_detected);
     assert!(blind.hard_percentage.abs() < f64::EPSILON);
-}
-
-#[test]
-fn test_hr_drift_detection() {
-    // Create activities with increasing HR (fatigue signal)
-    let mut activities = Vec::new();
-    for i in 0..12 {
-        let hr = 140 + (i * 2); // HR increases over time
-        #[allow(clippy::cast_sign_loss)]
-        activities.push(create_test_activity(i64::from(i), 10.0, Some(hr as u32)));
-    }
-
-    let zones = HrZones::for_athlete(None, 50, 190).unwrap();
-    let signals = PatternDetector::detect_overtraining_signals(&activities, Some(&zones));
-
-    assert!(signals.hr_drift_detected);
-    assert_ne!(signals.risk_level, RiskLevel::Low);
 }
 
 #[test]

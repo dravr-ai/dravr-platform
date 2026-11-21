@@ -62,7 +62,6 @@ const fn empty_metrics() -> RecommendationMetrics {
         ctl: None,
         atl: None,
         tsb: None,
-        hr_drift_detected: None,
         risk_level: None,
         pattern_detected: None,
         pattern_description: None,
@@ -466,22 +465,6 @@ fn generate_recovery_recommendations(
         });
 
     // Overtraining signal detection
-    if overtraining_signals.hr_drift_detected {
-        if let Some(drift_pct) = overtraining_signals.hr_drift_percent {
-            recommendations.push(format!(
-                "Heart rate drift detected ({drift_pct:.1}% increase) - sign of fatigue"
-            ));
-            if priority == "medium" {
-                priority = "high";
-            }
-        }
-    }
-
-    if overtraining_signals.performance_decline {
-        recommendations
-            .push("Performance declining despite training - increase recovery".to_owned());
-    }
-
     if overtraining_signals.insufficient_recovery {
         recommendations
             .push("Insufficient recovery between hard sessions - add easy days".to_owned());
@@ -497,7 +480,6 @@ fn generate_recovery_recommendations(
             tsb: training_load.as_ref().map(|l| l.tsb),
             ctl: training_load.as_ref().map(|l| l.ctl),
             atl: training_load.as_ref().map(|l| l.atl),
-            hr_drift_detected: Some(overtraining_signals.hr_drift_detected),
             risk_level: Some(
                 match overtraining_signals.risk_level {
                     RiskLevel::Low => "low",
@@ -803,13 +785,6 @@ fn generate_comprehensive_recommendations(
         }
     }
 
-    // Overtraining checks
-    if overtraining.hr_drift_detected {
-        recommendations
-            .push("Heart rate drift detected - prioritize recovery this week".to_owned());
-        key_insights.push("Possible fatigue accumulation detected".to_owned());
-    }
-
     // General best practices if no specific issues
     if recommendations.is_empty() {
         recommendations.push("Training load is balanced - maintain current approach".to_owned());
@@ -830,8 +805,7 @@ fn generate_comprehensive_recommendations(
             tsb: training_load.as_ref().map(|l| l.tsb),
             volume_spike_detected: volume_pattern.volume_spikes_detected,
             intensity_pattern_detected: intensity_pattern.pattern_detected,
-            overtraining_signals: overtraining.hr_drift_detected
-                || overtraining.performance_decline,
+            overtraining_signals: overtraining.insufficient_recovery,
         }),
         core_principles: Some(CorePrinciples {
             consistency: "Regular training beats sporadic hard efforts".to_owned(),
@@ -1040,4 +1014,62 @@ pub(crate) fn handle_generate_recommendations(
             Err(response) => Ok(*response),
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    use pierre_core::models::{ActivityBuilder, SportType};
+
+    use super::*;
+
+    /// A 10 km run `days_ago` days back at a steady 5 min/km, averaging
+    /// `avg_hr` bpm.
+    fn run(days_ago: i64, avg_hr: u32) -> Activity {
+        ActivityBuilder::new(
+            format!("run_{days_ago}"),
+            "Run",
+            SportType::Run,
+            Utc::now() - Duration::days(days_ago),
+            3000,
+            "test",
+        )
+        .distance_meters(10_000.0)
+        .average_heart_rate(avg_hr)
+        .build()
+    }
+
+    /// The training summary of a comprehensive read, on cageux's zones for
+    /// resting 50 / max 190.
+    fn summary(activities: &[Activity]) -> Result<TrainingSummary, Box<dyn Error>> {
+        let zones = HrZones::for_athlete(None, 50, 190)?;
+        let result = generate_comprehensive_recommendations(
+            activities,
+            &AthleteInputs::default(),
+            Some(&zones),
+            &AlgorithmConfig::default(),
+            Tz::UTC,
+        );
+        Ok(result
+            .training_summary
+            .ok_or("a comprehensive read carries its training summary")?)
+    }
+
+    #[test]
+    fn the_overtraining_flag_reports_short_recovery() -> Result<(), Box<dyn Error>> {
+        // Six hard days in a row at a steady heart rate and pace: short
+        // recovery between hard efforts is the only signal they carry.
+        let hard: Vec<Activity> = (0..6).map(|day| run(day, 170)).collect();
+        assert!(
+            summary(&hard)?.overtraining_signals,
+            "bug: six consecutive hard days did not raise the overtraining flag"
+        );
+        let easy: Vec<Activity> = (0..6).map(|day| run(day, 120)).collect();
+        assert!(
+            !summary(&easy)?.overtraining_signals,
+            "bug: six easy days raised the overtraining flag"
+        );
+        Ok(())
+    }
 }

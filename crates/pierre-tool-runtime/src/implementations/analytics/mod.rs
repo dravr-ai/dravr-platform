@@ -202,8 +202,8 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
                 description: Some(
                     "'weekly_schedule' (default; training days, consistency), 'training_blocks' \
                      (hard/easy share, recovery between hard efforts), 'progression' (weekly \
-                     volume, spike weeks) or 'overtraining' (heart-rate drift, performance \
-                     decline, short recovery); any other value is refused."
+                     volume, spike weeks) or 'overtraining' (short recovery between hard \
+                     efforts); any other value is refused."
                         .to_owned(),
                 ),
                 ..Default::default()

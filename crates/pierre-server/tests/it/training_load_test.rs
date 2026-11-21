@@ -262,30 +262,3 @@ fn test_training_load_sorted_chronological_produces_nonzero() {
         "ATL must be positive when sorted oldest-first"
     );
 }
-
-#[test]
-fn test_training_load_pace_fallback_no_physiological_params() {
-    let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
-    let now = Utc::now();
-
-    // Activities with 10km distance but no power/HR — pace fallback should work
-    let activities = vec![
-        create_test_activity(now - Duration::days(5), 3600, None, None),
-        create_test_activity(now - Duration::days(3), 3600, None, None),
-        create_test_activity(now - Duration::days(1), 3600, None, None),
-        create_test_activity(now, 3600, None, None),
-    ];
-
-    let result = calculator
-        .calculate_training_load(&activities, None, None, None, None, None)
-        .unwrap();
-
-    assert!(
-        !result.tss_history.is_empty(),
-        "Pace fallback should produce TSS values"
-    );
-    assert!(
-        result.ctl > 0.0,
-        "CTL should be positive with pace-based estimation"
-    );
-}

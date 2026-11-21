@@ -13,7 +13,7 @@
 //! Frameworks:
 //!
 //! - `ctl` / `atl` / `tsb` / `form_ctl` / `daily_load` — the configured
-//!   training-load smoothing (EMA/SMA/WMA/Kalman, default EMA 42-day chronic /
+//!   training-load smoothing (EMA/SMA/WMA, default EMA 42-day chronic /
 //!   7-day acute) read off cageux's per-day series,
 //!   [`TrainingLoadAlgorithm::daily_series`], over cageux's daily split of
 //!   the athlete's civil days ([`TrainingLoadCalculator::daily_tss`]);
@@ -191,7 +191,7 @@ impl AthleteInputs {
 ///
 /// Returns the `IntelligenceError` cageux raises when the configured
 /// training-load algorithm refuses its parameters (a CTL/ATL window outside
-/// 1 to 365 days, non-positive Kalman noise).
+/// 1 to 365 days).
 pub fn compute_training_history(
     activities: &[Activity],
     inputs: AthleteInputs,
