@@ -23,6 +23,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use common::{create_test_user_with_email, generate_test_token};
+use dravr_barrage::record_log::entry::{EntryKind, LogEntry};
+use dravr_barrage::{LiveSource, Scope, SourceKey};
 use helpers::axum_test::AxumTestRequest;
 use helpers::impersonation::{assert_refusal_audited, assert_support_refused, impersonation_of};
 use pierre_core::constants::oauth::providers::provider_terms_version;
@@ -227,6 +229,19 @@ impl Athlete {
             .unwrap()
             .is_some()
     }
+
+    /// The `connect` entries in the athlete's log.
+    async fn connect_entries(&self) -> Vec<LogEntry> {
+        self.resources
+            .common
+            .activity_records
+            .log_entries(&Scope::new(self.tenant_id.as_uuid(), self.user_id), 0, 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|entry| entry.kind == EntryKind::Connect)
+            .collect()
+    }
 }
 
 /// The cookies a browser holds once signed in to Garmin, the session cookie's
@@ -318,6 +333,15 @@ async fn a_browser_signed_in_to_garmin_connects_it() {
         imported.iter().all(|id| !dropped(id)),
         "bug: the session the stored connection reads through was dropped"
     );
+    let connects = athlete.connect_entries().await;
+    let [connect] = connects.as_slice() else {
+        panic!("bug: the connect was not logged exactly once: {connects:?}");
+    };
+    assert_eq!(
+        connect.source,
+        SourceKey::Live(LiveSource::SciotteGarmin),
+        "bug: the connect was logged under the wrong source"
+    );
 }
 
 #[tokio::test]
@@ -345,6 +369,10 @@ async fn a_session_the_provider_refuses_is_never_stored() {
     assert!(
         !athlete.holds_garmin_session().await,
         "bug: a session the provider refused was stored"
+    );
+    assert!(
+        athlete.connect_entries().await.is_empty(),
+        "bug: a refused session was logged as a connect"
     );
 }
 

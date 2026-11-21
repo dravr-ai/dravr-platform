@@ -668,8 +668,15 @@ impl DelegatedConnectionRoutes {
 
         let body = body.map_or_default(|Json(body)| body);
         let requested = ConsentChange::grants(body.calendar_write, body.wellness_read);
-        let confirmed =
-            confirm(Self::services(&resources), &group, &link, tenant, requested).await?;
+        let confirmed = confirm(
+            Self::services(&resources),
+            &group,
+            &link,
+            tenant,
+            requested,
+            GroupsCtx::connect_log(resources.as_ref()),
+        )
+        .await?;
         Self::spawn_warm_up(
             &resources,
             confirmed.provider.clone(),

@@ -26,8 +26,9 @@ use axum::http::{Request, StatusCode};
 use bytes::Bytes;
 use chrono::{DateTime, Duration, Utc};
 use dravr_barrage::blob::memory::MemoryBlobStore;
-use dravr_barrage::blob::BlobKey;
+use dravr_barrage::blob::{BlobId, BlobKey};
 use dravr_barrage::digest::Sha256;
+use dravr_barrage::record::ActivityId;
 use dravr_barrage::store::memory::MemoryImportJobStore;
 use dravr_barrage::store::{BarrageStores, PageReq, RecordQuery};
 use dravr_barrage::{BarrageError, Scope, SourceKey};
@@ -40,6 +41,7 @@ use pierre_core::constants::oauth_providers::{
 use pierre_core::models::{ActivityBuilder, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::routes::imports::import_routes;
@@ -357,6 +359,81 @@ async fn an_export_imports_into_the_cache_and_the_sample_store() {
         .await
         .expect("the freshness reads");
     assert_eq!(synced, None, "an import is not a provider sync");
+}
+
+/// The `source_ref` of `athlete`'s stored samples of archive activity `id`.
+async fn archive_source_ref(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+    id: &str,
+) -> Option<String> {
+    let sql = "SELECT source_ref FROM activity_streams \
+               WHERE tenant_id = $1 AND CAST(user_id AS TEXT) = $2 \
+               AND provider = $3 AND activity_id = $4";
+    let row: (Option<String>,) = match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query_as(sql)
+            .bind(athlete.tenant.to_string())
+            .bind(athlete.user_id.to_string())
+            .bind(STRAVA_ARCHIVE)
+            .bind(id)
+            .fetch_one(sqlite.pool())
+            .await
+            .expect("the samples row reads"),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => sqlx::query_as(sql)
+            .bind(athlete.tenant.to_string())
+            .bind(athlete.user_id.to_string())
+            .bind(STRAVA_ARCHIVE)
+            .bind(id)
+            .fetch_one(postgres.pool())
+            .await
+            .expect("the samples row reads"),
+    };
+    row.0
+}
+
+#[tokio::test]
+async fn the_projected_samples_name_the_originals_keyed_name_not_its_digest() {
+    let (imports, stores) = imports_serving(strava_export());
+    let resources = common::create_test_server_resources_with_archive_imports(imports)
+        .await
+        .expect("a server context");
+    let athlete = seed_athlete(&resources, "archive-source-ref").await;
+
+    import_export(&resources, &athlete).await;
+
+    let ride = stores
+        .records
+        .get(
+            &athlete.scope(),
+            SourceKey::parse(STRAVA_ARCHIVE).expect("a source"),
+            &ActivityId::parse("9001").expect("an id"),
+        )
+        .await
+        .expect("barrage reads")
+        .expect("the ride is stored");
+    let original = ride
+        .provenance
+        .original
+        .expect("the ride keeps its FIT file");
+    assert!(
+        matches!(original.id, BlobId::Keyed(_)),
+        "v0.28.0 keeps a new original under its keyed name: {original}"
+    );
+    let source_ref = archive_source_ref(&resources, &athlete, "9001")
+        .await
+        .expect("the samples name their original");
+    assert_eq!(
+        source_ref,
+        original.id.to_string(),
+        "source_ref is the name the original is kept under"
+    );
+    let digest = ride.provenance.original_sha256.expect("the digest is kept");
+    assert_ne!(
+        source_ref,
+        digest.to_hex(),
+        "the content digest never reaches source_ref for a keyed original"
+    );
 }
 
 /// `get_activities` as the agent calls it, in the athlete's tenant.

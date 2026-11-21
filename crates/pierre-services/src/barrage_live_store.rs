@@ -50,8 +50,9 @@ use pierre_database::backends::factory::Database;
 use pierre_database::repositories::amended_summary;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::deduplication::DedupConfig;
+use pierre_runtime_context::ProviderConnectLog;
 use tokio::fs;
-use tracing::warn;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::activity_cache_sink::LiveCacheSink;
@@ -777,6 +778,31 @@ impl LiveActivityStore for BarrageLiveStore {
     }
 }
 
+/// A connect is a `connect` entry in the athlete's log (carnet#1542), under
+/// the live source the provider's records are kept under.
+#[async_trait]
+impl ProviderConnectLog for BarrageLiveStore {
+    async fn log_connect(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        let Ok(live) = live_source(provider) else {
+            debug!(
+                provider,
+                "no activity store source for this provider: no connect entry"
+            );
+            return Ok(());
+        };
+        let source = SourceKey::Live(live);
+        self.records
+            .log_connect(&Scope::new(tenant_id.as_uuid(), user_id), source)
+            .await
+            .map_err(|e| store_error(source, &e))
+    }
+}
+
 impl BarrageLiveStore {
     /// Stop serving `scope`'s activity `id` of the live `source` — its gear
     /// attribution released, then its cached row and samples deleted — and
@@ -832,12 +858,14 @@ impl BarrageLiveStore {
 ///
 /// `records` is the store archive imports write and the export reads too;
 /// `blobs` keeps the originals; the projection goes to `repos`' activity cache.
+/// The same store records the athletes' provider connects
+/// ([`ProviderConnectLog`]).
 #[must_use]
 pub fn live_store(
     records: Arc<dyn ActivityRecordStore>,
     blobs: Option<Arc<dyn BlobStore>>,
     repos: &Arc<RepositoryRegistry>,
-) -> Arc<dyn LiveActivityStore> {
+) -> Arc<BarrageLiveStore> {
     let sink = Arc::new(LiveCacheSink::new(Arc::clone(repos)));
     Arc::new(BarrageLiveStore::new(
         records,

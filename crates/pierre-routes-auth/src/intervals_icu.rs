@@ -39,6 +39,7 @@ use pierre_services::coach_access_evidence::probe_intervals_icu_roster;
 use pierre_services::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 use pierre_services::import_tombstones::{provider_account_tombstone, refuse_provider_account};
 use pierre_services::oauth_flow::OAuthService;
+use pierre_services::provider_connected::{self, ConnectVia, ProviderConnected};
 use pierre_services::provider_revocation::DisconnectReason;
 use serde::Deserialize;
 use tracing::{info, warn};
@@ -186,7 +187,8 @@ pub(crate) async fn handle_intervals_icu_link(
 /// form ([`crate::connect_hosted_intervals`]): the API key is stored encrypted
 /// in the access-token column, the athlete id plaintext in
 /// `provider_user_id`, and a `Manual` provider connection is registered so the
-/// resolver treats it like any other connected backend.
+/// resolver treats it like any other connected backend. The connect is then
+/// announced like every other ([`provider_connected::announce`]).
 ///
 /// # Errors
 ///
@@ -291,6 +293,16 @@ pub(crate) async fn link_intervals_icu_account(
         .map_err(|e| AppError::internal(format!("Failed to register connection: {e}")))?;
 
     info!(user_id = %user_id, "Intervals.icu account linked");
+    provider_connected::announce(
+        resources.data.connect_log(),
+        ProviderConnected {
+            user_id,
+            tenant_id: tenant,
+            backend: INTERVALS_ICU,
+            via: ConnectVia::ApiKey,
+        },
+    )
+    .await;
 
     // The athlete profile just read carries the athlete's sex when they
     // state one on Intervals.icu.

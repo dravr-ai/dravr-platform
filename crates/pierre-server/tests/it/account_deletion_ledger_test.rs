@@ -16,13 +16,17 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use chrono::{Duration, Utc};
+use dravr_barrage::blob::memory::MemoryBlobStore;
+use dravr_barrage::blob::{BlobId, BlobKey, BlobMeta, BlobStore};
 use dravr_barrage::digest::Sha256 as BarrageSha256;
 use dravr_barrage::keyed::Signer;
 use dravr_barrage::record::{StreamsState, SummaryWindow, TotalsFrom};
 use dravr_barrage::record_log::checkpoint::{verify_note, Anchor};
 use dravr_barrage::record_log::{merkle, RecordLog};
-use dravr_barrage::store::ActivityRecordStore;
+use dravr_barrage::store::memory::MemoryImportJobStore;
+use dravr_barrage::store::{ActivityRecordStore, BarrageStores};
 use dravr_barrage::{ActivityId, ActivityRecord, Provenance, Scope, SourceKey};
 use pierre_auth::dto::auth::{LoginRequest, RegisterRequest};
 use pierre_cache::{CacheKey, CacheResource};
@@ -59,7 +63,7 @@ use pierre_services::analytics::{cache_user_email, resolve_user_email};
 use pierre_services::barrage_keys::{memory_records, LocalSigner};
 use pierre_services::import_tombstones::clear_by_operator;
 use pierre_services::provider_revocation::{DisconnectReason, RevocationOutcome};
-use pierre_services::record_log_worker::RecordLogWorker;
+use pierre_services::record_log_worker::{KeyedNamesPage, RecordLogWorker};
 use pierre_services::user_removal::{
     remove_user, ProviderDisconnector, RemovalReport, UserRemoval,
 };
@@ -968,6 +972,7 @@ async fn a_checkpoint_anchors_the_receipt_chain_head() {
         Arc::clone(&repos.account_deletion),
         Arc::clone(&repos.users),
         Some(signer.clone()),
+        None,
     );
 
     let tick = worker.run().await.unwrap();
@@ -1042,6 +1047,172 @@ async fn a_checkpoint_anchors_the_receipt_chain_head() {
     assert_eq!(
         again.anchored, None,
         "bug: an unchanged tree is signed again"
+    );
+}
+
+/// The `record_log` worker renames an original still named by its content
+/// to its keyed name, keeps the old name as the record's legacy original,
+/// counts an original it cannot read, and ends the sweep reporting what
+/// remains (carnet#1542, the done signal for carnet#1550).
+#[tokio::test]
+async fn the_worker_renames_content_named_originals_and_reports_what_remains() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let (athlete, athlete_tenant, _) = seed_athlete(repos, "keyed-names").await;
+    let scope = Scope::new(Uuid::from(athlete_tenant), athlete);
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
+    let blobs = Arc::new(MemoryBlobStore::new());
+    let bytes = Bytes::from_static(b"a FIT recording kept by an older binary");
+    let digest = BarrageSha256::of(&bytes);
+    let content_named = BlobKey::original(scope, digest);
+    blobs
+        .put(
+            &content_named,
+            bytes.clone(),
+            &BlobMeta::new("application/octet-stream"),
+        )
+        .await
+        .unwrap();
+    let kept = ActivityId::parse("kept-ride").unwrap();
+    let lost = ActivityId::parse("lost-ride").unwrap();
+    let lost_digest = BarrageSha256::of(b"bytes no store holds");
+    let mut kept_ride = anchor_ride(scope, kept.clone());
+    kept_ride.provenance.original = Some(content_named);
+    kept_ride.provenance.original_sha256 = Some(digest);
+    let mut lost_ride = anchor_ride(scope, lost);
+    lost_ride.provenance.original = Some(BlobKey::original(scope, lost_digest));
+    lost_ride.provenance.original_sha256 = Some(lost_digest);
+    records
+        .upsert(&scope, &[kept_ride, lost_ride])
+        .await
+        .unwrap();
+    let worker = RecordLogWorker::new(
+        Arc::clone(&records),
+        Arc::clone(&repos.import_tombstones),
+        Arc::clone(&repos.account_deletion),
+        Arc::clone(&repos.users),
+        None,
+        Some(BarrageStores {
+            blobs: blobs.clone(),
+            records: Arc::clone(&records),
+            jobs: Arc::new(MemoryImportJobStore::new()),
+        }),
+    );
+
+    let tick = worker.run().await.unwrap();
+
+    let page = tick.keyed_names.expect("a blob store renames originals");
+    assert_eq!(
+        page,
+        KeyedNamesPage {
+            repointed: 1,
+            unreadable: 1,
+            remaining: 1,
+            sweep_done: true,
+        },
+        "bug: the sweep does not report the unreadable original as what remains"
+    );
+    let stored = records
+        .get(&scope, SourceKey::StravaArchive, &kept)
+        .await
+        .unwrap()
+        .expect("the ride is still held");
+    let keyed = stored
+        .provenance
+        .original
+        .expect("the ride keeps an original");
+    assert!(
+        matches!(keyed.id, BlobId::Keyed(_)),
+        "bug: the original is not renamed to its keyed name: {keyed}"
+    );
+    assert_eq!(
+        stored.provenance.legacy_original,
+        Some(content_named),
+        "bug: the old name is not kept as the legacy original"
+    );
+    assert_eq!(
+        blobs.get(&keyed).await.unwrap(),
+        Some(bytes),
+        "bug: the keyed name does not hold the original's bytes"
+    );
+
+    let without_blobs = RecordLogWorker::new(
+        Arc::clone(&records),
+        Arc::clone(&repos.import_tombstones),
+        Arc::clone(&repos.account_deletion),
+        Arc::clone(&repos.users),
+        None,
+        None,
+    );
+    assert_eq!(
+        without_blobs.run().await.unwrap().keyed_names,
+        None,
+        "bug: a worker without a blob store renames originals"
+    );
+}
+
+/// The keyed-name backfill pages across ticks: a sweep longer than one page
+/// resumes where the last tick stopped, ends on the page that passes the
+/// last record, and the next tick starts a new sweep (carnet#1542).
+#[tokio::test]
+async fn the_keyed_name_backfill_resumes_across_ticks_and_restarts_after_a_sweep() {
+    // One page is 500 records (barrage's LOG_PAGE): one more spills a
+    // second page.
+    const RIDES: u64 = 501;
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let (athlete, athlete_tenant, _) = seed_athlete(repos, "keyed-pages").await;
+    let scope = Scope::new(Uuid::from(athlete_tenant), athlete);
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
+    let rides: Vec<ActivityRecord> = (0..RIDES)
+        .map(|n| {
+            let digest = BarrageSha256::of(format!("bytes no store holds {n}").as_bytes());
+            let mut ride = anchor_ride(scope, ActivityId::parse(&format!("lost-{n}")).unwrap());
+            ride.provenance.original = Some(BlobKey::original(scope, digest));
+            ride.provenance.original_sha256 = Some(digest);
+            ride
+        })
+        .collect();
+    records.upsert(&scope, &rides).await.unwrap();
+    let worker = RecordLogWorker::new(
+        Arc::clone(&records),
+        Arc::clone(&repos.import_tombstones),
+        Arc::clone(&repos.account_deletion),
+        Arc::clone(&repos.users),
+        None,
+        Some(BarrageStores {
+            blobs: Arc::new(MemoryBlobStore::new()),
+            records: Arc::clone(&records),
+            jobs: Arc::new(MemoryImportJobStore::new()),
+        }),
+    );
+
+    let first = worker.run().await.unwrap().keyed_names;
+    assert_eq!(
+        first,
+        Some(KeyedNamesPage {
+            repointed: 0,
+            unreadable: RIDES - 1,
+            remaining: RIDES,
+            sweep_done: false,
+        }),
+        "bug: a full first page ends the sweep"
+    );
+    let second = worker.run().await.unwrap().keyed_names;
+    assert_eq!(
+        second,
+        Some(KeyedNamesPage {
+            repointed: 0,
+            unreadable: 1,
+            remaining: RIDES,
+            sweep_done: true,
+        }),
+        "bug: the second tick does not resume after the first page"
+    );
+    let third = worker.run().await.unwrap().keyed_names;
+    assert_eq!(
+        third, first,
+        "bug: the tick after a finished sweep does not start a new one"
     );
 }
 

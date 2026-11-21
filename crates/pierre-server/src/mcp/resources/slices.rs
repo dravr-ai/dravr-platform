@@ -100,6 +100,7 @@ use pierre_middleware::McpAuthMiddleware;
 use pierre_notifications::NotificationService;
 use pierre_providers::originals::OriginalsStore;
 use pierre_providers::registry::ProviderRegistry;
+use pierre_runtime_context::ProviderConnectLog;
 #[cfg(feature = "client-messaging")]
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
@@ -169,6 +170,9 @@ pub struct CommonSlice {
     /// The one provider data purge: the tables, then the live store's
     /// records of the provider (carnet#1482).
     pub provider_purge: Arc<dyn ProviderPurge>,
+    /// Where each provider connect is recorded: the live store's log of the
+    /// athlete (carnet#1542). Every connect path announces through it.
+    pub connect_log: Arc<dyn ProviderConnectLog>,
     /// The files athletes uploaded, kept in the deployment's blob store
     /// (the one archive imports keep their originals in), or the reason no
     /// blob store is placed here. Chosen once at boot.

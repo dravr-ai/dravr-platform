@@ -72,7 +72,8 @@ pub enum StreamOrigin {
     /// `source_ref`; deleted with the activity, the athlete or the account.
     Upload,
     /// Decoded from an original kept by an archive import (dravr-barrage),
-    /// whose SHA-256 is the row's `source_ref`; deleted with the activity,
+    /// whose blob name (keyed, or its content digest while not yet renamed)
+    /// is the row's `source_ref`; deleted with the activity,
     /// the imported source or the account.
     Archive,
 }

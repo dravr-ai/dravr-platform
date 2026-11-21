@@ -77,8 +77,11 @@ use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 #[cfg(feature = "client-notifications")]
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_providers::originals::OriginalsStore;
+use pierre_runtime_context::ProviderConnectLog;
+use pierre_services::barrage_live_store::{live_store, BarrageLiveStore};
+use pierre_services::live_activities::LiveActivityStore;
+use pierre_services::originals_bundle::OriginalsBundleService;
 use pierre_services::provider_purge::ProviderPurgeService;
-use pierre_services::{barrage_live_store::live_store, originals_bundle::OriginalsBundleService};
 
 #[cfg(feature = "slash-commands")]
 use dravr_canot::commands::CommandRegistry;
@@ -233,7 +236,11 @@ impl ServerContext {
         // One record store (imports write it, the export reads it), one live
         // store over it and the blob store, and the one purge every disconnect takes.
         let activity_records = archive_imports.record_store(options.live_records)?;
-        let live_activities = live_store(Arc::clone(&activity_records), blobs.clone().ok(), &repos);
+        // The live store also records each provider connect in the athlete's
+        // log (carnet#1542).
+        let live = live_store(Arc::clone(&activity_records), blobs.clone().ok(), &repos);
+        let connect_log: Arc<dyn ProviderConnectLog> = Arc::<BarrageLiveStore>::clone(&live);
+        let live_activities: Arc<dyn LiveActivityStore> = live;
         let provider_purge = ProviderPurgeService::shared(&repos, Arc::clone(&live_activities));
         let originals_bundles = OriginalsBundleService::over(&activity_records, &blobs, &repos);
         let originals = Arc::new(OriginalsStore::new(
@@ -557,6 +564,7 @@ impl ServerContext {
             activity_records,
             originals_bundles,
             provider_purge,
+            connect_log,
             originals,
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
             photograveur: Arc::new(PhotograveurClient::from_env()),

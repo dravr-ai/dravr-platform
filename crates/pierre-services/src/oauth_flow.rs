@@ -19,6 +19,7 @@ use crate::analytics::cache_user_email;
 use crate::coach_platform::coach_platform;
 use crate::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 use crate::import_tombstones::{refused_tombstone_id, TOMBSTONED_ERROR_CODE};
+use crate::provider_connected::{self, ConnectVia, ProviderConnected};
 use crate::provider_revocation::{self, DisconnectReason};
 use crate::strava_reconnect::{self, ReplacedGrants, StorePrecondition};
 use pierre_auth::config::oauth::OAuthProviderConfig;
@@ -183,7 +184,7 @@ impl OAuthService {
             .await?;
 
         // Record IDs on the current span so the NotifyLayer can attribute the
-        // provider.connected event without re-passing tenant/user fields.
+        // events of this callback without re-passing tenant/user fields.
         let span = Span::current();
         span.record("user_id", field::display(&user_id));
         span.record("tenant_id", field::display(&tenant_id));
@@ -257,12 +258,16 @@ impl OAuthService {
         // user_id, and this event is now the only connect notification, so
         // without it the ping would name the provider but not the athlete.
         cache_user_email(&user_id.to_string(), &user.email);
-        info!(
-            target: "notify",
-            event = "provider.connected",
-            provider = %provider,
-            "user connected fitness provider"
-        );
+        provider_connected::announce(
+            self.data.connect_log(),
+            ProviderConnected {
+                user_id,
+                tenant_id: storage_tenant,
+                backend: provider,
+                via: ConnectVia::OAuth,
+            },
+        )
+        .await;
 
         Ok(OAuthCallbackResponse {
             user_id: user_id.to_string(),

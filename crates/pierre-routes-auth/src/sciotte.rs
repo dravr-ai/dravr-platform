@@ -19,6 +19,7 @@ use pierre_core::models::TenantId;
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
+use pierre_services::provider_connected::{self, ConnectVia, ProviderConnected};
 use pierre_services::provider_notice::require_notice_accepted;
 use pierre_services::scrape_session::{persist_sciotte_session, StoredSession};
 use serde::{Deserialize, Serialize};
@@ -367,23 +368,29 @@ impl fmt::Debug for SciotteOtpRequest {
     }
 }
 
-/// notify: scrape session established. One helper for both session-write
-/// sites so the emit cannot drift between them. The event carries the
-/// user-facing provider name ("strava"/"garmin"/"trainingpeaks"/"coros") so
-/// the connect/disconnect pair is measured on the same axis as the OAuth
-/// surface (the disconnect chokepoint also emits user-facing names for mirror
-/// backends); `backend` distinguishes the scrape cohort. `user_id`/`tenant_id`
-/// ride inline because the `PostHog` sink drops events it cannot attribute.
-fn notify_sciotte_connected(user_id: Uuid, tenant_id: Uuid, backend: &str) {
-    info!(
-        target: "notify",
-        event = "provider.connected",
-        provider = %backend_resolver::user_facing_name(backend),
-        backend = %backend,
-        user_id = %user_id,
-        tenant_id = %tenant_id,
-        "user connected fitness provider (scrape session)"
-    );
+/// Announce an established scrape session
+/// ([`provider_connected::announce`]): the `provider.connected` event under
+/// the user-facing provider name
+/// ("strava"/"garmin"/"trainingpeaks"/"coros"), so the connect/disconnect
+/// pair is measured on the same axis as the OAuth surface, with `backend`
+/// naming the scrape cohort; and the connect entry in the athlete's log.
+/// Only an athlete's own sign-in announces: an admin's session clone does not.
+async fn notify_sciotte_connected(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    backend: &str,
+) {
+    provider_connected::announce(
+        resources.data.connect_log(),
+        ProviderConnected {
+            user_id,
+            tenant_id: TenantId::from_uuid(tenant_id),
+            backend,
+            via: ConnectVia::Scrape,
+        },
+    )
+    .await;
 }
 
 /// Store a successful sciotte session in Pierre's encrypted DB and register the connection.
@@ -408,7 +415,7 @@ pub(crate) async fn store_sciotte_session(
     )
     .await?;
 
-    notify_sciotte_connected(user_id, tenant_id, provider_name);
+    notify_sciotte_connected(resources, user_id, tenant_id, provider_name).await;
     replace_dead_grant(
         resources,
         user_id,

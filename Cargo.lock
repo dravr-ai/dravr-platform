@@ -1317,8 +1317,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.27.0"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.27.0#574022266c2f88be59c5852d9f253fcdf1ddaa4d"
+version = "0.28.0"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.28.0#805b254ce75e7395badcfa4be066cc03cc9729e3"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4462,6 +4462,7 @@ dependencies = [
  "pierre-notifications",
  "pierre-providers",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

@@ -1,5 +1,5 @@
 // ABOUTME: Barrage's ProjectionSink in the platform: imported records into cached_activities, wellness into the wellness store
-// ABOUTME: Samples first (origin='archive', the original's SHA-256 as source_ref), then the rows, bests and list refresh
+// ABOUTME: Samples first (origin='archive', the original's blob name as source_ref), then the rows, bests and list refresh
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,7 +14,8 @@
 //!
 //! 1. each record's decoded samples into the one per-activity sample store,
 //!    `activity_streams`, with `origin = 'archive'`, the source key as the
-//!    provider and the original's SHA-256 as `source_ref`, at the format
+//!    provider and the original's blob name as `source_ref` (its keyed name,
+//!    or its content digest while it keeps its content name), at the format
 //!    version barrage decoded them to — before the row they belong to, so a
 //!    cached archive activity is never read without its samples;
 //! 2. the records' activities into the activity cache under the source key
@@ -142,7 +143,12 @@ impl ProjectionSink for CachedActivitiesSink {
             let Some(samples) = samples else {
                 continue;
             };
-            let source_ref = row.provenance.original_sha256.map(|digest| digest.to_hex());
+            // The name the original is kept under, never its digest in
+            // clear: a keyed name says nothing of the bytes (carnet#1542).
+            let source_ref = row
+                .provenance
+                .original
+                .map(|original| original.id.to_string());
             repos
                 .activity_streams
                 .upsert_activity_streams(&ActivityStreamsWrite {

@@ -36,7 +36,7 @@ pub mod data;
 /// Canonical per-request tenant resolution (see [`tenant`]).
 pub mod tenant;
 
-pub use data::DataContext;
+pub use data::{DataContext, ProviderConnectLog};
 /// Re-exported so a host can name it in its [`BillingCtx`] impl whether or
 /// not it links the group coaching routes.
 pub use pierre_groups::AthleteBilling;
@@ -495,6 +495,10 @@ pub trait GroupsCtx: Send + Sync + 'static {
     /// Group coaching service — strategies, aggregate stats, weekly
     /// reports, and health-flag computation over fitness snapshots.
     fn group_service(&self) -> &Arc<pierre_groups::GroupService>;
+
+    /// Where a confirmed delegated link's connect is recorded, in the
+    /// member's log in the activity store (carnet#1542).
+    fn connect_log(&self) -> &Arc<dyn ProviderConnectLog>;
 
     /// Messaging strings registry — the notification feed renders each row's
     /// title, body and action labels through it, in the reader's own locale,

@@ -217,7 +217,7 @@ mod groups_ctx_impl {
     use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
     use pierre_groups::GroupService;
     use pierre_notifications::NotificationService;
-    use pierre_runtime_context::GroupsCtx;
+    use pierre_runtime_context::{GroupsCtx, ProviderConnectLog};
     use std::sync::Arc;
 
     #[async_trait]
@@ -228,6 +228,10 @@ mod groups_ctx_impl {
 
         fn group_service(&self) -> &Arc<GroupService> {
             &self.common.group_service
+        }
+
+        fn connect_log(&self) -> &Arc<dyn ProviderConnectLog> {
+            &self.common.connect_log
         }
 
         fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry> {
