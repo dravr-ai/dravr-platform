@@ -4267,6 +4267,48 @@
       "paid": "Paid",
       "uncollectible": "Uncollectible",
       "void": "Void"
+    },
+    "editor": {
+      "open": "Build from family",
+      "title": "Build a session for {{date}}",
+      "family": "Family",
+      "preset": "Preset",
+      "sport": "Sport",
+      "param": {
+        "sets": "Sets",
+        "reps": "Reps per set",
+        "workSeconds": "Work (s)",
+        "restSeconds": "Rest between reps (s)",
+        "setRestSeconds": "Rest between sets (s)",
+        "durationMinutes": "Duration (min)"
+      },
+      "range": "Evidence range {{min}}–{{max}}",
+      "derivedHeading": "What this session does",
+      "derived": {
+        "ratio": "Work:rest ratio",
+        "workPct": "Work, % of {{max}}",
+        "restPct": "Rest, % of {{max}}",
+        "cycleMeanPct": "Cycle mean, % of {{max}}",
+        "amplitudePct": "Amplitude, points of {{max}}",
+        "onTime": "Time at work",
+        "total": "Whole session"
+      },
+      "minutes": "{{count}} min",
+      "stepsHeading": "Steps",
+      "findingsHeading": "What the check found",
+      "findingsNone": "Inside the family's evidence.",
+      "findingsNote": "Findings are warnings: the session saves as you built it.",
+      "draftNote": "Saved to your draft. {{name}} sees it only once you publish.",
+      "replaces": "Replaces this day's session in your draft.",
+      "measuring": "Measuring…",
+      "previewFailed": "This session could not be measured.",
+      "save": "Save to draft",
+      "saving": "Saving…",
+      "saved": "Saved to your draft.",
+      "saveFailed": "This session could not be saved.",
+      "loading": "Loading families…",
+      "noFamilies": "No workout families are available for {{name}}.",
+      "loadFailed": "The workout families could not be loaded."
     }
   },
   "platform_post": {

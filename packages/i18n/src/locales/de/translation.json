@@ -4267,6 +4267,48 @@
       "paid": "Bezahlt",
       "uncollectible": "Uneinbringlich",
       "void": "Storniert"
+    },
+    "editor": {
+      "open": "Aus einer Familie erstellen",
+      "title": "Einheit für {{date}} erstellen",
+      "family": "Familie",
+      "preset": "Vorlage",
+      "sport": "Sportart",
+      "param": {
+        "sets": "Serien",
+        "reps": "Wiederholungen pro Serie",
+        "workSeconds": "Belastung (s)",
+        "restSeconds": "Pause zwischen Wiederholungen (s)",
+        "setRestSeconds": "Pause zwischen Serien (s)",
+        "durationMinutes": "Dauer (min)"
+      },
+      "range": "Belegter Bereich {{min}}–{{max}}",
+      "derivedHeading": "Was diese Einheit bewirkt",
+      "derived": {
+        "ratio": "Verhältnis Belastung:Pause",
+        "workPct": "Belastung, % von {{max}}",
+        "restPct": "Pause, % von {{max}}",
+        "cycleMeanPct": "Zyklusmittel, % von {{max}}",
+        "amplitudePct": "Amplitude, Punkte von {{max}}",
+        "onTime": "Belastungszeit",
+        "total": "Gesamte Einheit"
+      },
+      "minutes": "{{count}} min",
+      "stepsHeading": "Schritte",
+      "findingsHeading": "Was die Prüfung gefunden hat",
+      "findingsNone": "Innerhalb der Evidenz der Familie.",
+      "findingsNote": "Befunde sind Warnungen: Die Einheit wird so gespeichert, wie du sie erstellt hast.",
+      "draftNote": "In deinem Entwurf gespeichert. {{name}} sieht sie erst, wenn du veröffentlichst.",
+      "replaces": "Ersetzt die Einheit dieses Tages in deinem Entwurf.",
+      "measuring": "Wird gemessen…",
+      "previewFailed": "Diese Einheit konnte nicht gemessen werden.",
+      "save": "Im Entwurf speichern",
+      "saving": "Wird gespeichert…",
+      "saved": "In deinem Entwurf gespeichert.",
+      "saveFailed": "Diese Einheit konnte nicht gespeichert werden.",
+      "loading": "Familien werden geladen…",
+      "noFamilies": "Für {{name}} sind keine Trainingsfamilien verfügbar.",
+      "loadFailed": "Die Trainingsfamilien konnten nicht geladen werden."
     }
   },
   "platform_post": {

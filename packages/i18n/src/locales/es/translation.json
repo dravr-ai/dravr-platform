@@ -4267,6 +4267,48 @@
       "paid": "Pagada",
       "uncollectible": "Incobrable",
       "void": "Anulada"
+    },
+    "editor": {
+      "open": "Crear desde una familia",
+      "title": "Crear una sesión para el {{date}}",
+      "family": "Familia",
+      "preset": "Variante",
+      "sport": "Deporte",
+      "param": {
+        "sets": "Series",
+        "reps": "Repeticiones por serie",
+        "workSeconds": "Esfuerzo (s)",
+        "restSeconds": "Recuperación entre repeticiones (s)",
+        "setRestSeconds": "Recuperación entre series (s)",
+        "durationMinutes": "Duración (min)"
+      },
+      "range": "Rango con evidencia {{min}}–{{max}}",
+      "derivedHeading": "Qué hace esta sesión",
+      "derived": {
+        "ratio": "Relación esfuerzo:recuperación",
+        "workPct": "Esfuerzo, % de {{max}}",
+        "restPct": "Recuperación, % de {{max}}",
+        "cycleMeanPct": "Media del ciclo, % de {{max}}",
+        "amplitudePct": "Amplitud, puntos de {{max}}",
+        "onTime": "Tiempo de esfuerzo",
+        "total": "Sesión completa"
+      },
+      "minutes": "{{count}} min",
+      "stepsHeading": "Pasos",
+      "findingsHeading": "Lo que encontró la comprobación",
+      "findingsNone": "Dentro de la evidencia de la familia.",
+      "findingsNote": "Los hallazgos son advertencias: la sesión se guarda tal como la creaste.",
+      "draftNote": "Guardada en tu borrador. {{name}} solo la ve cuando publicas.",
+      "replaces": "Sustituye la sesión de este día en tu borrador.",
+      "measuring": "Midiendo…",
+      "previewFailed": "No se pudo medir esta sesión.",
+      "save": "Guardar en el borrador",
+      "saving": "Guardando…",
+      "saved": "Guardada en tu borrador.",
+      "saveFailed": "No se pudo guardar esta sesión.",
+      "loading": "Cargando familias…",
+      "noFamilies": "No hay familias de entrenamiento disponibles para {{name}}.",
+      "loadFailed": "No se pudieron cargar las familias de entrenamiento."
     }
   },
   "platform_post": {

@@ -4267,6 +4267,48 @@
       "paid": "Payée",
       "uncollectible": "Irrécouvrable",
       "void": "Annulée"
+    },
+    "editor": {
+      "open": "Construire depuis une famille",
+      "title": "Construire une séance pour le {{date}}",
+      "family": "Famille",
+      "preset": "Préréglage",
+      "sport": "Sport",
+      "param": {
+        "sets": "Séries",
+        "reps": "Répétitions par série",
+        "workSeconds": "Effort (s)",
+        "restSeconds": "Récupération entre répétitions (s)",
+        "setRestSeconds": "Récupération entre séries (s)",
+        "durationMinutes": "Durée (min)"
+      },
+      "range": "Plage étayée {{min}}–{{max}}",
+      "derivedHeading": "Ce que fait cette séance",
+      "derived": {
+        "ratio": "Rapport effort:récupération",
+        "workPct": "Effort, % de {{max}}",
+        "restPct": "Récupération, % de {{max}}",
+        "cycleMeanPct": "Moyenne du cycle, % de {{max}}",
+        "amplitudePct": "Amplitude, points de {{max}}",
+        "onTime": "Temps d’effort",
+        "total": "Séance complète"
+      },
+      "minutes": "{{count}} min",
+      "stepsHeading": "Étapes",
+      "findingsHeading": "Ce que la vérification a relevé",
+      "findingsNone": "Dans les données probantes de la famille.",
+      "findingsNote": "Ces constats sont des avertissements : la séance est enregistrée telle que tu l’as construite.",
+      "draftNote": "Enregistrée dans ton brouillon. {{name}} ne la voit qu’une fois que tu publies.",
+      "replaces": "Remplace la séance de ce jour dans ton brouillon.",
+      "measuring": "Mesure en cours…",
+      "previewFailed": "Cette séance n’a pas pu être mesurée.",
+      "save": "Enregistrer dans le brouillon",
+      "saving": "Enregistrement…",
+      "saved": "Enregistrée dans ton brouillon.",
+      "saveFailed": "Cette séance n’a pas pu être enregistrée.",
+      "loading": "Chargement des familles…",
+      "noFamilies": "Aucune famille de séances n’est disponible pour {{name}}.",
+      "loadFailed": "Les familles de séances n’ont pas pu être chargées."
     }
   },
   "platform_post": {

@@ -4267,6 +4267,48 @@
       "paid": "Paga",
       "uncollectible": "Incobrável",
       "void": "Anulada"
+    },
+    "editor": {
+      "open": "Criar a partir de uma família",
+      "title": "Criar uma sessão para {{date}}",
+      "family": "Família",
+      "preset": "Variante",
+      "sport": "Esporte",
+      "param": {
+        "sets": "Séries",
+        "reps": "Repetições por série",
+        "workSeconds": "Esforço (s)",
+        "restSeconds": "Recuperação entre repetições (s)",
+        "setRestSeconds": "Recuperação entre séries (s)",
+        "durationMinutes": "Duração (min)"
+      },
+      "range": "Faixa com evidência {{min}}–{{max}}",
+      "derivedHeading": "O que esta sessão faz",
+      "derived": {
+        "ratio": "Relação esforço:recuperação",
+        "workPct": "Esforço, % de {{max}}",
+        "restPct": "Recuperação, % de {{max}}",
+        "cycleMeanPct": "Média do ciclo, % de {{max}}",
+        "amplitudePct": "Amplitude, pontos de {{max}}",
+        "onTime": "Tempo de esforço",
+        "total": "Sessão completa"
+      },
+      "minutes": "{{count}} min",
+      "stepsHeading": "Etapas",
+      "findingsHeading": "O que a verificação encontrou",
+      "findingsNone": "Dentro da evidência da família.",
+      "findingsNote": "As constatações são avisos: a sessão é salva como você a criou.",
+      "draftNote": "Salva no seu rascunho. {{name}} só a vê quando você publicar.",
+      "replaces": "Substitui a sessão deste dia no seu rascunho.",
+      "measuring": "Medindo…",
+      "previewFailed": "Não foi possível medir esta sessão.",
+      "save": "Salvar no rascunho",
+      "saving": "Salvando…",
+      "saved": "Salva no seu rascunho.",
+      "saveFailed": "Não foi possível salvar esta sessão.",
+      "loading": "Carregando famílias…",
+      "noFamilies": "Nenhuma família de treino está disponível para {{name}}.",
+      "loadFailed": "Não foi possível carregar as famílias de treino."
     }
   },
   "platform_post": {
