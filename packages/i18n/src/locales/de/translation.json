@@ -2557,6 +2557,34 @@
       "deactivateInviteTitle": "Diesen Link deaktivieren?"
     }
   },
+  "healthRecords": {
+    "title": "Gesundheitsakten",
+    "blurb": "Deine Laborwerte, klinischen Unterlagen, Blutzuckerwerte und dein Zyklustracking aus deinen Importen und den Laborberichten, die du hochlädst. Hier siehst du sie immer; wer sie sonst liest, legst du unter Sensible Gesundheitsdaten fest.",
+    "uploadLabel": "Laborbericht hochladen (PDF)",
+    "uploading": "Dein Laborbericht wird gelesen…",
+    "uploaded": "{{count}} Werte gelesen. Prüfe jeden unten.",
+    "alreadyUploaded": "Diesen Bericht hast du schon hochgeladen.",
+    "noText": "Dieses PDF enthält keinen Text (ein Scan), daher konnte nichts gelesen werden.",
+    "uploadFailed": "Dieser Bericht konnte nicht gelesen werden. Lade ein PDF mit höchstens 10 MB hoch.",
+    "reviewTitle": "Wartet auf deine Prüfung",
+    "reviewHint": "Jeder Wert wurde aus deinem Bericht gelesen. Bestätige die, die stimmen, und lehne die anderen ab: Nur bestätigte Werte werden verwendet.",
+    "reviewEmpty": "Nichts wartet auf deine Prüfung.",
+    "confirm": "Bestätigen",
+    "reject": "Ablehnen",
+    "checksLabel": "Genauer ansehen",
+    "failed": "Das hat nicht geklappt. Versuch es noch einmal.",
+    "documentsTitle": "Laborberichte",
+    "documentsEmpty": "Noch kein Laborbericht hochgeladen.",
+    "deleteDocument": "Löschen",
+    "deleted": "Laborbericht gelöscht.",
+    "recordsTitle": "Deine Akten",
+    "recordsEmpty": "Noch keine Einträge dieser Art.",
+    "kindLabs": "Laborwerte",
+    "kindClinical": "Klinische Unterlagen",
+    "kindGlucose": "Blutzucker",
+    "kindSelfReports": "Zyklustracking",
+    "dailyGlucose": "Tageswert"
+  },
   "home": {
     "plan": {
       "tomorrow": "Morgen",
@@ -4312,7 +4340,7 @@
       "failed": "Deine KI-Einwilligung konnte nicht aktualisiert werden. Bitte versuche es erneut.",
       "sensitive": {
         "title": "Sensible Gesundheitsdaten",
-        "blurb": "Deine Gesundheitsakten (Laborwerte, klinische Unterlagen, Blutzucker) und deine intimen Gesundheitsdaten (Zyklustracking, psychische und reproduktive Gesundheit) bleiben für deinen KI-Agenten und deinen menschlichen Coach gesperrt, bis du sie hier erlaubst. In der App siehst du sie weiterhin. Ein Widerruf beendet die KI-Nutzung sofort.",
+        "blurb": "Deine Gesundheitsakten (Laborwerte, klinische Unterlagen, Blutzucker) und deine intimen Gesundheitsdaten (Zyklustracking, psychische und reproduktive Gesundheit) bleiben für deinen KI-Agenten gesperrt, bis du sie hier erlaubst. Dein menschlicher Coach liest deine Gesundheitsakten nur, wenn du sie zusätzlich in deiner Gruppe teilst, und deine intimen Gesundheitsdaten nie. In der App siehst du sie weiterhin. Ein Widerruf beendet die KI-Nutzung sofort.",
         "t2Label": "Meinem KI-Agenten erlauben, meine Gesundheitsakten zu lesen (Laborwerte, klinische Unterlagen, Blutzucker)",
         "t3Label": "KI erlauben, meine intimen Gesundheitsdaten zu lesen (Zyklustracking, psychische und reproduktive Gesundheit)",
         "allowed": "Erlaubt. Dein Agent liest diese Daten ab jetzt.",

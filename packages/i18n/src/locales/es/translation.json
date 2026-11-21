@@ -2557,6 +2557,34 @@
       "deactivateInviteTitle": "¿Desactivar este enlace?"
     }
   },
+  "healthRecords": {
+    "title": "Registros de salud",
+    "blurb": "Tus resultados de laboratorio, historias clínicas, glucosa y seguimiento del ciclo, de tus importaciones y de los informes de laboratorio que subes. Aquí siempre los ves; quién más los lee se define en Registros de salud sensibles.",
+    "uploadLabel": "Subir un informe de laboratorio (PDF)",
+    "uploading": "Leyendo tu informe…",
+    "uploaded": "{{count}} resultados leídos. Revisa cada uno abajo.",
+    "alreadyUploaded": "Ya subiste este informe.",
+    "noText": "Este PDF no tiene texto (es un escaneo), así que no se pudo leer nada.",
+    "uploadFailed": "No se pudo leer este informe. Sube un PDF de 10 MB o menos.",
+    "reviewTitle": "Pendiente de tu revisión",
+    "reviewHint": "Cada resultado se leyó de tu informe. Confirma los que coinciden y rechaza los demás: solo se usan los resultados confirmados.",
+    "reviewEmpty": "Nada pendiente de tu revisión.",
+    "confirm": "Confirmar",
+    "reject": "Rechazar",
+    "checksLabel": "Conviene revisarlo",
+    "failed": "No funcionó. Inténtalo de nuevo.",
+    "documentsTitle": "Informes de laboratorio",
+    "documentsEmpty": "Aún no has subido ningún informe de laboratorio.",
+    "deleteDocument": "Eliminar",
+    "deleted": "Informe de laboratorio eliminado.",
+    "recordsTitle": "Tus registros",
+    "recordsEmpty": "Aún no hay registros de este tipo.",
+    "kindLabs": "Resultados de laboratorio",
+    "kindClinical": "Historias clínicas",
+    "kindGlucose": "Glucosa",
+    "kindSelfReports": "Seguimiento del ciclo",
+    "dailyGlucose": "Valor del día"
+  },
   "home": {
     "plan": {
       "tomorrow": "Mañana",
@@ -4312,7 +4340,7 @@
       "failed": "No se pudo actualizar tu consentimiento de IA. Inténtalo de nuevo.",
       "sensitive": {
         "title": "Registros de salud sensibles",
-        "blurb": "Tus registros de salud (resultados de laboratorio, historias clínicas, glucosa) y tus registros de salud íntima (seguimiento del ciclo, salud mental y reproductiva) quedan cerrados para tu agente de IA y tu coach humano hasta que los permitas aquí. Los sigues viendo en la app. Retirar el permiso detiene el uso por la IA de inmediato.",
+        "blurb": "Tus registros de salud (resultados de laboratorio, historias clínicas, glucosa) y tus registros de salud íntima (seguimiento del ciclo, salud mental y reproductiva) quedan cerrados para tu agente de IA hasta que los permitas aquí. Tu coach humano lee tus registros de salud solo si también los compartes en tu grupo, y nunca tus registros de salud íntima. Los sigues viendo en la app. Retirar el permiso detiene el uso por la IA de inmediato.",
         "t2Label": "Permitir que mi agente de IA lea mis registros de salud (resultados de laboratorio, historias clínicas, glucosa)",
         "t3Label": "Permitir que la IA lea mis registros de salud íntima (seguimiento del ciclo, salud mental y reproductiva)",
         "allowed": "Permitido. Tu agente lee estos registros desde ahora.",

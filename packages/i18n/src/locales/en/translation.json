@@ -2557,6 +2557,34 @@
       "deactivateInviteTitle": "Deactivate this link?"
     }
   },
+  "healthRecords": {
+    "title": "Health records",
+    "blurb": "Your lab results, clinical records, glucose and cycle tracking, from your imports and the lab reports you upload. You always see them here; who else reads them is set under Sensitive health records.",
+    "uploadLabel": "Upload a lab report (PDF)",
+    "uploading": "Reading your lab report…",
+    "uploaded": "{{count}} results read. Check each one below.",
+    "alreadyUploaded": "You already uploaded this report.",
+    "noText": "This PDF has no text in it (a scan), so nothing could be read from it.",
+    "uploadFailed": "This report could not be read. Upload a PDF of 10 MB or less.",
+    "reviewTitle": "Waiting for your review",
+    "reviewHint": "Each result was read from your report. Confirm the ones that match it and reject the others: only confirmed results are used.",
+    "reviewEmpty": "Nothing is waiting for your review.",
+    "confirm": "Confirm",
+    "reject": "Reject",
+    "checksLabel": "Worth a second look",
+    "failed": "That did not work. Try again.",
+    "documentsTitle": "Lab reports",
+    "documentsEmpty": "No lab report uploaded yet.",
+    "deleteDocument": "Delete",
+    "deleted": "Lab report deleted.",
+    "recordsTitle": "Your records",
+    "recordsEmpty": "No records of this kind yet.",
+    "kindLabs": "Lab results",
+    "kindClinical": "Clinical records",
+    "kindGlucose": "Glucose",
+    "kindSelfReports": "Cycle tracking",
+    "dailyGlucose": "Daily value"
+  },
   "home": {
     "plan": {
       "tomorrow": "Tomorrow",
@@ -4312,7 +4340,7 @@
       "failed": "Could not update your AI consent. Please try again.",
       "sensitive": {
         "title": "Sensitive health records",
-        "blurb": "Health records (lab results, clinical records, blood glucose) and intimate health records (cycle tracking, mental and reproductive health) stay off limits to your AI agent and your human coach until you allow them here. You still see them in the app. Withdrawing stops AI use at once.",
+        "blurb": "Health records (lab results, clinical records, blood glucose) and intimate health records (cycle tracking, mental and reproductive health) stay off limits to your AI agent until you allow them here. Your human coach reads your health records only when you also share them in your group, and never your intimate health records. You still see them in the app. Withdrawing stops AI use at once.",
         "t2Label": "Let my AI agent read my health records (lab results, clinical records, blood glucose)",
         "t3Label": "Let AI read my intimate health records (cycle tracking, mental and reproductive health)",
         "allowed": "Allowed. Your agent reads these records from now on.",
