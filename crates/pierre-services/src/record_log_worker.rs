@@ -23,6 +23,8 @@
 //! 5. with a signer, cuts a checkpoint anchoring the deletion receipt chain's
 //!    head, records the anchor, and logs the signed note to Cloud Logging
 //!    (target `dravr::checkpoint`): the place the database cannot reach.
+//!    An unchanged tree is not cut again, so a tick that finds the newest
+//!    checkpoint without its anchor row records it then.
 
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -33,7 +35,7 @@ use dravr_barrage::blob::backfill_keyed_names;
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::keyed::{KeyedDigest, Signer};
 use dravr_barrage::record_log::checkpoint::Anchor;
-use dravr_barrage::record_log::{cut_checkpoint, LOG_PAGE};
+use dravr_barrage::record_log::{cut_checkpoint, merkle, RecordLog, LOG_PAGE};
 use dravr_barrage::store::{ActivityRecordStore, BarrageStores, RecordPlace};
 use dravr_barrage::{BarrageError, UserId};
 use pierre_core::errors::{AppError, AppResult};
@@ -70,7 +72,8 @@ pub struct RecordLogTick {
     pub keyed_names: Option<KeyedNamesPage>,
     /// Deleted accounts whose log was swept.
     pub orphans_swept: u64,
-    /// The checkpoint cut, with the receipt it anchors.
+    /// The checkpoint cut, with the receipt it anchors; or the newest
+    /// checkpoint whose missing anchor row this tick recorded.
     pub anchored: Option<ReceiptAnchor>,
 }
 
@@ -288,7 +291,7 @@ impl RecordLogWorker {
         .await
         .map_err(|e| AppError::internal(format!("record_log checkpoint: {e}")))?
         else {
-            return Ok(None);
+            return self.repair_anchor(seq, hash, &anchor).await;
         };
         // Logged before the anchor row is written: the copy outside the
         // database must not depend on that write, since a cut checkpoint is
@@ -316,6 +319,75 @@ impl RecordLogWorker {
             anchored_at: Utc::now(),
         };
         self.receipts.record_anchor(&recorded).await?;
+        Ok(Some(recorded))
+    }
+
+    /// Record the anchor of the newest checkpoint when its row is missing:
+    /// a cut whose anchor write failed is repaired on the next tick, not at
+    /// the next change to the tree, since an unchanged tree is never cut
+    /// again.
+    ///
+    /// The row is written only when the newest checkpoint commits to the
+    /// chain head the tick read (`anchor`, at `seq` / `hash`): its size and
+    /// root are those of that anchor over every athlete's head now. A
+    /// checkpoint another instance cut over another head is left to it.
+    async fn repair_anchor(
+        &self,
+        seq: i64,
+        hash: String,
+        anchor: &Anchor,
+    ) -> AppResult<Option<ReceiptAnchor>> {
+        let barrage =
+            |e: BarrageError| AppError::internal(format!("record_log anchor repair: {e}"));
+        let log: &dyn RecordLog = self.records.as_ref();
+        let Some(latest) = log.latest_checkpoint().await.map_err(barrage)? else {
+            return Ok(None);
+        };
+        if self
+            .receipts
+            .latest_anchor()
+            .await?
+            .is_some_and(|recorded| recorded.checkpoint_id == latest.id)
+        {
+            return Ok(None);
+        }
+        let mut leaves = vec![anchor.leaf()];
+        let mut after = None;
+        loop {
+            let page = log
+                .log_heads(after.as_ref(), LOG_PAGE)
+                .await
+                .map_err(barrage)?;
+            let full = page.len() == LOG_PAGE as usize;
+            after = page.last().map(|(_, head)| head.keyed_scope.clone());
+            leaves.extend(page.iter().map(|(_, head)| head.leaf()));
+            if !full {
+                break;
+            }
+        }
+        if latest.size != leaves.len() as u64 || latest.root != merkle::root(&leaves) {
+            return Ok(None);
+        }
+        let recorded = ReceiptAnchor {
+            receipt_seq: seq,
+            receipt_hash: hash,
+            checkpoint_id: latest.id,
+            tree_size: i64::try_from(latest.size).map_err(|_| {
+                AppError::internal(format!(
+                    "checkpoint {} has a size {} past i64",
+                    latest.id, latest.size
+                ))
+            })?,
+            tree_root: latest.root.to_hex(),
+            note: latest.note,
+            anchored_at: Utc::now(),
+        };
+        self.receipts.record_anchor(&recorded).await?;
+        warn!(
+            checkpoint_id = recorded.checkpoint_id,
+            receipt_seq = seq,
+            "Recorded the missing anchor of the newest record_log checkpoint"
+        );
         Ok(Some(recorded))
     }
 }
