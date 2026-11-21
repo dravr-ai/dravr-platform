@@ -19,6 +19,7 @@ use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_llm::FunctionDeclaration;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_test_support::log_capture::{self, CapturedEvent};
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
 };
@@ -27,81 +28,11 @@ use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::scopes::{missing_scope, required_scopes};
 use pierre_tool_runtime::McpTool;
 use serde_json::{json, Value};
-use std::collections::{BTreeSet, HashMap};
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use std::collections::BTreeSet;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
-
-// ============================================================================
-// Notify-event capture
-// ============================================================================
-
-/// One `tracing` event with its structured fields, so a test can assert on the
-/// `notify` events the save emits rather than only on what it returns.
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    fields: HashMap<String, String>,
-}
-
-impl CapturedEvent {
-    fn field(&self, name: &str) -> Option<&str> {
-        self.fields.get(name).map(String::as_str)
-    }
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-}
-
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        if let Ok(mut events) = self.events.lock() {
-            events.push(CapturedEvent {
-                fields: visitor.fields,
-            });
-        }
-    }
-}
-
-/// Capture every event emitted on this thread until the guard is dropped.
-fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let capture = CaptureLayer::default();
-    let events = Arc::clone(&capture.events);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
-    (events, guard)
-}
 
 async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
@@ -1725,7 +1656,7 @@ async fn the_ramp_check_grades_the_earliest_week_not_the_first_in_the_payload() 
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     seed_one_hour_per_week_baseline(&executor, &tenant_id, user_id).await?;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let save = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -1734,7 +1665,7 @@ async fn the_ramp_check_grades_the_earliest_week_not_the_first_in_the_payload() 
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
 
     assert!(save.success, "save failed: {:?}", save.error);
@@ -1781,7 +1712,7 @@ async fn a_week_only_adjustment_is_not_graded_as_an_opening_week() -> Result<()>
         ))
         .await?;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let adjust = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -1801,7 +1732,7 @@ async fn a_week_only_adjustment_is_not_graded_as_an_opening_week() -> Result<()>
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
 
     assert!(adjust.success, "adjust failed: {:?}", adjust.error);
@@ -2218,7 +2149,7 @@ async fn every_save_reports_itself_including_a_weeks_only_adjustment() -> Result
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
     // Outline save: covers today and matches its block exactly.
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let first = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -2231,7 +2162,7 @@ async fn every_save_reports_itself_including_a_weeks_only_adjustment() -> Result
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
     assert!(first.success, "outline save failed: {:?}", first.error);
 
@@ -2255,7 +2186,7 @@ async fn every_save_reports_itself_including_a_weeks_only_adjustment() -> Result
     );
 
     // Weeks-only adjustment: the case that used to be silent.
-    let (events2, guard2) = setup_capture();
+    let (events2, guard2) = log_capture::capture_events();
     let second = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -2267,7 +2198,7 @@ async fn every_save_reports_itself_including_a_weeks_only_adjustment() -> Result
             Some(&tenant_id),
         ))
         .await?;
-    let captured2 = events2.lock().expect("capture lock").clone();
+    let captured2 = events2.events();
     drop(guard2);
     assert!(second.success, "weeks-only save failed: {:?}", second.error);
 
@@ -2301,7 +2232,7 @@ async fn a_plan_that_stopped_covering_the_athlete_reports_an_uncovered_gap() -> 
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let save = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -2316,7 +2247,7 @@ async fn a_plan_that_stopped_covering_the_athlete_reports_an_uncovered_gap() -> 
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
     assert!(save.success, "save failed: {:?}", save.error);
 
@@ -2348,7 +2279,7 @@ async fn a_plan_that_has_not_started_yet_reports_no_gap() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let save = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -2362,7 +2293,7 @@ async fn a_plan_that_has_not_started_yet_reports_no_gap() -> Result<()> {
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
     assert!(save.success, "save failed: {:?}", save.error);
 
@@ -2382,7 +2313,7 @@ async fn weeks_that_stop_before_the_outline_ends_report_a_short_gap() -> Result<
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let save = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -2396,7 +2327,7 @@ async fn weeks_that_stop_before_the_outline_ends_report_a_short_gap() -> Result<
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
     assert!(save.success, "save failed: {:?}", save.error);
 
@@ -2422,7 +2353,7 @@ async fn a_plan_that_covers_today_and_matches_its_outline_reports_no_gap() -> Re
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let save = executor
         .execute_tool(make_request(
             "save_training_plan",
@@ -2435,7 +2366,7 @@ async fn a_plan_that_covers_today_and_matches_its_outline_reports_no_gap() -> Re
             Some(&tenant_id),
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = events.events();
     drop(guard);
     assert!(save.success, "save failed: {:?}", save.error);
 

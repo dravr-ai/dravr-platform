@@ -115,10 +115,9 @@ pierre-logging = { version = "0.3.0", path = "../pierre-logging" }
 # The offline provider registry the tests read provider terms off, every
 # endpoint the server calls refused.
 pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["providers"] }
-# Captures the warning a zero destructive budget logs, so its unit test reads
-# the line whichever layer set the budget.
-# Same spec the chat pipeline's log-asserting tests use.
-tracing-subscriber = { version = "0.3", features = ["fmt", "std"], default-features = false }
+# The dispatch span's unit test reads the span fields a registry layer
+# stores, which only a subscriber built from that registry can see.
+tracing-subscriber = { version = "0.3", features = ["registry", "std"], default-features = false }
 
 # Integration tests are modules of tests/it/main.rs, one binary. Every tool
 # module in this crate sits behind a `tools-*` feature and the crate declares

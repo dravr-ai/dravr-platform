@@ -132,7 +132,8 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 # Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
 # `groups`: the plan without group coaching the channel auto-bind's tests refuse.
 pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["groups"] }
-# Captures the `llm call cost` line's fields in the recorder's unit test.
+# The scheduled refresh's span test and the periodic spawner's global capture
+# build their subscribers from a registry and a layer of their own.
 tracing-subscriber = { version = "0.3", features = ["std", "registry"], default-features = false }
 # The header type dravr-enforme's SyncProvider::validate_webhook takes, for
 # the scheduled-sync test's stand-in provider.

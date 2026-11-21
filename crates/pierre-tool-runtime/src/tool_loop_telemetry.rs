@@ -241,48 +241,10 @@ pub(crate) fn note_tool_loop_cooldown_skip(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-    use std::fmt::Debug;
-    use std::sync::{Arc, Mutex, PoisonError};
-
     use pierre_llm::TokenUsage;
-    use tracing::field::{Field, Visit};
-    use tracing::{callsite, subscriber, Event, Subscriber};
-    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
-    use tracing_subscriber::Registry;
+    use pierre_test_support::log_capture::capture_events_while;
 
     use super::*;
-
-    /// The fields of every iteration-response line logged while installed.
-    #[derive(Clone, Default)]
-    struct IterationLines(Arc<Mutex<Vec<BTreeMap<String, String>>>>);
-
-    struct FieldText<'a>(&'a mut BTreeMap<String, String>);
-
-    impl Visit for FieldText<'_> {
-        fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-            self.0.insert(field.name().to_owned(), format!("{value:?}"));
-        }
-
-        fn record_str(&mut self, field: &Field, value: &str) {
-            self.0.insert(field.name().to_owned(), value.to_owned());
-        }
-    }
-
-    impl<S: Subscriber> Layer<S> for IterationLines {
-        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-            let mut fields = BTreeMap::new();
-            event.record(&mut FieldText(&mut fields));
-            if fields.get("message").map(String::as_str)
-                == Some("tool loop iteration: provider response received")
-            {
-                self.0
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push(fields);
-            }
-        }
-    }
 
     /// An iteration re-asked on a cheaper model is logged under that model
     /// and the tier that answered, with its sequence and cache split, rather
@@ -300,15 +262,18 @@ mod tests {
             finish_reason: None,
             warnings: None,
         };
-        let lines = IterationLines::default();
-        subscriber::with_default(Registry::default().with(lines.clone()), || {
-            callsite::rebuild_interest_cache();
+        let ((), events) = capture_events_while(|| {
             log_iteration_response(3, Some(6), "anthropic", 1_200, &response);
         });
-        let lines = lines.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let lines: Vec<_> = events
+            .into_iter()
+            .filter(|event| {
+                event.message() == Some("tool loop iteration: provider response received")
+            })
+            .collect();
         assert_eq!(lines.len(), 1, "one line per iteration: {lines:?}");
         let line = lines.first().expect("one iteration line"); // Safe: asserted above
-        let field = |name: &str| line.get(name).map(String::as_str);
+        let field = |name: &str| line.field(name);
         assert_eq!(field("iteration"), Some("3"));
         assert_eq!(field("call_sequence"), Some("6"));
         assert_eq!(field("provider"), Some("anthropic"));

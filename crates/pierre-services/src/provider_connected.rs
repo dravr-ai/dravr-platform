@@ -107,53 +107,15 @@ pub async fn announce(log: Option<&Arc<dyn ProviderConnectLog>>, connected: Prov
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-    use std::fmt::Debug;
-    use std::sync::{Mutex, PoisonError};
-
     use dravr_barrage::record_log::entry::EntryKind;
     use dravr_barrage::store::ActivityRecordStore;
     use dravr_barrage::{LiveSource, Scope, SourceKey};
     use pierre_test_support::db::create_test_db;
-    use tracing::callsite::rebuild_interest_cache;
-    use tracing::field::{Field, Visit};
-    use tracing::subscriber::set_default;
-    use tracing::{Event, Subscriber};
-    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
-    use tracing_subscriber::Registry;
+    use pierre_test_support::log_capture::capture_events;
 
     use super::*;
     use crate::barrage_keys::memory_records;
     use crate::barrage_live_store::live_store;
-
-    /// The fields of every `provider.connected` event logged while installed.
-    #[derive(Clone, Default)]
-    struct ConnectedEvents(Arc<Mutex<Vec<BTreeMap<String, String>>>>);
-
-    struct FieldText<'a>(&'a mut BTreeMap<String, String>);
-
-    impl Visit for FieldText<'_> {
-        fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-            self.0.insert(field.name().to_owned(), format!("{value:?}"));
-        }
-
-        fn record_str(&mut self, field: &Field, value: &str) {
-            self.0.insert(field.name().to_owned(), value.to_owned());
-        }
-    }
-
-    impl<S: Subscriber> Layer<S> for ConnectedEvents {
-        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-            let mut fields = BTreeMap::new();
-            event.record(&mut FieldText(&mut fields));
-            if fields.get("event").map(String::as_str) == Some("provider.connected") {
-                self.0
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push(fields);
-            }
-        }
-    }
 
     #[tokio::test]
     async fn a_connect_is_announced_once_and_logged_under_its_source() {
@@ -161,9 +123,7 @@ mod tests {
         let records: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
         let live = live_store(Arc::clone(&records), None, db.repositories());
         let log: Arc<dyn ProviderConnectLog> = live;
-        let events = ConnectedEvents::default();
-        let _guard = set_default(Registry::default().with(events.clone()));
-        rebuild_interest_cache();
+        let (captured, _guard) = capture_events();
         let user_id = Uuid::new_v4();
         let tenant_id = TenantId::from_uuid(Uuid::new_v4());
 
@@ -178,15 +138,15 @@ mod tests {
         )
         .await;
 
-        let events = events
-            .0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
+        let events: Vec<_> = captured
+            .drain()
+            .into_iter()
+            .filter(|event| event.field("event") == Some("provider.connected"))
+            .collect();
         let [event] = events.as_slice() else {
             panic!("expected one provider.connected event, got {events:?}"); // Safe: test assertion
         };
-        let field = |name: &str| event.get(name).map(String::as_str);
+        let field = |name: &str| event.field(name);
         assert_eq!(
             field("provider"),
             Some("garmin"),

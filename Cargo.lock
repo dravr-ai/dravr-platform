@@ -3766,6 +3766,7 @@ dependencies = [
  "pierre-runtime-context",
  "pierre-services",
  "pierre-sse",
+ "pierre-test-support",
  "pierre-tool-runtime",
  "serde_json",
  "tokio",
@@ -4077,6 +4078,7 @@ dependencies = [
  "embacle",
  "futures-util",
  "pierre-core",
+ "pierre-test-support",
  "serde",
  "serde_json",
  "tokio",
@@ -4217,7 +4219,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -4591,6 +4592,7 @@ version = "0.3.0"
 dependencies = [
  "chrono",
  "futures-util",
+ "log",
  "pierre-config",
  "pierre-core",
  "pierre-database",
@@ -4602,6 +4604,8 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
+ "tracing-core",
+ "tracing-log",
  "url",
  "uuid",
 ]
@@ -4776,7 +4780,6 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
- "tracing-core",
  "tracing-subscriber",
  "url",
  "urlencoding",

@@ -5,6 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
+
+use crate::log_capture;
 use std::env;
 #[cfg(not(feature = "postgresql"))]
 use std::future::{ready, Future};
@@ -55,6 +57,8 @@ pub async fn create_test_db() -> AppResult<Database> {
 /// [`REQUIRE_POSTGRES_ENV`] is set and `DATABASE_URL` does not name a
 /// `PostgreSQL` server.
 pub async fn create_test_db_with_key(encryption_key: Vec<u8>) -> AppResult<Database> {
+    // Before the setup's log sites register: see `log_capture::prime`.
+    log_capture::prime();
     #[cfg(feature = "postgresql")]
     if let Some(url) = postgres_test_url() {
         return postgres::create_isolated_database(&url, encryption_key).await;
@@ -80,6 +84,8 @@ pub async fn create_test_db_with_key(encryption_key: Vec<u8>) -> AppResult<Datab
 /// [`REQUIRE_POSTGRES_ENV`] is set and `DATABASE_URL` does not name a
 /// `PostgreSQL` server.
 pub async fn create_concurrent_test_db() -> AppResult<Database> {
+    // Before the setup's log sites register: see `log_capture::prime`.
+    log_capture::prime();
     #[cfg(feature = "postgresql")]
     if let Some(url) = postgres_test_url() {
         return postgres::create_isolated_database(&url, DEFAULT_TEST_KEY.to_vec()).await;
@@ -110,6 +116,8 @@ const CONCURRENT_SQLITE_CONNECTIONS: u32 = 8;
 /// `PostgreSQL` server.
 #[cfg(feature = "postgresql")]
 pub async fn create_test_db_url() -> AppResult<TestDatabaseUrl> {
+    // Before the setup's log sites register: see `log_capture::prime`.
+    log_capture::prime();
     if let Some(url) = postgres_test_url() {
         return postgres::create_isolated_database_url(&url).await;
     }
@@ -132,6 +140,8 @@ pub async fn create_test_db_url() -> AppResult<TestDatabaseUrl> {
 /// this build cannot open `PostgreSQL` at all.
 #[cfg(not(feature = "postgresql"))]
 pub fn create_test_db_url() -> impl Future<Output = AppResult<TestDatabaseUrl>> {
+    // Before the setup's log sites register: see `log_capture::prime`.
+    log_capture::prime();
     ready(
         refuse_sqlite_when_postgres_required().map(|()| TestDatabaseUrl {
             url: "sqlite::memory:".to_owned(),
@@ -181,6 +191,8 @@ impl TestDatabaseUrl {
 ///
 /// Returns an error if database initialization fails.
 pub async fn create_sqlite_test_db() -> AppResult<Database> {
+    // Before the setup's log sites register: see `log_capture::prime`.
+    log_capture::prime();
     sqlite::create_isolated_database(DEFAULT_TEST_KEY.to_vec(), 1).await
 }
 

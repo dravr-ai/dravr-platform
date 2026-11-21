@@ -44,8 +44,17 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite"], default
 # "rt", "time" and "macros" back the fault proxy's relay.
 tokio = { version = "1.54", features = ["sync", "net", "io-util", "rt", "time", "macros"] }
 tracing = "0.1"
+# `span::Current`, which the span capture answers `current_span` with and
+# `tracing` does not re-export.
+tracing-core = "0.1"
+# The `log` bridge every capture installs once (`log_capture::prime`).
+tracing-log = "0.2"
 uuid = { version = "1.29", features = ["v4"] }
 url = { version = "2.5", optional = true }
+
+[dev-dependencies]
+# Writes the `log`-crate record the bridge test reads back.
+log = "0.4"
 
 [lints]
 workspace = true

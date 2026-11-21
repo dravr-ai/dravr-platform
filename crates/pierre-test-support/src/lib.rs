@@ -21,6 +21,9 @@
 //!   their wellness.
 //! - `group_tier` (feature `groups`) — a plan whose tier includes no group
 //!   coaching, which no shipping tier is.
+//! - [`log_capture`] — the one way a test installs a tracing subscriber and
+//!   reads back what the code under test logged, without losing a line to
+//!   another test's cached log-site interest.
 //! - `providers` (feature `providers`) — the provider registry a test builds,
 //!   with every endpoint the server calls at the refused origin.
 //! - [`server`] — `User` fixtures in a consistent default shape.

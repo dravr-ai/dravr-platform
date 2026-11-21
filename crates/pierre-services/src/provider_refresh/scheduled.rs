@@ -675,6 +675,7 @@ mod tests {
     };
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::garmin::{create_push_fed_athlete, SESSION_BACKEND};
+    use pierre_test_support::log_capture;
     use pierre_test_support::server::create_test_user;
     use serde_json::{Map, Value as Json};
     use std::sync::PoisonError;
@@ -1042,6 +1043,9 @@ mod tests {
             is_active: true,
         };
 
+        // The scope follows the future, so `install` cannot hold it; prime
+        // the inert pair it would have registered.
+        log_capture::prime();
         let capture = SpanCapture::default();
         let subscriber = registry().with(SpanFieldStorage).with(capture.clone());
         sync_single_user_within(

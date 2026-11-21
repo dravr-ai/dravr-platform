@@ -116,11 +116,13 @@ pub fn reply_cut_short(hit: &LimitHit<'_>) {
 mod tests {
     use std::collections::BTreeMap;
     use std::fmt::Debug;
-    use std::sync::{Arc, Mutex, PoisonError};
+    use std::sync::{Arc, LazyLock, Mutex, PoisonError};
+    use std::thread;
+    use std::time::Duration;
 
     use tracing::field::{Field, Visit};
-    use tracing::subscriber::with_default;
-    use tracing::{Event, Subscriber};
+    use tracing::subscriber::{with_default, NoSubscriber};
+    use tracing::{Dispatch, Event, Subscriber};
     use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
     use tracing_subscriber::registry::Registry;
 
@@ -161,7 +163,31 @@ mod tests {
         }
     }
 
+    /// Two inert dispatchers, registered once and never dropped.
+    ///
+    /// The local copy of `pierre_test_support::log_capture::prime`.
+    /// `pierre-test-support` depends on `pierre-core`, so listing it here
+    /// would be a dev-dependency cycle: Cargo allows one, but builds
+    /// `pierre-core` twice for these unit tests, and a capture is all they
+    /// would take from it. While at most one dispatcher is registered,
+    /// `tracing-core` 0.1.36 decides a log site's interest from the
+    /// registering thread's own dispatcher without its lock, so a sibling
+    /// test reaching `limit_reached` with no subscriber caches it as never
+    /// for every thread. With two registered, every registration
+    /// reads the live dispatchers under the lock that installing a capture
+    /// takes; the pause lets a registration that began before them finish
+    /// first. The window that remains is the one that helper documents.
+    static INERT_DISPATCHERS: LazyLock<[Dispatch; 2]> = LazyLock::new(|| {
+        let inert = [
+            Dispatch::new(NoSubscriber::default()),
+            Dispatch::new(NoSubscriber::default()),
+        ];
+        thread::sleep(Duration::from_millis(50));
+        inert
+    });
+
     fn lines_while(f: impl FnOnce()) -> Vec<BTreeMap<String, String>> {
+        LazyLock::force(&INERT_DISPATCHERS);
         let lines: Lines = Arc::default();
         with_default(Registry::default().with(Capture(Arc::clone(&lines))), f);
         let captured = lines.lock().unwrap_or_else(PoisonError::into_inner).clone();

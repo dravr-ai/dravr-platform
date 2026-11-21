@@ -14,7 +14,7 @@
 
 use crate::common;
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,12 +28,10 @@ use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::backends::SecurityRepository;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_test_support::db::{create_concurrent_test_db, create_test_db};
+use pierre_test_support::log_capture;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
-use tracing::{Event, Level, Subscriber};
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use tracing::Level;
 
 /// Key size for test keypairs; 2048 bits keeps generation fast.
 const TEST_RSA_BITS: usize = 2048;
@@ -404,27 +402,11 @@ async fn racing_first_boots_converge_when_the_later_key_commits_first() {
     }
 }
 
-/// Counts the events logged at `ERROR` on this thread while it is the
-/// default subscriber.
-#[derive(Clone, Default)]
-struct ErrorCount(Arc<AtomicUsize>);
-
-impl<S: Subscriber> Layer<S> for ErrorCount {
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        if *event.metadata().level() == Level::ERROR {
-            self.0.fetch_add(1, Ordering::SeqCst);
-        }
-    }
-}
-
 #[tokio::test]
 async fn racing_first_boots_on_an_empty_database_page_nothing() {
     let database = create_test_db().await.unwrap();
     let store = PeerCommitsFirst::new(database.as_security_repository(), PeerBootsBefore::Count);
-    let errors = ErrorCount::default();
-    let _guard = tracing_subscriber::registry()
-        .with(errors.clone())
-        .set_default();
+    let (log, _guard) = log_capture::capture_events();
 
     let this = load_or_store_first_keypair(&store, TEST_RSA_BITS)
         .await
@@ -436,10 +418,15 @@ async fn racing_first_boots_on_an_empty_database_page_nothing() {
         active_identity(&peer),
         "the instance that lost the insert signs with the peer's key"
     );
-    assert_eq!(
-        errors.0.load(Ordering::SeqCst),
-        0,
-        "the peer's fresh keypair row is no lost key: a routine first deploy pages nothing"
+    let errors: Vec<_> = log
+        .events()
+        .into_iter()
+        .filter(|event| event.level == Level::ERROR)
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "the peer's fresh keypair row is no lost key: a routine first deploy pages nothing: \
+         {errors:?}"
     );
 }
 

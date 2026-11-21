@@ -88,6 +88,9 @@ lingua = { version = "1.8", default-features = false, features = ["english", "fr
 jsonschema = { version = "0.46.10", default-features = false }
 
 [dev-dependencies]
+# The shared log capture (`log_capture`). Default features only: those reach
+# pierre-core, pierre-database and pierre-memory, never this crate.
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
 # Assets crate (git): provides the structured-workout schema for the
 # extraction/validation stage test. Redirected to the local checkout by the
 # workspace [patch] during co-development.

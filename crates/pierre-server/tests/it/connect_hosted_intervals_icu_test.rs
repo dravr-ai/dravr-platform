@@ -541,14 +541,14 @@ async fn posting_valid_credentials_links_the_account_and_redirects_to_success() 
         vec![ConnectionType::Manual]
     );
 
-    let lines = logs.lock().unwrap();
+    let lines = logs.events();
     assert!(
         lines
             .iter()
             .any(|l| l.event == "Hosted connect: Intervals.icu linked"),
         "the link is logged"
     );
-    for line in lines.iter() {
+    for line in &lines {
         assert!(
             !line.event.contains(SECRET_KEY)
                 && line.fields.values().all(|v| !v.contains(SECRET_KEY)),
@@ -617,14 +617,14 @@ async fn posting_rejected_credentials_reshows_the_form_and_stores_nothing() {
     assert_eq!(intervals_connections(&fixture).await, []);
 
     stub.await.expect("stub task joins");
-    let lines = logs.lock().unwrap();
+    let lines = logs.events();
     assert!(
         lines
             .iter()
             .any(|l| l.event == "Hosted connect: Intervals.icu credentials refused"),
         "the refusal is logged"
     );
-    for line in lines.iter() {
+    for line in &lines {
         assert!(
             !line.event.contains(SECRET_KEY)
                 && line.fields.values().all(|v| !v.contains(SECRET_KEY)),

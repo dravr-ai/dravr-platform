@@ -23,9 +23,6 @@
 //! alert nor the business-failure event. A genuine failure still does both,
 //! and what it logs names the answer's marker without its body.
 
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::body::to_bytes;
@@ -36,14 +33,9 @@ use pierre_providers::sciotte_error::to_app_error;
 use pierre_routes_auth::{
     friendly_login_failure_message, login_failure_response, SIGN_IN_UNAVAILABLE_REASON,
 };
+use pierre_test_support::log_capture::{self, CapturedLog};
 use serde_json::{json, Value};
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use tracing::Level;
 use uuid::Uuid;
 
 /// One attempt of `operation`, as the sciotte client reports it.
@@ -68,81 +60,19 @@ fn login_shed(retry_after_secs: u64) -> AppError {
     }))
 }
 
-// ── Capture harness (same shape as `response_failure_log_test`) ─────────────
+// ── Capture ─────────────────────────────────────────────────────────────────
 
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    level: tracing::Level,
-    fields: HashMap<String, String>,
-}
-
-impl CapturedEvent {
-    fn field(&self, name: &str) -> Option<&str> {
-        self.fields.get(name).map(String::as_str)
-    }
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-
-    fn record_u64(&mut self, field: &Field, value: u64) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-}
-
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        self.events.lock().unwrap().push(CapturedEvent {
-            level: *event.metadata().level(),
-            fields: visitor.fields,
-        });
-    }
-}
-
-fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let capture = CaptureLayer::default();
-    let events = Arc::clone(&capture.events);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
-    (events, guard)
-}
-
-fn error_count(events: &Arc<Mutex<Vec<CapturedEvent>>>) -> usize {
+fn error_count(events: &CapturedLog) -> usize {
     events
-        .lock()
-        .unwrap()
+        .events()
         .iter()
-        .filter(|e| e.level == tracing::Level::ERROR)
+        .filter(|e| e.level == Level::ERROR)
         .count()
 }
 
-fn sync_failed_count(events: &Arc<Mutex<Vec<CapturedEvent>>>) -> usize {
+fn sync_failed_count(events: &CapturedLog) -> usize {
     events
-        .lock()
-        .unwrap()
+        .events()
         .iter()
         .filter(|e| e.field("event") == Some("sync.failed"))
         .count()
@@ -154,7 +84,7 @@ fn sync_failed_count(events: &Arc<Mutex<Vec<CapturedEvent>>>) -> usize {
 async fn a_login_shed_answers_503_with_retry_after_and_pages_nobody() {
     let shed = login_shed(45);
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let response = login_failure_response(
         Uuid::new_v4(),
         Uuid::new_v4(),
@@ -217,7 +147,7 @@ async fn a_login_shed_answers_503_with_retry_after_and_pages_nobody() {
 async fn a_login_system_failure_still_alerts_operators() {
     let failure = AppError::internal("browser error: Failed to launch browser");
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let error = login_failure_response(
         Uuid::new_v4(),
         Uuid::new_v4(),
@@ -259,7 +189,7 @@ async fn a_login_answer_with_no_status_alerts_with_its_marker_and_not_its_body()
         }),
     });
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     login_failure_response(
         Uuid::new_v4(),
         Uuid::new_v4(),
@@ -270,8 +200,7 @@ async fn a_login_answer_with_no_status_alerts_with_its_marker_and_not_its_body()
     .expect_err("an answer with no login status is a system failure");
 
     let reasons: Vec<String> = events
-        .lock()
-        .unwrap()
+        .events()
         .iter()
         .filter_map(|event| event.field("reason").map(str::to_owned))
         .collect();

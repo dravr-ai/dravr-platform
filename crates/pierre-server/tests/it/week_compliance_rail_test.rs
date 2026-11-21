@@ -14,88 +14,33 @@
 
 use anyhow::Result;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_test_support::log_capture::{self, CapturedEvent, CapturedLog};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::fmt::Debug as FmtDebug;
-use std::sync::{Arc, Mutex};
-use tracing::field::{Field, Visit};
-use tracing::subscriber::DefaultGuard;
-use tracing::Subscriber;
-use tracing_subscriber::layer::{Context, SubscriberExt};
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
 
-#[derive(Clone, Debug)]
-struct CapturedEvent {
-    fields: HashMap<String, String>,
+/// The rendered value of `name` on `event`, or an empty string when the event
+/// did not carry it.
+fn text<'event>(event: &'event CapturedEvent, name: &str) -> &'event str {
+    event.field(name).unwrap_or_default()
 }
 
-impl CapturedEvent {
-    fn field(&self, name: &str) -> &str {
-        self.fields.get(name).map_or("", String::as_str)
-    }
-}
-
-#[derive(Clone, Default)]
-struct CaptureLayer {
-    events: Arc<Mutex<Vec<CapturedEvent>>>,
-}
-
-#[derive(Default)]
-struct FieldVisitor {
-    fields: HashMap<String, String>,
-}
-
-impl Visit for FieldVisitor {
-    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
-        self.fields
-            .insert(field.name().to_owned(), format!("{value:?}"));
-    }
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_owned());
-    }
-    fn record_u64(&mut self, field: &Field, value: u64) {
-        self.fields
-            .insert(field.name().to_owned(), value.to_string());
-    }
-}
-
-impl<S> Layer<S> for CaptureLayer
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        if event.metadata().target() != "notify" {
-            return;
-        }
-        let mut visitor = FieldVisitor::default();
-        event.record(&mut visitor);
-        if let Ok(mut events) = self.events.lock() {
-            events.push(CapturedEvent {
-                fields: visitor.fields,
-            });
-        }
-    }
-}
-
-fn setup_capture() -> (Arc<Mutex<Vec<CapturedEvent>>>, DefaultGuard) {
-    let capture = CaptureLayer::default();
-    let events = Arc::clone(&capture.events);
-    let guard = tracing_subscriber::registry().with(capture).set_default();
-    (events, guard)
+/// The `notify` events the capture saw.
+fn notify_events(log: &CapturedLog) -> Vec<CapturedEvent> {
+    log.events()
+        .into_iter()
+        .filter(|e| e.target == "notify")
+        .collect()
 }
 
 fn assessed<'a>(events: &'a [CapturedEvent], week_start: &str) -> &'a CapturedEvent {
     events
         .iter()
         .find(|e| {
-            e.field("event") == "training_plan.week_assessed" && e.field("week_start") == week_start
+            text(e, "event") == "training_plan.week_assessed" && text(e, "week_start") == week_start
         })
         .unwrap_or_else(|| panic!("no week_assessed for {week_start}: {events:?}"))
 }
@@ -192,7 +137,7 @@ async fn three_hard_days_under_a_two_hard_day_phase_is_reported_and_still_saved(
         json!({"date": "2026-09-19", "sport": "rest", "workout": "off"}),
     ];
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let saved = executor
         .execute_tool(request(
             "save_training_plan",
@@ -201,7 +146,7 @@ async fn three_hard_days_under_a_two_hard_day_phase_is_reported_and_still_saved(
             &tenant_id,
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = notify_events(&events);
     drop(guard);
     assert!(
         saved.success,
@@ -211,40 +156,40 @@ async fn three_hard_days_under_a_two_hard_day_phase_is_reported_and_still_saved(
 
     let week = assessed(&captured, "2026-09-14");
     assert_eq!(
-        week.field("hard_sessions"),
+        text(week, "hard_sessions"),
         "off",
         "three threshold days under a cap of two: {week:?}"
     );
-    assert_eq!(week.field("hard_days"), "3");
+    assert_eq!(text(week, "hard_days"), "3");
     assert_eq!(
-        week.field("spacing"),
+        text(week, "spacing"),
         "within",
         "the 14th, 16th and 18th are 48 h apart, the flavour's minimum"
     );
     assert_eq!(
-        week.field("unclassified_days"),
+        text(week, "unclassified_days"),
         "0",
         "every day is a template or a parsed label"
     );
     assert_eq!(
-        week.field("template_ranges"),
+        text(week, "template_ranges"),
         "0",
         "reps 4, work 480, rest 120 sit inside threshold_4x8's ranges"
     );
     assert_eq!(
-        week.field("volume"),
+        text(week, "volume"),
         "within",
         "3×75 + 2×90 = 405 min, 6.75 h against 8 h, is inside a fifth"
     );
     assert_eq!(
-        week.field("tid"),
+        text(week, "tid"),
         "off",
         "three threshold sessions is not a polarized build week"
     );
     assert!(
-        week.field("detail").contains("\"z2\""),
+        text(week, "detail").contains("\"z2\""),
         "the detail carries the measured shares: {}",
-        week.field("detail")
+        text(week, "detail")
     );
     Ok(())
 }
@@ -257,7 +202,7 @@ async fn a_prose_only_week_reads_unclassified_and_guesses_no_time_in_zone() -> R
         .map(|d| prose_day(&format!("2026-09-{d}")))
         .collect();
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let saved = executor
         .execute_tool(request(
             "save_training_plan",
@@ -266,25 +211,25 @@ async fn a_prose_only_week_reads_unclassified_and_guesses_no_time_in_zone() -> R
             &tenant_id,
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = notify_events(&events);
     drop(guard);
     assert!(saved.success, "{:?}", saved.error);
 
     let week = assessed(&captured, "2026-09-14");
-    assert_eq!(week.field("unclassified_days"), "7");
+    assert_eq!(text(week, "unclassified_days"), "7");
     assert_eq!(
-        week.field("tid"),
+        text(week, "tid"),
         "unmeasured",
         "nothing classifies, so nothing is guessed"
     );
     assert_eq!(
-        week.field("hard_sessions"),
+        text(week, "hard_sessions"),
         "within",
         "zero hard days under a cap of two"
     );
-    assert_eq!(week.field("spacing"), "unmeasured");
+    assert_eq!(text(week, "spacing"), "unmeasured");
     assert_eq!(
-        week.field("volume"),
+        text(week, "volume"),
         "within",
         "7 h against 8 h — durations are still durations"
     );
@@ -314,7 +259,7 @@ async fn a_weeks_only_adjustment_is_measured_with_the_previous_weeks_last_hard_d
         .await?;
     assert!(saved.success, "{:?}", saved.error);
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let adjustment = executor
         .execute_tool(request(
             "save_training_plan",
@@ -330,14 +275,14 @@ async fn a_weeks_only_adjustment_is_measured_with_the_previous_weeks_last_hard_d
             &tenant_id,
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = notify_events(&events);
     drop(guard);
     assert!(adjustment.success, "{:?}", adjustment.error);
 
     let reported: Vec<&str> = captured
         .iter()
-        .filter(|e| e.field("event") == "training_plan.week_assessed")
-        .map(|e| e.field("week_start"))
+        .filter(|e| text(e, "event") == "training_plan.week_assessed")
+        .map(|e| text(e, "week_start"))
         .collect();
     assert_eq!(
         reported,
@@ -346,11 +291,11 @@ async fn a_weeks_only_adjustment_is_measured_with_the_previous_weeks_last_hard_d
     );
     let week = assessed(&captured, "2026-09-21");
     assert_eq!(
-        week.field("spacing"),
+        text(week, "spacing"),
         "within",
         "Saturday the 19th to Monday the 21st is 48 h: {week:?}"
     );
-    assert_eq!(week.field("hard_sessions"), "within");
+    assert_eq!(text(week, "hard_sessions"), "within");
     Ok(())
 }
 
@@ -411,7 +356,7 @@ async fn a_recovery_week_is_measured_against_the_skeletons_cut() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     executor
         .execute_tool(request(
             "save_training_plan",
@@ -436,9 +381,9 @@ async fn a_recovery_week_is_measured_against_the_skeletons_cut() -> Result<()> {
         .await?;
     drop(guard);
 
-    let captured = events.lock().expect("capture mutex");
-    let load_week = assessed(&captured, "2026-09-14").field("volume").to_owned();
-    let recovery_week = assessed(&captured, "2026-10-05").field("volume").to_owned();
+    let captured = notify_events(&events);
+    let load_week = text(assessed(&captured, "2026-09-14"), "volume").to_owned();
+    let recovery_week = text(assessed(&captured, "2026-10-05"), "volume").to_owned();
 
     assert_eq!(
         load_week, "off",
@@ -472,7 +417,7 @@ async fn a_week_that_crowds_its_hard_days_says_so_in_the_save_reply() -> Result<
         json!({"date": "2026-09-18", "sport": "rest", "workout": "off"}),
     ];
 
-    let (events, guard) = setup_capture();
+    let (events, guard) = log_capture::capture_events();
     let saved = executor
         .execute_tool(request(
             "save_training_plan",
@@ -481,7 +426,7 @@ async fn a_week_that_crowds_its_hard_days_says_so_in_the_save_reply() -> Result<
             &tenant_id,
         ))
         .await?;
-    let captured = events.lock().expect("capture lock").clone();
+    let captured = notify_events(&events);
     drop(guard);
     assert!(
         saved.success,
@@ -489,7 +434,7 @@ async fn a_week_that_crowds_its_hard_days_says_so_in_the_save_reply() -> Result<
         saved.error
     );
     assert_eq!(
-        assessed(&captured, "2026-09-14").field("spacing"),
+        text(assessed(&captured, "2026-09-14"), "spacing"),
         "off",
         "the rail still reports for the base rate"
     );

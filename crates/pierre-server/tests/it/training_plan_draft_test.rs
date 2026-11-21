@@ -844,8 +844,7 @@ fn crowded_heavy_week(start: NaiveDate, focus: &str) -> Value {
 /// `training_plan.*` notify event, and the readiness rail's verdict line.
 fn plan_telemetry(events: &CapturedEvents) -> Vec<String> {
     events
-        .lock()
-        .unwrap()
+        .events()
         .iter()
         .filter_map(|line| match line.fields.get("event") {
             Some(name) if name.starts_with("training_plan.") => Some(name.clone()),
@@ -857,8 +856,7 @@ fn plan_telemetry(events: &CapturedEvents) -> Vec<String> {
 /// The spacing word each `training_plan.week_assessed` line reported, by week.
 fn assessed_spacing(events: &CapturedEvents) -> Vec<(String, String)> {
     events
-        .lock()
-        .unwrap()
+        .events()
         .iter()
         .filter(|line| {
             line.fields.get("event").map(String::as_str) == Some("training_plan.week_assessed")
