@@ -38,6 +38,7 @@ mod group_chat_connect_tests {
     use crate::helpers::command_e2e::{
         CommandE2e, Member, RoomE2e, RouterLlm, WebhookOutcome, BOT_USERNAME,
     };
+    use crate::helpers::drained_turn::wait_for_turns_to_finish;
     use crate::helpers::offline_channel::OfflineSendAdapters;
 
     const CHAT: i64 = -1_009_683;
@@ -159,6 +160,15 @@ mod group_chat_connect_tests {
             .await
     }
 
+    /// Wait until every reply the bot spawned has been delivered: a chat's
+    /// replies go out from a detached task, after the webhook answered.
+    async fn delivered(e2e: &CommandE2e) {
+        assert!(
+            wait_for_turns_to_finish(&e2e.resources, Duration::from_secs(10)).await,
+            "bug: the bot's replies were still being delivered 10 s after the webhook answered"
+        );
+    }
+
     /// Sends the bot made into the chat.
     fn chat_sends(e2e: &CommandE2e) -> Vec<String> {
         e2e.adapters
@@ -189,6 +199,7 @@ mod group_chat_connect_tests {
         let code = mint(&e2e, &group, &coach).await;
 
         say(&e2e, &coach, &format!("/start {code}")).await;
+        delivered(&e2e).await;
 
         let connected = reread(&e2e, group.id).await;
         assert_eq!(
@@ -293,6 +304,7 @@ mod group_chat_connect_tests {
         enrol(&e2e, &group, &athlete, GroupRole::Member).await;
         let code = mint(&e2e, &group, &coach).await;
         say(&e2e, &coach, &format!("/start {code}")).await;
+        delivered(&e2e).await;
         let sends_before = chat_sends(&e2e).len();
 
         // A linked stranger: nothing stored, no session, no enrolment, no turn.
@@ -304,7 +316,7 @@ mod group_chat_connect_tests {
             "nothing is dispatched for a stranger"
         );
         say(&e2e, &stranger, &format!("@{BOT_USERNAME} hello again")).await;
-        sleep(Duration::from_millis(300)).await;
+        delivered(&e2e).await;
         assert_eq!(
             e2e.count_inbound_with_body(&first).await,
             0,
@@ -489,7 +501,7 @@ mod group_chat_connect_tests {
             "bug: the released binding names the bot tenant that serves the chat"
         );
         // Let the connected turn's follow-through settle before counting.
-        sleep(Duration::from_millis(500)).await;
+        delivered(&e2e).await;
         let sends_before = chat_sends(&e2e).len();
         let turns_before = e2e.llm.turn_calls.load(Ordering::SeqCst);
 
@@ -501,7 +513,7 @@ mod group_chat_connect_tests {
             0,
             "bug: nothing is dispatched in a disconnected chat"
         );
-        sleep(Duration::from_millis(500)).await;
+        delivered(&e2e).await;
         assert_eq!(
             e2e.llm.turn_calls.load(Ordering::SeqCst),
             turns_before,
@@ -740,6 +752,7 @@ mod group_chat_connect_tests {
         enrol(&e2e, &group, &bob, GroupRole::Member).await;
         let code = mint(&e2e, &group, &coach).await;
         say(&e2e, &coach, &format!("/start {code}")).await;
+        delivered(&e2e).await;
 
         // Alice shares with the group: her post crosses attributed, and the
         // agent's reply follows it.
