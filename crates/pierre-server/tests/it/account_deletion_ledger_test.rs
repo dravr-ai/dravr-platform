@@ -87,7 +87,6 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::{Extension, Router};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
 
 use crate::common::{acting_on, create_test_server_resources};
@@ -1093,6 +1092,8 @@ fn transparency_routes(resources: &Arc<ServerContext>) -> Router {
 /// (carnet#1542).
 #[tokio::test]
 async fn the_well_known_documents_publish_a_checkpoint_its_key_verifies() {
+    use base64::Engine as _;
+
     let resources = create_test_server_resources().await.unwrap();
     let repos = &resources.common.repos;
     let routes = transparency_routes(&resources);
@@ -1171,7 +1172,7 @@ async fn the_well_known_documents_publish_a_checkpoint_its_key_verifies() {
         .decode(
             method["publicKeyJwk"]["x"]
                 .as_str()
-                .expect("the JWK has an x"),
+                .expect("bug: the JWK has no x"),
         )
         .unwrap()
         .try_into()
@@ -1234,7 +1235,9 @@ async fn the_well_known_documents_publish_a_checkpoint_its_key_verifies() {
     );
 }
 
-/// The receipt repository, with its next anchor write failing.
+/// The receipt repository, with its next anchor write failing: a real
+/// store offers no way to fail one row write between a checkpoint's cut and
+/// its anchor, so every call delegates to it but that one.
 struct FailingAnchorWrite {
     inner: Arc<dyn AccountDeletionRepository>,
     fail_next: AtomicBool,

@@ -34,8 +34,8 @@ use chrono::Utc;
 use dravr_barrage::blob::backfill_keyed_names;
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::keyed::{KeyedDigest, Signer};
-use dravr_barrage::record_log::checkpoint::Anchor;
-use dravr_barrage::record_log::{cut_checkpoint, merkle, RecordLog, LOG_PAGE};
+use dravr_barrage::record_log::checkpoint::{Anchor, Checkpoint};
+use dravr_barrage::record_log::{cut_checkpoint, merkle, LOG_PAGE};
 use dravr_barrage::store::{ActivityRecordStore, BarrageStores, RecordPlace};
 use dravr_barrage::{BarrageError, UserId};
 use pierre_core::errors::{AppError, AppResult};
@@ -304,20 +304,7 @@ impl RecordLogWorker {
             note = %checkpoint.note,
             "Signed record_log checkpoint"
         );
-        let recorded = ReceiptAnchor {
-            receipt_seq: seq,
-            receipt_hash: hash,
-            checkpoint_id: checkpoint.id,
-            tree_size: i64::try_from(checkpoint.size).map_err(|_| {
-                AppError::internal(format!(
-                    "checkpoint {} has a size {} past i64",
-                    checkpoint.id, checkpoint.size
-                ))
-            })?,
-            tree_root: checkpoint.root.to_hex(),
-            note: checkpoint.note.clone(),
-            anchored_at: Utc::now(),
-        };
+        let recorded = anchor_row(seq, hash, checkpoint)?;
         self.receipts.record_anchor(&recorded).await?;
         Ok(Some(recorded))
     }
@@ -339,8 +326,7 @@ impl RecordLogWorker {
     ) -> AppResult<Option<ReceiptAnchor>> {
         let barrage =
             |e: BarrageError| AppError::internal(format!("record_log anchor repair: {e}"));
-        let log: &dyn RecordLog = self.records.as_ref();
-        let Some(latest) = log.latest_checkpoint().await.map_err(barrage)? else {
+        let Some(latest) = self.records.latest_checkpoint().await.map_err(barrage)? else {
             return Ok(None);
         };
         if self
@@ -354,7 +340,8 @@ impl RecordLogWorker {
         let mut leaves = vec![anchor.leaf()];
         let mut after = None;
         loop {
-            let page = log
+            let page = self
+                .records
                 .log_heads(after.as_ref(), LOG_PAGE)
                 .await
                 .map_err(barrage)?;
@@ -368,20 +355,7 @@ impl RecordLogWorker {
         if latest.size != leaves.len() as u64 || latest.root != merkle::root(&leaves) {
             return Ok(None);
         }
-        let recorded = ReceiptAnchor {
-            receipt_seq: seq,
-            receipt_hash: hash,
-            checkpoint_id: latest.id,
-            tree_size: i64::try_from(latest.size).map_err(|_| {
-                AppError::internal(format!(
-                    "checkpoint {} has a size {} past i64",
-                    latest.id, latest.size
-                ))
-            })?,
-            tree_root: latest.root.to_hex(),
-            note: latest.note,
-            anchored_at: Utc::now(),
-        };
+        let recorded = anchor_row(seq, hash, latest)?;
         self.receipts.record_anchor(&recorded).await?;
         warn!(
             checkpoint_id = recorded.checkpoint_id,
@@ -390,6 +364,25 @@ impl RecordLogWorker {
         );
         Ok(Some(recorded))
     }
+}
+
+/// The anchor row naming `checkpoint` and the receipt chain head at `seq` /
+/// `hash` it commits to.
+fn anchor_row(seq: i64, hash: String, checkpoint: Checkpoint) -> AppResult<ReceiptAnchor> {
+    Ok(ReceiptAnchor {
+        receipt_seq: seq,
+        receipt_hash: hash,
+        checkpoint_id: checkpoint.id,
+        tree_size: i64::try_from(checkpoint.size).map_err(|_| {
+            AppError::internal(format!(
+                "checkpoint {} has a size {} past i64",
+                checkpoint.id, checkpoint.size
+            ))
+        })?,
+        tree_root: checkpoint.root.to_hex(),
+        note: checkpoint.note,
+        anchored_at: Utc::now(),
+    })
 }
 
 /// Start the worker on [`spawn_periodic`], hourly.
