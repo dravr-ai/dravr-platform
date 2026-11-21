@@ -3007,7 +3007,7 @@
     "requestAccessFailed": "Não conseguimos enviar o teu pedido. Tenta de novo.",
     "reply_corrected": "{0} corrigiu a resposta do Dravr a {1} («{2}»):\n\n{3}",
     "reads_served_to_assistant": "lido por uma ferramenta de IA que o teu treinador liga ao Dravr",
-    "reads_support_read": "lido pela ferramenta de IA do suporte do Dravr enquanto ajudava o teu treinador",
+    "reads_support_read": "lido pelo suporte do Dravr enquanto ajudava o teu treinador",
     "planPublishedRoomPost": "{0} publicou uma atualização do teu plano: {1}.",
     "planPublishedRoomPostMore": "+{0} a mais",
     "planPublishedRoomPostNew": "{0} publicou o teu novo plano.",
@@ -3088,7 +3088,7 @@
       "sourceWeeklyDigest": "O resumo semanal do grupo",
       "sourcePhysiologyView": "Os teus limiares, em Informações do grupo",
       "servedToAssistant": "Lido por uma ferramenta de IA que o teu treinador liga ao Dravr. A empresa que a opera recebeu estes dados.",
-      "supportRead": "Lido pela ferramenta de IA do suporte do Dravr enquanto ajudava o teu treinador."
+      "supportRead": "Lido pelo suporte do Dravr enquanto ajudava o teu treinador."
     },
     "shareTraining": "Partilhar o meu treino com o meu coach",
     "shareTrainingHint": "O teu coach vê o teu treino, o teu plano e as tuas mensagens no chat deste grupo. As ferramentas de IA que o teu coach liga ao Dravr, como o Claude, também podem ler o teu treino e o teu plano. Desativar esta opção interrompe ambos. Aplica-se apenas a este grupo.",
@@ -3508,6 +3508,8 @@
         "admin_assign_agent": "Atribuir o agente a um utilizador (admin)",
         "admin_create_system_agent": "Criar um agente do sistema (admin)",
         "admin_delete_system_agent": "Eliminar o agente do sistema (admin)",
+        "admin_impersonate_end": "Terminar a sessão de suporte (admin)",
+        "admin_impersonate_start": "Iniciar uma sessão de suporte (admin)",
         "admin_unassign_agent": "Retirar o agente a um utilizador (admin)",
         "admin_update_system_agent": "Atualizar o agente do sistema (admin)",
         "commitment_cancel": "Cancelar o compromisso",

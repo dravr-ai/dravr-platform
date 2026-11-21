@@ -3007,7 +3007,7 @@
     "requestAccessFailed": "Wir konnten deine Anfrage nicht senden. Bitte versuche es erneut.",
     "reply_corrected": "{0} hat Dravrs Antwort an {1} korrigiert („{2}“):\n\n{3}",
     "reads_served_to_assistant": "gelesen von einem KI-Tool, das dein Coach mit Dravr verbindet",
-    "reads_support_read": "gelesen vom KI-Tool des Dravr-Supports, während er deinem Coach half",
+    "reads_support_read": "gelesen vom Dravr-Support, während er deinem Coach half",
     "planPublishedRoomPost": "{0} hat eine Änderung an deinem Plan veröffentlicht: {1}.",
     "planPublishedRoomPostMore": "+{0} weitere",
     "planPublishedRoomPostNew": "{0} hat deinen neuen Plan veröffentlicht.",
@@ -3088,7 +3088,7 @@
       "sourceWeeklyDigest": "Die Wochenzusammenfassung der Gruppe",
       "sourcePhysiologyView": "Deine Schwellen, in den Gruppeninfos",
       "servedToAssistant": "Gelesen von einem KI-Tool, das dein Coach mit Dravr verbindet. Das Unternehmen, das es betreibt, hat diese Daten erhalten.",
-      "supportRead": "Gelesen vom KI-Tool des Dravr-Supports, während er deinem Coach half."
+      "supportRead": "Gelesen vom Dravr-Support, während er deinem Coach half."
     },
     "shareTraining": "Mein Training mit meinem Coach teilen",
     "shareTrainingHint": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten im Chat dieser Gruppe. KI-Tools, die dein Coach mit Dravr verbindet, etwa Claude, können dein Training und deinen Plan ebenfalls lesen. Schaltest du dies aus, endet beides. Gilt nur für diese Gruppe.",
@@ -3508,6 +3508,8 @@
         "admin_assign_agent": "Agent einem Nutzer zuweisen (Admin)",
         "admin_create_system_agent": "System-Agent erstellen (Admin)",
         "admin_delete_system_agent": "System-Agent löschen (Admin)",
+        "admin_impersonate_end": "Support-Sitzung beenden (Admin)",
+        "admin_impersonate_start": "Support-Sitzung starten (Admin)",
         "admin_unassign_agent": "Agentenzuweisung aufheben (Admin)",
         "admin_update_system_agent": "System-Agent aktualisieren (Admin)",
         "commitment_cancel": "Zusage zurückziehen",
