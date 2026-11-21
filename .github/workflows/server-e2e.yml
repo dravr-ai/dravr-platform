@@ -333,16 +333,18 @@ jobs:
       # carnet#1702 measured fat 123 MB against 122 (run 44944310962) and
       # thin 150 MB against 151 (run 44944310948); ChefFamille raised the
       # shipped ceiling to 125 and kept this one at 151, below this pair's
-      # 150 x 125/123 = 152.4, so the proxy is stricter than the gate it
-      # stands for. Move both ceilings together.
+      # 150 x 125/123 = 152.4, so the proxy was stricter than the gate it
+      # stands for. The same day ChefFamille moved it to that 152.4, rounded
+      # up to 153, so a branch has the shipped gate's headroom. Move both
+      # ceilings together.
       - name: Check the server binary size (thin release)
         run: |
           BINARY_SIZE_MB=$(( $(stat -c %s target/release/pierre-mcp-server) / 1024 / 1024 ))
-          MAX_SIZE_MB=151
+          MAX_SIZE_MB=153
           WARN_SIZE_MB=$(( MAX_SIZE_MB * 95 / 100 ))
           echo "Thin release binary: ${BINARY_SIZE_MB}MB (ceiling ${MAX_SIZE_MB}MB)"
           if [ "$BINARY_SIZE_MB" -gt "$MAX_SIZE_MB" ]; then
-            echo "::error::Thin release binary (${BINARY_SIZE_MB}MB) exceeds ${MAX_SIZE_MB}MB, this build's proxy for the shipped 125MB ceiling. It is held below that ceiling scaled to this build, so the fat-LTO gate on main may still pass. Check what this change pulled in (cargo tree, feature flags)."
+            echo "::error::Thin release binary (${BINARY_SIZE_MB}MB) exceeds ${MAX_SIZE_MB}MB, the shipped 125MB ceiling scaled to this build; the fat-LTO gate on main would fail this change. Check what it pulled in (cargo tree, feature flags)."
             exit 1
           fi
           if [ "$BINARY_SIZE_MB" -ge "$WARN_SIZE_MB" ]; then
