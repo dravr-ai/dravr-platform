@@ -167,7 +167,8 @@ pub(crate) fn revoked_end_event(session: &ImpersonationSession) -> NewAuditEvent
 /// runs: `$row` is the driver's row type and `$ids` its
 /// [`uuid_columns`](super::uuid_columns) codec, as in
 /// `impl_impersonation_repository!`, which emits the `session_from_row` this
-/// reads with (so both are invoked in the same backend module).
+/// reads with (so both are invoked in the same backend module). The invoking
+/// shell must `use` `AppError`, `AppResult` and `ImpersonationSession`.
 macro_rules! impl_support_binding_ends {
     ($ty:ty, $row:ty, $ids:ident) => {
         impl $ty {
@@ -183,16 +184,14 @@ macro_rules! impl_support_binding_ends {
             pub(crate) async fn end_sessions_of_revoked(
                 conn: &mut <<$row as sqlx::Row>::Database as sqlx::Database>::Connection,
                 revoked: $crate::repositories::support_binding::RevokedCredential<'_>,
-            ) -> pierre_core::errors::AppResult<
-                Vec<pierre_core::permissions::impersonation::ImpersonationSession>,
-            > {
+            ) -> AppResult<Vec<ImpersonationSession>> {
                 use $crate::repositories::support_binding::{
                     RevokedCredential, END_API_KEY_SESSIONS_SQL, END_CLIENT_FAMILY_SESSIONS_SQL,
                     END_DELETED_FAMILY_SESSIONS_SQL, END_FAMILY_OF_TOKEN_SESSIONS_SQL,
                     END_USER_FAMILY_SESSIONS_SQL,
                 };
                 let failed = |e: sqlx::Error| {
-                    pierre_core::errors::AppError::database(format!(
+                    AppError::database(format!(
                         "Failed to end the support sessions of a revoked credential: {e}"
                     ))
                 };
@@ -234,7 +233,7 @@ macro_rules! impl_support_binding_ends {
                     .map_err(failed)?
                     .iter()
                     .map(session_from_row)
-                    .collect::<pierre_core::errors::AppResult<Vec<_>>>()?;
+                    .collect::<AppResult<Vec<_>>>()?;
                 for session in &ended {
                     let event = $crate::repositories::support_binding::revoked_end_event(session);
                     sqlx::query($crate::repositories::admin_audit::INSERT_AUDIT_EVENT_SQL)
