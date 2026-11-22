@@ -2582,7 +2582,7 @@
   },
   "healthRecords": {
     "title": "Health records",
-    "blurb": "Your lab results, clinical records, glucose and cycle tracking, from your imports and the lab reports you upload. You always see them here; who else reads them is set under Sensitive health records.",
+    "blurb": "Your lab results, clinical records, glucose, cycle tracking and mood, from your imports, your phone's health store and the lab reports you upload. You always see them here; who else reads them is set under Sensitive health records.",
     "uploadLabel": "Upload a lab report (PDF)",
     "uploading": "Reading your lab report…",
     "uploaded": "{{count}} results read. Check each one below.",
@@ -2605,7 +2605,7 @@
     "kindLabs": "Lab results",
     "kindClinical": "Clinical records",
     "kindGlucose": "Glucose",
-    "kindSelfReports": "Cycle tracking",
+    "kindSelfReports": "Cycle and mood",
     "dailyGlucose": "Daily value",
     "deleteConfirmTitle": "Delete this lab report?",
     "deleteConfirmBody": "The report and every result read from it are deleted, confirmed ones included. This cannot be undone.",
@@ -4729,7 +4729,16 @@
       "declined": "Dravr was not given access. You can allow it in {{name}}'s settings.",
       "enableFailed": "{{name}} could not be turned on.",
       "syncFailed": "The last sync did not finish. It will try again when you come back to the app.",
-      "deleteFailed": "The synced data could not be deleted. Try again."
+      "deleteFailed": "The synced data could not be deleted. Try again.",
+      "countWorkouts_one": "{{count}} workout",
+      "countWorkouts_other": "{{count}} workouts",
+      "countNights_one": "{{count}} night",
+      "countNights_other": "{{count}} nights",
+      "countDays_one": "{{count}} day",
+      "countDays_other": "{{count}} days",
+      "countEntries_one": "{{count}} entry",
+      "countEntries_other": "{{count}} entries",
+      "nothingArrived": "Nothing has arrived from {{name}} yet. If you kept some types off, you can allow them in {{name}}'s settings."
     }
   },
   "settings": {

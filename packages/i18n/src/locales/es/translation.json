@@ -2582,7 +2582,7 @@
   },
   "healthRecords": {
     "title": "Registros de salud",
-    "blurb": "Tus resultados de laboratorio, historias clínicas, glucosa y seguimiento del ciclo, de tus importaciones y de los informes de laboratorio que subes. Aquí siempre los ves; quién más los lee se define en Registros de salud sensibles.",
+    "blurb": "Tus resultados de laboratorio, historias clínicas, glucosa, seguimiento del ciclo y estado de ánimo, de tus importaciones, del almacén de salud de tu teléfono y de los informes de laboratorio que subes. Aquí siempre los ves; quién más los lee se define en Registros de salud sensibles.",
     "uploadLabel": "Subir un informe de laboratorio (PDF)",
     "uploading": "Leyendo tu informe…",
     "uploaded": "{{count}} resultados leídos. Revisa cada uno abajo.",
@@ -2605,7 +2605,7 @@
     "kindLabs": "Resultados de laboratorio",
     "kindClinical": "Historias clínicas",
     "kindGlucose": "Glucosa",
-    "kindSelfReports": "Seguimiento del ciclo",
+    "kindSelfReports": "Ciclo y estado de ánimo",
     "dailyGlucose": "Valor del día",
     "deleteConfirmTitle": "¿Eliminar este informe de laboratorio?",
     "deleteConfirmBody": "Se eliminan el informe y todos los resultados leídos de él, incluidos los que confirmaste. No se puede deshacer.",
@@ -4729,7 +4729,16 @@
       "declined": "Dravr no recibió acceso. Puedes permitirlo en los ajustes de {{name}}.",
       "enableFailed": "No se pudo activar {{name}}.",
       "syncFailed": "La última sincronización no terminó. Se reintentará cuando vuelvas a la app.",
-      "deleteFailed": "No se pudieron eliminar los datos sincronizados. Inténtalo de nuevo."
+      "deleteFailed": "No se pudieron eliminar los datos sincronizados. Inténtalo de nuevo.",
+      "countWorkouts_one": "{{count}} entrenamiento",
+      "countWorkouts_other": "{{count}} entrenamientos",
+      "countNights_one": "{{count}} noche",
+      "countNights_other": "{{count}} noches",
+      "countDays_one": "{{count}} día",
+      "countDays_other": "{{count}} días",
+      "countEntries_one": "{{count}} registro",
+      "countEntries_other": "{{count}} registros",
+      "nothingArrived": "Todavía no ha llegado nada de {{name}}. Si dejaste algunos tipos desactivados, puedes permitirlos en los ajustes de {{name}}."
     }
   },
   "settings": {

@@ -2582,7 +2582,7 @@
   },
   "healthRecords": {
     "title": "Gesundheitsakten",
-    "blurb": "Deine Laborwerte, klinischen Unterlagen, Blutzuckerwerte und dein Zyklustracking aus deinen Importen und den Laborberichten, die du hochlädst. Hier siehst du sie immer; wer sie sonst liest, legst du unter Sensible Gesundheitsdaten fest.",
+    "blurb": "Deine Laborwerte, klinischen Unterlagen, Blutzuckerwerte, dein Zyklustracking und deine Stimmung aus deinen Importen, dem Gesundheitsspeicher deines Telefons und den Laborberichten, die du hochlädst. Hier siehst du sie immer; wer sie sonst liest, legst du unter Sensible Gesundheitsdaten fest.",
     "uploadLabel": "Laborbericht hochladen (PDF)",
     "uploading": "Dein Laborbericht wird gelesen…",
     "uploaded": "{{count}} Werte gelesen. Prüfe jeden unten.",
@@ -2605,7 +2605,7 @@
     "kindLabs": "Laborwerte",
     "kindClinical": "Klinische Unterlagen",
     "kindGlucose": "Blutzucker",
-    "kindSelfReports": "Zyklustracking",
+    "kindSelfReports": "Zyklus und Stimmung",
     "dailyGlucose": "Tageswert",
     "deleteConfirmTitle": "Diesen Laborbericht löschen?",
     "deleteConfirmBody": "Der Bericht und alle daraus gelesenen Werte werden gelöscht, auch die, die du bestätigt hast. Das lässt sich nicht rückgängig machen.",
@@ -4729,7 +4729,16 @@
       "declined": "Dravr hat keinen Zugriff erhalten. Du kannst ihn in den Einstellungen von {{name}} erlauben.",
       "enableFailed": "{{name}} konnte nicht aktiviert werden.",
       "syncFailed": "Die letzte Synchronisierung wurde nicht abgeschlossen. Sie wird wiederholt, wenn du zur App zurückkehrst.",
-      "deleteFailed": "Die synchronisierten Daten konnten nicht gelöscht werden. Versuche es erneut."
+      "deleteFailed": "Die synchronisierten Daten konnten nicht gelöscht werden. Versuche es erneut.",
+      "countWorkouts_one": "{{count}} Training",
+      "countWorkouts_other": "{{count}} Trainings",
+      "countNights_one": "{{count}} Nacht",
+      "countNights_other": "{{count}} Nächte",
+      "countDays_one": "{{count}} Tag",
+      "countDays_other": "{{count}} Tage",
+      "countEntries_one": "{{count}} Eintrag",
+      "countEntries_other": "{{count}} Einträge",
+      "nothingArrived": "Von {{name}} ist noch nichts angekommen. Wenn du einige Typen ausgeschaltet gelassen hast, kannst du sie in den Einstellungen von {{name}} erlauben."
     }
   },
   "settings": {
