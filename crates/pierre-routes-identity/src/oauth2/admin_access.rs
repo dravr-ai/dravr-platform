@@ -19,18 +19,14 @@
 //! - the redirect host, where the code goes;
 //! - also the host of the client's metadata document (`client_id`) when it is
 //!   not the redirect host;
-//! - "an app on this computer" for a loopback redirect, which has no domain.
+//! - "a program on this device" for a loopback redirect, which has no domain.
 //!
 //! The admin's role line ([`KEY_CONSENT_ROLE_ADMIN`]) says what ticking the box
 //! gives, so it is shown inside the box and only with it.
 //!
-//! **The box's own lines are not in the catalogue yet.** They are authored in
-//! dravr-contremaitre first and reach this crate with the pin; until then every
-//! one of them reads empty, and a box whose lines read empty is neither shown
-//! nor honoured ([`offered_in`]): an admin is never handed an unlabelled choice
-//! that grants admin. Their keys are already in `CONSENT_SCREEN_KEYS`, ahead
-//! of the catalogue, so the pin that brings them never ships a consent line
-//! the consent version does not cover.
+//! A box whose lines read empty in this language and in English is neither
+//! shown nor honoured ([`offered_in`]): an admin is never handed an unlabelled
+//! choice that grants admin.
 
 use std::collections::HashMap;
 use std::iter;
@@ -39,10 +35,10 @@ use pierre_auth::oauth2_server::cimd::is_metadata_document_id;
 use pierre_auth::oauth2_server::client_registration::redirects_to_loopback;
 use pierre_auth::oauth2_server::endpoints::{AdminAccess, CheckedAuthorization};
 use pierre_contremaitre::consent_strings::{
-    ADMIN_ACCESS_KEY_GOES_TO as KEY_GOES_TO,
-    ADMIN_ACCESS_KEY_GOES_TO_TWO_HOSTS as KEY_GOES_TO_TWO_HOSTS, ADMIN_ACCESS_KEY_HINT as KEY_HINT,
-    ADMIN_ACCESS_KEY_LABEL as KEY_LABEL, ADMIN_ACCESS_KEY_THIS_COMPUTER as KEY_THIS_COMPUTER,
-    KEY_CONSENT_ROLE_ADMIN,
+    KEY_CONSENT_ADMIN_ACCESS_GOES_TO as KEY_GOES_TO,
+    KEY_CONSENT_ADMIN_ACCESS_GOES_TO_TWO_HOSTS as KEY_GOES_TO_TWO_HOSTS,
+    KEY_CONSENT_ADMIN_ACCESS_HINT as KEY_HINT, KEY_CONSENT_ADMIN_ACCESS_LABEL as KEY_LABEL,
+    KEY_CONSENT_ADMIN_ACCESS_THIS_COMPUTER as KEY_THIS_COMPUTER, KEY_CONSENT_ROLE_ADMIN,
 };
 use pierre_core::html::escape_html_attribute;
 use pierre_core::models::User;
@@ -128,7 +124,7 @@ pub(super) fn admin_access_box(
 }
 
 /// Where the admin access goes, as the box says it: the redirect host in
-/// bold, or "an app on this computer" for a loopback redirect, and the
+/// bold, or "a program on this device" for a loopback redirect, and the
 /// metadata document's host in bold beside it when it is another host.
 fn goes_to_line(client_id: &str, redirect_uri: &str, text: &ConsentText<'_>) -> String {
     let loopback = redirects_to_loopback(redirect_uri);

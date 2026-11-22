@@ -14,11 +14,9 @@
 //! the admin call over MCP and A2A. A non-admin never sees the box, and no
 //! request or form a non-admin can send makes a grant hold `admin`.
 //!
-//! The box's own lines are authored in dravr-contremaitre first and are not
-//! in the pinned catalogue yet, and the box is never shown without them. So
-//! these tests serve the screen from a catalogue carrying the proposed lines
-//! ([`with_admin_access_lines`]), as a runtime sync would once they land, and
-//! one test pins that the real catalogue shows no box at all.
+//! The screen is served from the pinned catalogue, which carries the box's
+//! lines; one test pins that a catalogue whose box lines read empty shows no
+//! box at all.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -35,6 +33,11 @@ use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::endpoints::ADMIN_REFRESHES_AT_TOKEN_ENDPOINT;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_contremaitre::consent_strings::{
+    KEY_CONSENT_ADMIN_ACCESS_GOES_TO, KEY_CONSENT_ADMIN_ACCESS_GOES_TO_TWO_HOSTS,
+    KEY_CONSENT_ADMIN_ACCESS_HINT, KEY_CONSENT_ADMIN_ACCESS_LABEL,
+    KEY_CONSENT_ADMIN_ACCESS_THIS_COMPUTER,
+};
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::User;
@@ -58,35 +61,14 @@ const REDIRECT: &str = "https://client.example.test/callback";
 const STATE: &str = "admin-access-state";
 const VERIFIER: &str = "admin-access-pkce-verifier-0123456789-abcdefghijklmnopqrstu";
 
-/// The proposed English of the box's lines, not yet in the catalogue: what the
-/// FINDING on carnet#1511 asks dravr-contremaitre to add.
-const PROPOSED_LINES: [(&str, &str); 5] = [
-    ("oauth.consent.adminAccessLabel", "Admin access"),
-    (
-        "oauth.consent.adminAccessHint",
-        "Only admins see this choice. It is never remembered: you are asked each time you connect an app, and you can withdraw it in Connected apps.",
-    ),
-    ("oauth.consent.adminAccessGoesTo", "Admin access goes to {0}."),
-    (
-        "oauth.consent.adminAccessGoesToTwoHosts",
-        "Admin access goes to {0}, for the app published at {1}.",
-    ),
-    (
-        "oauth.consent.adminAccessThisComputer",
-        "an app on this computer",
-    ),
+/// The box's own lines, which the no-box case blanks.
+const ADMIN_ACCESS_KEYS: [&str; 5] = [
+    KEY_CONSENT_ADMIN_ACCESS_LABEL,
+    KEY_CONSENT_ADMIN_ACCESS_HINT,
+    KEY_CONSENT_ADMIN_ACCESS_GOES_TO,
+    KEY_CONSENT_ADMIN_ACCESS_GOES_TO_TWO_HOSTS,
+    KEY_CONSENT_ADMIN_ACCESS_THIS_COMPUTER,
 ];
-
-/// `registry` with the box's proposed English lines, as a runtime sync would
-/// deliver them once dravr-contremaitre carries them.
-pub(crate) fn with_admin_access_lines(
-    registry: MessagingStringsRegistry,
-) -> MessagingStringsRegistry {
-    for (key, line) in PROPOSED_LINES {
-        registry.update(key, "en", line.to_owned(), format!("proposed-{key}"));
-    }
-    registry
-}
 
 // ============================================================================
 // Harness: the OAuth routes over a catalogue carrying the box's lines, and the
@@ -139,10 +121,7 @@ fn oauth2_routes_with(
 
 /// The OAuth routes over a catalogue carrying the box's lines.
 fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
-    oauth2_routes_with(
-        resources,
-        with_admin_access_lines(MessagingStringsRegistry::new()),
-    )
+    oauth2_routes_with(resources, MessagingStringsRegistry::new())
 }
 
 fn pkce_challenge() -> String {
@@ -622,7 +601,8 @@ async fn an_admin_is_offered_an_unticked_box_naming_the_redirect_host_in_bold() 
         "bug: the Admin access box is offered unticked: {input}"
     );
     assert!(
-        page.contains("Admin access goes to <strong>client.example.test</strong>."),
+        // The admin's locale renders the line; the host is bold in any of them.
+        page.contains("<strong>client.example.test</strong>."),
         "bug: the box names the redirect host in bold: {page}"
     );
     let callout = page
@@ -806,7 +786,7 @@ async fn an_admin_always_sees_the_screen_and_an_athlete_with_a_remembered_grant_
 
 #[test]
 fn the_box_names_a_differing_document_host_and_says_this_computer_for_a_loopback() {
-    let strings = with_admin_access_lines(MessagingStringsRegistry::new());
+    let strings = MessagingStringsRegistry::new();
     let text = ConsentText::new(&strings, "en");
     let render = |client_id: &str, redirect_uri: &str| {
         OAuth2Routes::generate_consent_html(ConsentHtmlParams {
@@ -857,23 +837,22 @@ fn the_box_names_a_differing_document_host_and_says_this_computer_for_a_loopback
     );
     assert!(
         loopback.contains(
-            "Admin access goes to <strong>an app on this computer</strong>, for the app published at <strong>claude.ai</strong>."
+            "Admin access goes to <strong>a program on this device</strong>, for the app published at <strong>claude.ai</strong>."
         ),
-        "bug: a loopback redirect reads as an app on this computer: {loopback}"
+        "bug: a loopback redirect reads as a program on this device: {loopback}"
     );
     let registered = render("3f1c6b2e-dcr-client", "http://localhost:6274/callback");
     assert!(
-        registered.contains("Admin access goes to <strong>an app on this computer</strong>."),
-        "bug: a loopback redirect reads as an app on this computer: {registered}"
+        registered.contains("Admin access goes to <strong>a program on this device</strong>."),
+        "bug: a loopback redirect reads as a program on this device: {registered}"
     );
 }
 
 #[test]
 fn the_box_is_not_offered_while_the_catalogue_has_no_lines_for_it() {
-    // Whatever the pinned catalogue carries, a catalogue with the box's lines
-    // read empty shows no box: they are supplied first, then blanked.
-    let strings = with_admin_access_lines(MessagingStringsRegistry::new());
-    for (key, _) in PROPOSED_LINES {
+    // A catalogue whose box lines read empty shows no box.
+    let strings = MessagingStringsRegistry::new();
+    for key in ADMIN_ACCESS_KEYS {
         strings.update(key, "en", String::new(), format!("blank-{key}"));
     }
     let html = OAuth2Routes::generate_consent_html(ConsentHtmlParams {

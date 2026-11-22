@@ -73,27 +73,20 @@ pub const KEY_CONSENT_ROLE_COACH: &str = "oauth.consent.roleCoach";
 /// Key: shown to an admin: `{0}`, the client, is offered every tool, and may
 /// act as a user in a support session (carnet#1511)
 pub const KEY_CONSENT_ROLE_ADMIN: &str = "oauth.consent.roleAdmin";
-// The Admin access box's lines (carnet#1511) are listed in
-// CONSENT_SCREEN_KEYS ahead of the catalogue, so the pin that brings them
-// never ships a consent line the consent version does not cover. They are
-// named ADMIN_ACCESS_KEY_*, not KEY_*, while the catalogue lacks them:
-// oauth_template_test holds every KEY_ to its text in all five locales, and
-// the box is neither shown nor honoured until that text exists. They take
-// the KEY_CONSENT_ADMIN_ACCESS_* names once the pin carries the text.
-
 /// Key: the Admin access box's label, shown to an admin only (carnet#1511)
-pub const ADMIN_ACCESS_KEY_LABEL: &str = "oauth.consent.adminAccessLabel";
+pub const KEY_CONSENT_ADMIN_ACCESS_LABEL: &str = "oauth.consent.adminAccessLabel";
 /// Key: who sees the Admin access box, that it is asked every time, and where
 /// to withdraw it
-pub const ADMIN_ACCESS_KEY_HINT: &str = "oauth.consent.adminAccessHint";
+pub const KEY_CONSENT_ADMIN_ACCESS_HINT: &str = "oauth.consent.adminAccessHint";
 /// Key: where admin access goes: `{0}`, the redirect host in bold, or
-/// [`ADMIN_ACCESS_KEY_THIS_COMPUTER`]
-pub const ADMIN_ACCESS_KEY_GOES_TO: &str = "oauth.consent.adminAccessGoesTo";
+/// [`KEY_CONSENT_ADMIN_ACCESS_THIS_COMPUTER`]
+pub const KEY_CONSENT_ADMIN_ACCESS_GOES_TO: &str = "oauth.consent.adminAccessGoesTo";
 /// Key: where admin access goes when the client's metadata document is on
 /// another host: `{0}` as above, `{1}` that host in bold
-pub const ADMIN_ACCESS_KEY_GOES_TO_TWO_HOSTS: &str = "oauth.consent.adminAccessGoesToTwoHosts";
+pub const KEY_CONSENT_ADMIN_ACCESS_GOES_TO_TWO_HOSTS: &str =
+    "oauth.consent.adminAccessGoesToTwoHosts";
 /// Key: what `{0}` reads for a loopback redirect: a program on this device
-pub const ADMIN_ACCESS_KEY_THIS_COMPUTER: &str = "oauth.consent.adminAccessThisComputer";
+pub const KEY_CONSENT_ADMIN_ACCESS_THIS_COMPUTER: &str = "oauth.consent.adminAccessThisComputer";
 
 /// Every line the consent screen can show.
 ///
@@ -133,11 +126,11 @@ pub const CONSENT_SCREEN_KEYS: [&str; 35] = [
     KEY_CONSENT_LIST_PAIR,
     KEY_CONSENT_ROLE_COACH,
     KEY_CONSENT_ROLE_ADMIN,
-    ADMIN_ACCESS_KEY_LABEL,
-    ADMIN_ACCESS_KEY_HINT,
-    ADMIN_ACCESS_KEY_GOES_TO,
-    ADMIN_ACCESS_KEY_GOES_TO_TWO_HOSTS,
-    ADMIN_ACCESS_KEY_THIS_COMPUTER,
+    KEY_CONSENT_ADMIN_ACCESS_LABEL,
+    KEY_CONSENT_ADMIN_ACCESS_HINT,
+    KEY_CONSENT_ADMIN_ACCESS_GOES_TO,
+    KEY_CONSENT_ADMIN_ACCESS_GOES_TO_TWO_HOSTS,
+    KEY_CONSENT_ADMIN_ACCESS_THIS_COMPUTER,
 ];
 
 /// Key: "Connection Failed": the error page's title and heading. No format placeholders.
