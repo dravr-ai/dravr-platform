@@ -16,12 +16,12 @@ MASTER = REPO / "frontend-mobile" / "assets" / "sources" / "boreal-ripple-mark.p
 PUBLIC = FRONTEND / "public"
 BRAND = PUBLIC / "brand"
 
-# `surface` from DESIGN.md §2 — the paper the PWA and touch icons are flattened onto.
+# `surface` from DESIGN.md "Neutral" — the paper the PWA and touch icons are flattened onto.
 # Apple rejects an icon with an alpha channel and the maskable icon needs a full bleed,
 # so those members of the family carry an opaque ground; the in-app marks are transparent.
 SURFACE = (0xF7, 0xF6, 0xF2)
 
-# Three inks and nothing else (DESIGN.md §1): forest on light surfaces, mint on the dark
+# Three inks and nothing else (BRAND.md): forest on light surfaces, mint on the dark
 # canvas. Sage exists for a hero mark on a coloured ground and has no web consumer yet.
 INKS = {
     "ink": (0x05, 0x33, 0x1F),

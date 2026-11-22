@@ -37,7 +37,7 @@ expression; the direction and its decisions are in the team vault under
 | Recovery | Slate | `#3e7283` | `pierre-recovery` | Rest, sleep, restoration |
 | Mobility | Aged Rose | `#9b4666` | `pierre-mobility` | Range of motion, flexibility |
 
-> Pillar hues appear as an 8px dot beside a word or as an avatar ground; as text they use their `on-*-container` ink (DESIGN.md §2). Mobile lifts them for the dark canvas via `PILLAR_COLORS_DARK`.
+> Pillar hues appear as an 8px dot beside a word or as an avatar ground; as text they use their `on-*-container` ink (DESIGN.md "The Bound Ink Rule"). Mobile lifts them for the dark canvas via `PILLAR_COLORS_DARK`.
 
 ### Neutrals
 | Name | Hex | Usage |
@@ -116,12 +116,12 @@ exists the mobile app keeps its 48px downsample.
 | Editorial accent | Newsreader italic 400 | The one serif line, on the login and onboarding pages |
 | Numbers that get compared | JetBrains Mono 400 | Tabular figures |
 
-The Google Fonts request, the scale and the roles are in DESIGN.md §3; the
+The Google Fonts request, the scale and the roles are in DESIGN.md "Typography"; the
 web loads them from `frontend/index.html`, the phone via `expo-font`.
 
 ## Accessibility
 
-- Body text clears 4.5:1 on every surface tier; DESIGN.md §8 carries the measured table and the client-stylesheet generator re-measures it, refusing to write below the floor.
+- Body text clears 4.5:1 on every surface tier; the client-stylesheet generator measures every pairing and refuses to write a token block below the floor.
 - Colour is never the only channel: a pillar or status hue is a dot beside a word.
 - The mark is decorative (`aria-hidden`) wherever the wordmark or the chrome already names the app.
 

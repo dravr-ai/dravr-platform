@@ -93,9 +93,10 @@ export default function MemoryPanel() {
         }
       >
 
-        {/* Text tabs, the filter language of every athlete surface (DESIGN.md
-            §5): sentence-case words under a primary underline, the count in
-            mono beside them. The phone keeps its chips for now. */}
+        {/* Text tabs, the filter language of every athlete surface
+            (DESIGN.md "Page header and text tabs"): sentence-case words under a
+            primary underline, the count in mono beside them. The phone's Memory
+            screen draws the same tabs with `TextTabs`. */}
         <div>
           <div
             role="group"

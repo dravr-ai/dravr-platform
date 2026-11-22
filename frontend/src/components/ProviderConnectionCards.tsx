@@ -393,10 +393,10 @@ export default function ProviderConnectionCards({
   const showMore = moreOpen || more.some((p) => p.connected);
 
   const renderRow = (provider: ProviderStatus) => {
-        // The brand colour is carried by the glyph, not by a tile (DESIGN.md
-        // §5), and only in a scheme where it clears the 3:1 icon floor on the
-        // canvas; elsewhere — and for a provider with no brand colour — the
-        // glyph takes the body ink. `PROVIDER_GLYPH_INK` holds both halves.
+        // The brand colour is carried by the glyph, not by a tile (DESIGN.md "Brand colour"),
+        // and only in a scheme where it clears the 3:1 icon floor on the canvas;
+        // elsewhere — and for a provider with no brand colour — the glyph takes
+        // the body ink. `PROVIDER_GLYPH_INK` holds both halves.
         const glyphInk = providerGlyphInk(provider.provider, scheme);
         const status = cardStatus(provider);
         const isNonOAuth = connectPlan(provider).primary.kind === 'none';

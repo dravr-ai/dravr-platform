@@ -389,7 +389,7 @@ code {
   gap: 8px;
 }
 
-/* The notice: the warning tint under its bound ink (DESIGN.md §2, bound ink). */
+/* The notice: the warning tint under its bound ink (DESIGN.md "The Bound Ink Rule"). */
 .callout {
   margin-bottom: 20px;
   padding: 12px;

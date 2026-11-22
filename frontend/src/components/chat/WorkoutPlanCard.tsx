@@ -272,7 +272,7 @@ export default function WorkoutPlanCard({ plan, children, dayAction }: WorkoutPl
   return (
     <div className="my-2 overflow-hidden rounded-[10px] border ghost-border bg-surface-container-lowest">
       {/* Header — the plan is a data object inside the agent's turn, the one
-          place a hairline card survives in the thread (DESIGN.md §5). */}
+          place a hairline card survives in the thread (DESIGN.md "Chat surfaces"). */}
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b ghost-border-faint px-3 py-2.5">
         <span className="text-sm font-semibold text-on-surface">{t('chat.trainingPlanTitle')}</span>
         <span className="text-xs text-on-surface-variant">

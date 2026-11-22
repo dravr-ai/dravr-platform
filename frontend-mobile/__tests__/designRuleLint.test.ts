@@ -90,7 +90,7 @@ export const Strip = () => <LinearGradient colors={gradients.violetCyan} style={
   });
 
   it('accepts a provider brand gradient and the live palette', async () => {
-    // DESIGN.md §2: third-party brand colours are fixed in both schemes.
+    // DESIGN.md "Brand colour": third-party brand colours are fixed in both schemes.
     const source = `
 declare const brand: { gradient: readonly [string, string] };
 declare const useThemeColors: () => { primary: string };

@@ -1,5 +1,5 @@
 // ABOUTME: Memory pane — what the coach remembers, one compact row per fact under a Section per kind, text tabs to filter by kind
-// ABOUTME: Forgetting is the long-press menu or the swipe action, never a button on the row (Boreal v2.2 Phase 4, DESIGN.md §10)
+// ABOUTME: Forgetting is the long-press menu or the swipe action, never a button on the row (Boreal v2.2 Phase 4, DESIGN.md "Phone")
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 

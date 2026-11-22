@@ -88,7 +88,7 @@ function SeasonRowView({ row, today, onOpen }: { row: SeasonRow; today: string; 
           ))}
         </View>
       )}
-      {/* A status is an 8px dot beside the word that says it, never red ink (DESIGN.md §10). */}
+      {/* A status is an 8px dot beside the word that says it, never red ink (DESIGN.md "Status"). */}
       {note !== '' && row.noDataSince !== null && (
         <View className="flex-row items-center gap-1.5" testID={`coach-season-nodata-${row.athlete.user_id}`}>
           <StatusDot tone="warning" />

@@ -180,7 +180,7 @@ function FeedbackReasonInput({
 
 // Markdown styles for assistant messages — built per palette so the rendered
 // markdown flips with the active theme. Sizes are steps of the phone's class
-// ladder (DESIGN.md §10): the prose reads at `base`, the headings climb to
+// ladder (DESIGN.md "Phone"): the prose reads at `base`, the headings climb to
 // `lg` and `xl`, and code and table cells sit at the interface step `sm`.
 const buildMarkdownStyles = (colors: ThemeColors) => ({
   body: {
@@ -642,7 +642,7 @@ export function MessageList({
     switch (block.type) {
       case 'prose':
         return context.isUser ? (
-          // The ink the tint binds. DESIGN.md §2 pairs `primary-container`
+          // The ink the tint binds. DESIGN.md "Primary" pairs `primary-container`
           // with `on-primary-container` (9.8:1 light, 7.5:1 dark), so the
           // bubble's ink moves with its ground instead of staying on the
           // body role the canvas uses.
@@ -1102,7 +1102,7 @@ export function MessageList({
       >
         {isUser ? (
           /* The athlete's message — right-aligned, on the sage tint in both
-             schemes, which is what DESIGN.md §5 specifies and what the web
+             schemes, which is what DESIGN.md "Chat surfaces" specifies and what the web
              bubble already wore. A neutral `surface-container-high` made the
              athlete's own words a grey blob on the light canvas and said
              nothing about whose they were; the tint is the same green the

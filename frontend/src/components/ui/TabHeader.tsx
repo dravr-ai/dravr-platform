@@ -16,7 +16,7 @@ export interface TabHeaderProps {
 }
 
 /**
- * One 52px row (DESIGN.md §5 "Page header"): the title in Schibsted Grotesk
+ * One 52px row (DESIGN.md "Page header and text tabs"): the title in Schibsted Grotesk
  * at 18px, the description beside it in the caption size rather than under
  * it, actions on the right, a hairline below. The v1 header put a gradient
  * icon square before a description and no title at all, so every

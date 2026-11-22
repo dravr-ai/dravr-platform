@@ -20,7 +20,7 @@ module.exports = {
   theme: {
     // The one shadow in the system — what floats over the page (menus,
     // popovers, drawers, modals). A resting card is lifted by its hairline
-    // (DESIGN.md §4), so the stock sm/md/lg/xl scale is retired with it: this
+    // (DESIGN.md "Shadow Vocabulary"), so the stock sm/md/lg/xl scale is retired with it: this
     // sits outside `extend` to replace the default scale, not add to it.
     boxShadow: {
       'floating': 'var(--shadow-floating)',
@@ -52,7 +52,7 @@ module.exports = {
         'on-error': 'rgb(var(--color-on-error) / <alpha-value>)',
         'on-error-container': 'rgb(var(--color-on-error-container) / <alpha-value>)',
 
-        // DESIGN.md §2 feedback palette. success/warning/info existed only as
+        // DESIGN.md "Feedback and pillars" feedback palette. success/warning/info existed only as
         // documented hexes until now, which is why call sites reached for
         // text-amber-400 and friends.
         success: 'rgb(var(--color-success) / <alpha-value>)',
@@ -61,7 +61,7 @@ module.exports = {
         // The overlay behind drawers and sheets — a shadow of the page in both themes.
         scrim: 'rgb(var(--color-scrim) / <alpha-value>)',
 
-        // DESIGN.md §2 pillar accents — semantic, so they flip with the theme.
+        // DESIGN.md "Feedback and pillars" pillar accents — semantic, so they flip with the theme.
         activity: 'rgb(var(--color-activity) / <alpha-value>)',
         nutrition: 'rgb(var(--color-nutrition) / <alpha-value>)',
         recovery: 'rgb(var(--color-recovery) / <alpha-value>)',
@@ -113,7 +113,7 @@ module.exports = {
         'api-yellow': '#8f6a2e',
       },
       fontFamily: {
-        // Boreal v2 typography per DESIGN.md §3: Schibsted Grotesk for headings
+        // Boreal v2 typography per DESIGN.md "Typography": Schibsted Grotesk for headings
         // and the wordmark, Plus Jakarta Sans for everything else (labels
         // included — there is no separate label face), Newsreader italic for
         // the one editorial line on the auth pages.
@@ -123,7 +123,7 @@ module.exports = {
         serif: ['Newsreader', 'Georgia', 'serif'],
         mono: ['JetBrains Mono', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'monospace'],
       },
-      // Boreal v2.1 scale (DESIGN.md §3): interface text is 13px, reading text
+      // Boreal v2.1 scale (DESIGN.md "Hierarchy (web)"): interface text is 13px, reading text
       // 15px, page titles 18px. Every step carries its own line-height — a
       // single-line label sits tighter (≈1.4) than running text (≈1.55) — so a
       // bare `text-sm` is complete without a `leading-*` beside it. 12px is the
@@ -161,10 +161,10 @@ module.exports = {
         '16': '4rem',
         '20': '5rem',
         '24': '6rem',
-        'section': '8.5rem', // DESIGN.md §6 "24" spacing for major breaks
+        'section': '8.5rem', // major breaks
       },
       borderRadius: {
-        // Boreal scale — tight geometric precision (DESIGN.md §6)
+        // Boreal scale — tight geometric precision (DESIGN.md "Shapes")
         'sm': '0.125rem',
         'md': '0.25rem',
         'lg': '0.5rem',
@@ -215,7 +215,7 @@ module.exports = {
       },
       backdropBlur: {
         xs: '2px',
-        boreal: '12px', // canonical glass blur (DESIGN.md §2)
+        boreal: '12px', // canonical glass blur (DESIGN.md "Elevation & Depth")
       },
       transitionDuration: {
         'fast': '150ms',

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Measures the Boreal surface ladder instead of trusting it — the separation ratios of DESIGN.md §2, computed
-// ABOUTME: Also pins DESIGN.md's token table to the shared tokens and the two shell rules DESIGN.md §5 states
+// ABOUTME: Measures the Boreal surface ladder instead of trusting it — the separation ratios of DESIGN.md "The Fill-Step-First Rule", computed
+// ABOUTME: Also pins DESIGN.md's token table to the shared tokens and the two shell rules DESIGN.md "Chat surfaces" states
 
 import fs from 'fs';
 import path from 'path';
@@ -14,6 +14,9 @@ import {
   PRIMARY_HOVER,
   SEMANTIC_COLORS,
   SEMANTIC_COLORS_DARK,
+  PILLAR_COLORS,
+  CONTAINER_INKS,
+  CONTAINER_INKS_DARK,
   ghostBorder,
   contrastHex as contrast,
   luminanceHex as luminance,
@@ -33,7 +36,7 @@ const REPO = path.join(__dirname, '..', '..', '..');
 const DESIGN_MD = fs.readFileSync(path.join(REPO, 'frontend', 'DESIGN.md'), 'utf8');
 
 /**
- * Thresholds from DESIGN.md §2 "Light tier separation".
+ * Thresholds from DESIGN.md "The Fill-Step-First Rule".
  *
  * Light separates on fill because fill is all it has: the pale ghost-border
  * hairline that gives the dark scheme a second channel is invisible on white,
@@ -44,11 +47,29 @@ const DESIGN_MD = fs.readFileSync(path.join(REPO, 'frontend', 'DESIGN.md'), 'utf
 const TIER_STEP_MIN = 1.06;
 const RAISED_STEP_MIN = 1.18;
 
-/** Pull `| \`token\` | \`#hex\` |` style rows out of a DESIGN.md table. */
-function designMdHex(token: string): string {
-  const row = new RegExp(`\\|\\s*\`${token}\`\\s*\\|\\s*\`(#[0-9a-f]{6})\``).exec(DESIGN_MD);
+/**
+ * Pull a `| \`token\` | \`#light\` | \`#dark\` |` row out of a DESIGN.md table. The dark
+ * column is absent from some rows, in which case `dark` is null.
+ */
+function designMdRow(token: string): { light: string; dark: string | null } {
+  const row = new RegExp(
+    `\\|\\s*\`${token}\`\\s*\\|\\s*\`(#[0-9a-f]{6})\`\\s*\\|(?:\\s*\`(#[0-9a-f]{6})\`)?`,
+  ).exec(DESIGN_MD);
   expect(row, `DESIGN.md row for \`${token}\``).not.toBeNull();
-  return (row as RegExpExecArray)[1];
+  const match = row as RegExpExecArray;
+  return { light: match[1], dark: match[2] ?? null };
+}
+
+/** The YAML frontmatter `colors:` block, as name → hex. */
+function frontmatterColors(): Record<string, string> {
+  const block = /^colors:\n((?: {2}[a-z0-9-]+: "#[0-9a-f]{6}"\n)+)/m.exec(DESIGN_MD);
+  expect(block, 'DESIGN.md frontmatter colors block').not.toBeNull();
+  const out: Record<string, string> = {};
+  for (const line of (block as RegExpExecArray)[1].split('\n')) {
+    const entry = /^ {2}([a-z0-9-]+): "(#[0-9a-f]{6})"$/.exec(line);
+    if (entry) out[entry[1]] = entry[2];
+  }
+  return out;
 }
 
 /** The light ladder, lightest first — the order a surface stacks in. */
@@ -71,7 +92,7 @@ describe('the contrast helper agrees with WCAG', () => {
   });
 });
 
-describe('light surface ladder — DESIGN.md §2 "Light tier separation"', () => {
+describe('light surface ladder — DESIGN.md "The Fill-Step-First Rule"', () => {
   it('separates every adjacent tier on fill alone', () => {
     // `surface` against `surface-container-lowest` is the documented exemption:
     // a card on the page canvas is lifted by the ghost-border hairline, so
@@ -134,7 +155,11 @@ describe('primary is a usable green in both schemes', () => {
 });
 
 describe('DESIGN.md states the shipped token values', () => {
-  const documented: ReadonlyArray<readonly [string, keyof typeof BOREAL_LIGHT]> = [
+  const documentedBoth: ReadonlyArray<readonly [string, keyof typeof BOREAL_LIGHT]> = [
+    ['primary', 'primary'],
+    ['primary-container', 'primaryContainer'],
+    ['on-primary-container', 'onPrimaryContainer'],
+    ['on-primary', 'onPrimary'],
     ['surface', 'surface'],
     ['surface-container-lowest', 'surfaceContainerLowest'],
     ['surface-container-low', 'surfaceContainerLow'],
@@ -142,13 +167,64 @@ describe('DESIGN.md states the shipped token values', () => {
     ['surface-container-high', 'surfaceContainerHigh'],
     ['surface-container-highest', 'surfaceContainerHighest'],
     ['outline', 'outline'],
-    ['primary', 'primary'],
-    ['primary-container', 'primaryContainer'],
-    ['on-primary-container', 'onPrimaryContainer'],
+    ['outline-variant', 'outlineVariant'],
+    ['on-surface', 'onSurface'],
+    ['on-surface-variant', 'onSurfaceVariant'],
   ];
 
-  it.each(documented)('the %s row carries the shared-constants value', (cssName, tsName) => {
-    expect(designMdHex(cssName)).toBe(BOREAL_LIGHT[tsName]);
+  it.each(documentedBoth)('the %s row carries the light and the dark value', (cssName, tsName) => {
+    const row = designMdRow(cssName);
+    expect(row.light).toBe(BOREAL_LIGHT[tsName]);
+    expect(row.dark).toBe(BOREAL_DARK[tsName]);
+  });
+
+  it('states the 1.06 and 1.18 separation floors the tests measure', () => {
+    expect(DESIGN_MD).toContain(`${TIER_STEP_MIN.toFixed(2)}:1`);
+    expect(DESIGN_MD).toContain(`${RAISED_STEP_MIN.toFixed(2)}:1`);
+  });
+
+  it('carries every bound ink in light and dark', () => {
+    for (const hue of Object.keys(CONTAINER_INKS) as Array<keyof typeof CONTAINER_INKS>) {
+      const row = designMdRow(`on-${hue}-container`);
+      expect(row.light, `on-${hue}-container light`).toBe(CONTAINER_INKS[hue]);
+      expect(row.dark, `on-${hue}-container dark`).toBe(CONTAINER_INKS_DARK[hue]);
+    }
+  });
+
+  it('keeps the frontmatter colours on the shared tokens', () => {
+    const colors = frontmatterColors();
+    const expected: Record<string, string> = {
+      primary: BOREAL_LIGHT.primary,
+      'primary-hover': PRIMARY_HOVER.light,
+      'primary-container': BOREAL_LIGHT.primaryContainer,
+      'on-primary': BOREAL_LIGHT.onPrimary,
+      'on-primary-container': BOREAL_LIGHT.onPrimaryContainer,
+      surface: BOREAL_LIGHT.surface,
+      'surface-container-lowest': BOREAL_LIGHT.surfaceContainerLowest,
+      'surface-container-low': BOREAL_LIGHT.surfaceContainerLow,
+      'surface-container': BOREAL_LIGHT.surfaceContainer,
+      'surface-container-high': BOREAL_LIGHT.surfaceContainerHigh,
+      'surface-container-highest': BOREAL_LIGHT.surfaceContainerHighest,
+      'on-surface': BOREAL_LIGHT.onSurface,
+      'on-surface-variant': BOREAL_LIGHT.onSurfaceVariant,
+      outline: BOREAL_LIGHT.outline,
+      'outline-variant': BOREAL_LIGHT.outlineVariant,
+      error: BOREAL_LIGHT.error,
+      'on-error-container': BOREAL_LIGHT.onErrorContainer,
+      success: SEMANTIC_COLORS.success,
+      warning: SEMANTIC_COLORS.warning,
+      info: SEMANTIC_COLORS.info,
+      activity: PILLAR_COLORS.activity,
+      nutrition: PILLAR_COLORS.nutrition,
+      recovery: PILLAR_COLORS.recovery,
+      mobility: PILLAR_COLORS.mobility,
+      scrim: BOREAL_LIGHT.scrim,
+    };
+    for (const [name, hex] of Object.entries(expected)) {
+      expect(colors[name], `frontmatter colors.${name}`).toBe(hex);
+    }
+    // And the other way: a frontmatter colour with no token behind it fails too.
+    expect(Object.keys(colors).sort()).toEqual(Object.keys(expected).sort());
   });
 
   it('gives light the darker ghost-border ink and dark the pale one', () => {
@@ -157,14 +233,22 @@ describe('DESIGN.md states the shipped token values', () => {
     const ink = (rgb: string) => `#${rgb.split(', ').map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
     expect(luminance(ink(BORDER_INK.light.rgb))).toBeLessThan(luminance(ink(BORDER_INK.dark.rgb)));
     expect(DESIGN_MD).toContain(ghostBorder(BORDER_INK.light, 'default'));
+    expect(DESIGN_MD).toContain(ghostBorder(BORDER_INK.dark, 'default'));
   });
 });
 
-describe('DESIGN.md §5 states one shell rule per client', () => {
-  const regionTable = DESIGN_MD.slice(
-    DESIGN_MD.indexOf("### Chat surfaces — Home's conversation and the Groups messenger"),
-    DESIGN_MD.indexOf('### Focus rings'),
-  );
+describe('DESIGN.md "Chat surfaces" states one shell rule per client', () => {
+  const chatHeading = "### Chat surfaces — Home's conversation and the Groups messenger";
+  const chatStart = DESIGN_MD.indexOf(chatHeading);
+  // The section runs to the next `##` or `###` heading, whatever that heading is called.
+  const afterHeading = DESIGN_MD.slice(chatStart + chatHeading.length);
+  const nextHeading = afterHeading.search(/\n#{2,3} /);
+  const regionTable = DESIGN_MD.slice(chatStart, chatStart + chatHeading.length + nextHeading);
+
+  it('finds the section it reads', () => {
+    expect(chatStart).toBeGreaterThanOrEqual(0);
+    expect(nextHeading).toBeGreaterThan(0);
+  });
 
   it('keeps the web rail name-free, with the mark as the way Home', () => {
     const rail = regionTable.split('\n').find((line) => line.includes('Icon rail (72px)'));

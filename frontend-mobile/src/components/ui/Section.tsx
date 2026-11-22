@@ -1,5 +1,5 @@
 // ABOUTME: A group on a settings screen — a 13 / 600 title, one optional line under it, an optional action, then its content
-// ABOUTME: The header insets itself 16; the content is full-bleed so rows and empty states, which pay their own inset, sit flush (DESIGN.md §10)
+// ABOUTME: The header insets itself 16; the content is full-bleed so rows and empty states, which pay their own inset, sit flush (DESIGN.md "Phone")
 
 import React, { Children, type ReactNode } from 'react';
 import { Text, View } from 'react-native';

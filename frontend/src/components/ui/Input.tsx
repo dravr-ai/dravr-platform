@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Boreal Editorial Input — bottom-stroke underline, DESIGN.md §5
+// ABOUTME: Boreal Editorial Input — bottom-stroke underline, DESIGN.md "Inputs / Fields"
 // ABOUTME: Supports label, error/help text, left/right icons
 
 import React, { forwardRef, useId } from 'react';

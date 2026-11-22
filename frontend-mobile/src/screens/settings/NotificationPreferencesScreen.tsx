@@ -38,7 +38,7 @@ const CAP_NONE_KEY = 'none';
  * Each category is a `Section` of its own: the label and blurb are the header,
  * the switch is the header's action, and the quiet-hours pickers are the
  * content. Sections separate themselves by the column's gap, so no card and no
- * divider is drawn between them (DESIGN.md §10).
+ * divider is drawn between them (DESIGN.md "Phone").
  */
 export function NotificationPreferencesScreen() {
   const { t, language } = useTranslation();

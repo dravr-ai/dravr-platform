@@ -67,7 +67,7 @@ module.exports = {
   android: {
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
-      backgroundColor: '#f9f9f6', // surface — DESIGN.md §2
+      backgroundColor: '#f9f9f6', // splash ground; the `surface` token itself is #f7f6f2 (tracked in carnet#1717)
     },
     package: 'ai.dravr.app',
     permissions: ['android.permission.RECORD_AUDIO'],
@@ -92,7 +92,7 @@ module.exports = {
         image: './assets/splash-icon.png',
         imageWidth: 200,
         resizeMode: 'contain',
-        backgroundColor: '#f9f9f6', // surface — DESIGN.md §2
+        backgroundColor: '#f9f9f6', // splash ground; the `surface` token itself is #f7f6f2 (tracked in carnet#1717)
         // userInterfaceStyle is 'automatic', so a dark-mode launch flashed the
         // light surface before the app painted its own dark canvas. The dark
         // variant is the tuned surface from index.css, not black.

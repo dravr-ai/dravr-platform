@@ -61,7 +61,7 @@
     color: rgb(var(--color-on-surface-variant));
   }
 
-  /* Interface text is 13px (DESIGN.md §3): anything without a size of its
+  /* Interface text is 13px (DESIGN.md "Hierarchy (web)"): anything without a size of its
      own — a table cell, a nav label, a helper line — inherits it. Reading
      text opts up to `text-base` (15px) where it is set. */
   body {
@@ -92,12 +92,12 @@
 
 @layer components {
   /* ==========================================================================
-     Buttons — DESIGN.md §5
+     Buttons — DESIGN.md "Buttons"
      Primary: filled, no shadow. Secondary: ghost with center-expand underline.
      Tertiary: text only, sentence case. Danger: error surface.
      ========================================================================== */
 
-  /* 32px is the control height (DESIGN.md §5): height, not padding, sets it,
+  /* 32px is the control height (DESIGN.md "Buttons"): height, not padding, sets it,
      so a button never grows with its line-height. `.btn-lg` is the 44px
      auth call to action; phones and coarse pointers lift every button back
      to 44 through the touch-target rule at the end of this file. */
@@ -212,7 +212,7 @@
   }
 
   /* ==========================================================================
-     Cards — DESIGN.md §4 (tonal layering) + §5 (cards)
+     Cards — DESIGN.md "The Hairlines-Lift Rule" and "Cards / Containers"
      ========================================================================== */
 
   /* A sheet on the paper: white, a hairline, no shadow at rest or on hover. */
@@ -227,7 +227,7 @@
   }
 
   /* A stat is a number over its label, set apart from the next by space —
-     not a bordered tile (DESIGN.md §5, Boreal v2.1). The class survives for
+     not a bordered tile (DESIGN.md "Cards / Containers", Boreal v2.1). The class survives for
      its consumers; it no longer draws a box. */
   .stat-card {
     @apply text-left;
@@ -262,7 +262,7 @@
     @apply card;
   }
 
-  /* The true "Boreal Overlay" signature (DESIGN.md §5) — dark translucent
+  /* The true "Boreal Overlay" signature (DESIGN.md "Elevation & Depth") — dark translucent
      panel used for data callouts over imagery. Opt-in via .boreal-overlay. */
   .card-boreal-overlay {
     @apply rounded-lg p-6 transition-all duration-base;
@@ -272,7 +272,7 @@
     color: #ffffff;
   }
 
-  /* Light glass panel (§2 "Glass & Gradient Rule") — floating nav/detail
+  /* Light glass panel (blur is only for overlays, DESIGN.md "Elevation & Depth") — floating nav/detail
      panels on top of boreal imagery. */
   .card-glass-light {
     @apply rounded-lg p-6 transition-all duration-base;
@@ -298,7 +298,7 @@
   }
 
   /* ==========================================================================
-     Form inputs — DESIGN.md §5 input fields: no enclosing box, bottom stroke
+     Form inputs — DESIGN.md "Inputs / Fields": no enclosing box, bottom stroke
      ========================================================================== */
 
   .input-field {
@@ -379,7 +379,7 @@
   }
 
   /* ==========================================================================
-     Badges — tonal chips on surface-container-high (DESIGN.md §6 allows
+     Badges — tonal chips on surface-container-high (DESIGN.md "Shapes" allows
      `full` radius only for small tags/chips)
      ========================================================================== */
 
@@ -463,7 +463,7 @@
   }
 
   /* ==========================================================================
-     Alerts — tinted message blocks (DESIGN.md §5 "Alerts")
+     Alerts — tinted message blocks (DESIGN.md "Alerts")
      ========================================================================== */
 
   /* The standard block: ui/Alert's shape. A `border` utility on the block
@@ -612,7 +612,7 @@
   }
 
   /* ==========================================================================
-     The athlete's bubble — DESIGN.md §5. The one bubble in the thread: the
+     The athlete's bubble — DESIGN.md "Chat surfaces". The one bubble in the thread: the
      athlete speaks from the right on the sage tint; the agent speaks as prose
      on the canvas (MessageBubble draws that side with utilities, no class).
      The tail corner is the 4px one (mobile's convention); the width bound
@@ -727,7 +727,7 @@
      Admin surfaces — card-admin / stat-card-dark / table-dark.
      Rebuilt on the light palette — the "dark" suffix is legacy; the system is
      light. Form fields are NOT here: they come from the ui/ primitives, which
-     own the editorial underline of DESIGN.md §5.
+     own the editorial underline of DESIGN.md "Inputs / Fields".
      ========================================================================== */
 
   .stat-card-dark {
@@ -771,7 +771,7 @@
 
 @layer utilities {
   /* Editorial input — override @tailwindcss/forms reset with higher specificity
-     and apply the focus-state underline growth from DESIGN.md §5. */
+     and apply the focus-state underline growth from DESIGN.md "Inputs / Fields". */
   .boreal-underline-input {
     border: 0 !important;
     border-radius: 0 !important;
@@ -843,7 +843,7 @@
     background-color: transparent;
   }
 
-  /* Dark glass overlay (signature Boreal Overlay from DESIGN.md §5) */
+  /* Dark glass overlay (signature Boreal Overlay from DESIGN.md "Elevation & Depth") */
   .boreal-overlay {
     background: linear-gradient(145deg, rgba(0, 36, 26, 0.85) 0%, rgba(13, 59, 46, 0.75) 100%);
     backdrop-filter: blur(12px);
@@ -873,12 +873,12 @@
   }
 
   /* Numbers that get compared — TSS, CTL, dates in a column — line up only
-     when every digit is the same width (DESIGN.md §3). */
+     when every digit is the same width (DESIGN.md "Typography"). */
   .font-mono {
     font-variant-numeric: tabular-nums;
   }
 
-  /* Targets follow the pointer (DESIGN.md §8). A fine pointer gets the
+  /* Targets follow the pointer (DESIGN.md "Layout"). A fine pointer gets the
      32–36px controls the scale defines; a coarse pointer, and any viewport
      under the `lg` breakpoint where the single-column phone shell shows,
      lifts every button and `.touch-target` back to 44px. */

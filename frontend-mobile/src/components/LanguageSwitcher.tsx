@@ -28,7 +28,7 @@ export interface LanguageSwitcherProps {
  * The same choice sets the chrome language and `users.locale`, so the coach
  * answers in the language the athlete reads the app in. Each locale is a row
  * named in its own language, with the one green check on the row in force:
- * a radio group read as a list, not a grid of flag tiles (DESIGN.md §10).
+ * a radio group read as a list, not a grid of flag tiles (DESIGN.md "Phone").
  */
 export function LanguageSwitcher({ serverLocale }: LanguageSwitcherProps) {
   const { t } = useTranslation();

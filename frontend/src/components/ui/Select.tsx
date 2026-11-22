@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Boreal Editorial Select — bottom-stroke underline, DESIGN.md §5
+// ABOUTME: Boreal Editorial Select — bottom-stroke underline, DESIGN.md "Inputs / Fields"
 // ABOUTME: Same label, help and error treatment as Input; custom chevron affordance
 
 import React, { forwardRef, useId } from 'react';

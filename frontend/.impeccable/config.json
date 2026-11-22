@@ -7,7 +7,7 @@
         "rule": "overused-font",
         "value": "plus jakarta sans",
         "createdAt": "2026-11-18T17:21:22.436Z",
-        "reason": "design system: frontend/DESIGN.md §3 Typography pins Plus Jakarta Sans as the Boreal body face on web (mobile renders body text in the platform face)"
+        "reason": "design system: frontend/DESIGN.md \"Typography\" pins Plus Jakarta Sans as the Boreal body face on web (mobile renders body text in the platform face)"
       }
     ]
   }

@@ -353,7 +353,7 @@ function AgentField({
 /**
  * Whether the link goes to the share sheet first: the browser has one (Web
  * Share) and the screen is a phone's — a coarse pointer or below `lg`, the
- * same test the 44px touch targets use (DESIGN.md §8).
+ * same test the 44px touch targets use (DESIGN.md "Layout").
  */
 function sharesFromPhone(): boolean {
   if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') return false;

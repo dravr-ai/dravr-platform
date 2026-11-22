@@ -79,7 +79,7 @@ describe('hand-written tone pairs', () => {
   });
 
   it('puts no pillar hue on a filled button or a notice', () => {
-    // A pillar marks a category and nothing else (DESIGN.md "Badges",
+    // A pillar marks a category and nothing else (DESIGN.md "Badges and chips",
     // "Alerts"): an approve button is Button's success variant, a confirmation
     // is ALERT_TONE.success. The category tables (coachCategory, the avatar
     // slots, the scene's pillar dots) draw a pillar on its own, never beside

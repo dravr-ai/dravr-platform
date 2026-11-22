@@ -481,7 +481,7 @@ export default function GroupInfoPanel({
             {viewer === 'member' && <WhoSeesWhat group={group} coachSharing={coachSharing ? coachSharing.consent : null} />}
           </RowBox>
           {/* Getting the athlete in is the owner's second step: the link sits
-              right under who is here (§10). Elsewhere it is a setting. */}
+              right under who is here. Elsewhere it is a setting. */}
           {viewer === 'seat' && isAdmin && <div className="mt-3">{invites(true)}</div>}
         </Section>
       )}

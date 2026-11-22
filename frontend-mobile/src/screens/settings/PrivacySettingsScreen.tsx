@@ -38,7 +38,7 @@ const NEVER_COLLECTED_KEYS = [
 /**
  * Six sections separated by space, not by cards: the consent switch as the
  * first section's action, the two promise lists as glyph-led lines
- * (DESIGN.md §10), then the data export, the access requests to a company,
+ * (DESIGN.md "Phone"), then the data export, the access requests to a company,
  * and account deletion last.
  */
 export function PrivacySettingsScreen(): React.JSX.Element {

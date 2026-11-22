@@ -105,7 +105,7 @@ function ReplyCard({ reply }: ReplyCardProps) {
       )}
 
       {/* One status per reply, one dot beside its words, never red or green
-          text (DESIGN.md, Coach Home); the claims follow, each as its words. */}
+          text (DESIGN.md "Status"); the claims follow, each as its words. */}
       {status !== null && (
         <div data-testid="coach-reply-verdicts" className="mt-2 space-y-1">
           <p

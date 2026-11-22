@@ -99,7 +99,7 @@
     "shadow-floating": "Menus, popovers, drawers, modals — never a resting card."
   },
   "layout": {
-    "note": "Fixed dimensions of the messenger shell and controls (DESIGN.md §5–6).",
+    "note": "Fixed dimensions of the messenger shell and controls (DESIGN.md \"Chat surfaces\" and \"Layout\").",
     "tokens": [
       {
         "name": "control-height",

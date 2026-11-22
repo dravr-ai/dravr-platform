@@ -37,7 +37,7 @@ describe('Input Component', () => {
       expect(queryByText('Email Address')).toBeNull();
     });
 
-    // DESIGN.md §3: labels are sentence case in the body face, no tracking.
+    // DESIGN.md "The Sentence-Case Rule": labels are sentence case in the body face, no tracking.
     // The 11px caps at 0.08em were the v1 label face, retired on web in the
     // Boreal v2 token pass; the phone kept them for months and nothing here
     // noticed, because `uppercase` is a NativeWind class with no compiled CSS

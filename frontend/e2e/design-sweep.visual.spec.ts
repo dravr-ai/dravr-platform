@@ -98,7 +98,7 @@ async function sweep(
       missed.push(surface);
       continue;
     }
-    // Entrance animation is 500ms (DESIGN.md §7); capturing inside it yields a
+    // Entrance animation is 500ms (DESIGN.md "Motion"); capturing inside it yields a
     // half-faded screen that reads as a contrast bug.
     await page.waitForTimeout(700);
     await setTheme(page, theme);
@@ -914,7 +914,7 @@ async function sweepToast(page: Page, theme: (typeof THEMES)[number]) {
   await lastReply.hover();
   await lastReply.getByTitle('Copy message').click();
   await expect(page.getByText('Copied', { exact: false }).first()).toBeVisible();
-  // The toast slides in (DESIGN.md §7); a capture inside it reads as faded ink.
+  // The toast slides in (DESIGN.md "Motion"); a capture inside it reads as faded ink.
   await page.waitForTimeout(600);
   await page.screenshot({ path: `design-sweep/${theme}/tones-toast-success.png` });
 }

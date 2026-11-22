@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The Dravr lockup — the badge mark beside the DRAVR wordmark, set the way DESIGN.md §1 defines it
-// ABOUTME: The phone's only in-app identity: the Home and chat tabs' header title, and with `onPress` the way back to Home (DESIGN.md §5)
+// ABOUTME: The Dravr lockup — the badge mark beside the DRAVR wordmark, set the way DESIGN.md "The Sentence-Case Rule" defines it
+// ABOUTME: The phone's only in-app identity: the Home and chat tabs' header title, and with `onPress` the way back to Home (DESIGN.md "Chat surfaces")
 
 import React from 'react';
 import { View, Text, Image, Pressable, type TextStyle } from 'react-native';
@@ -20,7 +20,7 @@ const BRAND_TRACKING_RATIO = 0.15;
 const BADGE_RADIUS_RATIO = 0.25;
 
 /**
- * The 44 pt thumb floor (DESIGN.md §10). The lockup is 28 tall, so a pressable
+ * The 44 pt thumb floor (DESIGN.md "Phone"). The lockup is 28 tall, so a pressable
  * one reaches the floor through its hit slop rather than a taller box, which
  * would push the header's own layout around.
  */

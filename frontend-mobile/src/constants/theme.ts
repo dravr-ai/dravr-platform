@@ -33,9 +33,9 @@ export const fontWeight = FONT_WEIGHT;
  * light lifts a card by going UP to white, dark by going up to
  * `surfaceContainerHigh`. `surfaceContainerLowest` is `#0b0e0b` in dark —
  * BELOW the `#11130f` canvas — so the naive "elevated" token sinks the card
- * into the page, which is the trap DESIGN.md §5 names for the coach bubble.
+ * into the page, which is the trap for the coach bubble.
  *
- * No shadow: DESIGN.md §4 is "hairlines lift, shadows float", and a resting
+ * No shadow: DESIGN.md "The Hairlines-Lift Rule" is "hairlines lift, shadows float", and a resting
  * card does not float.
  */
 export function useCardStyle(): ViewStyle {

@@ -1,5 +1,5 @@
 // ABOUTME: An empty state is one sentence and, when there is one, one ink action — no illustration, no card, no filled button
-// ABOUTME: Sits left-aligned in the content column at the interface size, where the rows would have been (DESIGN.md §5)
+// ABOUTME: Sits left-aligned in the content column at the interface size, where the rows would have been (DESIGN.md "Empty states")
 
 import React, { type ReactNode } from 'react';
 import { Text, View } from 'react-native';

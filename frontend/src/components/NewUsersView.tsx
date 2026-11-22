@@ -17,7 +17,7 @@ import { ADMIN_LOCALE } from '../utils/adminLocale';
 const NEW_USER_WINDOWS = [7, 30, 90] as const;
 type Window = (typeof NEW_USER_WINDOWS)[number];
 
-/** Status is a dot and a word (DESIGN.md §8), never a tinted chip. */
+/** Status is a dot and a word (DESIGN.md "Status"), never a tinted chip. */
 const STATUS_DOT: Record<string, string> = {
   pending: 'bg-warning',
   active: 'bg-success',

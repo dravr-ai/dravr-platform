@@ -42,7 +42,7 @@ const PILLAR_DOT: Record<CategoryPillar, string> = {
 };
 
 /**
- * The fill of the dot beside a category word in the store (DESIGN.md §2): the
+ * The fill of the dot beside a category word in the store (DESIGN.md "Status"): the
  * pillar's hue, and `bg-outline-variant` for a category with no pillar, so a
  * custom agent's dot is neutral rather than claiming the brand colour.
  */

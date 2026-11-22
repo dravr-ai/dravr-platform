@@ -136,7 +136,7 @@ export function ConversationRow({ row, seatLine = null, onPress, onLongPress, on
         {/*
           The column stretches to the row's height so its bottom hairline is
           the row's divider; `border-b` alone draws a full point, and the
-          system's hairline is `StyleSheet.hairlineWidth` (DESIGN.md §10).
+          system's hairline is `StyleSheet.hairlineWidth` (DESIGN.md "Shapes").
         */}
         <View
           className="flex-1 ml-3 self-stretch justify-center border-b border-border-faint"

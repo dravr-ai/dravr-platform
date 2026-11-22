@@ -74,7 +74,7 @@ describe('the resting-card recipe', () => {
     const light = await cardStyleFor('light');
     const dark = await cardStyleFor('dark');
 
-    // DESIGN.md §4 — hairlines lift, shadows float, and a resting card does
+    // DESIGN.md "The Hairlines-Lift Rule" — hairlines lift, shadows float, and a resting card does
     // not float. A fill-less view with `shadowOffset: { height: 24 }` casts
     // the alpha of its CHILDREN on iOS, which is how these screens drew a soft
     // duplicate of their own text 24pt below itself.

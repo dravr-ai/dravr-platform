@@ -1,4 +1,4 @@
-// ABOUTME: The phone's one type ladder — each step's size and line height in points (Boreal v2.2, DESIGN.md §10)
+// ABOUTME: The phone's one type ladder — each step's size and line height in points (Boreal v2.2)
 // ABOUTME: tailwind.config.js builds the `text-*` classes from it and inline styles read it through constants/theme
 
 /* global module */

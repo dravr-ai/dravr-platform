@@ -83,7 +83,7 @@ export interface HostedPalette {
 /**
  * One scheme's palette, every value read from the shared tokens.
  *
- * The card is the one place the schemes take different tiers (DESIGN.md §4):
+ * The card is the one place the schemes take different tiers (DESIGN.md "Cards / Containers"):
  * light lifts to `surface-container-lowest` (white, separated from the paper
  * by its hairline), dark to `surface-container-high`, because dark's
  * `lowest` sits below the canvas and would sink the card instead of lifting it.
@@ -232,7 +232,7 @@ function monoStack(face: string): string {
 }
 
 /**
- * The Google Fonts request for the faces a hosted page sets (DESIGN.md §3).
+ * The Google Fonts request for the faces a hosted page sets (DESIGN.md "Typography").
  * A face costs a download only where a page draws text in it, so the mono
  * face rides along for the one page that shows a code.
  */
@@ -545,7 +545,7 @@ code {
   gap: 8px;
 }
 
-/* The notice: the warning tint under its bound ink (DESIGN.md §2, bound ink). */
+/* The notice: the warning tint under its bound ink (DESIGN.md "The Bound Ink Rule"). */
 .callout {
   margin-bottom: 20px;
   padding: 12px;

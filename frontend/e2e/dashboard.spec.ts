@@ -126,7 +126,7 @@ test.describe('Dashboard Navigation', () => {
 
     await page.waitForSelector('nav', { timeout: 10000 });
 
-    // Start at Users - check tab is active (sits on the primary-container tint, DESIGN.md §6)
+    // Start at Users - check tab is active (sits on the primary-container tint, DESIGN.md "Primary")
     const usersTab = page.locator('nav button').filter({ has: page.locator('span:text-is("Users")') });
     await expect(usersTab).toHaveClass(/bg-primary-container/);
 
@@ -425,7 +425,7 @@ test.describe('Dashboard Responsive Behavior', () => {
     // Margin is applied via inline style={{ marginLeft: ... }} on <main>
     // to support continuous resize, not via a fixed Tailwind class. Verify
     // the computed margin-left rather than asserting on a class name. 232px
-    // is the Boreal v2.1 default (DESIGN.md §6).
+    // is the Boreal v2.1 default (DESIGN.md "Layout").
     await expect(main).toHaveCSS('margin-left', '232px');
 
     // Collapse sidebar

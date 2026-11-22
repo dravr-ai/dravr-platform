@@ -1,5 +1,5 @@
 // ABOUTME: Login screen: sign in on the server's hosted page (authorization code + PKCE) or with native Google Sign-In
-// ABOUTME: The phone's half of DESIGN.md §5 "Auth and onboarding" — tint page, white form sheet, both schemes
+// ABOUTME: The phone's half of DESIGN.md "Auth and onboarding" — tint page, white form sheet, both schemes
 
 import React, { useState } from 'react';
 import {
@@ -132,7 +132,7 @@ export function LoginScreen() {
     color: tokens.onSurface,
   };
 
-  // The form sheet. Hairline, no shadow — DESIGN.md §4: hairlines lift,
+  // The form sheet. Hairline, no shadow — DESIGN.md "The Hairlines-Lift Rule": hairlines lift,
   // shadows float, and nothing at rest floats.
   const cardStyle: ViewStyle = {
     backgroundColor: cardGround,

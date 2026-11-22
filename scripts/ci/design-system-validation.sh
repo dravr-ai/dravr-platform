@@ -46,12 +46,12 @@ BASELINE_WEB_WHITE_LITERAL=2
 BASELINE_MOBILE_RAW_PALETTE=0
 BASELINE_MOBILE_RAW_TEXTINPUT=12
 BASELINE_WEB_LEGACY_PIERRE=0
-# Boreal v2 (DESIGN.md §4, §5): backdrop blur belongs to overlays over
+# Boreal v2 (DESIGN.md "Do's and Don'ts"): backdrop blur belongs to overlays over
 # photography and `boreal-hero-gradient` to nothing at all any more. Both are
 # ratcheted from the count the refresh left, so they can only fall.
 BASELINE_WEB_BACKDROP_BLUR=14
 BASELINE_WEB_HERO_GRADIENT=4
-# Boreal v2.1 (DESIGN.md §5, §9): a group is a Section, not a Card; the
+# Boreal v2.1 (DESIGN.md "Cards / Containers"): a group is a Section, not a Card; the
 # legacy card-dark/card-admin wrappers are flat sections by CSS until their
 # consumers move; display sizes above 18px belong to auth and hero numbers.
 # All three are ratcheted from the count the density pass left.
@@ -63,7 +63,7 @@ BASELINE_WEB_CARD_SITES=82
 BASELINE_WEB_LEGACY_CARD_CLASSES=12
 BASELINE_WEB_LARGE_TEXT=46
 
-# Boreal v2.2 "Mobile Less" Phase 6 (DESIGN.md §10): the density and token
+# Boreal v2.2 "Mobile Less" Phase 6 (DESIGN.md "Phone"): the density and token
 # rules Phases 1-5 applied to the phone, ratcheted from what that migration
 # left rather than zeroed — a `useCardStyle`/`<Card` site the design note
 # names as deliberate (StoreCoachDetailScreen's action bar, a floating menu)
@@ -106,7 +106,7 @@ BASELINE_MOBILE_ROUNDED_FULL=35
 BASELINE_MOBILE_INLINE_BORDER_RADIUS=31
 
 # Feedback tints written by hand instead of read from a tone table
-# (DESIGN.md §5 "Alerts", carnet#1584). A banner, notice, inline error or
+# (DESIGN.md "Alerts", carnet#1584). A banner, notice, inline error or
 # tinted chip takes ALERT_TONE or BADGE_TONE, whose inks are measured on their
 # tints; what is left draws a neutral or bound ink on a wash, never the bare
 # hue on its own tint. Web 0: the four washes left (the version history's
@@ -114,7 +114,7 @@ BASELINE_MOBILE_INLINE_BORDER_RADIUS=31
 # a third table alertTone.test.tsx reads and measures (5 -> 0).
 # Phone 7: the season bars' phase fills (3, unlabelled — a labelled band reads
 # phaseBand, on the badge tones), private-lane washes (2) and version cells (2),
-# each body or bound ink on a wash (DESIGN.md §5 "A wash is not an alert").
+# each body or bound ink on a wash (DESIGN.md "A wash is not an alert").
 BASELINE_WEB_HAND_TINT=0
 BASELINE_MOBILE_HAND_TINT=7
 
@@ -177,7 +177,7 @@ echo ""
 # ----------------------------------------------------------------------------
 # HARD: every token reaches Tailwind with its alpha slot.
 # ----------------------------------------------------------------------------
-echo "-- Tailwind token mapping (DESIGN.md §2) --"
+echo "-- Tailwind token mapping (DESIGN.md \"The Alpha Rule\") --"
 
 # Tokens are useless to Tailwind unless the config composes alpha onto them;
 # a bare var() silently drops every /NN modifier at build time.
@@ -219,7 +219,7 @@ echo ""
 # hard zero is not reachable until those exist.
 # ----------------------------------------------------------------------------
 # ----------------------------------------------------------------------------
-# HARD: DESIGN.md §5 "Forbidden" — a dark brand surface paired with a hardcoded
+# HARD: DESIGN.md "The No Dark-on-Dark Rule" — a dark brand surface paired with a hardcoded
 # text colour.
 #
 # Neither half is stock Tailwind, so the palette ratchet cannot see this, and it
@@ -228,7 +228,7 @@ echo ""
 # .btn-primary showing the inverse contrast. A visual sweep found exactly one
 # (ConnectProviderBanner) after it had shipped.
 # ----------------------------------------------------------------------------
-echo "-- Forbidden CTA pattern (DESIGN.md §5) --"
+echo "-- Forbidden CTA pattern (DESIGN.md \"The No Dark-on-Dark Rule\") --"
 FORBIDDEN_CTA=$(grep -rn --include='*.tsx' -E \
     '(bg-pierre-violet|bg-pierre-cyan|from-pierre-violet|from-pierre-cyan)[^"'"'"']*\btext-(white|black)\b' \
     "$PROJECT_ROOT/frontend/src" 2>/dev/null | wc -l | tr -d ' ')
@@ -270,7 +270,7 @@ echo ""
 
 # ----------------------------------------------------------------------------
 # RATCHETED: Tailwind stock palette instead of Boreal tokens.
-# DESIGN.md §2 defines the full palette; text-amber-400 (#fbbf24) next to the
+# DESIGN.md "Colors" defines the full palette; text-amber-400 (#fbbf24) next to the
 # Boreal warning (#d6b87a) reads as a different product.
 # ----------------------------------------------------------------------------
 # ----------------------------------------------------------------------------
@@ -317,29 +317,29 @@ WEB_PALETTE=$(grep -rEoh "$PALETTE_RE" "$PROJECT_ROOT/frontend/src" --include='*
     | wc -l | tr -d ' ')
 check_ratchet "web stock-palette classnames" \
     "$WEB_PALETTE" "$BASELINE_WEB_RAW_PALETTE" \
-    "Use the DESIGN.md §2 tokens (primary, surface, on-surface, outline, error, warning, success)."
+    "Use the DESIGN.md \"Colors\" tokens (primary, surface, on-surface, outline, error, warning, success)."
 
 MOBILE_PALETTE=$(grep -rEoh "$PALETTE_RE" "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
     | wc -l | tr -d ' ')
 check_ratchet "mobile stock-palette classnames" \
     "$MOBILE_PALETTE" "$BASELINE_MOBILE_RAW_PALETTE" \
-    "Use the DESIGN.md §2 tokens via NativeWind."
+    "Use the DESIGN.md \"Colors\" tokens via NativeWind."
 echo ""
 
 # ----------------------------------------------------------------------------
-# HARD, Boreal v2 (DESIGN.md §2–§5): four things the refresh removed and that a
+# HARD, Boreal v2 (DESIGN.md "Colors", "Typography", "Elevation & Depth"): four things the refresh removed and that a
 # copy-paste from an old screen brings back without any other gate noticing.
 #
 #   emoji as icons — the audit found fifteen (a wrench, a lock, a robot, a
 #   party popper); every icon is inline SVG or a lucide glyph now.
-#   text under 12px — `text-[9px|10px|11px]` sat in 34 places below the §3 floor.
+#   text under 12px — `text-[9px|10px|11px]` sat in 34 places below the text-xs floor.
 #   caps-tracked labels — `uppercase tracking-wide(r)` was the Inter 11px label
 #   idiom; the only tracked text in the product is the wordmark.
 #   retired faces and scale — Inter, Space Grotesk, `font-label`,
 #   `tracking-label`, and the stock `shadow-sm/md/lg/xl` classes (the Tailwind
 #   scale now holds only `floating`).
 # ----------------------------------------------------------------------------
-echo "-- Boreal v2 retirements (DESIGN.md §2–§5) --"
+echo "-- Boreal v2 retirements --"
 # Code points through perl — U+1F300–U+1FAFF (pictographs) and U+2600–U+27BF
 # (dingbats) — because BSD grep on a Mac and GNU grep in CI do not agree on
 # byte-range classes, and a gate that silently reads 0 is worse than none.
@@ -352,32 +352,32 @@ check_ratchet "web emoji used as icons" "$WEB_EMOJI" 0 \
 WEB_TINY_TEXT=$(grep -rEo 'text-\[(9|10|11)px\]' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "web text below the 12px floor" "$WEB_TINY_TEXT" 0 \
-    "The smallest step is text-xs (DESIGN.md §3)."
+    "The smallest step is text-xs (DESIGN.md \"Hierarchy (web)\")."
 
 WEB_CAPS_LABELS=$(grep -rEoh 'uppercase tracking-wider?|tracking-wider? uppercase' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
     | wc -l | tr -d ' ')
 check_ratchet "web caps-tracked labels" "$WEB_CAPS_LABELS" 0 \
-    "Labels are sentence case with no tracking; only the wordmark is tracked (DESIGN.md §3)."
+    "Labels are sentence case with no tracking; only the wordmark is tracked (DESIGN.md \"The Sentence-Case Rule\")."
 
 WEB_RETIRED_FACES=$(grep -rEo "'Inter'|Space Grotesk|\bfont-label\b|\btracking-label\b|\bshadow-(sm|md|lg|xl|2xl)\b" \
     "$PROJECT_ROOT/frontend/src" "$PROJECT_ROOT/frontend/tailwind.config.cjs" --include='*.tsx' --include='*.ts' --include='*.css' --include='*.cjs' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "web retired faces and shadow classes" "$WEB_RETIRED_FACES" 0 \
-    "Schibsted Grotesk for headings, Plus Jakarta Sans for everything else, and shadow-floating is the only shadow (DESIGN.md §3, §4)."
+    "Schibsted Grotesk for headings, Plus Jakarta Sans for everything else, and shadow-floating is the only shadow (DESIGN.md \"Typography\", \"Shadow Vocabulary\")."
 
 WEB_BLUR=$(grep -rEo 'backdrop-blur(-[a-z]+)?' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "web backdrop-blur outside the overlay pattern" "$WEB_BLUR" "$BASELINE_WEB_BACKDROP_BLUR" \
-    "Blur is for .card-boreal-overlay over photography; a scrim is bg-scrim/60 with no blur (DESIGN.md §4)."
+    "Blur is for .card-boreal-overlay over photography; a scrim is bg-scrim/60 with no blur (DESIGN.md \"Elevation & Depth\")."
 
 WEB_HERO_GRADIENT=$(grep -rEoh 'boreal-hero-gradient|bg-boreal-hero' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
     | wc -l | tr -d ' ')
 check_ratchet "web hero-gradient decoration" "$WEB_HERO_GRADIENT" "$BASELINE_WEB_HERO_GRADIENT" \
-    "A filled surface is bg-primary; a tint is bg-primary-container; nothing is a gradient (DESIGN.md §2)."
+    "A filled surface is bg-primary; a tint is bg-primary-container; nothing is a gradient (DESIGN.md \"Do's and Don'ts\")."
 echo ""
 
 # ----------------------------------------------------------------------------
-# Boreal v2.1 "Less" (DESIGN.md §5, §8, §9): the density pass took the athlete
+# Boreal v2.1 "Less" (DESIGN.md "Cards / Containers", "Layout"): the density pass took the athlete
 # surfaces out of their boxes and down one type step. What is left is counted
 # so it can only fall; what was retired is a hard zero.
 #
@@ -392,26 +392,26 @@ echo ""
 #   a hard-coded 44 re-inflates the desktop scale.
 #   .chat-bubble-ai — the agent speaks as prose; the class is gone.
 # ----------------------------------------------------------------------------
-echo "-- Boreal v2.1 density (DESIGN.md §5, §8, §9) --"
+echo "-- Boreal v2.1 density --"
 WEB_CARD_SITES=$(grep -rEo '<Card\b' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "web Card sites" "$WEB_CARD_SITES" "$BASELINE_WEB_CARD_SITES" \
-    "Group content with ui/Section (title, line, rows); keep Card for what floats (DESIGN.md §5)."
+    "Group content with ui/Section (title, line, rows); keep Card for what floats (DESIGN.md \"Cards / Containers\")."
 
 WEB_LEGACY_CARD_CLASSES=$(grep -rEoh 'className="(card-dark|card-admin)' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
     | wc -l | tr -d ' ')
 check_ratchet "web legacy card-dark/card-admin wrappers" "$WEB_LEGACY_CARD_CLASSES" "$BASELINE_WEB_LEGACY_CARD_CLASSES" \
-    "Move the group to ui/Section; the class is a flat shim, not a design (DESIGN.md §5)."
+    "Move the group to ui/Section; the class is a flat shim, not a design (DESIGN.md \"Cards / Containers\")."
 
 WEB_LARGE_TEXT=$(grep -rEo '\btext-(2xl|3xl)\b' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "web text above 18px" "$WEB_LARGE_TEXT" "$BASELINE_WEB_LARGE_TEXT" \
-    "Titles are text-xl (18px), section titles text-sm 600; text-2xl/3xl are for auth headlines and hero numbers (DESIGN.md §3)."
+    "Titles are text-xl (18px), section titles text-sm 600; text-2xl/3xl are for auth headlines and hero numbers (DESIGN.md \"Hierarchy (web)\")."
 
 WEB_HARD_44=$(grep -rEo 'min-[hw]-\[44px\]' "$PROJECT_ROOT/frontend/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "web hard-coded 44px targets" "$WEB_HARD_44" 0 \
-    "Use the touch-target class: 44px on a coarse pointer and under lg, the 32px scale on a fine pointer (DESIGN.md §8)."
+    "Use the touch-target class: 44px on a coarse pointer and under lg, the 32px scale on a fine pointer (DESIGN.md \"Layout\")."
 
 # Hand-written feedback tints: `bg-<feedback>/NN` that is not a `hover:`
 # variant, outside the two tone tables. The tables themselves are excluded by
@@ -419,20 +419,20 @@ check_ratchet "web hard-coded 44px targets" "$WEB_HARD_44" 0 \
 WEB_HAND_TINT=$(grep -rEo '(^|[^:a-z-])bg-(success|warning|error|info)/[0-9]+' "$PROJECT_ROOT/frontend/src" --include='*.tsx' --include='*.ts' 2>/dev/null \
     | grep -v '__tests__' | grep -vE 'components/ui/(badgeTone|alertTone|washTone)\.ts:' | wc -l | tr -d ' ')
 check_ratchet "web hand-written feedback tints" "$WEB_HAND_TINT" "$BASELINE_WEB_HAND_TINT" \
-    "Draw a banner through ALERT_TONE (ui/Alert) and a tinted chip or button through BADGE_TONE; their inks are measured on the tint (DESIGN.md §5 Alerts)."
+    "Draw a banner through ALERT_TONE (ui/Alert) and a tinted chip or button through BADGE_TONE; their inks are measured on the tint (DESIGN.md \"Alerts\")."
 
 WEB_AI_BUBBLE=$(grep -rEo 'chat-bubble-ai' "$PROJECT_ROOT/frontend/src" 2>/dev/null | wc -l | tr -d ' ')
 check_ratchet "web agent bubble class" "$WEB_AI_BUBBLE" 0 \
-    "The agent's turn is prose on the canvas; only .chat-bubble-user remains (DESIGN.md §5)."
+    "The agent's turn is prose on the canvas; only .chat-bubble-user remains (DESIGN.md \"Chat surfaces\")."
 echo ""
 
 # ----------------------------------------------------------------------------
-# Boreal v2.2 "Mobile Less" Phase 6 (DESIGN.md §10): HARD, phone-specific
+# Boreal v2.2 "Mobile Less" Phase 6 (DESIGN.md "Phone"): HARD, phone-specific
 # retirements. Each of these is fully migrated per Phases 1-2 — a copy-paste
 # from a pre-Boreal screen is the only way one comes back, same reasoning as
 # the web v2 retirements above.
 # ----------------------------------------------------------------------------
-echo "-- Boreal v2.2 mobile retirements (DESIGN.md §10) --"
+echo "-- Boreal v2.2 mobile retirements --"
 MOBILE_EMOJI=$(find "$PROJECT_ROOT/frontend-mobile/src" -name '*.tsx' -not -path '*/__tests__/*' -print0 2>/dev/null \
     | xargs -0 perl -CSD -ne 'print "$ARGV:$.\n" if /[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]/' \
     | wc -l | tr -d ' ')
@@ -447,7 +447,7 @@ check_ratchet "mobile arbitrary text size (text-[1…)" "$MOBILE_TINY_TEXT" 0 \
 MOBILE_CAPS_LABELS=$(grep -rEoh 'uppercase tracking-wider?|tracking-wider? uppercase' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
     | wc -l | tr -d ' ')
 check_ratchet "mobile caps-tracked labels" "$MOBILE_CAPS_LABELS" 0 \
-    "Labels are sentence case; only the wordmark carries tracking-brand (DESIGN.md §10)."
+    "Labels are sentence case; only the wordmark carries tracking-brand (DESIGN.md \"The Sentence-Case Rule\")."
 
 MOBILE_BLUR=$(grep -rEoh 'BlurView|expo-blur|expo-glass-effect' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' --include='*.ts' 2>/dev/null \
     | wc -l | tr -d ' ')
@@ -462,17 +462,17 @@ check_ratchet "mobile BlurView/expo-blur/expo-glass-effect" "$MOBILE_BLUR" 0 \
 MOBILE_GRADIENT=$(grep -rln 'LinearGradient' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
     | grep -vE 'SciotteLoginModal\.tsx$|ScrollFadeContainer\.tsx$' | wc -l | tr -d ' ')
 check_ratchet "mobile LinearGradient outside the two permitted files" "$MOBILE_GRADIENT" 0 \
-    "A filled surface is bg-primary, a tint is bg-primary-container; nothing else is a gradient (DESIGN.md §10)."
+    "A filled surface is bg-primary, a tint is bg-primary-container; nothing else is a gradient (DESIGN.md \"Do's and Don'ts\")."
 
 MOBILE_SPACE_GROTESK=$(grep -rEoh 'Space Grotesk' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' --include='*.ts' "$PROJECT_ROOT/frontend-mobile/tailwind.config.js" 2>/dev/null \
     | wc -l | tr -d ' ')
 check_ratchet "mobile Space Grotesk" "$MOBILE_SPACE_GROTESK" 0 \
-    "Schibsted Grotesk is the only display face loaded (app/_layout.tsx, DESIGN.md §10)."
+    "Schibsted Grotesk is the only display face loaded (app/_layout.tsx, DESIGN.md \"Typography\")."
 
 MOBILE_BG_BLACK=$(grep -rEoh 'bg-black/[0-9]+' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
     | wc -l | tr -d ' ')
 check_ratchet "mobile bg-black/* overlays" "$MOBILE_BG_BLACK" 0 \
-    "Use bg-scrim/60 — one veil token for every sheet and dialog (DESIGN.md §10)."
+    "Use bg-scrim/60 — one veil token for every sheet and dialog (DESIGN.md \"Feedback and pillars\")."
 
 MOBILE_HARD_44=$(grep -rEoh 'min-[hw]-\[44px\]' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
     | wc -l | tr -d ' ')
@@ -481,15 +481,14 @@ check_ratchet "mobile hard-coded 44px targets" "$MOBILE_HARD_44" 0 \
 echo ""
 
 # ----------------------------------------------------------------------------
-# Boreal v2.2 "Mobile Less" Phase 6 (DESIGN.md §10): RATCHETED, phone-specific
+# Boreal v2.2 "Mobile Less" Phase 6 (DESIGN.md "Phone"): RATCHETED, phone-specific
 # backlog too large to clear in this phase — counted so it can only fall.
 # ----------------------------------------------------------------------------
-echo "-- Boreal v2.2 mobile density backlog (DESIGN.md §10) --"
+echo "-- Boreal v2.2 mobile density backlog --"
 
 # Anchored on a preceding quote or bracket character so a real string literal
 # ('#00241a', bg-[#fff]) counts and a bare comment reference does not:
-# carnet#215 is three hex digits to a naive regex, and DESIGN.md's own status
-# section calls this out by name ("carnet#207 is a 'hex' to a naive regex").
+# carnet#215 is three hex digits to a naive regex, and carnet#207 is a 'hex' to a naive regex.
 # A backtick-quoted mention inside a /** doc comment */ (`#8f6a2e`) is the same
 # trap in a different font and is excluded the same way.
 # No -h: the two filters below match on the file path, so the path has to
@@ -501,14 +500,14 @@ MOBILE_HEX_LITERALS=$(grep -rEo "['\"\[]#[0-9a-fA-F]{3,8}\b|['\"]rgba?\([0-9]" "
     | wc -l | tr -d ' ')
 check_ratchet "mobile hex/rgba literals outside BrandIcons/SciotteLoginModal/BillingScreen" \
     "$MOBILE_HEX_LITERALS" "$BASELINE_MOBILE_HEX_LITERALS" \
-    "Read the value from useThemeColors()/tokens instead of a frozen literal (DESIGN.md §2, §10)."
+    "Read the value from useThemeColors()/tokens instead of a frozen literal (DESIGN.md \"Colors\")."
 
 # useCardStyle's own definition (components/ui/Card.tsx) is excluded — the
 # primitive necessarily calls itself to exist, which is not a consumer still
 # reaching for card visuals. Everywhere else it is a Card-shaped surface a
 # Section hasn't replaced yet: some deliberately (StoreCoachDetailScreen's
 # action bar, ConversationsScreen's floating overflow menu — Card is for what
-# floats, DESIGN.md §5), some not yet reached.
+# floats), some not yet reached.
 MOBILE_CARD_STYLE_ALL=$(grep -rEo '\buseCardStyle\b' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 MOBILE_CARD_STYLE_OWN=$(grep -c '\buseCardStyle\b' "$PROJECT_ROOT/frontend-mobile/src/components/ui/Card.tsx" 2>/dev/null || echo 0)
@@ -516,7 +515,7 @@ MOBILE_CARD_JSX=$(grep -rEo '<Card\b' "$PROJECT_ROOT/frontend-mobile/src" --incl
     | grep -v '__tests__' | wc -l | tr -d ' ')
 MOBILE_CARD_SITES=$(( MOBILE_CARD_STYLE_ALL - MOBILE_CARD_STYLE_OWN + MOBILE_CARD_JSX ))
 check_ratchet "mobile useCardStyle/<Card sites" "$MOBILE_CARD_SITES" "$BASELINE_MOBILE_CARD_SITES" \
-    "Group content with ui/Section; keep Card for what floats (DESIGN.md §5, §10)."
+    "Group content with ui/Section; keep Card for what floats (DESIGN.md \"Cards / Containers\")."
 
 # Generously ratcheted rather than triaged per-site: the spot check found
 # typing dots, circular send/icon buttons and pill progress-bar tracks, every
@@ -528,12 +527,12 @@ check_ratchet "mobile useCardStyle/<Card sites" "$MOBILE_CARD_SITES" "$BASELINE_
 MOBILE_ROUNDED_FULL=$(grep -rEo '\brounded-full\b' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "mobile rounded-full sites" "$MOBILE_ROUNDED_FULL" "$BASELINE_MOBILE_ROUNDED_FULL" \
-    "Confirm it is an avatar/dot; a badge is ui/Badge, and a card or button belongs on the radius ladder instead (DESIGN.md §10)."
+    "Confirm it is an avatar/dot; a badge is ui/Badge, and a card or button belongs on the radius ladder instead (DESIGN.md \"Shapes\")."
 
 MOBILE_HAND_TINT=$(grep -rEo '(^|[^:a-z-])bg-(success|warning|error|info)/[0-9]+' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' --include='*.ts' 2>/dev/null \
     | grep -v '__tests__' | grep -vE 'components/ui/(Badge\.tsx|alertTone\.ts):' | wc -l | tr -d ' ')
 check_ratchet "mobile hand-written feedback tints" "$MOBILE_HAND_TINT" "$BASELINE_MOBILE_HAND_TINT" \
-    "Draw a banner through ALERT_TONE and a tinted chip through BADGE_TONE (components/ui); each Text names the tone's ink (DESIGN.md §5 Alerts)."
+    "Draw a banner through ALERT_TONE and a tinted chip through BADGE_TONE (components/ui); each Text names the tone's ink (DESIGN.md \"Alerts\")."
 
 # 999/9999 is the circular-dot idiom (NotificationRow's unread dot) and is as
 # legitimate as rounded-full above; every other inline value, including 0
@@ -545,7 +544,90 @@ check_ratchet "mobile hand-written feedback tints" "$MOBILE_HAND_TINT" "$BASELIN
 MOBILE_BORDER_RADIUS=$(grep -rEo 'borderRadius:[[:space:]]*[0-9]+' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | grep -vE ':[[:space:]]*(999|9999)$' | wc -l | tr -d ' ')
 check_ratchet "mobile inline borderRadius: values" "$MOBILE_BORDER_RADIUS" "$BASELINE_MOBILE_INLINE_BORDER_RADIUS" \
-    "Use the className radius scale (rounded, rounded-lg, rounded-xl, rounded-3xl) instead of a style-object literal (DESIGN.md §10)."
+    "Use the className radius scale (rounded, rounded-lg, rounded-xl, rounded-3xl) instead of a style-object literal (DESIGN.md \"Shapes\")."
+echo ""
+
+# ----------------------------------------------------------------------------
+# HARD: every citation of the design spec points at something that exists.
+# frontend/DESIGN.md is the one maintained spec. Code, tests and CI messages
+# cite it by heading, never by section number, so a renamed heading or a
+# revived numbering scheme is caught here instead of leaving a dangling pointer.
+# This is a link check into one document, not a second copy of its rules: no
+# file is exempted but the spec itself, and the correct count is zero forever.
+# It fails closed: a git that cannot scan, or a scan that finds no citation at
+# all, is a failure, never a pass.
+# ----------------------------------------------------------------------------
+echo "-- Design spec citations --"
+
+SPEC="$PROJECT_ROOT/frontend/DESIGN.md"
+SPEC_PATHSPEC=(':!frontend/DESIGN.md')
+
+# Run `git grep` over the tree. Exit 1 is "no match" and is fine; anything else
+# means the scan did not run, which must not read as a clean result.
+GG_OUT=""
+spec_grep() {
+    local rc=0
+    GG_OUT=$(git -C "$PROJECT_ROOT" grep "$@" -- . "${SPEC_PATHSPEC[@]}") || rc=$?
+    if [ "$rc" -gt 1 ]; then
+        echo -e "${RED}FAIL${NC} git grep could not scan the tree (exit $rc), so no citation was verified"
+        FAILED=1
+        SPEC_SCAN_BROKEN=1
+    fi
+}
+
+SPEC_SCAN_BROKEN=0
+NUMBERED=""; WRAPPED=""; DANGLING=0; CITED=""
+
+if ! git -C "$PROJECT_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    echo -e "${RED}FAIL${NC} not a usable git checkout, so no design spec citation was verified"
+    FAILED=1
+    SPEC_SCAN_BROKEN=1
+else
+    # Numbered citations: the long-form spec that carried them is history.
+    spec_grep -nIE 'DESIGN[.]md[^A-Za-z]{0,6}§'
+    NUMBERED="$GG_OUT"
+    if [ -n "$NUMBERED" ]; then
+        echo -e "${RED}FAIL${NC} a numbered citation of the design spec (cite the heading instead):"
+        echo "$NUMBERED" | head -10
+        FAILED=1
+    fi
+
+    # A citation wrapped across two lines, or inside its quotes, cannot be checked.
+    spec_grep -nIE '[(]DESIGN[.]md *$|DESIGN[.]md \\?"[^"]*$'
+    WRAPPED="$GG_OUT"
+    if [ -n "$WRAPPED" ]; then
+        echo -e "${RED}FAIL${NC} a design spec citation wrapped across lines (keep it on one line):"
+        echo "$WRAPPED" | head -10
+        FAILED=1
+    fi
+
+    # Quoted citations must equal a heading or a bold Named Rule. A chain of
+    # quoted names after one mention of the spec is checked name by name. "Chat surfaces" is the
+    # one documented short form: it names the heading that starts with it.
+    spec_grep -hIE 'DESIGN[.]md \\?"'
+    CITED=$(printf '%s\n' "$GG_OUT" | perl -ne 'while (/DESIGN\.md \\?"[^"\\]+\\?"(?:(?:,| and|, and| or) \\?"[^"\\]+\\?")*/g) { my $m = $&; while ($m =~ /\\?"([^"\\]+)\\?"/g) { print "$1\n" } }' | sort -u)
+    SPEC_NAMES=$( { grep -E '^#{2,4} ' "$SPEC" | sed -E 's/^#+ //'; grep -oE '[*][*][^*]+[.][*][*]' "$SPEC" | sed -E 's/^[*][*]//; s/[.][*][*]$//'; } )
+    while IFS= read -r cited; do
+        [ -z "$cited" ] && continue
+        if [ "$cited" = "Chat surfaces" ]; then
+            printf '%s\n' "$SPEC_NAMES" | grep -qE '^Chat surfaces( |$)' && continue
+        elif printf '%s\n' "$SPEC_NAMES" | grep -qxF -- "$cited"; then
+            continue
+        fi
+        echo -e "${RED}FAIL${NC} a citation names a heading frontend/DESIGN.md does not have: \"$cited\""
+        DANGLING=1
+    done <<< "$CITED"
+    [ "$DANGLING" -eq 1 ] && FAILED=1
+
+    if [ -z "$CITED" ] && [ "$SPEC_SCAN_BROKEN" -eq 0 ]; then
+        echo -e "${RED}FAIL${NC} the scan found no design spec citation at all; there are about two hundred, so it did not read the tree"
+        FAILED=1
+        SPEC_SCAN_BROKEN=1
+    fi
+fi
+
+[ -z "$NUMBERED$WRAPPED" ] && [ "$DANGLING" -eq 0 ] && [ "$SPEC_SCAN_BROKEN" -eq 0 ] \
+    && echo -e "${GREEN}OK${NC}   every design spec citation names a heading that exists ($(printf '%s\n' "$CITED" | grep -c .) distinct)"
 echo ""
 
 # ----------------------------------------------------------------------------

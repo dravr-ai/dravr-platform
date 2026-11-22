@@ -179,7 +179,7 @@ function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft:
     );
 
   // No card: on the phone a group is its Section, and today is that group's
-  // content (DESIGN.md §10). The larger type is what sets it apart.
+  // content (DESIGN.md "Phone"). The larger type is what sets it apart.
   return (
     <View className="px-4" testID="home-today">
       {today}

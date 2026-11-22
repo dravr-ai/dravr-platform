@@ -28,7 +28,7 @@ interface CardProps {
  *
  * Boreal has a single resting tier, and both `variant` values resolve to it.
  * The fill step is the only channel that lifts a surface in both schemes
- * (DESIGN.md §4, "Which channel does the lifting" — a hairline does not
+ * (DESIGN.md "The Fill-Step-First Rule" — a hairline does not
  * substitute for it), and light has no tier above the `#ffffff` a card already
  * takes. A second tier would therefore be a real step in dark and nothing at
  * all in light.

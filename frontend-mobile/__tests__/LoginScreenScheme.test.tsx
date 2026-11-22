@@ -1,5 +1,5 @@
 // ABOUTME: Pins the phone login to the athlete's appearance setting and to the two-sheet pairing
-// ABOUTME: DESIGN.md §5 "Auth and onboarding" — tint page + white sheet in light, paper-dark page + a tier above it in dark
+// ABOUTME: DESIGN.md "Auth and onboarding" — tint page + white sheet in light, paper-dark page + a tier above it in dark
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

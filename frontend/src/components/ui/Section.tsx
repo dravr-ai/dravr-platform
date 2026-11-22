@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: A group on a settings or admin page — a 13px title, one optional line under it, an optional action, then its content
-// ABOUTME: The grouping primitive that replaces the bordered card: sections are separated by space, never by a box (DESIGN.md §5)
+// ABOUTME: The grouping primitive that replaces the bordered card: sections are separated by space, never by a box (DESIGN.md "Cards / Containers")
 
 import type { ReactNode } from 'react';
 import { clsx } from 'clsx';

@@ -247,7 +247,7 @@ export function StoreCoachDetailScreen() {
         {/* Category & Stats */}
         <View className="flex-row justify-between items-center px-4 pt-4 pb-2">
           {/* An agent's pillar is a dot beside its category word — meaning, not
-              a coloured chip (DESIGN.md §2), the web's StoreScreen recipe. The
+              a coloured chip (DESIGN.md "Status"), the web's StoreScreen recipe. The
               dot is a fill, so it takes `categoryDotClass`; the word stays
               in the muted body ink, which reads on any ground. */}
           <View testID="category-badge" className="flex-row items-center gap-2">

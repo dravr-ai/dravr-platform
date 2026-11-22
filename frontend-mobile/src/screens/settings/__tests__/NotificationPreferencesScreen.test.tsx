@@ -187,7 +187,7 @@ describe('NotificationPreferencesScreen', () => {
 
   // Turns red if the card comes back: the five categories are five sections
   // in a gap-8 column, with no colour dot before the label and no pill anywhere
-  // (Boreal v2.2, DESIGN.md §10 — sections are separated by space, not a box).
+  // (Boreal v2.2, DESIGN.md "Phone" — sections are separated by space, not a box).
   it('lays each category out as its own section, with no card, colour dot or pill', async () => {
     getPreferences.mockResolvedValue({ user_id: 'u1', tenant_id: 't1', preferences: [pref()] });
 

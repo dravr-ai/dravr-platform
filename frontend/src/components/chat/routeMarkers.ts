@@ -36,7 +36,7 @@ export function markerElement(marker: RouteMarker): HTMLElement {
     element.style.border = `2px solid ${ROUTE_INK.track}`;
     element.style.background = ROUTE_INK.casing;
     element.style.color = ROUTE_INK.markText;
-    // The interface's smallest step (DESIGN.md: nothing under text-xs).
+    // The interface's smallest step (DESIGN.md "Hierarchy (web)": text-xs is the floor).
     element.style.font = '700 12px/16px system-ui, sans-serif';
     element.style.textAlign = 'center';
     return element;

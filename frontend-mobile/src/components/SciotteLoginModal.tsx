@@ -115,7 +115,7 @@ const PLATE_INK = '#FFFFFF';
 
 /**
  * The colours this login draws in — third-party colours, not Boreal tokens
- * (DESIGN.md §2). Each brand hex is read from `PROVIDER_COLORS`, which names
+ * (DESIGN.md "Brand colour"). Each brand hex is read from `PROVIDER_COLORS`, which names
  * its source.
  *
  * `primary` is the brand hex. It fills the solid tile behind a white glyph,

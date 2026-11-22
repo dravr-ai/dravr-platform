@@ -200,7 +200,7 @@ function FeedbackReasonForm({
  * The action-row icon buttons share one shape; only the active feedback tones
  * differ. 18px on a fine pointer at desktop width; `touch-target` grows the
  * button to 44px elsewhere, and the flex centring keeps the 14px icon in the
- * middle of that growth (DESIGN.md §8).
+ * middle of that growth (DESIGN.md "Layout").
  */
 const ACTION_BUTTON_SHAPE = 'touch-target flex items-center justify-center p-0.5 transition-colors';
 const ACTION_TONE_IDLE = 'text-outline hover:text-on-surface';

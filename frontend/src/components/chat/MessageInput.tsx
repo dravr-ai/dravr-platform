@@ -269,8 +269,8 @@ export default function MessageInput({
             </IconButton>
           </div>
         ) : null}
-        {/* The composer is a chat surface, not a form field — DESIGN.md §5
-            lists the two separately. It is the one white shape on the paper:
+        {/* The composer is a chat surface, not a form field — DESIGN.md "Inputs / Fields"
+            and "Chat surfaces" list the two separately. It is the one white shape on the paper:
             a 41px field with a hairline, radius 12, the slash on its left and
             the send on its right, both inside it. The measured chat products
             all draw the composer lighter than the page, never darker, and

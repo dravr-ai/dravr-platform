@@ -58,7 +58,7 @@ export function ConnectProviderBanner({ kind, onNavigate }: ConnectProviderBanne
 
 /**
  * The reconnect strip: the `warning` tint under its bound
- * `on-warning-container` ink (DESIGN.md §2, bound ink), an icon so the hue is
+ * `on-warning-container` ink (DESIGN.md "The Bound Ink Rule"), an icon so the hue is
  * not the only signal, and the filled action. `role="alert"` because the
  * athlete's activities have stopped arriving: it is announced once when it
  * appears, and stays until the connection is renewed.

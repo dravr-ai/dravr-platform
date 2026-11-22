@@ -151,7 +151,7 @@ describe('PrivacySettingsScreen — analytics consent', () => {
 
   // Turns red if the cards come back: three sections in a gap-8 column, the
   // switch as the first section's action, and no icon circle, pill or filled
-  // card anywhere in the tree (Boreal v2.2, DESIGN.md §10).
+  // card anywhere in the tree (Boreal v2.2, DESIGN.md "Phone").
   it('lays the consent switch and the two promise lists out as sections, with no card or icon circle', () => {
     const { getByTestId, toJSON } = renderScreen();
 

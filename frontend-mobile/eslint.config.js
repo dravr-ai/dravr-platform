@@ -56,7 +56,7 @@ const restrictedImports = {
  *   login gradient.
  * - `gradients` was a module-level palette, so whatever drew from it rendered
  *   the same colours in light and dark. A third party's own brand gradient is
- *   legitimately fixed (DESIGN.md §2) and is not named `gradients`.
+ *   legitimately fixed (DESIGN.md "Brand colour") and is not named `gradients`.
  */
 const schemeAndChromeRestrictions = [
   {
