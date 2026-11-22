@@ -2061,6 +2061,24 @@
       }
     }
   },
+  "accessFeed": {
+    "title": "Quem leu os teus dados",
+    "intro": "As aplicações que ligaste e as pessoas com quem partilhas, e o que leram dos teus dados nos últimos {{days}} dias.",
+    "empty": "Nenhuma aplicação nem pessoa leu os teus dados nos últimos {{days}} dias.",
+    "loadFailed": "Não foi possível carregar a lista de quem leu os teus dados.",
+    "appsHeading": "Aplicações",
+    "appRow": "Leu os teus dados com {{tool}}",
+    "unknownApp": "Uma aplicação sem nome",
+    "credential": {
+      "apiKey": "Através de uma chave de API",
+      "mcpToken": "Através de um token MCP",
+      "firstParty": "Através do teu início de sessão no Dravr",
+      "a2aClient": "Como cliente A2A registado"
+    },
+    "overA2a": "por A2A",
+    "supportRead": "O suporte do Dravr leu isto enquanto te ajudava.",
+    "apiKeyHint": "Para cortar este acesso, revoga a sua chave em Chaves de API ou Tokens MCP, nas Definições."
+  },
   "delegation": {
     "actionFailed": "Não resultou. Tenta novamente.",
     "alreadyLinked": "O teu {{platform}} já está associado através de outro grupo.",
@@ -3088,7 +3106,13 @@
       "sourceWeeklyDigest": "O resumo semanal do grupo",
       "sourcePhysiologyView": "Os teus limiares, em Informações do grupo",
       "servedToAssistant": "Lido por uma ferramenta de IA que o teu treinador liga ao Dravr. A empresa que a opera recebeu estes dados.",
-      "supportRead": "Lido pelo suporte do Dravr enquanto ajudava o teu treinador."
+      "supportRead": "Lido pelo suporte do Dravr enquanto ajudava o teu treinador.",
+      "feedHeading": "O que o teu treinador consultou, por dia",
+      "dayReads_one": "{{count}} leitura em {{group}}",
+      "dayReads_other": "{{count}} leituras em {{group}}",
+      "dayViews_one": "{{count}} visualização em {{group}}",
+      "dayViews_other": "{{count}} visualizações em {{group}}",
+      "unknownGroup": "um grupo que já não existe"
     },
     "shareTraining": "Partilhar o meu treino com o meu coach",
     "shareTrainingHint": "O teu coach vê o teu treino, o teu plano e as tuas mensagens no chat deste grupo. As ferramentas de IA que o teu coach liga ao Dravr, como o Claude, também podem ler o teu treino e o teu plano. Desativar esta opção interrompe ambos. Aplica-se apenas a este grupo.",

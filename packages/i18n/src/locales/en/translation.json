@@ -2061,6 +2061,24 @@
       }
     }
   },
+  "accessFeed": {
+    "title": "Who read your data",
+    "intro": "The apps you connected and the people you share with, and what they read of your data over the last {{days}} days.",
+    "empty": "No app or person read your data in the last {{days}} days.",
+    "loadFailed": "The list of who read your data could not be loaded.",
+    "appsHeading": "Apps",
+    "appRow": "Read your data with {{tool}}",
+    "unknownApp": "An unnamed app",
+    "credential": {
+      "apiKey": "Through an API key",
+      "mcpToken": "Through an MCP token",
+      "firstParty": "Through your Dravr sign-in",
+      "a2aClient": "As a registered A2A client"
+    },
+    "overA2a": "over A2A",
+    "supportRead": "Dravr support read this while helping you.",
+    "apiKeyHint": "To cut off this access, revoke its key under API keys or MCP tokens in Settings."
+  },
   "delegation": {
     "actionFailed": "That did not go through. Try again.",
     "alreadyLinked": "Your {{platform}} is already linked through another group.",
@@ -3088,7 +3106,13 @@
       "sourceWeeklyDigest": "Their weekly digest of the group",
       "sourcePhysiologyView": "Your thresholds, in Group info",
       "servedToAssistant": "Read by an AI tool your coach connects to Dravr. The company that runs it received this data.",
-      "supportRead": "Read by Dravr support while helping your coach."
+      "supportRead": "Read by Dravr support while helping your coach.",
+      "feedHeading": "Your coach's reads, by day",
+      "dayReads_one": "{{count}} read in {{group}}",
+      "dayReads_other": "{{count}} reads in {{group}}",
+      "dayViews_one": "{{count}} view in {{group}}",
+      "dayViews_other": "{{count}} views in {{group}}",
+      "unknownGroup": "a group that no longer exists"
     },
     "shareTraining": "Share my training with my coach",
     "shareTrainingHint": "Your coach sees your training, your plan and your messages in this group's chat. AI tools your coach connects to Dravr, such as Claude, can read your training and your plan too. Turning this off stops both. Applies to this group only.",

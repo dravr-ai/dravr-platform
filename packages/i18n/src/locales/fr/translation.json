@@ -2061,6 +2061,24 @@
       }
     }
   },
+  "accessFeed": {
+    "title": "Qui a lu tes données",
+    "intro": "Les applications que tu as connectées et les personnes avec qui tu partages, et ce qu’elles ont lu de tes données ces {{days}} derniers jours.",
+    "empty": "Aucune application ni personne n’a lu tes données ces {{days}} derniers jours.",
+    "loadFailed": "La liste de qui a lu tes données n’a pas pu être chargée.",
+    "appsHeading": "Applications",
+    "appRow": "A lu tes données avec {{tool}}",
+    "unknownApp": "Une application sans nom",
+    "credential": {
+      "apiKey": "Par une clé d’API",
+      "mcpToken": "Par un jeton MCP",
+      "firstParty": "Par ta connexion Dravr",
+      "a2aClient": "En tant que client A2A enregistré"
+    },
+    "overA2a": "par A2A",
+    "supportRead": "Le soutien Dravr a lu ceci pendant qu’il t’aidait.",
+    "apiKeyHint": "Pour couper cet accès, révoque sa clé sous Clés d’API ou Jetons MCP dans les Réglages."
+  },
   "delegation": {
     "actionFailed": "Ça n'a pas abouti. Réessaie.",
     "alreadyLinked": "Ton {{platform}} est déjà associé via un autre groupe.",
@@ -3088,7 +3106,13 @@
       "sourceWeeklyDigest": "Son résumé hebdomadaire du groupe",
       "sourcePhysiologyView": "Tes seuils, dans Infos du groupe",
       "servedToAssistant": "Lu par un outil d’IA que ton coach connecte à Dravr. L’entreprise qui l’exploite a reçu ces données.",
-      "supportRead": "Lu par le soutien Dravr pendant qu’il aidait ton coach."
+      "supportRead": "Lu par le soutien Dravr pendant qu’il aidait ton coach.",
+      "feedHeading": "Ce que ton coach a consulté, par jour",
+      "dayReads_one": "{{count}} lecture dans {{group}}",
+      "dayReads_other": "{{count}} lectures dans {{group}}",
+      "dayViews_one": "{{count}} consultation dans {{group}}",
+      "dayViews_other": "{{count}} consultations dans {{group}}",
+      "unknownGroup": "un groupe qui n’existe plus"
     },
     "shareTraining": "Partager mon entraînement avec mon coach",
     "shareTrainingHint": "Ton coach voit ton entraînement, ton plan et tes messages dans la discussion de ce groupe. Les outils d’IA que ton coach connecte à Dravr, comme Claude, peuvent aussi lire ton entraînement et ton plan. Désactiver ce partage arrête les deux. Ne s’applique qu’à ce groupe.",

@@ -2061,6 +2061,24 @@
       }
     }
   },
+  "accessFeed": {
+    "title": "Wer deine Daten gelesen hat",
+    "intro": "Die Apps, die du verbunden hast, und die Personen, mit denen du teilst, und was sie in den letzten {{days}} Tagen von deinen Daten gelesen haben.",
+    "empty": "In den letzten {{days}} Tagen hat keine App und keine Person deine Daten gelesen.",
+    "loadFailed": "Die Liste, wer deine Daten gelesen hat, konnte nicht geladen werden.",
+    "appsHeading": "Apps",
+    "appRow": "Hat deine Daten mit {{tool}} gelesen",
+    "unknownApp": "Eine App ohne Namen",
+    "credential": {
+      "apiKey": "Über einen API-Schlüssel",
+      "mcpToken": "Über ein MCP-Token",
+      "firstParty": "Über deine Dravr-Anmeldung",
+      "a2aClient": "Als registrierter A2A-Client"
+    },
+    "overA2a": "über A2A",
+    "supportRead": "Der Dravr-Support hat dies gelesen, während er dir half.",
+    "apiKeyHint": "Um diesen Zugriff zu beenden, widerrufe seinen Schlüssel unter API-Schlüssel oder MCP-Tokens in den Einstellungen."
+  },
   "delegation": {
     "actionFailed": "Das hat nicht geklappt. Versuch es noch einmal.",
     "alreadyLinked": "Dein {{platform}} ist bereits über eine andere Gruppe verknüpft.",
@@ -3088,7 +3106,13 @@
       "sourceWeeklyDigest": "Die Wochenzusammenfassung der Gruppe",
       "sourcePhysiologyView": "Deine Schwellen, in den Gruppeninfos",
       "servedToAssistant": "Gelesen von einem KI-Tool, das dein Coach mit Dravr verbindet. Das Unternehmen, das es betreibt, hat diese Daten erhalten.",
-      "supportRead": "Gelesen vom Dravr-Support, während er deinem Coach half."
+      "supportRead": "Gelesen vom Dravr-Support, während er deinem Coach half.",
+      "feedHeading": "Was dein Coach eingesehen hat, nach Tag",
+      "dayReads_one": "{{count}} Lesezugriff in {{group}}",
+      "dayReads_other": "{{count}} Lesezugriffe in {{group}}",
+      "dayViews_one": "{{count}} Ansicht in {{group}}",
+      "dayViews_other": "{{count}} Ansichten in {{group}}",
+      "unknownGroup": "einer Gruppe, die es nicht mehr gibt"
     },
     "shareTraining": "Mein Training mit meinem Coach teilen",
     "shareTrainingHint": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten im Chat dieser Gruppe. KI-Tools, die dein Coach mit Dravr verbindet, etwa Claude, können dein Training und deinen Plan ebenfalls lesen. Schaltest du dies aus, endet beides. Gilt nur für diese Gruppe.",
