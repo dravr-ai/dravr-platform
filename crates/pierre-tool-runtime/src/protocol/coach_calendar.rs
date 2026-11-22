@@ -259,6 +259,8 @@ impl AuthService {
             athlete,
         )
         .await?;
+        // LIMITATION(registre#1715): the `no_calendar_write_consent` refusal reaches only the
+        // coach; the athlete, the one person who can turn the permission on, is never asked.
         if !consents.calendar_write {
             return Ok(Err(refused(
                 "no_calendar_write_consent",
