@@ -32411,7 +32411,7 @@
             "description": "One week whose hard sessions sit closer together than its flavour allows.\n\nNamed rather than paired for the reason [`WeekReadiness`] is: a tuple\nserialises positionally and the reader has to know which slot is which.\nThe check is flattened, so the kernel stays the one definition of what\n\"too close\" means — including the minimum it applied and which gaps were\nshort.",
             "oneOf": [
               {
-                "description": "Every gap between hard sessions meets the minimum.",
+                "description": "Every gap between hard days meets the minimum.",
                 "properties": {
                   "min_hours": {
                     "description": "The minimum applied, in hours.",
@@ -33061,7 +33061,7 @@
             "type": "object"
           },
           "ShortGap": {
-            "description": "One gap between hard sessions that is shorter than the minimum.",
+            "description": "One gap between hard days that is shorter than the minimum.",
             "properties": {
               "from": {
                 "description": "The earlier hard day.",
@@ -33300,7 +33300,7 @@
               },
               {
                 "const": "fewer_than_two_hard",
-                "description": "Fewer than two hard sessions, so there is no gap to measure.",
+                "description": "Fewer than two hard days, so there is no gap to measure.",
                 "type": "string"
               },
               {
@@ -33550,7 +33550,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:465f445585c5f7017a7fc165c4709e49243351f1f92d78c71cb108d24fc88934"
+          "def_hash": "sha256:ae56c8b19da168a890fdf02784b8ff7abd4cb082addf71538c8d9bc71b484bac"
         }
       }
     },
