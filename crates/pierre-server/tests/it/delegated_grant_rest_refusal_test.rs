@@ -780,6 +780,7 @@ async fn no_rest_route_takes_a_delegation_holding_every_scope_for_a_session() {
 enum Ask {
     Get,
     Post(Value),
+    Put(Value),
     Delete,
 }
 
@@ -803,6 +804,7 @@ impl Reached {
         let request = match &self.ask {
             Ask::Get => AxumTestRequest::get(&self.path),
             Ask::Post(body) => AxumTestRequest::post(&self.path).json(body),
+            Ask::Put(body) => AxumTestRequest::put(&self.path).json(body),
             Ask::Delete => AxumTestRequest::delete(&self.path),
         };
         request
@@ -923,6 +925,13 @@ async fn no_route_an_admins_session_reaches_takes_a_delegation_holding_every_sco
             router: |resources| ChatRoutes::routes(Arc::clone(resources)),
             path: format!("{plan_card}/draft"),
             ask: Ask::Delete,
+            session_status: 404,
+        },
+        Reached {
+            what: "PUT …/subject-plan/draft/days/{date}",
+            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
+            path: format!("{plan_card}/draft/days/2026-11-18"),
+            ask: Ask::Put(json!({ "family": "vo2max_short", "sport": "ride" })),
             session_status: 404,
         },
     ];

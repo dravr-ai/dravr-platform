@@ -207,6 +207,7 @@ export type {
   PublishSubjectPlanResult,
 } from './coach-plan.js';
 export {
+  cardShowsOpenDraft,
   parseDraftState,
   parsePlanSubject,
   parseSubjectPlanResponse,
@@ -214,6 +215,29 @@ export {
   parsePublishedSubjectPlan,
   parsePlanPublishConflict,
 } from './coach-plan.js';
+
+// A coach's "build from family" editor: the family catalogue, a session's preview, the draft-day write (carnet#1515)
+export type {
+  SessionSport,
+  SessionParamKey,
+  SessionParams,
+  SessionParamRange,
+  FamilyPreset,
+  WorkoutFamily,
+  FamilyCatalogueResponse,
+  SessionBuild,
+  SessionPreviewRequest,
+  SessionDerived,
+  SessionFinding,
+  SessionPreview,
+  DraftDayRequest,
+} from './session-editor.js';
+export {
+  SESSION_SPORTS,
+  SESSION_PARAM_KEYS,
+  parseFamilyCatalogueResponse,
+  parseSessionPreview,
+} from './session-editor.js';
 
 // Civil-date reads over a plan card: session, rest day, or a date the plan does not cover
 export type { PlanDayLookup } from './plan-calendar.js';

@@ -22,35 +22,22 @@
 //! plan card is, so a reload shows it again; the envelope renders it as its
 //! own block where the surface has one and folds it into the prose otherwise.
 
-use pierre_contremaitre::anchor_strings::{anchor_source_text, anchor_value_text, AnchorReader};
+use pierre_contremaitre::anchor_strings::AnchorReader;
 use pierre_contremaitre::messaging_strings::{
-    envelope_anchor_label_key, envelope_finding_key, envelope_param_key, envelope_purpose_key,
-    MessagingStringsRegistry, KEY_ENVELOPE_ANCHOR, KEY_ENVELOPE_DAY, KEY_ENVELOPE_HEADING,
+    envelope_purpose_key, MessagingStringsRegistry, KEY_ENVELOPE_DAY, KEY_ENVELOPE_HEADING,
     KEY_ENVELOPE_RELABELLED,
 };
 use pierre_core::civil_time::format_civil_day;
-use pierre_core::models::periodization::{EnvelopeFinding, FindingCode, SportFamily};
-use pierre_core::models::{TargetAnchor, UnitSystem, ENVELOPE_NOTICE_BLOCK_TYPE};
+use pierre_core::models::{UnitSystem, ENVELOPE_NOTICE_BLOCK_TYPE};
 use pierre_database::database::ConversationRecord;
 use pierre_memory::training_plans;
-use pierre_services::notification_text;
 use pierre_tool_runtime::envelope_notices::NoticeDay;
+use pierre_tool_runtime::envelope_words::{anchor_sentence, filled, finding_sentence};
 use serde_json::{json, Value};
 use tracing::warn;
 
 use super::plan_block::append_block;
 use crate::turn_stop::settled_stop_marker;
-
-/// The preset parameters a stated value can leave the range of, each with its
-/// own sentence; any other key reads through the generic one.
-const PARAM_KEYS: [&str; 6] = [
-    "sets",
-    "reps",
-    "work_seconds",
-    "rest_seconds",
-    "set_rest_seconds",
-    "duration_minutes",
-];
 
 /// Who reads a reply in `conv`, which decides how an anchor the athlete set
 /// is named: a coach in a thread about one athlete, the athlete otherwise.
@@ -176,93 +163,16 @@ fn day_line(
     filled(strings.render(KEY_ENVELOPE_DAY, locale, &[&date, &sentences.join(" ")]))
 }
 
-/// The sentence for one finding, its numbers filled; `None` when its string
-/// is missing or a slot it names has no number.
-fn finding_sentence(
-    strings: &MessagingStringsRegistry,
-    locale: &str,
-    finding: &EnvelopeFinding,
-) -> Option<String> {
-    let key = match (finding.code, finding.key.as_deref()) {
-        (FindingCode::ParamOutOfRange, Some(param)) if PARAM_KEYS.contains(&param) => {
-            envelope_param_key(param)
-        }
-        (code, _) => envelope_finding_key(code.as_str()),
-    };
-    let ratio = matches!(finding.code, FindingCode::RatioCeiling);
-    // A missing number leaves its slot as written, so `filled` withholds the
-    // sentence instead of showing it with an empty gap.
-    let number = |value: Option<f32>, slot: usize| {
-        value.map_or_else(
-            || format!("{{{slot}}}"),
-            |v| {
-                if ratio {
-                    notification_text::decimal(f64::from(v), locale)
-                } else {
-                    format!("{:.0}", v.round())
-                }
-            },
-        )
-    };
-    let rendered = filled(strings.render(
-        &key,
-        locale,
-        &[&number(finding.measured, 0), &number(finding.bound, 1)],
-    ));
-    if rendered.is_none() {
-        warn!(
-            code = finding.code.as_str(),
-            locale, "envelope notice: a finding has no string or no number for its slot"
-        );
-    }
-    rendered
-}
-
-/// The anchor sentence: its label, its value (a range or an estimate at low
-/// confidence, an estimate at any confidence unless measured, a speed as pace
-/// in `units`), and who set it.
-fn anchor_sentence(
-    strings: &MessagingStringsRegistry,
-    locale: &str,
-    reader: AnchorReader,
-    units: UnitSystem,
-    anchor: &TargetAnchor,
-) -> Option<String> {
-    let label = strings.get(&envelope_anchor_label_key(anchor.anchor.as_str()), locale);
-    if label.is_empty() {
-        return None;
-    }
-    // An anchor stored before it named its sport: a speed reads as run pace,
-    // the sport the profile row's speeds belong to.
-    let sport = anchor.sport.unwrap_or(SportFamily::Run);
-    let value = anchor_value_text(
-        strings,
-        locale,
-        anchor.anchor.unit(),
-        sport,
-        units,
-        &anchor.value,
-        anchor.kind,
-    );
-    let source = anchor_source_text(strings, locale, reader, anchor.value.origin.as_deref());
-    filled(strings.render(KEY_ENVELOPE_ANCHOR, locale, &[&label, &value, &source]))
-}
-
-/// `rendered` when it carries text and no slot left unfilled.
-fn filled(rendered: String) -> Option<String> {
-    let complete = !rendered.trim().is_empty()
-        && !(0..4).any(|slot| rendered.contains(&format!("{{{slot}}}")));
-    complete.then_some(rendered)
-}
-
 #[cfg(test)]
 mod tests {
     use std::error::Error;
     use std::slice;
 
     use super::*;
-    use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, WorkoutPurpose};
-    use pierre_core::models::{MeasurementKind, SportAnchorName};
+    use pierre_core::models::periodization::{
+        AnchorConfidence, AnchorValue, EnvelopeFinding, SportFamily, WorkoutPurpose,
+    };
+    use pierre_core::models::{MeasurementKind, SportAnchorName, TargetAnchor};
     use pierre_tool_runtime::envelope_notices::NoticeSource;
     use serde_json::json;
 

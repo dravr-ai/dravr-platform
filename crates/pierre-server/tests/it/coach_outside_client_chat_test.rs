@@ -186,6 +186,7 @@ mod coach_outside_client_chat_tests {
             "/topics",
             "/participants",
             "/subject-plan",
+            "/subject-plan/families",
             "/verdicts",
         ]
         .iter()
@@ -258,6 +259,11 @@ mod coach_outside_client_chat_tests {
                 w.quiet_thread
             ))
             .json(&json!({ "content": "How is she doing?" })),
+            AxumTestRequest::post(&format!(
+                "/api/chat/conversations/{}/subject-plan/session-preview",
+                w.quiet_thread
+            ))
+            .json(&json!({ "date": "2026-11-18", "family": "vo2max_short", "sport": "ride" })),
         ] {
             let (status, body) = w.rest(request, &w.api_key).await;
             if status != StatusCode::NOT_FOUND || body.to_string().contains(QUIET_NAME) {

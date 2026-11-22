@@ -27,6 +27,7 @@ import type {
   Message,
   MessageAudience,
   MessageOrigin,
+  PlanDay,
   SciotteTarget,
   TurnSendOptions,
   UseCaseStarter,
@@ -44,6 +45,7 @@ import { MessageList, type MessageListPrivateLane } from './MessageList';
 import { UsageWarningBanner } from './UsageWarningBanner';
 import { VerdictSheet, type VerdictSource } from './VerdictSheet';
 import PlanThreadOpenDraft from './PlanThreadOpenDraft';
+import SessionEditorSheet from './SessionEditorSheet';
 import { useChatVoiceInput } from './useChatVoiceInput';
 import type { useMessages } from './useMessages';
 import type { useProviderStatus } from './useProviderStatus';
@@ -180,6 +182,8 @@ export function ChatThread({
   // authorization (`intervalsConnectPath` answered `'choose'`) or is the key
   // form alone.
   const [intervalsSheet, setIntervalsSheet] = useState<{ offersAuthorize: boolean } | null>(null);
+  // The plan day the coach's family editor is open on, or `null` while it is closed.
+  const [editingDay, setEditingDay] = useState<PlanDay | null>(null);
   // The provider sign-in a reply's reconnect opens for a card that signs in
   // (COROS, TrainingPeaks, Strava or Garmin with no seat).
   const signIn = useSignInModal();
@@ -535,21 +539,28 @@ export function ChatThread({
   // saving reply may be elsewhere, or not there at all. A row read back
   // carries no block list on the wire: its blocks are decoded from the row,
   // as its bubble decodes them.
-  const openDraftId = planDraftRead.open?.draft.draft_id ?? null;
+  const openDraftState = planDraftRead.open?.draft ?? null;
   const { messageBlocks } = messagesHook;
   const draftCarried = useMemo(
     () =>
-      openDraftId !== null &&
+      openDraftState !== null &&
       threadCarriesDraft(
         threadMessages.map((message) => messageBlocks[message.id] ?? transcriptBlocks(message)),
-        openDraftId,
+        openDraftState,
       ),
-    [openDraftId, threadMessages, messageBlocks],
+    [openDraftState, threadMessages, messageBlocks],
   );
   const openDraft = draftCarried ? null : planDraftRead.open;
+  // "Build from family" on every day of the thread's plan cards (carnet#1515),
+  // on the condition the open draft is drawn on: a plan thread whose
+  // subject-plan read answered, which the server answers only for the
+  // thread's owner, about an athlete still sharing.
+  const buildsDays =
+    planSubjectName !== null && conversationId !== null && (planDraftRead.open !== null || planDraftRead.noDraft);
+  const onBuildPlanDay = buildsDays ? setEditingDay : undefined;
   const planDraft =
     openDraft !== null && conversationId !== null ? (
-      <PlanThreadOpenDraft conversationId={conversationId} open={openDraft} />
+      <PlanThreadOpenDraft conversationId={conversationId} open={openDraft} onBuildDay={onBuildPlanDay} />
     ) : null;
   // The empty plan thread's one-tap start while the coach holds no draft:
   // the plan request, sent in the coach's words under its label.
@@ -618,6 +629,7 @@ export function ChatThread({
         loadingEarlier={messagesHook.loadingEarlier}
         onReachStart={() => void messagesHook.loadEarlier()}
         privateLane={listLane}
+        onBuildPlanDay={onBuildPlanDay}
       />
 
       <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
@@ -694,6 +706,15 @@ export function ChatThread({
           onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
         />
       )}
+
+      {buildsDays && planSubjectName !== null && conversationId !== null ? (
+        <SessionEditorSheet
+          conversationId={conversationId}
+          athleteName={planSubjectName}
+          day={editingDay}
+          onClose={() => setEditingDay(null)}
+        />
+      ) : null}
 
       <Sheet
         visible={providerStatus.needsCredentialsProvider !== null}

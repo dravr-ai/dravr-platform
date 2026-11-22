@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { View } from 'react-native';
+import type { PlanDay } from '@pierre/shared-types';
 import type { OpenPlanDraft } from '@pierre/ui-logic';
 import WorkoutPlanCard from './WorkoutPlanCard';
 import PlanDraftControls from './PlanDraftControls';
@@ -15,13 +16,15 @@ interface PlanThreadOpenDraftProps {
   conversationId: string;
   /** The draft the subject-plan read holds open. */
   open: OpenPlanDraft;
+  /** Opens the coach's family editor on one of the draft's days (carnet#1515). */
+  onBuildDay?: (day: PlanDay) => void;
 }
 
 /** The draft "Review the draft" sent the coach here to read, with its controls. */
-export default function PlanThreadOpenDraft({ conversationId, open }: PlanThreadOpenDraftProps) {
+export default function PlanThreadOpenDraft({ conversationId, open, onBuildDay }: PlanThreadOpenDraftProps) {
   return (
     <View className="mt-4 w-full" testID="chat-plan-thread-open-draft">
-      <WorkoutPlanCard plan={open.plan}>
+      <WorkoutPlanCard plan={open.plan} onBuildDay={onBuildDay}>
         <PlanDraftControls conversationId={conversationId} subject={open.subject} draft={open.draft} />
       </WorkoutPlanCard>
     </View>

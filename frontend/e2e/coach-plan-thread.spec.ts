@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for a coach's per-athlete plan thread (carnet#1069/#1070), View <name>'s plan (carnet#1244), <name>'s thresholds (carnet#1561)
+// ABOUTME: E2E for a coach's per-athlete plan thread (carnet#1069/#1070), View <name>'s plan (carnet#1244), <name>'s thresholds (carnet#1561), the family editor (carnet#1515)
 // ABOUTME: and the private lane in a one-athlete room (carnet#1249): Adjust plan from this → Only <agent> → Publish. Every route is mocked
 
 import { test, expect, type Page } from '@playwright/test';
@@ -140,8 +140,24 @@ const draftPlan = {
       focus: 'Easy volume',
       current: true,
       days: [
-        { date: '2026-10-20', sport: 'run', workout: 'Easy 45 min', duration_min: 45, intensity: 'easy', rest: false },
-        { date: '2026-10-25', sport: 'run', workout: 'Long run 1h40', duration_min: 100, intensity: 'easy', rest: false },
+        {
+          date: '2026-10-20',
+          sport: 'run',
+          workout: 'Easy 45 min',
+          duration_min: 45,
+          intensity: 'easy',
+          rest: false,
+          family_sport: 'run',
+        },
+        {
+          date: '2026-10-25',
+          sport: 'run',
+          workout: 'Long run 1h40',
+          duration_min: 100,
+          intensity: 'easy',
+          rest: false,
+          family_sport: 'run',
+        },
       ],
     },
   ],
@@ -545,6 +561,200 @@ test.describe("A coach sets an athlete's thresholds from Group info", () => {
         },
       },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// carnet#1515: in the plan thread, each day of the plan card opens the
+// "build from family" editor; the kernel's preview follows the values, a
+// value outside the evidence earns a finding and still saves (D3), and the
+// save lands in the coach's draft.
+// ---------------------------------------------------------------------------
+
+/** The family the thread's agent offers, as `GET …/subject-plan/families` answers it. */
+const familyCatalogue = {
+  families: [
+    {
+      slug: 'vo2max_short',
+      name: 'VO2max — short intervals',
+      purpose: 'vo2max_short',
+      purpose_label: 'short-interval VO2max work',
+      sports: ['ride', 'run'],
+      default_preset: '30_15',
+      presets: [
+        {
+          key: '30_15',
+          name: '30/15 (Rønnestad)',
+          sports: ['ride', 'run'],
+          params: {
+            ride: { sets: { min: 2, max: 4, default: 3 }, reps: { min: 10, max: 13, default: 13 } },
+            run: { sets: { min: 2, max: 3, default: 2 }, reps: { min: 10, max: 13, default: 13 } },
+          },
+        },
+      ],
+    },
+  ],
+};
+
+/** The run form's reps ceiling, which a build past it is measured against. */
+const REPS_LIMIT = 13;
+
+/** The preview the kernel answers for a run build of `reps` per set: a finding past the ceiling. */
+function sessionPreview(reps: number) {
+  const outside = reps > REPS_LIMIT;
+  return {
+    family: 'vo2max_short',
+    preset: '30_15',
+    sport: 'run',
+    duration_min: 40,
+    steps: [
+      { label: 'Warm-up', duration_seconds: 900, target_zone: 'easy' },
+      { label: 'Work', duration_seconds: 30, target_zone: '100-105% vVO2max', repeat: reps, repeat_group: 1 },
+      { label: 'Cool-down', duration_seconds: 600, target_zone: 'easy' },
+    ],
+    derived: {
+      sets: 2,
+      reps,
+      work_seconds: 30,
+      rest_seconds: 15,
+      ratio: 2,
+      work_pct: 102,
+      on_time_minutes: reps,
+      total_minutes: 40,
+      aerobic_max: 'vVO2max',
+    },
+    findings: outside
+      ? [
+          {
+            code: 'param_out_of_range',
+            text: `${reps} reps per set is outside this format's tested range (limit ${REPS_LIMIT}).`,
+            param: 'reps',
+          },
+        ]
+      : [],
+    ...(outside ? { outside_evidence: 'Outside the evidence' } : {}),
+  };
+}
+
+/** The draft once the built day is saved over 20 October. */
+const savedDraftPlan = {
+  ...draftPlan,
+  weeks: [
+    {
+      ...draftPlan.weeks[0],
+      days: [
+        {
+          ...draftPlan.weeks[0].days[0],
+          workout: 'VO2max — short intervals — 30/15 (Rønnestad)',
+          duration_min: 40,
+          intensity: '100-105% vVO2max',
+          template_slug: 'vo2max_short',
+          template_source: 'catalogue',
+          template_preset: '30_15',
+          template_params: { sets: 2, reps: 20 },
+          outside_evidence: 'Outside the evidence',
+        },
+        draftPlan.weeks[0].days[1],
+      ],
+    },
+  ],
+};
+
+/** What the editor sent: the previews it asked for and the day it saved. */
+interface EditorSent {
+  previews: unknown[];
+  saved: Array<{ path: string; body: unknown }>;
+}
+
+async function setupFamilyEditorMocks(page: Page): Promise<EditorSent> {
+  const sent: EditorSent = { previews: [], saved: [] };
+  const base = `**/api/chat/conversations/${PLAN_CONVERSATION_ID}/subject-plan`;
+  const savedRead = {
+    athlete: { user_id: ATHLETE_ID, display_name: 'Alice Runner' },
+    today: '2026-10-16',
+    live: null,
+    draft: savedDraftPlan,
+    draft_state: { ...draftState, updated_at: '2026-10-16T14:20:00.120000Z' },
+  };
+
+  await page.route(`${base}/families**`, (route) => route.fulfill(json(familyCatalogue)));
+  await page.route(`${base}/session-preview**`, (route) => {
+    const body = route.request().postDataJSON() as { params?: { reps?: number } };
+    sent.previews.push(body);
+    return route.fulfill(json(sessionPreview(body.params?.reps ?? REPS_LIMIT)));
+  });
+  await page.route(`${base}/draft/days/**`, (route) => {
+    sent.saved.push({ path: new URL(route.request().url()).pathname, body: route.request().postDataJSON() });
+    return route.fulfill(json(savedRead));
+  });
+  // Once the day is saved, the plan thread reads the draft as the save left it.
+  await page.route(base, (route) => (sent.saved.length > 0 ? route.fulfill(json(savedRead)) : route.fallback()));
+  return sent;
+}
+
+test.describe("A coach builds a day of the athlete's plan from a workout family", () => {
+  test('Build from family → a value past the evidence earns a finding → Save puts the day in the draft', async ({
+    page,
+  }) => {
+    await setupDashboardMocks(page, { role: 'user' });
+    await setupPlanThreadMocks(page);
+    const sent = await setupFamilyEditorMocks(page);
+    await loginToDashboard(page);
+    await openGroups(page);
+
+    const groupRow = page.locator('[data-testid="conversation-row"]', { hasText: 'Marathon Training 2026' });
+    await groupRow.getByRole('button').first().click();
+    await page.getByTestId('conversation-header-title').click();
+    await expect(page.getByTestId('group-info-panel')).toBeVisible({ timeout: 10000 });
+    await page.getByRole('button', { name: 'Open their plan thread · Alice Runner' }).click();
+    await page.waitForURL(new RegExp(`#chat/${PLAN_CONVERSATION_ID}$`));
+    await expect(page.getByTestId('plan-draft-badge')).toHaveText("Draft · Alice Runner can't see it yet");
+
+    // Every day of the card offers the editor; the first opens on its run.
+    const build = page.getByRole('button', { name: 'Build from family' });
+    await expect(build).toHaveCount(2);
+    await build.first().click();
+    const editor = page.getByTestId('session-editor');
+    await expect(editor.getByTestId('session-editor-family')).toHaveValue('vo2max_short');
+    await expect(editor.getByRole('radio', { name: 'Run' })).toBeChecked();
+    await expect(editor.getByTestId('session-editor-param-sets')).toHaveValue('2');
+    await expect(editor.getByTestId('session-editor-range-sets')).toHaveText('Evidence range 2–3');
+
+    // The preview at the preset's defaults: the kernel's steps, nothing found.
+    await expect(editor.getByTestId('session-editor-findings')).toContainText("Inside the family's evidence.");
+    await expect(editor.getByTestId('session-editor-derived')).toContainText('% of vVO2max');
+
+    // A value past the evidence is kept as typed, marked, and measured.
+    await editor.getByTestId('session-editor-param-reps').fill('20');
+    await expect(editor.getByTestId('session-editor-range-reps')).toHaveAttribute('data-outside', 'true');
+    await expect(editor.getByTestId('session-editor-findings')).toContainText(
+      "20 reps per set is outside this format's tested range (limit 13).",
+    );
+    await expect(editor.getByTestId('session-editor-outside-evidence')).toHaveText('Outside the evidence');
+    expect(sent.previews.at(-1)).toEqual({
+      family: 'vo2max_short',
+      preset: '30_15',
+      sport: 'run',
+      params: { sets: 2, reps: 20 },
+      date: '2026-10-20',
+    });
+
+    // The finding never holds Save back: the day goes into the coach's draft.
+    await editor.getByTestId('session-editor-save').click();
+    await expect(page.getByText('Saved to your draft. Alice Runner sees it only once you publish.')).toBeVisible();
+    await expect(page.getByTestId('session-editor')).toHaveCount(0);
+    expect(sent.saved).toEqual([
+      {
+        path: `/api/chat/conversations/${PLAN_CONVERSATION_ID}/subject-plan/draft/days/2026-10-20`,
+        body: { family: 'vo2max_short', preset: '30_15', sport: 'run', params: { sets: 2, reps: 20 } },
+      },
+    ]);
+
+    // The thread's card showed the draft before the save, so the draft as it
+    // stands now is drawn with its controls, the built day in it.
+    const open = page.getByTestId('chat-plan-thread-open-draft');
+    await expect(open).toContainText('VO2max — short intervals — 30/15 (Rønnestad)');
+    await expect(open.getByRole('button', { name: 'Publish to Alice Runner' })).toBeEnabled();
   });
 });
 

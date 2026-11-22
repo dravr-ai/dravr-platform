@@ -229,6 +229,20 @@ mod coach_plan_write_transport_tests {
             .await
         }
 
+        /// The family editor's Save on `thread`: a day of the draft built
+        /// from a workout family (carnet#1515).
+        async fn draft_day_route(&self, thread: &str, authorization: &str) -> (StatusCode, Value) {
+            let date = (Utc::now().date_naive() + Days::new(1)).format("%Y-%m-%d");
+            self.rest(
+                AxumTestRequest::put(&format!(
+                    "/api/chat/conversations/{thread}/subject-plan/draft/days/{date}"
+                ))
+                .json(&json!({ "family": "vo2max_short", "sport": "ride" })),
+                authorization,
+            )
+            .await
+        }
+
         /// The coach drafts the athlete's plan from the app.
         async fn draft_from_the_app(&self) {
             let drafted = self
@@ -599,9 +613,10 @@ mod coach_plan_write_transport_tests {
     }
 
     /// The plan card's Publish and Discard routes run the draft publish and
-    /// discard themselves, not through the plan tools: an API key the coach
-    /// holds is refused on both, with the plan tools' reason, and the draft
-    /// stays as it was. The coach's own session from the app publishes and
+    /// discard themselves, not through the plan tools, and the family
+    /// editor's Save writes a day of the draft the same way: an API key the
+    /// coach holds is refused on each, with the plan tools' reason, and the
+    /// draft stays as it was. The coach's own session from the app publishes and
     /// discards on the same routes.
     #[tokio::test]
     async fn the_plan_cards_publish_and_discard_refuse_an_api_key_and_answer_the_app() {
@@ -618,6 +633,7 @@ mod coach_plan_write_transport_tests {
         for (route, (status, body)) in [
             ("publish", w.publish_route(&thread, &key).await),
             ("discard", w.discard_route(&thread, &key).await),
+            ("draft day", w.draft_day_route(&thread, &key).await),
         ] {
             if status != StatusCode::FORBIDDEN || body["details"]["reason"] != EXTERNAL {
                 written.push(format!("{route} with an API key: {status} {body}"));

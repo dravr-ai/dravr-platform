@@ -200,6 +200,12 @@ export const QUERY_KEYS = {
     starters: () => ['chat', 'starters'] as const,
     /** A coach's plan thread: its athlete's live plan and the coach's draft over it. */
     subjectPlan: (conversationId: string | null) => ['chat', 'subject-plan', conversationId] as const,
+    /** The workout families a coach's plan thread offers its editor, in the coach's language (carnet#1515). */
+    subjectFamilies: (conversationId: string | null, locale: string) =>
+      ['chat', 'subject-families', conversationId, locale] as const,
+    /** One build's preview for one day of a coach's plan thread, in the coach's language (carnet#1515). */
+    sessionPreview: (conversationId: string | null, date: string, build: unknown, locale: string) =>
+      ['chat', 'session-preview', conversationId, date, build, locale] as const,
     /** A coached athlete's live plan, read-only, as their coach reads it from Group info. */
     athletePlan: (athleteUserId: string | null, groupId: string | null) =>
       ['chat', 'athlete-plan', athleteUserId, groupId] as const,

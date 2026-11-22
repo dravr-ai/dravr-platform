@@ -5,7 +5,7 @@
 // ABOUTME: A draft reaches a thread on the reply that saved it; one saved anywhere else is still read and shown here
 
 import type { OpenPlanDraft } from '@pierre/ui-logic';
-import WorkoutPlanCard from './WorkoutPlanCard';
+import CoachPlanCard from './CoachPlanCard';
 import PlanDraftControls from './PlanDraftControls';
 
 interface PlanThreadOpenDraftProps {
@@ -15,13 +15,16 @@ interface PlanThreadOpenDraftProps {
   open: OpenPlanDraft;
 }
 
-/** The draft "Review the draft" sent the coach here to read, with its controls. */
+/**
+ * The draft "Review the draft" sent the coach here to read, with its controls
+ * and, on each day, the family editor.
+ */
 export default function PlanThreadOpenDraft({ conversationId, open }: PlanThreadOpenDraftProps) {
   return (
     <div className="mt-2 w-full" data-testid="chat-plan-thread-open-draft">
-      <WorkoutPlanCard plan={open.plan}>
+      <CoachPlanCard conversationId={conversationId} subject={open.subject} plan={open.plan}>
         <PlanDraftControls conversationId={conversationId} subject={open.subject} draft={open.draft} />
-      </WorkoutPlanCard>
+      </CoachPlanCard>
     </div>
   );
 }

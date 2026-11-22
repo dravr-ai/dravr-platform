@@ -1,6 +1,8 @@
 // ABOUTME: TypeScript shape of the workout_plan block — the saved plan projected for a card, never a document the model wrote.
 // ABOUTME: Mirrors pierre_services::plan_card::PlanCard; consumed by the web and mobile plan cards.
 
+import type { SessionParams, SessionSport } from './session-editor.js';
+
 /** The phase kinds the periodization kernel knows. */
 export type PlanPhaseKind =
   | 'prep'
@@ -98,6 +100,12 @@ export interface PlanDay {
   fueling_withheld?: PlanFuelingWithheld;
   template_slug?: string;
   template_source?: PlanTemplateSource;
+  /** The family preset the day resolved to, when its template is a family (carnet#1515). */
+  template_preset?: string;
+  /** The values the day states on its family preset, by key (carnet#1515). */
+  template_params?: SessionParams;
+  /** The day's sport as a family preset reads it, when it is one of them (carnet#1515). */
+  family_sport?: SessionSport;
   /**
    * The warning the card marks the day with when the envelope check found the
    * session outside its family's evidence, resolved by the server in the

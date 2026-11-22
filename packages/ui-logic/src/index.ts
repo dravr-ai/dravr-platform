@@ -188,6 +188,27 @@ export {
   createCoachPlanHooks,
   openThreadRefusalText,
 } from './coachPlanHooks';
+// A coach's "build from family" editor: the build's state, its live preview, the save into the draft (carnet#1515)
+export {
+  type DerivedRow,
+  type SessionEditorApis,
+  SESSION_EDITOR_KEYS,
+  SESSION_PARAM_LABEL_KEY,
+  SESSION_PREVIEW_DEBOUNCE_MS,
+  createSessionEditorHooks,
+  derivedRows,
+  editableParams,
+  familyOf,
+  initialSessionBuild,
+  flaggedParams,
+  paramValue,
+  presetOf,
+  selectFamily,
+  selectPreset,
+  selectSport,
+  sessionSportLabelKey,
+  setParam,
+} from './sessionEditor';
 // A coach's private lane in a one-athlete room: the Everyone / Only <agent> switch, the work
 // thread's rows drawn in the room, "Adjust plan from this" and the private send (carnet#1249).
 export {

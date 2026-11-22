@@ -104,6 +104,9 @@ pub mod deployment_tools;
 pub mod derived_content;
 /// The envelope findings a turn's writes reported, and their per-turn store (carnet#1495).
 pub mod envelope_notices;
+/// The words of one envelope finding and of a session's anchor, shared by the
+/// notice and the coach's family editor (carnet#1515).
+pub mod envelope_words;
 /// Tools Dravr's own surfaces list and run, kept from external callers but an admin holding `admin`.
 pub mod first_party_tools;
 /// Stale-while-revalidate activity cache backing the group member snapshots

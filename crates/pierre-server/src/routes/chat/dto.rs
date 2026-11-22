@@ -17,6 +17,7 @@ use pierre_core::models::{
 use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
 use pierre_services::plan_card_history::word_stored_outside_evidence;
+use pierre_tool_runtime::implementations::coach_session_editor::{CatalogueFamily, SessionBuild};
 use pierre_tool_runtime::implementations::training_plans_output::CalendarPushOutcome;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -421,6 +422,29 @@ pub(super) struct PublishConflictDetails {
     /// `plan_publish_conflict`.
     pub reason: &'static str,
 }
+
+/// `GET /api/chat/conversations/{id}/subject-plan/families`: the workout
+/// families the coach's editor builds a day from (carnet#1515).
+#[derive(Debug, Serialize)]
+pub(super) struct FamilyCatalogueResponse {
+    /// The families the thread's agent offers, in the catalogue's order.
+    pub families: Vec<CatalogueFamily>,
+}
+
+/// `POST …/subject-plan/session-preview` body: a build, for one of the
+/// athlete's days.
+#[derive(Debug, Deserialize)]
+pub(super) struct SessionPreviewRequest {
+    /// The day, `YYYY-MM-DD`.
+    pub date: String,
+    /// The family, preset, sport and values.
+    #[serde(flatten)]
+    pub build: SessionBuild,
+}
+
+/// `PUT …/subject-plan/draft/days/{date}` body: the build saved as that day
+/// of the coach's draft.
+pub(super) type DraftDayRequest = SessionBuild;
 
 /// The caller's personal thread, as `GET /api/chat/personal` finds it.
 #[derive(Debug, Serialize, Deserialize)]

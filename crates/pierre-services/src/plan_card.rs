@@ -36,11 +36,13 @@ use chrono::{Days, NaiveDate};
 use pierre_contremaitre::evidence_strings;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::periodization::{PhaseKind, WorkoutStep};
+use pierre_core::models::periodization::serde_num::whole_u32_opt;
+use pierre_core::models::periodization::{PhaseKind, SportFamily, WorkoutStep};
 use pierre_core::models::{FuelingProtocol, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{
-    parse_plan_date, GoalRace, PlanWeek, PlannedDay, SelectedBy, TemplateSource, TrainingPlan,
+    parse_plan_date, GoalRace, PlanWeek, PlannedDay, SelectedBy, TemplateParams, TemplateSource,
+    TrainingPlan,
 };
 use pierre_providers::ai_scope;
 use serde::{Deserialize, Serialize};
@@ -49,6 +51,7 @@ use uuid::Uuid;
 
 use crate::coach_plan_draft::{coach_plan_view, CoachDraftTarget, DraftState};
 use crate::medical_flag::FiguresWithheld;
+use crate::plan_calendar_push;
 use crate::plan_fueling::FuelingDisclosure;
 use crate::training_plan_render::{select_active_weeks, ACTIVE_WEEKS};
 use pierre_core::json_value::to_value_as_written;
@@ -209,6 +212,96 @@ pub struct DayCard {
     /// the session. Absent when none did.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub counts_as: Option<String>,
+    /// The family preset the day instantiates, when it names one: what the
+    /// coach's family editor opens on (carnet#1515).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_preset: Option<String>,
+    /// The values the day fills its preset with, when it states any of the
+    /// six the editor shows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_params: Option<TemplateValues>,
+    /// The day's sport as a family preset reads it, when it is one of the
+    /// three a preset is written for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family_sport: Option<SportFamily>,
+}
+
+/// The six values a family day states on its preset.
+///
+/// What the card shows of the day's `template_params` and what the coach's
+/// family editor sends (carnet#1515). The pacing and anchor a day may also
+/// state stay the agent's; the card does not show them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TemplateValues {
+    /// Sets.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub sets: Option<u32>,
+    /// Reps per set.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub reps: Option<u32>,
+    /// Work bout, seconds.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub work_seconds: Option<u32>,
+    /// Rest between reps, seconds.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub rest_seconds: Option<u32>,
+    /// Rest between sets, seconds.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub set_rest_seconds: Option<u32>,
+    /// Whole-session duration, minutes.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "whole_u32_opt"
+    )]
+    pub duration_minutes: Option<u32>,
+}
+
+impl TemplateValues {
+    /// The six values `params` states, or `None` when it states none of them.
+    #[must_use]
+    pub fn of(params: &TemplateParams) -> Option<Self> {
+        let values = Self {
+            sets: params.sets,
+            reps: params.reps,
+            work_seconds: params.work_seconds,
+            rest_seconds: params.rest_seconds,
+            set_rest_seconds: params.set_rest_seconds,
+            duration_minutes: params.duration_minutes,
+        };
+        (values != Self::default()).then_some(values)
+    }
+
+    /// The values as a day stores them, its pacing and anchor left to the
+    /// preset.
+    #[must_use]
+    pub const fn template_params(self) -> TemplateParams {
+        TemplateParams {
+            sets: self.sets,
+            reps: self.reps,
+            work_seconds: self.work_seconds,
+            rest_seconds: self.rest_seconds,
+            duration_minutes: self.duration_minutes,
+            set_rest_seconds: self.set_rest_seconds,
+            pacing: None,
+            anchor: None,
+        }
+    }
 }
 
 /// The evidence chip a day carries, resolved in the reader's language.
@@ -441,7 +534,12 @@ fn week_card(
 /// One stored day as the card shows it, its outside-the-evidence warning,
 /// evidence chip and relabel line in `locale`'s words from the findings, badge
 /// and purpose the save stored.
-fn day_card(
+///
+/// The card's every day goes through here, and so does the day the coach's
+/// family editor previews before saving it (carnet#1515), so the chip the
+/// preview shows is the one the card shows once the day is saved.
+#[must_use]
+pub fn day_card(
     day: &PlannedDay,
     fueling: &FuelingDisclosure,
     registry: &MessagingStringsRegistry,
@@ -481,6 +579,9 @@ fn day_card(
         outside_evidence,
         evidence,
         counts_as,
+        template_preset: day.template_preset.clone(),
+        template_params: day.template_params.as_ref().and_then(TemplateValues::of),
+        family_sport: SportFamily::of(&plan_calendar_push::plan_sport(&day.sport)),
     }
 }
 
@@ -974,6 +1075,63 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    /// What the coach's family editor opens on (carnet#1515): the preset, the
+    /// six values the day states — never its pacing or anchor — and the
+    /// sport as a preset reads it, an mtb day as a ride; a rest day and a
+    /// day that states none carry none of them.
+    #[test]
+    fn a_family_day_carries_its_preset_values_and_sport_for_the_editor() {
+        let fueling = FuelingDisclosure::from_gate(None);
+        let strings = MessagingStringsRegistry::new();
+        let wire = |day: serde_json::Value| {
+            let day: PlannedDay = serde_json::from_value(day).expect("a stored day");
+            serde_json::to_value(day_card(&day, &fueling, &strings, "en")).unwrap()
+        };
+
+        let family = wire(serde_json::json!({
+            "date": "2026-07-14", "sport": "mtb", "workout": "30/15",
+            "template_slug": "vo2max_short", "template_preset": "30_15",
+            "template_params": { "sets": 4, "reps": 11, "pacing": "fixed" }
+        }));
+        assert_eq!(
+            family["template_preset"], "30_15",
+            "bug: the card carries the preset the day instantiates: {family}"
+        );
+        assert_eq!(
+            family["template_params"],
+            serde_json::json!({ "sets": 4, "reps": 11 }),
+            "bug: the card shows the six values only, pacing left to the agent"
+        );
+        assert_eq!(
+            family["family_sport"], "ride",
+            "bug: an mtb day reads as a ride"
+        );
+
+        let swim = wire(serde_json::json!({
+            "date": "2026-07-15", "sport": "natation", "workout": "easy", "intensity": "Z2",
+            "template_params": { "pacing": "fixed" }
+        }));
+        assert_eq!(
+            swim["family_sport"], "swim",
+            "bug: a natation day reads as a swim: {swim}"
+        );
+        assert!(
+            swim.get("template_params").is_none() && swim.get("template_preset").is_none(),
+            "bug: a day stating none of the six carries no values: {swim}"
+        );
+
+        for quiet in [
+            serde_json::json!({ "date": "2026-07-16", "sport": "rest", "workout": "Rest" }),
+            serde_json::json!({ "date": "2026-07-17", "sport": "strength", "workout": "gym" }),
+        ] {
+            let quiet = wire(quiet);
+            assert!(
+                quiet.get("family_sport").is_none(),
+                "bug: a day no preset is written for names no family sport: {quiet}"
+            );
+        }
     }
 
     #[test]

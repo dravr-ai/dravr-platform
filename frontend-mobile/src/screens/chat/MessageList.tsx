@@ -51,6 +51,7 @@ import type {
   ChatMessageAction,
   ClaimVerdict,
   MessageAudience,
+  PlanDay,
   ReplyBlock,
   UseCaseStarter,
   VerdictTone,
@@ -524,6 +525,12 @@ interface MessageListProps {
   onReachStart?: () => void;
   /** A coach's private lane in this room; absent in every other thread and for every other reader. */
   privateLane?: MessageListPrivateLane;
+  /**
+   * Opens the coach's family editor on a day of a plan card (carnet#1515).
+   * The host hands it only in the coach's own plan thread on an athlete;
+   * without it no card's day offers the editor.
+   */
+  onBuildPlanDay?: (day: PlanDay) => void;
 }
 
 export function MessageList({
@@ -561,6 +568,7 @@ export function MessageList({
   loadingEarlier = false,
   onReachStart,
   privateLane,
+  onBuildPlanDay,
 }: MessageListProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
@@ -663,8 +671,11 @@ export function MessageList({
         // the card shows, never the room the row is drawn in.
         const planThread = context.planConversationId;
         const shown = planThread === null ? null : planCardDraft(block);
+        // A day is built in the thread on screen, never from a private row,
+        // whose card belongs to the coach's work thread rather than this one.
+        const onBuildDay = context.audience === 'private' ? undefined : onBuildPlanDay;
         return (
-          <WorkoutPlanCard key={key} plan={plan}>
+          <WorkoutPlanCard key={key} plan={plan} onBuildDay={onBuildDay}>
             {shown && planThread !== null ? (
               <PlanDraftControls conversationId={planThread} subject={shown.subject} draft={shown.draft} />
             ) : null}

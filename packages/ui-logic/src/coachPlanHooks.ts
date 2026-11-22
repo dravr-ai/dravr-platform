@@ -10,6 +10,7 @@ import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { ChatApi } from '@pierre/api-client';
 import { PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, type PlanDraftConflict, type Translate } from '@pierre/chat-utils';
 import {
+  cardShowsOpenDraft,
   instantMs,
   type AthletePlanResponse,
   type CalendarPushOutcome,
@@ -142,16 +143,6 @@ export interface PlanDraftCardInput {
 }
 
 /**
- * Whether the card's draft is the coach's open draft as it stands: the same
- * draft, and no later save over it. A card from an earlier save in the
- * thread shows a version the coach has since changed, and publishing from
- * it would publish something the card does not show.
- */
-function isOpenDraft(open: DraftState, card: DraftState): boolean {
-  return open.draft_id === card.draft_id && instantMs(card.updated_at) >= instantMs(open.updated_at);
-}
-
-/**
  * The state a plan card's draft controls are in.
  *
  * Only the thread's owner — the coach — ever sees them: the athlete reads
@@ -167,7 +158,7 @@ export function planDraftCardState(input: PlanDraftCardInput): PlanDraftCardStat
     return { kind: 'consentRevoked' };
   }
   const open = read?.plan.draft_state ?? null;
-  if (open === null || !isOpenDraft(open, cardDraft)) return { kind: 'hidden' };
+  if (open === null || !cardShowsOpenDraft(open, cardDraft)) return { kind: 'hidden' };
   if (outcome.kind === 'conflict') return { kind: 'conflict', conflict: outcome.conflict };
   return { kind: 'draft' };
 }

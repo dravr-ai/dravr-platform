@@ -36,6 +36,7 @@ use axum::{
 };
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::models::ConversationRecord;
 use pierre_database::repositories::{CoachReadClass, CoachReadSurface};
 use pierre_middleware::AuthenticatedUser;
 use pierre_services::athlete_clock::athlete_today;
@@ -86,17 +87,25 @@ fn no_draft() -> AppError {
     )
 }
 
+/// The caller's thread about an athlete, and what the gates answered for it.
+pub(super) struct CoachedThread {
+    /// The thread: its agent is the one the coach's writes in it answer as.
+    pub conversation: ConversationRecord,
+    /// What the coaching gates let the caller do for the thread's athlete.
+    pub access: CoachedAthleteAccess,
+}
+
 /// The caller's thread about an athlete, and the gates that let them act for
 /// that athlete, checked again now.
 ///
 /// 404 when the conversation is not the caller's own (a participant in it is
 /// not its owner) or is bound to no athlete (`details.reason` `no_subject`);
 /// the gate refusals otherwise, with their own status and reason.
-async fn coached_subject(
+pub(super) async fn coached_thread(
     resources: &Arc<ServerContext>,
     auth: &AuthenticatedUser,
     conversation_id: &str,
-) -> Result<CoachedAthleteAccess, AppError> {
+) -> Result<CoachedThread, AppError> {
     let auth: &AuthResult = auth;
     let tenant_id = get_tenant_id(auth, resources).await?;
     let repos = &resources.common.repos;
@@ -115,20 +124,36 @@ async fn coached_subject(
             "This conversation is not about an athlete",
         ));
     };
-    coached_athlete_access(
+    let access = coached_athlete_access(
         repos,
         auth.user_id,
         subject.athlete_user_id,
         subject.group_id,
     )
     .await?
-    .map_err(|refused| coaching_refusal(auth, refused))
+    .map_err(|refused| coaching_refusal(auth, refused))?;
+    Ok(CoachedThread {
+        conversation,
+        access,
+    })
+}
+
+/// [`coached_thread`]'s gates, for a handler that needs only what they
+/// answered.
+async fn coached_subject(
+    resources: &Arc<ServerContext>,
+    auth: &AuthenticatedUser,
+    conversation_id: &str,
+) -> Result<CoachedAthleteAccess, AppError> {
+    Ok(coached_thread(resources, auth, conversation_id)
+        .await?
+        .access)
 }
 
 /// Record on the athlete's own record that the coach's thread read their plan
 /// (carnet#1445). A row that cannot be written fails the request: no read
 /// goes unrecorded.
-async fn record_thread_read(
+pub(super) async fn record_thread_read(
     resources: &Arc<ServerContext>,
     access: &CoachedAthleteAccess,
     coach: Uuid,
@@ -154,19 +179,52 @@ pub(super) async fn get_subject_plan(
     Query(query): Query<TrainingPlanQuery>,
 ) -> Result<Response, AppError> {
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
-    let coach = auth.user_id;
-    record_thread_read(&resources, &access, coach).await?;
+    record_thread_read(&resources, &access, auth.user_id).await?;
+    let response =
+        subject_plan_response(&resources, access, auth.user_id, query.locale.as_deref()).await?;
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// The locale a coach reads their thread in: `requested` (`?locale=`) when
+/// supported, else the coach's stored locale, else the default.
+///
+/// # Errors
+///
+/// Returns the repository error from the coach's read.
+pub(super) async fn coach_locale(
+    resources: &Arc<ServerContext>,
+    coach: Uuid,
+    requested: Option<&str>,
+) -> Result<String, AppError> {
+    let coach_user = resources.common.repos.users.get_global(coach).await?;
+    Ok(resolve_persona_locale(
+        requested,
+        Some(&user_locale(coach_user.as_ref())),
+    ))
+}
+
+/// What `GET …/subject-plan` answers: the thread's athlete's live plan and
+/// `coach`'s draft over it, each projected on the athlete's today in the
+/// shape `GET /api/me/training-plan` returns, in the coach's locale (or
+/// `requested`), and where the draft stands. The caller has run the gates
+/// for `access` and recorded the read.
+///
+/// # Errors
+///
+/// The errors of [`coach_plan_view`], and of the coach, medical-flag reads.
+pub(super) async fn subject_plan_response(
+    resources: &Arc<ServerContext>,
+    access: CoachedAthleteAccess,
+    coach: Uuid,
+    requested: Option<&str>,
+) -> Result<SubjectPlanResponse, AppError> {
     let repos = &resources.common.repos;
     let athlete = access.athlete_user_id;
     let target = CoachDraftTarget::new(access.tenant, athlete, coach);
     let view = coach_plan_view(repos, &target).await?;
 
     let today = athlete_today(repos, athlete).await;
-    let coach_user = repos.users.get_global(coach).await?;
-    let locale = resolve_persona_locale(
-        query.locale.as_deref(),
-        Some(&user_locale(coach_user.as_ref())),
-    );
+    let locale = coach_locale(resources, coach, requested).await?;
     let fueling = FuelingDisclosure::for_athlete(repos, access.tenant, athlete).await?;
     let registry = &resources.mcp.messaging_strings_registry;
     let card = |plan, weeks: &[_]| PlanCard::build(plan, weeks, today, registry, &locale, &fueling);
@@ -178,7 +236,7 @@ pub(super) async fn get_subject_plan(
         .draft
         .as_ref()
         .map(|DraftView { plan, weeks, .. }| card(plan, weeks));
-    let response = SubjectPlanResponse {
+    Ok(SubjectPlanResponse {
         athlete: PlanSubject {
             user_id: athlete,
             display_name: access.display_name,
@@ -187,8 +245,7 @@ pub(super) async fn get_subject_plan(
         live,
         draft,
         draft_state: view.draft.map(|draft| draft.state),
-    };
-    Ok((StatusCode::OK, Json(response)).into_response())
+    })
 }
 
 /// `POST /api/chat/conversations/{id}/subject-plan/publish`: the coach's

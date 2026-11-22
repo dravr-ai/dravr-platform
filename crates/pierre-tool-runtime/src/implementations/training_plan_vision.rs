@@ -14,8 +14,8 @@
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::{
-    envelope_check, EnvelopeInput, FlavourInputs, FlavourVerdict, InstanceRequest, PresetParams,
-    PresetShape, Share, WorkoutTemplate,
+    envelope_check, EnvelopeInput, FlavourInputs, FlavourVerdict, Instance, InstanceRequest,
+    PresetParams, PresetShape, Share, WorkoutTemplate,
 };
 use pierre_core::models::{sport_anchors, HeldAnchors, SportType, TenantId};
 use pierre_database::RepositoryRegistry;
@@ -342,54 +342,74 @@ pub(super) fn instantiate_template_days(
     anchors: Option<&HeldAnchors>,
 ) -> AppResult<()> {
     for day in weeks.iter_mut().flat_map(|w| &mut w.days) {
-        day.envelope = None;
-        let Some(slug) = day.template_slug.clone() else {
-            continue;
-        };
-        let resolved = catalogue.resolve_workout(&slug).map(|(r, _)| r);
-        let Some(resolved) = resolved.filter(|r| r.template.is_family()) else {
-            if let Some(preset) = day.template_preset.as_deref() {
-                return Err(AppError::invalid_input(format!(
-                    "day {} names preset '{preset}' for template '{slug}', which has no presets",
-                    day.date
-                )));
-            }
-            continue;
-        };
-        let template = &resolved.template;
-        let preset = day
-            .template_preset
-            .clone()
-            .or_else(|| resolved.request.preset.clone());
-        let sport = plan_sport(&day.sport);
-        let stated = day.template_params.map(|p| p.preset_params());
-        if day.steps.is_empty() {
-            generate_day(day, template, preset, &sport, stated, anchors);
-        } else {
-            let report = envelope_check(&EnvelopeInput {
-                template,
-                preset: preset.as_deref(),
-                sport: &sport,
-                steps: &day.steps,
-                params: stated.as_ref(),
-                generated: false,
-                anchors: anchors.map(HeldAnchors::values),
-            });
-            let anchor =
-                anchors.and_then(|held| sport_anchors::target_anchor(&day.steps, &sport, held));
-            day.envelope = Some(DayEnvelope::from_report(report, false, anchor));
-        }
-        // Record the preset the day resolved to — its key, not the legacy
-        // slug that named it — so later reads need no alias table.
-        if day.template_preset.is_none() {
-            day.template_preset = day.envelope.as_ref().and_then(|e| e.preset.clone());
-        }
+        instantiate_template_day(catalogue, day, anchors)?;
     }
     Ok(())
 }
 
+/// One day of [`instantiate_template_days`], answering the kernel's instance
+/// when the day's steps were generated from its preset: what the coach's
+/// family editor shows beside the day (carnet#1515). `None` for a day with no
+/// family, a day that writes its own steps, and a day whose generated steps
+/// left a session's bounds.
+///
+/// # Errors
+///
+/// Those of [`instantiate_template_days`].
+pub(super) fn instantiate_template_day(
+    catalogue: &PackagedCatalogue<'_>,
+    day: &mut PlannedDay,
+    anchors: Option<&HeldAnchors>,
+) -> AppResult<Option<Instance>> {
+    day.envelope = None;
+    let Some(slug) = day.template_slug.clone() else {
+        return Ok(None);
+    };
+    let resolved = catalogue.resolve_workout(&slug).map(|(r, _)| r);
+    let Some(resolved) = resolved.filter(|r| r.template.is_family()) else {
+        if let Some(preset) = day.template_preset.as_deref() {
+            return Err(AppError::invalid_input(format!(
+                "day {} names preset '{preset}' for template '{slug}', which has no presets",
+                day.date
+            )));
+        }
+        return Ok(None);
+    };
+    let template = &resolved.template;
+    let preset = day
+        .template_preset
+        .clone()
+        .or_else(|| resolved.request.preset.clone());
+    let sport = plan_sport(&day.sport);
+    let stated = day.template_params.map(|p| p.preset_params());
+    let instance = if day.steps.is_empty() {
+        generate_day(day, template, preset, &sport, stated, anchors)
+    } else {
+        let report = envelope_check(&EnvelopeInput {
+            template,
+            preset: preset.as_deref(),
+            sport: &sport,
+            steps: &day.steps,
+            params: stated.as_ref(),
+            generated: false,
+            anchors: anchors.map(HeldAnchors::values),
+        });
+        let anchor =
+            anchors.and_then(|held| sport_anchors::target_anchor(&day.steps, &sport, held));
+        day.envelope = Some(DayEnvelope::from_report(report, false, anchor));
+        None
+    };
+    // Record the preset the day resolved to — its key, not the legacy
+    // slug that named it — so later reads need no alias table.
+    if day.template_preset.is_none() {
+        day.template_preset = day.envelope.as_ref().and_then(|e| e.preset.clone());
+    }
+    Ok(instance)
+}
+
 /// Fill a family day's steps and duration from its preset, and stamp what
-/// the envelope check found on them.
+/// the envelope check found on them; the instance they came from, or `None`
+/// when they left a session's bounds and the day keeps no steps.
 fn generate_day(
     day: &mut PlannedDay,
     template: &WorkoutTemplate,
@@ -397,7 +417,7 @@ fn generate_day(
     sport: &SportType,
     stated: Option<PresetParams>,
     anchors: Option<&HeldAnchors>,
-) {
+) -> Option<Instance> {
     let mut params = stated.unwrap_or_default();
     let sized_by_duration = preset
         .as_deref()
@@ -443,13 +463,21 @@ fn generate_day(
                 instance.generated.steps.len()
             )),
         });
-        return;
+        return None;
     }
     let anchor = anchors
         .and_then(|held| sport_anchors::target_anchor(&instance.generated.steps, sport, held));
-    day.steps = instance.generated.steps;
+    // The day keeps its own copy of the steps and the report: the instance
+    // goes back whole to the caller, whose family editor names the session
+    // from its generated steps and shows the report's derived values.
+    day.steps.clone_from(&instance.generated.steps);
     day.duration_min = Some(instance.generated.duration_minutes);
-    day.envelope = Some(DayEnvelope::from_report(instance.report, true, anchor));
+    day.envelope = Some(DayEnvelope::from_report(
+        instance.report.clone(),
+        true,
+        anchor,
+    ));
+    Some(instance)
 }
 
 /// Every `template_slug` a day names must be a template of the agent's

@@ -4,7 +4,7 @@
 // ABOUTME: Renders the workout_plan block — the saved plan's season and fortnight — as the thread's one hairline card.
 // ABOUTME: Reads the projection the platform built from the rows save_training_plan wrote; the agent's prose never feeds it.
 
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import type { TFunction } from '@pierre/i18n';
 import { fuelParts, stepDuration } from '@pierre/chat-utils';
@@ -20,10 +20,19 @@ import type {
   WorkoutPlan,
 } from '@pierre/shared-types';
 
+/**
+ * What a card draws at the end of one day, rest days included — the coach's
+ * "Build from family" in their plan thread. `dateId` is the id of the day's
+ * date cell, for the action to be described by.
+ */
+export type PlanDayAction = (day: PlanDay, dateId: string) => ReactNode;
+
 interface WorkoutPlanCardProps {
   plan: WorkoutPlan;
   /** Drawn under the plan, inside the card — a coach's draft controls. */
   children?: ReactNode;
+  /** Drawn at the end of every day; absent on every card but a coach's in their plan thread. */
+  dayAction?: PlanDayAction;
 }
 
 /**
@@ -39,6 +48,24 @@ function planDate(date: string, language: string): string {
 function stepText(step: PlanStep): string {
   const text = [step.label, stepDuration(step.duration_seconds), step.target_zone].join(' · ');
   return step.repeat !== undefined && step.repeat > 1 ? `${text} ×${step.repeat}` : text;
+}
+
+/**
+ * A session's steps, each as "label · Nm · zone ×repeat", its note on hover.
+ * One list for the plan card's day and the family editor's preview, so a
+ * step reads the same in both. `className` lays the list out: inline on the
+ * card's day, one step a line in the editor.
+ */
+export function PlanStepList({ steps, className }: { steps: readonly PlanStep[]; className?: string }) {
+  return (
+    <ol className={className}>
+      {steps.map((step, index) => (
+        <li key={`${step.label}-${index}`} title={step.note}>
+          {stepText(step)}
+        </li>
+      ))}
+    </ol>
+  );
 }
 
 /**
@@ -134,17 +161,18 @@ function Season({ plan }: { plan: WorkoutPlan }) {
  *
  * A table row: the card lays a week out as a table, and the Home page's day
  * detail renders the same row in a one-row table, so a day reads the same in
- * both places.
+ * both places. `action` is drawn last in the session's cell, under the day.
  */
-export function DayRow({ day }: { day: PlanDay }) {
+export function DayRow({ day, action }: { day: PlanDay; action?: PlanDayAction }) {
   const { t, language } = useTranslation();
+  const dateId = useId();
   const meta = [day.duration_min !== undefined ? `${day.duration_min} min` : null, day.intensity].filter(
     (part): part is string => typeof part === 'string' && part.length > 0,
   );
   const steps = day.steps ?? [];
   return (
     <tr className="border-b ghost-border-faint align-top last:border-0">
-      <td className="whitespace-nowrap py-1.5 pr-3 font-mono text-xs text-on-surface-variant">
+      <td id={action ? dateId : undefined} className="whitespace-nowrap py-1.5 pr-3 font-mono text-xs text-on-surface-variant">
         {formatCivilDate(day.date, language, ROW_DATE)}
       </td>
       {/* The sport in the athlete's words; a rest day has none, its one word
@@ -180,13 +208,7 @@ export function DayRow({ day }: { day: PlanDay }) {
         {steps.length > 0 && (
           <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-on-surface-variant">
             <span className="font-medium text-on-surface">{t('plan.card.steps')}</span>
-            <ol className="contents">
-              {steps.map((step, index) => (
-                <li key={`${step.label}-${index}`} title={step.note}>
-                  {stepText(step)}
-                </li>
-              ))}
-            </ol>
+            <PlanStepList steps={steps} className="contents" />
           </div>
         )}
         {day.template_slug && (
@@ -212,6 +234,7 @@ export function DayRow({ day }: { day: PlanDay }) {
             {t('chat.fuelWithheld')}
           </div>
         )}
+        {action && <div className="mt-1">{action(day, dateId)}</div>}
       </td>
     </tr>
   );
@@ -242,7 +265,7 @@ export function WeekHeading({ week, index, currentIndex }: { week: PlanWeek; ind
   );
 }
 
-export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps) {
+export default function WorkoutPlanCard({ plan, children, dayAction }: WorkoutPlanCardProps) {
   const { t, language } = useTranslation();
   const currentIndex = plan.weeks.findIndex((week) => week.current);
 
@@ -282,7 +305,7 @@ export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps
               <table className="w-full text-sm">
                 <tbody>
                   {week.days.map((day) => (
-                    <DayRow key={day.date} day={day} />
+                    <DayRow key={day.date} day={day} action={dayAction} />
                   ))}
                 </tbody>
               </table>

@@ -161,6 +161,16 @@ function parseConflicts(value: unknown): DraftConflict[] | null {
   return conflicts;
 }
 
+/**
+ * Whether a card's draft shows the coach's open draft as it stands: the same
+ * draft, and no later save over it. A draft keeps its id across saves, so a
+ * card from an earlier save shows a version the coach has since changed, and
+ * publishing from it would publish something the card does not show.
+ */
+export function cardShowsOpenDraft(open: DraftState, card: DraftState): boolean {
+  return open.draft_id === card.draft_id && instantMs(card.updated_at) >= instantMs(open.updated_at);
+}
+
 /** A draft state, or `null` when `value` is not one. */
 export function parseDraftState(value: unknown): DraftState | null {
   if (

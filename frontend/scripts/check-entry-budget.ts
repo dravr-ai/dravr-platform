@@ -28,9 +28,13 @@ import { gzipSync } from 'node:zlib';
  * 315 KB. The assistant-connection consents of 2026-11-19 (EFVP: the MCP
  * token and API key consents, the coach's AI tools notice, seven French
  * strings through contremaitre 55d6b7ea) took the CI build to 315.4 KB with
- * no code change, so the budget is 320 KB.
+ * no code change, so the budget is 320 KB. Main stood at 319.8 KB when the
+ * coach's family editor (carnet#1515) landed: its sheet loads lazily on first
+ * open, but the plan card's "Build from family" on each day, the draft
+ * card's sharper open-draft rule and the API client's catalogue and preview
+ * parsers run at first paint, about 1 KB, so the budget is 325 KB.
  */
-const BUDGET_BYTES = 320 * 1024;
+const BUDGET_BYTES = 325 * 1024;
 
 const DIST = resolve(import.meta.dirname, '..', 'dist');
 const html = readFileSync(join(DIST, 'index.html'), 'utf8');

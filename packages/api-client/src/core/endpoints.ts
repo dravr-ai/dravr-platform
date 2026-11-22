@@ -79,6 +79,15 @@ export const ENDPOINTS = {
     /** Discard (DELETE) the coach's draft; the athlete's live plan stays as it is */
     SUBJECT_PLAN_DRAFT: (conversationId: string) =>
       `/api/chat/conversations/${conversationId}/subject-plan/draft`,
+    /** The workout families the thread's athlete's agent offers, for the coach's editor (carnet#1515) */
+    SUBJECT_FAMILIES: (conversationId: string) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/families`,
+    /** Preview (POST) a session built from a family, measured on the athlete's anchors; nothing is saved */
+    SUBJECT_SESSION_PREVIEW: (conversationId: string) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/session-preview`,
+    /** Save (PUT) a session built from a family as one day of the coach's draft */
+    SUBJECT_DRAFT_DAY: (conversationId: string, date: string) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}`,
   },
 
   // ==================== SLASH COMMANDS ====================

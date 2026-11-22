@@ -2,7 +2,7 @@
 // ABOUTME: So each client walks one block list, whether the turn just landed or was read back from history; a command reply keeps its line breaks on the way
 
 import type { ClaimVerdict, DraftState, Message, PlanSubject, ReplyBlock } from '@pierre/shared-types';
-import { parseDraftState, parsePlanSubject } from '@pierre/shared-types';
+import { cardShowsOpenDraft, parseDraftState, parsePlanSubject } from '@pierre/shared-types';
 import { splitActivityContent } from './activity';
 import { stripToolScaffolding } from './conversation';
 import { parseSceneBlocks } from './viz';
@@ -193,20 +193,22 @@ export function planCardDraft(
 }
 
 /**
- * Whether a plan card in the thread already shows the draft `draftId` — so
- * its Publish and Discard controls are on screen. The coach's open draft is
- * drawn on its own only when none does: one saved from an MCP client, from
- * the coach's own chat, or whose saving reply sits outside what the thread
- * has read, is still theirs to review. Matched on the draft's id, so a card
- * left by a draft since discarded never hides the one open now.
+ * Whether a plan card in the thread already shows the coach's open draft
+ * `open` as it stands — so its Publish and Discard controls are on screen.
+ * The open draft is drawn on its own only when none does: one saved from an
+ * MCP client, from the coach's own chat or editor, or whose saving reply sits
+ * outside what the thread has read, is still theirs to review. Matched by
+ * `cardShowsOpenDraft`, the rule the card's controls follow: a card left by a
+ * draft since discarded, or by an earlier save of this one, never hides it.
  */
 export function threadCarriesDraft(
   blocksByMessage: Iterable<readonly ReplyBlock[]>,
-  draftId: string,
+  open: DraftState,
 ): boolean {
   for (const blocks of blocksByMessage) {
     for (const block of blocks) {
-      if (block.type === 'workout_plan' && planCardDraft(block)?.draft.draft_id === draftId) return true;
+      const card = block.type === 'workout_plan' ? planCardDraft(block) : null;
+      if (card !== null && cardShowsOpenDraft(open, card.draft)) return true;
     }
   }
   return false;

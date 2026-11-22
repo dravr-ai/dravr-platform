@@ -58,6 +58,11 @@ interface MessageListProps {
    * thread's draft through it; `null` before a thread exists.
    */
   conversationId?: string | null;
+  /**
+   * The open thread is a coach's plan thread on one athlete: its plan cards
+   * offer "Build from family" on each day, to the thread's owner.
+   */
+  editsPlanDays?: boolean;
   messages: Message[];
   messageMetadata: Map<string, MessageMetadata>;
   messageFeedback: Map<string, MessageFeedback>;
@@ -158,6 +163,7 @@ function scrollParent(node: HTMLElement | null): HTMLElement | null {
 
 export default function MessageList({
   conversationId = null,
+  editsPlanDays = false,
   messages,
   messageMetadata,
   messageFeedback,
@@ -316,6 +322,7 @@ export default function MessageList({
         <MessageItem
           key={msg.id}
           conversationId={isPrivate ? (privateLane?.conversationId ?? null) : conversationId}
+          editsPlanDays={editsPlanDays && !isPrivate}
           message={msg}
           metadata={messageMetadata.get(msg.id)}
           feedback={messageFeedback.get(msg.id)}
@@ -349,6 +356,7 @@ export default function MessageList({
     return out;
   }, [
     conversationId,
+    editsPlanDays,
     visibleMessages,
     language,
     t,

@@ -407,6 +407,67 @@ describe("ChatThread in a coach's own threads", () => {
     expect(screen.queryByTestId('chat-plan-thread-open-draft')).not.toBeInTheDocument();
   });
 
+  it('draws the open draft again when the only row shows an earlier save of it', async () => {
+    // The coach saved into the same draft since (the family editor, carnet#1515): the
+    // row's card is stale and hides its controls, so the draft as it stands is drawn.
+    getSubjectPlan.mockResolvedValue(subjectPlan({ ...DRAFT, updated_at: '2026-10-16T15:30:00Z' }));
+    getConversationMessages.mockResolvedValue({
+      messages: [
+        {
+          id: 'm-draft',
+          role: 'assistant',
+          content: 'Draft saved.',
+          created_at: '2026-10-16T14:05:01Z',
+          scene_blocks: JSON.stringify([{ kind: 'workout_plan', plan: PLAN, subject: ALICE, draft: DRAFT }]),
+        },
+      ],
+    });
+    renderThread({ initial: PLAN_ID, openThread });
+
+    await screen.findByText('Draft saved.');
+    expect(await screen.findByTestId('chat-plan-thread-open-draft')).toHaveTextContent('Harricana 65K');
+    expect(await screen.findByRole('button', { name: 'Publish to Alice Runner' })).toBeEnabled();
+  });
+
+  describe('"Build from family" on the plan card (carnet#1515)', () => {
+    const WEEK_PLAN: WorkoutPlan = {
+      ...PLAN,
+      weeks: [
+        {
+          week_start: '2026-10-12',
+          focus: 'Build',
+          current: true,
+          days: [{ date: '2026-10-16', sport: 'ride', workout: 'Endurance', intensity: 'Z2', rest: false }],
+        },
+      ],
+    };
+    const PLAN_ROW = {
+      id: 'm-plan',
+      role: 'assistant' as const,
+      content: 'Here is the plan.',
+      created_at: '2026-10-16T14:05:01Z',
+      scene_blocks: JSON.stringify([{ kind: 'workout_plan', plan: WEEK_PLAN, subject: ALICE }]),
+    };
+
+    it("offers it on the card's days once the thread's subject-plan read answered", async () => {
+      getConversationMessages.mockResolvedValue({ messages: [PLAN_ROW] });
+      renderThread({ initial: PLAN_ID, openThread });
+
+      expect(await screen.findByRole('button', { name: 'Build from family' })).toBeInTheDocument();
+    });
+
+    it('offers it nowhere when the server refuses the read — not the owner, or the athlete stopped sharing', async () => {
+      getSubjectPlan.mockRejectedValue(Object.assign(new Error('Not Found'), { response: { status: 404 } }));
+      getConversationMessages.mockResolvedValue({ messages: [PLAN_ROW] });
+      renderThread({ initial: PLAN_ID, openThread });
+
+      await screen.findByText('Here is the plan.');
+      await waitFor(() => expect(getSubjectPlan).toHaveBeenCalledWith(PLAN_ID));
+      expect(screen.getByText('Harricana 65K')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Build from family' })).not.toBeInTheDocument();
+    });
+  });
+
   it("says who reads the coach's empty room, and the composer writes to the group", async () => {
     renderThread({ initial: ROOM_ID, openThread });
 

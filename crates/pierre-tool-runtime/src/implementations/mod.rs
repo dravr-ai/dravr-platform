@@ -285,6 +285,9 @@ pub mod calendar_preference;
 mod call_room;
 /// Whose calendar the calendar-write tools write: the caller's own, or a coached athlete's.
 mod coach_scope;
+/// A coach's "build from family" editor: the thread's family catalogue, a
+/// built session's preview, and the draft-day write (carnet#1515).
+pub mod coach_session_editor;
 /// Athlete commitment tools: `commitment_create`, `commitment_cancel` (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod commitments;

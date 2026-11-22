@@ -2,10 +2,17 @@
 // ABOUTME: Reads the projection the platform built from the rows save_training_plan wrote; the agent's prose never feeds it.
 
 import React from 'react';
-import { View, Text } from 'react-native';
+import { Pressable, View, Text } from 'react-native';
 import { countKey, fuelParts, stepDuration } from '@pierre/chat-utils';
 import { PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
-import { civilDayMonth, formatCivilDate, ROW_DATE, sportLabel } from '@pierre/ui-logic';
+import {
+  civilDayMonth,
+  DRAFT_DATE,
+  formatCivilDate,
+  ROW_DATE,
+  SESSION_EDITOR_KEYS,
+  sportLabel,
+} from '@pierre/ui-logic';
 import type {
   PlanDay,
   PlanPhase,
@@ -22,6 +29,11 @@ interface WorkoutPlanCardProps {
   plan: WorkoutPlan;
   /** Drawn under the plan, inside the card — a coach's draft controls. */
   children?: React.ReactNode;
+  /**
+   * Opens the coach's family editor on a day (carnet#1515). Handed only in
+   * the coach's own plan thread on an athlete; without it no day offers it.
+   */
+  onBuildDay?: (day: PlanDay) => void;
 }
 
 /** A figure inside a sentence: dates, durations, counts, set in the mono face so columns of them line up. */
@@ -67,9 +79,10 @@ function Sentence({ text, figure }: { text: string; figure: string | number }) {
 
 /**
  * "label · Nm · zone", with "×repeat" appended when the step is repeated.
- * The duration and the repeat count are the step's two figures.
+ * The duration and the repeat count are the step's two figures. The family
+ * editor's preview draws its steps with this same line.
  */
-function StepText({ step }: { step: PlanStep }) {
+export function StepText({ step }: { step: PlanStep }) {
   return (
     <Text>
       {step.label}
@@ -193,8 +206,12 @@ function Season({ plan }: { plan: WorkoutPlan }) {
  * carries. A rest day is the one word. Rows are separated by space, not by a
  * rule; the card's one hairline sits under its header. The Home tab draws its
  * selected and next-week days with this same row, so a day reads alike there.
+ *
+ * With `onBuild`, the day — a rest day too — ends on "Build from family", the
+ * link that opens the coach's family editor on it. Its hint names the day, so
+ * a screen reader tells fourteen of them apart.
  */
-export function DayRow({ day }: { day: PlanDay }) {
+export function DayRow({ day, onBuild }: { day: PlanDay; onBuild?: (day: PlanDay) => void }) {
   const { t, language } = useTranslation();
   const steps = day.steps ?? [];
   return (
@@ -262,6 +279,19 @@ export function DayRow({ day }: { day: PlanDay }) {
             {t('chat.fuelWithheld')}
           </Text>
         ) : null}
+        {onBuild ? (
+          <Pressable
+            className="mt-1 self-start py-0.5"
+            accessibilityRole="button"
+            accessibilityLabel={t(SESSION_EDITOR_KEYS.open)}
+            accessibilityHint={t(SESSION_EDITOR_KEYS.title, { date: formatCivilDate(day.date, language, DRAFT_DATE) })}
+            hitSlop={10}
+            onPress={() => onBuild(day)}
+            testID={`workout-plan-day-build-${day.date}`}
+          >
+            <Text className="text-sm font-medium text-primary">{t(SESSION_EDITOR_KEYS.open)}</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -309,7 +339,7 @@ export function WeekHeading({
  * a single hairline under the header block. Everything under it is separated
  * by spacing alone.
  */
-export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps) {
+export default function WorkoutPlanCard({ plan, children, onBuildDay }: WorkoutPlanCardProps) {
   const { t, language } = useTranslation();
   const currentIndex = plan.weeks.findIndex((week) => week.current);
 
@@ -349,7 +379,7 @@ export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps
             >
               <WeekHeading week={week} index={index} currentIndex={currentIndex} />
               {week.days.map((day) => (
-                <DayRow key={day.date} day={day} />
+                <DayRow key={day.date} day={day} onBuild={onBuildDay} />
               ))}
             </View>
           ))}

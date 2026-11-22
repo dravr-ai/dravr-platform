@@ -155,6 +155,17 @@ describe('ChatThread — the coach plan thread', () => {
     expect(screen.getByTestId('open-draft')).toHaveTextContent('draft-7');
   });
 
+  it('is not hidden by a card left from an earlier save of the same draft', () => {
+    // The coach saved into the draft since (the family editor, carnet#1515): the id
+    // stays, the save moved on, and the row's card hides its controls.
+    const saved: PlanThreadDraft = {
+      open: OPEN.open ? { ...OPEN.open, draft: { ...DRAFT, updated_at: '2026-11-02T15:30:00Z' } } : null,
+      noDraft: false,
+    };
+    renderThread({ planDraftRead: saved, messages: [row('m1')], messageBlocks: { m1: cardFor('draft-7') } });
+    expect(screen.getByTestId('open-draft')).toHaveTextContent('draft-7');
+  });
+
   it('offers no start while a draft is open or the read is out', () => {
     renderThread({ planDraftRead: OPEN });
     expect(screen.queryByTestId('starter')).toBeNull();

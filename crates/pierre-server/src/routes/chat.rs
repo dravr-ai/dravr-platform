@@ -13,6 +13,7 @@
 //! - [`chat::personal`] — the caller's personal thread and the topics "+" opens in it
 //! - [`chat::subject_thread`] — a group's coach's thread about one athlete, opened or reopened
 //! - [`chat::subject_plan`] — in that thread, the coach's draft of the athlete's plan: read, publish, discard
+//! - [`chat::subject_session`] — in that thread, a day of the draft built from a workout family: families, preview, save
 //! - [`chat::athlete_physiology`] — the same coach reads and sets the athlete's thresholds from Group info
 //! - [`chat::read_marker`] — the caller's read marker: mark read / mark unread
 //! - [`chat::starters`] — the use-case starters an empty thread offers
@@ -43,6 +44,7 @@ mod send_message;
 mod starters;
 mod stop_turn;
 mod subject_plan;
+mod subject_session;
 mod subject_thread;
 mod turn_response;
 
@@ -151,6 +153,21 @@ impl ChatRoutes {
             .route(
                 "/api/chat/conversations/{conversation_id}/subject-plan/draft",
                 delete(subject_plan::discard_subject_plan_draft),
+            )
+            // In the same thread, a day of that draft built from a workout
+            // family: the families the thread's agent offers, the session a
+            // build makes, and the build saved as the day (carnet#1515)
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan/families",
+                get(subject_session::get_subject_families),
+            )
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan/session-preview",
+                post(subject_session::preview_subject_session),
+            )
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan/draft/days/{date}",
+                put(subject_session::put_subject_draft_day),
             )
             // The use-case starters an empty thread offers, ranked from the
             // athlete's state (carnet#829)
