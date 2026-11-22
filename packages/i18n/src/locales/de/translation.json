@@ -2077,7 +2077,12 @@
     },
     "overA2a": "über A2A",
     "supportRead": "Der Dravr-Support hat dies gelesen, während er dir half.",
-    "apiKeyHint": "Um diesen Zugriff zu beenden, widerrufe seinen Schlüssel unter API-Schlüssel oder MCP-Tokens in den Einstellungen."
+    "apiKeyHint": "Um diesen Zugriff zu beenden, widerrufe seinen Schlüssel unter API-Schlüssel oder MCP-Tokens in den Einstellungen.",
+    "peersHeading": "Gruppenmitglieder",
+    "peerDayReads_one": "{{member}} hat deine Aktivitäten einmal in {{group}} gelesen",
+    "peerDayReads_other": "{{member}} hat deine Aktivitäten {{count}}-mal in {{group}} gelesen",
+    "formerMember": "Ein ehemaliges Mitglied",
+    "agentTurnRow": "Hat den Dravr-Agenten zu deinen Daten befragt"
   },
   "delegation": {
     "actionFailed": "Das hat nicht geklappt. Versuch es noch einmal.",

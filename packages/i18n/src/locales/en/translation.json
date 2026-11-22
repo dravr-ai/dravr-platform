@@ -2077,7 +2077,12 @@
     },
     "overA2a": "over A2A",
     "supportRead": "Dravr support read this while helping you.",
-    "apiKeyHint": "To cut off this access, revoke its key under API keys or MCP tokens in Settings."
+    "apiKeyHint": "To cut off this access, revoke its key under API keys or MCP tokens in Settings.",
+    "peersHeading": "Group members",
+    "peerDayReads_one": "{{member}} read your activities once in {{group}}",
+    "peerDayReads_other": "{{member}} read your activities {{count}} times in {{group}}",
+    "formerMember": "A former member",
+    "agentTurnRow": "Asked Dravr's agent about your data"
   },
   "delegation": {
     "actionFailed": "That did not go through. Try again.",

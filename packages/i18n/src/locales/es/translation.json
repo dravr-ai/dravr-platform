@@ -2077,7 +2077,12 @@
     },
     "overA2a": "por A2A",
     "supportRead": "El soporte de Dravr leyó esto mientras te ayudaba.",
-    "apiKeyHint": "Para cortar este acceso, revoca su clave en Claves de API o Tokens MCP, en Ajustes."
+    "apiKeyHint": "Para cortar este acceso, revoca su clave en Claves de API o Tokens MCP, en Ajustes.",
+    "peersHeading": "Miembros de grupo",
+    "peerDayReads_one": "{{member}} leyó tus actividades una vez en {{group}}",
+    "peerDayReads_other": "{{member}} leyó tus actividades {{count}} veces en {{group}}",
+    "formerMember": "Un antiguo miembro",
+    "agentTurnRow": "Preguntó al agente de Dravr sobre tus datos"
   },
   "delegation": {
     "actionFailed": "No se completó. Inténtalo de nuevo.",
