@@ -679,6 +679,9 @@ export interface GetGroupMemberPlanStatusParams {
  */
 export interface GetHealthRecordsParams {
 
+  /** Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours. */
+  athlete?: string;
+
   /** RFC3339 end; defaults to now. */
   end?: string;
 
