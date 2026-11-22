@@ -23,6 +23,8 @@
 //! 5. with a signer, cuts a checkpoint anchoring the deletion receipt chain's
 //!    head, records the anchor, and logs the signed note to Cloud Logging
 //!    (target `dravr::checkpoint`): the place the database cannot reach.
+//!    An unchanged tree is not cut again, so a tick that finds the newest
+//!    checkpoint without its anchor row records it then.
 
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -32,8 +34,8 @@ use chrono::Utc;
 use dravr_barrage::blob::backfill_keyed_names;
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::keyed::{KeyedDigest, Signer};
-use dravr_barrage::record_log::checkpoint::Anchor;
-use dravr_barrage::record_log::{cut_checkpoint, LOG_PAGE};
+use dravr_barrage::record_log::checkpoint::{Anchor, Checkpoint};
+use dravr_barrage::record_log::{cut_checkpoint, standing_checkpoint, LOG_PAGE};
 use dravr_barrage::store::{ActivityRecordStore, BarrageStores, RecordPlace};
 use dravr_barrage::{BarrageError, UserId};
 use pierre_core::errors::{AppError, AppResult};
@@ -70,7 +72,8 @@ pub struct RecordLogTick {
     pub keyed_names: Option<KeyedNamesPage>,
     /// Deleted accounts whose log was swept.
     pub orphans_swept: u64,
-    /// The checkpoint cut, with the receipt it anchors.
+    /// The checkpoint cut, with the receipt it anchors; or the newest
+    /// checkpoint whose missing anchor row this tick recorded.
     pub anchored: Option<ReceiptAnchor>,
 }
 
@@ -288,7 +291,7 @@ impl RecordLogWorker {
         .await
         .map_err(|e| AppError::internal(format!("record_log checkpoint: {e}")))?
         else {
-            return Ok(None);
+            return self.repair_anchor(seq, hash, &anchor).await;
         };
         // Logged before the anchor row is written: the copy outside the
         // database must not depend on that write, since a cut checkpoint is
@@ -301,23 +304,76 @@ impl RecordLogWorker {
             note = %checkpoint.note,
             "Signed record_log checkpoint"
         );
-        let recorded = ReceiptAnchor {
-            receipt_seq: seq,
-            receipt_hash: hash,
-            checkpoint_id: checkpoint.id,
-            tree_size: i64::try_from(checkpoint.size).map_err(|_| {
-                AppError::internal(format!(
-                    "checkpoint {} has a size {} past i64",
-                    checkpoint.id, checkpoint.size
-                ))
-            })?,
-            tree_root: checkpoint.root.to_hex(),
-            note: checkpoint.note.clone(),
-            anchored_at: Utc::now(),
-        };
+        let recorded = anchor_row(seq, hash, checkpoint)?;
         self.receipts.record_anchor(&recorded).await?;
         Ok(Some(recorded))
     }
+
+    /// Record the anchor of the newest checkpoint when its row is missing:
+    /// a cut whose anchor write failed is repaired on the next tick, not at
+    /// the next change to the tree, since an unchanged tree is never cut
+    /// again.
+    ///
+    /// The row is written only when the newest checkpoint commits to the
+    /// chain head the tick read (`anchor`, at `seq` / `hash`), which barrage
+    /// answers ([`standing_checkpoint`]): a checkpoint another instance cut
+    /// over another head is left to it, and so is one cut between the two
+    /// reads (the standing checkpoint must be the newest read first). The
+    /// tree is read only when a row is missing, not on every tick.
+    async fn repair_anchor(
+        &self,
+        seq: i64,
+        hash: String,
+        anchor: &Anchor,
+    ) -> AppResult<Option<ReceiptAnchor>> {
+        let barrage =
+            |e: BarrageError| AppError::internal(format!("record_log anchor repair: {e}"));
+        let Some(latest) = self.records.latest_checkpoint().await.map_err(barrage)? else {
+            return Ok(None);
+        };
+        if self
+            .receipts
+            .latest_anchor()
+            .await?
+            .is_some_and(|recorded| recorded.checkpoint_id == latest.id)
+        {
+            return Ok(None);
+        }
+        let Some(standing) = standing_checkpoint(self.records.as_ref(), *anchor)
+            .await
+            .map_err(barrage)?
+            .filter(|standing| standing.id == latest.id)
+        else {
+            return Ok(None);
+        };
+        let recorded = anchor_row(seq, hash, standing)?;
+        self.receipts.record_anchor(&recorded).await?;
+        warn!(
+            checkpoint_id = recorded.checkpoint_id,
+            receipt_seq = seq,
+            "Recorded the missing anchor of the newest record_log checkpoint"
+        );
+        Ok(Some(recorded))
+    }
+}
+
+/// The anchor row naming `checkpoint` and the receipt chain head at `seq` /
+/// `hash` it commits to.
+fn anchor_row(seq: i64, hash: String, checkpoint: Checkpoint) -> AppResult<ReceiptAnchor> {
+    Ok(ReceiptAnchor {
+        receipt_seq: seq,
+        receipt_hash: hash,
+        checkpoint_id: checkpoint.id,
+        tree_size: i64::try_from(checkpoint.size).map_err(|_| {
+            AppError::internal(format!(
+                "checkpoint {} has a size {} past i64",
+                checkpoint.id, checkpoint.size
+            ))
+        })?,
+        tree_root: checkpoint.root.to_hex(),
+        note: checkpoint.note,
+        anchored_at: Utc::now(),
+    })
 }
 
 /// Start the worker on [`spawn_periodic`], hourly.
