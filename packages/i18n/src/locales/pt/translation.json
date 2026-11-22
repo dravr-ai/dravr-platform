@@ -3912,6 +3912,11 @@
   },
   "oauth": {
     "consent": {
+      "adminAccessGoesTo": "O acesso de admin é concedido a {0}.",
+      "adminAccessGoesToTwoHosts": "O acesso de admin é concedido a {0}, para a aplicação publicada em {1}.",
+      "adminAccessHint": "Só os admins veem esta opção. Nunca é memorizada: é-lhe perguntado sempre que liga uma aplicação, e pode retirá-la em Aplicações ligadas.",
+      "adminAccessLabel": "Acesso de admin",
+      "adminAccessThisComputer": "um programa neste dispositivo",
       "allow": "Permitir o acesso",
       "deny": "Recusar",
       "express": "Os seus dados de treino, sono e recuperação, as lesões de que falou à Dravr e os locais das suas atividades são informações pessoais sensíveis. Ao escolher {0}, você consente expressamente que a Dravr os partilhe com {1}.",

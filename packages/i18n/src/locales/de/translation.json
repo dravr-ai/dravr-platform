@@ -3912,6 +3912,11 @@
   },
   "oauth": {
     "consent": {
+      "adminAccessGoesTo": "Der Admin-Zugriff geht an {0}.",
+      "adminAccessGoesToTwoHosts": "Der Admin-Zugriff geht an {0}, für die unter {1} veröffentlichte App.",
+      "adminAccessHint": "Nur Admins sehen diese Auswahl. Sie wird nie gespeichert: Sie werden bei jeder App, die Sie verbinden, erneut gefragt und können sie unter Verbundene Apps zurückziehen.",
+      "adminAccessLabel": "Admin-Zugriff",
+      "adminAccessThisComputer": "ein Programm auf diesem Gerät",
       "allow": "Zugriff erlauben",
       "deny": "Ablehnen",
       "express": "Ihre Trainings-, Schlaf- und Erholungsdaten, die Verletzungen, von denen Sie Dravr erzählt haben, und die Orte Ihrer Aktivitäten sind sensible personenbezogene Informationen. Indem Sie {0} wählen, willigen Sie ausdrücklich ein, dass Dravr sie an {1} weitergibt.",

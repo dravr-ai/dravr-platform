@@ -3912,6 +3912,11 @@
   },
   "oauth": {
     "consent": {
+      "adminAccessGoesTo": "Admin access goes to {0}.",
+      "adminAccessGoesToTwoHosts": "Admin access goes to {0}, for the app published at {1}.",
+      "adminAccessHint": "Only admins see this choice. It is never remembered: you are asked each time you connect an app, and you can withdraw it in Connected apps.",
+      "adminAccessLabel": "Admin access",
+      "adminAccessThisComputer": "a program on this device",
       "allow": "Allow access",
       "deny": "Deny",
       "express": "Your training, sleep and recovery data, the injuries you told Dravr about and where your activities took place are sensitive personal information. By choosing {0} you expressly consent to Dravr sharing them with {1}.",

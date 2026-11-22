@@ -3912,6 +3912,11 @@
   },
   "oauth": {
     "consent": {
+      "adminAccessGoesTo": "El acceso de admin se concede a {0}.",
+      "adminAccessGoesToTwoHosts": "El acceso de admin se concede a {0}, para la app publicada en {1}.",
+      "adminAccessHint": "Solo los admins ven esta opción. Nunca se recuerda: se le pregunta cada vez que conecta una app, y puede retirarla en Apps conectadas.",
+      "adminAccessLabel": "Acceso de admin",
+      "adminAccessThisComputer": "un programa de este dispositivo",
       "allow": "Permitir el acceso",
       "deny": "Denegar",
       "express": "Sus datos de entrenamiento, sueño y recuperación, las lesiones que le contó a Dravr y los lugares de sus actividades son información personal sensible. Al elegir {0}, usted consiente expresamente que Dravr los comparta con {1}.",
