@@ -15,7 +15,7 @@
 //!   Never of another admin, never of themselves. The two
 //!   tools that start and end it are `ADMIN_ONLY`, so the one access
 //!   predicate ([`crate::tool_access`]) refuses them to anyone else.
-//! - **Bound to the credential that started it** ([`SUPPORT_BINDING`], JF
+//! - **Bound to the credential that started it** ([`CALLER_CREDENTIAL`], JF
 //!   Q21): the OAuth grant (the refresh family its access token was minted
 //!   in) or the one API key. Another key of the same admin, or another
 //!   connection of the same application, acts as the admin. A session the
@@ -34,7 +34,8 @@
 //!   withheld (data_export.rs: support may see what it needs to help, never
 //!   carry the whole record away).
 //! - **Audit.** Start, end and expiry are `audit_events` rows naming the
-//!   admin, the user, the session and the connection; so is every call made
+//!   admin, the user, the session and the connection (the credential, its
+//!   kind and the client it was issued to); so is every call made
 //!   in the session, written before it runs, and a row that cannot be
 //!   written refuses the call (the executor's admin-call audit).
 //! - **It ends** with [`END_TOOL`], the web console's end, the hour, a new
@@ -50,8 +51,8 @@ use pierre_auth::auth::ImpersonationGrant;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{TenantId, User};
 use pierre_core::permissions::impersonation::{
-    self, BoundCredential, ImpersonationSession, ENDED_ACTION, EXPIRED_ACTION, SESSION_MINUTES,
-    STARTED_ACTION,
+    self, BoundCredential, CallerCredential, ImpersonationSession, ENDED_ACTION, EXPIRED_ACTION,
+    SESSION_MINUTES, STARTED_ACTION,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -69,17 +70,23 @@ pub const START_TOOL: &str = "admin_impersonate_start";
 pub const END_TOOL: &str = "admin_impersonate_end";
 
 tokio::task_local! {
-    /// The credential the in-flight external call came through, as a
-    /// support session binds it ([`BoundCredential`]): set by the `/mcp`
+    /// The credential the in-flight external call came through
+    /// ([`CallerCredential`]): its kind and client, which the admin audit
+    /// trail names, and what a support session binds to. Set by the `/mcp`
     /// dispatcher and the A2A executor around each call. Absent on Dravr's
     /// own surfaces, where [`START_TOOL`] has nothing to bind and refuses.
-    pub static SUPPORT_BINDING: Option<BoundCredential>;
+    pub static CALLER_CREDENTIAL: Option<CallerCredential>;
 }
 
 /// The credential the in-flight call declared, if any.
 #[must_use]
-pub fn current_binding() -> Option<BoundCredential> {
-    SUPPORT_BINDING.try_with(Clone::clone).ok().flatten()
+pub fn current_credential() -> Option<CallerCredential> {
+    CALLER_CREDENTIAL.try_with(Clone::clone).ok().flatten()
+}
+
+/// What a support session started through `credential` is bound to.
+fn binding_of(credential: Option<&CallerCredential>) -> Option<&BoundCredential> {
+    credential.and_then(|credential| credential.binding.as_ref())
 }
 
 /// A support session that is live for the connection asking.
@@ -128,8 +135,8 @@ pub fn grant_for_user(grant: &[OAuthScope]) -> Vec<OAuthScope> {
         .collect()
 }
 
-/// The support session live for `admin` on the credential `binding` names,
-/// under `grant`, or `None`.
+/// The support session live for `admin` on the credential `credential`
+/// binds to, under `grant`, or `None`.
 ///
 /// `None` without a lookup when the grant does not hold `admin`: a session
 /// is never served to a connection that could not have started it. A
@@ -147,10 +154,10 @@ pub async fn live_support(
     repos: &RepositoryRegistry,
     admin: Uuid,
     grant: &[OAuthScope],
-    binding: Option<&BoundCredential>,
+    credential: Option<&CallerCredential>,
     transport: Transport,
 ) -> AppResult<Option<LiveSupport>> {
-    let Some(binding) = binding else {
+    let Some(binding) = binding_of(credential) else {
         return Ok(None);
     };
     if !grant.contains(&OAuthScope::Admin) {
@@ -165,7 +172,7 @@ pub async fn live_support(
     };
     let now = Utc::now();
     if now >= expires_at(&session) {
-        close(repos, &session, EXPIRED_ACTION, transport).await?;
+        close(repos, &session, EXPIRED_ACTION, transport, credential).await?;
         return Ok(None);
     }
     if let BoundCredential::Grant(grant_id) = binding {
@@ -179,7 +186,7 @@ pub async fn live_support(
                 session_id = %session.id,
                 "support session through an assistant ended: its OAuth grant ran out"
             );
-            close(repos, &session, ENDED_ACTION, transport).await?;
+            close(repos, &session, ENDED_ACTION, transport, credential).await?;
             return Ok(None);
         }
     }
@@ -197,7 +204,7 @@ pub async fn live_support(
             session_id = %session.id,
             "support session through an assistant ended: its admin or its user no longer qualifies"
         );
-        close(repos, &session, ENDED_ACTION, transport).await?;
+        close(repos, &session, ENDED_ACTION, transport, credential).await?;
         return Ok(None);
     }
     let Some(tenant) = repos.tenants.first_for_user(session.target_user_id).await? else {
@@ -225,8 +232,8 @@ pub struct StartedSupport {
     pub expires_at: DateTime<Utc>,
 }
 
-/// Start a support session for `admin` on the credential `binding` names,
-/// acting as `user` (an email or an account id), for `reason`.
+/// Start a support session for `admin` bound to the credential `credential`
+/// came through, acting as `user` (an email or an account id), for `reason`.
 ///
 /// Every earlier session of the admin ends first, on every surface. The
 /// start is written to the audit trail; a row that cannot be written ends
@@ -242,12 +249,12 @@ pub struct StartedSupport {
 pub async fn start(
     repos: &RepositoryRegistry,
     admin: Uuid,
-    binding: Option<&BoundCredential>,
+    credential: Option<&CallerCredential>,
     user: &str,
     reason: &str,
     transport: Transport,
 ) -> AppResult<StartedSupport> {
-    let Some(binding) = binding else {
+    let Some(binding) = binding_of(credential) else {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
             "A support session through an assistant starts from that assistant's own MCP or A2A \
@@ -305,7 +312,7 @@ pub async fn start(
     let session =
         ImpersonationSession::bound_to(admin, target.id, Some(reason.to_owned()), binding);
     repos.impersonation.create_session(&session).await?;
-    let event = event(&session, STARTED_ACTION, "started", transport);
+    let event = event(&session, STARTED_ACTION, "started", transport, credential);
     if let Err(e) = repos.admin_audit.record(&event).await {
         error!(
             session_id = %session.id,
@@ -332,8 +339,8 @@ pub async fn start(
 }
 
 /// End the live support session `admin` started with the credential
-/// `binding` names, and write the end to the audit trail. `None` when none
-/// is live.
+/// `credential` came through, and write the end to the audit trail. `None`
+/// when none is live.
 ///
 /// # Errors
 ///
@@ -342,10 +349,10 @@ pub async fn start(
 pub async fn end(
     repos: &RepositoryRegistry,
     admin: Uuid,
-    binding: Option<&BoundCredential>,
+    credential: Option<&CallerCredential>,
     transport: Transport,
 ) -> AppResult<Option<ImpersonationSession>> {
-    let Some(binding) = binding else {
+    let Some(binding) = binding_of(credential) else {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
             "A support session through an assistant is ended from that assistant's own \
@@ -359,17 +366,19 @@ pub async fn end(
     else {
         return Ok(None);
     };
-    close(repos, &session, ENDED_ACTION, transport).await?;
+    close(repos, &session, ENDED_ACTION, transport, credential).await?;
     Ok(Some(session))
 }
 
-/// End `session` and write `action` to the audit trail. The session ends
-/// whether or not the row can be written; a row that cannot is logged.
+/// End `session` and write `action` to the audit trail, naming the
+/// `credential` of the call that ended it. The session ends whether or not
+/// the row can be written; a row that cannot is logged.
 async fn close(
     repos: &RepositoryRegistry,
     session: &ImpersonationSession,
     action: &str,
     transport: Transport,
+    credential: Option<&CallerCredential>,
 ) -> AppResult<()> {
     repos.impersonation.end_session(&session.id).await?;
     let verb = if action == EXPIRED_ACTION {
@@ -379,7 +388,7 @@ async fn close(
     };
     if let Err(e) = repos
         .admin_audit
-        .record(&event(session, action, verb, transport))
+        .record(&event(session, action, verb, transport, credential))
         .await
     {
         error!(
@@ -391,12 +400,14 @@ async fn close(
     Ok(())
 }
 
-/// The audit row of a support session's start, end or expiry.
+/// The audit row of a support session's start, end or expiry, made by a
+/// call through `credential`.
 fn event(
     session: &ImpersonationSession,
     action: &str,
     verb: &str,
     transport: Transport,
+    credential: Option<&CallerCredential>,
 ) -> NewAuditEvent {
     let label = Transport::label_of(Some(transport));
     support_session_event(
@@ -404,6 +415,7 @@ fn event(
         action,
         format!("Support session through an assistant {verb} over {label}"),
         Some(label),
+        credential,
     )
 }
 

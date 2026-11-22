@@ -60,6 +60,72 @@ pub enum BoundCredential {
     ApiKey(String),
 }
 
+/// What kind of credential a call came through, as the admin audit trail
+/// names it (carnet#1511).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialKind {
+    /// A third-party OAuth application's access token, delegated at consent.
+    OAuthGrant,
+    /// One of the user's API keys.
+    ApiKey,
+    /// A personal MCP token (`pmcp_`) the user minted for an MCP client.
+    McpToken,
+    /// A session of one of Dravr's own apps, or a token naming no client.
+    FirstPartySession,
+    /// An A2A machine client's client-credentials token, acting as the user
+    /// who registered it.
+    A2aClientCredentials,
+    /// A linked messaging channel.
+    ChannelLink,
+}
+
+impl CredentialKind {
+    /// The name the audit trail records.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::OAuthGrant => "oauth_grant",
+            Self::ApiKey => "api_key",
+            Self::McpToken => "mcp_token",
+            Self::FirstPartySession => "first_party_session",
+            Self::A2aClientCredentials => "a2a_client_credentials",
+            Self::ChannelLink => "channel_link",
+        }
+    }
+}
+
+/// The credential an external call came through: what the admin audit trail
+/// names of it, and what a support session binds to.
+///
+/// Ids and kinds only, never a token or a secret: the client is the OAuth
+/// `client_id` the authorization server issued the token to (or the A2A
+/// client a client-credentials token names), never what the caller says
+/// about itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallerCredential {
+    /// The kind of credential.
+    pub kind: CredentialKind,
+    /// The client the credential was issued to; `None` for an API key, a
+    /// personal MCP token, a channel link, and a session no client signed
+    /// in to.
+    pub client_id: Option<String>,
+    /// What a support session started through this credential is bound to;
+    /// `None` for a credential that never starts one.
+    pub binding: Option<BoundCredential>,
+}
+
+impl CallerCredential {
+    /// The kind of credential a support session bound to `session` came
+    /// through, read from the session itself; `None` for a web session.
+    #[must_use]
+    pub fn kind_of_session(session: &ImpersonationSession) -> Option<CredentialKind> {
+        session.bound_credential().map(|bound| match bound {
+            BoundCredential::Grant(_) => CredentialKind::OAuthGrant,
+            BoundCredential::ApiKey(_) => CredentialKind::ApiKey,
+        })
+    }
+}
+
 /// `audit_events.action` of a support session an assistant started.
 pub const STARTED_ACTION: &str = "impersonation.started";
 

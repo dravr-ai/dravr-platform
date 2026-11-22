@@ -28,6 +28,7 @@ use crate::{A2ARequest, A2AResponse, JSONRPC_VERSION};
 use chrono::SecondsFormat;
 use pierre_core::models::a2a::user_task_key;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
+use pierre_core::permissions::impersonation::CallerCredential;
 use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::McpAuthMiddleware;
@@ -39,7 +40,7 @@ use pierre_tool_runtime::protocol::{
     UniversalResponse, UniversalToolExecutor,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::support_session::{self, SUPPORT_BINDING};
+use pierre_tool_runtime::support_session::{self, CALLER_CREDENTIAL};
 use std::fmt;
 // Trait methods dispatched through repos.a2a Arc<dyn Trait>;
 use serde_json::{from_value, json, to_value, Map, Value};
@@ -853,7 +854,14 @@ impl A2AServer {
     /// writes the audit row of every other one, is written `refused` here: every
     /// admin-only call over A2A is on the trail (EFVP 9.4d). An unknown tool is
     /// no admin-only one, so it writes nothing.
-    async fn record_refused(tool_runtime: &Arc<dyn ToolRuntime>, user_id: Uuid, tool_name: &str) {
+    /// `credential` is the one the call came through, `None` when the
+    /// credential itself was refused.
+    async fn record_refused(
+        tool_runtime: &Arc<dyn ToolRuntime>,
+        user_id: Uuid,
+        tool_name: &str,
+        credential: Option<&CallerCredential>,
+    ) {
         record_refused_admin_call(
             tool_runtime.as_ref(),
             &RefusedAdminCall {
@@ -862,6 +870,7 @@ impl A2AServer {
                 tenant_id: None,
                 transport: Transport::A2a,
                 protocol: "a2a",
+                credential,
             },
         )
         .await;
@@ -878,7 +887,13 @@ impl A2AServer {
         tool: Option<&str>,
     ) {
         if let Some(tool) = tool {
-            Self::record_refused(&resources.tool_runtime, principal.user_id, tool).await;
+            Self::record_refused(
+                &resources.tool_runtime,
+                principal.user_id,
+                tool,
+                Some(&principal.credential),
+            )
+            .await;
         }
     }
 
@@ -903,12 +918,24 @@ impl A2AServer {
             match extract_tenant_context_internal(ctx.repos(), user_id, tenant).await {
                 Ok(Some(context)) => context,
                 Ok(None) => {
-                    Self::record_refused(tool_runtime, user_id, tool_name).await;
+                    Self::record_refused(
+                        tool_runtime,
+                        user_id,
+                        tool_name,
+                        Some(&principal.credential),
+                    )
+                    .await;
                     return Err(SendFailure::text("User does not belong to any tenant"));
                 }
                 Err(e) => {
                     log_tenant_failure(user_id, &e);
-                    Self::record_refused(tool_runtime, user_id, tool_name).await;
+                    Self::record_refused(
+                        tool_runtime,
+                        user_id,
+                        tool_name,
+                        Some(&principal.credential),
+                    )
+                    .await;
                     return Err(SendFailure::text("Failed to resolve tenant context"));
                 }
             };
@@ -929,7 +956,7 @@ impl A2AServer {
         };
         // Built inside the session's scope: the executor reads the session
         // when it is built, and carries it into the tool body.
-        let binding = support::binding(principal);
+        let credential = principal.credential.clone();
         let session = acting
             .support
             .as_ref()
@@ -943,8 +970,8 @@ impl A2AServer {
                 .execute_tool(request)
                 .await
         };
-        let executed = SUPPORT_BINDING
-            .scope(binding, SUPPORT_SESSION.scope(session, run))
+        let executed = CALLER_CREDENTIAL
+            .scope(Some(credential), SUPPORT_SESSION.scope(session, run))
             .await;
 
         match executed {

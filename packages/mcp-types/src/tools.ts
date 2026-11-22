@@ -640,7 +640,7 @@ export interface GetFoodDetailsParams {
 
 
 /**
- * Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to read a peer's data in a group chat — `get_activities` always returns YOUR own data, never a peer's. Returns an error (not data), whose `reason` says why, if the member has not shared their data with you: with the group via `/group consent yes`, or with you as the group's coach (joining grants it, `/group consent coach no` revokes it).
+ * Fetch a CONSENTING group member's recent or past activities. In a group chat this is how you read a peer's data: `get_activities` there returns YOUR own data, never a peer's. Returns an error (not data), whose `reason` says why, if the member has not shared their data with you: with the group via `/group consent yes`, or with you as the group's coach (joining grants it, `/group consent coach no` revokes it).
  */
 export interface GetGroupMemberActivitiesParams {
 
@@ -1109,7 +1109,7 @@ export interface PredictPerformanceParams {
 
 
 /**
- * Write one workout onto the athlete's calendar provider (Intervals.icu, Wahoo or Garmin) for a date and record it; needs a connected provider that writes a training calendar. Pass EITHER template_slug OR session. Every call adds a new calendar entry unless replaces names a prescription_id (from an earlier call or get_training_plan's calendar block), which changes that entry in place on its own provider; withdraw_prescribed_workout removes one. A group's human coach prescribes for a consenting athlete with `athlete`, through the athlete's Intervals.icu link once they allow calendar writes on it.
+ * Write one workout onto the athlete's calendar provider (Intervals.icu, Wahoo or Garmin) for a date and record it; needs a connected provider that writes a training calendar. Pass EITHER template_slug OR session. Every call adds a new calendar entry unless replaces names a prescription_id (from an earlier call or get_training_plan's calendar block), which changes that entry in place on its own provider; withdraw_prescribed_workout removes one. In Dravr's app or channels a group's human coach can prescribe for a consenting athlete through their Intervals.icu link once they allow calendar writes on it; elsewhere a prescription is the caller's own.
  */
 export interface PrescribeWorkoutParams {
 
@@ -1206,7 +1206,7 @@ export interface PrescribeWorkoutParams {
 
 
 /**
- * Put the athlete's active training plan on their calendar provider (Intervals.icu, Wahoo or Garmin): creates missing days, updates changed ones, removes dropped ones, leaves alone any the athlete edited there (Garmin reports no edits). Never touches dates before today. save_training_plan and publish_training_plan already push (their calendar_push says what landed): call this only when the athlete or coach asks, e.g. once what stopped that push is fixed. Needs a saved plan and a connected calendar-writing provider. A group's human coach pushes a consenting athlete's plan with `athlete`, through their Intervals.icu link: they must allow calendar writes on it, and Intervals.icu must list the coach as their coach. Only the published plan is pushed, never a coach's unpublished draft (the reply's unpublished_draft flags one).
+ * Put the athlete's active training plan on their calendar provider (Intervals.icu, Wahoo or Garmin): creates missing days, updates changed ones, removes dropped ones, leaves alone any the athlete edited there (Garmin reports no edits). Never touches dates before today. save_training_plan and publish_training_plan already push (their calendar_push says what landed): call this only when the athlete or coach asks, e.g. once what stopped that push is fixed. Needs a saved plan and a connected calendar-writing provider. In Dravr's app or channels a group's human coach can push a consenting athlete's plan through their Intervals.icu link: they must allow calendar writes on it, and Intervals.icu must list the coach as their coach; elsewhere a push is the caller's own. Only the published plan is pushed, never a coach's unpublished draft (the reply's unpublished_draft flags one).
  */
 export interface PushTrainingPlanParams {
 
@@ -1399,7 +1399,7 @@ export interface SaveRecipeParams {
 
 
 /**
- * Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving also puts the plan on the athlete's chosen calendar: relay calendar_push when it is not_pushed, and any day it skipped or failed (queued: it lands after your reply); calendar.pushed_by human_coach means their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.
+ * Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving also puts the plan on the athlete's chosen calendar: relay calendar_push when it is not_pushed, and any day it skipped or failed (queued: it lands after your reply); calendar.pushed_by human_coach means their human coach updates that calendar. In Dravr's app or channels a group's human coach can save for a consenting athlete as a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan; elsewhere a save is the caller's own.
  */
 export interface SaveTrainingPlanParams {
 
@@ -2027,7 +2027,7 @@ export interface VerifyClaimParams {
 
 
 /**
- * Remove a workout prescribe_workout wrote to the athlete's calendar provider and mark the prescription withdrawn. Only for single prescriptions: an entry the training plan put there is removed by adjusting the plan — save_training_plan, or a coach's publish_training_plan, updates the calendar. A group's human coach passes `athlete` as for prescribe_workout.
+ * Remove a workout prescribe_workout wrote to the athlete's calendar provider and mark the prescription withdrawn. Only for single prescriptions: an entry the training plan put there is removed by adjusting the plan — save_training_plan, or a coach's publish_training_plan, updates the calendar. A coach withdraws for an athlete where prescribe_workout lets them prescribe.
  */
 export interface WithdrawPrescribedWorkoutParams {
 

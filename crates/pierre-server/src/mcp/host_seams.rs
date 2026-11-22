@@ -55,7 +55,7 @@ use pierre_tool_runtime::protocol::{record_refused_admin_call, RefusedAdminCall}
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::scopes::missing_scope;
-use pierre_tool_runtime::support_session::{END_TOOL, SUPPORT_BINDING};
+use pierre_tool_runtime::support_session::{CALLER_CREDENTIAL, END_TOOL};
 use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
 use pierre_tool_runtime::tool_access::{self, Caller, CallerRole};
 use serde_json::{Map, Value};
@@ -256,6 +256,8 @@ impl PierreAuthHook {
         let Some(tool_name) = called_tool(request) else {
             return;
         };
+        // Recorded once the credential was admitted; a refused one names none.
+        let credential = support::credential();
         record_refused_admin_call(
             &*self.resources,
             &RefusedAdminCall {
@@ -264,6 +266,7 @@ impl PierreAuthHook {
                 tenant_id: tenant,
                 transport: Transport::McpHttp,
                 protocol: "mcp",
+                credential: credential.as_ref(),
             },
         )
         .await;
@@ -353,9 +356,10 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         // The usage row an API key's request writes names the tool it
         // called, not `POST /mcp`, which serves every tool.
         report_request_operation(mcp_operation(request));
-        // The credential a support session binds to (carnet#1511), which the
-        // engine's context cannot carry to the dispatcher.
-        report_request_credential(auth_result.bound_credential());
+        // The credential the audit trail names and a support session binds
+        // to (carnet#1511), which the engine's context cannot carry to the
+        // dispatcher.
+        report_request_credential(auth_result.caller_credential());
 
         match extract_tenant_context_internal(
             &self.resources.common.repos,
@@ -722,8 +726,8 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         // A support session started through this connection lists the user's
         // tools, and the one that ends it (carnet#1511). A session that cannot
         // be read lists nothing rather than the admin's own tools.
-        let binding = support::binding();
-        let support = match support::live(&self.resources, ctx, binding.as_ref()).await {
+        let credential = support::credential();
+        let support = match support::live(&self.resources, ctx, credential.as_ref()).await {
             Ok(support) => support,
             Err(e) => {
                 error!(error = %e, "tools/list: the support-session lookup failed; listing nothing");
@@ -823,8 +827,9 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         // as the user, inside the session (carnet#1511); the two session
         // tools run as the admin. The connection is declared either way, for
         // the session tools to bind to.
-        let binding = support::binding();
-        let (call_ctx, session) = match support::live(&self.resources, ctx, binding.as_ref()).await
+        let credential = support::credential();
+        let (call_ctx, session) = match support::live(&self.resources, ctx, credential.as_ref())
+            .await
         {
             Ok(Some(live)) if !support::runs_as_admin(name) => {
                 (support::as_user(ctx, &live), Some(live.grant()))
@@ -841,8 +846,8 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         };
         let ctx = &call_ctx;
         let dispatch = |resources: Arc<ServerContext>, state: Arc<dyn ToolRuntime>| {
-            SUPPORT_BINDING.scope(
-                binding.clone(),
+            CALLER_CREDENTIAL.scope(
+                credential.clone(),
                 SUPPORT_SESSION.scope(
                     session.clone(),
                     run_dispatch(

@@ -29,7 +29,9 @@
 //! | An OAuth application deleted | `delete_client`, `delete_stale_clients` | every family left with no token |
 //! | An API key deactivated | `deactivate` | that key's |
 
-use pierre_core::permissions::impersonation::{ImpersonationSession, ENDED_ACTION};
+use pierre_core::permissions::impersonation::{
+    CallerCredential, CredentialKind, ImpersonationSession, ENDED_ACTION,
+};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -121,14 +123,35 @@ pub(crate) const END_API_KEY_SESSIONS_SQL: &str = concat!(
 /// The audit row of a support session through an admin's assistant.
 ///
 /// Its start, end or expiry: it names the admin, the user, the session, the
-/// credential it was bound to and the reason given; `transport` is the
-/// surface the call came over, `None` when no call ended it (a revocation).
+/// credential it was bound to, the kind of that credential and the client it
+/// was issued to, and the reason given; `transport` is the surface the call
+/// came over, `None` when no call ended it (a revocation). `caller` is the
+/// credential of the call that wrote the row, which is the one the session
+/// is bound to; `None` when no call wrote it, and the kind is then read from
+/// the session.
 #[must_use]
 pub fn support_session_event(
     session: &ImpersonationSession,
     action: &str,
     summary: String,
     transport: Option<&str>,
+    caller: Option<&CallerCredential>,
+) -> NewAuditEvent {
+    let kind = caller
+        .map(|credential| credential.kind)
+        .or_else(|| CallerCredential::kind_of_session(session));
+    let client_id = caller.and_then(|credential| credential.client_id.as_deref());
+    session_event(session, action, summary, transport, kind, client_id)
+}
+
+/// [`support_session_event`] with the credential's kind and client given.
+fn session_event(
+    session: &ImpersonationSession,
+    action: &str,
+    summary: String,
+    transport: Option<&str>,
+    kind: Option<CredentialKind>,
+    client_id: Option<&str>,
 ) -> NewAuditEvent {
     NewAuditEvent {
         action: action.to_owned(),
@@ -146,20 +169,36 @@ pub fn support_session_event(
             "impersonation_session_id": session.id,
             "grant_id": session.grant_id,
             "api_key_id": session.api_key_id,
+            "credential_kind": kind.map(CredentialKind::as_str),
+            "client_id": client_id,
             "reason": session.reason,
             "transport": transport,
         }),
     }
 }
 
-/// The audit row of a session ended by its credential's revocation.
-pub(crate) fn revoked_end_event(session: &ImpersonationSession) -> NewAuditEvent {
-    support_session_event(
+/// The audit row of a session ended by its credential's revocation. No call
+/// wrote it, so the kind is read from the session, and the client is named
+/// only when the revocation names one (a consent withdrawn from a client).
+pub(crate) fn revoked_end_event(
+    session: &ImpersonationSession,
+    revoked: RevokedCredential<'_>,
+) -> NewAuditEvent {
+    let client_id = match revoked {
+        RevokedCredential::ClientFamilies { client_id, .. } => Some(client_id),
+        RevokedCredential::FamilyOfToken(_)
+        | RevokedCredential::UserFamilies { .. }
+        | RevokedCredential::DeletedFamilies
+        | RevokedCredential::ApiKey { .. } => None,
+    };
+    session_event(
         session,
         ENDED_ACTION,
         "Support session through an assistant ended: the credential it was bound to was revoked"
             .to_owned(),
         None,
+        CallerCredential::kind_of_session(session),
+        client_id,
     )
 }
 
@@ -235,7 +274,8 @@ macro_rules! impl_support_binding_ends {
                     .map(session_from_row)
                     .collect::<AppResult<Vec<_>>>()?;
                 for session in &ended {
-                    let event = $crate::repositories::support_binding::revoked_end_event(session);
+                    let event =
+                        $crate::repositories::support_binding::revoked_end_event(session, revoked);
                     sqlx::query($crate::repositories::admin_audit::INSERT_AUDIT_EVENT_SQL)
                         .bind(uuid::Uuid::new_v4().to_string())
                         .bind(&event.action)

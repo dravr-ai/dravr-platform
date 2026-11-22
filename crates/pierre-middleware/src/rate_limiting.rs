@@ -70,7 +70,7 @@ use http::{HeaderMap, HeaderValue, StatusCode};
 use pierre_auth::rate_limiting::RequestBudget;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{A2AUsage, ApiKeyUsage};
-use pierre_core::permissions::impersonation::BoundCredential;
+use pierre_core::permissions::impersonation::CallerCredential;
 use pierre_core::usage_log::{self, LimitHit};
 use pierre_database::backends::{A2ARepository, UsageRepository};
 use pierre_database::RepositoryRegistry;
@@ -132,9 +132,10 @@ struct RequestReport {
     caller: Option<MeteredCaller>,
     /// The operation the request performed, when its route serves many.
     operation: Option<String>,
-    /// The credential that admitted the request, as a support session binds
-    /// it, for the handler to read back ([`request_credential`]).
-    credential: Option<BoundCredential>,
+    /// The credential that admitted the request, as the audit trail names it
+    /// and a support session binds it, for the handler to read back
+    /// ([`request_credential`]).
+    credential: Option<CallerCredential>,
 }
 
 /// One request's report. `Arc` because two owners need it: the task-local
@@ -218,22 +219,25 @@ pub fn report_a2a_client_request(call: A2AClientCall) {
     report(|slot| slot.caller = Some(caller));
 }
 
-/// Record the credential that admitted this request, as a support session
-/// binds it (carnet#1511): the API key, or the OAuth grant its token was
-/// minted under.
+/// Record the credential that admitted this request (carnet#1511).
+///
+/// Its kind and client are what the admin audit trail names; its binding (the
+/// API key, or the OAuth grant its token was minted under) is what a support
+/// session binds to.
 ///
 /// For a door whose handler cannot be handed it directly: `/mcp` serves
 /// every call through the MCP engine's context, which has no slot for it.
 /// Outside a request scope it is dropped, and [`request_credential`] then
-/// answers `None`, which starts or serves no support session.
-pub fn report_request_credential(credential: Option<BoundCredential>) {
-    report(|slot| slot.credential = credential);
+/// answers `None`, which starts or serves no support session and names no
+/// credential on the trail.
+pub fn report_request_credential(credential: CallerCredential) {
+    report(|slot| slot.credential = Some(credential));
 }
 
 /// The credential [`report_request_credential`] recorded for this request;
 /// `None` outside a request scope or when none was recorded.
 #[must_use]
-pub fn request_credential() -> Option<BoundCredential> {
+pub fn request_credential() -> Option<CallerCredential> {
     REQUEST_REPORT
         .try_with(|slot| {
             slot.lock()

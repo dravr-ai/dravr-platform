@@ -12,7 +12,6 @@
 //! never has one.
 
 use pierre_core::models::TenantId;
-use pierre_core::permissions::impersonation::BoundCredential;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_runtime_context::A2ACtx;
@@ -54,7 +53,7 @@ impl A2AServer {
             ctx.repos(),
             principal.user_id,
             &principal.scopes,
-            binding(principal).as_ref(),
+            Some(&principal.credential),
             Transport::A2a,
         )
         .await
@@ -122,11 +121,4 @@ impl Acting {
             support: None,
         }
     }
-}
-
-/// The credential an A2A call came through, as a support session binds it:
-/// the OAuth grant `principal`'s user token was minted under. A
-/// client-credentials agent binds nothing.
-pub(super) fn binding(principal: &AuthPrincipal) -> Option<BoundCredential> {
-    principal.credential.clone()
 }

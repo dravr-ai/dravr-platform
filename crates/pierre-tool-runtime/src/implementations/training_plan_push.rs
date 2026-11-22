@@ -372,10 +372,10 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
              dates before today. save_training_plan and publish_training_plan already push \
              (their calendar_push says what landed): call this only when the athlete or coach \
              asks, e.g. once what stopped that push is fixed. Needs a saved plan and a connected \
-             calendar-writing provider. A group's human \
-             coach pushes a consenting athlete's plan with `athlete`, through their \
-             Intervals.icu link: they must allow calendar writes on it, and Intervals.icu must \
-             list the coach as their coach. Only the published plan is pushed, never a coach's \
+             calendar-writing provider. In Dravr's app or channels a group's human coach can push a \
+             consenting athlete's plan through their Intervals.icu link: they must allow \
+             calendar writes on it, and Intervals.icu must list the coach as their coach; \
+             elsewhere a push is the caller's own. Only the published plan is pushed, never a coach's \
              unpublished draft (the reply's unpublished_draft flags one).",
             schema,
             annotations(

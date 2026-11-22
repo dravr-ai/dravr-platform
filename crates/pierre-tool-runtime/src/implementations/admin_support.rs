@@ -153,7 +153,7 @@ impl McpTool<dyn ToolRuntime> for AdminImpersonateStartTool {
             let started = support_session::start(
                 context.resources.repos(),
                 context.user_id,
-                support_session::current_binding().as_ref(),
+                support_session::current_credential().as_ref(),
                 field("user"),
                 field("reason"),
                 transport,
@@ -218,7 +218,7 @@ impl McpTool<dyn ToolRuntime> for AdminImpersonateEndTool {
             let ended = support_session::end(
                 context.resources.repos(),
                 context.user_id,
-                support_session::current_binding().as_ref(),
+                support_session::current_credential().as_ref(),
                 transport,
             )
             .await?;

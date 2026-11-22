@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::permissions::impersonation::BoundCredential;
+use pierre_core::permissions::impersonation::{BoundCredential, CallerCredential, CredentialKind};
 use pierre_database::repositories::admin_audit::{
     AdminAuditRepository, AuditOutcome, AuditSource, NewAuditEvent,
 };
@@ -191,12 +191,34 @@ impl AuthResult {
     /// (carnet#1511): the API key, or the OAuth grant a delegated token was
     /// minted under. `None` for any other credential, which never starts
     /// one.
-    #[must_use]
-    pub fn bound_credential(&self) -> Option<BoundCredential> {
+    fn bound_credential(&self) -> Option<BoundCredential> {
         match &self.auth_method {
             AuthMethod::ApiKey { key_id, .. } => Some(BoundCredential::ApiKey(key_id.clone())),
             AuthMethod::JwtToken { .. } => self.grant_id.clone().map(BoundCredential::Grant),
             AuthMethod::McpToken { .. } | AuthMethod::ChannelLink { .. } => None,
+        }
+    }
+
+    /// The credential the request came through, as the admin audit trail
+    /// names it and a support session binds to it (carnet#1511): its kind,
+    /// the OAuth client its token was issued to (from the token's own
+    /// `client_id` claim), and what a support session started through it is
+    /// bound to.
+    #[must_use]
+    pub fn caller_credential(&self) -> CallerCredential {
+        let kind = match &self.auth_method {
+            AuthMethod::ApiKey { .. } => CredentialKind::ApiKey,
+            AuthMethod::McpToken { .. } => CredentialKind::McpToken,
+            AuthMethod::ChannelLink { .. } => CredentialKind::ChannelLink,
+            AuthMethod::JwtToken { .. } if names_third_party(self.client_id.as_deref()) => {
+                CredentialKind::OAuthGrant
+            }
+            AuthMethod::JwtToken { .. } => CredentialKind::FirstPartySession,
+        };
+        CallerCredential {
+            kind,
+            client_id: self.client_id.clone(),
+            binding: self.bound_credential(),
         }
     }
 

@@ -35,6 +35,7 @@ use pierre_tool_runtime::protocol::{
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
 use pierre_tool_runtime::protocols::ProtocolError;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::support_session;
 // Other trait methods dispatched through repos.tenants / repos.llm_usage / repos.users
 use serde_json::{json, Value};
 use std::fmt::Write;
@@ -109,6 +110,7 @@ impl ToolHandlers {
         // writes the audit row of every other one: it is written here, so
         // every admin-only call over `/mcp` is on the trail (EFVP 9.4d).
         let refused = |tenant: Option<String>, response: ToolResponse| async move {
+            let credential = support_session::current_credential();
             record_refused_admin_call(
                 &**resources,
                 &RefusedAdminCall {
@@ -117,6 +119,7 @@ impl ToolHandlers {
                     tenant_id: tenant.as_deref(),
                     transport: Transport::McpHttp,
                     protocol: "mcp",
+                    credential: credential.as_ref(),
                 },
             )
             .await;

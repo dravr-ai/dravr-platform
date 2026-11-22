@@ -296,7 +296,7 @@ fi
 EXPECTED_FILE="crates/pierre-server/tests/it/contremaitre_test.rs"
 COUNT_FILE="crates/pierre-server/tests/it/configuration_mcp_integration_test.rs"
 TS_FILE="packages/mcp-types/src/tools.ts"
-SERVED_FIXTURE="crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
+SERVED_FIXTURE="crates/pierre-server/tests/fixtures/mcp_surface/tools_list_coach.json"
 
 # Whether SRC_TOOLS below holds the complete registered set. Checks 5 and 7
 # compare against it and must not run on a truncated scan.
@@ -389,7 +389,7 @@ else
 
         # 3c. generated TS SDK types — stale types red CI: Server E2E (SDK Types Up-to-Date)
         # /mcp serves the registry minus the tools kept to Dravr's own surfaces
-        # (declare_security! first_party_only). The admin tools/list fixture is
+        # (declare_security! first_party_only). The coach tools/list fixture is
         # that whole set as a group's coach is offered it, checked against src.
         # The SDK is generated from a human coach's account (carnet#1511, Q15:
         # the types match the listing the directory reviewer, a coach with

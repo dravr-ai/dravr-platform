@@ -14,7 +14,7 @@ use chrono::Utc;
 use pierre_auth::rate_limiting::{a2a_client_window_start, calculate_a2a_client_rate_limit};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::a2a::{user_task_key, A2AClient};
-use pierre_core::permissions::impersonation::BoundCredential;
+use pierre_core::permissions::impersonation::{CallerCredential, CredentialKind};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_logging::record_identity;
 use pierre_middleware::rate_limiting::{
@@ -35,7 +35,9 @@ use crate::{A2ARequest, A2AResponse};
 /// the registering owner for client-credentials tokens) — it drives tenant
 /// resolution and tool execution. `client_id` is set when the caller
 /// authenticated with client credentials; tasks are then keyed to and
-/// scoped by that client.
+/// scoped by that client. The OAuth client a user token was issued to is
+/// not that: it is kept on `credential`, which the admin audit trail reads,
+/// so a user token never reads as a machine client's.
 #[derive(Clone)]
 pub(super) struct AuthPrincipal {
     pub(super) user_id: Uuid,
@@ -47,11 +49,12 @@ pub(super) struct AuthPrincipal {
     /// client-credentials token, which acts as its registering user in that
     /// user's own tenant.
     pub(super) active_tenant_id: Option<Uuid>,
-    /// The credential an admin's support session through this agent is
-    /// bound to (carnet#1511): the OAuth grant a user token was minted
-    /// under. `None` for a client-credentials token: a machine client never
-    /// holds `admin`.
-    pub(super) credential: Option<BoundCredential>,
+    /// The credential the agent called through (carnet#1511): its kind and
+    /// client, which the admin audit trail names, and what an admin's
+    /// support session through this agent is bound to (the OAuth grant a
+    /// user token was minted under; nothing for a client-credentials token:
+    /// a machine client never holds `admin`).
+    pub(super) credential: CallerCredential,
 }
 
 /// A call refused before it reached its handler, and whom its credential
@@ -119,7 +122,7 @@ impl A2AServer {
             Ok(principal) => Ok(principal),
             Err(refused) => {
                 if let (Some(caller), Some(tool)) = (refused.caller, requested_tool(request)) {
-                    Self::record_refused(&resources.tool_runtime, caller, &tool).await;
+                    Self::record_refused(&resources.tool_runtime, caller, &tool, None).await;
                 }
                 Err(refused.response)
             }
@@ -206,7 +209,8 @@ impl A2AServer {
                     )),
                 });
             };
-            let credential = admitted.bound_credential();
+            // The token's own client, kept for the audit trail.
+            let credential = admitted.caller_credential();
             return Ok(AuthPrincipal {
                 user_id: admitted.user_id,
                 client_id: None,
@@ -281,10 +285,14 @@ impl A2AServer {
 
         Ok(AuthPrincipal {
             user_id: client.user_id,
+            credential: CallerCredential {
+                kind: CredentialKind::A2aClientCredentials,
+                client_id: Some(client.id.clone()),
+                binding: None,
+            },
             client_id: Some(client.id),
             scopes,
             active_tenant_id: None,
-            credential: None,
         })
     }
 

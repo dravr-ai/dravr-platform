@@ -827,6 +827,15 @@ mod support_session_assistant_tests {
             "bug: the end row names another key"
         );
         assert_eq!(
+            ended[0]["metadata"]["credential_kind"], "api_key",
+            "bug: the end row names the kind of credential revoked"
+        );
+        assert_eq!(
+            ended[0]["metadata"]["client_id"],
+            Value::Null,
+            "bug: an API key names no client"
+        );
+        assert_eq!(
             ended[0]["actor_user_id"],
             world.admin.id.to_string(),
             "bug: the end row names another actor than the admin"
@@ -876,6 +885,15 @@ mod support_session_assistant_tests {
         assert_eq!(
             ended[0]["metadata"]["grant_id"], grant.family,
             "bug: the end row names another grant"
+        );
+        assert_eq!(
+            ended[0]["metadata"]["credential_kind"], "oauth_grant",
+            "bug: the end row names the kind of credential revoked"
+        );
+        assert_eq!(
+            ended[0]["metadata"]["client_id"],
+            Value::Null,
+            "bug: a family revoked by its token names no client it was not told"
         );
 
         let listed = world.listed(&grant.bearer).await;
@@ -1086,10 +1104,15 @@ mod support_session_assistant_tests {
             !world.session(&withdrawn.id).await.is_active,
             "bug: the client's revocation ends the session"
         );
+        let ended = world.ended_rows(&withdrawn.id).await;
+        assert_eq!(ended.len(), 1, "bug: the end is not one audit row");
         assert_eq!(
-            world.ended_rows(&withdrawn.id).await.len(),
-            1,
-            "bug: the end is not one audit row"
+            ended[0]["metadata"]["credential_kind"], "oauth_grant",
+            "bug: the end row names the kind of credential revoked: {ended:#?}"
+        );
+        assert_eq!(
+            ended[0]["metadata"]["client_id"], ADMIN_CLIENT,
+            "bug: a consent withdrawn from a client names that client: {ended:#?}"
         );
 
         let grant = world.admin_grant().await;
@@ -1227,5 +1250,228 @@ mod support_session_assistant_tests {
                     .unwrap();
             }
         }
+    }
+
+    // ── The credential on the trail (carnet#1511, plan step 11) ──────────
+
+    /// A plain admin-only read every admin may call.
+    const ADMIN_READ: &str = "admin_list_system_agents";
+
+    /// The newest `tool.<name>` row naming the admin.
+    async fn newest_call_row(world: &World, tool: &str) -> Value {
+        world
+            .trail(&format!("tool.{tool}"))
+            .await
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("a row for {tool}"))
+    }
+
+    /// A client-credentials token of an A2A client the admin registered.
+    async fn admin_machine_client(world: &World) -> (String, String) {
+        let credentials = world
+            .res
+            .a2a
+            .a2a_client_manager
+            .register_client(
+                pierre_a2a::ClientRegistrationRequest {
+                    name: "admin machine client".into(),
+                    description: "an admin's A2A machine client".into(),
+                    capabilities: vec!["fitness-data-analysis".into()],
+                    redirect_uris: vec![],
+                    contact_email: "machine@support-session.test".into(),
+                },
+                world.admin.id,
+            )
+            .await
+            .unwrap();
+        let scopes: Vec<String> = OAuthScope::delegable_as_str()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let token = world
+            .res
+            .auth
+            .auth_manager
+            .generate_client_credentials_token(
+                &world.res.auth.jwks_manager,
+                &credentials.client_id,
+                &scopes,
+                None,
+                None,
+            )
+            .unwrap();
+        (credentials.client_id, format!("Bearer {token}"))
+    }
+
+    /// Whether `row`, serialized, holds `bearer`'s token: ids and kinds
+    /// only ever reach the trail.
+    fn holds_token(row: &Value, bearer: &str) -> bool {
+        row.to_string()
+            .contains(bearer.trim_start_matches("Bearer "))
+    }
+
+    /// An admin-only call over `/mcp` and over A2A through an OAuth grant
+    /// names the application and the kind of credential; the token itself
+    /// is never written.
+    #[tokio::test]
+    async fn an_admin_tool_call_through_an_oauth_grant_names_its_client_and_kind() {
+        let world = world().await;
+        let grant = world.admin_grant().await;
+
+        let listed = world.call(&grant.bearer, ADMIN_READ, json!({})).await;
+        assert_eq!(listed["result"]["isError"], false, "{listed}");
+        let row = newest_call_row(&world, ADMIN_READ).await;
+        assert_eq!(row["metadata"]["transport"], "mcp_http", "{row}");
+        assert_eq!(
+            row["metadata"]["credential_kind"], "oauth_grant",
+            "bug: the row names the kind of credential: {row}"
+        );
+        assert_eq!(
+            row["metadata"]["client_id"], ADMIN_CLIENT,
+            "bug: the row names the OAuth client the token was issued to: {row}"
+        );
+        assert!(
+            !holds_token(&row, &grant.bearer),
+            "bug: a token on the trail"
+        );
+
+        let answered = world.a2a(&grant.bearer, ADMIN_READ, json!({})).await;
+        assert!(answered.get("error").is_none(), "{answered}");
+        let row = newest_call_row(&world, ADMIN_READ).await;
+        assert_eq!(row["metadata"]["transport"], "a2a", "{row}");
+        assert_eq!(row["metadata"]["credential_kind"], "oauth_grant", "{row}");
+        assert_eq!(
+            row["metadata"]["client_id"], ADMIN_CLIENT,
+            "bug: the A2A user token keeps its client: {row}"
+        );
+        assert!(
+            !holds_token(&row, &grant.bearer),
+            "bug: a token on the trail"
+        );
+    }
+
+    /// Through an API key the row names the kind and no client: no
+    /// registered client holds a key.
+    #[tokio::test]
+    async fn an_admin_tool_call_through_an_api_key_names_the_kind_and_no_client() {
+        let world = world().await;
+        let key = world.admin_key_named("audit key").await;
+
+        let listed = world.call(&key.bearer, ADMIN_READ, json!({})).await;
+        assert_eq!(listed["result"]["isError"], false, "{listed}");
+        let row = newest_call_row(&world, ADMIN_READ).await;
+        assert_eq!(row["metadata"]["credential_kind"], "api_key", "{row}");
+        assert_eq!(
+            row["metadata"]["client_id"],
+            Value::Null,
+            "bug: an API key names no client: {row}"
+        );
+        assert!(!holds_token(&row, &key.bearer), "bug: a key on the trail");
+    }
+
+    /// A2A takes no API key; its other credential, an admin's machine
+    /// client, is refused the admin tools (its grant never holds `admin`),
+    /// and the refused row names the client and its kind.
+    #[tokio::test]
+    async fn an_admin_tool_call_through_a2a_client_credentials_names_the_client() {
+        let world = world().await;
+        let (client_id, bearer) = admin_machine_client(&world).await;
+
+        world.a2a(&bearer, ADMIN_READ, json!({})).await;
+        let row = newest_call_row(&world, ADMIN_READ).await;
+        assert_eq!(row["outcome"], "refused", "{row}");
+        assert_eq!(row["metadata"]["transport"], "a2a", "{row}");
+        assert_eq!(
+            row["metadata"]["credential_kind"], "a2a_client_credentials",
+            "{row}"
+        );
+        assert_eq!(row["metadata"]["client_id"], client_id, "{row}");
+        assert!(!holds_token(&row, &bearer), "bug: a token on the trail");
+    }
+
+    /// A support session's start and end name the credential's kind and
+    /// client, through an OAuth grant and through an API key.
+    #[tokio::test]
+    async fn a_support_sessions_start_and_end_name_the_credential_kind_and_client() {
+        let world = world().await;
+        let grant = world.admin_grant().await;
+        let started = world
+            .start(&grant.bearer, "casey@support-session.test")
+            .await;
+        assert_eq!(started["result"]["isError"], false, "{started}");
+        let row = &world.trail(STARTED_ACTION).await[0];
+        assert_eq!(row["metadata"]["credential_kind"], "oauth_grant", "{row}");
+        assert_eq!(row["metadata"]["client_id"], ADMIN_CLIENT, "{row}");
+        assert_eq!(row["metadata"]["grant_id"], grant.family, "{row}");
+        assert!(
+            !holds_token(row, &grant.bearer),
+            "bug: a token on the trail"
+        );
+        world.call(&grant.bearer, END_TOOL, json!({})).await;
+        let row = &world.trail(ENDED_ACTION).await[0];
+        assert_eq!(row["metadata"]["credential_kind"], "oauth_grant", "{row}");
+        assert_eq!(row["metadata"]["client_id"], ADMIN_CLIENT, "{row}");
+
+        let key = world.admin_key_named("support key").await;
+        world.start(&key.bearer, "casey@support-session.test").await;
+        let row = &world.trail(STARTED_ACTION).await[0];
+        assert_eq!(row["metadata"]["credential_kind"], "api_key", "{row}");
+        assert_eq!(row["metadata"]["client_id"], Value::Null, "{row}");
+        assert_eq!(row["metadata"]["api_key_id"], key.id, "{row}");
+    }
+
+    /// The 11-14 engineering default: in a support session a call whose row
+    /// cannot be written is refused, a plain read included, over `/mcp` and
+    /// over A2A alike.
+    #[tokio::test]
+    async fn a_call_in_a_support_session_whose_audit_row_fails_is_refused() {
+        let world = world().await;
+        let grant = world.admin_grant().await;
+        let started = world
+            .start(&grant.bearer, "casey@support-session.test")
+            .await;
+        assert_eq!(started["result"]["isError"], false, "{started}");
+        assert!(
+            world.sees_as_coach(&grant.bearer).await,
+            "the session serves the coach"
+        );
+        let roster = world
+            .a2a(&grant.bearer, "get_roster_overview", json!({}))
+            .await;
+        assert!(text(&roster).contains("Bea Bright"), "{roster}");
+
+        match world.res.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => {
+                sqlx::query("DROP TABLE audit_events")
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(db) => {
+                sqlx::query("DROP TABLE audit_events CASCADE")
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+            }
+        }
+
+        let refused = world
+            .call(&grant.bearer, "get_roster_overview", json!({}))
+            .await;
+        assert_eq!(
+            refused["result"]["isError"], true,
+            "bug: an unrecorded call in a support session ran over /mcp: {refused}"
+        );
+        assert!(!text(&refused).contains("Bea Bright"), "{refused}");
+        let refused = world
+            .a2a(&grant.bearer, "get_roster_overview", json!({}))
+            .await;
+        assert!(
+            text(&refused).contains("audit trail"),
+            "bug: an unrecorded call in a support session ran over A2A: {refused}"
+        );
+        assert!(!text(&refused).contains("Bea Bright"), "{refused}");
     }
 }

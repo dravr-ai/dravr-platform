@@ -38,9 +38,9 @@ mkdir -p "$TMP/bin"
 printf '#!/bin/sh\nexit 1\n' > "$TMP/bin/cargo"
 chmod +x "$TMP/bin/cargo"
 
-# served <root> <json> — the admin tools/list fixture: what /mcp serves.
+# served <root> <json> — the coach tools/list fixture: what /mcp serves a coach.
 served() {
-    printf '%s\n' "$2" > "$1/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
+    printf '%s\n' "$2" > "$1/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_coach.json"
 }
 
 # tree <name> — two tools, and the three mirrors Check 3 compares them with.
@@ -139,9 +139,9 @@ run "$root"
 expect_output "a served tool src does not register fails Check 3" "serves tools src does not register"
 
 root="$(tree no_fixture)"
-rm "$root/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
+rm "$root/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_coach.json"
 run "$root"
-expect_output "a missing served fixture fails Check 3" "tools_list_admin.json not found"
+expect_output "a missing served fixture fails Check 3" "tools_list_coach.json not found"
 
 root="$(tree bad_fixture)"
 served "$root" 'not json'

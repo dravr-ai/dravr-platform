@@ -907,6 +907,7 @@ mod tier_consent_test;
 mod token_consumption_analysis_test;
 mod token_efficiency_test;
 mod token_refresh_test;
+mod tool_access_listed_callable_test;
 mod tool_annotations_invariant_test;
 mod tool_call_charged_once_test;
 mod tool_catalog_completeness_test;

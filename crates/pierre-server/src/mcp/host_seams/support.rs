@@ -17,7 +17,7 @@
 
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_core::errors::AppResult;
-use pierre_core::permissions::impersonation::BoundCredential;
+use pierre_core::permissions::impersonation::CallerCredential;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_middleware::rate_limiting;
@@ -28,16 +28,16 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 
-/// The credential a `/mcp` call came through, as a support session binds
-/// it: the API key, or the OAuth grant its token was minted under, as the
-/// auth hook recorded it for this request. `None` outside an HTTP request,
-/// which starts and serves no session.
-pub(super) fn binding() -> Option<BoundCredential> {
+/// The credential a `/mcp` call came through, as the auth hook recorded it
+/// for this request: its kind and client, and what a support session binds
+/// to (the API key, or the OAuth grant its token was minted under). `None`
+/// outside an HTTP request, which starts and serves no session.
+pub(super) fn credential() -> Option<CallerCredential> {
     rate_limiting::request_credential()
 }
 
 /// The support session live for the admin `ctx` names on the credential
-/// `binding` names ([`binding`], read once per call by the caller).
+/// `credential` binds to ([`credential`], read once per call by the caller).
 ///
 /// # Errors
 ///
@@ -46,7 +46,7 @@ pub(super) fn binding() -> Option<BoundCredential> {
 pub(super) async fn live(
     resources: &ServerContext,
     ctx: &ToolContext,
-    binding: Option<&BoundCredential>,
+    credential: Option<&CallerCredential>,
 ) -> AppResult<Option<LiveSupport>> {
     let Some(admin) = ctx
         .user_id
@@ -60,7 +60,7 @@ pub(super) async fn live(
         &resources.common.repos,
         admin,
         &grant,
-        binding,
+        credential,
         Transport::McpHttp,
     )
     .await

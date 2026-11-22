@@ -695,9 +695,9 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
              adds a new calendar entry unless replaces names a prescription_id (from \
              an earlier call or get_training_plan's calendar block), which changes \
              that entry in place on its own provider; withdraw_prescribed_workout \
-             removes one. A group's human coach prescribes for a consenting athlete \
-             with `athlete`, through the athlete's Intervals.icu link once they allow \
-             calendar writes on it.",
+             removes one. In Dravr's app or channels a group's human coach can prescribe for a \
+             consenting athlete through their Intervals.icu link once they allow calendar \
+             writes on it; elsewhere a prescription is the caller's own.",
             schema,
             annotations(
                 "Prescribe workout",
@@ -989,8 +989,8 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
              provider and mark the prescription withdrawn. Only for single \
              prescriptions: an entry the training plan put there is removed by \
              adjusting the plan — save_training_plan, or a coach's \
-             publish_training_plan, updates the calendar. A group's human coach passes `athlete` as for \
-             prescribe_workout.",
+             publish_training_plan, updates the calendar. A coach withdraws for an athlete where \
+             prescribe_workout lets them prescribe.",
             schema,
             annotations(
                 "Withdraw prescribed workout",

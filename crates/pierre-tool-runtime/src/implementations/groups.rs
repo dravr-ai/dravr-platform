@@ -639,9 +639,9 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
 
         answers_with::<GroupMemberActivitiesResult>(task_capable(tool_definition(
             "get_group_member_activities",
-            "Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to \
-             read a peer's data in a group chat — `get_activities` always returns YOUR own data, \
-             never a peer's. Returns an error (not data), whose `reason` says why, if the member \
+            "Fetch a CONSENTING group member's recent or past activities. In a group chat this is \
+             how you read a peer's data: `get_activities` there returns YOUR own data, never a \
+             peer's. Returns an error (not data), whose `reason` says why, if the member \
              has not shared their data with you: with the group via `/group consent yes`, or \
              with you as the group's coach (joining grants it, `/group consent coach no` \
              revokes it).",

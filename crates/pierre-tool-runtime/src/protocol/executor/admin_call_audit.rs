@@ -12,7 +12,10 @@
 //! REST admin routes write each action to `audit_events`, and each such tool
 //! call over `/mcp` or A2A is one row of the same trail, naming the caller,
 //! the tool, the transport and how the call ended (EFVP 2026-11-17, decision
-//! 9.4d).
+//! 9.4d), and the credential it came through: its kind (an OAuth grant, an
+//! API key, a personal MCP token, a first-party session, an A2A client's
+//! client credentials) and the client it was issued to, ids and kinds only
+//! (carnet#1511). A call that declared no credential names none.
 //!
 //! The row is written **before** the call is dispatched, as
 //! [`AuditOutcome::Started`], and settled afterwards. A row that cannot be
@@ -45,6 +48,7 @@
 //! [`UNDECLARED_TRANSPORT`](pierre_core::transport::UNDECLARED_TRANSPORT).
 
 use pierre_auth::auth::ImpersonationGrant;
+use pierre_core::permissions::impersonation::{CallerCredential, CredentialKind};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::repositories::{
@@ -106,6 +110,7 @@ impl UniversalExecutor {
             request,
             transport,
             support,
+            self.credential.as_ref(),
         )
         .await
         .map(Some)
@@ -137,29 +142,47 @@ fn recorded_over(transport: Option<Transport>) -> bool {
     transport.is_none_or(|served| !served.is_first_party())
 }
 
+/// Who made an audited call, and through what.
+struct CallParty<'call> {
+    /// The user the row names as its actor.
+    actor: Option<Uuid>,
+    /// The tenant the call acted in.
+    tenant_id: Option<String>,
+    /// The credential the call came through, when the transport declared it.
+    credential: Option<&'call CallerCredential>,
+}
+
 /// The row of an admin-only tool call, before it is written.
 fn event_of(
     tool_name: &str,
     protocol: &str,
-    actor: Option<Uuid>,
-    tenant_id: Option<String>,
+    party: CallParty<'_>,
     transport: Option<Transport>,
     outcome: AuditOutcome,
 ) -> NewAuditEvent {
     let label = Transport::label_of(transport);
+    let kind = party
+        .credential
+        .map(|credential| credential.kind)
+        .map(CredentialKind::as_str);
+    let client_id = party
+        .credential
+        .and_then(|credential| credential.client_id.as_deref());
     NewAuditEvent {
         action: format!("{ACTION_PREFIX}{tool_name}"),
         summary: format!("{tool_name} called over {label}"),
         outcome,
         source: AuditSource::ToolCall,
-        actor_user_id: actor,
-        tenant_id,
+        actor_user_id: party.actor,
+        tenant_id: party.tenant_id,
         ip_address: None,
         user_agent: None,
         metadata: json!({
             "tool": tool_name,
             "transport": label,
             "protocol": protocol,
+            "credential_kind": kind,
+            "client_id": client_id,
         }),
     }
 }
@@ -177,6 +200,9 @@ pub struct RefusedAdminCall<'call> {
     pub transport: Transport,
     /// The protocol the call came in on (`mcp`, `a2a`).
     pub protocol: &'call str,
+    /// The credential the call came through, when the door read it before
+    /// refusing; `None` when it refused the credential itself.
+    pub credential: Option<&'call CallerCredential>,
 }
 
 /// Write the `refused` row of `call`, an admin-only tool call a door refused.
@@ -192,8 +218,11 @@ pub async fn record_refused_admin_call(runtime: &dyn ToolRuntime, call: &Refused
     let event = event_of(
         call.tool_name,
         call.protocol,
-        Some(call.user_id),
-        call.tenant_id.map(str::to_owned),
+        CallParty {
+            actor: Some(call.user_id),
+            tenant_id: call.tenant_id.map(str::to_owned),
+            credential: call.credential,
+        },
         transport,
         AuditOutcome::Refused,
     );
@@ -207,7 +236,7 @@ pub async fn record_refused_admin_call(runtime: &dyn ToolRuntime, call: &Refused
 }
 
 /// Write the started row of `request`, an admin-only tool call served over
-/// `transport` (`None`: undeclared).
+/// `transport` (`None`: undeclared) through `credential`.
 ///
 /// # Errors
 ///
@@ -217,6 +246,7 @@ async fn start(
     request: &UniversalRequest,
     transport: Option<Transport>,
     support: Option<&ImpersonationGrant>,
+    credential: Option<&CallerCredential>,
 ) -> Result<StartedAdminCall, ProtocolError> {
     // In a support session the admin acted, as the user.
     let actor = support.map_or_else(
@@ -227,8 +257,11 @@ async fn start(
     let mut event = event_of(
         &request.tool_name,
         &request.protocol,
-        actor,
-        request.tenant_id.clone(),
+        CallParty {
+            actor,
+            tenant_id: request.tenant_id.clone(),
+            credential,
+        },
         transport,
         AuditOutcome::Started,
     );

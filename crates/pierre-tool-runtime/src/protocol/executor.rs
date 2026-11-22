@@ -34,6 +34,7 @@ use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
 use crate::security::SecurityLabels;
+use crate::support_session;
 use crate::tool_data::ToolData;
 use crate::turn_end::{self, HandoffSlot};
 use dravr_cageux::config::intelligence::IntelligenceConfig;
@@ -44,6 +45,7 @@ use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::WithConsent;
 use pierre_core::constants::oauth::providers::is_credential_free;
 use pierre_core::constants::tools::identifiers::CONNECT_PROVIDER;
+use pierre_core::permissions::impersonation::CallerCredential;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_providers::ai_scope;
@@ -127,6 +129,11 @@ pub struct UniversalExecutor {
     /// The admin's support session the turn runs in, read from
     /// [`SUPPORT_SESSION`] like `turn_locale` and scoped back the same way.
     support_session: Option<ImpersonationGrant>,
+    /// The credential the external call came through, which the admin audit
+    /// trail names (carnet#1511), read from
+    /// [`CALLER_CREDENTIAL`](crate::support_session::CALLER_CREDENTIAL) when
+    /// the executor is built, so a nested dispatch names its caller's.
+    credential: Option<CallerCredential>,
     /// Per-**utterance** token used solely as the Guardian's turn key so per-turn
     /// budgets accumulate over one user message's `ReAct` loop and
     /// reset on the next. Distinct from `conversation_id` (the persistent thread
@@ -229,6 +236,7 @@ impl UniversalExecutor {
             turn_direct_message: TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten(),
             turn_ask: TURN_ASK.try_with(Clone::clone).ok().flatten(),
             support_session: SUPPORT_SESSION.try_with(Clone::clone).ok().flatten(),
+            credential: support_session::current_credential(),
             // Inherit the caller's turn token when this executor is built inside
             // a tool body (nested dispatch), so a nested write is charged to the
             // SAME turn as its caller. Absent outside any tool scope
