@@ -47,6 +47,28 @@ ignore = [
     "RUSTSEC-2023-0071",
 
     # -------------------------------------------------------------------------
+    # RUSTSEC-2026-0192: ttf-parser 0.25.1 is unmaintained (no vulnerability)
+    # -------------------------------------------------------------------------
+    # Pulled by lopdf 0.42 <- pdf-extract 0.12.1, the lab-report text extractor
+    # (carnet#1544), which only the `pierre-pdf-text` child binary links.
+    # ttf-parser is a mandatory lopdf dependency in every release
+    # pdf-extract can use, with no feature that turns it off, and no maintained
+    # Rust PDF text extractor keeps the line layout barrage's lab rules read
+    # (lopdf's own extract_text yields 0 results on owl's synthetic reports;
+    # pdf-extract yields their truth on all 12 measured).
+    # Reach: lopdf calls ttf_parser only in FontData::new, its PDF *writing*
+    # API (Document::add_font). pdf-extract only reads, and never builds a
+    # FontData, so no uploaded byte reaches ttf-parser.
+    # The separate lopdf stack-overflow advisory is fixed by lopdf 0.42: its
+    # parser stops past 100 nested arrays or dictionaries (MAX_NESTING_DEPTH).
+    # Whatever an uploaded PDF still does to the parser ends the child
+    # process, never the server.
+    # Mitigation: drop this entry when lopdf replaces ttf-parser or
+    # pdf-extract moves off it.
+    # Next Review: 2026-12-21
+    "RUSTSEC-2026-0192",
+
+    # -------------------------------------------------------------------------
     # RUSTSEC-2026-0194 + RUSTSEC-2026-0195: quick-xml 0.26 parser DoS
     # -------------------------------------------------------------------------
     # Severity: DoS only (quadratic duplicate-attribute check; unbounded

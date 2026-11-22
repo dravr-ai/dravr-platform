@@ -15,7 +15,7 @@ inputs:
     required: true
   bins:
     description: Space-separated binaries to build (each is passed as --bin)
-    default: pierre-mcp-server pierre-cli
+    default: pierre-mcp-server pierre-cli pierre-pdf-text
 
 outputs:
   dir:

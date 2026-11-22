@@ -1579,7 +1579,7 @@ jobs:
         uses: $/.github/actions/server-binaries
         with:
           deps-token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
-          bins: ${{ github.ref == 'refs/heads/main' && 'pierre-mcp-server pierre-cli' || 'pierre-mcp-server' }}
+          bins: ${{ github.ref == 'refs/heads/main' && 'pierre-mcp-server pierre-cli pierre-pdf-text' || 'pierre-mcp-server' }}
 
       - name: Verify release binary exists
         run: |

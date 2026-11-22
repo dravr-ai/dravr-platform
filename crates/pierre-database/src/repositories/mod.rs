@@ -141,6 +141,8 @@ pub mod harness_memory;
 pub mod health;
 /// Shared statements, row decoders and body for data sources, sleep, recovery and health snapshots.
 pub mod health_persistence;
+/// The T2–T3 health records an import or a lab document yields (carnet#1544).
+pub mod health_records;
 /// Repository trait, statements and shared body for admin impersonation sessions.
 pub mod impersonation;
 /// Tombstones of a deleted account's provider accounts and email, by hash, refused until cleared.
@@ -375,6 +377,12 @@ pub use garmin_push_inbox::*;
 pub use group_chat_connect::GroupChatConnectRepository;
 pub use harness_memory::*;
 pub use health::*;
+pub use health_records::{
+    ClinicalRecordWrite, ClinicalSelection, HealthRecordRepository, LabDocumentFile,
+    LabDocumentWrite, RecordFiling, RecordWindow, ReviewDecision, SelfReportWrite,
+    StoredClinicalRecord, StoredLabDocument, StoredSelfReport, LAB_DOCUMENT_PROVIDER,
+    LAB_DOCUMENT_SOURCE_MARKER, MAX_HEALTH_RECORDS_PAGE,
+};
 pub use impersonation::*;
 pub use import_tombstones::{
     athlete_marker, email_identity_hash, provider_identity_hash, subject_hash, ImportTombstone,

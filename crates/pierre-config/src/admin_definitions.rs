@@ -439,6 +439,46 @@ pub fn register_llm_provider_config<S: BuildHasher>(
             requires_restart: true,
         },
     );
+
+    add_definition(defs,
+        ParameterDefinition {
+            key: "llm.lab_reader_model".to_owned(),
+            display_name: "Lab Reader Model".to_owned(),
+            description:
+                "The model that reads uploaded lab reports: none (the rules read), or an HTTP API provider or Ollama (gemini, groq, cohere, openrouter, anthropic, openai_api, local). Never a CLI runner, Copilot or the router: the reader runs with no tools"
+                    .to_owned(),
+            category: "llm_provider".to_owned(),
+            data_type: ConfigDataType::String,
+            default_value: serde_json::json!("none"),
+            valid_range: None,
+            enum_options: None,
+            units: None,
+            scientific_basis: None,
+            env: boot_env("LAB_READER_MODEL"),
+            is_runtime_configurable: false,
+            requires_restart: true,
+        },
+    );
+
+    add_definition(defs,
+        ParameterDefinition {
+            key: "llm.lab_reader_model_name".to_owned(),
+            display_name: "Lab Reader Model Name".to_owned(),
+            description:
+                "The model name the lab reader's provider uses, overriding that provider's default; unset keeps it"
+                    .to_owned(),
+            category: "llm_provider".to_owned(),
+            data_type: ConfigDataType::String,
+            default_value: serde_json::json!(""),
+            valid_range: None,
+            enum_options: None,
+            units: None,
+            scientific_basis: None,
+            env: boot_env("LAB_READER_MODEL_NAME"),
+            is_runtime_configurable: false,
+            requires_restart: true,
+        },
+    );
 }
 
 /// Register the `Algorithm Selection` catalog entries.

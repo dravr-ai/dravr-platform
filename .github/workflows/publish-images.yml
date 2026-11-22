@@ -493,7 +493,7 @@ jobs:
           DIR: ${{ steps.ci-binaries.outputs.dir }}
         run: |
           set -euo pipefail
-          for b in pierre-mcp-server pierre-cli; do
+          for b in pierre-mcp-server pierre-cli pierre-pdf-text; do
             if [ ! -s "${DIR}/${b}" ]; then
               echo "::error::the server-binaries artifact holds no ${b}"
               exit 1

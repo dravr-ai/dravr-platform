@@ -15,7 +15,8 @@
 //!   in each tenant their rows reach (never a live record's, so no
 //!   provider-API data), every recording they uploaded
 //!   (`uploaded_activity_files`) and every screenshot they attached to
-//!   feedback (`feedback_messages.image_sha256`), read through the export's
+//!   feedback (`feedback_messages.image_sha256`) and every lab report they
+//!   uploaded (`lab_documents`), read through the export's
 //!   own table walk;
 //! - **where it is tracked**: a `user_export_bundles` row, `building` while a
 //!   task writes it (its heartbeat moving forward), `ready` for
@@ -522,6 +523,21 @@ impl OriginalsBundleService {
                     "image_sha256",
                     BundleFileKind::FeedbackImage,
                     text(row, "image_media_type").map(str::to_owned),
+                )
+            },
+            &mut files,
+        )
+        .await?;
+        self.walk(
+            user_id,
+            "lab_documents",
+            |row| {
+                upload_file(
+                    row,
+                    user_id,
+                    "file_sha256",
+                    BundleFileKind::Upload,
+                    Some(originals::LAB_DOCUMENT_MEDIA_TYPE.to_owned()),
                 )
             },
             &mut files,

@@ -151,6 +151,11 @@ pub(crate) mod stored_copy;
 #[cfg(feature = "tools-data")]
 pub mod stored_data;
 
+/// `get_health_records` — the athlete's lab results, clinical records, glucose and
+/// cycle tracking, each row by its own tier (`tools-data` feature).
+#[cfg(feature = "tools-data")]
+pub mod health_records;
+
 /// `get_heart_rate_series` — the stored intraday heart-rate and HRV series
 /// (`tools-data` feature).
 #[cfg(feature = "tools-data")]

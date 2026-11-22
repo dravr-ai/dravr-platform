@@ -10,8 +10,10 @@ use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
 #[cfg(feature = "client-messaging")]
 use pierre_services::channel_adapters::ChannelAdapterFactory;
+use pierre_services::lab_document_model::LabReaderModel;
 use pierre_tool_runtime::RuntimeTool;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::services::archive_import::ArchiveImports;
@@ -81,6 +83,13 @@ pub struct ServerContextOptions {
     /// import's originals (`services::originals::blob_store_from_env`), or
     /// why there is none. Unset, uploads are kept in memory, as a test wants.
     pub blobs: Option<Result<Arc<dyn BlobStore>, String>>,
+    /// The model the lab reader reads with: a test passes a scripted one.
+    /// Unset, `LAB_READER_MODEL` chooses (unset there too, the rules read).
+    pub lab_reader: Option<LabReaderModel>,
+    /// The `pierre-pdf-text` binary an uploaded lab report is read with: a
+    /// test passes the one cargo built for it. Unset, the one beside this
+    /// executable (`services::lab_documents::pdf_text_bin_beside_server`).
+    pub pdf_text_bin: Option<PathBuf>,
     /// What builds the channel adapter every message of this context is
     /// verified or sent through: the webhook routes, the retry and resume
     /// workers, and the proactive senders (carnet#1600). The server binary
@@ -131,6 +140,8 @@ impl ServerContextOptions {
             archive_imports: None,
             live_records: None,
             blobs: None,
+            lab_reader: None,
+            pdf_text_bin: None,
             #[cfg(feature = "client-messaging")]
             channel_adapters,
         }

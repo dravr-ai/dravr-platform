@@ -154,7 +154,7 @@ async fn last_synced(
 /// Build the standard date-range + format property set used by stored
 /// health-data queries (sleep, recovery, snapshots), whose handlers read
 /// `start`, `end` and `format` from `request.parameters`.
-fn date_range_properties() -> BTreeMap<String, PropertySchema> {
+pub(crate) fn date_range_properties() -> BTreeMap<String, PropertySchema> {
     let mut properties = BTreeMap::new();
     properties.insert(
         "start".to_owned(),

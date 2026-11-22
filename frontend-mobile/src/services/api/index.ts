@@ -6,6 +6,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import {
+  createHealthRecordsApi,
   createMobileAdapter,
   createPierreApi,
   ENDPOINTS,
@@ -64,6 +65,9 @@ export const gearApi = api.gear;
 // Importing the athlete's own history from a service's export.
 export const importsApi = api.imports;
 export const originalsApi = api.dataExport;
+// The athlete's health records: served records by kind, the lab review queue, uploaded lab reports.
+// Built here over the shared client: createPierreApi leaves it out for the web's entry budget.
+export const healthRecordsApi = createHealthRecordsApi(api.axios);
 // The athlete's statutory access requests to a company: the letter they send and its legal deadline.
 export const dataAccessRequestsApi = api.dataAccessRequests;
 // The live string catalogue, overlaid on the embedded copy at start-up.

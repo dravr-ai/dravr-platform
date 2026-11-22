@@ -137,7 +137,8 @@ echo ""
 # binary with the same default features, so there is one way the server starts.
 SERVER_LOG="$PROJECT_ROOT/logs/pierre-server.log"
 SERVER_BIN="${CARGO_TARGET_DIR:-$PROJECT_ROOT/target}/debug/pierre-mcp-server"
-cargo build --bin pierre-mcp-server
+# pierre-pdf-text is the child the server reads uploaded lab reports in, beside it.
+cargo build --bin pierre-mcp-server --bin pierre-pdf-text
 if [ ! -x "$SERVER_BIN" ]; then
     echo -e "${RED}Build produced no binary at $SERVER_BIN${NC}"
     exit 1

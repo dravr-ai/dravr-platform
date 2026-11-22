@@ -90,6 +90,8 @@ pub mod fitness_configurations;
 pub mod garmin_push_inbox;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
+/// Health records: self-reports, clinical records and lab documents (carnet#1544).
+pub mod health_records;
 /// Impersonation session management for admin user impersonation
 pub mod impersonation;
 /// Import tombstones (`SQLite`) backing `ImportTombstoneRepository`.

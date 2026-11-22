@@ -29,6 +29,9 @@ TREE="$WORK/tree"
 mkdir -p "$TREE/crates/pierre-server" "$TREE/crates/pierre-database" "$WORK/bin" \
     "$WORK/cargo-home/git/checkouts/dravr-contremaitre-0a1b2c/5bc9599/config"
 echo "contracts: []" >"$WORK/cargo-home/git/checkouts/dravr-contremaitre-0a1b2c/5bc9599/config/persona_contracts.yaml"
+# The server's tests spawn its pierre-pdf-text bin, as the real lab tests do.
+mkdir -p "$TREE/crates/pierre-server/tests"
+echo 'const CHILD: &str = env!("CARGO_BIN_EXE_pierre-pdf-text");' >"$TREE/crates/pierre-server/tests/main.rs"
 
 cat >"$WORK/bin/cargo" <<'STUB'
 #!/bin/sh
@@ -41,6 +44,9 @@ for exe in it-1111 smoke_test-2222; do
     printf '#!/bin/sh\necho "%s ran in $PWD with $*"\n' "$exe" >"$deps/$exe"
     chmod +x "$deps/$exe"
 done
+printf '#!/bin/sh\necho child\n' >"$PWD/target/debug/pierre-pdf-text"
+chmod +x "$PWD/target/debug/pierre-pdf-text"
+printf '{"reason":"compiler-artifact","target":{"name":"pierre-pdf-text","kind":["bin"]},"manifest_path":"%s/crates/pierre-server/Cargo.toml","executable":"%s/target/debug/pierre-pdf-text"}\n' "$PWD" "$PWD"
 echo "not json: a build script's stray line"
 printf '{"reason":"compiler-artifact","target":{"name":"pierre_core","kind":["lib"]},"manifest_path":"%s/crates/pierre-core/Cargo.toml","executable":null}\n' "$PWD"
 printf '{"reason":"compiler-artifact","target":{"name":"it","kind":["test"]},"manifest_path":"%s/crates/pierre-server/Cargo.toml","executable":"%s/it-1111"}\n' "$PWD" "$deps"
@@ -96,6 +102,11 @@ fi
 
 rm -rf "$TREE/target"
 HOME_DIR="$WORK/fresh-home" expect "an unpack restores the binaries" 0 "$TREE" unpack "$PACK"
+if [ -x "$TREE/target/debug/pierre-pdf-text" ]; then
+    pass "the bin the tests spawn by CARGO_BIN_EXE travels with them"
+else
+    fail "the bin the tests spawn by CARGO_BIN_EXE travels with them"
+fi
 if [ -x "$TREE/target/debug/deps/it-1111" ] && [ -x "$TREE/target/debug/deps/smoke_test-2222" ]; then
     pass "the restored binaries are executable"
 else
@@ -256,7 +267,7 @@ expect "a build with no cargo arguments is refused" 1 "$TREE" build "$WORK/pack-
 expect "a build keeping one package packs only its binaries" 0 "$TREE" \
     build "$WORK/pack-kept" --keep crates/pierre-server/ --test it
 if [ "$(cut -f1,2 "$WORK/pack-kept/test-binaries.tsv")" = "it	$TREE/crates/pierre-server" ] \
-    && [ "$(zstd -q -dc "$WORK/pack-kept/binaries.tar.zst" | tar -tf - | tr '\n' ' ')" = "target/debug/deps/it-1111 " ]; then
+    && [ "$(zstd -q -dc "$WORK/pack-kept/binaries.tar.zst" | tar -tf - | tr '\n' ' ')" = "target/debug/deps/it-1111 target/debug/pierre-pdf-text " ]; then
     pass "the kept map and archive hold the kept package's binary alone"
 else
     fail "the kept map and archive hold the kept package's binary alone"
@@ -285,6 +296,14 @@ else
     fail "the refusal says --keep named no package"
     sed 's/^/      /' "$OUT"
 fi
+echo 'const GHOST: &str = env!("CARGO_BIN_EXE_ghost");' >"$TREE/crates/pierre-server/tests/ghost.rs"
+expect "a build whose tests spawn a bin it did not produce fails" 1 "$TREE" \
+    build "$WORK/pack-ghost" --keep crates/pierre-server --test it
+if grep -qF "spawn ghost (CARGO_BIN_EXE_ghost)" "$OUT"; then pass "the refusal names the missing bin"; else
+    fail "the refusal names the missing bin"
+    sed 's/^/      /' "$OUT"
+fi
+rm "$TREE/crates/pierre-server/tests/ghost.rs"
 CARGO_STUB_DEPS="$WORK/outside/deps" expect "a build whose binary lands outside the workspace is refused" 1 \
     "$TREE" build "$WORK/pack-outside" --test it
 if grep -qF "is outside the workspace $TREE" "$OUT"; then pass "the refusal names the workspace"; else

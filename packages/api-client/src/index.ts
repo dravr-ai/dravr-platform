@@ -181,6 +181,11 @@ export type {
 export { createImportsApi } from './domains/imports';
 export { createDataExportApi } from './domains/dataExport';
 export type { DataExportApi, OriginalsBundle } from './domains/dataExport';
+// Not built by createPierreApi: the web entry bundle has a gzip budget and only its lazy
+// settings screen uses it, so each app builds it over its own client
+// (frontend/src/services/api/healthRecords.ts, frontend-mobile/src/services/api/index.ts).
+export { createHealthRecordsApi, LAB_DOCUMENT_UPLOAD_TIMEOUT_MS } from './domains/healthRecords';
+export type { HealthRecordsApi, HealthRecordsWindow } from './domains/healthRecords';
 export { createDataAccessRequestsApi } from './domains/dataAccessRequests';
 export type { DataAccessRequestsApi } from './domains/dataAccessRequests';
 export { uploadExport } from './core/exportUpload';

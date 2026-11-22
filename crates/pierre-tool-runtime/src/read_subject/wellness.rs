@@ -54,7 +54,9 @@ use crate::protocols::ProtocolError;
 #[cfg(feature = "tools-data")]
 mod named;
 #[cfg(feature = "tools-data")]
-pub(crate) use named::{readable_wellness, unnamed_refusal, unnamed_wellness_note};
+pub(crate) use named::{
+    health_records_named, readable_wellness, unnamed_refusal, unnamed_wellness_note,
+};
 
 /// What an athlete's wellness grant shares with their coach, as the consent
 /// they agreed to names it, in its order.

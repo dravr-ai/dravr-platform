@@ -1,5 +1,5 @@
 // ABOUTME: The tier gate at dispatch — an outside client calls a tool reading T2/T3 streams only under the athlete's tier consent
-// ABOUTME: Its tier is the one its declared streams give (ToolData::tier); a refusal is an in-band tool error, tallied (carnet#1544)
+// ABOUTME: Every tier its declared streams reach is asked (ToolData::tiers); a refusal is an in-band tool error, tallied (carnet#1544)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,9 +10,9 @@
 //! A2A, an API key — reads the athlete's notes and their agent's memory only
 //! while the athlete gives `sensitive_t3`. The memory tools declare the
 //! `RestrictedNotes` stream (T3) in their [`ToolData`](crate::tool_data::ToolData),
-//! so a call whose tool's declared tier ([`ToolData::tier`](crate::tool_data::ToolData::tier),
-//! the trust label's tier too) is refused here before its body reads or
-//! writes anything, by the one tier rule
+//! so a call to a tool any of whose declared tiers
+//! ([`ToolData::tiers`](crate::tool_data::ToolData::tiers)) is unreadable is
+//! refused here before its body reads or writes anything, by the one tier rule
 //! ([`ai_scope::tier_readable`]): a T3 tool under the athlete's
 //! `sensitive_t3`, a T2 tool never, until grants carry details. A write tool
 //! declaring the stream is held to it alike. Dravr's own agent and the human
@@ -36,14 +36,20 @@ use crate::conversions::tool_result_to_response;
 /// The `error_code` of a call the tier gate refused.
 const TIER_GATE_ERROR_CODE: &str = "sensitive_tier_withheld";
 
-/// Run `body`, a call to `tool_name` whose declared streams reach `tier`
-/// (`None`: it declares none), unless the tier gate refuses it here: then the
+/// Run `body`, a call to `tool_name` whose declared streams reach `tiers`
+/// (empty: it declares none), unless the tier gate refuses it here: then the
 /// refusal, tallied once, and the body never runs.
-pub(super) async fn gated<F>(tool_name: &str, tier: Option<Tier>, body: F) -> ToolResponse
+///
+/// Every tier is asked, not only the most sensitive: an outside client may
+/// read T3 under the athlete's consent but T2 never, so a tool reading both
+/// is refused while either is unreadable, and the refusal names the lowest
+/// one refused — the health records a T2 stream reads, never the notes and
+/// memory a T3 copy names (carnet#1544).
+pub(super) async fn gated<F>(tool_name: &str, tiers: &[Tier], body: F) -> ToolResponse
 where
     F: Future<Output = ToolResponse>,
 {
-    match tier.filter(|tier| refused(*tier)) {
+    match tiers.iter().copied().find(|tier| refused(*tier)) {
         Some(tier) => {
             ai_scope::withhold_tier(tier);
             tool_result_to_response(Ok(refusal(tool_name, tier)))
@@ -102,12 +108,21 @@ mod tests {
         withheld: &[&str],
         tier: Option<Tier>,
     ) -> (ToolResponse, Withheld) {
+        call_reaching(transport, withheld, tier.as_slice()).await
+    }
+
+    /// [`call`] for a tool whose streams reach every tier of `tiers`.
+    async fn call_reaching(
+        transport: Transport,
+        withheld: &[&str],
+        tiers: &[Tier],
+    ) -> (ToolResponse, Withheld) {
         let withheld: BTreeSet<String> = withheld.iter().map(|key| (*key).to_owned()).collect();
         serve_over(
             transport,
             with_ai_consent(
                 withheld,
-                ai_read(gated("recall_user_memory", tier, async { ran() })),
+                ai_read(gated("recall_user_memory", tiers, async { ran() })),
             ),
         )
         .await
@@ -180,5 +195,37 @@ mod tests {
             assert!(body_ran(&served), "{tier:?} is not gated");
             assert!(tally.is_empty(), "{tier:?}: {tally:?}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_tool_reaching_t2_and_t3_is_refused_outside_under_sensitive_t3_as_t2() {
+        // sensitive_t3 given (only sensitive_t2 withheld): the T3 stream is
+        // readable outside, the T2 one never, so the call is refused, and
+        // the refusal names the health records, not notes and memory.
+        let (refused, tally) =
+            call_reaching(Transport::McpHttp, &[SENSITIVE_T2], &[Tier::T2, Tier::T3]).await;
+        assert!(
+            refused.is_error && !body_ran(&refused),
+            "bug: an outside client read a tool reaching T2"
+        );
+        let content = refused.structured_content.unwrap();
+        assert_eq!(
+            content["tier"], "T2",
+            "bug: the lowest refused tier is named: {content}"
+        );
+        assert!(
+            content["error"]
+                .as_str()
+                .unwrap()
+                .contains("not served over this interface"),
+            "bug: the T2 copy: {content}"
+        );
+        assert_eq!(tally.off_interface, 1, "{tally:?}");
+
+        let (served, _) = call_reaching(Transport::WebApp, &[], &[Tier::T2, Tier::T3]).await;
+        assert!(
+            body_ran(&served),
+            "bug: Dravr's own agent was gated at dispatch"
+        );
     }
 }

@@ -1,0 +1,21 @@
+# ABOUTME: A lab report PDF's text, page by page, read in a child process the server spawns (carnet#1544)
+# ABOUTME: Holds the PDF stack (pdf-extract, lopdf) so the server binary links none of it
+
+[package]
+name = "pierre-pdf-text"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Reads an uploaded PDF's text in a bounded child process for the Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+# The text of an uploaded lab report, page by page, for barrage's lab reader:
+# its rules read the line layout pdf-extract keeps (lopdf's own text loses it).
+pdf-extract = "0.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints]
+workspace = true

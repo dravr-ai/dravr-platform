@@ -330,6 +330,33 @@ export {
   parseStartedImportUpload,
 } from './imports.js';
 
+// The athlete's health records: served records by kind, the lab review queue, uploaded lab reports (owl phase 5)
+export type {
+  FlatObservation,
+  GlucoseDay,
+  GlucoseReading,
+  HealthRecordKind,
+  HealthRecordsPage,
+  LabDocument,
+  LabDocumentStatus,
+  LabDocumentView,
+  LabRecord,
+  LabReviewDecision,
+  ObservationComponent,
+  ServedClinicalRecord,
+  ServedSelfReport,
+} from './health-records.js';
+export {
+  HEALTH_RECORD_KINDS,
+  LAB_DOCUMENT_MAX_BYTES,
+  parseFlatObservation,
+  parseHealthRecordReview,
+  parseHealthRecordsPage,
+  parseLabDocumentList,
+  parseLabDocumentView,
+  parseLabRecord,
+} from './health-records.js';
+
 // The athlete's originals bundle: the files the data export leaves out, built on request
 export type {
   OriginalsBundle,

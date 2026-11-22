@@ -174,6 +174,13 @@ function paneRouteOf(id: SettingsPaneId): string {
 export const CONNECTED_APPS_ROUTE = settingsSectionScreen('connected-mcp-apps');
 
 /**
+ * The health records screen — lab report upload and review, the reports, the
+ * records by kind. The Privacy pane's row pushes it; the path is the pane's
+ * own declaration, as connected apps' is.
+ */
+export const HEALTH_RECORDS_ROUTE = settingsSectionScreen('health-records');
+
+/**
  * The connections pane — the athlete's fitness providers. Group info sends a
  * coach here when their own TrainingPeaks is missing, dead or behind the
  * current notice, the three things only that pane fixes.

@@ -1,0 +1,78 @@
+{
+ "doc_id": "t25-000-table-fr",
+ "doc": {
+  "layout": "table",
+  "lang": "fr",
+  "decimal_comma": true,
+  "scanned": false,
+  "synthetic": true
+ },
+ "results": [
+  {
+   "analyte": "Hémoglobine",
+   "loinc": "718-7",
+   "value": 150.0,
+   "unit": "g/L",
+   "unit_ucum": "g/L",
+   "ref_low": 135,
+   "ref_high": 175,
+   "flag": null,
+   "date": "2026-05-05"
+  },
+  {
+   "analyte": "Volume globulaire moyen",
+   "loinc": "787-2",
+   "value": 92.1,
+   "unit": "fL",
+   "unit_ucum": "fL",
+   "ref_low": 80,
+   "ref_high": 100,
+   "flag": null,
+   "date": "2026-05-05"
+  },
+  {
+   "analyte": "Calcium",
+   "loinc": "2000-8",
+   "value": 2.32,
+   "unit": "mmol/L",
+   "unit_ucum": "mmol/L",
+   "ref_low": 2.15,
+   "ref_high": 2.55,
+   "flag": null,
+   "date": "2026-05-05"
+  },
+  {
+   "analyte": "Cholestérol non-HDL",
+   "loinc": "70204-3",
+   "value": 3.79,
+   "unit": "mmol/L",
+   "unit_ucum": "mmol/L",
+   "ref_low": null,
+   "ref_high": 4.2,
+   "flag": null,
+   "date": "2026-05-05"
+  },
+  {
+   "analyte": "Cholestérol HDL",
+   "loinc": "14646-4",
+   "value": 0.95,
+   "unit": "mmol/L",
+   "unit_ucum": "mmol/L",
+   "ref_low": 1.0,
+   "ref_high": null,
+   "flag": "L",
+   "date": "2026-05-05"
+  },
+  {
+   "analyte": "Albumine",
+   "loinc": "1751-7",
+   "value": 41.0,
+   "unit": "g/L",
+   "unit_ucum": "g/L",
+   "ref_low": 35,
+   "ref_high": 50,
+   "flag": null,
+   "date": "2026-05-05"
+  }
+ ]
+}

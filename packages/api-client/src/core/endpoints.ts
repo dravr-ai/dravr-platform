@@ -459,6 +459,22 @@ export const ENDPOINTS = {
     /** Cached workouts and the plan's weeks over the athlete's days `?from=&to=` (`YYYY-MM-DD`, at most 42 days) */
     CALENDAR: '/api/me/calendar',
   },
+  // ==================== HEALTH RECORDS ====================
+  /** The athlete's own health records and lab reports (owl phase 5); session only, an outside credential gets 403 */
+  HEALTH_RECORDS: {
+    /** The served records of one kind (`GET`, `?kind=labs|clinical|glucose|self_reports&since&until&limit`) */
+    LIST: '/api/me/health-records',
+    /** The records read from a lab report, waiting for the athlete's answer (`GET`) */
+    REVIEW: '/api/me/health-records/review',
+    /** Confirm a pending record (`POST`, 204; 404 for any other record) */
+    CONFIRM: (id: string) => `/api/me/health-records/${encodeURIComponent(id)}/confirm`,
+    /** Reject a pending record (`POST`, 204; 404 for any other record) */
+    REJECT: (id: string) => `/api/me/health-records/${encodeURIComponent(id)}/reject`,
+    /** Upload a lab report's PDF as the raw body (`POST`, 201 new / 200 already held), or list them (`GET`) */
+    LAB_DOCUMENTS: '/api/me/lab-documents',
+    /** Delete one lab report and its records (`DELETE`, 204) */
+    LAB_DOCUMENT: (id: string) => `/api/me/lab-documents/${encodeURIComponent(id)}`,
+  },
   // ==================== GEAR LEDGER ====================
   /** The shoes the athlete declares, and the pair each activity was run in (carnet#711) */
   GEAR: {

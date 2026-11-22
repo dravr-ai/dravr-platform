@@ -24,6 +24,10 @@
 //! `RestrictedNotes` stream, and reads the athlete's daily note only while it
 //! is given. Dravr's own agent and the human coach read both as before, and
 //! T2 stays off an outside client whatever the athlete gave.
+//!
+//! Slice 2 adds `get_health_records`: the coach's agent reads a T2 lab
+//! result under the same three conditions as glucose, as its stripped copy,
+//! and a T3 cycle-tracking record never.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -34,7 +38,9 @@ use pierre_core::constants::oauth::providers::{
 };
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::{DataSource, DeviceType, StoredHealthMetrics, StoredRecoveryMetrics};
-use pierre_database::repositories::{WellnessWriteMode, USER_EXPORT_TABLES};
+use pierre_database::repositories::{
+    ClinicalRecordWrite, RecordFiling, SelfReportWrite, WellnessWriteMode, USER_EXPORT_TABLES,
+};
 use pierre_database::RepositoryRegistry;
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::provider_notice::{grant_ai_consent, withdraw_ai_consent};
@@ -747,4 +753,170 @@ async fn the_t3_class_reads_back_what_was_set() {
     assert_eq!(status, 200, "bug: the athlete withdraws sensitive_t3");
     let (_, body) = consent_call(&f, &auth, "GET", SENSITIVE_T3).await;
     assert_eq!(body["ai_consent"], false, "{body}");
+}
+
+/// The free text the lab result was read with: only the athlete sees it.
+const LAB_NOTE: &str = "Fasting sample, the athlete's own note";
+
+/// A T2 lab result and a T3 cycle-tracking record, stored for the athlete as
+/// an import stores them.
+async fn file_health_records(f: &Fixture) {
+    let repos = f.repos();
+    let athlete = f.athlete;
+    let source = repos
+        .data_sources
+        .upsert_data_source(
+            &athlete.tenant,
+            &DataSource {
+                id: String::new(),
+                user_id: athlete.id.to_string(),
+                provider: INTERVALS_ICU.to_owned(),
+                device_model: None,
+                software_version: None,
+                source: None,
+                device_type: DeviceType::Band,
+                original_source_name: None,
+            },
+        )
+        .await
+        .unwrap();
+    let filing = RecordFiling {
+        tenant_id: &athlete.tenant,
+        user_id: athlete.id,
+        provider: INTERVALS_ICU,
+        data_source_id: &source,
+    };
+    let effective = Utc::now() - Duration::days(3);
+    let lab = ClinicalRecordWrite {
+        record_id: "lab-ferritin".to_owned(),
+        resource_type: "Observation".to_owned(),
+        tier: "T2".to_owned(),
+        sensitivity_class: None,
+        fhir_version: "4.0.1".to_owned(),
+        resource: json!({ "resourceType": "Observation", "note": [{ "text": LAB_NOTE }] })
+            .to_string(),
+        stripped: json!({ "resourceType": "Observation" }).to_string(),
+        provenance: json!({ "resourceType": "Provenance" }).to_string(),
+        flat: None,
+        derivation: "verbatim".to_owned(),
+        review_state: "none".to_owned(),
+        checks: "[]".to_owned(),
+        locator: None,
+        read_by: None,
+        effective_at: Some(effective),
+        lab_document_id: None,
+    };
+    repos
+        .health_records
+        .upsert_clinical_records(filing, &[lab])
+        .await
+        .unwrap();
+    let cycle = SelfReportWrite {
+        record_id: "cycle-start".to_owned(),
+        kind: "menstrual_flow".to_owned(),
+        start_at: effective,
+        end_at: effective + Duration::hours(1),
+        value_code: Some("light".to_owned()),
+        value: None,
+        unit: None,
+        cycle_start: true,
+        protection_used: None,
+    };
+    repos
+        .health_records
+        .upsert_self_reports(filing, &[cycle])
+        .await
+        .unwrap();
+}
+
+/// How many entries `payload` lists under `key` (an omitted list is empty).
+fn listed(payload: &Value, key: &str) -> usize {
+    payload[key].as_array().map_or(0, Vec::len)
+}
+
+/// What the coach's agent reads of the athlete's health records of `kind`.
+async fn coach_records(f: &Fixture, kind: &str) -> Value {
+    ok(
+        f.in_thread("get_health_records", json!({ "kind": kind }))
+            .await,
+        "the coach's health records",
+    )
+}
+
+#[tokio::test]
+async fn the_coachs_agent_reads_a_t2_health_record_under_all_three_and_a_t3_one_never() {
+    let f = world().await;
+    file_health_records(&f).await;
+    f.share_wellness(true).await;
+
+    // Wellness alone, then the flag without the athlete's own consent: none.
+    let wellness_only = coach_records(&f, "labs").await;
+    assert_eq!(
+        listed(&wellness_only, "records"),
+        0,
+        "bug: wellness alone reached a lab result: {wellness_only}"
+    );
+    coach_flag(&f, true, None).await;
+    let flag_only = coach_records(&f, "labs").await;
+    assert_eq!(
+        listed(&flag_only, "records"),
+        0,
+        "bug: the athlete's own consent still applies: {flag_only}"
+    );
+
+    // All three: the lab result, as its copy without free text.
+    athlete_allows(&f, true).await;
+    let all_three = coach_records(&f, "labs").await;
+    assert_eq!(
+        listed(&all_three, "records"),
+        1,
+        "with all three the coach reads the lab result: {all_three}"
+    );
+    assert!(
+        !all_three.to_string().contains(LAB_NOTE),
+        "bug: the resource as read reached the coach: {all_three}"
+    );
+
+    // Cycle tracking is T3: never a coach's, even under sensitive_t3, while
+    // the athlete's own agent reads it then.
+    athlete_sets(&f, SENSITIVE_T3, true).await;
+    let cycle = coach_records(&f, "self_reports").await;
+    assert_eq!(
+        listed(&cycle, "self_reports"),
+        0,
+        "bug: a T3 record reached a coach: {cycle}"
+    );
+    let own = f
+        .own_read(
+            f.athlete,
+            "get_health_records",
+            json!({ "kind": "self_reports" }),
+        )
+        .await;
+    assert_eq!(
+        listed(&own, "self_reports"),
+        1,
+        "the athlete's own agent reads it under sensitive_t3: {own}"
+    );
+
+    // A lapsed flag: none again.
+    coach_flag(&f, true, Some(Utc::now() - Duration::minutes(1))).await;
+    let lapsed = coach_records(&f, "labs").await;
+    assert_eq!(
+        listed(&lapsed, "records"),
+        0,
+        "bug: a lapsed flag reached a lab result: {lapsed}"
+    );
+
+    // Wellness revoked: the whole class is refused.
+    coach_flag(&f, true, None).await;
+    f.share_wellness(false).await;
+    let refused = f
+        .in_thread("get_health_records", json!({ "kind": "labs" }))
+        .await;
+    let wire = serde_json::to_string(&refused.result).unwrap();
+    assert!(
+        !wire.contains("Observation"),
+        "bug: without wellness_read the coach read a lab result: {wire}"
+    );
 }

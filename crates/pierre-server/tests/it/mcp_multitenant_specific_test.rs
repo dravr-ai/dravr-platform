@@ -50,6 +50,8 @@ async fn test_unknown_method_handler() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: offline_adapters(),
             },
@@ -112,6 +114,8 @@ async fn test_connect_strava_handler_errors() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: offline_adapters(),
             },
@@ -158,6 +162,8 @@ async fn test_disconnect_provider_handler() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: offline_adapters(),
             },
@@ -205,6 +211,8 @@ async fn test_authentication_error_handling() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: offline_adapters(),
             },
@@ -260,6 +268,8 @@ async fn test_rate_limiting_enforcement() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: offline_adapters(),
             },
@@ -314,6 +324,8 @@ async fn test_provider_initialization_errors() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: offline_adapters(),
             },
@@ -361,6 +373,8 @@ async fn test_jsonrpc_error_responses() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: offline_adapters(),
             },
@@ -406,6 +420,8 @@ async fn test_session_state_edge_cases() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: offline_adapters(),
             },
@@ -451,6 +467,8 @@ async fn test_database_error_handling() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: offline_adapters(),
             },
@@ -496,6 +514,8 @@ async fn test_tool_call_parameter_validation() -> Result<()> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                lab_reader: None,
+                pdf_text_bin: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: offline_adapters(),
             },

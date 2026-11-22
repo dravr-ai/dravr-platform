@@ -279,8 +279,8 @@ async fn test_configuration_tools_count_in_total() {
     // count, total and breakdown over a period from one read of the store,
     // carnet#1485.
     assert_eq!(
-        fitness_tools, 120,
-        "Expected exactly 120 non-configuration tools"
+        fitness_tools, 121,
+        "Expected exactly 121 non-configuration tools"
     );
     // 2026-09-04: estimate_vo2max added (104→105, total 110→111) — the field-test
     // capture path for VO2max, closing carnet#265.
@@ -291,5 +291,7 @@ async fn test_configuration_tools_count_in_total() {
     // 2026-11-20: admin_impersonate_start and admin_impersonate_end added
     // (118→120, total 124→126), an admin's support session over MCP and A2A,
     // carnet#1511.
-    assert_eq!(tools.len(), 126, "Expected total of 126 tools"); // 120 non-configuration + 6 configuration
+    // 2026-11-21: get_health_records added (120→121, total 126→127) — the
+    // T2–T3 records every import stores, each row by its own tier, carnet#1544.
+    assert_eq!(tools.len(), 127, "Expected total of 127 tools"); // 121 non-configuration + 6 configuration
 }

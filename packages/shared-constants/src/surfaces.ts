@@ -180,6 +180,7 @@ export type SettingsSectionId =
   | 'usage'
   | 'security'
   | 'connected-mcp-apps'
+  | 'health-records'
   | 'sign-out'
   | 'version'
   | 'help'
@@ -346,6 +347,10 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
     hintKey: 'settingsTabs.privacyHint',
     web: 'privacy',
     mobile: '/(app)/(tabs)/(settings)/privacy',
+    // The athlete's health records (owl phase 5): web renders them inline in
+    // the pane; the phone pushes them as a screen of their own from a row.
+    // Privacy groups nothing else, so it names no `holds`.
+    mobileScreens: { 'health-records': '/(app)/(tabs)/(settings)/health-records' },
     flag: null,
   },
   {

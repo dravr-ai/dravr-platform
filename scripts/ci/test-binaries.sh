@@ -16,6 +16,12 @@
 #                            named `it` and `--test it` builds each selected one;
 #                            a kept package with no test binary fails the build
 #         workspace          the workspace path the binaries were built in
+#         spawned-binaries.tsv  "<bin>\t<package dir>\t<executable>" per binary a
+#                            packed package's tests spawn through
+#                            `env!("CARGO_BIN_EXE_<bin>")`: that path is baked in
+#                            at compile time, so the bin travels with the tests
+#                            (a bin the tests name and the build did not produce
+#                            fails the build)
 #         binaries.tar.zst   every executable, relative to that workspace
 #         cargo-git.tar.zst  $CARGO_HOME/git/checkouts, relative to $CARGO_HOME
 #       It samples /proc/meminfo while cargo runs and reports the runner's peak
@@ -146,6 +152,27 @@ build() {
     fi
     [ -s "$map" ] || die "the build produced no test binary — refusing to pack an empty lane"
 
+    # A test that spawns one of its package's binaries finds it through
+    # `env!("CARGO_BIN_EXE_<bin>")`, the absolute path cargo built it at: on a
+    # shard that path names nothing unless the bin is packed too (carnet#1544,
+    # the lab PDF child every upload test runs).
+    local spawned="$dir/spawned-binaries.tsv" package name exe
+    : >"$spawned"
+    while IFS= read -r package; do
+        [ -d "$package/tests" ] || continue
+        for name in $(grep -rhoE 'CARGO_BIN_EXE_[A-Za-z0-9_-]+' "$package/tests" | sed 's/^CARGO_BIN_EXE_//' | LC_ALL=C sort -u); do
+            exe="$(jq -R -r --arg n "$name" --arg p "$package" '
+                fromjson?
+                | select(.reason == "compiler-artifact" and .executable != null)
+                | select(.target.kind | index("bin") != null)
+                | select(.target.name == $n and (.manifest_path | rtrimstr("/Cargo.toml")) == $p)
+                | .executable
+            ' <"$json" | tail -1)"
+            [ -n "$exe" ] || die "${package#"$workspace"/}'s tests spawn $name (CARGO_BIN_EXE_$name), which the build did not produce"
+            printf '%s\t%s\t%s\n' "$name" "$package" "$exe" >>"$spawned"
+        done
+    done < <(cut -f2 "$map" | LC_ALL=C sort -u)
+
     local target executable
     : >"$list"
     while IFS=$'\t' read -r target _ executable; do
@@ -153,7 +180,7 @@ build() {
             "$workspace"/*) echo "${executable#"$workspace"/}" >>"$list" ;;
             *) die "$target's binary $executable is outside the workspace $workspace" ;;
         esac
-    done <"$map"
+    done < <(cat "$map" "$spawned")
     LC_ALL=C sort -u -o "$list" "$list"
     echo "$workspace" >"$dir/workspace"
 
@@ -190,7 +217,14 @@ unpack() {
         [ -x "$executable" ] || die "unpack: $target's binary $executable is missing or not executable"
         count=$((count + 1))
     done <"$dir/test-binaries.tsv"
-    echo "Unpacked $count test binaries built at $built"
+    local spawned=0
+    if [ -f "$dir/spawned-binaries.tsv" ]; then
+        while IFS=$'\t' read -r target _ executable; do
+            [ -x "$executable" ] || die "unpack: the bin $target the tests spawn, $executable, is missing or not executable"
+            spawned=$((spawned + 1))
+        done <"$dir/spawned-binaries.tsv"
+    fi
+    echo "Unpacked $count test binaries and $spawned bin(s) they spawn, built at $built"
 }
 
 # Runs one test binary from <dir> with the remaining arguments, stopping it

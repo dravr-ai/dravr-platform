@@ -201,9 +201,9 @@ if [ "$START_MAESTRO_CONTROL" = "true" ]; then
     CLI_FEATURES=(--features pierre-cli/e2e-seeded-sessions)
 fi
 if [ "$BUILD_MODE" = "release" ]; then
-    cargo build --release --bin pierre-mcp-server --bin pierre-cli --bin pierre-dev-fixture "${CLI_FEATURES[@]}" 2>&1 | tail -3
+    cargo build --release --bin pierre-mcp-server --bin pierre-pdf-text --bin pierre-cli --bin pierre-dev-fixture "${CLI_FEATURES[@]}" 2>&1 | tail -3
 else
-    cargo build --bin pierre-mcp-server --bin pierre-cli --bin pierre-dev-fixture "${CLI_FEATURES[@]}" 2>&1 | tail -3
+    cargo build --bin pierre-mcp-server --bin pierre-pdf-text --bin pierre-cli --bin pierre-dev-fixture "${CLI_FEATURES[@]}" 2>&1 | tail -3
 fi
 echo "    Build complete"
 

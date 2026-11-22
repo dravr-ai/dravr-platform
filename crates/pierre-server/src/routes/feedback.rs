@@ -20,11 +20,11 @@
 //! with `data` in standard base64: at most [`MAX_IMAGE_BYTES`] once decoded,
 //! and a PNG, JPEG, WebP or GIF by its own leading bytes, whatever the
 //! client declared. It is kept where the athlete's uploaded files are
-//! ([`OriginalsStore::put_feedback_image`]) and shared into the feedback room
+//! ([`OriginalsStore::put_named_file`]) and shared into the feedback room
 //! so the team sees it beside the card. A message with a screenshot may
 //! carry no text.
 //!
-//! [`OriginalsStore::put_feedback_image`]: pierre_providers::originals::OriginalsStore::put_feedback_image
+//! [`OriginalsStore::put_named_file`]: pierre_providers::originals::OriginalsStore::put_named_file
 //!
 //! `screen`, `app_version` and `locale` are what the client says about
 //! itself; they are cut to a bound rather than refused, so a long route never
@@ -234,7 +234,7 @@ async fn post_message(
             resources
                 .common
                 .originals
-                .put_feedback_image(
+                .put_named_file(
                     &tenant_id,
                     auth.user_id,
                     &screenshot.kept.sha256,
@@ -328,7 +328,7 @@ async fn get_image(
     let bytes = resources
         .common
         .originals
-        .get_feedback_image(&tenant_id, auth.user_id, &image.sha256)
+        .get_named_file(&tenant_id, auth.user_id, &image.sha256)
         .await?
         .ok_or_else(|| AppError::not_found("Screenshot not found"))?;
     Ok((

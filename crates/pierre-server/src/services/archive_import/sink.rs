@@ -35,6 +35,9 @@
 //! sees: a night whole, each day record as a partial summary, since each
 //! file of the export carries only some of a day's readings and none
 //! retracts another's. Readings measured as SDNN go to their own series.
+//! The T2–T3 records an export holds (glucose, cycle tracking, clinical
+//! records) are stored too, whatever the athlete allowed
+//! ([`store_sensitive`]): the tier consent gates who else reads them.
 //! Retracting a source deletes every row the key
 //! contributed, its samples and wellness included.
 
@@ -49,11 +52,14 @@ use dravr_barrage::{
     WellnessRecords,
 };
 use pierre_core::models::{Activity, DataSource, DeviceType, TenantId};
-use pierre_database::repositories::{ActivityStreamsWrite, PurgeReason, StreamOrigin};
+use pierre_database::repositories::{
+    ActivityStreamsWrite, PurgeReason, RecordFiling, StreamOrigin,
+};
 use pierre_database::RepositoryRegistry;
 use pierre_services::activity_cache_sink::{
     project_cached_activities, projection_error, retract_activities, scope_ids, LiveCacheSink,
 };
+use pierre_services::health_records::store_sensitive;
 use pierre_services::wellness_store::{IntradaySeries, WellnessStore, WellnessWriteMode};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::info;
@@ -303,10 +309,32 @@ impl ProjectionSink for CachedActivitiesSink {
             .await
             .map_err(|e| projection_error(&e))?;
         writes.report();
+        // The T2–T3 records are kept for the athlete whatever they allowed:
+        // the tier consent gates who else reads them (carnet#1544).
+        let sensitive = store_sensitive(
+            repos,
+            RecordFiling {
+                tenant_id: &tenant_id,
+                user_id,
+                provider: key,
+                data_source_id: &source_id,
+            },
+            wellness,
+        )
+        .await
+        .map_err(|e| projection_error(&e))?;
         info!(
             %user_id,
             source = key,
-            records = wellness.len(),
+            sleep = wellness.sleep.len(),
+            recovery = wellness.recovery.len(),
+            body = wellness.body.len(),
+            daily_activity = wellness.daily_activity.len(),
+            hrv_sdnn = wellness.hrv_sdnn.len(),
+            glucose = sensitive.glucose,
+            glucose_dropped = sensitive.glucose_dropped,
+            self_reports = sensitive.self_reports,
+            clinical = sensitive.clinical,
             "imported wellness stored"
         );
         Ok(())

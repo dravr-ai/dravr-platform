@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 84
+// Tool count: 85
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -671,6 +671,28 @@ export interface GetGroupMemberPlanStatusParams {
 
   /** The athlete's roster name. */
   member: string;
+}
+
+
+/**
+ * The athlete's lab results, clinical records, glucose or cycle tracking, as far as they let AI read them
+ */
+export interface GetHealthRecordsParams {
+
+  /** RFC3339 end; defaults to now. */
+  end?: string;
+
+  /** 'json' (default) or 'toon' (compact). */
+  format?: string;
+
+  /** labs, clinical, glucose (mg/dL) or self_reports (cycle tracking) */
+  kind: string;
+
+  /** Max records, 1-200 (default 50) */
+  limit?: number;
+
+  /** RFC3339 start; defaults to 30 days before `end`; a range longer than 366 days keeps its most recent 366. */
+  start?: string;
 }
 
 
@@ -2110,6 +2132,7 @@ export const TOOL_NAMES = [
   "get_food_details",
   "get_group_member_activities",
   "get_group_member_plan_status",
+  "get_health_records",
   "get_health_snapshots",
   "get_heart_rate_series",
   "get_planned_workouts",
@@ -2205,6 +2228,7 @@ export interface ToolParamsMap {
   "get_food_details": GetFoodDetailsParams;
   "get_group_member_activities": GetGroupMemberActivitiesParams;
   "get_group_member_plan_status": GetGroupMemberPlanStatusParams;
+  "get_health_records": GetHealthRecordsParams;
   "get_health_snapshots": GetHealthSnapshotsParams;
   "get_heart_rate_series": GetHeartRateSeriesParams;
   "get_planned_workouts": GetPlannedWorkoutsParams;

@@ -56,6 +56,7 @@ use crate::a2a::client::A2AClientManager;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
 use crate::services::archive_import::ArchiveImports;
+use crate::services::lab_documents::PdfChild;
 use crate::services::photograveur_client::PhotograveurClient;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
@@ -107,6 +108,7 @@ use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::group_chat_poster::GroupChatPoster;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
+use pierre_services::lab_document_model::LabReaderModel;
 use pierre_services::live_activities::LiveActivityStore;
 use pierre_services::originals_bundle::OriginalsBundleService;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
@@ -177,6 +179,13 @@ pub struct CommonSlice {
     /// (the one archive imports keep their originals in), or the reason no
     /// blob store is placed here. Chosen once at boot.
     pub originals: Arc<OriginalsStore>,
+    /// The model the lab reader reads uploaded lab reports with, or none (the
+    /// rules read): `LAB_READER_MODEL`, chosen once at boot (carnet#1544).
+    pub lab_reader: LabReaderModel,
+    /// The `pierre-pdf-text` child uploaded lab reports are read in, and the
+    /// permits that keep one alive at a time: chosen once at boot
+    /// (carnet#1544).
+    pub pdf_child: PdfChild,
     /// Client for the photograveur press service.
     ///
     /// Disabled when `PHOTOGRAVEUR_URL` is unset, so a stack without the

@@ -97,6 +97,9 @@ ALLOW = [
     # History: commit subjects the admin screen theory quotes verbatim, which
     # its test checks against git log (a commit message is never rewritten).
     (r"^frontend/src/components/admin/theory/screenTheory\.ts$", r"operator tier/plan|operators lose personal panes|every operator write", "quoted commit subjects"),
+    # Third party: a PDF content operation's operator field (lopdf's
+    # `Operation::operator`), read by the lab PDF child's form-draw check.
+    (r"^crates/pierre-pdf-text/src/", r"operation\.operator", "lopdf content operation field"),
     # Third party: Babel plugin package names in the lockfiles.
     (r"(^|/)bun\.lock$", r"[a-z-]*operators?", "third-party package names"),
 ]

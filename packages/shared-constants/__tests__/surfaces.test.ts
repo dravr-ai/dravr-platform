@@ -55,6 +55,10 @@ describe('settings destinations', () => {
     expect(() => settingsSectionScreen('security')).toThrow('section "security"');
   });
 
+  it('serves health records as a screen of the Privacy pane on the phone', () => {
+    expect(settingsSectionScreen('health-records')).toBe('/(app)/(tabs)/(settings)/health-records');
+  });
+
   it('declares no settings destination a second time among the top-level surfaces', () => {
     // USER_SURFACES used to carry profile, data-providers, coaching-style,
     // messaging, connected-apps, privacy and memory beside the panes, and both

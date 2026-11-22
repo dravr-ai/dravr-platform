@@ -54,6 +54,17 @@ macro_rules! user_sources {
     };
 }
 
+/// One user's lab documents under one tenant, when the purged provider is
+/// `lab_document` (`LAB_DOCUMENT_PROVIDER`): the table keeps no provider
+/// column, every row being that provider's. `$1` user id, `$2` tenant id,
+/// `$3` provider; the ids are `uuid` on Postgres. Their PDFs are deleted by
+/// the purge service before these rows go.
+macro_rules! user_lab_documents {
+    () => {
+        "CAST(user_id AS TEXT) = $1 AND CAST(tenant_id AS TEXT) = $2 AND $3 = 'lab_document'"
+    };
+}
+
 /// Every provider row, across every user and tenant: `$1` provider.
 macro_rules! provider_rows {
     () => {
@@ -75,7 +86,7 @@ macro_rules! provider_sources {
 /// them reference. A user's purge runs them first, then
 /// [`USER_ACTIVITY_ROWS_SQL`]; a wellness purge runs them alone, with the
 /// sync's cursors ([`USER_SYNC_CURSORS_SQL`]).
-pub(crate) const USER_WELLNESS_ROWS_SQL: [(&str, &str); 6] = [
+pub(crate) const USER_WELLNESS_ROWS_SQL: [(&str, &str); 9] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", user_sources!()),
@@ -95,6 +106,20 @@ pub(crate) const USER_WELLNESS_ROWS_SQL: [(&str, &str); 6] = [
     (
         "daily_activity",
         concat!("DELETE FROM daily_activity WHERE ", user_rows!()),
+    ),
+    // The health records an import filed (carnet#1544), uuid-keyed on
+    // Postgres like feedback_messages.
+    (
+        "self_reports",
+        concat!("DELETE FROM self_reports WHERE ", user_rows_cast!()),
+    ),
+    (
+        "clinical_records",
+        concat!("DELETE FROM clinical_records WHERE ", user_rows_cast!()),
+    ),
+    (
+        "lab_documents",
+        concat!("DELETE FROM lab_documents WHERE ", user_lab_documents!()),
     ),
     (
         "data_sources",
@@ -121,7 +146,7 @@ macro_rules! user_marked_sources {
 /// provider key (the Garmin API and the connection using usr/pwd from Dravr
 /// both under `garmin`). The rows the other connection filed under its own
 /// data source, and the health sync's cursors over them, stay.
-pub(crate) const USER_SOURCE_WELLNESS_ROWS_SQL: [(&str, &str); 6] = [
+pub(crate) const USER_SOURCE_WELLNESS_ROWS_SQL: [(&str, &str); 9] = [
     (
         "data_point_series",
         concat!(
@@ -163,6 +188,33 @@ pub(crate) const USER_SOURCE_WELLNESS_ROWS_SQL: [(&str, &str); 6] = [
             user_rows!(),
             " AND ",
             user_marked_sources!()
+        ),
+    ),
+    (
+        "self_reports",
+        concat!(
+            "DELETE FROM self_reports WHERE ",
+            user_rows_cast!(),
+            " AND ",
+            user_marked_sources!()
+        ),
+    ),
+    (
+        "clinical_records",
+        concat!(
+            "DELETE FROM clinical_records WHERE ",
+            user_rows_cast!(),
+            " AND ",
+            user_marked_sources!()
+        ),
+    ),
+    // A lab document is filed under the source marked `upload`.
+    (
+        "lab_documents",
+        concat!(
+            "DELETE FROM lab_documents WHERE ",
+            user_lab_documents!(),
+            " AND $4 = 'upload'"
         ),
     ),
     (
@@ -455,7 +507,7 @@ pub(crate) const PURGE_REASONS_SINCE_SQL: &str = "SELECT reason FROM provider_da
 /// provider's terms can require across the whole platform (WHOOP API Terms
 /// §7), and are reachable only from the super-admin route that audits the
 /// call. No tenant- or user-facing path may run them.
-pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 20] = [
+pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 23] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", provider_sources!()),
@@ -475,6 +527,20 @@ pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 20] = [
     (
         "daily_activity",
         concat!("DELETE FROM daily_activity WHERE ", provider_rows!()),
+    ),
+    (
+        "self_reports",
+        concat!("DELETE FROM self_reports WHERE ", provider_rows!()),
+    ),
+    (
+        "clinical_records",
+        concat!("DELETE FROM clinical_records WHERE ", provider_rows!()),
+    ),
+    // Every row is the `lab_document` provider's; their PDFs are deleted by
+    // the purge service first.
+    (
+        "lab_documents",
+        "DELETE FROM lab_documents WHERE $1 = 'lab_document'",
     ),
     (
         "data_sources",
@@ -557,3 +623,35 @@ pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 20] = [
         ),
     ),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repositories::health_records::{LAB_DOCUMENT_PROVIDER, LAB_DOCUMENT_SOURCE_MARKER};
+
+    #[test]
+    fn the_purge_statements_name_the_lab_document_provider_and_source() {
+        let lab = |set: &[(&str, &str)]| -> String {
+            set.iter()
+                .find(|(table, _)| *table == "lab_documents")
+                .map(|(_, statement)| (*statement).to_owned())
+                .expect("bug: a purge leaves the lab_documents rows")
+        };
+        let provider = format!("'{LAB_DOCUMENT_PROVIDER}'");
+        for statement in [
+            lab(&USER_WELLNESS_ROWS_SQL),
+            lab(&USER_SOURCE_WELLNESS_ROWS_SQL),
+            lab(&PROVIDER_PURGE_SQL),
+        ] {
+            assert!(
+                statement.contains(&provider),
+                "bug: a lab_documents purge names another provider: {statement}"
+            );
+        }
+        assert!(
+            lab(&USER_SOURCE_WELLNESS_ROWS_SQL)
+                .contains(&format!("'{LAB_DOCUMENT_SOURCE_MARKER}'")),
+            "bug: the source-scoped purge names another marker"
+        );
+    }
+}

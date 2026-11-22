@@ -76,10 +76,12 @@ use crate::runtime::ToolRuntime;
 
 mod wellness;
 
+#[cfg(feature = "tools-data")]
+pub(crate) use wellness::{
+    health_records_named, readable_wellness, unnamed_refusal, unnamed_wellness_note,
+};
 #[cfg(feature = "tools-config")]
 pub(crate) use wellness::{readable_anchors, readable_physiology, wellness_readable};
-#[cfg(feature = "tools-data")]
-pub(crate) use wellness::{readable_wellness, unnamed_refusal, unnamed_wellness_note};
 #[cfg(feature = "tools-analytics")]
 pub(crate) use wellness::{record_analytics_wellness_read, wellness_refusal, WellnessInput};
 #[cfg(any(feature = "tools-analytics", feature = "tools-config"))]

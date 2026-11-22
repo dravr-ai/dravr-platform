@@ -56,6 +56,11 @@ enum Probe {
     /// It runs only on Dravr's own surfaces, so an MCP caller is never served
     /// it (carnet#1565).
     DravrOnly,
+    /// It declares a tier an outside client never reads until grants carry
+    /// authorization details, so the dispatch tier gate refuses every MCP
+    /// call (carnet#1544); called with these arguments, nothing is served to
+    /// label.
+    OutsideRefused(Value),
     /// A write naming whose plan, calendar or link it changes; it reads
     /// nothing to label.
     Writes,
@@ -134,6 +139,10 @@ fn probes(goal: &str) -> BTreeMap<&'static str, Probe> {
     ] {
         probes.insert(tool, Probe::DravrOnly);
     }
+    probes.insert(
+        "get_health_records",
+        Probe::OutsideRefused(json!({ "kind": "labs" })),
+    );
     for tool in [
         "save_training_plan",
         "publish_training_plan",
@@ -298,6 +307,15 @@ async fn every_read_of_the_athletes_data_over_mcp_labels_what_it_served() {
                     .await;
                 if refused.as_ref().is_ok_and(|response| response.success) {
                     defects.push(format!("{tool}: served over MCP though Dravr-only"));
+                }
+                continue;
+            }
+            Probe::OutsideRefused(params) => {
+                let refused = f.try_call(&f.mcp_executor(), f.athlete, tool, params).await;
+                if refused.as_ref().is_ok_and(|response| response.success) {
+                    defects.push(format!(
+                        "{tool}: served over MCP though its tier is refused to outside clients"
+                    ));
                 }
                 continue;
             }

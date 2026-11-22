@@ -941,6 +941,12 @@ async fn every_wellness_read_is_listed_with_athlete_over_mcp_and_offered_in_the_
     let mut offered = registry.chat_callable_of_class(DataClass::Wellness);
     offered.sort_unstable();
     let mut expected: Vec<&str> = wellness_reads().into_iter().map(|(tool, _)| tool).collect();
+    // A coach's thread is offered the health records reader too, which reads
+    // T2 only under the athlete's grant and T3 never
+    // (tier_consent_test::the_coachs_agent_reads_a_t2_health_record_under_all_three_and_a_t3_one_never).
+    // It is not among `wellness_reads()`: those are called over MCP, which
+    // refuses it to every outside client.
+    expected.push("get_health_records");
     expected.sort_unstable();
     assert_eq!(
         offered, expected,

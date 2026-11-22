@@ -422,6 +422,10 @@ user_export_tables_sql!(
     "recovery_metrics" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
     "health_snapshots" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
     "daily_activity" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
+    // The T2–T3 records imports and lab documents yielded (carnet#1544): the export is their own.
+    "self_reports" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
+    "clinical_records" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
+    "lab_documents" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
     "activity_conversations" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "tenant_id", text "user_id", text "provider", text "activity_id"] },
     // The places the athlete trains from, centroids included: the export is their own.
     "athlete_places" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },

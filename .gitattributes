@@ -14,3 +14,7 @@
 # binary payload; one short enough to hold no NUL byte reads as text to git,
 # and diff-scanning gates then choke on its bytes.
 *.age binary
+
+# PDF fixtures are binary even when their bytes are mostly ASCII: no text
+# diff, so no prose check reads a PDF stream as an added line.
+*.pdf binary
