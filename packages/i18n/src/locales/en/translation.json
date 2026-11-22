@@ -4389,7 +4389,21 @@
       "restoreNote": "Puts back {{from}}, as the day stood before your first edit.",
       "restoreNoteRest": "Puts back the rest day, as the day stood before your first edit.",
       "restored": "{{date}} is back as it was in your draft.",
-      "restoreFailed": "This day could not be restored."
+      "restoreFailed": "This day could not be restored.",
+      "editSession": "Edit session",
+      "addSession": "Add a session",
+      "addTitle": "Add a session on {{date}}",
+      "removeSession": "Remove this session",
+      "removeTitle": "Remove this session?",
+      "removeBody": "{{workout}} leaves {{date}} in your draft.",
+      "removeConfirm": "Remove session",
+      "removed": "{{workout}} is off {{date}} in your draft.",
+      "sessionMoved": "This day changed since you opened it. Here it is as it stands now.",
+      "dateFull": "{{date}} already holds {{max}} sessions.",
+      "added": "Added",
+      "restoreNoteAdded": "Removes this session: you added it.",
+      "removeFailed": "This session could not be removed.",
+      "addedNote": "You added this session in your draft."
     }
   },
   "platform_post": {

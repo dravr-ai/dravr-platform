@@ -4389,7 +4389,21 @@
       "restoreNote": "Restaura {{from}}, como o dia estava antes da sua primeira alteração.",
       "restoreNoteRest": "Restaura o dia de descanso, como estava antes da sua primeira alteração.",
       "restored": "{{date}} voltou a ser como antes no seu rascunho.",
-      "restoreFailed": "Não foi possível restaurar este dia."
+      "restoreFailed": "Não foi possível restaurar este dia.",
+      "editSession": "Editar sessão",
+      "addSession": "Adicionar uma sessão",
+      "addTitle": "Adicionar uma sessão em {{date}}",
+      "removeSession": "Remover esta sessão",
+      "removeTitle": "Remover esta sessão?",
+      "removeBody": "{{workout}} sai de {{date}} no seu rascunho.",
+      "removeConfirm": "Remover sessão",
+      "removed": "{{workout}} não está mais em {{date}} no seu rascunho.",
+      "sessionMoved": "Este dia mudou desde que você o abriu. Aqui está como ele está agora.",
+      "dateFull": "{{date}} já tem {{max}} sessões.",
+      "added": "Adicionada",
+      "restoreNoteAdded": "Remove esta sessão: foi você quem a adicionou.",
+      "removeFailed": "Não foi possível remover esta sessão.",
+      "addedNote": "Você adicionou esta sessão no seu rascunho."
     }
   },
   "platform_post": {

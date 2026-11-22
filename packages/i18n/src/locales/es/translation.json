@@ -4389,7 +4389,21 @@
       "restoreNote": "Vuelve a poner {{from}}, como estaba el día antes de tu primer cambio.",
       "restoreNoteRest": "Vuelve a poner el día de descanso, como estaba antes de tu primer cambio.",
       "restored": "{{date}} vuelve a estar como antes en tu borrador.",
-      "restoreFailed": "No se pudo restaurar este día."
+      "restoreFailed": "No se pudo restaurar este día.",
+      "editSession": "Editar sesión",
+      "addSession": "Añadir una sesión",
+      "addTitle": "Añadir una sesión el {{date}}",
+      "removeSession": "Quitar esta sesión",
+      "removeTitle": "¿Quitar esta sesión?",
+      "removeBody": "{{workout}} sale del {{date}} en tu borrador.",
+      "removeConfirm": "Quitar sesión",
+      "removed": "{{workout}} ya no está el {{date}} en tu borrador.",
+      "sessionMoved": "Este día cambió desde que lo abriste. Aquí está tal como está ahora.",
+      "dateFull": "El {{date}} ya tiene {{max}} sesiones.",
+      "added": "Añadida",
+      "restoreNoteAdded": "Quita esta sesión: la añadiste tú.",
+      "removeFailed": "No se pudo quitar esta sesión.",
+      "addedNote": "Añadiste esta sesión en tu borrador."
     }
   },
   "platform_post": {

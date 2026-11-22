@@ -4389,7 +4389,21 @@
       "restoreNote": "Remet {{from}}, comme le jour était avant ta première modification.",
       "restoreNoteRest": "Remet le jour de repos, comme le jour était avant ta première modification.",
       "restored": "{{date}} est revenu comme avant dans ton brouillon.",
-      "restoreFailed": "Ce jour n’a pas pu être restauré."
+      "restoreFailed": "Ce jour n’a pas pu être restauré.",
+      "editSession": "Modifier la séance",
+      "addSession": "Ajouter une séance",
+      "addTitle": "Ajouter une séance le {{date}}",
+      "removeSession": "Retirer cette séance",
+      "removeTitle": "Retirer cette séance ?",
+      "removeBody": "{{workout}} quitte le {{date}} dans ton brouillon.",
+      "removeConfirm": "Retirer la séance",
+      "removed": "{{workout}} n’est plus au {{date}} dans ton brouillon.",
+      "sessionMoved": "Ce jour a changé depuis que tu l’as ouvert. Le voici tel qu’il est maintenant.",
+      "dateFull": "Le {{date}} compte déjà {{max}} séances.",
+      "added": "Ajoutée",
+      "restoreNoteAdded": "Retire cette séance : c’est toi qui l’as ajoutée.",
+      "removeFailed": "Cette séance n’a pas pu être retirée.",
+      "addedNote": "Tu as ajouté cette séance dans ton brouillon."
     }
   },
   "platform_post": {

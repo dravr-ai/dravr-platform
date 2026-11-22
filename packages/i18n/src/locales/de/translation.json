@@ -4389,7 +4389,21 @@
       "restoreNote": "Stellt {{from}} wieder her, wie der Tag vor deiner ersten Änderung war.",
       "restoreNoteRest": "Stellt den Ruhetag wieder her, wie der Tag vor deiner ersten Änderung war.",
       "restored": "{{date}} ist in deinem Entwurf wieder wie vorher.",
-      "restoreFailed": "Dieser Tag konnte nicht wiederhergestellt werden."
+      "restoreFailed": "Dieser Tag konnte nicht wiederhergestellt werden.",
+      "editSession": "Einheit bearbeiten",
+      "addSession": "Einheit hinzufügen",
+      "addTitle": "Einheit am {{date}} hinzufügen",
+      "removeSession": "Diese Einheit entfernen",
+      "removeTitle": "Diese Einheit entfernen?",
+      "removeBody": "{{workout}} verschwindet in deinem Entwurf vom {{date}}.",
+      "removeConfirm": "Einheit entfernen",
+      "removed": "{{workout}} steht in deinem Entwurf nicht mehr am {{date}}.",
+      "sessionMoved": "Dieser Tag hat sich geändert, seit du ihn geöffnet hast. Hier ist er, wie er jetzt ist.",
+      "dateFull": "Am {{date}} stehen schon {{max}} Einheiten.",
+      "added": "Hinzugefügt",
+      "restoreNoteAdded": "Entfernt diese Einheit: Du hast sie hinzugefügt.",
+      "removeFailed": "Diese Einheit konnte nicht entfernt werden.",
+      "addedNote": "Du hast diese Einheit in deinem Entwurf hinzugefügt."
     }
   },
   "platform_post": {
