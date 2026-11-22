@@ -389,7 +389,7 @@ user_export_tables_sql!(
     "user_check_in_preferences" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: [uuid "tenant_id", uuid "user_id"] },
     "user_onboarding" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "user_id", text "step_id"] },
     "calendar_preferences" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["set_by"], page: 5, key: [text "tenant_id", uuid "user_id"] },
-    "coach_data_reads" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["coach_user_id"], page: 200, key: [uuid "id"] },
+    "coach_data_reads" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["coach_user_id", "impersonator_user_id"], page: 200, key: [uuid "id"] },
     "user_physiological_profiles" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: [uuid "tenant_id", uuid "user_id"] },
     "user_physiology_sport_anchors" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 50, key: [uuid "tenant_id", uuid "user_id", text "sport", text "anchor"] },
     "fitness_configurations" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 20, key: [text "id"] },
@@ -404,7 +404,8 @@ user_export_tables_sql!(
     "notification_preferences" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "scheduled_notifications" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "oauth_client_grants" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
-    "impersonation_sessions" { rows: [uuid "target_user_id"], tenant: none, except: ["impersonator_id"], page: 50, key: [text "id"] },
+    // The admin and the credential they acted through are theirs, not the user's.
+    "impersonation_sessions" { rows: [uuid "target_user_id"], tenant: none, except: ["impersonator_id", "grant_id", "api_key_id"], page: 50, key: [text "id"] },
     "permission_delegations" { rows: [uuid "grantor_id"], tenant: none, except: [], page: 50, key: [text "id"] },
     // What providers delivered.
     "provider_connections" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },

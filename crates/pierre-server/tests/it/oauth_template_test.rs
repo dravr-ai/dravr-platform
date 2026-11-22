@@ -26,8 +26,16 @@ use pierre_routes_identity::{ConsentText, LoginPageLabels};
 use regex::Regex;
 use std::sync::LazyLock;
 
+use crate::admin_access_consent_test::with_admin_access_lines;
+
 /// The catalogue the consent pages read.
 static STRINGS: LazyLock<MessagingStringsRegistry> = LazyLock::new(MessagingStringsRegistry::new);
+
+/// The catalogue with the Admin access box's lines, which are authored in
+/// dravr-contremaitre and not pinned yet: the admin line is shown inside the
+/// box, and the box only with its lines (carnet#1511, step 12).
+static STRINGS_WITH_ADMIN_BOX: LazyLock<MessagingStringsRegistry> =
+    LazyLock::new(|| with_admin_access_lines(MessagingStringsRegistry::new()));
 
 /// A catalogue line's positional slot.
 static SLOT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\{\d+\}").unwrap());
@@ -232,6 +240,7 @@ fn test_consent_page_escapes_the_client_name_and_names_the_account() {
         switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
         first_party_only_sources: &["Strava"],
         text: &ConsentText::new(&STRINGS, "en"),
+        role: pierre_routes_identity::ConsentRole::default(),
     });
 
     assert!(!html.contains("<script>"), "{html}");
@@ -278,6 +287,7 @@ fn test_consent_page_names_the_host_the_browser_goes_to() {
             switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
             first_party_only_sources: &[],
             text: &ConsentText::new(&STRINGS, "en"),
+            role: pierre_routes_identity::ConsentRole::default(),
         })
     };
 
@@ -327,6 +337,7 @@ fn test_consent_page_names_the_data_that_stays_inside_dravr() {
             switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
             first_party_only_sources: sources,
             text: &ConsentText::new(&STRINGS, "en"),
+            role: pierre_routes_identity::ConsentRole::default(),
         })
     };
 
@@ -381,6 +392,7 @@ fn test_consent_page_states_the_client_trust_and_the_data_obligations() {
             switch_account_url: "/oauth2/login?client_id=x&state=s",
             first_party_only_sources: &[],
             text: &ConsentText::new(&STRINGS, "en"),
+            role: pierre_routes_identity::ConsentRole::default(),
         })
     };
 
@@ -998,6 +1010,7 @@ fn consent_in(locale: &str, client_id: &str, redirect_uri: &str, scope: &str) ->
         switch_account_url: "/oauth2/login?client_id=x&state=s",
         first_party_only_sources: &["Strava", "Garmin", "WHOOP"],
         text: &ConsentText::new(&STRINGS, locale),
+        role: pierre_routes_identity::ConsentRole::default(),
     })
 }
 
@@ -1103,13 +1116,21 @@ fn a_french_consent_page_says_every_line_in_french() {
     let keys: Vec<&str> = consent_flow_keys()
         .into_iter()
         .filter(|key| key.starts_with("oauth.consent."))
-        // The role lines show on a coach's or an admin's page only, and this
-        // page renders neither role yet; carnet#1511 renders them and checks
-        // them in French through a coach-and-admin page.
-        .filter(|key| !key.starts_with("oauth.consent.role"))
         .collect();
     let french = every_consent_line_in("fr");
-    let bodies = [page_body(&french[0]), page_body(&french[1])];
+    // The role lines are shown to a coach and an admin alone.
+    let both_roles = consent_for_role(
+        pierre_routes_identity::ConsentRole {
+            coach: true,
+            admin: true,
+        },
+        "fr",
+    );
+    let bodies = [
+        page_body(&french[0]),
+        page_body(&french[1]),
+        page_body(&both_roles),
+    ];
     for html in &french {
         assert!(html.contains("<html lang=\"fr\">"), "{html}");
         assert!(
@@ -1219,6 +1240,7 @@ fn a_french_consent_page_escapes_what_the_client_supplies() {
         switch_account_url: "/oauth2/login",
         first_party_only_sources: &["<u>x</u>"],
         text: &ConsentText::new(&STRINGS, "fr"),
+        role: pierre_routes_identity::ConsentRole::default(),
     });
     for raw in ["<script>", "<b>scope", "<i>a", "<u>x"] {
         assert!(!html.contains(raw), "{raw}: {html}");
@@ -1268,4 +1290,68 @@ async fn a_failed_provider_callback_reads_in_the_browsers_language() {
         .await
         .body_text();
     assert!(!french.contains("Connection Failed"), "{french}");
+}
+
+/// The consent page Claude is shown for `role` in `locale`.
+fn consent_for_role(role: pierre_routes_identity::ConsentRole, locale: &str) -> String {
+    OAuth2Routes::generate_consent_html(pierre_routes_identity::ConsentHtmlParams {
+        client_id: "mcp_client_1",
+        redirect_uri: "https://claude.ai/api/mcp/auth_callback",
+        response_type: "code",
+        state: "s",
+        scope: "fitness:read",
+        code_challenge: "challenge_abc",
+        code_challenge_method: "S256",
+        resource: "",
+        csrf_token: "token",
+        client_label: "Claude",
+        account_email: "coach@example.test",
+        switch_account_url: "/oauth2/login?client_id=mcp_client_1&state=s",
+        first_party_only_sources: &["Strava"],
+        text: &ConsentText::new(&STRINGS_WITH_ADMIN_BOX, locale),
+        role,
+    })
+}
+
+/// A coach and an admin are shown a role line naming what their role adds,
+/// with the client in its slot (carnet#1511); an athlete sees neither.
+#[test]
+fn a_coach_and_an_admin_read_their_role_line_and_an_athlete_none() {
+    let render = |role| consent_for_role(role, "en");
+    // The client arrives in its slot as markup, as on every disclosure line.
+    let line = |key: &str| {
+        STRINGS
+            .get_exact(key, "en")
+            .unwrap_or_else(|| panic!("the catalogue carries {key}"))
+            .replace('\'', "&#x27;")
+            .replace("{0}", r#"<span class="client">Claude</span>"#)
+    };
+    let (coach_line, admin_line) = (
+        line("oauth.consent.roleCoach"),
+        line("oauth.consent.roleAdmin"),
+    );
+    let athlete = render(pierre_routes_identity::ConsentRole::default());
+    let coach = render(pierre_routes_identity::ConsentRole {
+        coach: true,
+        admin: false,
+    });
+    let admin = render(pierre_routes_identity::ConsentRole {
+        coach: false,
+        admin: true,
+    });
+    for html in [&athlete, &coach, &admin] {
+        assert!(!html.contains("oauth.consent.role"), "{html}");
+    }
+    assert!(
+        !athlete.contains(&coach_line) && !athlete.contains(&admin_line),
+        "{athlete}"
+    );
+    assert!(
+        coach.contains(&coach_line) && !coach.contains(&admin_line),
+        "{coach}"
+    );
+    assert!(
+        admin.contains(&admin_line) && !admin.contains(&coach_line),
+        "{admin}"
+    );
 }

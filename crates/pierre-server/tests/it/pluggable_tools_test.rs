@@ -103,9 +103,10 @@ mod registry_tests {
 
         let catalogued = vec!["catalogued_tool".to_owned()];
         let listers = [
+            ("all_schemas", registry.all_schemas()),
             (
-                "list_schemas_for_role",
-                registry.list_schemas_for_role(false),
+                "athlete_audience_schemas",
+                registry.athlete_audience_schemas(),
             ),
             (
                 "list_schemas_by_names",
@@ -116,8 +117,8 @@ mod registry_tests {
                 registry.list_schemas_by_name_set(&catalogued),
             ),
             (
-                "uncatalogued_user_schemas",
-                registry.uncatalogued_user_schemas(&catalogued),
+                "uncatalogued_schemas",
+                registry.uncatalogued_schemas(&catalogued),
             ),
         ];
         for (lister, schemas) in listers {
@@ -154,7 +155,7 @@ mod registry_tests {
     }
 
     #[test]
-    fn test_registry_admin_filtering() {
+    fn test_registry_audience_by_admin_only() {
         let mut registry = ToolRegistry::new();
 
         let user_tool = Arc::new(StubTool::new("user_tool", ToolCapabilities::REQUIRES_AUTH));
@@ -166,14 +167,23 @@ mod registry_tests {
         registry.register(user_tool);
         registry.register(admin_tool);
 
-        // Non-admin sees only user tools
-        let user_schemas = registry.list_schemas_for_role(false);
-        assert_eq!(user_schemas.len(), 1);
-        assert_eq!(user_schemas[0].name, "user_tool");
-
-        // Admin sees all tools
-        let admin_schemas = registry.list_schemas_for_role(true);
-        assert_eq!(admin_schemas.len(), 2);
+        // An ADMIN_ONLY tool serves admins; who is offered it is the access
+        // predicate's (`tool_access`), which reads this audience.
+        let athlete_schemas = registry.athlete_audience_schemas();
+        assert_eq!(
+            athlete_schemas.len(),
+            1,
+            "bug: the athlete audience leaves the admin tool out"
+        );
+        assert_eq!(
+            athlete_schemas[0].name, "user_tool",
+            "bug: the athlete audience's one schema is the user tool"
+        );
+        assert_eq!(
+            registry.all_schemas().len(),
+            2,
+            "bug: all_schemas lists every registered tool"
+        );
     }
 
     #[test]

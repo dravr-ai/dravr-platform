@@ -61,6 +61,10 @@ pub mod stored_physiology;
 #[cfg(feature = "tools-admin")]
 pub mod admin;
 
+/// The admin support-session tools over MCP and A2A (`tools-admin`, carnet#1511).
+#[cfg(feature = "tools-admin")]
+pub mod admin_support;
+
 /// Answer shapes for the admin agent tools, and their derived schemas.
 pub mod admin_output;
 

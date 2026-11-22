@@ -652,7 +652,7 @@ pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String
 /// at 11,763 characters of a ~82 KB prompt.
 ///
 /// It also restated them from the WRONG set. `build_tools_section` read
-/// `user_visible_schemas()` while the declarations read
+/// `all_schemas()` while the declarations read
 /// `chat_callable_schemas()`, so every non-admin category outside
 /// `CHAT_CALLABLE_CATEGORIES` — agent CRUD, configuration writes, claim
 /// verification — was advertised in prose and callable on no path. Its own doc
@@ -718,7 +718,7 @@ pub const TOOL_BOUNDARY: &str = "## Tool boundary\n\n     Your tools are the one
 /// ## Why a list is back, and why this one cannot drift
 ///
 /// A prose list used to live in prompt assembly: one line per tool, 11,763
-/// characters, built from `user_visible_schemas()` while the actual
+/// characters, built from `all_schemas()` while the actual
 /// declarations were built from `chat_callable_schemas()`. Two lists from two
 /// sources, so it advertised agent CRUD and config writes the agent could not
 /// call. Deleting it was right.

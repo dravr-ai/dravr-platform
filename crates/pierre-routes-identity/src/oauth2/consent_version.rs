@@ -55,7 +55,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use sha2::{Digest, Sha256};
 
 use super::consent_text::ConsentText;
-use super::pages::ConsentHtmlParams;
+use super::pages::{ConsentHtmlParams, ConsentRole};
 use super::visible_text::visible_text;
 use super::OAuth2Routes;
 
@@ -126,6 +126,9 @@ fn digested_page(template: &str, text: &ConsentText<'_>, subject: ConsentSubject
             switch_account_url: "",
             first_party_only_sources: &sources,
             text,
+            // The version digests the screen an athlete reads; the role
+            // lines join it through their text (CONSENT_SCREEN_KEYS).
+            role: ConsentRole::default(),
         },
     )
 }

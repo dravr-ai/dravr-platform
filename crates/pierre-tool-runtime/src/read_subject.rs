@@ -69,6 +69,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::coach_seat::TurnSeat;
+use crate::context::SUPPORT_SESSION;
 use crate::implementations::training_plan_authorship::load_conversation;
 use crate::protocol::types::UniversalResponse;
 use crate::runtime::ToolRuntime;
@@ -406,7 +407,9 @@ pub(crate) async fn coached_read(
 /// its [`CoachReadSurface`](pierre_database::repositories::CoachReadSurface)
 /// label. The transport the call declared is recorded beside it, so the
 /// athlete's record says when a read was served to the coach's outside
-/// assistant (EFVP 9.4b).
+/// assistant (EFVP 9.4b). So is the admin whose support session made the
+/// read while acting as the coach ([`SUPPORT_SESSION`]), so the athlete's
+/// record says it was support's read, not their coach's.
 ///
 /// Every coach read of a coached athlete records here once the gates have let
 /// it through and before its data is read: the dispatch chokepoint for a
@@ -435,16 +438,7 @@ pub async fn record_coach_read(
 ) -> AppResult<()> {
     repos
         .coach_data_reads
-        .record_coach_read(&NewCoachDataRead {
-            tenant: access.tenant,
-            athlete: access.athlete_user_id,
-            coach,
-            group: access.group.id,
-            tool,
-            class,
-            read_at: Utc::now(),
-            transport: ai_scope::declared_transport(),
-        })
+        .record_coach_read(&new_coach_read(access, coach, tool, class))
         .await
 }
 
@@ -456,7 +450,9 @@ pub async fn record_coach_read(
 /// weekly digest (carnet#1445).
 ///
 /// `true` when the row was written, `false` when that day's row already was:
-/// a repeat is no failure, and the read goes ahead either way.
+/// a repeat is no failure, and the read goes ahead either way. A read in a
+/// support session is recorded each time instead: folded into the coach's
+/// own row of the day, the athlete would never see that support read them.
 ///
 /// # Errors
 ///
@@ -469,19 +465,37 @@ pub async fn record_daily_coach_read(
     tool: &str,
     class: CoachReadClass,
 ) -> AppResult<bool> {
-    repos
-        .coach_data_reads
-        .record_daily_coach_read(&NewCoachDataRead {
-            tenant: access.tenant,
-            athlete: access.athlete_user_id,
-            coach,
-            group: access.group.id,
-            tool,
-            class,
-            read_at: Utc::now(),
-            transport: ai_scope::declared_transport(),
-        })
-        .await
+    let read = new_coach_read(access, coach, tool, class);
+    if read.impersonator.is_some() {
+        repos.coach_data_reads.record_coach_read(&read).await?;
+        return Ok(true);
+    }
+    repos.coach_data_reads.record_daily_coach_read(&read).await
+}
+
+/// The row recording `coach`'s read of `access`'s athlete now, with the
+/// transport the call declared and the admin of the support session it runs
+/// in, if any.
+fn new_coach_read<'read>(
+    access: &CoachedAthleteAccess,
+    coach: Uuid,
+    tool: &'read str,
+    class: CoachReadClass,
+) -> NewCoachDataRead<'read> {
+    NewCoachDataRead {
+        tenant: access.tenant,
+        athlete: access.athlete_user_id,
+        coach,
+        group: access.group.id,
+        tool,
+        class,
+        read_at: Utc::now(),
+        transport: ai_scope::declared_transport(),
+        impersonator: SUPPORT_SESSION
+            .try_with(|support| support.as_ref().map(|grant| grant.impersonator_id))
+            .ok()
+            .flatten(),
+    }
 }
 
 /// The subject of a call made in a coach's thread about one athlete: that

@@ -18,11 +18,13 @@
 //!
 //! - `initialize`, with the build version redacted and the instructions held
 //!   to the catalogue's prompt rather than to a copy of its words;
-//! - `tools/list` with the admin bit set, for a user who coaches a group: the
-//!   whole catalogue, `athlete` and the coach-only tools included;
+//! - `tools/list` for a human coach who leads a group, on a grant that covers
+//!   every scope: the athlete tools and the three coach tools, `athlete` on
+//!   the reads (carnet#1511). The role is read live from the database, so the
+//!   context's admin bit changes nothing; it is set on one view to pin that;
 //! - the tool names `tools/list` gives without it, each schema identical;
 //! - the listing of a user who coaches no group, which is that catalogue
-//!   without the coach-only tools and without `athlete` (carnet#1426).
+//!   without the coach tools and without `athlete`.
 //!
 //! The contremaitre description overlay starts empty and is only filled when
 //! `CONTREMAITRE_REPO` is set, so these are the compiled-in descriptions — the
@@ -103,11 +105,11 @@ async fn call(
     serde_json::to_value(response).unwrap()
 }
 
-/// The same tenant user seen twice, with the admin bit and without it, and a
-/// second user who coaches no group. A global
-/// admin holds the public profile on `/mcp`, so the two views are one list. The
-/// first user coaches a group, so their list is the whole catalogue: `athlete=`
-/// and the coach-only tools go to a coach alone. The
+/// The same tenant user seen twice, with the context's admin bit and without
+/// it, and a second user who coaches no group. The role is read live from the
+/// database, where neither is an admin, so the two views are one list. The
+/// first user coaches a group, so their list carries `athlete=` on the reads
+/// and the coach tools, which go to a coach alone (carnet#1511). The
 /// tenant is on the top plan: `tools/list` leaves out what a plan does not cover,
 /// and the fixture freezes every tool an external client can be offered.
 async fn admin_and_member(
@@ -270,7 +272,15 @@ async fn mcp_surface_matches_the_committed_fixtures() {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|tool| tool["name"] != "publish_training_plan")
+        .filter(|tool| {
+            ![
+                "get_group_member_activities",
+                "get_group_member_plan_status",
+                "get_roster_overview",
+            ]
+            .iter()
+            .any(|coach_tool| tool["name"] == *coach_tool)
+        })
         .cloned()
         .collect();
     let mut athlete_properties = 0_usize;
@@ -286,11 +296,11 @@ async fn mcp_surface_matches_the_committed_fixtures() {
     assert_eq!(
         json!(expected),
         non_coach_list["result"]["tools"],
-        "a non-coach's list is the coach's without publish_training_plan and athlete="
+        "a non-coach's list is the coach's without the coach tools and athlete="
     );
-    // The public profile's names: what every external client who coaches no
-    // group is offered, a global admin included, and so what the generated
-    // SDK types describe. The SDK drift check compares the types against it.
+    // The public profile's names: what an external client who coaches no
+    // group and is no admin is offered. The generated SDK types describe the
+    // coach's list instead (carnet#1511), which the admin fixture pins.
     let public_names: Vec<&str> = non_coach_list["result"]["tools"]
         .as_array()
         .unwrap()

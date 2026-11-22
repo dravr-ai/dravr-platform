@@ -660,13 +660,13 @@ async fn the_coach_family_stays_off_a_text_turn() {
     let requests = fx.model.requests_since(0);
     assert!(
         !requests[0].system.contains("get_roster_overview"),
-        "D4: the turn's tool index must not name a coach tool"
+        "a text turn's tool index names no coach tool (carnet#1511)"
     );
     assert!(
         requests[1]
             .conversation
-            .contains("not available over this interface"),
-        "D4: the executor must refuse the coach tool: {}",
+            .contains("is for a human coach who leads an active group"),
+        "a text turn is decided for no role (carnet#1511): the executor refuses the coach tool: {}",
         requests[1].conversation
     );
 }

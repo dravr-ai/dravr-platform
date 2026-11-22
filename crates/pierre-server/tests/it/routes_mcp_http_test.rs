@@ -861,10 +861,11 @@ async fn test_tools_list_accepts_every_issued_api_key_format() {
 }
 
 #[tokio::test]
-async fn test_tools_list_global_admin_holds_the_public_profile() {
-    // `/mcp` is an external transport whoever calls it: a genuine global admin
-    // (`User.role`), which the default tenant-owner test user is not, is
-    // offered no admin tool here.
+async fn test_tools_list_global_admin_is_listed_every_tool_its_grant_covers() {
+    // A genuine global admin (`User.role`), which the default tenant-owner test
+    // user is not, is listed every tool its credential's grant covers on
+    // `/mcp`, the admin tools included when that grant holds `admin`
+    // (carnet#1511).
     let (resources, jwt) = setup_with_admin_flag("tools_list_global_admin@example.com", true)
         .await
         .expect("Setup failed");
@@ -892,11 +893,14 @@ async fn test_tools_list_global_admin_holds_the_public_profile() {
 
     let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
 
-    // The admin tools stay on Dravr's own surfaces
     assert!(
-        !tool_names.iter().any(|n| n.starts_with("admin_")),
-        "A global admin must not be offered admin tools on /mcp, got: {:?}",
+        tool_names.iter().any(|n| n.starts_with("admin_")),
+        "A global admin whose grant holds admin is offered the admin tools, got: {:?}",
         tool_names
+    );
+    assert!(
+        !tool_names.contains(&"publish_training_plan"),
+        "an app-only tool is offered to no one on /mcp"
     );
 
     // Admin user should also see all non-admin tools

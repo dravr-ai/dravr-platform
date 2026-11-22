@@ -38,6 +38,7 @@ use crate::routes::coach_attention::CoachAttentionRoutes;
 use crate::routes::coach_roster::CoachRosterRoutes;
 use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
 use crate::routes::oauth_grants::OAuthGrantsRoutes;
+use crate::routes::request_support::declare_support_session;
 use crate::routes::request_transport::declare_request_transport;
 #[cfg(feature = "client-settings")]
 use crate::routes::{
@@ -845,7 +846,18 @@ impl ProviderToolRouter {
         // names: an API key is a caller outside Dravr's apps, so a provider
         // whose terms keep its data first-party is withheld from it
         // (carnet#724).
-        app.layer(middleware::from_fn(declare_request_transport))
+        let app = app.layer(middleware::from_fn(declare_request_transport));
+
+        // ═══════════════════════════════════════════════════════════════
+        // SUPPORT SESSION LAYER
+        // ═══════════════════════════════════════════════════════════════
+        // A request an admin makes acting as a user on the web is served in
+        // its support session, so every read it records on a member's record
+        // names the admin, not the coach (carnet#1511).
+        app.layer(from_fn_with_state(
+            Arc::clone(&resources.auth.auth_middleware),
+            declare_support_session,
+        ))
     }
 
     /// Create health check routes for Axum.

@@ -111,6 +111,11 @@ pub struct ConsentOffer {
     /// platform's coach credential reads the member's wellness, so the link
     /// syncs it under the consent.
     pub wellness_read: bool,
+    /// For a relationship, the group has a human coach other than the member,
+    /// whose AI assistant may include them in the roster tools
+    /// ([`CoachConsents::assistant_read`]). A link never carries it: the
+    /// opt-in has no platform behind it.
+    pub assistant_read: bool,
 }
 
 /// Whether a coaching platform Dravr serves takes a coach's writes to an
@@ -141,20 +146,38 @@ pub fn link_offer(registry: &ProviderRegistry, link: &DelegatedConnection) -> Co
             .get_capabilities(&link.provider)
             .is_some_and(|caps| caps.supports_coach_calendar_write()),
         wellness_read: link_reads_wellness(registry, link),
+        assistant_read: false,
     }
 }
 
 /// The consents a member's relationship with the coach of `group` can carry.
 ///
 /// None while the group has no coach; else calendar writes where a platform
-/// takes them, and wellness reads, whatever the member connects or links.
+/// takes them, wellness reads, whatever the member connects or links, and,
+/// for a member who is not the coach, the coach's AI assistant including them
+/// in the roster tools.
 #[must_use]
-pub fn consent_offer(registry: &ProviderRegistry, group: &CoachingGroup) -> ConsentOffer {
+pub fn consent_offer(
+    registry: &ProviderRegistry,
+    group: &CoachingGroup,
+    member: Uuid,
+) -> ConsentOffer {
     let coached = group.coach_user_id.is_some();
     ConsentOffer {
         calendar_write: coached && calendar_write_offered(registry),
         wellness_read: coached,
+        assistant_read: assistant_read_offered(group, member),
     }
+}
+
+/// Whether `member`'s relationship with the coach of `group` offers the
+/// coach's AI assistant including them in the roster tools.
+///
+/// The group has a human coach, and it is not the member. No platform
+/// condition: the opt-in is about the coach's assistant, not a platform.
+#[must_use]
+fn assistant_read_offered(group: &CoachingGroup, member: Uuid) -> bool {
+    group.coach_user_id.is_some_and(|coach| coach != member)
 }
 
 /// Whether the apps tell the member their wellness grant widened.
@@ -352,6 +375,9 @@ pub struct ConsentChange {
     pub calendar_write: Option<bool>,
     /// Grant or revoke the coach's reads of the member's wellness.
     pub wellness_read: Option<bool>,
+    /// Turn on or off the coach's AI assistant including the member in the
+    /// roster tools.
+    pub assistant_read: Option<bool>,
     /// Grant or revoke the coach's reads of the member's health records (T2).
     pub sensitive_t2_read: Option<bool>,
     /// How long a `sensitive_t2_read` grant holds.
@@ -366,6 +392,7 @@ impl ConsentChange {
         Self {
             calendar_write: if calendar_write { Some(true) } else { None },
             wellness_read: if wellness_read { Some(true) } else { None },
+            assistant_read: None,
             sensitive_t2_read: None,
             sensitive_window: SensitiveWindow::UntilRevoked,
         }
@@ -376,6 +403,7 @@ impl ConsentChange {
     pub const fn grants_any(self) -> bool {
         matches!(self.calendar_write, Some(true))
             || matches!(self.wellness_read, Some(true))
+            || matches!(self.assistant_read, Some(true))
             || matches!(self.sensitive_t2_read, Some(true))
     }
 
@@ -387,6 +415,7 @@ impl ConsentChange {
         Self {
             calendar_write: keep(self.calendar_write, offer.calendar_write),
             wellness_read: keep(self.wellness_read, offer.wellness_read),
+            assistant_read: keep(self.assistant_read, offer.assistant_read),
             sensitive_t2_read: keep(self.sensitive_t2_read, offer.wellness_read),
             sensitive_window: self.sensitive_window,
         }
@@ -426,10 +455,10 @@ pub async fn set_coach_consents(
     change: ConsentChange,
 ) -> AppResult<GroupMember> {
     require_app_for_grant(change.grants_any())?;
-    let change = change.within(consent_offer(registry, group));
+    let change = change.within(consent_offer(registry, group, member));
     let now = Utc::now();
     let group_key = group.id.to_string();
-    let updated = match change.sensitive_t2_read {
+    let consents = match change.sensitive_t2_read {
         Some(t2_read) => {
             repos
                 .groups
@@ -457,11 +486,20 @@ pub async fn set_coach_consents(
         }
     }
     .ok_or_else(|| AppError::not_found("Group member"))?;
+    let updated = match change.assistant_read {
+        Some(granted) => repos
+            .groups
+            .set_coach_assistant_read(&group_key, member, granted, now)
+            .await?
+            .ok_or_else(|| AppError::not_found("Group member"))?,
+        None => consents,
+    };
     info!(
         group_id = %group.id,
         member_user_id = %member,
         calendar_write = updated.coach_consents.calendar_write,
         wellness_read = updated.coach_consents.wellness_read,
+        assistant_read = updated.coach_consents.assistant_read,
         sensitive_t2_read = updated.coach_consents.sensitive_t2_read,
         sensitive_t2_read_until = ?updated.coach_consents.sensitive_t2_read_until,
         "Coach consents set"
@@ -605,6 +643,7 @@ mod tests {
         let calendar_only = ConsentOffer {
             calendar_write: true,
             wellness_read: false,
+            assistant_read: false,
         };
         assert_eq!(
             both.within(calendar_only),
@@ -616,11 +655,26 @@ mod tests {
         let nothing = ConsentOffer {
             calendar_write: false,
             wellness_read: false,
+            assistant_read: false,
         };
         assert_eq!(both.within(nothing), ConsentChange::default());
+        let opt_in = ConsentChange {
+            assistant_read: Some(true),
+            ..ConsentChange::default()
+        };
+        assert!(
+            opt_in.grants_any(),
+            "an opt-in is a grant: it is held to the app"
+        );
+        assert_eq!(
+            opt_in.within(nothing),
+            ConsentChange::default(),
+            "bug: an opt-in the offer does not hold is dropped"
+        );
         let revokes = ConsentChange {
             calendar_write: Some(false),
             wellness_read: Some(false),
+            assistant_read: Some(false),
             sensitive_t2_read: Some(false),
             ..ConsentChange::default()
         };
@@ -646,6 +700,7 @@ mod tests {
         let coached = ConsentOffer {
             calendar_write: false,
             wellness_read: true,
+            assistant_read: false,
         };
         assert_eq!(
             records.within(coached),
@@ -655,6 +710,7 @@ mod tests {
         let uncoached = ConsentOffer {
             calendar_write: false,
             wellness_read: false,
+            assistant_read: false,
         };
         assert_eq!(
             records.within(uncoached).sensitive_t2_read,
@@ -692,6 +748,7 @@ mod tests {
         let offered = ConsentOffer {
             calendar_write: false,
             wellness_read: true,
+            assistant_read: true,
         };
         let granted_at = |at: Option<DateTime<Utc>>| CoachConsents {
             wellness_read: true,
@@ -722,6 +779,7 @@ mod tests {
         let no_coach = ConsentOffer {
             calendar_write: false,
             wellness_read: false,
+            assistant_read: false,
         };
         assert!(
             !wellness_notice_due(no_coach, granted_at(Some(before))),

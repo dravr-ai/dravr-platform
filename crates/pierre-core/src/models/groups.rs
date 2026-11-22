@@ -326,6 +326,17 @@ pub struct CoachConsents {
     /// When the member last granted or revoked `wellness_read`, every grant
     /// stamped even over a standing one; `None` while it was never granted.
     pub wellness_read_at: Option<DateTime<Utc>>,
+    /// The AI assistant the group's human coach connects to Dravr (an MCP
+    /// client, an A2A agent, an API key) includes the member in the coach's
+    /// roster tools (carnet#1511). It does not govern a read of the member by
+    /// name, which `coach_sharing_consent` governs, nor anything in Dravr's
+    /// own app.
+    #[serde(default)]
+    pub assistant_read: bool,
+    /// When the member last turned `assistant_read` on or off; `None` while
+    /// they never did.
+    #[serde(default)]
+    pub assistant_read_at: Option<DateTime<Utc>>,
     /// The group's coach may also read the member's health records (owl tier
     /// T2: labs, clinical records, self-measured glucose) while
     /// `sensitive_t2_read_until` has not passed. Its own grant: it reaches a

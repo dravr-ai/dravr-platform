@@ -60,6 +60,9 @@ function coachConsents(overrides: Record<string, unknown> = {}) {
     wellness_read_supported: false,
     wellness_read_skipped: null,
     wellness_notice_due: false,
+    assistant_read: false,
+    assistant_read_at: null,
+    assistant_read_supported: false,
     sensitive_t2_read: false,
     sensitive_t2_read_at: null,
     sensitive_t2_read_until: null,
@@ -723,6 +726,42 @@ describe('GroupInfoSheet', () => {
     // Under it, the member's own record of what the coach read (carnet#1445).
     expect(await findByTestId('coach-read-log')).toBeTruthy();
     expect(mockGetCoachReads).toHaveBeenCalledWith('group-1');
+  });
+
+  it("offers the coach's AI assistant opt-in under coach sharing, off until the member turns it on", async () => {
+    mockCallerId = 'user-phil';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+    mockGetCoachConsents.mockResolvedValue(coachConsents({ assistant_read_supported: true }));
+    mockUpdateCoachConsents.mockResolvedValue(
+      coachConsents({ assistant_read_supported: true, assistant_read: true, assistant_read_at: '2026-11-20T12:00:00Z' }),
+    );
+    const { findByTestId, getByTestId } = renderSheet();
+    await act(async () => {
+      fireEvent.press(await findByTestId('group-info-settings-toggle'));
+    });
+
+    const toggle = await findByTestId('coach-assistant-read-switch');
+    expect(toggle).toHaveProp('value', false);
+    expect(getByTestId('coach-sharing-row')).toBeTruthy();
+    await act(async () => {
+      fireEvent(toggle, 'valueChange', true);
+    });
+
+    expect(mockUpdateCoachConsents).toHaveBeenCalledWith('group-1', { assistant_read: true });
+    // Coach sharing is a separate choice the switch leaves alone.
+    expect(mockUpdateCoachSharing).not.toHaveBeenCalled();
+  });
+
+  it('offers no assistant opt-in where the server says the group has no human coach to ask for', async () => {
+    mockCallerId = 'user-phil';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+    const { findByTestId, queryByTestId } = renderSheet();
+    await act(async () => {
+      fireEvent.press(await findByTestId('group-info-settings-toggle'));
+    });
+
+    expect(await findByTestId('coach-sharing-switch')).toBeTruthy();
+    expect(queryByTestId('coach-assistant-read-switch')).toBeNull();
   });
 
   // EFVP decision 9.2b: a sharing member who never answered the notice is told once,

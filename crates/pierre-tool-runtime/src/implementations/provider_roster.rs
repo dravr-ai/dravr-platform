@@ -642,8 +642,9 @@ impl McpTool<dyn ToolRuntime> for GetProviderRosterTool {
     }
 }
 
-// A coach's tool over other athletes' data: Dravr's own surfaces list and run
-// it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
+// A coaching-platform tool over people who may not be Dravr members: Dravr's
+// own surfaces list and run it, and externally only an admin whose grant holds
+// `admin` (`crate::first_party_tools`, `crate::tool_access`).
 crate::declare_security!(GetProviderRosterTool => empty; first_party_only);
 
 #[cfg(test)]

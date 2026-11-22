@@ -33,9 +33,10 @@ use pierre_mcp_server::mcp::host_seams::PierreToolDispatcher;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
-use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::security::Audience;
+use pierre_tool_runtime::tool_access::{self, Caller, CallerRole};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -213,43 +214,24 @@ async fn test_registry_tools_in_category() {
 // ============================================================================
 
 #[tokio::test]
-async fn test_list_schemas_for_role_user() {
+async fn test_athlete_audience_schemas_hold_no_admin_or_coach_tool() {
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
 
-    let user_schemas = registry.list_schemas_for_role(false);
-
-    // User should see some tools but not admin-only ones
-    assert!(!user_schemas.is_empty(), "User should see some tools");
-
-    // Verify no admin-only tools are included
-    let admin_tool_names: Vec<String> = registry
-        .filter_by_capabilities(ToolCapabilities::ADMIN_ONLY)
-        .iter()
-        .map(|t| t.definition().name)
-        .collect();
-
-    for schema in &user_schemas {
+    let athlete_schemas = registry.athlete_audience_schemas();
+    assert!(!athlete_schemas.is_empty(), "athletes are offered tools");
+    for schema in &athlete_schemas {
+        let tool = registry.get(&schema.name).expect("Tool should exist");
         assert!(
-            !admin_tool_names.contains(&schema.name),
-            "User should not see admin-only tool: {}",
+            !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY),
+            "an athlete-audience tool is not admin-only: {}",
             schema.name
         );
+        assert_eq!(tool.audience(), Audience::Athlete, "{}", schema.name);
     }
-}
-
-#[tokio::test]
-async fn test_list_schemas_for_role_admin() {
-    let mut registry = ToolRegistry::new();
-    register_builtin_tools(&mut registry);
-
-    let admin_schemas = registry.list_schemas_for_role(true);
-    let user_schemas = registry.list_schemas_for_role(false);
-
-    // Admin should see more tools than user (admin-only tools included)
     assert!(
-        admin_schemas.len() >= user_schemas.len(),
-        "Admin should see at least as many tools as user"
+        registry.all_schemas().len() > athlete_schemas.len(),
+        "the admin and coach tools are outside the athlete audience"
     );
 }
 
@@ -272,11 +254,11 @@ async fn test_admin_tool_schemas_only_admin() {
 }
 
 #[tokio::test]
-async fn test_user_visible_schemas_no_admin() {
+async fn test_athlete_audience_schemas_no_admin() {
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
 
-    let user_schemas = registry.user_visible_schemas();
+    let user_schemas = registry.athlete_audience_schemas();
 
     // None of the returned schemas should be admin-only
     for schema in &user_schemas {
@@ -806,10 +788,18 @@ async fn test_list_tools_carries_every_declared_output_schema() {
     let tools = dispatcher.list_tools(&state, &context).await;
 
     // What the registry says is declared, read straight off each tool — less
-    // the tools kept on Dravr's own surfaces, which this external listing
-    // leaves out.
+    // what the access predicate withholds from this caller over /mcp, which
+    // this external listing leaves out.
     let mut registry = ToolRegistry::new();
     register_builtin_tools(&mut registry);
+    let user_id = Uuid::parse_str(context.user_id.as_deref().unwrap()).unwrap();
+    let grant = OAuthScope::self_grant();
+    let caller = Caller {
+        role: CallerRole::resolve(&resources.common.repos, user_id).await,
+        grant: &grant,
+        transport: Some(Transport::McpHttp),
+        support_session: false,
+    };
     let mut declared: Vec<&str> = registry
         .tool_names()
         .into_iter()
@@ -817,12 +807,9 @@ async fn test_list_tools_carries_every_declared_output_schema() {
             registry
                 .get(name)
                 .is_some_and(|tool| tool.definition().output_schema.is_some())
-                && !first_party_tools::withholds(&registry, name, Some(Transport::McpHttp))
-                && !registry
+                && registry
                     .get(name)
-                    .is_some_and(|tool| tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY))
-                // The caller coaches no group: a coach-only tool is not listed (carnet#1426).
-                && !registry.is_coach_only(name)
+                    .is_some_and(|tool| tool_access::withheld(tool.as_ref(), &caller).is_none())
         })
         .collect();
     declared.sort_unstable();
@@ -1020,10 +1007,7 @@ async fn test_tool_list_is_deterministically_ordered() {
 
     // The role-filtered views are the ones clients actually receive, so they
     // carry the same guarantee rather than relying on the caller to sort.
-    for schemas in [
-        registry.list_schemas_for_role(false),
-        registry.list_schemas_for_role(true),
-    ] {
+    for schemas in [registry.athlete_audience_schemas(), registry.all_schemas()] {
         let names: Vec<String> = schemas.into_iter().map(|schema| schema.name).collect();
         let mut sorted = names.clone();
         sorted.sort();
@@ -1055,7 +1039,7 @@ async fn test_contremaitre_tool_overlay_reaches_the_served_schema() {
     let served = |ctx: &Arc<ServerContext>| -> ToolSchema {
         ctx.mcp
             .tool_registry
-            .list_schemas_for_role(false)
+            .athlete_audience_schemas()
             .into_iter()
             .find(|schema| schema.name == target)
             .expect("get_activities is a registered, non-admin tool")

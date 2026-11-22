@@ -40,6 +40,7 @@ crates/pierre-core/src/error_helpers.rs:User state error: {message}
 crates/pierre-core/src/errors/mod.rs:Permission denied for '{tool_name}': {reason}
 crates/pierre-core/src/errors/mod.rs:Tool '{tool_name}' is not available for this tenant
 crates/pierre-core/src/errors/mod.rs:Tool '{tool_name}' requires admin privileges
+crates/pierre-core/src/permissions/impersonation.rs:Cannot impersonate another admin
 crates/pierre-groups/src/athlete_billing.rs:Your plan does not include group coaching
 crates/pierre-groups/src/chat_connect.rs:Only the group's owner or coach can connect it to a chat
 crates/pierre-groups/src/chat_connect.rs:Only the group's owner or coach can disconnect its chat
@@ -59,7 +60,6 @@ crates/pierre-routes-admin/src/handlers/admin_scope.rs:Only an admin can list ev
 crates/pierre-routes-admin/src/handlers/admin_scope.rs:Token is scoped to tenant {own}; {subject} platform-wide, and it cannot {act}
 crates/pierre-routes-admin/src/handlers/feature_flags.rs:Feature-flag admin endpoints require cookie authentication
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Admin privileges required for impersonation
-crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate another admin
 crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required for consumption analytics
 crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required for tool-usage analytics
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {tenant_id}; the user belongs to or holds a provider in a tenant outside it
@@ -117,4 +117,11 @@ crates/pierre-services/src/group_coach_claim.rs:Only the group's owner, with coa
 crates/pierre-services/src/group_invite_hold.rs:This coach link is not for your account.
 crates/pierre-tool-runtime/src/context.rs:Admin privileges required for this operation
 crates/pierre-tool-runtime/src/context.rs:Tenant context required for this operation
+crates/pierre-tool-runtime/src/implementations/admin_support.rs:A support session through an assistant runs over MCP or A2A only; in Dravr's own app, use the admin console
 crates/pierre-tool-runtime/src/implementations/plan_scope.rs:A coach writes an athlete's {object} from Dravr's own app or channels, not over this interface.
+crates/pierre-tool-runtime/src/support_session.rs:A support session through an assistant is ended from that assistant's own connection; in Dravr's own app, end it from the admin console
+crates/pierre-tool-runtime/src/support_session.rs:A support session through an assistant starts from that assistant's own MCP or A2A connection; in Dravr's own app, start it from the admin console
+crates/pierre-tool-runtime/src/support_session.rs:Admin privileges required for a support session
+crates/pierre-tool-runtime/src/support_session.rs:That user belongs to no tenant, so there is nothing to act as
+crates/pierre-tool-runtime/src/support_session.rs:The user this support session acts as belongs to no tenant
+crates/pierre-tool-runtime/src/support_session.rs:This connection's authorization was revoked or has run out: connect again to start a support session

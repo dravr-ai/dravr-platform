@@ -11,8 +11,10 @@ use secrecy::{ExposeSecret, SecretString};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+use super::admin_grant::holds_admin;
 use super::OAuth2AuthorizationServer;
 use crate::auth::{Claims, JwtValidationError};
+use crate::oauth2_server::first_party::is_first_party;
 use crate::oauth2_server::models::{
     OAuth2Error, OAuth2RefreshToken, ValidateRefreshRequest, ValidateRefreshResponse,
     ValidationStatus,
@@ -145,6 +147,9 @@ impl OAuth2AuthorizationServer {
         let refresh_token_data = self
             .lookup_and_validate_refresh_token(refresh_token_value, user_id_str)
             .await?;
+        if let Some(refused) = Self::refused_here(&refresh_token_data) {
+            return Ok(refused);
+        }
 
         // Checked before the refresh token is rotated away: a grant bound to a
         // resource this server no longer serves cannot mint a usable token,
@@ -166,7 +171,7 @@ impl OAuth2AuthorizationServer {
             return Ok(Self::create_retry_later_response(refusal));
         }
 
-        let (_, new_refresh_token_value) = self
+        let (consumed, new_refresh_token_value, granted) = self
             .rotate_refresh_token(refresh_token_value, &refresh_token_data.client_id)
             .await?
             .ok_or_else(|| {
@@ -183,7 +188,8 @@ impl OAuth2AuthorizationServer {
                     refresh_token_data.user_id,
                     refresh_token_data.tenant_id.as_str(),
                 )),
-                &Self::delegated_grant(refresh_token_data.scope.as_deref()),
+                Some(&consumed.family_id),
+                &granted,
                 audience.as_deref(),
             )
             .await?;
@@ -197,6 +203,27 @@ impl OAuth2AuthorizationServer {
             new_access_token,
             &new_refresh_token_value,
         ))
+    }
+
+    /// The answer to a refresh this route does not make, before anything is
+    /// rotated; `None` for one it makes.
+    ///
+    /// This route rotates without authenticating the client, so it keeps to
+    /// grants a leaked refresh token can do least with. A grant holding
+    /// `admin` refreshes at `/oauth2/token`, which authenticates the client
+    /// (carnet#1511, review M3); nothing is rotated here, so the token stays
+    /// good there. Dravr's own apps hold no OAuth refresh token at all: one
+    /// naming them would mint a token that reads as a session.
+    fn refused_here(refresh_token: &OAuth2RefreshToken) -> Option<ValidateRefreshResponse> {
+        if holds_admin(refresh_token.scope.as_deref()) {
+            warn!(user_id = %refresh_token.user_id, client_id = %refresh_token.client_id, "validate-and-refresh refused an admin grant; it refreshes at /oauth2/token");
+            return Some(Self::create_token_endpoint_response());
+        }
+        if is_first_party(&refresh_token.client_id) {
+            warn!(client_id = %refresh_token.client_id, "validate-and-refresh refused a refresh token naming a first-party client");
+            return Some(Self::create_invalid_response("invalid_refresh_token"));
+        }
+        None
     }
 
     /// Attempt to refresh an expired token using a refresh token
@@ -277,6 +304,17 @@ impl OAuth2AuthorizationServer {
                 debug!("Token malformed: {details}");
                 Ok(Self::create_invalid_response("malformed_token"))
             }
+        }
+    }
+
+    /// The answer to a refresh this route does not make: the grant holds
+    /// `admin`, which refreshes only where the client authenticates. Nothing
+    /// was rotated, so the client keeps its refresh token and is not told to
+    /// send its athlete through consent again.
+    fn create_token_endpoint_response() -> ValidateRefreshResponse {
+        ValidateRefreshResponse {
+            requires_full_reauth: Some(false),
+            ..Self::create_invalid_response(ADMIN_REFRESHES_AT_TOKEN_ENDPOINT)
         }
     }
 
@@ -366,6 +404,10 @@ impl OAuth2AuthorizationServer {
         Ok(refresh_token)
     }
 }
+
+/// The reason `validate_and_refresh` gives for a grant holding `admin`: it
+/// refreshes at `/oauth2/token`, where the client authenticates.
+pub const ADMIN_REFRESHES_AT_TOKEN_ENDPOINT: &str = "refresh_at_token_endpoint";
 
 /// A token-endpoint refusal as the error `validate_and_refresh` answers with:
 /// the server failing stays an internal error, anything else refuses the

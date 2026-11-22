@@ -42,6 +42,9 @@ function coachConsents(overrides: Partial<CoachConsentsResponse> = {}): CoachCon
     wellness_read_supported: false,
     wellness_read_skipped: null,
     wellness_notice_due: false,
+    assistant_read: false,
+    assistant_read_at: null,
+    assistant_read_supported: false,
     sensitive_t2_read: false,
     sensitive_t2_read_at: null,
     sensitive_t2_read_until: null,
@@ -874,6 +877,40 @@ describe('GroupInfoPanel', () => {
 
     expect(await screen.findByTestId('coach-sharing-switch')).toBeInTheDocument();
     expect(screen.queryByTestId('coach-assistant-notice')).toBeNull();
+  });
+
+  it("offers the coach's AI assistant opt-in beside coach sharing, off until the member turns it on", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(coachConsents({ assistant_read_supported: true }));
+    vi.mocked(groupsApi.updateCoachConsents).mockResolvedValue(
+      coachConsents({ assistant_read_supported: true, assistant_read: true, assistant_read_at: '2026-11-20T12:00:00Z' }),
+    );
+    renderPanel();
+
+    const toggle = (await screen.findByTestId('coach-assistant-read-switch')) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    // In the sharing block, right after the coach-sharing switch.
+    const row = screen.getByTestId('coach-assistant-read-row');
+    expect(screen.getByTestId('coach-sharing-row').nextElementSibling).toBe(row);
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(groupsApi.updateCoachConsents).toHaveBeenCalledWith(GROUP_ID, { assistant_read: true });
+    });
+    // Coach sharing is a separate choice the flip leaves alone.
+    expect(groupsApi.updateCoachSharing).not.toHaveBeenCalled();
+  });
+
+  it("offers no assistant opt-in where the server says the group has no human coach to ask for", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    renderPanel();
+
+    expect(await screen.findByTestId('coach-sharing-switch')).toBeInTheDocument();
+    expect(screen.queryByTestId('coach-assistant-read-switch')).toBeNull();
   });
 
   it('offers coach sharing in a group with no coach yet, since joining granted it', async () => {

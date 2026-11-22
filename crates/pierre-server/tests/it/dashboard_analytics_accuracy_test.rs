@@ -138,6 +138,7 @@ impl AnalyticsFixture {
         AuthResult {
             scopes: OAuthScope::self_grant(),
             client_id: None,
+            grant_id: None,
             user_id: self.user_id,
             auth_method: AuthMethod::JwtToken {
                 tier: "premium".to_owned(),

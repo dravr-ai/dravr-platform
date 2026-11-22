@@ -1,5 +1,5 @@
-// ABOUTME: Tools that only Dravr's own surfaces list and run: left out of an external caller's listing, refused if called
-// ABOUTME: One predicate over the tool's declared TransportPolicy, shared by tools/list, the A2A card and the dispatch chokepoint
+// ABOUTME: Tools that Dravr's own surfaces list and run, kept from external callers but an admin holding admin
+// ABOUTME: The transport arm of tool_access: why each is kept there, and the in-band refusal an external caller reads
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,10 +7,12 @@
 //! Tools kept on Dravr's own surfaces.
 //!
 //! Some tools only make sense inside Dravr's own apps and channels, and are not
-//! offered to an MCP client or an A2A agent at all:
+//! offered to an MCP client or an A2A agent, except to an admin whose
+//! connection holds `admin` (carnet#1511, Q14 and Q25):
 //!
-//! - the coach family reads other athletes' data for the coach who leads their
-//!   group, under consents those athletes gave inside Dravr;
+//! - the coaching-platform roster tools (`get_provider_roster`,
+//!   `propose_athlete_link`) read a coach's platform roster, people who are
+//!   not Dravr members included, and notify a member;
 //! - agent store, agent CRUD and the agent reads (`list_agents`, `get_agent`,
 //!   `search_agents`, `get_active_agent`, `list_hidden_agents`) manage and
 //!   describe the personas of Dravr's own chat, which an outside assistant
@@ -30,72 +32,45 @@
 //!   `pierre_services::medical_flag`), so they are not offered there at all
 //!   (carnet#1565).
 //!
-//! A tool declares this as a property of itself
-//! ([`RuntimeTool::transport_policy`](crate::security::RuntimeTool::transport_policy)),
-//! with the same [`TransportPolicy`] a provider declares for its data, and the
-//! same [`Transport::is_first_party`] decides. There is no list of names: a
-//! tool added later is kept off external transports by declaring it.
+//! One tool, `publish_training_plan`, is kept in the app from everyone,
+//! admins included ([`ToolReach::AppOnly`]): every effect it has is one an
+//! external transport refuses for everyone (carnet#1533).
 //!
-//! Listing and execution ask the same question, the way
-//! [`crate::coach_seat`] does for the coach's seat: an external listing leaves
-//! these tools out ([`retain_served_over`]), a chat turn's catalogue leaves
-//! them out by the turn's transport
-//! ([`offered_schemas`](crate::chat_catalogue::offered_schemas)), and the
-//! executor refuses one if an external caller names it anyway ([`refusal`]).
+//! A tool declares this as a property of itself
+//! ([`RuntimeTool::reach`](crate::security::RuntimeTool::reach)), and
+//! [`Transport::is_first_party`] decides. There is no list of names: a tool
+//! added later is kept off external transports by declaring it.
+//!
+//! Listing and execution ask the same question,
+//! [`tool_access::withheld`](crate::tool_access::withheld): an external
+//! listing leaves these tools out, a chat turn's catalogue leaves them out by
+//! the turn's transport, and the executor answers an external caller that
+//! names one anyway with [`refusal`].
+//!
+//! [`ToolReach::AppOnly`]: crate::security::ToolReach::AppOnly
+//! [`Transport::is_first_party`]: pierre_core::transport::Transport::is_first_party
 
-use pierre_core::transport::{Transport, TransportPolicy};
-use pierre_mcp_schema::ToolSchema;
 use serde_json::json;
 
 use crate::protocol::types::UniversalResponse;
-use crate::registry::ToolRegistry;
 
-/// `error_code` of the refusal a first-party-only tool returns to an external
-/// caller.
+/// `error_code` of the refusal a tool kept on Dravr's own surfaces returns to
+/// an external caller.
 pub const FIRST_PARTY_SURFACE_ERROR_CODE: &str = "first_party_surface";
 
 /// `reason` of that refusal: the same reason a coach's write to a coached
 /// athlete's plan or calendar gives over an external transport.
 pub(crate) const EXTERNAL_TRANSPORT_REASON: &str = "external_transport";
 
-/// Whether `tool_name` is withheld from a call served over `transport`.
-///
-/// `None` is external, as everywhere a transport is read: an entry point that
-/// forgets to declare one withholds the tool instead of serving it. An unknown
-/// tool is not withheld here: the executor already refuses a name the registry
-/// does not resolve.
-#[must_use]
-pub fn withholds(registry: &ToolRegistry, tool_name: &str, transport: Option<Transport>) -> bool {
-    registry
-        .transport_policy(tool_name)
-        .is_some_and(TransportPolicy::is_first_party_only)
-        && !transport.is_some_and(Transport::is_first_party)
-}
-
-/// Drop from `schemas` every tool withheld over `transport`.
-///
-/// For a listing an entry point serves: `tools/list` on `/mcp`, the A2A
-/// extended card.
-pub fn retain_served_over(
-    registry: &ToolRegistry,
-    schemas: &mut Vec<ToolSchema>,
-    transport: Transport,
-) {
-    schemas.retain(|schema| !withholds(registry, &schema.name, Some(transport)));
-}
-
-/// The in-band refusal for `tool_name` when `transport` withholds it.
+/// The in-band refusal for `tool_name` when the transport arm of
+/// [`tool_access::withheld`](crate::tool_access::withheld) withholds it.
 ///
 /// In band, like the coach seat's: the caller adapts to "not over this
 /// interface" the way it adapts to a tenant-disabled tool. Nothing the tool
 /// would have read is looked up before it.
 #[must_use]
-pub fn refusal(
-    registry: &ToolRegistry,
-    tool_name: &str,
-    transport: Option<Transport>,
-) -> Option<UniversalResponse> {
-    withholds(registry, tool_name, transport).then(|| UniversalResponse {
+pub fn refusal(tool_name: &str) -> UniversalResponse {
+    UniversalResponse {
         success: false,
         result: Some(json!({
             "error_code": FIRST_PARTY_SURFACE_ERROR_CODE,
@@ -103,7 +78,7 @@ pub fn refusal(
         })),
         error: Some(refusal_message(tool_name)),
         metadata: None,
-    })
+    }
 }
 
 /// What the caller reads when it names a tool kept on Dravr's own surfaces.
@@ -115,42 +90,27 @@ fn refusal_message(tool_name: &str) -> String {
 mod tests {
     use super::*;
 
-    /// Every transport variant, first-party and external alike.
-    const ALL: [Transport; 7] = [
-        Transport::WebApp,
-        Transport::MobileApp,
-        Transport::Messaging,
-        Transport::PlatformJob,
-        Transport::McpHttp,
-        Transport::A2a,
-        Transport::ApiKey,
-    ];
-
     #[test]
     fn the_refusal_names_the_tool_and_where_it_runs() {
-        let message = refusal_message("get_roster_overview");
+        let message = refusal_message("get_provider_roster");
         assert!(
-            message.starts_with("'get_roster_overview' is not available over this interface"),
+            message.starts_with("'get_provider_roster' is not available over this interface"),
             "bug: the refusal must name the tool first: {message}"
         );
         assert!(
             message.contains("Dravr's own app or channels"),
             "bug: the refusal must say where the tool runs: {message}"
         );
-    }
-
-    #[test]
-    fn an_unknown_tool_is_never_withheld_here() {
-        let registry = ToolRegistry::new();
-        for transport in ALL {
-            assert!(
-                !withholds(&registry, "no_such_tool", Some(transport)),
-                "bug: an unknown tool is the executor's refusal, not this one ({transport:?})"
-            );
-        }
-        assert!(
-            !withholds(&registry, "no_such_tool", None),
-            "bug: an unknown tool is the executor's refusal, not this one (undeclared transport)"
+        let refused = refusal("get_provider_roster");
+        assert!(!refused.success, "bug: a refusal must not report success");
+        let result = refused.result.expect("the refusal carries its code");
+        assert_eq!(
+            result["error_code"], FIRST_PARTY_SURFACE_ERROR_CODE,
+            "bug: the refusal carries the first-party error code"
+        );
+        assert_eq!(
+            result["reason"], EXTERNAL_TRANSPORT_REASON,
+            "bug: the refusal says the transport is external"
         );
     }
 
@@ -158,10 +118,14 @@ mod tests {
     mod with_registered_tools {
         use std::sync::Arc;
 
-        use super::super::*;
-        use super::ALL;
+        use pierre_core::permissions::scopes::OAuthScope;
+        use pierre_core::transport::Transport;
+
         use crate::implementations::groups::create_group_tools;
         use crate::implementations::memory::create_memory_tools;
+        use crate::registry::ToolRegistry;
+        use crate::security::{Audience, ToolReach};
+        use crate::tool_access::{retain_offered, Caller, CallerRole};
 
         fn registry() -> ToolRegistry {
             let mut registry = ToolRegistry::new();
@@ -174,101 +138,83 @@ mod tests {
             registry
         }
 
-        fn group_tool_names(registry: &ToolRegistry) -> Vec<&str> {
-            registry.tools_in_category("groups")
-        }
-
+        /// Three of the five group tools serve a human coach over every
+        /// transport; the two coaching-platform tools stay first-party.
         #[test]
-        fn every_coach_tool_runs_on_dravrs_own_surfaces_only() {
+        fn three_group_tools_serve_a_coach_and_two_stay_first_party() {
             let registry = registry();
-            let coach_tools = group_tool_names(&registry);
-            assert_eq!(coach_tools.len(), 5, "the coach family: {coach_tools:?}");
-            for name in coach_tools {
-                for transport in ALL {
-                    assert_eq!(
-                        withholds(&registry, name, Some(transport)),
-                        !transport.is_first_party(),
-                        "{name} over {transport:?}"
-                    );
+            let mut coach: Vec<&str> = Vec::new();
+            let mut first_party: Vec<&str> = Vec::new();
+            for name in registry.tools_in_category("groups") {
+                let tool = registry.get(name).expect("registered");
+                if tool.audience() == Audience::Coach {
+                    assert_eq!(tool.reach(), ToolReach::AnyTransport, "{name}");
+                    coach.push(name);
+                } else {
+                    assert_eq!(tool.reach(), ToolReach::FirstPartyOnly, "{name}");
+                    first_party.push(name);
                 }
-                assert!(
-                    withholds(&registry, name, None),
-                    "an undeclared transport is external"
-                );
             }
-        }
-
-        #[test]
-        fn a_tool_on_every_transport_is_never_withheld() {
-            let registry = registry();
-            let name = "recall_user_memory";
-            for transport in ALL {
-                assert!(
-                    !withholds(&registry, name, Some(transport)),
-                    "bug: {name} is served on every transport, yet {transport:?} withholds it"
-                );
-            }
-            assert!(
-                !withholds(&registry, name, None),
-                "bug: {name} is served on every transport, yet an undeclared one withholds it"
-            );
-        }
-
-        #[test]
-        fn an_external_listing_loses_the_withheld_tools_and_keeps_the_rest() {
-            let registry = registry();
-            let mut schemas = registry.all_schemas();
-            let before = schemas.len();
-            retain_served_over(&registry, &mut schemas, Transport::McpHttp);
+            coach.sort_unstable();
+            first_party.sort_unstable();
             assert_eq!(
-                before - schemas.len(),
-                6,
-                "bug: an external listing must drop the five coach tools and the memory write"
+                coach,
+                [
+                    "get_group_member_activities",
+                    "get_group_member_plan_status",
+                    "get_roster_overview"
+                ],
+                "bug: three group tools serve a human coach"
             );
+            assert_eq!(
+                first_party,
+                ["get_provider_roster", "propose_athlete_link"],
+                "bug: two group tools stay first-party"
+            );
+        }
+
+        #[test]
+        fn an_athletes_external_listing_loses_the_coach_and_first_party_tools() {
+            let registry = registry();
+            let grant = OAuthScope::self_grant();
+            let athlete = Caller {
+                role: CallerRole::default(),
+                grant: &grant,
+                transport: Some(Transport::McpHttp),
+                support_session: false,
+            };
+            let mut schemas = registry.all_schemas();
+            retain_offered(&registry, &mut schemas, &athlete);
             let kept: Vec<&str> = schemas.iter().map(|schema| schema.name.as_str()).collect();
             assert_eq!(
                 kept,
                 ["recall_user_memory"],
-                "bug: an external listing must keep every tool served on every transport"
+                "bug: an athlete's external listing keeps the memory tool alone"
             );
 
-            let mut in_app = registry.all_schemas();
-            retain_served_over(&registry, &mut in_app, Transport::WebApp);
+            let coach = Caller {
+                role: CallerRole {
+                    admin: false,
+                    coach: true,
+                },
+                ..athlete
+            };
+            let mut schemas = registry.all_schemas();
+            retain_offered(&registry, &mut schemas, &coach);
             assert_eq!(
-                in_app.len(),
-                before,
-                "bug: an in-app listing must keep every tool"
+                schemas.len(),
+                4,
+                "the three coach tools and the memory read"
             );
-        }
 
-        #[test]
-        fn an_external_call_to_a_coach_tool_is_refused_in_band() {
-            let registry = registry();
-            let refused = refusal(
-                &registry,
-                "get_group_member_activities",
-                Some(Transport::A2a),
-            )
-            .expect("an external call to a coach tool is refused");
-            assert!(!refused.success, "bug: a refusal must not report success");
-            let result = refused.result.expect("the refusal carries its code");
-            assert_eq!(
-                result["error_code"], FIRST_PARTY_SURFACE_ERROR_CODE,
-                "bug: the refusal must carry its code: {result}"
-            );
-            assert_eq!(
-                result["reason"], "external_transport",
-                "bug: the refusal must carry its reason: {result}"
-            );
-            assert!(
-                refusal(
-                    &registry,
-                    "get_group_member_activities",
-                    Some(Transport::Messaging)
-                )
-                .is_none(),
-                "bug: a linked messaging channel is one of Dravr's own surfaces"
-            );
+            let in_app = Caller {
+                transport: Some(Transport::WebApp),
+                ..athlete
+            };
+            let mut schemas = registry.all_schemas();
+            let before = schemas.len();
+            retain_offered(&registry, &mut schemas, &in_app);
+            assert_eq!(schemas.len(), before, "an in-app listing keeps every tool");
         }
     }
 }

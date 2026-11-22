@@ -500,8 +500,9 @@ impl McpTool<dyn ToolRuntime> for ProposeAthleteLinkTool {
 
 // It stores a proposal and notifies the member; the member's confirm is the
 // consent, so it is not destructive.
-// A coach's tool over other athletes' data: Dravr's own surfaces list and run
-// it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
+// A coaching-platform tool over people who may not be Dravr members: Dravr's
+// own surfaces list and run it, and externally only an admin whose grant holds
+// `admin` (`crate::first_party_tools`, `crate::tool_access`).
 crate::declare_security!(ProposeAthleteLinkTool => empty; first_party_only);
 
 #[cfg(test)]

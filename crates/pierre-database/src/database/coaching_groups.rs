@@ -19,13 +19,17 @@ use sqlx::sqlite::SqliteRow;
 use uuid::Uuid;
 
 use crate::database::Database;
+use crate::repositories::coach_assistant::{
+    impl_coach_assistant_repository, CoachAssistantRepository, ANSWER_ASSISTANT_NOTICE_SQL,
+    GET_ASSISTANT_NOTICE_ANSWERED_SQL, SET_COACH_ASSISTANT_READ_SQL,
+};
+use crate::repositories::coaching_groups::{column, impl_coaching_group_repository, instant};
 use crate::repositories::coaching_groups::{
-    column, impl_coaching_group_repository, instant, ARCHIVE_GROUP_SQL, COUNT_GROUPS_FOR_OWNER_SQL,
-    DEACTIVATE_GROUP_INVITES_SQL, FIND_GROUPS_FOR_USER_AND_AGENT_SQL, GET_GROUP_BY_CHANNEL_SQL,
-    GET_GROUP_SQL, INSERT_GROUP_SQL, LIST_ACTIVE_GROUPS_FOR_TENANT_SQL,
-    LIST_ATHLETES_COACHED_BY_SQL, LIST_COACHLESS_GROUPS_OWNED_BY_SQL, LIST_GROUPS_COACHED_BY_SQL,
-    LIST_GROUPS_FOR_USER_SQL, RELEASE_GROUP_MEMBERS_SQL, SET_GROUP_COACH_USER_SQL,
-    UPDATE_GROUP_SQL,
+    ARCHIVE_GROUP_SQL, COUNT_GROUPS_FOR_OWNER_SQL, DEACTIVATE_GROUP_INVITES_SQL,
+    FIND_GROUPS_FOR_USER_AND_AGENT_SQL, GET_GROUP_BY_CHANNEL_SQL, GET_GROUP_SQL, INSERT_GROUP_SQL,
+    LIST_ACTIVE_GROUPS_FOR_TENANT_SQL, LIST_ATHLETES_COACHED_BY_SQL,
+    LIST_COACHLESS_GROUPS_OWNED_BY_SQL, LIST_GROUPS_COACHED_BY_SQL, LIST_GROUPS_FOR_USER_SQL,
+    RELEASE_GROUP_MEMBERS_SQL, SET_GROUP_COACH_USER_SQL, UPDATE_GROUP_SQL,
 };
 use crate::repositories::group_chat_connect::{
     impl_group_chat_connect_repository, GroupChatConnectRepository, CONNECT_GROUP_CHAT_SQL,
@@ -41,9 +45,8 @@ use crate::repositories::group_invite_sql::{
     INSERT_INVITE_SQL, LIST_INVITES_SQL, LIST_SIGNUP_INVITES_SQL,
 };
 use crate::repositories::group_member_sql::{
-    ANSWER_ASSISTANT_NOTICE_SQL, COUNT_MEMBERS_SQL, GET_ASSISTANT_NOTICE_ANSWERED_SQL,
-    GET_MEMBER_SQL, GROUP_SETUP_TIMELINE_SQL, INSERT_MEMBER_SQL, LIST_MEMBERS_SQL,
-    REMOVE_MEMBER_SQL, SET_COACH_CONSENTS_SQL, UPDATE_COACH_SHARING_CONSENT_SQL,
+    COUNT_MEMBERS_SQL, GET_MEMBER_SQL, GROUP_SETUP_TIMELINE_SQL, INSERT_MEMBER_SQL,
+    LIST_MEMBERS_SQL, REMOVE_MEMBER_SQL, SET_COACH_CONSENTS_SQL, UPDATE_COACH_SHARING_CONSENT_SQL,
     UPDATE_MEMBER_ROLE_SQL, UPDATE_PEER_SHARING_CONSENT_SQL,
 };
 use crate::repositories::group_transcript::{
@@ -55,3 +58,4 @@ use crate::repositories::CoachingGroupRepository;
 
 impl_coaching_group_repository!(Database, SqliteRow, TextUuid);
 impl_group_chat_connect_repository!(Database, TextUuid);
+impl_coach_assistant_repository!(Database, TextUuid);

@@ -18,7 +18,6 @@
 //! and [`A2AServer::start_task_subscription`], which return the initial task
 //! snapshot plus a live event receiver.
 
-use crate::agent_card::{AgentCard, AgentSkill};
 use crate::coaching::CoachingTurns;
 use crate::events::TASK_EVENTS;
 use crate::protocol_types::{
@@ -29,20 +28,18 @@ use crate::{A2ARequest, A2AResponse, JSONRPC_VERSION};
 use chrono::SecondsFormat;
 use pierre_core::models::a2a::user_task_key;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
-use pierre_core::models::TenantId;
 use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::McpAuthMiddleware;
 use pierre_runtime_context::A2ACtx;
-use pierre_tool_runtime::coach_listing;
-use pierre_tool_runtime::deployment_tools;
-use pierre_tool_runtime::first_party_tools;
+use pierre_tool_runtime::context::SUPPORT_SESSION;
 use pierre_tool_runtime::protocol::trust_labels::{self, TRUST_LABELS_META_KEY};
 use pierre_tool_runtime::protocol::{
     guardian_block_reason, record_refused_admin_call, RefusedAdminCall, UniversalRequest,
     UniversalResponse, UniversalToolExecutor,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::support_session::{self, SUPPORT_BINDING};
 use std::fmt;
 // Trait methods dispatched through repos.a2a Arc<dyn Trait>;
 use serde_json::{from_value, json, to_value, Map, Value};
@@ -53,10 +50,14 @@ use tokio::sync::broadcast;
 use tracing::{error, info};
 use uuid::Uuid;
 
+/// `GetExtendedAgentCard`: the live registry's tools as skills, listed per caller
+mod extended_card;
 mod finalize;
 mod params;
 mod principal;
 mod push_config;
+/// An admin's support session through their agent, as A2A serves it (carnet#1511)
+mod support;
 mod tasks;
 mod text_turn;
 use principal::AuthPrincipal;
@@ -417,62 +418,6 @@ impl A2AServer {
             Err(e) => {
                 error!("Failed to serialize A2A task: {e}");
                 Self::a2a_error(-32603, "Failed to serialize task", request_id)
-            }
-        }
-    }
-
-    /// Handle `GetExtendedAgentCard`: the public card enriched with the
-    /// live tool registry exposed as additional skills. This is the
-    /// authenticated, dynamic variant of the discovery card (the public
-    /// card's skills are the curated static subset).
-    ///
-    /// Listed per caller: a tool only a group's human coach can use is a skill
-    /// for a coach alone (carnet#1426).
-    async fn handle_extended_card(
-        &self,
-        request: A2ARequest,
-        principal: AuthPrincipal,
-    ) -> A2AResponse {
-        let Some(resources) = &self.resources else {
-            return Self::server_not_configured_error(request.id);
-        };
-
-        let mut card = AgentCard::new(resources.ctx.oauth2_server_config());
-        let public_skill_ids: Vec<String> =
-            card.skills.iter().map(|skill| skill.id.clone()).collect(); // Safe: String ownership for dedup set
-        let registry = resources.tool_runtime.tool_registry();
-        let mut schemas = registry.user_visible_schemas();
-        let is_coach =
-            coach_listing::is_human_coach(resources.ctx.repos(), principal.user_id).await;
-        coach_listing::retain_for_audience(registry, &mut schemas, is_coach);
-        // An A2A agent is outside Dravr's own surfaces: a tool kept on them is
-        // not offered as a skill, and is refused if the agent names it anyway.
-        first_party_tools::retain_served_over(registry, &mut schemas, Transport::A2a);
-        deployment_tools::retain_answerable(
-            registry,
-            &mut schemas,
-            resources.tool_runtime.config(),
-        );
-        for schema in schemas {
-            if public_skill_ids.contains(&schema.name) {
-                continue;
-            }
-            card.skills.push(AgentSkill {
-                id: schema.name.clone(), // Safe: String ownership for skill id
-                name: schema.name,
-                description: schema.description,
-                tags: vec!["tool".into()],
-                examples: Vec::new(),
-                input_modes: Vec::new(),
-                output_modes: Vec::new(),
-            });
-        }
-
-        match to_value(&card) {
-            Ok(value) => Self::ok(value, request.id),
-            Err(e) => {
-                error!("Failed to serialize A2A extended agent card: {e}");
-                Self::a2a_error(-32603, "Failed to serialize extended card", request.id)
             }
         }
     }
@@ -947,9 +892,13 @@ impl A2AServer {
         tool_name: &str,
         tool_params: Value,
     ) -> Result<(Value, Option<Value>), SendFailure> {
-        let user_id = principal.user_id;
+        // A live support session runs the call as its user (carnet#1511).
+        let acting = Self::acting_for(ctx.as_ref(), principal, tool_name)
+            .await
+            .map_err(SendFailure::text)?;
+        let user_id = acting.user_id;
         // Resolve tenant context — required for all A2A tool execution.
-        let tenant = principal.active_tenant_id.map(TenantId::from_uuid);
+        let tenant = acting.tenant;
         let tenant_context =
             match extract_tenant_context_internal(ctx.repos(), user_id, tenant).await {
                 Ok(Some(context)) => context,
@@ -971,10 +920,6 @@ impl A2AServer {
         // The unified executor: Guardian chokepoint and admin/tenant context as on MCP and
         // chat, under the client's own grant (unbound, it refuses). A2A is outside Dravr's
         // own surfaces (carnet#724), and the agent's reply goes unchecked (carnet#852).
-        let executor = UniversalToolExecutor::new(tool_runtime.clone()) // Safe: Arc clone
-            .with_scopes(principal.scopes.clone())
-            .with_transport(Transport::A2a)
-            .with_caller_writing_reply();
         let request = UniversalRequest {
             tool_name: tool_name.to_owned(),
             parameters: tool_params,
@@ -982,8 +927,27 @@ impl A2AServer {
             protocol: "a2a".to_owned(),
             tenant_id: Some(tenant_context.tenant_id.to_string()),
         };
+        // Built inside the session's scope: the executor reads the session
+        // when it is built, and carries it into the tool body.
+        let binding = support::binding(principal);
+        let session = acting
+            .support
+            .as_ref()
+            .map(support_session::LiveSupport::grant);
+        let scopes = acting.scopes;
+        let run = async {
+            UniversalToolExecutor::new(tool_runtime.clone()) // Safe: Arc clone
+                .with_scopes(scopes)
+                .with_transport(Transport::A2a)
+                .with_caller_writing_reply()
+                .execute_tool(request)
+                .await
+        };
+        let executed = SUPPORT_BINDING
+            .scope(binding, SUPPORT_SESSION.scope(session, run))
+            .await;
 
-        match executor.execute_tool(request).await {
+        match executed {
             Ok(response) if response.success => {
                 let labels = trust_labels::labels_of(&response).cloned();
                 let result = response

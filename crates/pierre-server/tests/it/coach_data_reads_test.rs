@@ -22,6 +22,7 @@ use std::sync::Arc;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use chrono::{Duration, Months, Utc};
+use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_commands::group_reads::GroupReadsHandler;
 use pierre_commands::plan::PlanShowHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
@@ -30,12 +31,13 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, UNDECLARED_TRANSPORT};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
-    CoachDataRead, CoachReadClass, NewCoachDataRead, RecordedTransport,
+    CoachDataRead, CoachReadClass, CoachReadSurface, NewCoachDataRead, RecordedTransport,
 };
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::coach_read_retention::purge_expired_coach_reads;
 use pierre_test_support::delegation::add_group_member;
+use pierre_tool_runtime::context::SUPPORT_SESSION;
 use pierre_tool_runtime::protocols::{UniversalResponse, UniversalToolExecutor};
 use serde_json::{json, Value};
 use sqlx::Row;
@@ -46,6 +48,7 @@ use crate::coach_athlete_reads_test::{
     fixture, ok, person, refused_reason, Fixture, Person, ATHLETE_STREAM_RUN, UPLOAD,
 };
 use crate::common;
+use crate::helpers::impersonation::{impersonation_of, support_grant};
 
 /// The athlete's roster name, as a coach names them.
 const MEMBER: &str = "Mira";
@@ -90,9 +93,13 @@ impl Fixture {
 
     /// `who`'s first-party GET of `path`, with its status.
     pub(crate) async fn get_as(&self, who: Person, path: &str) -> (StatusCode, Value) {
-        let app = ProviderToolRouter::build_http_app(&self.res);
-        // A first-party session, as the app holds it: a token delegated to
-        // another application reaches MCP and A2A only.
+        let bearer = self.session_bearer(who).await;
+        self.get_with(("authorization", bearer), path).await
+    }
+
+    /// A first-party session `Bearer` header for `who`, as the app holds it:
+    /// a token delegated to another application reaches MCP and A2A only.
+    async fn session_bearer(&self, who: Person) -> String {
         let user = self
             .repos()
             .users
@@ -100,9 +107,18 @@ impl Fixture {
             .await
             .unwrap()
             .expect("the person has an account");
-        let token = common::generate_test_token(&self.res, &user).await;
+        format!(
+            "Bearer {}",
+            common::generate_test_token(&self.res, &user).await
+        )
+    }
+
+    /// A GET of `path` presenting `credential` (a header name and value), with
+    /// its status.
+    async fn get_with(&self, credential: (&str, String), path: &str) -> (StatusCode, Value) {
+        let app = ProviderToolRouter::build_http_app(&self.res);
         let request = Request::get(path)
-            .header("authorization", format!("Bearer {token}"))
+            .header(credential.0, credential.1)
             .body(Body::empty())
             .unwrap();
         let response = app.oneshot(request).await.unwrap();
@@ -176,6 +192,7 @@ impl Fixture {
                 class: CoachReadClass::Training,
                 read_at: Utc::now() - ago,
                 transport: None,
+                impersonator: None,
             })
             .await
             .unwrap();
@@ -197,6 +214,7 @@ async fn a_daily_read_is_recorded_once_per_utc_day_and_a_per_read_one_each_time(
         class: CoachReadClass::Training,
         read_at,
         transport: None,
+        impersonator: None,
     };
     let reads = &f.repos().coach_data_reads;
     assert!(
@@ -1096,7 +1114,7 @@ async fn the_purge_removes_reads_past_twelve_months_and_keeps_the_rest() {
 // ── /group reads ─────────────────────────────────────────────────────────
 
 /// The `/group reads` templates, as the catalogue words them in English.
-const READS_TEMPLATES: [(&str, &str); 16] = [
+const READS_TEMPLATES: [(&str, &str); 17] = [
     (
         "commands.group.reads_header",
         "Your human coach's reads of your data in {0}, newest first:",
@@ -1142,6 +1160,10 @@ const READS_TEMPLATES: [(&str, &str); 16] = [
     (
         "humanCoach.reads_served_to_assistant",
         "read by an AI tool your coach connects to Dravr", // humanCoach.reads_served_to_assistant
+    ),
+    (
+        "humanCoach.reads_support_read",
+        "read by Dravr support while helping your coach", // humanCoach.reads_support_read
     ),
 ];
 
@@ -1285,4 +1307,305 @@ async fn a_read_served_to_the_coachs_outside_assistant_is_marked_on_every_surfac
             .all(|read| read["served_to_assistant"] == false),
         "bug: a read with no recorded transport is never marked: {body}"
     );
+}
+
+// ── Reads Dravr support made acting as the coach (carnet#1511) ───────────
+
+/// A read the admin's assistant makes while acting as the coach in a support
+/// session records the admin, and the athlete's record says it was support's;
+/// the coach's own read beside it is never marked.
+#[tokio::test]
+async fn a_read_in_a_support_session_is_recorded_and_listed_as_supports() {
+    let f = fixture().await;
+    ok(
+        f.call(
+            &f.mcp_executor(),
+            f.coach,
+            "get_activities",
+            json!({ "athlete": MEMBER }),
+        )
+        .await,
+        "the coach's own get_activities over MCP",
+    );
+    let support = support_grant(&f.res, f.coach.id).await;
+    let admin = support.impersonator_id;
+    let served = SUPPORT_SESSION
+        .scope(Some(support), async {
+            f.call(
+                &f.mcp_executor(),
+                f.coach,
+                "get_training_history",
+                json!({ "athlete": MEMBER }),
+            )
+            .await
+        })
+        .await;
+    ok(
+        served,
+        "get_training_history in the admin's support session",
+    );
+
+    let mut recorded: Vec<(String, Option<Uuid>)> = f
+        .recorded()
+        .await
+        .into_iter()
+        .map(|read| (read.tool, read.impersonator))
+        .collect();
+    recorded.sort();
+    assert_eq!(
+        recorded,
+        vec![
+            ("get_activities".to_owned(), None),
+            ("get_training_history".to_owned(), Some(admin)),
+        ],
+        "bug: only the support session's read names the admin"
+    );
+
+    let (status, body) = f.get_reads(f.athlete, f.group).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mut listed: Vec<(String, bool)> = body["reads"]
+        .as_array()
+        .expect("a reads array")
+        .iter()
+        .map(|read| {
+            (
+                read["tool"].as_str().unwrap_or_default().to_owned(),
+                read["support_read"]
+                    .as_bool()
+                    .unwrap_or_else(|| panic!("bug: every read carries the mark: {read}")),
+            )
+        })
+        .collect();
+    listed.sort();
+    assert_eq!(
+        listed,
+        vec![
+            ("get_activities".to_owned(), false),
+            ("get_training_history".to_owned(), true),
+        ],
+        "bug: the athlete's record marks the support read alone: {body}"
+    );
+    assert!(
+        !body.to_string().contains(&admin.to_string()),
+        "bug: the athlete's record never names the admin: {body}"
+    );
+
+    // `/group reads` names support beside the support read, never the
+    // coach's outside tool, though it was served over MCP.
+    let listed = group_reads(&f.res, f.athlete).await;
+    let support_lines: Vec<&str> = listed
+        .lines()
+        .filter(|line| line.contains("read by Dravr support while helping")) // humanCoach.reads_support_read
+        .collect();
+    assert_eq!(
+        support_lines.len(),
+        1,
+        "bug: /group reads marks the one support read: {listed}"
+    );
+    assert!(
+        support_lines[0].contains("get_training_history")
+            && !support_lines[0].contains("an AI tool your coach connects"), // humanCoach.reads_served_to_assistant
+        "bug: the support read names support alone: {listed}"
+    );
+    assert!(
+        !listed.contains(&admin.to_string()),
+        "bug: /group reads never names the admin: {listed}"
+    );
+}
+
+// ── Reads Dravr support made acting as the coach on the web (carnet#1511) ─
+
+/// An admin's web impersonation of the coach: its `Bearer` header, and the
+/// admin its session row names.
+async fn web_support(f: &Fixture) -> (String, Uuid) {
+    let bearer = impersonation_of(&f.res, &f.session_bearer(f.coach).await).await;
+    let auth = &f.res.auth;
+    let claims = auth
+        .auth_manager
+        .validate_token(bearer.trim_start_matches("Bearer "), &auth.jwks_manager)
+        .unwrap();
+    let session_id = claims
+        .impersonation_session_id
+        .expect("test setup bug: an impersonation token names its session");
+    let session = f
+        .repos()
+        .impersonation
+        .get_session(&session_id)
+        .await
+        .unwrap()
+        .expect("test setup bug: the session row");
+    (bearer, session.impersonator_id)
+}
+
+/// The admin each read through `source` recorded, sorted: `None` for the
+/// coach's own.
+async fn impersonators_from(f: &Fixture, source: &str) -> Vec<Option<Uuid>> {
+    let mut impersonators: Vec<Option<Uuid>> = f
+        .recorded_from(source)
+        .await
+        .into_iter()
+        .map(|read| read.impersonator)
+        .collect();
+    impersonators.sort();
+    impersonators
+}
+
+/// The coach reads `path`, an admin acting as the coach on the web reads it
+/// presenting `credential` (built from the impersonation's `Bearer` header),
+/// and the coach reads it again. Every read through `source` names the coach
+/// but the support read, which names the admin; the athlete's own record
+/// marks that one as support's and never names the admin.
+///
+/// `coach_rows` is how many of the coach's two reads `source` records: two
+/// for a read recorded each time, one for a view recorded once a day.
+async fn assert_web_support_read(
+    f: &Fixture,
+    path: &str,
+    source: &str,
+    coach_rows: usize,
+    credential: fn(&str) -> (&'static str, String),
+) {
+    let (status, body) = f.get_as(f.coach, path).await;
+    assert_eq!(status, StatusCode::OK, "the coach's own read: {body}");
+    let (bearer, admin) = web_support(f).await;
+    let (status, body) = f.get_with(credential(&bearer), path).await;
+    assert_eq!(status, StatusCode::OK, "the support read: {body}");
+    let (status, body) = f.get_as(f.coach, path).await;
+    assert_eq!(status, StatusCode::OK, "the coach's next read: {body}");
+
+    let mut expected = vec![None; coach_rows];
+    expected.push(Some(admin));
+    assert_eq!(
+        impersonators_from(f, source).await,
+        expected,
+        "bug: only the read made acting as the coach names the admin ({source})"
+    );
+
+    let (status, body) = f.get_reads(f.athlete, f.group).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mut marks: Vec<bool> = body["reads"]
+        .as_array()
+        .expect("a reads array")
+        .iter()
+        .filter(|read| read["tool"] == source)
+        .map(|read| {
+            read["support_read"]
+                .as_bool()
+                .unwrap_or_else(|| panic!("bug: every read carries the mark: {read}"))
+        })
+        .collect();
+    marks.sort_unstable();
+    let mut expected = vec![false; coach_rows];
+    expected.push(true);
+    assert_eq!(
+        marks, expected,
+        "bug: the athlete's record marks the support read alone ({source}): {body}"
+    );
+    assert!(
+        !body.to_string().contains(&admin.to_string()),
+        "bug: the athlete's record never names the admin: {body}"
+    );
+}
+
+/// The impersonation presented as the `Authorization` header.
+fn bearer_header(bearer: &str) -> (&'static str, String) {
+    ("authorization", bearer.to_owned())
+}
+
+/// The impersonation presented as the web session cookie, as the browser
+/// sends it.
+fn session_cookie(bearer: &str) -> (&'static str, String) {
+    let token = bearer.trim_start_matches("Bearer ");
+    ("cookie", format!("{}={token}", auth_cookie_name()))
+}
+
+#[tokio::test]
+async fn a_roster_read_acting_as_the_coach_on_the_web_names_the_admin() {
+    use pierre_core::models::ConnectionType;
+
+    let f = fixture().await;
+    f.repos()
+        .users
+        .set_manages_roster(f.coach.id, true)
+        .await
+        .unwrap();
+    f.repos()
+        .provider_connections
+        .register_connection(
+            f.athlete.id,
+            f.athlete.tenant,
+            "strava",
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_web_support_read(&f, "/api/coach/roster", "roster", 2, bearer_header).await;
+}
+
+#[tokio::test]
+async fn a_physiology_read_acting_as_the_coach_on_the_web_names_the_admin() {
+    let f = fixture().await;
+    let path = format!(
+        "/api/chat/athletes/{}/physiology?group_id={}",
+        f.athlete.id, f.group
+    );
+    assert_web_support_read(
+        &f,
+        &path,
+        CoachReadSurface::PhysiologyView.as_str(),
+        2,
+        bearer_header,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_web_support_read_through_the_session_cookie_names_the_admin() {
+    let f = fixture().await;
+    let path = format!(
+        "/api/chat/athletes/{}/physiology?group_id={}",
+        f.athlete.id, f.group
+    );
+    assert_web_support_read(
+        &f,
+        &path,
+        CoachReadSurface::PhysiologyView.as_str(),
+        2,
+        session_cookie,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_thread_plan_card_read_acting_as_the_coach_on_the_web_names_the_admin() {
+    let f = fixture().await;
+    athlete_season(&f).await;
+    let path = format!("/api/chat/conversations/{}/subject-plan", f.thread);
+    assert_web_support_read(&f, &path, "coach_thread", 2, bearer_header).await;
+}
+
+#[tokio::test]
+async fn a_plan_view_read_acting_as_the_coach_on_the_web_names_the_admin() {
+    let f = fixture().await;
+    athlete_season(&f).await;
+    let path = format!(
+        "/api/chat/athletes/{}/plan?group_id={}",
+        f.athlete.id, f.group
+    );
+    assert_web_support_read(&f, &path, "plan_view", 2, bearer_header).await;
+}
+
+#[tokio::test]
+async fn a_group_view_read_acting_as_the_coach_on_the_web_is_recorded_as_supports() {
+    let f = fixture().await;
+    // The group's analytics answer its members; the fixture's coach coaches
+    // the group without a membership row of their own.
+    add_group_member(f.repos(), f.group, f.coach.id, f.coach.tenant)
+        .await
+        .unwrap();
+    let path = format!("/api/groups/{}/stats", f.group);
+    // The coach's view is recorded once a day; support's read is recorded
+    // each time, so it is never folded into the coach's row.
+    assert_web_support_read(&f, &path, "group_stats", 1, bearer_header).await;
 }

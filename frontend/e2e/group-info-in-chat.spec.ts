@@ -155,17 +155,17 @@ const mockInvites = {
 const mockCoachReads = {
   retention_months: 12,
   reads: [
-    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'wellness', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'get_activities', data_class: 'training', read_at: '2026-11-12T14:04:00Z', served_to_assistant: true },
-    { coach_name: 'Casey Coach', tool: 'plan_view', data_class: 'training', read_at: '2026-11-11T18:20:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'plan_command', data_class: 'training', read_at: '2026-11-11T07:45:00Z', served_to_assistant: false },
-    { coach_name: null, tool: 'roster', data_class: 'training', read_at: '2026-11-10T08:30:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'group_room', data_class: 'training', read_at: '2026-11-10T08:00:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'group_stats', data_class: 'training', read_at: '2026-11-09T19:10:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'group_report', data_class: 'training', read_at: '2026-11-09T19:05:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'group_health', data_class: 'training', read_at: '2026-11-09T19:00:00Z', served_to_assistant: false },
-    { coach_name: 'Casey Coach', tool: 'weekly_digest', data_class: 'training', read_at: '2026-11-09T13:00:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'wellness', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'get_activities', data_class: 'training', read_at: '2026-11-12T14:04:00Z', served_to_assistant: true, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'plan_view', data_class: 'training', read_at: '2026-11-11T18:20:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'plan_command', data_class: 'training', read_at: '2026-11-11T07:45:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: null, tool: 'roster', data_class: 'training', read_at: '2026-11-10T08:30:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'group_room', data_class: 'training', read_at: '2026-11-10T08:00:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'group_stats', data_class: 'training', read_at: '2026-11-09T19:10:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'group_report', data_class: 'training', read_at: '2026-11-09T19:05:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'group_health', data_class: 'training', read_at: '2026-11-09T19:00:00Z', served_to_assistant: false, support_read: false },
+    { coach_name: 'Casey Coach', tool: 'weekly_digest', data_class: 'training', read_at: '2026-11-09T13:00:00Z', served_to_assistant: false, support_read: false },
   ],
 };
 
@@ -1102,6 +1102,9 @@ test.describe('Group info — coaching-platform links', () => {
       wellness_read_supported: true,
       wellness_read_skipped: null,
       wellness_notice_due: false,
+      assistant_read: false,
+      assistant_read_at: null,
+      assistant_read_supported: false,
     };
 
     await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
@@ -1194,6 +1197,9 @@ test.describe('Group info — coaching-platform links', () => {
       wellness_read_supported: true,
       wellness_read_skipped: null,
       wellness_notice_due: true,
+      assistant_read: false,
+      assistant_read_at: null,
+      assistant_read_supported: false,
     };
 
     await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {

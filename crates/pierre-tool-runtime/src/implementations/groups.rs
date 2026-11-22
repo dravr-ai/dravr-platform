@@ -85,6 +85,7 @@ use super::group_member_plan::GetGroupMemberPlanStatusTool;
 use super::group_roster::GetRosterOverviewTool;
 use super::provider_roster::GetProviderRosterTool;
 use crate::activity_fetch::{connection_grant_beside_session, fetch_provider_activities};
+use crate::coach_assistant;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
@@ -693,10 +694,11 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 Err(refused) => return Ok(refused),
             };
             let Scan {
-                matches,
+                mut matches,
                 requester_matched,
                 coach_access_off,
             } = scan_shared_rosters(&data, requester, &query_lower, scope.pin()).await?;
+            let for_coach_assistant = coach_assistant::serving_coach_assistant();
 
             // A self-lookup used to fall through to the generic "no member
             // matching" error — a dead end with no gradient out, since no
@@ -724,6 +726,29 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                     NO_COACH_ACCESS,
                     read_subject::COACH_ACCESS_OFF,
                 ));
+            }
+
+            // The AI assistant a coach connects reads a member as their coach
+            // only, and only one who allowed it (carnet#1511): a peer's
+            // in-group sharing never reaches an outside assistant, and a
+            // member left out answers as no one, so it never learns which.
+            if for_coach_assistant {
+                matches.retain(|row| row.requester_is_coach && coach_assistant::includes(&row.member));
+                if matches.is_empty() {
+                    let mut message = coach_assistant::not_included_message(member_query);
+                    // The no-group note is for an admin who leads no active
+                    // group (Q24); an admin who leads one just missed a name.
+                    if ctx.is_admin
+                        && matches!(
+                            roster_access(data.repos(), requester).await?,
+                            RosterAccess::NotACoach
+                        )
+                    {
+                        message.push(' ');
+                        message.push_str(coach_assistant::ADMIN_NO_GROUP_NOTE);
+                    }
+                    return Ok(ToolResult::error(json!({ "reason": "no_match", "error": message })));
+                }
             }
 
             let rows = match resolve_unique_peer(&matches, member_query, &scope) {
@@ -879,9 +904,11 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-// A coach's tool over other athletes' data: Dravr's own surfaces list and run
-// it, an MCP client or an A2A agent never sees it (`crate::first_party_tools`).
-crate::declare_security!(GetGroupMemberActivitiesTool => empty; first_party_only);
+// A coach's tool over other members' data: listed and run over every
+// transport for a human coach or an admin (`crate::tool_access`), and
+// externally it shows only the members who allowed their coach's assistant
+// (`crate::coach_assistant`).
+crate::declare_security!(GetGroupMemberActivitiesTool => empty; coach);
 
 #[cfg(test)]
 mod tests {

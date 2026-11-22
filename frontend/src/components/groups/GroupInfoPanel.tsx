@@ -17,6 +17,7 @@ import {
   useGroupStats,
   useUpdatePeerConsent,
   useSetCoachSharing,
+  useSetCoachConsents,
   useLeaveGroup,
   useDeleteGroup,
   useRemoveCoach,
@@ -172,6 +173,10 @@ export default function GroupInfoPanel({
   const { sharing: coachSharing } = useCoachSharing(groupId, showsCoachSharing);
   const { setSharing: setCoachSharing, isPending: isSavingCoachSharing } =
     useSetCoachSharing(groupId);
+  // Whether the coach's AI assistant includes the member in its roster tools
+  // (carnet#1511): per membership, off until the member turns it on here.
+  const { setConsents: setCoachConsents, isPending: isSavingAssistantRead } =
+    useSetCoachConsents(groupId);
   const { leaveGroup, isPending: isLeaving } = useLeaveGroup();
   const { deleteGroup, isPending: isDeleting } = useDeleteGroup();
   const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
@@ -233,6 +238,17 @@ export default function GroupInfoPanel({
         consent ? t('groups.sharingOn') : t('groups.sharingOff'),
         consent ? t('humanCoach.sharingOnNotice') : t('humanCoach.sharingOffNotice'),
       );
+    } catch (err) {
+      const message = describeApiError(err, { t, fallbackKey: 'groups.consentFailed' });
+      showError(t('app.updateFailed'), message);
+    }
+  };
+
+  /** Let the coach's AI assistant include the caller in its roster tools, or stop it. */
+  const handleAssistantReadChange = async (granted: boolean) => {
+    try {
+      await setCoachConsents({ assistant_read: granted });
+      showSuccess(t('delegation.consentsSavedToast'));
     } catch (err) {
       const message = describeApiError(err, { t, fallbackKey: 'groups.consentFailed' });
       showError(t('app.updateFailed'), message);
@@ -543,6 +559,20 @@ export default function GroupInfoPanel({
                   disabled={!coachSharing || isSavingCoachSharing}
                   onChange={(e) => void handleCoachSharingChange(e.target.checked)}
                   data-testid="coach-sharing-switch"
+                />
+              </div>
+            )}
+            {/* Beside coach sharing: whether the coach's AI assistant (Claude,
+                ChatGPT…) includes the member in its roster tools (carnet#1511). */}
+            {showsCoachSharing && group.coach_user_id && coachConsents?.assistant_read_supported && (
+              <div className={clsx('px-4 py-3', ROW_DIVIDER)} data-testid="coach-assistant-read-row">
+                <Checkbox
+                  label={t('humanCoach.assistantOptIn.label', { coach: coachName ?? '' })}
+                  description={t('humanCoach.assistantOptIn.hint', { coach: coachName ?? '' })}
+                  checked={coachConsents.assistant_read}
+                  disabled={isSavingAssistantRead}
+                  onChange={(e) => void handleAssistantReadChange(e.target.checked)}
+                  data-testid="coach-assistant-read-switch"
                 />
               </div>
             )}

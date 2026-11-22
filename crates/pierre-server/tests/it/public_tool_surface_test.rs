@@ -449,8 +449,12 @@ async fn an_external_client_cannot_store_a_medical_fact() {
     assert!(drafts.is_empty(), "{drafts:?}");
 }
 
+/// An admin's list follows the grant (carnet#1511, Q14 and Q25): a delegated
+/// connection, which holds no `admin`, adds the coach tools and nothing kept
+/// in the app; the admin's own API key, whose grant holds `admin`, lists the
+/// admin tools and the first-party-only ones too, and never an app-only one.
 #[tokio::test]
-async fn a_global_admin_holds_the_public_profile_on_mcp() {
+async fn a_global_admins_list_follows_the_grant_on_mcp() {
     let res = common::create_test_server_resources().await.unwrap();
     let who = athlete(&res).await;
     let app = ProviderToolRouter::build_http_app(&res);
@@ -465,21 +469,37 @@ async fn a_global_admin_holds_the_public_profile_on_mcp() {
         .await
         .unwrap();
     let as_admin = listed(&app, &authorization).await;
-    assert_eq!(
-        as_admin, as_athlete,
-        "the listing must not move with the role"
-    );
     assert!(
         !as_admin.iter().any(|name| name.starts_with("admin_")),
-        "{as_admin:?}"
+        "a delegated grant holds no admin: {as_admin:?}"
+    );
+    for hidden in HIDDEN_TOOLS {
+        assert!(
+            !as_admin.contains(hidden),
+            "{hidden} needs admin in the grant"
+        );
+    }
+    assert!(as_admin.contains("get_roster_overview"), "{as_admin:?}");
+    assert!(
+        as_athlete.iter().all(|name| as_admin.contains(name)),
+        "an admin is listed everything an athlete is"
     );
 
-    // An API key carries the self grant, `admin` scope included: the listing is
-    // the same for it too.
     let key = common::issue_test_api_key(&res.agent.database, who.id, "admin key")
         .await
         .unwrap();
-    assert_eq!(listed(&app, &format!("Bearer {key}")).await, as_athlete);
+    let with_key = listed(&app, &format!("Bearer {key}")).await;
+    assert!(
+        with_key.iter().any(|name| name.starts_with("admin_")),
+        "{with_key:?}"
+    );
+    for hidden in HIDDEN_TOOLS {
+        assert!(
+            with_key.contains(hidden),
+            "{hidden} is listed to an admin's key"
+        );
+    }
+    assert!(!with_key.contains("publish_training_plan"), "{with_key:?}");
 }
 
 #[tokio::test]

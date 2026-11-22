@@ -217,6 +217,10 @@ pub struct UpdateCoachConsentsRequest {
     /// deletes the wellness the member's links synced
     #[serde(default)]
     pub wellness_read: Option<bool>,
+    /// Turn on (`true`) or off (`false`) the coach's AI assistant including
+    /// the member in the roster tools (carnet#1511)
+    #[serde(default)]
+    pub assistant_read: Option<bool>,
     /// Grant (`true`) or revoke (`false`) the coach's reads of the member's
     /// health records (T2: labs, clinical records, blood glucose), its own
     /// grant beside `wellness_read`
@@ -258,6 +262,14 @@ pub struct CoachConsentsResponse {
     /// widening to every app they connect, so the apps tell them and ask
     /// whether to keep it; keeping it is a fresh grant, which clears this
     pub wellness_notice_due: bool,
+    /// The AI assistant the group's human coach connects to Dravr includes
+    /// the member in the coach's roster tools (carnet#1511)
+    pub assistant_read: bool,
+    /// When the member last turned `assistant_read` on or off (RFC 3339)
+    pub assistant_read_at: Option<String>,
+    /// Whether the group has a human coach other than the member, so the
+    /// member can be asked for `assistant_read`
+    pub assistant_read_supported: bool,
     /// The group's coach may read the member's health records (T2) now: the
     /// grant is given and has not lapsed. It reaches a read only alongside
     /// `wellness_read`, and the member's own consent to AI use of those
@@ -699,7 +711,7 @@ impl DelegatedConnectionRoutes {
         consents: CoachConsents,
         member: Uuid,
     ) -> Result<CoachConsentsResponse, AppError> {
-        let offer = consent_offer(registry, group);
+        let offer = consent_offer(registry, group, member);
         let mut skipped = None;
         if offer.wellness_read {
             let links = repos
@@ -724,6 +736,9 @@ impl DelegatedConnectionRoutes {
             wellness_read_supported: offer.wellness_read,
             wellness_read_skipped: skipped.map(|skip| skip.as_str().to_owned()),
             wellness_notice_due: wellness_notice_due(offer, consents),
+            assistant_read: consents.assistant_read,
+            assistant_read_at: consents.assistant_read_at.map(|at| at.to_rfc3339()),
+            assistant_read_supported: offer.assistant_read,
             sensitive_t2_read: consents.sensitive_t2_standing(Utc::now()),
             sensitive_t2_read_at: consents.sensitive_t2_read_at.map(|at| at.to_rfc3339()),
             sensitive_t2_read_until: consents.sensitive_t2_read_until.map(|at| at.to_rfc3339()),
@@ -773,6 +788,7 @@ impl DelegatedConnectionRoutes {
         let change = ConsentChange {
             calendar_write: body.calendar_write,
             wellness_read: body.wellness_read,
+            assistant_read: body.assistant_read,
             sensitive_t2_read: body.sensitive_t2_read,
             sensitive_window: SensitiveWindow::try_from_days(body.sensitive_days)?,
         };

@@ -16,6 +16,7 @@ macro_rules! member_columns {
               m.consent_given_at,
               m.coach_calendar_write, m.coach_calendar_write_at,
               m.coach_wellness_read, m.coach_wellness_read_at,
+              m.coach_assistant_read, m.coach_assistant_read_at,
               m.coach_sensitive_t2_read, m.coach_sensitive_t2_read_at, m.coach_sensitive_t2_read_until,
               m.joined_at, m.left_at,
               ",
@@ -78,16 +79,6 @@ pub(crate) const UPDATE_COACH_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_grou
               coach_sharing_consent_at = $2
               WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL";
 
-/// When a live member answered the notice of their coach's AI tools, NULL
-/// while they have not.
-pub(crate) const GET_ASSISTANT_NOTICE_ANSWERED_SQL: &str = r"SELECT assistant_notice_answered_at FROM coaching_group_members
-              WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL";
-
-/// Record that a live member answered the notice of their coach's AI tools,
-/// at `$1`.
-pub(crate) const ANSWER_ASSISTANT_NOTICE_SQL: &str = r"UPDATE coaching_group_members SET assistant_notice_answered_at = $1
-              WHERE group_id = $2 AND user_id = $3 AND left_at IS NULL";
-
 /// A live member sets what their coach may do beyond reading their training:
 /// `$1` calendar write, `$2` wellness read and `$6` sharing their health
 /// records (T2), NULL to leave one as it stands, in one statement so a
@@ -112,6 +103,7 @@ pub(crate) const SET_COACH_CONSENTS_SQL: &str = r"UPDATE coaching_group_members
             coach_sensitive_t2_read_until = CASE WHEN $6 IS NULL THEN coach_sensitive_t2_read_until
                                                  WHEN $6 THEN $7 ELSE NULL END
       WHERE group_id = $4 AND user_id = $5 AND left_at IS NULL";
+
 /// Live members of a group, counted by group alone: they may span tenants.
 pub(crate) const COUNT_MEMBERS_SQL: &str = r"SELECT COUNT(*) as cnt FROM coaching_group_members
               WHERE group_id = $1 AND left_at IS NULL";

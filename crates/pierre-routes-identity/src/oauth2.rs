@@ -22,7 +22,7 @@ use pierre_auth::config::oauth::OAuth2ServerConfig;
 use pierre_auth::oauth2_server::{
     client_auth::{is_basic_authorization, resolve_client_credentials},
     client_registration::ClientRegistrationManager,
-    endpoints::{CheckedAuthorization, OAuth2AuthorizationServer},
+    endpoints::{AdminAccess, CheckedAuthorization, OAuth2AuthorizationServer},
     first_party::is_first_party,
     models::{
         AuthorizeRequest, ClientRegistrationPayload, OAuth2Error, TokenRequest,
@@ -50,10 +50,14 @@ use crate::oauth2_rate_limited::{page_refusal, refusal};
 
 use self::session::SignInCookie;
 
+/// The consent screen's Admin access box, offered to a live admin (carnet#1511)
+mod admin_access;
 /// The consent form's submission: the user's decision on an authorization
 mod consent;
 /// What the consent screen says about who is asking and where the data goes
 mod consent_copy;
+/// Which role lines the consent screen shows the signed-in user (carnet#1511)
+mod consent_role;
 /// The consent flow's text, in the reader's language
 mod consent_text;
 /// Which consent text a grant was approved under, and whether it is current.
@@ -82,7 +86,7 @@ mod well_known;
 pub use consent_text::ConsentText;
 pub use google_login::GoogleSignIn;
 pub use login_text::LoginPageLabels;
-pub use pages::{ConsentHtmlParams, LoginHtmlParams};
+pub use pages::{ConsentHtmlParams, ConsentRole, LoginHtmlParams};
 
 /// OAuth 2.0 server context shared across all handlers
 #[derive(Clone)]
@@ -453,18 +457,22 @@ impl OAuth2Routes {
             None => false,
         };
 
-        if has_grant && !checked.consent_every_time {
+        // An admin always sees the screen: Admin access is chosen per
+        // connection and never granted again silently (carnet#1511, Q20).
+        if has_grant && !checked.consent_every_time && !user.role.is_admin() {
             return Self::mint_authorization_code(
                 context,
                 request,
                 authenticated_user_id,
                 tenant_id,
                 redirect_uri,
+                AdminAccess::Withheld,
             )
             .await;
         }
 
         let text = ConsentText::for_reader(&context.strings, Some(&user.locale), headers);
+        let role = Self::consent_role(context, &user, checked.admin_grantable).await;
         // The consent form's synchronizer token, bound to this user: a page
         // on another origin cannot read it, so it cannot post an approval.
         match context.csrf_manager.generate_token(authenticated_user_id) {
@@ -475,6 +483,7 @@ impl OAuth2Routes {
                 &user.email,
                 &context.first_party_only_sources,
                 &text,
+                role,
             ),
             Err(e) => {
                 error!("Failed to mint the consent form token: {e}");
@@ -534,10 +543,11 @@ impl OAuth2Routes {
         authenticated_user_id: uuid::Uuid,
         tenant_id: Option<String>,
         redirect_uri: String,
+        access: AdminAccess,
     ) -> Response {
         let state = request.state.clone();
         match Self::authorization_server(context)
-            .authorize(request, Some(authenticated_user_id), tenant_id)
+            .authorize_with_admin_access(request, Some(authenticated_user_id), tenant_id, access)
             .await
         {
             Ok(response) => {

@@ -56,6 +56,12 @@ const QUOTA_RETRY_AFTER_SECS: u64 = 60;
 /// How often a running turn re-reads its task for a cancel.
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
+/// The refusal of a text message while an admin's support session through
+/// this agent is live (carnet#1511): the session acts as the user through
+/// tool calls only, so a conversation in the user's name never runs.
+const SUPPORT_SESSION_TEXT_MESSAGE: &str = "This agent is in a support session acting as a \
+     user, which serves tool calls only. Call admin_impersonate_end to talk as yourself again.";
+
 /// What a client-credentials caller reads: it acts for no athlete.
 const NO_ATHLETE_MESSAGE: &str =
     "A text message asks an athlete's coach, and a client-credentials token acts for no athlete. \
@@ -128,6 +134,12 @@ impl A2AServer {
             return Err(refuse(
                 A2ASpecError::UnsupportedOperation,
                 NO_ATHLETE_MESSAGE.to_owned(),
+            ));
+        }
+        if Self::support_session_live(resources.ctx.as_ref(), principal).await {
+            return Err(refuse(
+                A2ASpecError::UnsupportedOperation,
+                SUPPORT_SESSION_TEXT_MESSAGE.to_owned(),
             ));
         }
         if let Some(missing) = COACHING_SKILL_SCOPES

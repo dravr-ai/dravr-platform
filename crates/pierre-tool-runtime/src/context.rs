@@ -155,13 +155,17 @@ tokio::task_local! {
     /// through another counts as prefetched too.
     pub static DISPATCH_ORIGIN: DispatchOrigin;
 
-    /// The admin's support session the in-flight chat turn runs in, when an
-    /// admin typed it while acting as the athlete (carnet#1634).
+    /// The admin's support session the in-flight work runs in, when an admin
+    /// acting as a user made the request (carnet#1634, carnet#1511).
     ///
-    /// The web and mobile chat scopes it around the whole turn; the executor
-    /// reads it and re-scopes it around each tool body, as it does
-    /// [`TURN_LOCALE`]. What a support session may not leave behind it reads
-    /// through [`refuse_in_support_session`]. Absent on every other turn and
+    /// Every REST request made under a web impersonation is served inside it
+    /// (pierre-server's `request_support` layer), the web and mobile chat
+    /// scope it around the whole turn, and `/mcp` and A2A around each call an
+    /// admin's assistant makes in its session; the executor reads it and
+    /// re-scopes it around each tool body, as it does [`TURN_LOCALE`]. What a
+    /// support session may not leave behind it reads through
+    /// [`refuse_in_support_session`], and a coach read it makes names the
+    /// admin on the member's record. Absent on every other request, turn and
     /// call.
     pub static SUPPORT_SESSION: Option<ImpersonationGrant>;
 }

@@ -20,7 +20,6 @@ use crate::context::{
     GRANTED_SCOPES, GUARDIAN_TURN_TOKEN, READ_SUBJECT, SUPPORT_SESSION, TURN_AGENT_ID, TURN_ASK,
     TURN_DIRECT_MESSAGE, TURN_LOCALE,
 };
-use crate::first_party_tools;
 use crate::guardian::{self, GateOutcome, ReadFingerprint, TurnKey};
 use crate::protocol::data_source::athlete_has_data_source;
 use crate::protocol::provider_helpers::no_provider_refusal;
@@ -34,6 +33,7 @@ use crate::read_subject::ReadSubject;
 use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
+use crate::security::SecurityLabels;
 use crate::tool_data::ToolData;
 use crate::turn_end::{self, HandoffSlot};
 use dravr_cageux::config::intelligence::IntelligenceConfig;
@@ -57,6 +57,8 @@ use subject::{answered_for_member, build_tool_context, subject_tool_context, Par
 use tracing::{info, warn, Instrument};
 use uuid::Uuid;
 
+/// The access refusal: what the one access predicate withholds, rendered (carnet#1511)
+mod access;
 /// Admin-only tool calls from outside Dravr's own surfaces, on the audit trail.
 mod admin_call_audit;
 /// Answering a call the Guardian blocked, and leaving the block for the turn.
@@ -66,6 +68,7 @@ mod subject;
 mod tier_gate;
 mod turn_signals;
 
+pub use access::SUPPORT_SESSION_EXPORT_REFUSED;
 pub use admin_call_audit::{record_refused_admin_call, RefusedAdminCall};
 
 /// The two facts the dispatch chokepoint needs to decide a provider refusal.
@@ -372,16 +375,13 @@ impl UniversalExecutor {
 
     /// Pre-dispatch authorization refusals shared by every transport: the
     /// always-on tool-disable, per tenant and per user (S3, fail-closed on a
-    /// genuine lookup error)
-    /// and the `ADMIN_ONLY` defense-in-depth gate (S2). Returns `Some(refusal)`
+    /// genuine lookup error). Returns `Some(refusal)`
     /// to block in-band (a refusal the LLM adapts to — NOT a security block that
     /// abandons the turn), or `None` to proceed to the Guardian budget check.
     async fn authorization_refusal(
         &self,
         tool_name: &str,
         parties: Parties,
-        is_admin: bool,
-        admin_only: bool,
         provider_gate: ProviderGate<'_>,
     ) -> Result<Option<UniversalResponse>, ProtocolError> {
         // Tool-disable (absorbed `enforce_tool_allowlist`): an admin's
@@ -400,24 +400,6 @@ impl UniversalExecutor {
             return Ok(Some(refusal_response::tenant_disabled_response(tool_name)));
         }
 
-        // ADMIN_ONLY defense-in-depth: a future ADMIN_ONLY tool that forgets its
-        // inline `ctx.require_admin()` must not be silently reachable via
-        // MCP-direct / A2A. Reject with the same `ProtocolError` a tool body's
-        // own `require_admin` refusal is re-raised as (`PermissionDenied`, the
-        // 403 lane), so every transport and every admin-tool test sees one
-        // consistent authz shape — not a divergent in-band response. Denies by
-        // default when the admin lookup failed.
-        if admin_only && !is_admin {
-            warn!(
-                tool_name = %tool_name,
-                "admin-only tool denied for non-admin caller at the dispatch chokepoint"
-            );
-            return Err(ProtocolError::PermissionDenied {
-                tool_name: tool_name.to_owned(),
-                reason: "Admin access required".to_owned(),
-            });
-        }
-
         // The data sources asked of are the reader's: a coach's read of their
         // athlete needs the athlete's connection, not the coach's.
         if provider_gate.required {
@@ -430,6 +412,15 @@ impl UniversalExecutor {
         }
 
         Ok(None)
+    }
+
+    /// Count a call that spends the turn's write budget as attempted.
+    fn note_write_attempt(&self, counts: bool, tenant: Option<Uuid>, turn_token: &str) {
+        if counts {
+            self.resources
+                .guardian_turns()
+                .record_write_attempt(&TurnKey::new(tenant, turn_token.to_owned()));
+        }
     }
 
     /// The `REQUIRES_PROVIDER` half of the pre-dispatch refusals.
@@ -610,12 +601,6 @@ impl UniversalExecutor {
             .tenant_id
             .as_deref()
             .and_then(|raw| Uuid::parse_str(raw).ok());
-        // Pre-dispatch authorization refusals — the always-on tenant tool-disable
-        // (S3, an in-band nudge the LLM adapts to) and the ADMIN_ONLY
-        // defense-in-depth gate (S2, a propagated `ProtocolError` matching the
-        // tool's own `ctx.require_admin()`). Extracted to a helper to keep this
-        // dispatch fn within the cognitive-complexity budget.
-        let admin_only = tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY);
         let user_uuid = Uuid::parse_str(&request.user_id).map_err(|e| {
             ProtocolError::InternalError(format!("malformed user id in request: {e}"))
         })?;
@@ -631,11 +616,11 @@ impl UniversalExecutor {
         // Before every refusal below, so a write that any of them turns away
         // counts too: sending this turn's question again would try the same
         // thing on a fresh budget, and the refusal may no longer apply by then.
-        if writes_data || labels.is_irreversible() {
-            self.resources
-                .guardian_turns()
-                .record_write_attempt(&TurnKey::new(tenant_uuid, resolved_turn_token.clone()));
-        }
+        self.note_write_attempt(
+            counts_as_write(writes_data, labels),
+            tenant_uuid,
+            &resolved_turn_token,
+        );
 
         // The scope gate runs first, and is its own gate rather than an arm of
         // `authorization_refusal`: the two answer different questions and both
@@ -647,25 +632,23 @@ impl UniversalExecutor {
         // First, because an unauthorized caller should not learn anything the
         // later refusals would tell them — a tenant's tool-disable config,
         // say — and because the credential's reach is the outermost question.
-        scope_refusal(&tool_name, tool.capabilities(), &self.scopes)?;
-
-        // A tool kept on Dravr's own surfaces is refused to an external caller
-        // before anything it would read is looked up — the same answer its
-        // absence from that caller's listing gives.
-        if let Some(refusal) = first_party_tools::refusal(
-            self.resources.tool_registry(),
-            &tool_name,
-            ai_scope::effective_transport(self.transport),
-        ) {
-            return Ok(refusal);
-        }
-
-        // The coach's seats: in a group the caller coaches, their own data is
-        // not what the turn is about (carnet#742); in their thread about one
-        // athlete, nothing is filed on their own account (carnet#1070).
+        //
+        // Then the transport and the role, in the one predicate every listing
+        // reads (carnet#1511), so a call is refused exactly what its caller's
+        // listing leaves out, before anything the tool would read is looked
+        // up.
+        //
+        // The coach's seats come next: in a group the caller coaches, their
+        // own data is not what the turn is about (carnet#742); in their thread
+        // about one athlete, nothing is filed on their own account
+        // (carnet#1070).
         if let Some(refusal) = self
-            .seat
-            .refusal(self.resources.tool_registry(), &tool_name)
+            .access_refusal(tool.as_ref(), &tool_name, user_uuid, is_admin)
+            .await?
+            .or_else(|| {
+                self.seat
+                    .refusal(self.resources.tool_registry(), &tool_name)
+            })
         {
             return Ok(refusal);
         }
@@ -694,7 +677,7 @@ impl UniversalExecutor {
                 .filter(|s| !s.is_empty()),
         };
         if let Some(refusal) = self
-            .authorization_refusal(&tool_name, parties, is_admin, admin_only, provider_gate)
+            .authorization_refusal(&tool_name, parties, provider_gate)
             .await?
         {
             return Ok(refusal);
@@ -1140,32 +1123,8 @@ impl UniversalExecutor {
     }
 }
 
-/// Refuse a tool the caller's grant does not cover.
-///
-/// Required scopes are derived from the tool's own capability flags
-/// ([`required_scopes`](crate::scopes::required_scopes)), never from a table,
-/// so they cannot fall out of step with what the tool declares.
-///
-/// A [`ProtocolError`], because this is the transport-agnostic chokepoint every
-/// transport funnels through. The HTTP transport renders the same refusal as
-/// RFC 6750's 403 + `insufficient_scope` challenge before dispatch, reading
-/// this same derivation — one predicate, two renderings, no second source of
-/// truth, and a caller who slipped past the transport is still refused here.
-fn scope_refusal(
-    tool_name: &str,
-    capabilities: ToolCapabilities,
-    granted: &[OAuthScope],
-) -> Result<(), ProtocolError> {
-    if let Some(missing) = missing_scope(granted, capabilities) {
-        warn!(
-            tool_name = %tool_name,
-            missing_scope = %missing,
-            "tool denied: the caller's grant does not cover it"
-        );
-        return Err(ProtocolError::PermissionDenied {
-            tool_name: tool_name.to_owned(),
-            reason: format!("the '{missing}' scope is required"),
-        });
-    }
-    Ok(())
+/// Whether a call spends the turn's write budget: it writes data, or its
+/// effect cannot be undone.
+const fn counts_as_write(writes_data: bool, labels: SecurityLabels) -> bool {
+    writes_data || labels.is_irreversible()
 }

@@ -19,6 +19,7 @@ use pierre_core::models::groups::{
     GroupTranscriptEntry, NewGroupTranscriptEntry, RoomTranscriptEntry, UpdateGroupRequest,
 };
 
+use super::coach_assistant::CoachAssistantRepository;
 use super::group_chat_connect::GroupChatConnectRepository;
 
 use pierre_core::models::AgentRuntimeContext;
@@ -328,7 +329,9 @@ pub trait AgentsRepository: Send + Sync {
 /// [`GroupChatConnectRepository`]'s, a supertrait, so the same repository
 /// object answers both.
 #[async_trait]
-pub trait CoachingGroupRepository: GroupChatConnectRepository + Send + Sync {
+pub trait CoachingGroupRepository:
+    GroupChatConnectRepository + CoachAssistantRepository + Send + Sync
+{
     // -- Group CRUD --
 
     /// Create a new coaching group
@@ -497,27 +500,6 @@ pub trait CoachingGroupRepository: GroupChatConnectRepository + Send + Sync {
         group_id: &str,
         user_id: Uuid,
         consent: bool,
-    ) -> AppResult<bool>;
-
-    /// When the live member `user_id` of `group_id` answered the one-time
-    /// notice of their coach's AI tools; `None` while they have not, or when
-    /// they are not a live member. No tenant filter, as
-    /// [`Self::update_coach_sharing_consent`].
-    async fn assistant_notice_answered_at(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-    ) -> AppResult<Option<DateTime<Utc>>>;
-
-    /// Record that the live member `user_id` of `group_id` answered the
-    /// one-time notice of their coach's AI tools at `at`. Returns `false`
-    /// when `user_id` is not a live member. No tenant filter, as
-    /// [`Self::update_coach_sharing_consent`].
-    async fn answer_assistant_notice(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-        at: DateTime<Utc>,
     ) -> AppResult<bool>;
 
     /// The live member `user_id` of `group_id` grants or revokes what their

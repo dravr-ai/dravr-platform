@@ -1031,10 +1031,11 @@ impl McpTool<dyn ToolRuntime> for AdminListAgentAssignmentsTool {
 // Module exports
 // ============================================================================
 
-/// Create all admin tools for registration.
+/// Create all admin tools for registration, the support-session tools
+/// included ([`super::admin_support`]).
 #[must_use]
 pub fn create_admin_tools() -> Vec<Box<dyn RuntimeTool>> {
-    vec![
+    let mut tools: Vec<Box<dyn RuntimeTool>> = vec![
         Box::new(AdminListSystemAgentsTool),
         Box::new(AdminCreateSystemAgentTool),
         Box::new(AdminGetSystemAgentTool),
@@ -1043,7 +1044,9 @@ pub fn create_admin_tools() -> Vec<Box<dyn RuntimeTool>> {
         Box::new(AdminAssignAgentTool),
         Box::new(AdminUnassignAgentTool),
         Box::new(AdminListAgentAssignmentsTool),
-    ]
+    ];
+    tools.extend(super::admin_support::create_admin_support_tools());
+    tools
 }
 
 // Guardian security classifications (see `crate::security`). Co-located here so

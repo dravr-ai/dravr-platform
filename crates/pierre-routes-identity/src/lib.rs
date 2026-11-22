@@ -48,6 +48,7 @@ mod oauth2_rate_limited;
 pub mod user_oauth_apps;
 
 pub use oauth2::{
-    ConsentHtmlParams, ConsentText, GoogleSignIn, LoginHtmlParams, LoginPageLabels, OAuth2Routes,
+    ConsentHtmlParams, ConsentRole, ConsentText, GoogleSignIn, LoginHtmlParams, LoginPageLabels,
+    OAuth2Routes,
 };
 pub use user_oauth_apps::UserOAuthAppRoutes;

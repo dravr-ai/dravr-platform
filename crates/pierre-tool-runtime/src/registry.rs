@@ -25,12 +25,11 @@ use pierre_mcp_schema::{JsonSchema, ToolSchema};
 
 use crate::chat_catalogue;
 use crate::read_subject::{athlete_property, DataClass, ATHLETE_ARGUMENT};
-use crate::security::{RuntimeTool, SecurityLabels};
+use crate::security::{Audience, RuntimeTool, SecurityLabels};
 use crate::tool_data::ToolData;
 use dravr_tronc::mcp::schema::{TaskSupport, Tool};
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_contremaitre::ToolDescriptionRegistry;
-use pierre_core::transport::TransportPolicy;
 
 /// Build a typed [`ToolSchema`] from a tronc [`Tool`] definition.
 ///
@@ -85,7 +84,7 @@ fn schema_from_definition(def: Tool) -> ToolSchema {
 /// // code constructs the registry via `register_builtin_tools(&mut registry)`
 /// // exported from `pierre_mcp_server::tools::registry_builtin`.
 /// let registry = ToolRegistry::new();
-/// let schemas = registry.list_schemas_for_role(false);
+/// let schemas = registry.all_schemas();
 /// ```
 pub struct ToolRegistry {
     /// Registered tools by name.
@@ -251,24 +250,6 @@ impl ToolRegistry {
         self.tools.get(name).map(|tool| tool.security_class())
     }
 
-    /// Where a tool may be listed and run, as it declares through
-    /// [`RuntimeTool::transport_policy`]. `None` for an unknown tool name.
-    ///
-    /// Read off the tool object like [`Self::security_class`], never from a
-    /// table beside the registry.
-    #[must_use]
-    pub fn transport_policy(&self, name: &str) -> Option<TransportPolicy> {
-        self.tools.get(name).map(|tool| tool.transport_policy())
-    }
-
-    /// Whether the tool named `name` serves a group's human coach and no one
-    /// else, as it declares through [`RuntimeTool::coach_only`]. An unknown
-    /// name is not.
-    #[must_use]
-    pub fn is_coach_only(&self, name: &str) -> bool {
-        self.tools.get(name).is_some_and(|tool| tool.coach_only())
-    }
-
     /// Whether the tool named `name` can only fail with no USDA key configured.
     /// A name the registry does not resolve needs nothing.
     #[must_use]
@@ -405,28 +386,17 @@ impl ToolRegistry {
             .map(|(category, _)| category.as_str())
     }
 
-    /// List schemas for tools visible to a specific role
-    ///
-    /// # Arguments
-    ///
-    /// * `is_admin` - Whether the user has admin privileges
-    ///
-    /// # Returns
-    ///
-    /// Tool schemas for tools the role can access
+    /// The schemas of every tool whose audience is everyone
+    /// ([`Audience::Athlete`](Audience::Athlete)): what a
+    /// listing falls back to when the tenant's catalogue cannot be read, the
+    /// access predicate then run over it.
     #[must_use]
-    pub fn list_schemas_for_role(&self, is_admin: bool) -> Vec<ToolSchema> {
+    pub fn athlete_audience_schemas(&self) -> Vec<ToolSchema> {
         self.tools
             .values()
-            .filter(|tool| is_admin || !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY))
+            .filter(|tool| tool.audience() == Audience::Athlete)
             .map(|tool| self.build_schema(tool))
             .collect()
-    }
-
-    /// List schemas for user-visible tools only (non-admin)
-    #[must_use]
-    pub fn user_visible_schemas(&self) -> Vec<ToolSchema> {
-        self.list_schemas_for_role(false)
     }
 
     /// List schemas for tools the LLM is allowed to call during chat-mode
@@ -452,7 +422,7 @@ impl ToolRegistry {
     /// referenced them got truthful "no callable tool" refusals.
     ///
     /// Each schema here omits `format`: a chat turn never picks TOON
-    /// (carnet#1314). The MCP listings (`user_visible_schemas` and the rest)
+    /// (carnet#1314). The MCP listings (`all_schemas` and the rest)
     /// keep it, for external clients that opt in. A training- or
     /// wellness-class tool also omits `athlete`: in a coach's thread the
     /// athlete is implicit, and anywhere else in chat a name would be the
@@ -552,7 +522,10 @@ impl ToolRegistry {
     /// List all tool schemas (for internal use)
     #[must_use]
     pub fn all_schemas(&self) -> Vec<ToolSchema> {
-        self.list_schemas_for_role(true)
+        self.tools
+            .values()
+            .map(|tool| self.build_schema(tool))
+            .collect()
     }
 
     /// List schemas for tools whose names appear in the given set
@@ -583,21 +556,18 @@ impl ToolRegistry {
             .collect()
     }
 
-    /// List schemas for non-admin tools NOT present in the given catalog name set
+    /// List schemas for the tools NOT present in the given catalog name set
     ///
     /// Returns tools registered via feature flags (agents, mobility, etc.) that
     /// are not tracked by `tool_catalog`. This prevents feature-flag tools from
     /// disappearing for authenticated users when `ToolSelectionService` is used.
     /// Uses `HashSet` for O(1) lookup instead of O(n) linear scan.
     #[must_use]
-    pub fn uncatalogued_user_schemas(&self, catalogued_names: &[String]) -> Vec<ToolSchema> {
+    pub fn uncatalogued_schemas(&self, catalogued_names: &[String]) -> Vec<ToolSchema> {
         let catalogued_set: HashSet<&str> = catalogued_names.iter().map(String::as_str).collect();
         self.tools
             .iter()
-            .filter(|(name, tool)| {
-                !catalogued_set.contains(name.as_str())
-                    && !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY)
-            })
+            .filter(|(name, _)| !catalogued_set.contains(name.as_str()))
             .map(|(_, tool)| self.build_schema(tool))
             .collect()
     }

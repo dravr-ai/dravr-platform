@@ -13,7 +13,8 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_READS_SOURCE_GROUP_ROOM, KEY_GROUP_READS_SOURCE_GROUP_STATS,
     KEY_GROUP_READS_SOURCE_PHYSIOLOGY_VIEW, KEY_GROUP_READS_SOURCE_PLAN_COMMAND,
     KEY_GROUP_READS_SOURCE_PLAN_VIEW, KEY_GROUP_READS_SOURCE_ROSTER,
-    KEY_GROUP_READS_SOURCE_WEEKLY_DIGEST, KEY_GROUP_READS_TRAINING, KEY_GROUP_READS_WELLNESS,
+    KEY_GROUP_READS_SOURCE_WEEKLY_DIGEST, KEY_GROUP_READS_SUPPORT_READ, KEY_GROUP_READS_TRAINING,
+    KEY_GROUP_READS_WELLNESS,
 };
 use pierre_core::errors::AppError;
 use pierre_database::repositories::{CoachReadClass, CoachReadSurface};
@@ -30,7 +31,7 @@ const READS_PER_GROUP: u32 = 10;
 /// human coach read through their agent, through which tool, and when.
 ///
 /// A read served to an AI tool the coach connects from outside Dravr says so
-/// beside its source.
+/// beside its source, and so does one Dravr support made acting as the coach.
 ///
 /// The member's own rows only, read under each tenant they belong to
 /// ([`own_coach_reads`], as Group info lists them). In a group's chat it
@@ -79,15 +80,19 @@ impl CommandHandler for GroupReadsHandler {
                     || read.tool.clone(),
                     |surface| reg.render(surface_key(surface), locale, &[]),
                 );
-                // A read the coach's outside AI tool was served says so
-                // beside its source, as Group info marks it.
-                let source = if read.transport.served_to_outside_client() {
-                    format!(
-                        "{named}, {}",
-                        reg.render(KEY_GROUP_READS_SERVED_TO_ASSISTANT, locale, &[])
-                    )
+                // A read support made, or one the coach's outside AI tool
+                // was served, says so beside its source, as Group info marks
+                // it. Support's read names support, never the coach's tool.
+                let mark = if read.impersonator.is_some() {
+                    Some(KEY_GROUP_READS_SUPPORT_READ)
+                } else if read.transport.served_to_outside_client() {
+                    Some(KEY_GROUP_READS_SERVED_TO_ASSISTANT)
                 } else {
-                    named
+                    None
+                };
+                let source = match mark {
+                    Some(key) => format!("{named}, {}", reg.render(key, locale, &[])),
+                    None => named,
                 };
                 let when = read.read_at.format("%Y-%m-%d %H:%M UTC").to_string();
                 lines.push(reg.render(

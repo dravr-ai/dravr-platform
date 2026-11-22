@@ -81,12 +81,13 @@ pub mod capabilities;
 pub mod capture_sweep;
 /// The tool declarations a chat turn sends, and their wire size (carnet#1196).
 pub mod chat_catalogue;
+/// Which members the coach tools show the AI assistant a human coach connects (carnet#1511).
+#[cfg(feature = "tools-groups")]
+pub mod coach_assistant;
 /// Whose training a group view built from every member's shows its viewer:
 /// for the group's coach, each member gated and on their record (carnet#1445)
 #[cfg(feature = "tools-groups")]
 pub mod coach_group_view;
-/// The coach-only arguments and tools an external listing offers a group's human coach alone (carnet#1426).
-pub mod coach_listing;
 /// The coach roster both the agent tool and the coach REST read project from.
 #[cfg(feature = "tools-groups")]
 pub mod coach_roster;
@@ -103,7 +104,7 @@ pub mod deployment_tools;
 pub mod derived_content;
 /// The envelope findings a turn's writes reported, and their per-turn store (carnet#1495).
 pub mod envelope_notices;
-/// Tools only Dravr's own surfaces list and run, kept off MCP and A2A.
+/// Tools Dravr's own surfaces list and run, kept from external callers but an admin holding `admin`.
 pub mod first_party_tools;
 /// Stale-while-revalidate activity cache backing the group member snapshots
 #[cfg(feature = "tools-groups")]
@@ -150,8 +151,12 @@ pub mod scopes;
 /// Guardian security classification: the blast-radius axis every tool declares
 /// (`SecurityLabels` + the `RuntimeTool` supertrait) for the dispatch-time guard.
 pub mod security;
+/// An admin's support session through their own assistant over MCP and A2A (carnet#1511)
+pub mod support_session;
 /// Cooperative cancel flag for tool calls running behind an MCP task handle.
 pub mod task_cancellation;
+/// The one predicate deciding which tools a caller is offered and may call: scope, transport, role (carnet#1511).
+pub mod tool_access;
 /// What each registered tool reads: its data class, streams and written text.
 pub mod tool_data;
 pub mod tool_progress;

@@ -595,7 +595,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     //
     // This stage used to generate a second list here: one prose line per tool,
     // 11,763 characters, restating names the model was already given. It was
-    // built from `user_visible_schemas()` while the declarations were built
+    // built from `all_schemas()` while the declarations were built
     // from `chat_callable_schemas()`, so it advertised every non-chat-callable
     // category — agent CRUD, config writes, claim verification — as though the
     // agent could call them. Two lists from two sources cannot help drifting;
@@ -607,7 +607,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // The names — and only the names — come back with it, from
     // `offered_schemas`. That is the source the declarations are built
     // from, which is the half the deleted list got wrong: it read
-    // `user_visible_schemas()` and advertised tools the agent could not call.
+    // `all_schemas()` and advertised tools the agent could not call.
     // One source cannot drift against itself, and names-only is ~2 KB against
     // the 11,763 characters that were removed.
     //
