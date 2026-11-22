@@ -870,7 +870,12 @@ fn the_box_names_a_differing_document_host_and_says_this_computer_for_a_loopback
 
 #[test]
 fn the_box_is_not_offered_while_the_catalogue_has_no_lines_for_it() {
-    let strings = MessagingStringsRegistry::new();
+    // Whatever the pinned catalogue carries, a catalogue with the box's lines
+    // read empty shows no box: they are supplied first, then blanked.
+    let strings = with_admin_access_lines(MessagingStringsRegistry::new());
+    for (key, _) in PROPOSED_LINES {
+        strings.update(key, "en", String::new(), format!("blank-{key}"));
+    }
     let html = OAuth2Routes::generate_consent_html(ConsentHtmlParams {
         client_id: "mcp_client_1",
         redirect_uri: "https://claude.ai/api/mcp/auth_callback",
