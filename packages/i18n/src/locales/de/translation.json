@@ -4738,7 +4738,8 @@
       "countDays_other": "{{count}} Tage",
       "countEntries_one": "{{count}} Eintrag",
       "countEntries_other": "{{count}} Einträge",
-      "nothingArrived": "Von {{name}} ist noch nichts angekommen. Wenn du einige Typen ausgeschaltet gelassen hast, kannst du sie in den Einstellungen von {{name}} erlauben."
+      "nothingArrived": "Von {{name}} ist noch nichts angekommen. Wenn du einige Typen ausgeschaltet gelassen hast, kannst du sie in den Einstellungen von {{name}} erlauben.",
+      "permissionCopy": "Dravr liest deine Trainings, deinen Schlaf, deine Herzfrequenz, dein Gewicht, dein Zyklustracking, deinen Blutzucker und deine Gemütslage, damit dein Agent dein Training anpassen kann. Dravr schreibt nie in Health."
     }
   },
   "settings": {

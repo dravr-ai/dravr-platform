@@ -4738,7 +4738,8 @@
       "countDays_other": "{{count}} days",
       "countEntries_one": "{{count}} entry",
       "countEntries_other": "{{count}} entries",
-      "nothingArrived": "Nothing has arrived from {{name}} yet. If you kept some types off, you can allow them in {{name}}'s settings."
+      "nothingArrived": "Nothing has arrived from {{name}} yet. If you kept some types off, you can allow them in {{name}}'s settings.",
+      "permissionCopy": "Dravr reads your workouts, sleep, heart rate, weight, cycle tracking, glucose and State of Mind so your agent can adapt your training. Dravr never writes to Health."
     }
   },
   "settings": {

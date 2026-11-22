@@ -4738,7 +4738,8 @@
       "countDays_other": "{{count}} dias",
       "countEntries_one": "{{count}} registro",
       "countEntries_other": "{{count}} registros",
-      "nothingArrived": "Nada chegou de {{name}} ainda. Se você deixou alguns tipos desativados, pode permiti-los nos ajustes de {{name}}."
+      "nothingArrived": "Nada chegou de {{name}} ainda. Se você deixou alguns tipos desativados, pode permiti-los nos ajustes de {{name}}.",
+      "permissionCopy": "O Dravr lê seus treinos, sono, frequência cardíaca, peso, acompanhamento do ciclo, glicemia e estado de espírito para que seu agente adapte seu treino. O Dravr nunca escreve no Saúde."
     }
   },
   "settings": {

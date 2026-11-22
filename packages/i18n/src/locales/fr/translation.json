@@ -4738,7 +4738,8 @@
       "countDays_other": "{{count}} jours",
       "countEntries_one": "{{count}} entrée",
       "countEntries_other": "{{count}} entrées",
-      "nothingArrived": "Rien n’est encore arrivé de {{name}}. Si tu as laissé certains types désactivés, tu peux les autoriser dans les réglages de {{name}}."
+      "nothingArrived": "Rien n’est encore arrivé de {{name}}. Si tu as laissé certains types désactivés, tu peux les autoriser dans les réglages de {{name}}.",
+      "permissionCopy": "Dravr lit tes entraînements, ton sommeil, ta fréquence cardiaque, ton poids, ton suivi du cycle, ta glycémie et ton état d’esprit pour que ton agent adapte ton entraînement. Dravr n’écrit jamais dans Santé."
     }
   },
   "settings": {
