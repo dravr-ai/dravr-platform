@@ -234,7 +234,7 @@ macro_rules! impl_support_binding_ends {
                         "Failed to end the support sessions of a revoked credential: {e}"
                     ))
                 };
-                let now = chrono::Utc::now();
+                let now = Timestamp::now();
                 let query = match revoked {
                     RevokedCredential::FamilyOfToken(token_hash) => {
                         sqlx::query(END_FAMILY_OF_TOKEN_SESSIONS_SQL)

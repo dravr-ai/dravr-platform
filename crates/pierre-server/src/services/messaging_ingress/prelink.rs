@@ -46,8 +46,8 @@ fn telegram_sender_language(update: &Value) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
     use dravr_canot::turn::ConversationTurnId;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::messaging::MessageContent;
     use serde_json::json;
 
@@ -65,7 +65,7 @@ mod tests {
             conversation_id: Some(sender_id.to_owned()),
             chat_title: None,
             channel_message_id: "m-1669".to_owned(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             raw_payload: update,
             turn_id: ConversationTurnId::new(),
             is_direct_message: true,

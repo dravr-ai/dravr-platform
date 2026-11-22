@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -23,13 +23,13 @@ pub struct ImpersonationSession {
     /// Reason for impersonation (for audit)
     pub reason: Option<String>,
     /// When impersonation started
-    pub started_at: DateTime<Utc>,
+    pub started_at: Timestamp,
     /// When impersonation ended (None if still active)
-    pub ended_at: Option<DateTime<Utc>>,
+    pub ended_at: Option<Timestamp>,
     /// Whether session is currently active
     pub is_active: bool,
     /// Record creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// The OAuth grant a support session through an admin's assistant was
     /// started with, and the only one it changes: the refresh-token family
     /// its access token was minted in ([`BoundCredential::Grant`]). `None`
@@ -167,7 +167,7 @@ impl ImpersonationSession {
     /// Create a new impersonation session
     #[must_use]
     pub fn new(impersonator_id: Uuid, target_user_id: Uuid, reason: Option<String>) -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Self {
             id: Uuid::new_v4().to_string(),
             impersonator_id,
@@ -215,14 +215,14 @@ impl ImpersonationSession {
 
     /// End the impersonation session
     pub fn end(&mut self) {
-        self.ended_at = Some(Utc::now());
+        self.ended_at = Some(Timestamp::now());
         self.is_active = false;
     }
 
     /// Get duration of impersonation in seconds
     #[must_use]
     pub fn duration_seconds(&self) -> i64 {
-        let end = self.ended_at.unwrap_or_else(Utc::now);
+        let end = self.ended_at.unwrap_or_else(Timestamp::now);
         (end - self.started_at).num_seconds()
     }
 }

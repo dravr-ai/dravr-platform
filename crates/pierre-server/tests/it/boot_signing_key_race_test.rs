@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::admin::jwks::{load_or_store_first_keypair, JwksManager};
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::ServerConfig;
@@ -207,7 +207,7 @@ async fn existing_keypair_is_never_replaced() {
             &kid,
             &other_key.export_private_key_pem().unwrap(),
             &other_key.export_public_key_pem().unwrap(),
-            Utc::now(),
+            Timestamp::now(),
             true,
             2048,
         )
@@ -316,7 +316,7 @@ impl SecurityRepository for PeerCommitsFirst<'_> {
         kid: &str,
         private_key_pem: &str,
         public_key_pem: &str,
-        created_at: DateTime<Utc>,
+        created_at: Timestamp,
         is_active: bool,
         key_size_bits: i32,
     ) -> AppResult<()> {
@@ -332,9 +332,7 @@ impl SecurityRepository for PeerCommitsFirst<'_> {
             )
             .await
     }
-    async fn load_rsa_keypairs(
-        &self,
-    ) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
+    async fn load_rsa_keypairs(&self) -> AppResult<Vec<(String, String, String, Timestamp, bool)>> {
         self.inner.load_rsa_keypairs().await
     }
     async fn get_or_create_system_secret(&self, secret_type: &str) -> AppResult<String> {

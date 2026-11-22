@@ -18,7 +18,7 @@ use axum::http::header::{COOKIE, RETRY_AFTER, SET_COOKIE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::{Form, Json};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -86,7 +86,7 @@ async fn make_user(context: &AdminApiContext, email: &str, role: UserRole) -> Uu
 }
 
 async fn create_pending(context: &AdminApiContext) {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let record = DeviceAuthorization {
         device_code_hash: hex::encode(Sha256::digest(DEVICE_CODE.as_bytes())),
         user_code: USER_CODE.to_owned(),

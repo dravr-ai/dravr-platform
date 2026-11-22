@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use base64::prelude::{Engine as _, BASE64_STANDARD};
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::oauth2_client::OAuth2Config;
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::models::{
@@ -280,8 +280,8 @@ async fn seed_user_with_tenant(resources: &ServerContext) -> (Uuid, TenantId) {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common
@@ -298,7 +298,7 @@ fn strava_ride(id: &str) -> Activity {
         id.to_owned(),
         format!("ride {id}"),
         SportType::Ride,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3_600,
         "strava".to_owned(),
     )
@@ -314,7 +314,7 @@ fn token_row(
     backend: &str,
     access_token: &str,
     refresh_token: Option<&str>,
-    expires_at: DateTime<Utc>,
+    expires_at: Timestamp,
 ) -> UserOAuthToken {
     UserOAuthToken {
         id: Uuid::new_v4().to_string(),
@@ -328,8 +328,8 @@ fn token_row(
         scope: Some("read".to_owned()),
         provider_user_id: None,
         oauth_app_client_id: None,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -341,7 +341,7 @@ async fn seed_connected(
     backend: &str,
     access_token: &str,
     refresh_token: Option<&str>,
-    expires_at: DateTime<Utc>,
+    expires_at: Timestamp,
 ) -> (Uuid, TenantId) {
     let (user_id, tenant_id) = seed_user_with_tenant(resources).await;
     let repos = &resources.common.repos;
@@ -366,7 +366,7 @@ async fn seed_connected(
         format!("{backend}-ride-{user_id}"),
         format!("{backend} ride"),
         SportType::Ride,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3_600,
         backend.to_owned(),
     )
@@ -412,8 +412,8 @@ async fn assert_locally_disconnected(
             user_id,
             &tenant_id,
             Some(backend),
-            Utc::now() - Duration::days(30),
-            Utc::now(),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now(),
             100,
         )
         .await
@@ -490,12 +490,12 @@ async fn disconnect_revokes_upstream_and_deletes_provider_data() {
             access_token: SecretString::from("access-material-do-not-log"),
             refresh_token: Some(SecretString::from("refresh-material-do-not-log")),
             token_type: "Bearer".to_owned(),
-            expires_at: Some(Utc::now() + Duration::hours(6)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(6)),
             scope: Some("read,activity:read_all".to_owned()),
             provider_user_id: None,
             oauth_app_client_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -583,8 +583,8 @@ async fn disconnect_revokes_upstream_and_deletes_provider_data() {
             user_id,
             &tenant_id,
             Some("strava"),
-            Utc::now() - Duration::days(30),
-            Utc::now(),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now(),
             100,
         )
         .await
@@ -628,7 +628,7 @@ async fn disconnect_whoop_deregisters_user_and_survives_upstream_failure() {
         "whoop",
         "whoop-access-live-do-not-log",
         Some("whoop-refresh-do-not-log"),
-        Utc::now() + Duration::hours(1),
+        Timestamp::now() + Elapsed::hours(1),
     )
     .await;
     service
@@ -657,7 +657,7 @@ async fn disconnect_whoop_deregisters_user_and_survives_upstream_failure() {
         "whoop",
         "whoop-access-stale-do-not-log",
         Some("whoop-refresh-stale-do-not-log"),
-        Utc::now() - Duration::hours(2),
+        Timestamp::now() - Elapsed::hours(2),
     )
     .await;
     service
@@ -702,7 +702,7 @@ async fn disconnect_whoop_deregisters_user_and_survives_upstream_failure() {
         "whoop",
         "whoop-access-500-do-not-log",
         Some("whoop-refresh-500-do-not-log"),
-        Utc::now() + Duration::hours(1),
+        Timestamp::now() + Elapsed::hours(1),
     )
     .await;
     service
@@ -727,7 +727,7 @@ async fn disconnect_whoop_deregisters_user_and_survives_upstream_failure() {
         "whoop",
         "whoop-access-down-do-not-log",
         Some("whoop-refresh-down-do-not-log"),
-        Utc::now() + Duration::hours(1),
+        Timestamp::now() + Elapsed::hours(1),
     )
     .await;
     service
@@ -782,7 +782,7 @@ async fn garmin_backend_deregisters_user_with_bearer_delete() {
         "garmin",
         "garmin-access-live-do-not-log",
         Some("garmin-refresh-do-not-log"),
-        Utc::now() + Duration::hours(12),
+        Timestamp::now() + Elapsed::hours(12),
     )
     .await;
     revoke_for_disconnect(&service, user_id, tenant_id, "garmin").await;
@@ -801,7 +801,7 @@ async fn garmin_backend_deregisters_user_with_bearer_delete() {
         "garmin",
         "garmin-access-stale-do-not-log",
         Some("garmin-refresh-stale-do-not-log"),
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
     )
     .await;
     revoke_for_disconnect(&service, user_id, tenant_id, "garmin").await;
@@ -847,7 +847,7 @@ async fn disconnecting_the_garmin_card_deregisters_a_garmin_api_connection() {
         "garmin",
         "garmin-access-card-do-not-log",
         Some("garmin-refresh-card-do-not-log"),
-        Utc::now() + Duration::hours(12),
+        Timestamp::now() + Elapsed::hours(12),
     )
     .await;
     service
@@ -892,7 +892,7 @@ async fn terra_backend_deauthenticates_user_with_developer_headers() {
         "terra",
         "7f1c0d2e-terra-user-id",
         None,
-        Utc::now() + Duration::days(365),
+        Timestamp::now() + Elapsed::days(365),
     );
     let creds = client_credentials("terra-dev-id", "terra-api-key-do-not-log");
     revoke_upstream_grant(&shape, &creds, token, user_id, tenant_id, "terra").await;
@@ -948,7 +948,7 @@ async fn local_only_backends_send_nothing_upstream() {
         "sciotte",
         "sciotte-cookie-jar-do-not-log",
         None,
-        Utc::now() + Duration::days(30),
+        Timestamp::now() + Elapsed::days(30),
     )
     .await;
     service
@@ -972,7 +972,7 @@ async fn local_only_backends_send_nothing_upstream() {
         "sciotte_trainingpeaks",
         "trainingpeaks-cookie-jar-do-not-log",
         None,
-        Utc::now() + Duration::days(30),
+        Timestamp::now() + Elapsed::days(30),
     )
     .await;
     service
@@ -993,7 +993,7 @@ async fn local_only_backends_send_nothing_upstream() {
         "intervals_icu",
         "intervals-api-key-do-not-log",
         None,
-        Utc::now() + Duration::days(365),
+        Timestamp::now() + Elapsed::days(365),
     )
     .await;
     service
@@ -1034,7 +1034,7 @@ async fn disconnect_by_sciotte_clears_a_native_strava_grant() {
         "strava",
         "strava-access-do-not-log",
         Some("strava-refresh-do-not-log"),
-        Utc::now() + Duration::days(30),
+        Timestamp::now() + Elapsed::days(30),
     )
     .await;
 
@@ -1070,7 +1070,7 @@ async fn repeat_disconnect_and_unconnected_provider_still_succeed() {
         "strava",
         "strava-access-do-not-log",
         Some("strava-refresh-do-not-log"),
-        Utc::now() + Duration::days(30),
+        Timestamp::now() + Elapsed::days(30),
     )
     .await;
 
@@ -1142,7 +1142,7 @@ async fn disconnect_wahoo_deletes_the_athletes_permissions() {
         "wahoo",
         "wahoo-access-live-do-not-log",
         Some("wahoo-refresh-do-not-log"),
-        Utc::now() + Duration::hours(1),
+        Timestamp::now() + Elapsed::hours(1),
     )
     .await;
     service

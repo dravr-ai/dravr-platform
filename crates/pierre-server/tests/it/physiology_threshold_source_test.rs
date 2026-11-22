@@ -20,10 +20,9 @@
 //! with no threshold at all. Every training-load reader now reads the profile.
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
-use chrono_tz::Tz;
 use dravr_cageux::algorithms::lthr::max_hr_fraction_at_vo2max_fraction;
 use dravr_cageux::training_load::TrainingLoadCalculator;
+use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::{
@@ -340,7 +339,7 @@ fn heart_rate_rides() -> Vec<Activity> {
                 format!("hr-ride-{day}"),
                 format!("ride {day}"),
                 SportType::Ride,
-                Utc::now() - Duration::days(day),
+                Timestamp::now() - Elapsed::days(day),
                 3_600,
                 "strava".to_owned(),
             )
@@ -359,7 +358,7 @@ fn power_rides() -> Vec<Activity> {
                 format!("power-ride-{day}"),
                 format!("ride {day}"),
                 SportType::Ride,
-                Utc::now() - Duration::days(day),
+                Timestamp::now() - Elapsed::days(day),
                 3_600,
                 "strava".to_owned(),
             )
@@ -383,7 +382,7 @@ async fn analyzed_ctl(
         activities,
         &inputs,
         &executor.cageux_config().algorithms,
-        Tz::UTC,
+        &Zone::utc(),
         ProvidersUsed {
             activity_provider: "strava".to_owned(),
             sleep_provider: None,
@@ -415,7 +414,7 @@ fn calculator_ctl(
     sorted.sort_by_key(Activity::start_date);
     Ok(TrainingLoadCalculator::from_config(
         executor.cageux_config().algorithms.clone(),
-        Utc::now().date_naive(),
+        Timestamp::now().utc_date(),
     )
     .calculate_training_load(&sorted, ftp, lthr, None, resting_hr, None)?
     .ctl
@@ -551,7 +550,7 @@ async fn the_fitness_score_reads_the_ftp_saved_with_set_physiology() -> Result<(
         "month",
         inputs,
         config,
-        Tz::UTC,
+        &Zone::utc(),
         providers(),
     ) {
         FitnessScoreResult::Scored(detail) => detail.metrics.ctl,
@@ -647,7 +646,7 @@ async fn seed_and_compute_history(
                 format!("history-run-{days_ago}"),
                 format!("run {days_ago}d ago"),
                 SportType::Run,
-                Utc::now() - Duration::days(days_ago),
+                Timestamp::now() - Elapsed::days(days_ago),
                 3_600,
                 "strava".to_owned(),
             )

@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_contremaitre::use_case_catalogue::{Predicate, Stage};
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
@@ -26,14 +26,14 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 /// A user created `age` ago, and a tenant they own.
-async fn athlete(repos: &RepositoryRegistry, age: Duration) -> (Uuid, TenantId) {
+async fn athlete(repos: &RepositoryRegistry, age: Elapsed) -> (Uuid, TenantId) {
     let mut user = User::new(
         format!("athlete-{}@example.com", Uuid::new_v4()),
         "hash".to_owned(),
         Some("Athlete".to_owned()),
     );
     user.user_status = UserStatus::Active;
-    user.created_at = Utc::now() - age;
+    user.created_at = Timestamp::now() - age;
     let user_id = user.id;
     repos.users.create(&user).await.unwrap();
     let tenant_id = TenantId::generate();
@@ -46,8 +46,8 @@ async fn athlete(repos: &RepositoryRegistry, age: Duration) -> (Uuid, TenantId) 
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -66,7 +66,7 @@ async fn ride(
     repos: &RepositoryRegistry,
     (user_id, tenant): (Uuid, TenantId),
     provider: &str,
-    at: DateTime<Utc>,
+    at: Timestamp,
 ) {
     let activity = ActivityBuilder::new(
         format!("{provider}-{}", Uuid::new_v4()),
@@ -109,7 +109,7 @@ async fn recovery_day(
         )
         .await
         .unwrap();
-    let at = Utc::now() - Duration::days(days_ago);
+    let at = Timestamp::now() - Elapsed::days(days_ago);
     repos
         .recovery
         .upsert_recovery_metrics(
@@ -118,7 +118,7 @@ async fn recovery_day(
                 id: Uuid::new_v4().to_string(),
                 user_id: user_id.to_string(),
                 data_source_id,
-                date: at.date_naive(),
+                date: at.utc_date(),
                 recovery_score: None,
                 readiness_score: None,
                 hrv_ms: None,
@@ -135,7 +135,7 @@ async fn recovery_day(
                 recorded_at: at,
             },
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -145,12 +145,12 @@ async fn recovery_day(
 async fn season(
     repos: &RepositoryRegistry,
     (user_id, tenant): (Uuid, TenantId),
-    week_start: NaiveDate,
+    week_start: CivilDate,
     policy: TransportPolicy,
 ) {
     let race = GoalRace {
         name: "Gran Fondo".to_owned(),
-        date: (week_start + Duration::weeks(12)).to_string(),
+        date: (week_start + Elapsed::weeks(12)).to_string(),
         discipline: "road".to_owned(),
         priority: RacePriority::A,
     };
@@ -216,16 +216,16 @@ async fn season(
         .unwrap();
 }
 
-fn this_monday() -> NaiveDate {
-    let today = Utc::now().date_naive();
-    today - Duration::days(i64::from(today.weekday().num_days_from_monday()))
+fn this_monday() -> CivilDate {
+    let today = Timestamp::now().utc_date();
+    today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()))
 }
 
 async fn read(
     repos: &RepositoryRegistry,
     (user_id, tenant): (Uuid, TenantId),
 ) -> (AthleteState, TransportPolicy) {
-    AthleteState::read(repos, tenant, user_id, Utc::now())
+    AthleteState::read(repos, tenant, user_id, Timestamp::now())
         .await
         .unwrap()
 }
@@ -234,7 +234,7 @@ async fn read(
 async fn a_new_athlete_with_nothing_connected_is_a_blank_first_session() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let who = athlete(repos, Duration::minutes(5)).await;
+    let who = athlete(repos, Elapsed::minutes(5)).await;
 
     let (state, policy) = read(repos, who).await;
 
@@ -253,7 +253,7 @@ async fn a_new_athlete_with_nothing_connected_is_a_blank_first_session() {
 async fn a_provider_nobody_has_read_yet_counts_as_having_activities() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let who = athlete(repos, Duration::days(3)).await;
+    let who = athlete(repos, Elapsed::days(3)).await;
     connect(repos, who, "strava").await;
 
     let (state, _) = read(repos, who).await;
@@ -269,12 +269,12 @@ async fn a_provider_nobody_has_read_yet_counts_as_having_activities() {
 async fn strava_rides_over_two_weeks_count_and_stamp_the_state_first_party() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let who = athlete(repos, Duration::days(40)).await;
+    let who = athlete(repos, Elapsed::days(40)).await;
     connect(repos, who, "strava").await;
-    let now = Utc::now();
-    ride(repos, who, "strava", now - Duration::hours(2)).await;
-    ride(repos, who, "strava", now - Duration::days(8)).await;
-    ride(repos, who, "strava", now - Duration::days(9)).await;
+    let now = Timestamp::now();
+    ride(repos, who, "strava", now - Elapsed::hours(2)).await;
+    ride(repos, who, "strava", now - Elapsed::days(8)).await;
+    ride(repos, who, "strava", now - Elapsed::days(9)).await;
 
     let (state, policy) = read(repos, who).await;
 
@@ -298,9 +298,9 @@ async fn strava_rides_over_two_weeks_count_and_stamp_the_state_first_party() {
 async fn a_ride_older_than_the_window_is_still_an_activity_but_no_week_of_data() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let who = athlete(repos, Duration::days(90)).await;
+    let who = athlete(repos, Elapsed::days(90)).await;
     connect(repos, who, "strava").await;
-    ride(repos, who, "strava", Utc::now() - Duration::days(60)).await;
+    ride(repos, who, "strava", Timestamp::now() - Elapsed::days(60)).await;
 
     let (state, _) = read(repos, who).await;
 
@@ -315,7 +315,7 @@ async fn a_ride_older_than_the_window_is_still_an_activity_but_no_week_of_data()
 async fn a_recovery_source_is_a_stored_morning_and_intervals_takes_a_pushed_plan() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let who = athlete(repos, Duration::days(10)).await;
+    let who = athlete(repos, Elapsed::days(10)).await;
     connect(repos, who, "strava").await;
 
     let (strava_only, _) = read(repos, who).await;
@@ -350,7 +350,7 @@ async fn an_export_only_athletes_stored_mornings_make_a_recovery_source() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
-    let imported = athlete(repos, Duration::days(200)).await;
+    let imported = athlete(repos, Elapsed::days(200)).await;
     recovery_day(repos, imported, "garmin_archive", 3).await;
     let (state, _) = read(repos, imported).await;
     assert!(
@@ -358,7 +358,7 @@ async fn an_export_only_athletes_stored_mornings_make_a_recovery_source() {
         "an imported morning three days old counts"
     );
 
-    let lapsed = athlete(repos, Duration::days(200)).await;
+    let lapsed = athlete(repos, Elapsed::days(200)).await;
     recovery_day(repos, lapsed, "garmin_archive", 40).await;
     let (state, _) = read(repos, lapsed).await;
     assert!(
@@ -371,7 +371,7 @@ async fn an_export_only_athletes_stored_mornings_make_a_recovery_source() {
 async fn a_season_with_a_week_covering_today_is_an_active_plan() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let current = athlete(repos, Duration::days(10)).await;
+    let current = athlete(repos, Elapsed::days(10)).await;
     season(repos, current, this_monday(), TransportPolicy::AnyTransport).await;
 
     let (state, policy) = read(repos, current).await;
@@ -379,11 +379,11 @@ async fn a_season_with_a_week_covering_today_is_an_active_plan() {
     assert!(state.holds(Predicate::PlanActive));
     assert_eq!(policy, TransportPolicy::AnyTransport);
 
-    let later = athlete(repos, Duration::days(10)).await;
+    let later = athlete(repos, Elapsed::days(10)).await;
     season(
         repos,
         later,
-        this_monday() + Duration::weeks(3),
+        this_monday() + Elapsed::weeks(3),
         TransportPolicy::FirstPartyOnly,
     )
     .await;
@@ -404,7 +404,7 @@ async fn a_season_with_a_week_covering_today_is_an_active_plan() {
 async fn check_in_on_follows_the_cadence_the_athlete_chose() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let who @ (user_id, tenant) = athlete(repos, Duration::days(2)).await;
+    let who @ (user_id, tenant) = athlete(repos, Elapsed::days(2)).await;
 
     let (never_chose, _) = read(repos, who).await;
     assert!(!never_chose.check_in_on, "no cadence row");
@@ -413,7 +413,7 @@ async fn check_in_on_follows_the_cadence_the_athlete_chose() {
     let set = |cadence| {
         repos
             .check_in_preferences
-            .set_check_in_cadence(tenant, user_id, cadence, Utc::now())
+            .set_check_in_cadence(tenant, user_id, cadence, Timestamp::now())
     };
     set(CheckInCadence::ThreePerWeek).await.unwrap();
     let (armed, _) = read(repos, who).await;
@@ -426,7 +426,7 @@ async fn check_in_on_follows_the_cadence_the_athlete_chose() {
         "off is a choice not to be checked in on"
     );
 
-    let other = athlete(repos, Duration::days(2)).await;
+    let other = athlete(repos, Elapsed::days(2)).await;
     set(CheckInCadence::Daily).await.unwrap();
     let (stranger, _) = read(repos, other).await;
     assert!(

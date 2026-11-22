@@ -15,6 +15,7 @@
 //! property below is load-bearing: if any one of them fails, one leaked URL
 //! becomes a way to enumerate every chart in every conversation.
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_mcp_server::routes::viz::{VizTarget, VizToken};
 use pierre_mcp_server::services::messaging_ingress::viz_delivery::strip_viz_markers;
@@ -89,7 +90,7 @@ fn tampering_with_any_field_invalidates_the_signature() {
 #[test]
 fn an_expired_token_is_refused() {
     let mut token = VizToken::for_block(target(), 0, "dark", "fr");
-    token.expires_at = chrono::Utc::now().timestamp() - 1;
+    token.expires_at = Timestamp::now().epoch_seconds() - 1;
     let minted = token.mint(SECRET);
 
     assert!(
@@ -101,7 +102,7 @@ fn an_expired_token_is_refused() {
 #[test]
 fn a_token_expiring_soon_still_verifies() {
     let mut token = VizToken::for_block(target(), 0, "dark", "fr");
-    token.expires_at = chrono::Utc::now().timestamp() + 30;
+    token.expires_at = Timestamp::now().epoch_seconds() + 30;
     assert!(
         VizToken::verify(&token.mint(SECRET), SECRET).is_some(),
         "a token inside its window must verify"

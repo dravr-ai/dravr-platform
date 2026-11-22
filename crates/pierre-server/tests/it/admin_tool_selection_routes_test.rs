@@ -27,6 +27,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use axum::Router;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::admin::models::{CreateAdminTokenRequest, GeneratedAdminToken};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
@@ -57,7 +58,7 @@ async fn session(resources: &Arc<ServerContext>, email: &str, role: UserRole) ->
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     resources.common.repos.users.create(&user).await?;
 
@@ -73,8 +74,8 @@ async fn session(resources: &Arc<ServerContext>, email: &str, role: UserRole) ->
             domain: None,
             plan: "enterprise".to_owned(),
             owner_user_id: user_id,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await?;
     resources

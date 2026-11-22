@@ -10,7 +10,8 @@
 use secrecy::ExposeSecret;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
+use dravr_tronc::dates::{CivilDate, CivilTime, Elapsed};
 use pierre_auth::rate_limiting::a2a_client_window_start;
 use pierre_core::models::a2a::{A2APushNotificationConfig, A2AUsage};
 use pierre_core::models::{CoachingPersona, WindowUsage};
@@ -51,9 +52,9 @@ async fn create_test_client_with_window(
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -83,8 +84,8 @@ async fn create_test_client_with_window(
         rate_limit_requests: 1000,
         rate_limit_window_seconds,
         is_active: true,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     repos
@@ -165,8 +166,8 @@ async fn test_a2a_client_round_trips_through_every_read() {
         );
         assert!(got.is_active, "{read}: is_active");
         assert_eq!(
-            got.created_at.timestamp_millis(),
-            client.created_at.timestamp_millis(),
+            got.created_at.epoch_millis(),
+            client.created_at.epoch_millis(),
             "{read}: created_at"
         );
     }
@@ -183,10 +184,10 @@ async fn test_a2a_window_usage_honours_the_client_window() {
     let repos = db.repositories();
 
     let (client, _user_id) = create_test_client_with_window(repos, 60).await;
-    let now = Utc::now();
-    let inside = now - chrono::Duration::seconds(5);
+    let now = Timestamp::now();
+    let inside = now - Elapsed::seconds(5);
 
-    for at in [now - chrono::Duration::minutes(5), inside] {
+    for at in [now - Elapsed::minutes(5), inside] {
         let usage = A2AUsage {
             id: None,
             client_id: client.id.clone(),
@@ -294,9 +295,9 @@ async fn test_a2a_session_management() {
         client_id: client.id.clone(),
         user_id: None, // No user association for this test
         granted_scopes: vec!["read".into(), "write".into()],
-        expires_at: Utc::now() + chrono::Duration::hours(1),
-        last_activity: Utc::now(),
-        created_at: Utc::now(),
+        expires_at: Timestamp::now() + Elapsed::hours(1),
+        last_activity: Timestamp::now(),
+        created_at: Timestamp::now(),
         requests_count: 0,
     };
 
@@ -497,8 +498,8 @@ async fn test_a2a_push_notification_config_crud() {
         token: Some("client-token".into()),
         auth_scheme: Some("Bearer".into()),
         auth_credentials: Some("secret".into()),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     repos
@@ -570,7 +571,7 @@ async fn test_a2a_usage_tracking() {
         id: None,
         client_id: client.id.clone(),
         session_token: None, // No session for this test
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
         tool_name: "analyze".into(),
         request_size_bytes: Some(256),
         response_size_bytes: Some(512),
@@ -593,7 +594,10 @@ async fn test_a2a_usage_tracking() {
     // The call counts inside the client's rate-limit window
     let window = repos
         .a2a
-        .get_client_window_usage(&client.id, a2a_client_window_start(&client, Utc::now()))
+        .get_client_window_usage(
+            &client.id,
+            a2a_client_window_start(&client, Timestamp::now()),
+        )
         .await
         .expect("Failed to read the client's window");
     assert_eq!(window.count, 1);
@@ -604,8 +608,8 @@ async fn test_a2a_usage_tracking() {
         .a2a
         .get_usage_stats(
             &client.id,
-            Utc::now() - chrono::Duration::hours(1),
-            Utc::now() + chrono::Duration::hours(1),
+            Timestamp::now() - Elapsed::hours(1),
+            Timestamp::now() + Elapsed::hours(1),
         )
         .await
         .expect("Failed to get usage stats");
@@ -795,7 +799,7 @@ async fn test_a2a_list_tasks_updated_after_sees_the_updated_task() {
     assert_eq!(moved_task.status, TaskStatus::Working);
 }
 
-fn usage_at(client_id: &str, at: chrono::DateTime<Utc>, status_code: u16) -> A2AUsage {
+fn usage_at(client_id: &str, at: Timestamp, status_code: u16) -> A2AUsage {
     A2AUsage {
         id: None,
         client_id: client_id.to_owned(),
@@ -827,9 +831,9 @@ async fn test_a2a_usage_history_is_per_day_newest_first() {
     let repos = db.repositories();
 
     let (client, _user_id) = create_test_client(repos).await;
-    let now = Utc::now();
-    let yesterday = now - chrono::Duration::days(1);
-    let last_week = now - chrono::Duration::days(8);
+    let now = Timestamp::now();
+    let yesterday = now - Elapsed::days(1);
+    let last_week = now - Elapsed::days(8);
     for (at, code) in [
         (last_week, 200),
         (yesterday, 200),
@@ -846,21 +850,21 @@ async fn test_a2a_usage_history_is_per_day_newest_first() {
 
     let history = repos
         .a2a
-        .get_client_usage_history(&client.id, now - chrono::Duration::days(7))
+        .get_client_usage_history(&client.id, now - Elapsed::days(7))
         .await
         .expect("get_client_usage_history must not error");
-    let days: Vec<(chrono::NaiveDate, u32, u32)> = history
+    let days: Vec<(CivilDate, u32, u32)> = history
         .iter()
-        .map(|(day, ok, err)| (day.date_naive(), *ok, *err))
+        .map(|(day, ok, err)| (day.utc_date(), *ok, *err))
         .collect();
     assert_eq!(
         days,
-        vec![(now.date_naive(), 2, 1), (yesterday.date_naive(), 1, 0)],
+        vec![(now.utc_date(), 2, 1), (yesterday.utc_date(), 1, 0)],
         "two calendar days, today first, with today's 200 and 302 as successes and its 500 as an error; the call before `since` is left out"
     );
     assert_eq!(
-        history[0].0.time(),
-        chrono::NaiveTime::MIN,
+        history[0].0.utc_time(),
+        CivilTime::MIDNIGHT,
         "a day is reported at its midnight"
     );
 }
@@ -875,7 +879,7 @@ async fn test_a2a_usage_stats_partition_on_the_400_boundary() {
     let repos = db.repositories();
 
     let (client, _user_id) = create_test_client(repos).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     for code in [200, 302, 404, 500] {
         repos
             .a2a
@@ -886,11 +890,7 @@ async fn test_a2a_usage_stats_partition_on_the_400_boundary() {
 
     let stats = repos
         .a2a
-        .get_usage_stats(
-            &client.id,
-            now - chrono::Duration::hours(1),
-            now + chrono::Duration::hours(1),
-        )
+        .get_usage_stats(&client.id, now - Elapsed::hours(1), now + Elapsed::hours(1))
         .await
         .expect("get_usage_stats must not error");
     assert_eq!(stats.total_requests, 4);
@@ -905,8 +905,8 @@ async fn test_a2a_usage_stats_partition_on_the_400_boundary() {
     assert_eq!(stats.total_request_bytes, Some(4 * 256));
     assert_eq!(stats.total_response_bytes, Some(4 * 512));
     assert_eq!(
-        stats.last_request_at.map(|at| at.timestamp()),
-        Some(now.timestamp()),
+        stats.last_request_at.map(Timestamp::epoch_seconds),
+        Some(now.epoch_seconds()),
         "the latest request in the window"
     );
 }

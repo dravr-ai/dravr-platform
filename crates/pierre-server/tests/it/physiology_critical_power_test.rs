@@ -19,7 +19,7 @@
 //! the guard on that.
 
 use anyhow::Result;
-use chrono::{NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::models::{MeasurementKind, TenantId, UserPhysiologicalProfile};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
@@ -28,6 +28,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use dravr_tronc::dates::Elapsed;
 
 async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
@@ -145,7 +146,7 @@ async fn an_estimated_critical_power_round_trips_with_its_source() -> Result<()>
     assert_eq!(cp.value, 312);
     assert_eq!(cp.provenance.kind, MeasurementKind::Estimated);
     assert_eq!(cp.provenance.origin.as_deref(), Some("vekta"));
-    assert_eq!(cp.provenance.as_of, NaiveDate::from_ymd_opt(2026, 10, 1));
+    assert_eq!(cp.provenance.as_of, CivilDate::from_ymd(2026, 10, 1).ok());
     let w_prime = stored.w_prime_joules.expect("the row holds W′");
     assert_eq!(w_prime.value, 21500);
     assert_eq!(w_prime.provenance.kind, MeasurementKind::Estimated);
@@ -221,7 +222,7 @@ async fn an_ftp_save_keeps_the_stored_critical_power() -> Result<()> {
     assert_eq!(cp.value, 290);
     assert_eq!(cp.provenance.kind, MeasurementKind::Measured);
     assert_eq!(cp.provenance.origin.as_deref(), Some("lab"));
-    assert_eq!(cp.provenance.as_of, NaiveDate::from_ymd_opt(2026, 9, 20));
+    assert_eq!(cp.provenance.as_of, CivilDate::from_ymd(2026, 9, 20).ok());
     assert_eq!(stored.w_prime_joules.map(|v| v.value), Some(18000));
     assert!(stored.critical_speed_mps.is_some());
     assert!(stored.d_prime_meters.is_some());
@@ -335,7 +336,7 @@ async fn an_unknown_kind_is_refused_not_guessed() -> Result<()> {
 async fn a_future_or_malformed_date_is_refused() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
-    let in_two_days = (Utc::now().date_naive() + chrono::Duration::days(2)).to_string();
+    let in_two_days = (Timestamp::now().utc_date() + Elapsed::days(2)).to_string();
 
     let error = rejection(
         &executor,

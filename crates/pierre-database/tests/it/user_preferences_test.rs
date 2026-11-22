@@ -23,7 +23,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{CoachingPersona, User};
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -179,7 +179,7 @@ async fn an_admin_grant_records_who_and_when_and_survives_an_earned_revoke() {
         "a new user holds no admin grant"
     );
 
-    let before = Utc::now() - Duration::seconds(1);
+    let before = Timestamp::now() - Elapsed::seconds(1);
     repos
         .users
         .set_manages_roster_by_admin(coach, true, Some(admin))

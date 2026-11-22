@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::slice;
 
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder, ActivityComment, Feel, SportType};
 use pierre_tool_runtime::implementations::activity_list_render::format_activities_as_list;
 use pierre_tool_runtime::implementations::activity_summary::{detail_json, ActivitySummary};
@@ -24,7 +24,8 @@ fn comment(author: &str, text: &str, minutes: i64) -> ActivityComment {
         author: Some(author.to_owned()),
         text: text.to_owned(),
         created_at: Some(
-            Utc.with_ymd_and_hms(2026, 9, 20, 19, 0, 0).unwrap() + Duration::minutes(minutes),
+            Timestamp::parse_from_rfc3339("2026-09-20T19:00:00Z").unwrap()
+                + Elapsed::minutes(minutes),
         ),
     }
 }
@@ -34,7 +35,7 @@ fn threshold_ride(comments: Vec<ActivityComment>) -> Activity {
         "i901",
         "Threshold intervals",
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 9, 20, 17, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-20T17:00:00Z").unwrap(),
         3_600,
         "intervals_icu",
     )
@@ -56,7 +57,7 @@ fn render(activity: &Activity, locale: &str) -> String {
         None,
         locale,
         Some("America/Toronto"),
-        Utc.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-25T12:00:00Z").unwrap(),
     )
 }
 
@@ -87,7 +88,7 @@ fn a_row_without_a_self_report_renders_as_before() {
         "i1",
         "Easy spin",
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 9, 20, 17, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-20T17:00:00Z").unwrap(),
         1_800,
         "intervals_icu",
     )
@@ -184,7 +185,7 @@ fn trainingpeaks_workout(comments: Vec<ActivityComment>) -> Activity {
         "6642427:3301978",
         "Threshold 2x20",
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 9, 18, 11, 30, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-18T11:30:00Z").unwrap(),
         5_400,
         "sciotte",
     )
@@ -274,7 +275,7 @@ fn detail_mode_drops_a_blank_description_rather_than_fencing_nothing() {
         "i2",
         "Ride",
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 9, 20, 17, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-20T17:00:00Z").unwrap(),
         600,
         "intervals_icu",
     )

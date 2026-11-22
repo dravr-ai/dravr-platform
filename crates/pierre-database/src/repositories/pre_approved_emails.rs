@@ -18,7 +18,7 @@
 //! through the macro's `$bind_id` function (native on Postgres, hyphenated
 //! text on `SQLite`) and read back through `$text`, the cast that turns the
 //! column into text on Postgres and is empty on `SQLite`, so one row parser
-//! decodes both. `created_at` binds and decodes as `DateTime<Utc>` on both:
+//! decodes both. `created_at` binds and decodes as `Timestamp` on both:
 //! RFC 3339 text on `SQLite`, byte-identical to the `to_rfc3339()` the rows
 //! were written with, and `TIMESTAMPTZ` on Postgres.
 //!
@@ -26,7 +26,7 @@
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::PreApprovedEmail;
 use uuid::Uuid;
@@ -101,7 +101,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let allowed_by: Option<String> = row
         .try_get("allowed_by")
@@ -152,7 +152,7 @@ macro_rules! impl_pre_approved_email_repository {
                     .bind(normalize_email(email))
                     .bind(allowed_by.map($bind_id))
                     .bind(note)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

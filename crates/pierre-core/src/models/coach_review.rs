@@ -15,7 +15,7 @@
 
 use std::fmt;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -125,7 +125,7 @@ pub struct CoachReply {
     /// claim verdicts are stored under; `None` when it came from no message
     pub message_id: Option<String>,
     /// When the reply was sent
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// The reply's stamp (carnet#769): an external caller reads a stamped
     /// reply as withheld.
     pub transport_policy: TransportPolicy,
@@ -157,7 +157,7 @@ pub struct CoachReplyFlag {
     /// The coach's note, when they wrote one
     pub note: Option<String>,
     /// When it was raised
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// A correction a coach posted on one reply.
@@ -172,7 +172,7 @@ pub struct CoachReplyCorrection {
     /// The correction's words, as the group thread shows them
     pub content: String,
     /// When it was posted
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// One flag or correction, as a page of replies reads them back.
@@ -242,14 +242,14 @@ pub struct ReplyReviewStamp {
     /// Flag or correction
     pub kind: ReplyReviewKind,
     /// When
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// One coach's flags and corrections over one week.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct CoachReviewWeek {
     /// The week's Monday (UTC)
-    pub week_start: NaiveDate,
+    pub week_start: CivilDate,
     /// Replies flagged that week
     pub flags: i64,
     /// Corrections posted that week

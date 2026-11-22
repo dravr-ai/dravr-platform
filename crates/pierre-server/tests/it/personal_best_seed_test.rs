@@ -43,7 +43,8 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::personal_best_seed::{
@@ -84,7 +85,7 @@ pub(crate) fn run(id: u64, days_ago: i64, seconds_per_km: u32) -> MockActivity {
     MockActivity {
         id,
         sport: "Run",
-        start: Utc::now().timestamp() - days_ago * DAY,
+        start: Timestamp::now().epoch_seconds() - days_ago * DAY,
         seconds_per_km,
         km: 6,
     }
@@ -95,7 +96,7 @@ fn ride(id: u64, days_ago: i64) -> MockActivity {
     MockActivity {
         id,
         sport: "Ride",
-        start: Utc::now().timestamp() - days_ago * DAY,
+        start: Timestamp::now().epoch_seconds() - days_ago * DAY,
         seconds_per_km: 120,
         km: 20,
     }
@@ -239,7 +240,7 @@ async fn list_activities(
                     "name": "Morning activity",
                     "type": activity.sport,
                     "sport_type": activity.sport,
-                    "start_date": Utc.timestamp_opt(activity.start, 0).unwrap().to_rfc3339(),
+                    "start_date": Timestamp::from_epoch_seconds(activity.start).unwrap().to_rfc3339(),
                     "distance": f64::from(activity.km) * 1000.0,
                     "elapsed_time": activity.seconds_per_km * activity.km,
                     "total_elevation_gain": 10.0
@@ -381,7 +382,7 @@ pub(crate) async fn connected_athlete(
             .unwrap();
     // >= 40 chars and not "at_"-prefixed: the provider's token validation.
     let token = format!("strava_access_token_{owner_id:0>30}");
-    let now = Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos
@@ -394,7 +395,7 @@ pub(crate) async fn connected_athlete(
             access_token: SecretString::from(token.clone()),
             refresh_token: Some(SecretString::from("strava_refresh")),
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now + chrono::Duration::hours(6)),
+            expires_at: Some(now + Elapsed::hours(6)),
             scope: Some("activity:read_all".to_owned()),
             provider_user_id: Some(owner_id.to_string()),
             oauth_app_client_id: None,
@@ -548,7 +549,7 @@ pub(crate) fn recorded(mocked: MockActivity, provider: &str, source: Option<&str
         mocked.id.to_string(),
         "Morning activity".to_owned(),
         sport,
-        Utc.timestamp_opt(mocked.start, 0).unwrap(),
+        Timestamp::from_epoch_seconds(mocked.start).unwrap(),
         u64::from(mocked.seconds_per_km * mocked.km),
         provider.to_owned(),
     )
@@ -1049,7 +1050,7 @@ async fn an_expired_lease_is_taken_over() {
     .await;
     let ledger = &resources.common.repos.worker_runs;
     let lease = athlete_lease_name(athlete.user_id, athlete.tenant_id);
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     let lease_token = ledger
         .claim_worker_run(&lease, 0, now_ms, 15 * 60 * 1_000)
         .await
@@ -1128,7 +1129,7 @@ async fn the_webhook_scan_and_the_walk_share_the_budget() {
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &budget_counter_key("strava", "test_client"),
-            &budget_period(Utc::now(), ONE_DAY),
+            &budget_period(Timestamp::now(), ONE_DAY),
         )
         .await
         .unwrap();

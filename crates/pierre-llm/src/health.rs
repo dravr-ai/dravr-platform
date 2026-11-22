@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
@@ -97,7 +98,7 @@ pub struct LlmHealthSnapshot {
     /// First-line error reason when `status == Unhealthy`; `None` otherwise.
     pub error: Option<String>,
     /// Timestamp of the last probe result, or `None` before the first probe.
-    pub checked_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub checked_at: Option<Timestamp>,
 }
 
 impl Default for LlmHealthSnapshot {
@@ -174,7 +175,7 @@ impl LlmHealthState {
         provider: impl Into<String>,
         served_by: impl Into<String>,
     ) -> LlmHealthStatus {
-        self.set_healthy(provider.into(), Some(served_by.into()), chrono::Utc::now())
+        self.set_healthy(provider.into(), Some(served_by.into()), Timestamp::now())
             .await
     }
 
@@ -193,8 +194,8 @@ impl LlmHealthState {
         provider: impl Into<String>,
         observed_ago: Duration,
     ) -> LlmHealthStatus {
-        let ago = chrono::Duration::from_std(observed_ago).unwrap_or_default();
-        let checked_at = chrono::Utc::now() - ago;
+        let ago = Elapsed::from_std(observed_ago).unwrap_or_default();
+        let checked_at = Timestamp::now() - ago;
         self.set_healthy(provider.into(), None, checked_at).await
     }
 
@@ -205,7 +206,7 @@ impl LlmHealthState {
         &self,
         provider: String,
         served_by: Option<String>,
-        checked_at: chrono::DateTime<chrono::Utc>,
+        checked_at: Timestamp,
     ) -> LlmHealthStatus {
         let mut guard = self.inner.write().await;
         let previous = guard.status;
@@ -237,7 +238,7 @@ impl LlmHealthState {
             provider: Some(provider),
             served_by: None,
             error: Some(first_line),
-            checked_at: Some(chrono::Utc::now()),
+            checked_at: Some(Timestamp::now()),
         };
         previous
     }

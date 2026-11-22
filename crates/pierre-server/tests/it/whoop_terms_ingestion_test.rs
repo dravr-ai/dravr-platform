@@ -33,11 +33,11 @@ use secrecy::SecretString;
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use db_fixtures::seed_user;
 use dravr_enforme::traits::health_store::HealthStore;
 use dravr_enforme::traits::recovery_store::RecoveryStore;
 use dravr_enforme::traits::sleep_store::SleepStore;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::{
@@ -86,12 +86,12 @@ async fn create_test_db() -> Database {
         .unwrap()
 }
 
-fn night_start() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 9, 20, 22, 0, 0).unwrap()
+fn night_start() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-09-20T22:00:00Z").unwrap()
 }
 
-fn morning() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 9, 21).unwrap()
+fn morning() -> CivilDate {
+    CivilDate::from_ymd(2026, 9, 21).unwrap()
 }
 
 /// A token row for `provider`: the sync adapter recovers the tenant from it.
@@ -106,12 +106,12 @@ async fn connect(repos: &RepositoryRegistry, user_id: Uuid, tenant: TenantId, pr
             access_token: SecretString::from(format!("{provider}-access-do-not-log")),
             refresh_token: None,
             token_type: "Bearer".to_owned(),
-            expires_at: Some(Utc::now() + Duration::hours(1)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
             scope: Some("read".to_owned()),
             provider_user_id: None,
             oauth_app_client_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -155,14 +155,14 @@ async fn data_source(
 
 /// A night as WHOOP's sync adapter hands it over: measurements plus WHOOP's
 /// own sleep performance and sleep efficiency.
-fn whoop_night(user_id: Uuid, data_source_id: &str, start: DateTime<Utc>) -> StoredSleepSession {
+fn whoop_night(user_id: Uuid, data_source_id: &str, start: Timestamp) -> StoredSleepSession {
     StoredSleepSession {
         id: format!("whoop-sleep-{}", Uuid::new_v4()),
         user_id: user_id.to_string(),
         data_source_id: data_source_id.to_owned(),
         is_nap: false,
         start_datetime: start,
-        end_datetime: start + Duration::seconds(NIGHT_SECONDS),
+        end_datetime: start + Elapsed::seconds(NIGHT_SECONDS),
         total_sleep_seconds: Some(25_200),
         deep_sleep_seconds: Some(5_400),
         light_sleep_seconds: Some(12_600),
@@ -211,7 +211,7 @@ fn whoop_day(user_id: Uuid, data_source_id: &str) -> StoredRecoveryMetrics {
         daily_strain: Some(14.2),
         athlete_note: None,
         source_name: "whoop".to_owned(),
-        recorded_at: night_start() + Duration::seconds(NIGHT_SECONDS),
+        recorded_at: night_start() + Elapsed::seconds(NIGHT_SECONDS),
     }
 }
 
@@ -238,8 +238,8 @@ async fn nights(
         .get_sleep_sessions(
             user_id,
             &tenant,
-            night_start() - Duration::days(3),
-            night_start() + Duration::days(1),
+            night_start() - Elapsed::days(3),
+            night_start() + Elapsed::days(1),
         )
         .await
         .unwrap()
@@ -255,8 +255,8 @@ async fn days(
         .get_recovery_metrics(
             user_id,
             &tenant,
-            night_start() - Duration::days(3),
-            night_start() + Duration::days(2),
+            night_start() - Elapsed::days(3),
+            night_start() + Elapsed::days(2),
         )
         .await
         .unwrap()
@@ -314,7 +314,7 @@ async fn run_migration(db: &Database) {
 #[test]
 fn dravr_sleep_efficiency_is_the_share_of_time_in_bed_not_spent_awake() {
     let start = night_start();
-    let end = start + Duration::seconds(NIGHT_SECONDS);
+    let end = start + Elapsed::seconds(NIGHT_SECONDS);
     assert_eq!(
         in_house_sleep_efficiency(start, end, Some(AWAKE_SECONDS)),
         Some(DRAVR_EFFICIENCY)
@@ -462,7 +462,7 @@ async fn t3_a_whoop_write_clears_every_whoop_score_the_account_still_holds() {
 
     // Rows stored before the terms applied, written straight to the
     // repositories as an older build wrote them: WHOOP's scores kept.
-    let earlier = morning() - Duration::days(2);
+    let earlier = morning() - Elapsed::days(2);
     let retained_day = StoredRecoveryMetrics {
         date: earlier,
         recovery_score: Some(77),
@@ -476,17 +476,17 @@ async fn t3_a_whoop_write_clears_every_whoop_score_the_account_still_holds() {
         date: earlier,
         ..garmin_day(user_id, &garmin_ds)
     };
-    let retained_night = whoop_night(user_id, &whoop_ds, night_start() - Duration::days(2));
+    let retained_night = whoop_night(user_id, &whoop_ds, night_start() - Elapsed::days(2));
     for day in [&retained_day, &garmin_earlier] {
         repos
             .recovery
-            .upsert_recovery_metrics(&tenant, day, WellnessWriteMode::FullDay, Utc::now())
+            .upsert_recovery_metrics(&tenant, day, WellnessWriteMode::FullDay, Timestamp::now())
             .await
             .unwrap();
     }
     repos
         .sleep
-        .upsert_sleep_session(&tenant, &retained_night, Utc::now())
+        .upsert_sleep_session(&tenant, &retained_night, Timestamp::now())
         .await
         .unwrap();
 
@@ -615,7 +615,7 @@ fn whoop_weigh_in(user_id: Uuid, data_source_id: &str) -> StoredHealthMetrics {
         blood_glucose: None,
         vo2_max: None,
         source_name: "whoop".to_owned(),
-        recorded_at: night_start() + Duration::seconds(NIGHT_SECONDS),
+        recorded_at: night_start() + Elapsed::seconds(NIGHT_SECONDS),
     }
 }
 
@@ -629,8 +629,8 @@ async fn weigh_ins(
         .get_health_snapshots(
             user_id,
             &tenant,
-            night_start() - Duration::days(3),
-            night_start() + Duration::days(2),
+            night_start() - Elapsed::days(3),
+            night_start() + Elapsed::days(2),
         )
         .await
         .unwrap()
@@ -793,7 +793,7 @@ async fn a_whoop_workout_reaches_the_activity_model_without_its_strain() {
             client_secret: SecretString::from("whoop-test-secret"),
             access_token: Some(SecretString::from("whoop-access-do-not-log")),
             refresh_token: None,
-            expires_at: Some(Utc::now() + Duration::hours(1)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
             scopes: Vec::new(),
             kind: CredentialKind::OAuthBearer,
             request_budget: None,
@@ -832,12 +832,12 @@ async fn the_migration_clears_whoop_scores_already_stored_and_nothing_else() {
     // Rows as the pre-change sync wrote them: straight to the repositories,
     // WHOOP's scores included.
     let recent = whoop_night(user_id, &whoop_ds, night_start());
-    let mut legacy = whoop_night(user_id, &whoop_ds, night_start() - Duration::days(1));
+    let mut legacy = whoop_night(user_id, &whoop_ds, night_start() - Elapsed::days(1));
     legacy.awake_seconds = None;
     for night in [&recent, &legacy, &garmin_night(user_id, &garmin_ds)] {
         repos
             .sleep
-            .upsert_sleep_session(&tenant, night, Utc::now())
+            .upsert_sleep_session(&tenant, night, Timestamp::now())
             .await
             .unwrap();
     }
@@ -847,7 +847,7 @@ async fn the_migration_clears_whoop_scores_already_stored_and_nothing_else() {
     ] {
         repos
             .recovery
-            .upsert_recovery_metrics(&tenant, &day, WellnessWriteMode::FullDay, Utc::now())
+            .upsert_recovery_metrics(&tenant, &day, WellnessWriteMode::FullDay, Timestamp::now())
             .await
             .unwrap();
     }
@@ -856,7 +856,7 @@ async fn the_migration_clears_whoop_scores_already_stored_and_nothing_else() {
             format!("{provider}-run-{user_id}"),
             format!("{provider} run"),
             SportType::Run,
-            night_start() + Duration::hours(13),
+            night_start() + Elapsed::hours(13),
             3_600,
             provider.to_owned(),
         )
@@ -907,7 +907,7 @@ async fn the_migration_clears_whoop_scores_already_stored_and_nothing_else() {
     assert_eq!(garmin.recovery_score, Some(40));
     assert_eq!(garmin.body_battery, Some(60));
 
-    let window = (night_start(), night_start() + Duration::days(1));
+    let window = (night_start(), night_start() + Elapsed::days(1));
     let whoop_runs = repos
         .activity_cache
         .get_cached_activities(user_id, &tenant, Some("whoop"), window.0, window.1, 10)

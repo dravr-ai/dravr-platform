@@ -26,8 +26,8 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::Router;
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -160,7 +160,7 @@ async fn coached_group(
     agent_id: &str,
     name: &str,
 ) -> Uuid {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = res
         .common
         .repos
@@ -202,7 +202,7 @@ async fn join_group(
     role: GroupRole,
     shares_with_coach: bool,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     res.common
         .repos
         .groups
@@ -986,7 +986,7 @@ async fn athlete_owned_group(
     name: &str,
 ) -> Uuid {
     let agent = group_agent(res, owner).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = res
         .common
         .repos

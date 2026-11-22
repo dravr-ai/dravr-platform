@@ -14,7 +14,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::{Pillar, Tenant, TenantId, User};
 use pierre_core::transport::TransportPolicy;
@@ -85,7 +85,7 @@ async fn seed(db: &Database) -> Seed {
 /// Postgres keeps microseconds and `SQLite` keeps what sqlx wrote, so a
 /// timestamp read back is compared to the one the repository returned at
 /// well under a second, not to the nanosecond.
-fn assert_same_instant(read: DateTime<Utc>, written: DateTime<Utc>, what: &str) {
+fn assert_same_instant(read: Timestamp, written: Timestamp, what: &str) {
     assert!(
         (read - written).num_milliseconds().abs() < 1000,
         "{what}: read {read} against written {written}"
@@ -364,7 +364,7 @@ async fn listing_by_source_drops_a_fact_past_its_horizon() {
 
     let live = memory
         .upsert_user_fact(&UpsertUserFactParams {
-            valid_until: Some(Utc::now() + Duration::days(30)),
+            valid_until: Some(Timestamp::now() + Elapsed::days(30)),
             ..fact(
                 &seed,
                 FactKind::Goal,
@@ -378,7 +378,7 @@ async fn listing_by_source_drops_a_fact_past_its_horizon() {
         .unwrap();
     memory
         .upsert_user_fact(&UpsertUserFactParams {
-            valid_until: Some(Utc::now() - Duration::days(1)),
+            valid_until: Some(Timestamp::now() - Elapsed::days(1)),
             ..fact(
                 &seed,
                 FactKind::Goal,
@@ -471,7 +471,7 @@ async fn a_merge_only_raises_confidence_and_keeps_the_anchors_words() {
     assert_eq!(raised.object, "Boston next April");
     assert!((raised.confidence - 0.9).abs() < 1e-6);
     assert_eq!(raised.source_msg_id.as_deref(), Some("msg-2"));
-    assert!(raised.updated_at >= anchor.updated_at - Duration::seconds(1));
+    assert!(raised.updated_at >= anchor.updated_at - Elapsed::seconds(1));
 
     let held = memory
         .merge_user_fact(&MergeUserFactParams {
@@ -557,7 +557,7 @@ async fn expiring_onboarding_facts_honours_every_narrowing() {
             &seed.user_id,
             None,
             None,
-            Some(training.created_at - Duration::hours(1)),
+            Some(training.created_at - Elapsed::hours(1)),
             None,
         )
         .await
@@ -582,10 +582,12 @@ async fn expiring_onboarding_facts_honours_every_narrowing() {
         .unwrap()
         .unwrap();
     assert!(
-        fuelling_now.valid_until.is_some_and(|v| v <= Utc::now()),
+        fuelling_now
+            .valid_until
+            .is_some_and(|v| v <= Timestamp::now()),
         "the expired fact carries a horizon in the past"
     );
-    assert!(fuelling_now.updated_at > fuelling.updated_at - Duration::seconds(1));
+    assert!(fuelling_now.updated_at > fuelling.updated_at - Elapsed::seconds(1));
 
     let by_pillar_wrong = memory
         .expire_onboarding_facts(
@@ -605,8 +607,8 @@ async fn expiring_onboarding_facts_honours_every_narrowing() {
             seed.tenant,
             &seed.user_id,
             Some(Pillar::TrainingAndMovement),
-            Some(training.created_at - Duration::hours(1)),
-            Some(Utc::now() + Duration::hours(1)),
+            Some(training.created_at - Elapsed::hours(1)),
+            Some(Timestamp::now() + Elapsed::hours(1)),
             None,
         )
         .await
@@ -751,6 +753,6 @@ async fn an_active_session_is_reused_and_touched() {
         .unwrap();
     assert_eq!(touched.id, opened.id);
     let last_turn = touched.last_turn_at.expect("a touch records the turn");
-    assert!(last_turn >= opened.opened_at - Duration::seconds(1));
-    assert!(touched.updated_at >= last_turn - Duration::seconds(1));
+    assert!(last_turn >= opened.opened_at - Elapsed::seconds(1));
+    assert!(touched.updated_at >= last_turn - Elapsed::seconds(1));
 }

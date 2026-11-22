@@ -32,7 +32,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension, Json,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde_json::json;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -81,7 +81,7 @@ async fn record_clone(
         .record_token_usage(&AdminTokenUsage {
             id: None,
             admin_token_id: admin_token.token_id.clone(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             action: AdminAction::CloneProviderConnection,
             target_resource: Some(target),
             ip_address: None,

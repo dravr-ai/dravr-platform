@@ -6,7 +6,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used)]
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, CivilDateTime};
 use pierre_chat_pipeline::stages::prompt_builder::build_llm_messages_with_blocks;
 use pierre_core::transport::TransportPolicy;
 use pierre_database::database::MessageRecord;
@@ -47,7 +47,10 @@ fn block(id: &str, first_id: &str, last_id: &str, summary: &str, seconds: u32) -
         original_tokens: 100,
         first_message_id: first_id.to_owned(),
         last_message_id: last_id.to_owned(),
-        created_at: Utc.with_ymd_and_hms(2026, 5, 15, 12, 0, seconds).unwrap(),
+        created_at: CivilDate::from_ymd(2026, 5, 15)
+            .and_then(|date| date.and_hms(12, 0, seconds))
+            .and_then(CivilDateTime::and_utc)
+            .unwrap(),
         transport_policy: TransportPolicy::AnyTransport,
         about_user_id: None,
     }

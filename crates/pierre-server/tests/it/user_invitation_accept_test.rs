@@ -22,7 +22,7 @@ use crate::common;
 use crate::helpers;
 use pierre_test_support::account::delete_account;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use helpers::first_party_sign_in::SignIn;
 use pierre_config::environment::{
@@ -168,8 +168,9 @@ async fn redemption_creates_an_active_account_tied_to_the_invited_address() {
         "the address is stored normalized"
     );
     assert!(
-        issued.expires_at > Utc::now() + Duration::days(INVITATION_TTL_DAYS) - Duration::minutes(1)
-            && issued.expires_at <= Utc::now() + Duration::days(INVITATION_TTL_DAYS),
+        issued.expires_at
+            > Timestamp::now() + Elapsed::days(INVITATION_TTL_DAYS) - Elapsed::minutes(1)
+            && issued.expires_at <= Timestamp::now() + Elapsed::days(INVITATION_TTL_DAYS),
         "the link must live for the documented window: {}",
         issued.expires_at
     );
@@ -341,7 +342,7 @@ async fn an_expired_invitation_creates_nothing() {
             None,
             &generated.selector,
             &generated.verifier_hash,
-            Utc::now() - Duration::minutes(1),
+            Timestamp::now() - Elapsed::minutes(1),
             InvitationKind::Account,
         )
         .await

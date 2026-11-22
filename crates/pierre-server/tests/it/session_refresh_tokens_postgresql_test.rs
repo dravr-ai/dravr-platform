@@ -12,7 +12,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg(feature = "postgresql")]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{CoachingPersona, SessionRefreshToken, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
@@ -31,9 +31,9 @@ async fn seed_pg_user(db: &Database) -> Uuid {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
@@ -50,14 +50,14 @@ async fn seed_pg_user(db: &Database) -> Uuid {
 }
 
 fn record(user_id: Uuid, family_id: &str) -> SessionRefreshToken {
-    let now = Utc::now();
+    let now = Timestamp::now();
     SessionRefreshToken {
         family_id: family_id.to_owned(),
         user_id,
         tenant_id: None,
         client_id: Some("dravr-mobile".to_owned()),
         created_at: now,
-        expires_at: now + Duration::days(30),
+        expires_at: now + Elapsed::days(30),
     }
 }
 
@@ -79,7 +79,7 @@ async fn test_pg_exchange_round_trips_the_record() {
 
     let consumed = repos
         .session_refresh_tokens
-        .consume_token("token-pg", Utc::now())
+        .consume_token("token-pg", Timestamp::now())
         .await
         .unwrap()
         .expect("a live token exchanges");
@@ -88,13 +88,13 @@ async fn test_pg_exchange_round_trips_the_record() {
     assert_eq!(consumed.tenant_id, None);
     assert_eq!(consumed.client_id.as_deref(), Some("dravr-mobile"));
     assert_eq!(
-        consumed.expires_at.timestamp_millis(),
-        stored.expires_at.timestamp_millis()
+        consumed.expires_at.epoch_millis(),
+        stored.expires_at.epoch_millis()
     );
 
     let again = repos
         .session_refresh_tokens
-        .consume_token("token-pg", Utc::now())
+        .consume_token("token-pg", Timestamp::now())
         .await
         .unwrap();
     assert!(again.is_none(), "a token exchanges exactly once");
@@ -114,7 +114,7 @@ async fn test_pg_revocation_by_family_and_by_user() {
         .unwrap();
     repos
         .session_refresh_tokens
-        .consume_token("a1", Utc::now())
+        .consume_token("a1", Timestamp::now())
         .await
         .unwrap()
         .expect("a1 exchanges");
@@ -137,13 +137,13 @@ async fn test_pg_revocation_by_family_and_by_user() {
     // Replaying the rotated-out a1 kills the live a2 and nothing else.
     let revoked = repos
         .session_refresh_tokens
-        .revoke_token_family("a1", Utc::now())
+        .revoke_token_family("a1", Timestamp::now())
         .await
         .unwrap();
     assert_eq!(revoked, 1);
     assert!(repos
         .session_refresh_tokens
-        .consume_token("a2", Utc::now())
+        .consume_token("a2", Timestamp::now())
         .await
         .unwrap()
         .is_none());
@@ -152,20 +152,20 @@ async fn test_pg_revocation_by_family_and_by_user() {
     // does not — the UUID bind on `user_id` is what scopes this UPDATE.
     let revoked = repos
         .session_refresh_tokens
-        .revoke_user_tokens(user_id, Utc::now())
+        .revoke_user_tokens(user_id, Timestamp::now())
         .await
         .unwrap();
     assert_eq!(revoked, 1, "only b1 was still live for this user");
     assert!(repos
         .session_refresh_tokens
-        .consume_token("b1", Utc::now())
+        .consume_token("b1", Timestamp::now())
         .await
         .unwrap()
         .is_none());
     assert_eq!(
         repos
             .session_refresh_tokens
-            .consume_token("o1", Utc::now())
+            .consume_token("o1", Timestamp::now())
             .await
             .unwrap()
             .map(|record| record.user_id),

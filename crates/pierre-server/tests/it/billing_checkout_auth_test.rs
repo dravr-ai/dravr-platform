@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 use axum::Router;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::billing::dummy::DUMMY_PROVIDER_NAME;
 use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, User, UserTier};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -88,7 +88,7 @@ impl Fixture {
     /// dummy provider and return the provider customer id it carries.
     async fn seed_subscription(&self) -> String {
         let customer_id = format!("cus_own_{}", Uuid::new_v4().simple());
-        let now = Utc::now();
+        let now = Timestamp::now();
         let sub = Subscription {
             id: Uuid::new_v4(),
             tenant_id: self.tenant_id,
@@ -99,7 +99,7 @@ impl Fixture {
             status: SubscriptionStatus::Active,
             plan_tier: UserTier::Professional,
             current_period_start: Some(now),
-            current_period_end: Some(now + Duration::days(30)),
+            current_period_end: Some(now + Elapsed::days(30)),
             cancel_at_period_end: false,
             canceled_at: None,
             trial_end: None,

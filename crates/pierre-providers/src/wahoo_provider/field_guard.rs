@@ -6,7 +6,7 @@
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_test_support::fit::FitWorkout;
 
     use super::super::{time_series_from_fit, WahooWorkout};
@@ -33,9 +33,12 @@ mod tests {
         let workout: WahooWorkout = serde_json::from_str(COMPLETED).unwrap();
         let summary = workout.workout_summary.clone().unwrap();
         let list_row = workout.activity_builder(&summary).unwrap().build();
-        let fit = FitWorkout::ride(Utc.with_ymd_and_hms(2026, 9, 20, 21, 0, 0).unwrap(), 30)
-            .with_power()
-            .encode();
+        let fit = FitWorkout::ride(
+            Timestamp::parse_from_rfc3339("2026-09-20T21:00:00Z").unwrap(),
+            30,
+        )
+        .with_power()
+        .encode();
         let detailed = workout
             .activity_builder(&summary)
             .unwrap()

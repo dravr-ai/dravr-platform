@@ -22,7 +22,6 @@ use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use bytes::Bytes;
-use chrono::{Duration, Utc};
 use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::{
     BlobKey, BlobMeta, BlobPrefix, BlobStat, BlobStore, DeletePage, PageToken, UploadTarget,
@@ -30,6 +29,7 @@ use dravr_barrage::blob::{
 use dravr_barrage::store::memory::MemoryImportJobStore;
 use dravr_barrage::store::{BarrageStores, NewImportJob};
 use dravr_barrage::{BarrageError, FailureCode, ImportId, JobStatus, Scope, SourceKey};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::stream::{self, BoxStream};
 use futures_util::StreamExt;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -274,9 +274,12 @@ async fn open(resources: &Arc<ServerContext>, token: &str, length: u64) -> (Stri
 
 /// A one-workout Apple Health export, synthetic and hand-reduced.
 fn apple_export() -> Vec<u8> {
-    let start = (Utc::now() - Duration::days(30)).format("%Y-%m-%d %H:%M:%S +0200");
-    let end =
-        (Utc::now() - Duration::days(30) + Duration::minutes(30)).format("%Y-%m-%d %H:%M:%S +0200");
+    let start = (Timestamp::now() - Elapsed::days(30))
+        .format("%Y-%m-%d %H:%M:%S +0200")
+        .unwrap();
+    let end = (Timestamp::now() - Elapsed::days(30) + Elapsed::minutes(30))
+        .format("%Y-%m-%d %H:%M:%S +0200")
+        .unwrap();
     let xml = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
          <!DOCTYPE HealthData [\n<!ELEMENT HealthData (Workout)*>\n]>\n\
@@ -535,7 +538,7 @@ async fn the_same_account_reaches_no_upload_it_holds_in_another_tenant() {
                 url_sha256: None,
                 url_ciphertext: None,
                 spool: Some(BlobKey::spool(elsewhere)),
-                expires_at: Some(Utc::now() + Duration::days(1)),
+                expires_at: Some(Timestamp::now() + Elapsed::days(1)),
             },
         )
         .await

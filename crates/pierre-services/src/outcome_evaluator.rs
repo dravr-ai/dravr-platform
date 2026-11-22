@@ -36,8 +36,8 @@ use crate::periodic::spawn_periodic;
 use crate::provider_notice::under_ai_consent;
 use crate::stored_health::{self, SourceFilter};
 use crate::training_history_read::{history_rows_for_model, HistoryHandles};
-use chrono::Utc;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::ai_policy::ProviderTerms;
@@ -226,10 +226,10 @@ struct EvalCtx<'a> {
 }
 
 impl EvalCtx<'_> {
-    fn start(&self) -> chrono::DateTime<Utc> {
+    fn start(&self) -> Timestamp {
         self.advice.created_at
     }
-    fn end(&self) -> chrono::DateTime<Utc> {
+    fn end(&self) -> Timestamp {
         self.advice.due_by
     }
     fn repos(&self) -> &RepositoryRegistry {
@@ -401,8 +401,8 @@ async fn eval_consistency(ctx: &EvalCtx<'_>, window_days: u8) -> AdviceResolutio
 /// The rows the judge may read: the persisted rollup when nothing in the
 /// window is withheld, else the series recomputed from the permitted sessions.
 async fn eval_training(ctx: &EvalCtx<'_>) -> AdviceResolution {
-    let from = ctx.start().date_naive();
-    let to = ctx.end().date_naive();
+    let from = ctx.start().utc_date();
+    let to = ctx.end().utc_date();
     let sources = HistoryHandles {
         repos: ctx.repos(),
         terms: ctx.inputs.terms,
@@ -572,7 +572,7 @@ pub fn spawn_outcome_evaluator(
 
 /// One scan-and-label sweep over the currently-due advice.
 async fn run_one_sweep(inputs: SweepInputs<'_>) {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let due = match inputs
         .repos
         .playbooks
@@ -620,7 +620,9 @@ async fn process_one_advice(advice: &PendingAdvice, inputs: SweepInputs<'_>) -> 
             // Expire a row that has kept failing well past its window so a
             // permanent read failure cannot head-of-line block the oldest-first
             // scan forever; a normal transient failure just waits for next tick.
-            if Utc::now().timestamp() - advice.due_by.timestamp() > RETRY_STALENESS_SECS {
+            if Timestamp::now().epoch_seconds() - advice.due_by.epoch_seconds()
+                > RETRY_STALENESS_SECS
+            {
                 expire_advice(repos, advice).await;
             }
             false
@@ -660,7 +662,7 @@ async fn record_and_mark(
         intervention: &advice.intervention,
         outcome_metric: &advice.outcome_metric,
         label,
-        at: Utc::now(),
+        at: Timestamp::now(),
         transport_policy,
     };
     match repos
@@ -693,7 +695,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
-    use chrono::Duration as ChronoDuration;
+    use dravr_tronc::dates::Elapsed;
     use embacle::types::{
         ChatStream as EmbacleChatStream, LlmProvider as EmbacleLlmProvider, RunnerError, TokenUsage,
     };
@@ -769,7 +771,7 @@ mod tests {
 
     /// Advice given seven days ago whose window closes now.
     fn advice(fx: &Athlete, outcome_metric: OutcomeMetric) -> PendingAdvice {
-        let now = Utc::now();
+        let now = Timestamp::now();
         PendingAdvice {
             id: Uuid::new_v4().to_string(),
             tenant_id: fx.tenant.to_string(),
@@ -787,14 +789,14 @@ mod tests {
             },
             outcome_metric,
             baseline: MetricBaseline {
-                captured_at: now - ChronoDuration::days(7),
+                captured_at: now - Elapsed::days(7),
             },
             due_by: now,
             status: AdviceStatus::Pending,
             label: None,
             label_source: None,
             source_msg_id: None,
-            created_at: now - ChronoDuration::days(7),
+            created_at: now - Elapsed::days(7),
             transport_policy: TransportPolicy::AnyTransport,
         }
     }
@@ -871,9 +873,9 @@ mod tests {
     async fn the_judge_never_reads_a_rollup_that_summed_a_withheld_session() {
         let control = athlete().await;
         control.cache_garmin_history(200).await;
-        let to = Utc::now().date_naive();
+        let to = Timestamp::now().utc_date();
         control
-            .persist_rollup(to - ChronoDuration::days(7), to, 42.0)
+            .persist_rollup(to - Elapsed::days(7), to, 42.0)
             .await;
         let advice_for = |fx: &Athlete| advice(fx, OutcomeMetric::TsbDelta { window_days: 7 });
         let (_, asked) = judge_reads(&control, &advice_for(&control)).await;
@@ -884,8 +886,7 @@ mod tests {
 
         let fx = athlete().await;
         fx.cache_garmin_history(200).await;
-        fx.persist_rollup(to - ChronoDuration::days(7), to, 42.0)
-            .await;
+        fx.persist_rollup(to - Elapsed::days(7), to, 42.0).await;
         fx.cache(&[relayed("z", "Secret zepp ride", "zepp", noon(2))])
             .await;
         let (_, asked) = judge_reads(&fx, &advice_for(&fx)).await;
@@ -925,7 +926,7 @@ mod tests {
                 id: Uuid::new_v4().to_string(),
                 user_id: self.user_id.to_string(),
                 data_source_id: data_source_id.to_owned(),
-                date: at.date_naive(),
+                date: at.utc_date(),
                 recovery_score: None,
                 readiness_score: None,
                 hrv_ms: Some(hrv_ms),
@@ -948,7 +949,7 @@ mod tests {
                     &self.tenant,
                     &reading,
                     WellnessWriteMode::FullDay,
-                    Utc::now(),
+                    Timestamp::now(),
                 )
                 .await
                 .unwrap();

@@ -24,7 +24,7 @@ use std::slice;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_config::activity_landed::{LandingDigest, CATEGORY, DIGEST_KEY, FREQUENCY_KEY};
 use pierre_config::admin_types::{ConfigScope, ResetConfigRequest, UpdateConfigRequest};
 use pierre_contremaitre::messaging_strings::KEY_PLATFORM_POST_ACTIVITY_LANDED_PROMPT;
@@ -114,7 +114,7 @@ async fn athlete(fx: &Fixture) -> (Uuid, TenantId, String) {
     (user_id, tenant_id, thread)
 }
 
-fn ride(id: &str, provider: &str, start: DateTime<Utc>) -> Activity {
+fn ride(id: &str, provider: &str, start: Timestamp) -> Activity {
     ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3_600, provider)
         .distance_meters(30_000.0)
         .build()
@@ -122,7 +122,7 @@ fn ride(id: &str, provider: &str, start: DateTime<Utc>) -> Activity {
 
 /// A landing of `id` under `provider` that started at `start`, in a store
 /// that already held the athlete's data.
-fn landed(id: &str, provider: &str, start: DateTime<Utc>) -> LandedSession {
+fn landed(id: &str, provider: &str, start: Timestamp) -> LandedSession {
     LandedSession {
         provider: provider.to_owned(),
         activity_id: id.to_owned(),
@@ -132,12 +132,13 @@ fn landed(id: &str, provider: &str, start: DateTime<Utc>) -> LandedSession {
 }
 
 /// Today at noon UTC, the clock of an athlete with no zone on file.
-fn noon_today() -> DateTime<Utc> {
-    Utc::now()
-        .date_naive()
-        .and_hms_opt(12, 0, 0)
+fn noon_today() -> Timestamp {
+    Timestamp::now()
+        .utc_date()
+        .and_hms(12, 0, 0)
         .expect("noon is a time")
         .and_utc()
+        .unwrap()
 }
 
 /// The posts asked for `user_id`.
@@ -238,15 +239,15 @@ async fn admin(resources: &ServerContext) -> String {
 async fn a_served_window_landing_posts_once_in_the_coach_thread() {
     let fx = fixture(RecordingPost::posting(true)).await;
     let (user_id, tenant_id, thread) = athlete(&fx).await;
-    let now = Utc::now();
-    let older = ride("s-old", "strava", now - Duration::hours(30));
+    let now = Timestamp::now();
+    let older = ride("s-old", "strava", now - Elapsed::hours(30));
     serve(&fx, user_id, tenant_id, "strava", slice::from_ref(&older)).await;
     assert!(
         settled_asks(&fx, user_id, 1).await.is_empty(),
         "bug: the athlete's first data is the first-sync post's, not a landing post"
     );
 
-    let today = ride("s-today", "strava", now - Duration::hours(1));
+    let today = ride("s-today", "strava", now - Elapsed::hours(1));
     serve(
         &fx,
         user_id,
@@ -276,7 +277,7 @@ async fn a_served_window_landing_posts_once_in_the_coach_thread() {
     let garmin_copy = ride(
         "g-today",
         "garmin",
-        today.start_date() + Duration::minutes(3),
+        today.start_date() + Elapsed::minutes(3),
     );
     serve(
         &fx,
@@ -303,8 +304,8 @@ async fn per_day_posts_once_a_day_however_the_landings_race() {
     // Noon on the athlete's (UTC) clock, so the day's later landing stays
     // inside the same local day whenever the test runs.
     let now = noon_today();
-    let first = landed("s1", "strava", now - Duration::hours(2));
-    let second = landed("g2", "garmin", now - Duration::hours(1));
+    let first = landed("s1", "strava", now - Elapsed::hours(2));
+    let second = landed("g2", "garmin", now - Elapsed::hours(1));
 
     let (a, b) = tokio::join!(
         fx.poster.land(user_id, tenant_id, first, now),
@@ -324,17 +325,17 @@ async fn per_day_posts_once_a_day_however_the_landings_race() {
         "bug: one model call for the racing landings"
     );
 
-    let later = landed("s3", "strava", now + Duration::hours(1));
+    let later = landed("s3", "strava", now + Elapsed::hours(1));
     assert_eq!(
         fx.poster
-            .land(user_id, tenant_id, later, now + Duration::hours(2))
+            .land(user_id, tenant_id, later, now + Elapsed::hours(2))
             .await,
         Landed::Skipped(SkipReason::Claimed),
         "bug: the day's second workout must not post under per_day"
     );
 
-    let tomorrow = now + Duration::days(1);
-    let next_day = landed("s4", "strava", tomorrow - Duration::hours(1));
+    let tomorrow = now + Elapsed::days(1);
+    let next_day = landed("s4", "strava", tomorrow - Elapsed::hours(1));
     assert!(
         matches!(
             fx.poster.land(user_id, tenant_id, next_day, tomorrow).await,
@@ -362,9 +363,9 @@ async fn per_ride_posts_each_ride_once() {
         &[(FREQUENCY_KEY, json!("per_ride"))],
     )
     .await;
-    let now = Utc::now();
-    let morning = landed("s1", "strava", now - Duration::hours(5));
-    let evening = landed("s2", "strava", now - Duration::hours(1));
+    let now = Timestamp::now();
+    let morning = landed("s1", "strava", now - Elapsed::hours(5));
+    let evening = landed("s2", "strava", now - Elapsed::hours(1));
 
     for session in [morning.clone(), evening] {
         assert!(
@@ -408,9 +409,9 @@ async fn the_mode_resolves_per_athlete_and_a_reset_returns_the_default() {
         &[(FREQUENCY_KEY, json!("per_ride"))],
     )
     .await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     for (id, hours) in [("r1", 5), ("r2", 3)] {
-        let start = now - Duration::hours(hours);
+        let start = now - Elapsed::hours(hours);
         fx.poster
             .land(a, a_tenant, landed(id, "strava", start), now)
             .await;
@@ -456,7 +457,7 @@ async fn the_mode_resolves_per_athlete_and_a_reset_returns_the_default() {
             .land(
                 a,
                 a_tenant,
-                landed(id, "strava", now - Duration::hours(hours)),
+                landed(id, "strava", now - Elapsed::hours(hours)),
                 now,
             )
             .await;
@@ -475,12 +476,12 @@ async fn only_a_live_write_reports_a_landing() {
     let fx = fixture(RecordingPost::posting(true)).await;
     let (user_id, tenant_id, _) = athlete(&fx).await;
     let live = &fx.resources.common.live_activities;
-    let now = Utc::now();
+    let now = Timestamp::now();
     live.ingest(
         user_id,
         tenant_id,
         "strava",
-        &[ride("held", "strava", now - Duration::days(3))],
+        &[ride("held", "strava", now - Elapsed::days(3))],
         now,
         WriteOrigin::Import,
     )
@@ -496,7 +497,7 @@ async fn only_a_live_write_reports_a_landing() {
                 user_id,
                 tenant_id,
                 "strava",
-                &[ride(id, "strava", now - Duration::hours(hours))],
+                &[ride(id, "strava", now - Elapsed::hours(hours))],
                 now,
                 origin,
             )
@@ -512,7 +513,7 @@ async fn only_a_live_write_reports_a_landing() {
             user_id,
             tenant_id,
             "strava",
-            &[ride("synced", "strava", now - Duration::minutes(30))],
+            &[ride("synced", "strava", now - Elapsed::minutes(30))],
             now,
             WriteOrigin::Live,
         )
@@ -542,10 +543,10 @@ async fn only_a_live_write_reports_a_landing() {
 async fn first_data_and_a_stale_workout_post_nothing() {
     let fx = fixture(RecordingPost::posting(true)).await;
     let (user_id, tenant_id, _) = athlete(&fx).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let first = LandedSession {
         first_in_store: true,
-        ..landed("s1", "strava", now - Duration::hours(1))
+        ..landed("s1", "strava", now - Elapsed::hours(1))
     };
     let first = fx.poster.land(user_id, tenant_id, first, now).await;
     assert_eq!(
@@ -558,7 +559,7 @@ async fn first_data_and_a_stale_workout_post_nothing() {
         "bug: the first data still sends the digest"
     );
 
-    let stale = landed("s0", "strava", now - Duration::hours(49));
+    let stale = landed("s0", "strava", now - Elapsed::hours(49));
     assert_eq!(
         fx.poster.land(user_id, tenant_id, stale, now).await,
         Landed::Skipped(SkipReason::Stale),
@@ -577,11 +578,11 @@ async fn cadence_off_holds_the_post_and_no_choice_posts() {
         .common
         .repos
         .check_in_preferences
-        .set_check_in_cadence(off_tenant, off, CheckInCadence::Off, Utc::now())
+        .set_check_in_cadence(off_tenant, off, CheckInCadence::Off, Timestamp::now())
         .await
         .unwrap();
-    let now = Utc::now();
-    let session = landed("s1", "strava", now - Duration::hours(1));
+    let now = Timestamp::now();
+    let session = landed("s1", "strava", now - Elapsed::hours(1));
     assert_eq!(
         fx.poster.land(off, off_tenant, session.clone(), now).await,
         Landed::Skipped(SkipReason::CadenceOff),
@@ -627,27 +628,27 @@ async fn an_athlete_mid_conversation_gets_no_post() {
         })
         .await
         .unwrap();
-    let now = Utc::now() + Duration::minutes(10);
+    let now = Timestamp::now() + Elapsed::minutes(10);
     assert_eq!(
         fx.poster
             .land(
                 user_id,
                 tenant_id,
-                landed("s1", "strava", now - Duration::hours(1)),
+                landed("s1", "strava", now - Elapsed::hours(1)),
                 now
             )
             .await,
         Landed::Skipped(SkipReason::MidConversation),
         "bug: an athlete who wrote ten minutes ago is mid-conversation"
     );
-    let later = now + Duration::minutes(30);
+    let later = now + Elapsed::minutes(30);
     assert!(
         matches!(
             fx.poster
                 .land(
                     user_id,
                     tenant_id,
-                    landed("s2", "strava", later - Duration::hours(1)),
+                    landed("s2", "strava", later - Elapsed::hours(1)),
                     later
                 )
                 .await,
@@ -663,7 +664,7 @@ async fn whatsapp_dm(
     fx: &Fixture,
     user_id: Uuid,
     tenant_id: TenantId,
-    last_inbound: DateTime<Utc>,
+    last_inbound: Timestamp,
 ) -> String {
     let db = &fx.resources.agent.database;
     let user = user_id.to_string();
@@ -696,15 +697,15 @@ async fn whatsapp_dm(
 async fn an_open_dm_gets_the_post_and_the_app_none() {
     let fx = fixture(RecordingPost::posting(true)).await;
     let (user_id, tenant_id) = seed_user(&fx.resources.agent.database).await;
-    let now = Utc::now();
-    let dm = whatsapp_dm(&fx, user_id, tenant_id, now - Duration::hours(3)).await;
+    let now = Timestamp::now();
+    let dm = whatsapp_dm(&fx, user_id, tenant_id, now - Elapsed::hours(3)).await;
 
     let result = fx
         .poster
         .land(
             user_id,
             tenant_id,
-            landed("s1", "strava", now - Duration::hours(1)),
+            landed("s1", "strava", now - Elapsed::hours(1)),
             now,
         )
         .await;
@@ -738,14 +739,14 @@ async fn an_open_dm_gets_the_post_and_the_app_none() {
 async fn a_closed_window_holds_the_dm_and_posts_in_the_app() {
     let fx = fixture(RecordingPost::posting(true)).await;
     let (user_id, tenant_id, thread) = athlete(&fx).await;
-    let now = Utc::now();
-    let dm = whatsapp_dm(&fx, user_id, tenant_id, now - Duration::hours(30)).await;
+    let now = Timestamp::now();
+    let dm = whatsapp_dm(&fx, user_id, tenant_id, now - Elapsed::hours(30)).await;
 
     fx.poster
         .land(
             user_id,
             tenant_id,
-            landed("s1", "strava", now - Duration::hours(1)),
+            landed("s1", "strava", now - Elapsed::hours(1)),
             now,
         )
         .await;
@@ -776,13 +777,13 @@ async fn a_closed_window_holds_the_dm_and_posts_in_the_app() {
 async fn no_coach_thread_goes_to_the_digest() {
     let fx = fixture(RecordingPost::posting(true)).await;
     let (user_id, tenant_id) = seed_user(&fx.resources.agent.database).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let result = fx
         .poster
         .land(
             user_id,
             tenant_id,
-            landed("s1", "strava", now - Duration::hours(1)),
+            landed("s1", "strava", now - Elapsed::hours(1)),
             now,
         )
         .await;
@@ -807,13 +808,13 @@ async fn no_coach_thread_goes_to_the_digest() {
 async fn a_withheld_post_keeps_its_claim_and_an_unattempted_one_releases_it() {
     let fx = fixture(RecordingPost::posting(false)).await;
     let (user_id, tenant_id, _) = athlete(&fx).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let withheld = fx
         .poster
         .land(
             user_id,
             tenant_id,
-            landed("s1", "strava", now - Duration::hours(3)),
+            landed("s1", "strava", now - Elapsed::hours(3)),
             now,
         )
         .await;
@@ -831,7 +832,7 @@ async fn a_withheld_post_keeps_its_claim_and_an_unattempted_one_releases_it() {
             .land(
                 user_id,
                 tenant_id,
-                landed("s2", "strava", now - Duration::hours(2)),
+                landed("s2", "strava", now - Elapsed::hours(2)),
                 now
             )
             .await,
@@ -847,7 +848,7 @@ async fn a_withheld_post_keeps_its_claim_and_an_unattempted_one_releases_it() {
             .land(
                 user_id,
                 tenant_id,
-                landed("s1", "strava", now - Duration::hours(3)),
+                landed("s1", "strava", now - Elapsed::hours(3)),
                 now
             )
             .await,
@@ -861,7 +862,7 @@ async fn a_withheld_post_keeps_its_claim_and_an_unattempted_one_releases_it() {
                 .land(
                     user_id,
                     tenant_id,
-                    landed("s2", "strava", now - Duration::hours(2)),
+                    landed("s2", "strava", now - Elapsed::hours(2)),
                     now
                 )
                 .await,
@@ -885,8 +886,8 @@ async fn the_digest_mode_says_whether_a_stored_post_replaces_the_digest() {
         &[(DIGEST_KEY, json!("keep_digest"))],
     )
     .await;
-    let now = Utc::now();
-    let session = landed("s1", "strava", now - Duration::hours(1));
+    let now = Timestamp::now();
+    let session = landed("s1", "strava", now - Elapsed::hours(1));
 
     let result = fx
         .poster
@@ -951,7 +952,7 @@ mod quiet_hours {
                 .land(
                     user_id,
                     tenant_id,
-                    landed("s1", "strava", now - Duration::hours(1)),
+                    landed("s1", "strava", now - Elapsed::hours(1)),
                     now
                 )
                 .await,

@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers::{INTERVALS_ICU, SCIOTTE};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::provider_context::{
@@ -102,7 +102,7 @@ fn run() -> Activity {
         "9001",
         "Tempo",
         SportType::Run,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3_000,
         SCIOTTE,
     )
@@ -311,7 +311,7 @@ async fn athlete(mode: Mode) -> AthleteFixture {
         SCIOTTE.to_owned(),
         "session".to_owned(),
         None,
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         None,
     );
     resources
@@ -438,7 +438,7 @@ async fn context_reads(a: &AthleteFixture, window: StdDuration) -> i64 {
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &context_read_counter_key(SCIOTTE, a.user_id),
-            &budget_period(Utc::now(), window),
+            &budget_period(Timestamp::now(), window),
         )
         .await
         .map_or(0, |counter| counter.value)
@@ -479,7 +479,7 @@ async fn a_spent_context_window_leaves_the_providers_figures_out_and_the_answer_
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &context_read_counter_key(SCIOTTE, a.user_id),
-            &budget_period(Utc::now(), FIFTEEN_MINUTES),
+            &budget_period(Timestamp::now(), FIFTEEN_MINUTES),
             i64::from(CONTEXT_READ_BURST_CALLS),
         )
         .await
@@ -566,7 +566,7 @@ async fn shoes_the_athlete_declared_in_dravr_win_but_bikes_always_come_from_stra
                 warn_distance_meters: 500_000.0,
                 pinned: true,
             },
-            Utc::now() - Duration::days(30),
+            Timestamp::now() - Elapsed::days(30),
         )
         .await
         .unwrap();
@@ -605,7 +605,7 @@ async fn dravrs_computed_bests_sit_beside_strava_records_each_labelled() {
                 elapsed_seconds: 1190.0,
                 provider: SCIOTTE.to_owned(),
                 activity_id: "9001".to_owned(),
-                achieved_at: Utc::now() - Duration::days(3),
+                achieved_at: Timestamp::now() - Elapsed::days(3),
             },
         )
         .await
@@ -771,7 +771,7 @@ async fn an_external_caller_asking_another_provider_never_receives_bests_from_st
             INTERVALS_ICU.to_owned(),
             "key".to_owned(),
             None,
-            Some(Utc::now() + Duration::hours(6)),
+            Some(Timestamp::now() + Elapsed::hours(6)),
             None,
         ))
         .await
@@ -789,7 +789,7 @@ async fn an_external_caller_asking_another_provider_never_receives_bests_from_st
                     elapsed_seconds: 1190.0,
                     provider: provider.to_owned(),
                     activity_id: id.to_owned(),
-                    achieved_at: Utc::now() - Duration::days(3),
+                    achieved_at: Timestamp::now() - Elapsed::days(3),
                 },
             )
             .await

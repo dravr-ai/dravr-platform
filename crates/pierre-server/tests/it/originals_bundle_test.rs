@@ -19,7 +19,6 @@ use std::time::Duration as Wait;
 use axum::extract::{Path, State};
 use axum::{Extension, Json, Router};
 use bytes::Bytes;
-use chrono::{Duration, Utc};
 use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::{BlobKey, BlobMeta, BlobStore};
 use dravr_barrage::digest::Sha256;
@@ -27,6 +26,7 @@ use dravr_barrage::record::{StreamsState, SummaryWindow, TotalsFrom};
 use dravr_barrage::store::memory::MemoryActivityRecordStore;
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{ActivityId, ActivityRecord, LiveSource, Provenance, Scope, SourceKey};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_core::models::{
     ActivityBuilder, CreateUserMcpTokenRequest, SportType, Tenant, TenantId, User, UserStatus,
@@ -179,8 +179,8 @@ async fn athlete(repos: &RepositoryRegistry, label: &str) -> (User, TenantId) {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -193,7 +193,7 @@ async fn athlete(repos: &RepositoryRegistry, label: &str) -> (User, TenantId) {
 }
 
 fn record(scope: Scope, source: SourceKey, id: &str, original: &[u8]) -> ActivityRecord {
-    let start = Utc::now() - Duration::days(2);
+    let start = Timestamp::now() - Elapsed::days(2);
     let activity = ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3600, source.as_str())
         .distance_meters(20_000.0)
         .build();
@@ -203,7 +203,7 @@ fn record(scope: Scope, source: SourceKey, id: &str, original: &[u8]) -> Activit
         import_id: None,
         source_activity_id: id.to_owned(),
         source_athlete_id: None,
-        ingested_at: Utc::now(),
+        ingested_at: Timestamp::now(),
         original: Some(BlobKey::original(scope, sha)),
         original_sha256: Some(sha),
         session_index: Some(0),
@@ -402,7 +402,7 @@ async fn uploads_and_feedback_images_are_in_the_bundle() {
             locale: None,
             about: None,
             image: Some(&image),
-            at: Utc::now(),
+            at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -472,7 +472,7 @@ async fn a_second_request_while_building_returns_the_same_bundle() {
     let setup = Setup::new().await;
     let repos = setup.repos();
     let (ana, tenant) = athlete(&repos, "ana").await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let building = repos
         .user_export_bundles
         .insert_building(&ExportBundle {
@@ -490,7 +490,7 @@ async fn a_second_request_while_building_returns_the_same_bundle() {
             created_at: now,
             heartbeat_at: now,
             finished_at: None,
-            expires_at: now + Duration::days(7),
+            expires_at: now + Elapsed::days(7),
         })
         .await
         .unwrap();
@@ -529,7 +529,7 @@ async fn building_row(
     user: &User,
     sealed: bool,
 ) -> ExportBundle {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .user_export_bundles
         .insert_building(&ExportBundle {
@@ -547,7 +547,7 @@ async fn building_row(
             created_at: now,
             heartbeat_at: now,
             finished_at: None,
-            expires_at: now + Duration::days(7),
+            expires_at: now + Elapsed::days(7),
         })
         .await
         .unwrap()
@@ -759,7 +759,7 @@ async fn the_sweep_fails_a_stale_build_and_deletes_an_expired_bundle() {
         "bug: a ready bundle's blob is not stored"
     );
 
-    let long_ago = Utc::now() - Duration::hours(1);
+    let long_ago = Timestamp::now() - Elapsed::hours(1);
     let stalled = repos
         .user_export_bundles
         .insert_building(&ExportBundle {
@@ -777,7 +777,7 @@ async fn the_sweep_fails_a_stale_build_and_deletes_an_expired_bundle() {
             created_at: long_ago,
             heartbeat_at: long_ago,
             finished_at: None,
-            expires_at: long_ago + Duration::days(7),
+            expires_at: long_ago + Elapsed::days(7),
         })
         .await
         .unwrap();
@@ -793,7 +793,7 @@ async fn the_sweep_fails_a_stale_build_and_deletes_an_expired_bundle() {
         .unwrap();
 
     let bundles = setup.resources.common.originals_bundles.clone().unwrap();
-    let swept = bundles.sweep(Utc::now()).await.unwrap();
+    let swept = bundles.sweep(Timestamp::now()).await.unwrap();
     assert_eq!(swept.stalled, 1, "bug: the stopped build is failed");
     assert_eq!(swept.expired, 0, "bug: nothing has expired yet");
     let failed = repos
@@ -812,7 +812,7 @@ async fn the_sweep_fails_a_stale_build_and_deletes_an_expired_bundle() {
         "bug: a stopped build's blob is deleted"
     );
 
-    let later = Utc::now() + Duration::days(8);
+    let later = Timestamp::now() + Elapsed::days(8);
     let swept = bundles.sweep(later).await.unwrap();
     assert_eq!(swept.expired, 2, "bug: both bundles expired");
     assert!(

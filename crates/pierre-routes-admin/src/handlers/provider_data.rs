@@ -46,7 +46,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde_json::{json, to_value};
 use tracing::{error, info};
 
@@ -96,7 +96,7 @@ async fn record_purge(
         .record_token_usage(&AdminTokenUsage {
             id: None,
             admin_token_id: admin_token.token_id.clone(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             action: AdminAction::PurgeProviderData,
             target_resource: Some(format!("provider:{provider}")),
             ip_address: None,

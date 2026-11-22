@@ -226,7 +226,7 @@ use crate::repositories::system_settings::{
     UPDATE_SYSTEM_SETTING_IF_UNCHANGED_SQL,
 };
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::{AppError, AppResult};
 use sha2::{Digest, Sha256};

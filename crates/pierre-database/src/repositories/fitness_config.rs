@@ -17,7 +17,7 @@
 //! as both backends already had.
 //!
 //! `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
-//! Postgres. Timestamps bind as [`DateTime<Utc>`](chrono::DateTime) on both:
+//! Postgres. Timestamps bind as [`Timestamp`](dravr_tronc::dates::Timestamp) on both:
 //! `TIMESTAMPTZ` on Postgres, RFC 3339 text on `SQLite`.
 
 use async_trait::async_trait;
@@ -198,7 +198,7 @@ macro_rules! impl_fitness_config_repository {
                     .bind(tenant_id.to_string())
                     .bind(configuration_name)
                     .bind(&config_json)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| {
@@ -224,7 +224,7 @@ macro_rules! impl_fitness_config_repository {
                     .bind($ids::bind_text(user_id)?)
                     .bind(configuration_name)
                     .bind(&config_json)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| {

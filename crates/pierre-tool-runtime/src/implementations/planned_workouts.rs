@@ -74,7 +74,7 @@ use std::sync::Arc;
 
 use super::oauth_authorize::with_grant_link;
 use async_trait::async_trait;
-use chrono::{Days, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
     ConnectionStatus, ConversationRecord, PlannedWorkout, PlannedWorkoutBuilder,
@@ -117,7 +117,7 @@ const TOOL: &str = "get_planned_workouts";
 
 /// Days after the window's first day that an unstated `end_date` reaches:
 /// the two weeks ahead a coach usually has filled.
-const DEFAULT_WINDOW_DAYS: u64 = 14;
+const DEFAULT_WINDOW_DAYS: i64 = 14;
 
 /// Most days one call reads, inclusive of both ends: a leap year.
 const MAX_WINDOW_DAYS: u64 = 366;
@@ -144,9 +144,9 @@ pub struct GetPlannedWorkoutsResult {
     /// plan is the other providers' alone, and says nothing of these.
     pub unavailable: Vec<UnavailableCalendar>,
     /// First day read, inclusive, in the athlete's calendar.
-    pub start_date: NaiveDate,
+    pub start_date: CivilDate,
     /// Last day read, inclusive.
-    pub end_date: NaiveDate,
+    pub end_date: CivilDate,
     /// How many planned workouts the window holds.
     pub count: usize,
     /// The planned workouts, oldest first, each naming the provider it came
@@ -433,8 +433,8 @@ struct CalendarReader {
     user_id: Uuid,
     /// The athlete's tenant: the caller's, or the coached athlete's home.
     tenant: TenantId,
-    start: NaiveDate,
-    end: NaiveDate,
+    start: CivilDate,
+    end: CivilDate,
 }
 
 impl CalendarReader {
@@ -552,7 +552,7 @@ impl CalendarReader {
     /// Returns the [`Self::provider`] error.
     async fn read_calendar(&self, backend: &str) -> AppResult<CalendarRead> {
         let name = user_facing_name(backend);
-        let attempt_started_at = Utc::now();
+        let attempt_started_at = Timestamp::now();
         let Provider { provider, seat } = match self.provider(backend).await? {
             Ok(provider) => provider,
             Err(ended) => return Ok(ended),
@@ -700,17 +700,15 @@ impl CalendarReader {
 ///
 /// Returns an invalid-input error for a date that is not a canonical
 /// `YYYY-MM-DD`, an end before the start, or a window longer than the cap.
-fn window(args: &Value, today: NaiveDate) -> AppResult<(NaiveDate, NaiveDate)> {
+fn window(args: &Value, today: CivilDate) -> AppResult<(CivilDate, CivilDate)> {
     let start = date_arg(args, "start_date")?.unwrap_or(today);
     let end = match date_arg(args, "end_date")? {
         Some(end) => end,
-        None => start
-            .checked_add_days(Days::new(DEFAULT_WINDOW_DAYS))
-            .ok_or_else(|| {
-                AppError::invalid_input(format!(
-                    "start_date {start} leaves no room for the default window"
-                ))
-            })?,
+        None => start.checked_add_days(DEFAULT_WINDOW_DAYS).ok_or_else(|| {
+            AppError::invalid_input(format!(
+                "start_date {start} leaves no room for the default window"
+            ))
+        })?,
     };
     if end < start {
         return Err(AppError::invalid_input(format!(
@@ -728,7 +726,7 @@ fn window(args: &Value, today: NaiveDate) -> AppResult<(NaiveDate, NaiveDate)> {
 }
 
 /// The date argument `name`, when the caller stated it.
-fn date_arg(args: &Value, name: &str) -> AppResult<Option<NaiveDate>> {
+fn date_arg(args: &Value, name: &str) -> AppResult<Option<CivilDate>> {
     match args.get(name) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(raw)) => parse_plan_date(raw.trim()).map(Some).ok_or_else(|| {

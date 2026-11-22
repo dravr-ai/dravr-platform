@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Datelike, FixedOffset, Utc};
+use dravr_tronc::dates::Timestamp;
 use num_traits::ToPrimitive;
 use pierre_database::database::repositories::ProfileRepository;
 use serde_json::{from_value, json, Value};
@@ -249,7 +249,7 @@ fn calculate_training_history_weeks(activities: &[Activity], min_activities: usi
         return ASSUMED_TRAINING_HISTORY_WEEKS;
     }
 
-    let mut dates: Vec<DateTime<Utc>> = activities.iter().map(Activity::start_date).collect();
+    let mut dates: Vec<Timestamp> = activities.iter().map(Activity::start_date).collect();
     dates.sort();
 
     if let (Some(first), Some(last)) = (dates.first(), dates.last()) {
@@ -409,7 +409,7 @@ fn calculate_training_history_months(activities: &[Activity]) -> i32 {
         return 0;
     };
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let duration = now.signed_duration_since(earliest_date);
     let days = duration.num_days();
 
@@ -465,7 +465,7 @@ fn create_fallback_profile(user_id: String, activities: &[Activity]) -> UserFitn
     let seasonal_context = activities
         .iter()
         .find_map(Activity::start_latitude)
-        .map(|lat| build_seasonal_context(lat, Utc::now().month()));
+        .map(|lat| build_seasonal_context(lat, Timestamp::now().utc_date().month()));
 
     UserFitnessProfile {
         user_id,
@@ -491,7 +491,7 @@ fn create_fallback_profile(user_id: String, activities: &[Activity]) -> UserFitn
 }
 
 /// Calculate days remaining in goal timeframe.
-fn calculate_days_remaining(created_at: Option<DateTime<FixedOffset>>, timeframe: &str) -> u32 {
+fn calculate_days_remaining(created_at: Option<Timestamp>, timeframe: &str) -> u32 {
     created_at.map_or(DEFAULT_GOAL_TIMEFRAME_DAYS, |created| {
         let timeframe_days = match timeframe {
             "week" => DAYS_PER_WEEK,
@@ -500,7 +500,7 @@ fn calculate_days_remaining(created_at: Option<DateTime<FixedOffset>>, timeframe
             "year" => DAYS_PER_YEAR,
             _ => DEFAULT_GOAL_TIMEFRAME_DAYS,
         };
-        let elapsed = (Utc::now() - created.with_timezone(&Utc)).num_days();
+        let elapsed = (Timestamp::now() - created).num_days();
         let elapsed_u32 = match u32::try_from(elapsed.max(0)) {
             Ok(val) => val,
             Err(e) => {
@@ -554,12 +554,10 @@ fn calculate_current_progress(goal_type: &str, activities: &[&Activity]) -> (f64
 fn calculate_projected_completion(
     current_value: f64,
     goal_target: f64,
-    created_at: Option<DateTime<FixedOffset>>,
+    created_at: Option<Timestamp>,
 ) -> Option<f64> {
     if current_value > 0.0 {
-        let days_elapsed = created_at.map_or(1, |c| {
-            (Utc::now() - c.with_timezone(&Utc)).num_days().max(1)
-        });
+        let days_elapsed = created_at.map_or(1, |c| (Timestamp::now() - c).num_days().max(1));
         let days_elapsed_f64 = safe_i64_to_f64(days_elapsed);
         let daily_rate = current_value / days_elapsed_f64;
         let remaining_value = goal_target - current_value;
@@ -712,7 +710,7 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
             let params = &goal.params;
             let user_uuid = context.user_id;
 
-            let created_at = Utc::now();
+            let created_at = Timestamp::now();
             let goal_data = json!({
                 "goal_type": params.goal_type,
                 "target_value": params.target_value,

@@ -23,7 +23,7 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
@@ -623,7 +623,7 @@ async fn report_step_written(
             return;
         }
     };
-    let seconds_since_signup = Utc::now()
+    let seconds_since_signup = Timestamp::now()
         .signed_duration_since(user.created_at)
         .num_seconds()
         .max(0);

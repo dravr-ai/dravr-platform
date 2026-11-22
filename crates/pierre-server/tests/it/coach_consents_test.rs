@@ -33,11 +33,11 @@ use axum::routing::get;
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::{DateTime, Duration, TimeZone, Utc};
 use common::{
     create_test_server_resources_with_config, create_test_user_with_plan, generate_test_token,
     test_server_config_with_api_base,
 };
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use helpers::impersonation::{assert_support_refused, impersonation_of};
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier};
@@ -201,7 +201,7 @@ async fn world(api_base: &str) -> World {
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -321,7 +321,7 @@ pub(crate) async fn api_key(res: &Arc<ServerContext>, user_id: Uuid) -> String {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     res.common.repos.api_keys.create(&key).await.unwrap();
     data.full_key
@@ -476,7 +476,7 @@ impl World {
             format!("icu-ride-{}", member.id),
             "Endurance ride".to_owned(),
             SportType::Ride,
-            night() + Duration::hours(14),
+            night() + Elapsed::hours(14),
             5_400,
             INTERVALS_ICU.to_owned(),
         )
@@ -493,9 +493,9 @@ impl World {
     /// Seed one night of sleep, one morning's recovery and one weigh-in for
     /// `member` from `provider`, under the member's tenant, as that
     /// provider's sync files them.
-    async fn seed_wellness(&self, member: &Person, provider: &str, night: DateTime<Utc>) {
+    async fn seed_wellness(&self, member: &Person, provider: &str, night: Timestamp) {
         let repos = &self.res.common.repos;
-        let morning = (night + Duration::days(1)).date_naive();
+        let morning = (night + Elapsed::days(1)).utc_date();
         let source = repos
             .data_sources
             .upsert_data_source(
@@ -523,7 +523,7 @@ impl World {
                     data_source_id: source.clone(),
                     is_nap: false,
                     start_datetime: night,
-                    end_datetime: night + Duration::hours(8),
+                    end_datetime: night + Elapsed::hours(8),
                     total_sleep_seconds: Some(25_200),
                     deep_sleep_seconds: None,
                     light_sleep_seconds: None,
@@ -538,7 +538,7 @@ impl World {
                     stages: Vec::new(),
                     source_name: provider.to_owned(),
                 },
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -564,10 +564,10 @@ impl World {
                     daily_strain: None,
                     athlete_note: None,
                     source_name: provider.to_owned(),
-                    recorded_at: Utc::now(),
+                    recorded_at: Timestamp::now(),
                 },
                 WellnessWriteMode::FullDay,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -591,10 +591,10 @@ impl World {
                     blood_glucose: None,
                     vo2_max: None,
                     source_name: provider.to_owned(),
-                    recorded_at: Utc::now(),
+                    recorded_at: Timestamp::now(),
                 },
                 WellnessWriteMode::FullDay,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -604,7 +604,7 @@ impl World {
     /// link holds for `member`.
     async fn synced(&self, member: &Person) -> [usize; 4] {
         let repos = &self.res.common.repos;
-        let (from, to) = (night() - Duration::days(1), night() + Duration::days(2));
+        let (from, to) = (night() - Elapsed::days(1), night() + Elapsed::days(2));
         [
             repos
                 .sleep
@@ -635,14 +635,9 @@ impl World {
 
     /// How many sleep, recovery and health rows `provider` filed for
     /// `member` around `night`.
-    async fn wellness_from(
-        &self,
-        member: &Person,
-        provider: &str,
-        night: DateTime<Utc>,
-    ) -> [usize; 3] {
+    async fn wellness_from(&self, member: &Person, provider: &str, night: Timestamp) -> [usize; 3] {
         let repos = &self.res.common.repos;
-        let (from, to) = (night - Duration::days(1), night + Duration::days(2));
+        let (from, to) = (night - Elapsed::days(1), night + Elapsed::days(2));
         [
             repos
                 .sleep
@@ -672,20 +667,20 @@ impl World {
     }
 }
 
-fn night() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 9, 20, 22, 0, 0).unwrap()
+fn night() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-09-20T22:00:00Z").unwrap()
 }
 
 /// A night of the member's own WHOOP, a week before the link's, so no read
 /// of one night's wellness ever weighs the two sources against each other.
-fn own_night() -> DateTime<Utc> {
-    night() - Duration::days(7)
+fn own_night() -> Timestamp {
+    night() - Elapsed::days(7)
 }
 
 /// A month before the wellness consent widened to every app the member
 /// connects (2026-11-05T18:43:00Z), when it covered only a link's sync.
-fn before_the_widening() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 10, 6, 9, 0, 0).unwrap()
+fn before_the_widening() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-10-06T09:00:00Z").unwrap()
 }
 
 /// A confirm grants exactly the consents it names, each stamped on the
@@ -861,7 +856,7 @@ async fn a_change_with_the_flag_lands_whole(w: &World) {
 /// A 30-day grant stamps its window; a renewal with no window holds until
 /// revoked; no other consent moves.
 async fn the_health_records_window_runs_thirty_days(w: &World) {
-    let before = Utc::now();
+    let before = Timestamp::now();
     let (status, body) = w
         .put_consents(
             &w.m4.auth,
@@ -873,7 +868,7 @@ async fn the_health_records_window_runs_thirty_days(w: &World) {
     let stored = w.consents(&w.m4).await;
     let until = stored.sensitive_t2_read_until.expect("a 30-day window");
     assert!(
-        until >= before + Duration::days(30) && until <= Utc::now() + Duration::days(30),
+        until >= before + Elapsed::days(30) && until <= Timestamp::now() + Elapsed::days(30),
         "the window runs 30 days from the grant: {until}"
     );
     assert!(
@@ -1182,7 +1177,7 @@ async fn a_grant_from_before_the_widening_is_told_until_kept(w: &World) {
 /// keeps every row there, since each may be the member's own, and records no
 /// purge. The consent is revoked all the same.
 async fn an_own_login_to_the_links_platform_keeps_its_wellness(w: &World) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     w.res
         .common
         .repos

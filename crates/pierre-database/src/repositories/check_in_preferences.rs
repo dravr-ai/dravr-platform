@@ -15,7 +15,7 @@
 //! reads or writes one athlete's choice.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CheckInCadence, TenantId};
 use uuid::Uuid;
@@ -46,7 +46,7 @@ pub trait CheckInPreferenceRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: Uuid,
         cadence: CheckInCadence,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> AppResult<()>;
 
     /// The athletes of `tenant_id` whose cadence posts — every choice but
@@ -116,13 +116,13 @@ macro_rules! impl_check_in_preference_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 cadence: CheckInCadence,
-                at: DateTime<Utc>,
+                at: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(SET_CHECK_IN_CADENCE_SQL)
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
                     .bind(cadence.as_str())
-                    .bind(at.timestamp_millis())
+                    .bind(at.epoch_millis())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

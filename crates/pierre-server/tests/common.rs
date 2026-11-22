@@ -265,7 +265,7 @@ pub(crate) async fn create_test_user(database: &Database) -> Result<(Uuid, User)
     // Activate the user for testing (bypass admin approval)
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id); // Self-approved for testing
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
 
     let user_id = user.id;
     let repos = database.repositories();
@@ -281,8 +281,8 @@ pub(crate) async fn create_test_user(database: &Database) -> Result<(Uuid, User)
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     repos.tenants.create(&tenant).await?;
 
@@ -323,7 +323,7 @@ pub(crate) async fn create_test_user_with_plan(
     // Activate the user for testing (bypass admin approval)
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id); // Self-approved for testing
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
 
     let user_id = user.id;
     let repos = database.repositories();
@@ -339,8 +339,8 @@ pub(crate) async fn create_test_user_with_plan(
         domain: None,
         plan: plan.to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     repos.tenants.create(&tenant).await?;
 
@@ -1814,6 +1814,7 @@ impl Default for MockUsdaClient {
 // SDK Bridge Helpers for Multi-Tenant E2E Testing
 // ============================================================================
 
+use dravr_tronc::dates::Timestamp;
 use std::process::{Child, Command, Stdio};
 use tokio::time::{sleep, Duration};
 

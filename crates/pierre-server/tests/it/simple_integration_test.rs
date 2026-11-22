@@ -141,8 +141,8 @@
     clippy::zero_sized_map_values
 )]
 use anyhow::Result;
-use chrono::{Duration, Utc};
 use dravr_cageux::analyzer::ActivityAnalyzer;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::SportType;
 use uuid::Uuid;
@@ -158,7 +158,7 @@ async fn test_intelligence_analysis_integration() -> Result<()> {
         format!("test_{}", Uuid::new_v4().simple()),
         "Integration Test Run",
         SportType::Run,
-        Utc::now() - Duration::hours(1),
+        Timestamp::now() - Elapsed::hours(1),
         3600, // 1 hour
         "test",
     )
@@ -225,7 +225,7 @@ async fn test_activity_model_creation() -> Result<()> {
             format!("sport_test_{sport:?}"),
             format!("Test {:?} Activity", sport),
             sport.clone(),
-            Utc::now(),
+            Timestamp::now(),
             1800, // 30 minutes
             "test",
         )
@@ -262,7 +262,7 @@ async fn test_concurrent_analysis() -> Result<()> {
                 format!("concurrent_test_{i}"),
                 format!("Concurrent Test {i}"),
                 SportType::Run,
-                Utc::now(),
+                Timestamp::now(),
                 3600 + (i as u64 * 300),
                 "test",
             )

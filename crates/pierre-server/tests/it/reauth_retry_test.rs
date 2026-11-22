@@ -24,7 +24,7 @@ use axum::extract::State;
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId, UserOAuthToken};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -88,7 +88,7 @@ async fn spawn_scraper() -> (Arc<Scraper>, String) {
                             "id": RIDE_ID,
                             "name": "Sortie du matin",
                             "sport_type": "ride",
-                            "start_date": (Utc::now() - Duration::days(1)).to_rfc3339(),
+                            "start_date": (Timestamp::now() - Elapsed::days(1)).to_rfc3339(),
                             "duration_seconds": 3600,
                             "provider": "strava",
                             "distance_meters": 30000.0
@@ -172,7 +172,7 @@ impl Fixture {
                 self.tenant,
                 provider,
                 Some("session_expired"),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -181,7 +181,7 @@ impl Fixture {
     /// Move `provider`'s flag, and any retry already stamped on it, back to
     /// `at` — as if both happened then. No repository writes an old stamp,
     /// so the fixture writes it in SQL.
-    async fn age_flag(&self, provider: &str, at: DateTime<Utc>) {
+    async fn age_flag(&self, provider: &str, at: Timestamp) {
         const SQL: &str = "UPDATE provider_connections \
              SET status_changed_at = $1, \
                  reauth_retry_at = CASE WHEN reauth_retry_at IS NULL THEN NULL ELSE $1 END \
@@ -215,7 +215,7 @@ impl Fixture {
     async fn age_past_interval(&self, provider: &str) {
         self.age_flag(
             provider,
-            Utc::now() - Duration::hours(SCRAPE_SESSION_RETRY_INTERVAL_HOURS + 1),
+            Timestamp::now() - Elapsed::hours(SCRAPE_SESSION_RETRY_INTERVAL_HOURS + 1),
         )
         .await;
     }
@@ -354,7 +354,7 @@ async fn the_sweep_never_retries_a_flagged_oauth_grant() {
         .common
         .repos
         .provider_connections
-        .claim_reauth_retry(f.user_id, f.tenant, "strava", Utc::now())
+        .claim_reauth_retry(f.user_id, f.tenant, "strava", Timestamp::now())
         .await
         .unwrap();
     assert!(claimable, "the sweep never stamped a retry on it");
@@ -426,7 +426,7 @@ async fn home_never_retries_a_flagged_oauth_grant() {
         .common
         .repos
         .provider_connections
-        .claim_reauth_retry(f.user_id, f.tenant, "strava", Utc::now())
+        .claim_reauth_retry(f.user_id, f.tenant, "strava", Timestamp::now())
         .await
         .unwrap();
     assert!(claimable, "Home never stamped a retry on it");
@@ -441,7 +441,7 @@ async fn hold_live_grant(f: &Fixture) {
         "strava".to_owned(),
         "strava-access".to_owned(),
         Some("strava-refresh".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         None,
     );
     f.resources

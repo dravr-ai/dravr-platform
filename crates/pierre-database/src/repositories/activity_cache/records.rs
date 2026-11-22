@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, GearRef, Lap, SegmentEffort, Split};
 use serde::{Deserialize, Serialize};
 
@@ -70,7 +70,7 @@ impl ActivityFetchFailure {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ActivityFetchFailureRecord {
     /// When it happened.
-    pub failed_at: DateTime<Utc>,
+    pub failed_at: Timestamp,
     /// Why it did not count as a sync.
     pub failure: ActivityFetchFailure,
     /// How many fetches in a row had failed when it was recorded: counted
@@ -82,7 +82,7 @@ pub struct ActivityFetchFailureRecord {
     pub streak: u32,
     /// When the first failure of that streak happened; `failed_at` itself
     /// for a streak of one.
-    pub streak_started_at: DateTime<Utc>,
+    pub streak_started_at: Timestamp,
 }
 
 /// What a detail read of an activity found that its list read never carries.

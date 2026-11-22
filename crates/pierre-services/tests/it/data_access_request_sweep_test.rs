@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
@@ -23,12 +23,12 @@ use pierre_test_support::db::{create_concurrent_test_db, create_test_db};
 use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
-fn day(y: i32, m: u32, d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(y, m, d).unwrap()
+fn day(y: i32, m: u32, d: u32) -> CivilDate {
+    CivilDate::from_ymd(y, m, d).unwrap()
 }
 
-fn morning(date: NaiveDate) -> DateTime<Utc> {
-    Utc.from_utc_datetime(&date.and_hms_opt(7, 0, 0).unwrap())
+fn morning(date: CivilDate) -> Timestamp {
+    (date.and_hms(7, 0, 0).unwrap()).and_utc().unwrap()
 }
 
 /// The notification service the server boots over the test database, with
@@ -71,7 +71,7 @@ async fn insert(
     repos: &RepositoryRegistry,
     (user_id, tenant_id): (Uuid, TenantId),
     status: DataAccessStatus,
-    due_on: NaiveDate,
+    due_on: CivilDate,
 ) -> DataAccessRequest {
     let id = Uuid::new_v4().simple().to_string().to_uppercase();
     let at = morning(day(2026, 10, 1));

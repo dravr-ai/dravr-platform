@@ -22,7 +22,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_database::repositories::{
     ActivityBackfillJobRepository, ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind,
@@ -68,7 +68,7 @@ const SWEEP_BATCH: i64 = 5;
 /// logged and the pass goes on.
 pub async fn resume_backfill_jobs(resources: Arc<dyn ToolRuntime>) -> AppResult<usize> {
     let ledger = Arc::clone(&resources.repos().activity_backfill_jobs);
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     reap_exhausted_jobs(&resources, now_ms).await;
     resolve_purged_walks(&resources, now_ms).await;
 

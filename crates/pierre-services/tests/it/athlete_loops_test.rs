@@ -9,7 +9,7 @@
 //! rides at `SUTTON` make a place. Every search is made the way the
 //! `discover_routes` tool makes it.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
 use pierre_core::models::{ActivityBuilder, SportType, TenantId};
 use pierre_core::transport::TransportPolicy;
@@ -48,9 +48,16 @@ fn search(spot: (f64, f64), effort: Option<Effort>) -> LoopSearch {
 impl World {
     /// The loops `user` in `tenant` is offered by `search`.
     async fn loops_of(&self, tenant: &TenantId, user: Uuid, search: &LoopSearch) -> Vec<OwnLoop> {
-        own_loops(self.repos(), &OpenTerms, tenant, user, search, Utc::now())
-            .await
-            .unwrap()
+        own_loops(
+            self.repos(),
+            &OpenTerms,
+            tenant,
+            user,
+            search,
+            Timestamp::now(),
+        )
+        .await
+        .unwrap()
     }
 
     /// The loops this athlete is offered by `search`.

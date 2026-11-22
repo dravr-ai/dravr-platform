@@ -17,13 +17,13 @@
 //! [`list_columns`](super::list_columns) codec. A [`TenantId`] binds and
 //! reads natively on both drivers, so it needs neither.
 //!
-//! `$n` placeholders throughout; timestamps bind as [`DateTime<Utc>`] on
+//! `$n` placeholders throughout; timestamps bind as [`Timestamp`] on
 //! both; `is_active` binds and reads as `bool`. `list_for_user` selects
 //! `tu.joined_at` beside the tenant columns because Postgres requires an
 //! `ORDER BY` expression to appear in a `SELECT DISTINCT` list.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use secrecy::SecretString;
 
@@ -272,7 +272,7 @@ where
     TenantId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column =
         |col: &str, e: sqlx::Error| AppError::database(format!("Failed to get tenants.{col}: {e}"));
@@ -414,7 +414,7 @@ macro_rules! impl_tenant_repository {
                     .bind($ids::bind(Uuid::new_v4()))
                     .bind(tenant.id)
                     .bind($ids::bind(tenant.owner_user_id))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| {
@@ -508,7 +508,7 @@ macro_rules! impl_tenant_repository {
                     .bind(&credentials.redirect_uri)
                     .bind($lists::bind_json(&credentials.scopes))
                     .bind(i32::try_from(credentials.rate_limit_per_day).unwrap_or(i32::MAX))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

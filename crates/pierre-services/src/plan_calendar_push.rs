@@ -46,7 +46,7 @@ use pierre_core::transport::TransportPolicy;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind,
@@ -235,7 +235,7 @@ pub fn plan_day_session(
 pub fn week_note_session(
     user_id: Uuid,
     week: &PlanWeek,
-    week_start: NaiveDate,
+    week_start: CivilDate,
 ) -> Option<PlannedSession> {
     let focus = week.focus.trim();
     if focus.is_empty() {
@@ -281,7 +281,7 @@ pub struct DesiredEntry {
 pub fn desired_entries(
     user_id: Uuid,
     weeks: &[PlanWeek],
-    from: NaiveDate,
+    from: CivilDate,
     fueling: &FuelingDisclosure,
 ) -> Vec<DesiredEntry> {
     let mut out = Vec::new();
@@ -298,7 +298,7 @@ pub fn desired_entries(
                 });
             }
         }
-        let mut ordinals: HashMap<NaiveDate, usize> = HashMap::new();
+        let mut ordinals: HashMap<CivilDate, usize> = HashMap::new();
         for day in &week.days {
             if day.is_rest() {
                 continue;
@@ -404,7 +404,7 @@ pub struct SkippedEntry {
     /// The entry's key.
     pub external_id: String,
     /// The entry's date.
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// The entry's title.
     pub name: String,
     /// Why it was skipped.
@@ -417,7 +417,7 @@ pub struct FailedEntry {
     /// The entry's key.
     pub external_id: String,
     /// The entry's date.
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// The entry's title.
     pub name: String,
     /// What went wrong, in the provider's or the database's words.
@@ -432,9 +432,9 @@ pub struct PushReport {
     /// The active plan that was pushed.
     pub plan_id: String,
     /// First date the push considered.
-    pub from: NaiveDate,
+    pub from: CivilDate,
     /// Last date the push considered, when there was anything to consider.
-    pub to: Option<NaiveDate>,
+    pub to: Option<CivilDate>,
     /// Entries created on the provider.
     pub created: usize,
     /// Entries updated in place.
@@ -475,7 +475,7 @@ pub struct PushPlanParams<'a> {
     pub provider: &'a str,
     /// First date to consider — today in the athlete's calendar. Nothing
     /// before it is created, updated, or removed.
-    pub from: NaiveDate,
+    pub from: CivilDate,
     /// Whether the provider's calendar holds week notes
     /// ([`calendar_holds_week_notes`]); without them only sessions are pushed.
     pub week_notes: bool,
@@ -749,7 +749,7 @@ async fn known_entry(
     seen: &CalendarEventRef,
     hash: &str,
 ) -> KnownEntry {
-    let slack = Duration::seconds(PROVIDER_EDIT_SLACK_SECONDS);
+    let slack = Elapsed::seconds(PROVIDER_EDIT_SLACK_SECONDS);
     let edited = |event: &CalendarEventRef| {
         event
             .updated_at
@@ -791,7 +791,7 @@ fn edited_on_provider(entry: &DesiredEntry) -> SkippedEntry {
 /// key the calendar stores for them ([`FitnessProvider::calendar_key`]), each
 /// with its date.
 struct LostKeys<'plan> {
-    by_calendar_key: HashMap<String, Vec<(&'plan str, NaiveDate)>>,
+    by_calendar_key: HashMap<String, Vec<(&'plan str, CivilDate)>>,
 }
 
 impl<'plan> LostKeys<'plan> {
@@ -802,7 +802,7 @@ impl<'plan> LostKeys<'plan> {
         live_by_key: &HashMap<String, PrescribedWorkout>,
     ) -> Self {
         let plan_prefix = CalendarKey::plan_prefix(user_id);
-        let mut by_calendar_key: HashMap<String, Vec<(&str, NaiveDate)>> = HashMap::new();
+        let mut by_calendar_key: HashMap<String, Vec<(&str, CivilDate)>> = HashMap::new();
         for entry in desired {
             let key = entry.session.external_id.as_str();
             if key.starts_with(&plan_prefix) && !live_by_key.contains_key(key) {
@@ -815,7 +815,7 @@ impl<'plan> LostKeys<'plan> {
         Self { by_calendar_key }
     }
 
-    fn wants_date(&self, date: NaiveDate) -> bool {
+    fn wants_date(&self, date: CivilDate) -> bool {
         self.by_calendar_key
             .values()
             .flatten()
@@ -1039,7 +1039,7 @@ impl LedgerWrite<'_> {
         status: &str,
         replaces_id: Option<Uuid>,
     ) -> AppResult<()> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let payload_json = serde_json::to_string(&self.entry.session)
             .map_err(|e| AppError::internal(format!("serialize planned session: {e}")))?;
         let row = PrescribedWorkout {

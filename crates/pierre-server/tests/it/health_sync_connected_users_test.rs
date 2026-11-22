@@ -20,8 +20,8 @@
 use crate::common;
 use secrecy::SecretString;
 
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::UserOAuthToken;
 use uuid::Uuid;
 
@@ -42,7 +42,7 @@ async fn list_connected_provider_users_handles_varchar_tenant_id() {
 
     // Seed a Whoop token exactly as the app writes it: tenant_id is the
     // stringified UUID, stored in the VARCHAR column.
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,

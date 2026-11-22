@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use pierre_core::models::groups::{GroupInviteKind, GroupRole};
@@ -88,7 +88,7 @@ pub struct CoachSharingBody {
 #[derive(Debug, Deserialize, Default)]
 pub struct PeriodQuery {
     /// Period start (ISO 8601). Defaults to 7 days ago.
-    pub from: Option<DateTime<Utc>>,
+    pub from: Option<Timestamp>,
     /// Period end (ISO 8601). Defaults to now.
-    pub to: Option<DateTime<Utc>>,
+    pub to: Option<Timestamp>,
 }

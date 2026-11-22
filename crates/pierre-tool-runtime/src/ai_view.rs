@@ -97,7 +97,7 @@ pub(crate) fn serves_first_party_only(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::models::{Activity, ActivityBuilder, SportType};
     use pierre_core::transport::{Transport, TransportPolicy};
@@ -143,7 +143,7 @@ mod tests {
     }
 
     fn activity(id: &str, source: Option<&str>) -> Activity {
-        let start = Utc.with_ymd_and_hms(2026, 9, 30, 6, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-09-30T06:00:00Z").unwrap();
         ActivityBuilder::new(id, "Hills", SportType::Ride, start, 3600, "nolio")
             .average_heart_rate(150)
             .source_opt(source.map(str::to_owned))

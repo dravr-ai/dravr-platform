@@ -10,8 +10,8 @@
 #![allow(missing_docs)]
 #![allow(clippy::float_cmp)] // Test values are exact
 
-use chrono::Utc;
 use dravr_cageux::metrics_extractor::{MetricType, SafeMetricExtractor};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, SportType};
 
 fn create_test_activity() -> Activity {
@@ -21,7 +21,7 @@ fn create_test_activity() -> Activity {
         "test_activity",
         "Test Run",
         SportType::Run,
-        Utc::now(),
+        Timestamp::now(),
         3600, // 1 hour
         "test_provider",
     )
@@ -44,7 +44,7 @@ fn create_test_activity_with_distance(distance: f64) -> Activity {
         "test_activity",
         "Test Run",
         SportType::Run,
-        Utc::now(),
+        Timestamp::now(),
         3600, // 1 hour
         "test_provider",
     )

@@ -16,7 +16,7 @@
 //! `X-RateLimit-*` response headers, and takes `now` so a caller and its tests
 //! agree on the instant the window is measured from.
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use serde::Serialize;
 
 use crate::api_keys::{ApiKey, ApiKeyTier};
@@ -39,7 +39,7 @@ pub enum RequestBudget {
         /// Requests counted in the window before this one
         used: u32,
         /// When the window frees capacity again
-        resets_at: DateTime<Utc>,
+        resets_at: Timestamp,
     },
 }
 
@@ -79,7 +79,7 @@ impl RequestBudget {
 pub fn calculate_jwt_rate_limit(
     user: &User,
     usage: JwtMonthlyUsage,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> RequestBudget {
     usage
         .monthly_override
@@ -94,7 +94,7 @@ pub fn calculate_jwt_rate_limit(
 /// The first instant an API key's sliding window covers at `now`: its calls
 /// after this count against its `rate_limit_requests`.
 #[must_use]
-pub fn api_key_window_start(api_key: &ApiKey, now: DateTime<Utc>) -> DateTime<Utc> {
+pub fn api_key_window_start(api_key: &ApiKey, now: Timestamp) -> Timestamp {
     now - api_key_window(api_key)
 }
 
@@ -106,7 +106,7 @@ pub fn api_key_window_start(api_key: &ApiKey, now: DateTime<Utc>) -> DateTime<Ut
 pub fn calculate_api_key_rate_limit(
     api_key: &ApiKey,
     usage: &WindowUsage,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> RequestBudget {
     if api_key.tier == ApiKeyTier::Enterprise {
         return RequestBudget::Unlimited;
@@ -120,14 +120,14 @@ pub fn calculate_api_key_rate_limit(
 }
 
 /// The length of an API key's sliding window.
-fn api_key_window(api_key: &ApiKey) -> Duration {
-    Duration::seconds(i64::from(api_key.rate_limit_window_seconds))
+fn api_key_window(api_key: &ApiKey) -> Elapsed {
+    Elapsed::seconds(i64::from(api_key.rate_limit_window_seconds))
 }
 
 /// The first instant an A2A client's sliding window covers at `now`: its
 /// calls after this count against its `rate_limit_requests`.
 #[must_use]
-pub fn a2a_client_window_start(client: &A2AClient, now: DateTime<Utc>) -> DateTime<Utc> {
+pub fn a2a_client_window_start(client: &A2AClient, now: Timestamp) -> Timestamp {
     now - a2a_client_window(client)
 }
 
@@ -140,7 +140,7 @@ pub fn a2a_client_window_start(client: &A2AClient, now: DateTime<Utc>) -> DateTi
 pub fn calculate_a2a_client_rate_limit(
     client: &A2AClient,
     usage: &WindowUsage,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> RequestBudget {
     sliding_window_budget(
         client.rate_limit_requests,
@@ -156,23 +156,23 @@ pub fn calculate_a2a_client_rate_limit(
 pub fn a2a_client_window_resets_at(
     client: &A2AClient,
     usage: &WindowUsage,
-    now: DateTime<Utc>,
-) -> DateTime<Utc> {
+    now: Timestamp,
+) -> Timestamp {
     window_resets_at(a2a_client_window(client), usage, now)
 }
 
 /// The length of an A2A client's sliding window.
-fn a2a_client_window(client: &A2AClient) -> Duration {
-    Duration::seconds(i64::from(client.rate_limit_window_seconds))
+fn a2a_client_window(client: &A2AClient) -> Elapsed {
+    Elapsed::seconds(i64::from(client.rate_limit_window_seconds))
 }
 
 /// `limit` calls per sliding `window`, given the calls `usage` counted inside
 /// it, resetting at [`window_resets_at`].
 fn sliding_window_budget(
     limit: u32,
-    window: Duration,
+    window: Elapsed,
     usage: &WindowUsage,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> RequestBudget {
     RequestBudget::Metered {
         limit,
@@ -187,7 +187,7 @@ fn sliding_window_budget(
 /// That instant is exact while `used <= limit`; after concurrent requests
 /// overshoot the limit, the first freed slot still leaves the window full, so
 /// a client retrying on it is refused once more with a fresh retry window.
-fn window_resets_at(window: Duration, usage: &WindowUsage, now: DateTime<Utc>) -> DateTime<Utc> {
+fn window_resets_at(window: Elapsed, usage: &WindowUsage, now: Timestamp) -> Timestamp {
     usage.oldest.map_or(now + window, |oldest| oldest + window)
 }
 
@@ -351,7 +351,7 @@ impl OAuth2RateLimitStatus {
     #[must_use]
     pub fn with_retry_after(mut self) -> Self {
         if self.is_limited {
-            let now = Utc::now().timestamp();
+            let now = Timestamp::now().epoch_seconds();
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             // Safe: retry_after is always positive (max(1)) and bounded by the limiter's window
             let retry_after = ((self.reset_at - now).max(1)) as u32;

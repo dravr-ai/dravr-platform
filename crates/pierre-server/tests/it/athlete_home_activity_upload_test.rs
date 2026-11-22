@@ -31,7 +31,6 @@ use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use bytes::Bytes;
-use chrono::{DateTime, Duration, Utc};
 use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::{
     BlobKey, BlobMeta, BlobPrefix, BlobStat, BlobStore, DeletePage, PageToken, UploadTarget,
@@ -40,6 +39,7 @@ use dravr_barrage::digest::Sha256;
 use dravr_barrage::parse::fit::FitFileError;
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{BarrageError, Scope};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::stream::BoxStream;
 use pierre_config::activity_retention::{DEFAULT_DAYS_KEY, PROVIDER_DAYS_KEY};
 use pierre_core::constants::oauth_providers::UPLOAD;
@@ -99,8 +99,8 @@ async fn second_tenant(resources: &Arc<ServerContext>, athlete: &Athlete) -> Str
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: athlete.user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -156,12 +156,13 @@ async fn get(resources: &Arc<ServerContext>, token: &str, uri: &str) -> (StatusC
 }
 
 /// Yesterday at 07:00 UTC: inside every Home read's window.
-fn yesterday_morning() -> DateTime<Utc> {
-    (Utc::now() - Duration::days(1))
-        .date_naive()
-        .and_hms_opt(7, 0, 0)
+fn yesterday_morning() -> Timestamp {
+    (Timestamp::now() - Elapsed::days(1))
+        .utc_date()
+        .and_hms(7, 0, 0)
         .unwrap()
         .and_utc()
+        .unwrap()
 }
 
 /// A ten-minute ride, uploaded, and the Home row it became.
@@ -224,7 +225,7 @@ async fn home_the_calendar_and_the_volume_all_read_the_upload() {
         "an upload is not a provider sync"
     );
 
-    let day = yesterday_morning().date_naive();
+    let day = yesterday_morning().utc_date();
     let (status, calendar) = get(
         &resources,
         &athlete.token,
@@ -356,7 +357,7 @@ async fn a_workout_a_provider_already_synced_is_not_uploaded_again() {
         "998877",
         "Morning Ride",
         SportType::Ride,
-        yesterday_morning() + Duration::seconds(20),
+        yesterday_morning() + Elapsed::seconds(20),
         600,
         "strava",
     )
@@ -425,7 +426,7 @@ async fn retention_never_expires_an_uploaded_workout() {
     .await;
     let pass = retention_sweeper(&resources, records, None)
         .expect("the test server carries the admin config service")
-        .run(Utc::now() + Duration::days(365))
+        .run(Timestamp::now() + Elapsed::days(365))
         .await
         .unwrap();
 
@@ -591,7 +592,7 @@ async fn deleting_an_upload_removes_it_from_every_read_and_drops_the_file() {
     assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
     let (_, recent) = get(&resources, &athlete.token, "/api/me/activities/recent").await;
     assert_eq!(recent["activities"], json!([]));
-    let day = yesterday_morning().date_naive();
+    let day = yesterday_morning().utc_date();
     let (_, calendar) = get(
         &resources,
         &athlete.token,
@@ -645,12 +646,12 @@ async fn the_file_stays_while_another_of_its_sessions_is_cached() {
         second_id.as_str(),
         "",
         SportType::Run,
-        yesterday_morning() + Duration::hours(1),
+        yesterday_morning() + Elapsed::hours(1),
         600,
         UPLOAD,
     )
     .build();
-    let other_file = FitWorkout::ride(yesterday_morning() - Duration::days(1), 300).encode();
+    let other_file = FitWorkout::ride(yesterday_morning() - Elapsed::days(1), 300).encode();
     let (status, body) = upload(&resources, &athlete.token, other_file).await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let repos = &resources.common.repos;
@@ -738,7 +739,7 @@ async fn only_the_uploader_can_delete_an_upload_and_only_an_upload() {
         "445566",
         "Evening Run",
         SportType::Run,
-        yesterday_morning() + Duration::hours(10),
+        yesterday_morning() + Elapsed::hours(10),
         1_800,
         "strava",
     )
@@ -832,7 +833,7 @@ async fn insert_file_row(
                 .bind(athlete.user_id.to_string())
                 .bind(sha.to_owned())
                 .bind(bytes.map(<[u8]>::to_vec))
-                .bind(Utc::now())
+                .bind(Timestamp::now())
                 .execute($pool)
                 .await
                 .unwrap()

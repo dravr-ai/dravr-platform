@@ -27,7 +27,7 @@
 //! The caller names the owner: Terra's payload carries Terra's user id, and
 //! the route that will receive Terra's webhooks resolves the connection.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth_providers::TERRA;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{DataSource, DeviceType, TenantId};
@@ -67,7 +67,7 @@ pub async fn store_terra_records(
     (tenant_id, user_id): (TenantId, Uuid),
     relayed_from: Option<&str>,
     records: &TerraRecords,
-    received_at: DateTime<Utc>,
+    received_at: Timestamp,
 ) -> AppResult<TerraStored> {
     let mut stored = TerraStored::default();
     for activity in &records.activities {

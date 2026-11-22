@@ -28,8 +28,8 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use chrono::{Duration, NaiveDate, Utc};
 use dravr_cageux::training_load::FormBand;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
     Activity, ActivityBuilder, AnchorProvenance, ConnectionType, DailyTrainingState, SportType,
@@ -130,7 +130,7 @@ fn daily_runs(oldest_days_ago: i64, device: Option<&str>) -> Vec<Activity> {
                 format!("cached-{days_ago}"),
                 format!("run {days_ago}d ago"),
                 SportType::Run,
-                Utc::now() - Duration::days(days_ago),
+                Timestamp::now() - Elapsed::days(days_ago),
                 3_600,
                 BACKEND.to_owned(),
             )
@@ -180,8 +180,8 @@ async fn status_ok(resources: &Arc<ServerContext>, athlete: &Athlete) -> Value {
 async fn stored_rows(
     resources: &Arc<ServerContext>,
     athlete: &Athlete,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> Vec<DailyTrainingState> {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     fetch_history_rows(&runtime.data(), athlete.tenant, athlete.user_id, from, to)
@@ -189,12 +189,12 @@ async fn stored_rows(
         .unwrap()
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
 /// A day whose form is `tsb` on a fitness of `form_ctl`.
-fn row(date: NaiveDate, tsb: f64, form_ctl: f64, acwr: Option<f64>) -> DailyTrainingState {
+fn row(date: CivilDate, tsb: f64, form_ctl: f64, acwr: Option<f64>) -> DailyTrainingState {
     DailyTrainingState {
         tsb,
         form_ctl,
@@ -205,8 +205,8 @@ fn row(date: NaiveDate, tsb: f64, form_ctl: f64, acwr: Option<f64>) -> DailyTrai
     }
 }
 
-fn day(n: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 9, n).unwrap()
+fn day(n: u32) -> CivilDate {
+    CivilDate::from_ymd(2026, 9, n).unwrap()
 }
 
 /// Each band is read off form as a share of fitness, and the recovery days
@@ -319,8 +319,8 @@ async fn a_deep_history_answers_the_rollups_own_figures_and_stores_nothing() {
     seed_daily_runs(&resources, &athlete, 200).await;
 
     let body = status_ok(&resources, &athlete).await;
-    let today = Utc::now().date_naive();
-    let from = today - Duration::days(CTL_WINDOW_DAYS);
+    let today = Timestamp::now().utc_date();
+    let from = today - Elapsed::days(CTL_WINDOW_DAYS);
     assert_eq!(body["today"], ymd(today));
 
     assert!(
@@ -443,7 +443,7 @@ async fn the_figures_say_what_garmin_data_contributed() {
         "coros-ride".to_owned(),
         "ride".to_owned(),
         SportType::Ride,
-        Utc::now() - Duration::days(3) + Duration::hours(4),
+        Timestamp::now() - Elapsed::days(3) + Elapsed::hours(4),
         3_600,
         BACKEND.to_owned(),
     )

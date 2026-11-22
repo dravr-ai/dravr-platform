@@ -38,6 +38,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use dravr_tronc::dates::Timestamp;
 
 // === Test Setup Helpers ===
 
@@ -121,8 +122,8 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -149,8 +150,8 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: admin_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     database.repositories().tenants.create(&tenant).await?;
 
@@ -1269,8 +1270,8 @@ async fn test_oauth_connection_status_no_connections() -> Result<()> {
         password_hash: "test_hash".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -1320,9 +1321,9 @@ async fn test_oauth_disconnect_provider_success() -> Result<()> {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -1343,8 +1344,8 @@ async fn test_oauth_disconnect_provider_success() -> Result<()> {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     database.repositories().tenants.create(&tenant).await?;
 
@@ -1381,9 +1382,9 @@ async fn test_oauth_disconnect_invalid_provider() -> Result<()> {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -1721,8 +1722,8 @@ async fn test_complete_auth_flow() -> Result<()> {
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::Admin,
@@ -1748,8 +1749,8 @@ async fn test_complete_auth_flow() -> Result<()> {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: admin_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     database.repositories().tenants.create(&tenant).await?;
 

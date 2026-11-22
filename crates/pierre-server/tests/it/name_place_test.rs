@@ -26,7 +26,7 @@
 use crate::coach_athlete_reads_test::{fixture, ok, Fixture, Person, UPLOAD};
 use crate::get_activities_place_test::{assert_no_location, city_places, row, CITY_NAME};
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -65,7 +65,7 @@ fn tracked_run(id: &str, days_ago: i64, origin: (f64, f64), city: Option<&str>) 
         id.to_owned(),
         format!("{id} session"),
         SportType::Run,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3_600,
         UPLOAD.to_owned(),
     )
@@ -379,7 +379,9 @@ async fn trailhead_place(f: &Fixture) -> String {
         )
     }));
     upload(f, &runs).await;
-    places_pass(f.repos(), Utc::now(), 1_000).await.unwrap();
+    places_pass(f.repos(), Timestamp::now(), 1_000)
+        .await
+        .unwrap();
 
     let listed = own_list(f).await;
     for i in 0..5 {

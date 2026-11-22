@@ -18,7 +18,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_services::commitment_sweep::ActivityRefresher;
 use pierre_tool_runtime::commitment_refresh::spawn_commitment_activity_refresh;
@@ -54,13 +54,13 @@ impl ActivityRefresher for ServerActivityRefresher {
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
-        window_start: DateTime<Utc>,
+        window_start: Timestamp,
     ) -> bool {
         spawn_commitment_activity_refresh(
             Arc::clone(&self.runtime),
             user_id,
             *tenant_id,
-            window_start.timestamp(),
+            window_start.epoch_seconds(),
         )
     }
 }

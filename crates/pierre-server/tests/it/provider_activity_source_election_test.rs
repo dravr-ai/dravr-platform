@@ -24,7 +24,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::training_history_read::{resolve_compute_backends, ComputeBackend};
@@ -166,7 +166,7 @@ async fn a_dead_recorder_yields_to_the_healthy_recorder_not_the_newer_detector()
             athlete.tenant,
             "strava",
             Some("invalid_grant"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -224,7 +224,7 @@ async fn between_two_recording_sources_health_and_recency_still_decide() {
             athlete.tenant,
             "strava",
             Some("invalid_grant"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();

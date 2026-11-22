@@ -20,7 +20,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{Duration, NaiveDate};
+use dravr_tronc::dates::{CivilDate, Elapsed};
 use pierre_core::civil_time::monday_of;
 use pierre_core::constants::oauth_providers::GarminContribution;
 use pierre_core::models::coverage::IncompleteReason;
@@ -45,7 +45,7 @@ pub(crate) const VOLUME_METRICS: [QueryMetric; 4] = [
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TrainingVolume {
     /// The athlete's civil date the volume is read on, `YYYY-MM-DD`.
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// One entry per week the stored history reaches, oldest first, ending
     /// with the week `today` falls in. At most [`VOLUME_WEEKS`]; empty when
     /// nothing is stored.
@@ -60,7 +60,7 @@ pub struct TrainingVolume {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct VolumeWeek {
     /// The Monday the week starts on, `YYYY-MM-DD`.
-    pub week_start: NaiveDate,
+    pub week_start: CivilDate,
     /// One entry per sport trained that week, by sport; empty for a week
     /// without training.
     pub sports: Vec<SportVolume>,
@@ -84,8 +84,8 @@ pub struct SportVolume {
 /// The Monday the volume window opens on: [`VOLUME_WEEKS`] weeks, the current
 /// one included.
 #[must_use]
-pub fn window_start(today: NaiveDate) -> NaiveDate {
-    monday_of(today) - Duration::weeks(VOLUME_WEEKS - 1)
+pub fn window_start(today: CivilDate) -> CivilDate {
+    monday_of(today) - Elapsed::weeks(VOLUME_WEEKS - 1)
 }
 
 /// The weeks of a count over `[window_start(today), today]` broken down by
@@ -97,7 +97,7 @@ pub fn window_start(today: NaiveDate) -> NaiveDate {
 /// nothing is stored or an incomplete answer names no such day. A group
 /// outside those weeks is left out.
 #[must_use]
-pub fn volume_from_answer(today: NaiveDate, answer: &QueryAnswer) -> TrainingVolume {
+pub fn volume_from_answer(today: CivilDate, answer: &QueryAnswer) -> TrainingVolume {
     let opens = window_start(today);
     let coverage = &answer.coverage;
     // An incomplete answer vouches only from the day it names, and for no
@@ -118,7 +118,7 @@ pub fn volume_from_answer(today: NaiveDate, answer: &QueryAnswer) -> TrainingVol
         };
     };
 
-    let mut totals: BTreeMap<(NaiveDate, String), SportVolume> = BTreeMap::new();
+    let mut totals: BTreeMap<(CivilDate, String), SportVolume> = BTreeMap::new();
     for group in &answer.groups {
         let (Some(KeyValue::Text(week)), Some(KeyValue::Text(sport))) = (
             group.key.get(&GroupKey::Week),
@@ -126,7 +126,7 @@ pub fn volume_from_answer(today: NaiveDate, answer: &QueryAnswer) -> TrainingVol
         ) else {
             continue;
         };
-        let Ok(week) = week.parse::<NaiveDate>() else {
+        let Ok(week) = week.parse::<CivilDate>() else {
             continue;
         };
         if week < first_week || week > last_week {
@@ -151,11 +151,11 @@ pub fn volume_from_answer(today: NaiveDate, answer: &QueryAnswer) -> TrainingVol
     let mut week_start = first_week;
     while week_start <= last_week {
         let sports = totals
-            .range((week_start, String::new())..(week_start + Duration::days(1), String::new()))
+            .range((week_start, String::new())..(week_start + Elapsed::days(1), String::new()))
             .map(|(_, volume)| volume.clone())
             .collect();
         weeks.push(VolumeWeek { week_start, sports });
-        week_start += Duration::weeks(1);
+        week_start += Elapsed::weeks(1);
     }
     TrainingVolume {
         today,
@@ -169,8 +169,7 @@ pub fn volume_from_answer(today: NaiveDate, answer: &QueryAnswer) -> TrainingVol
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{DateTime, Utc};
-    use chrono_tz::Tz;
+    use dravr_tronc::dates::{Timestamp, Zone};
     use pierre_core::models::coverage::{Completeness, Coverage, CoverageWindow};
     use pierre_core::models::{Activity, ActivityBuilder, SportType};
     use pierre_database::repositories::CachedActivityRow;
@@ -179,14 +178,16 @@ mod tests {
         aggregate, ActivityPredicate, ActivityQuery, AppliedQuery, QueryGroup,
     };
 
-    fn ymd(year: i32, month: u32, day: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(year, month, day).unwrap_or_default()
+    fn ymd(year: i32, month: u32, day: u32) -> CivilDate {
+        CivilDate::from_ymd(year, month, day)
+            .ok()
+            .unwrap_or_default()
     }
 
     fn session(
         id: &str,
         sport: SportType,
-        start: DateTime<Utc>,
+        start: Timestamp,
         seconds: u64,
         metres: Option<f64>,
         climb: Option<f64>,
@@ -208,14 +209,18 @@ mod tests {
         builder.build()
     }
 
-    fn at(date: NaiveDate, hour: u32) -> DateTime<Utc> {
-        date.and_hms_opt(hour, 0, 0).unwrap_or_default().and_utc()
+    fn at(date: CivilDate, hour: u32) -> Timestamp {
+        date.and_hms(hour, 0, 0)
+            .ok()
+            .unwrap_or_default()
+            .and_utc()
+            .unwrap()
     }
 
     // Wednesday 7 October 2026.
     const TODAY: (i32, u32, u32) = (2026, 10, 7);
 
-    fn today() -> NaiveDate {
+    fn today() -> CivilDate {
         ymd(TODAY.0, TODAY.1, TODAY.2)
     }
 
@@ -233,7 +238,7 @@ mod tests {
 
     /// The aggregator's answer over `sessions`, stored one row each, on the
     /// athlete's calendar in `zone`, standing as `coverage` says.
-    fn answer(zone: Tz, sessions: &[Activity], coverage: Coverage) -> QueryAnswer {
+    fn answer(zone: &Zone, sessions: &[Activity], coverage: Coverage) -> QueryAnswer {
         let rows: Vec<CachedActivityRow> = sessions
             .iter()
             .map(|activity| CachedActivityRow {
@@ -268,7 +273,7 @@ mod tests {
     }
 
     /// The stored history begins on `day`.
-    fn from(day: NaiveDate) -> Coverage {
+    fn from(day: CivilDate) -> Coverage {
         Coverage {
             completeness: Completeness::Incomplete(IncompleteReason::ShallowHistory),
             window: CoverageWindow {
@@ -292,7 +297,7 @@ mod tests {
 
     #[test]
     fn a_whole_history_spans_twelve_monday_weeks_ending_this_week() {
-        let volume = volume_from_answer(today(), &answer(Tz::UTC, &[], whole()));
+        let volume = volume_from_answer(today(), &answer(&Zone::utc(), &[], whole()));
         assert_eq!(volume.weeks.len(), 12, "bug: not twelve weeks");
         assert_eq!(
             volume.weeks[11].week_start,
@@ -355,7 +360,7 @@ mod tests {
                 None,
             ),
         ];
-        let volume = volume_from_answer(today(), &answer(Tz::UTC, &sessions, whole()));
+        let volume = volume_from_answer(today(), &answer(&Zone::utc(), &sessions, whole()));
         let this_week = &volume.weeks[11];
         assert_eq!(
             this_week.sports,
@@ -400,7 +405,7 @@ mod tests {
     fn a_session_lands_on_the_athletes_own_calendar_day() {
         // 02:00 UTC on Monday 5 October is 22:00 on Sunday the 4th in Toronto:
         // last week, not this one.
-        let zone: Tz = "America/Toronto".parse().unwrap_or(Tz::UTC);
+        let zone: Zone = "America/Toronto".parse().unwrap_or_else(|_| Zone::utc());
         let sessions = [session(
             "late",
             SportType::Run,
@@ -409,7 +414,7 @@ mod tests {
             Some(10_000.0),
             None,
         )];
-        let volume = volume_from_answer(today(), &answer(zone, &sessions, whole()));
+        let volume = volume_from_answer(today(), &answer(&zone, &sessions, whole()));
         assert_eq!(
             volume.weeks[11].sports,
             [],
@@ -424,7 +429,8 @@ mod tests {
 
     #[test]
     fn weeks_before_the_stored_history_are_absent_not_zero() {
-        let volume = volume_from_answer(today(), &answer(Tz::UTC, &[], from(ymd(2026, 9, 24))));
+        let volume =
+            volume_from_answer(today(), &answer(&Zone::utc(), &[], from(ymd(2026, 9, 24))));
         let starts: Vec<_> = volume.weeks.iter().map(|week| week.week_start).collect();
         assert_eq!(
             starts,
@@ -435,7 +441,7 @@ mod tests {
 
     #[test]
     fn a_history_older_than_the_window_still_opens_on_the_window() {
-        let volume = volume_from_answer(today(), &answer(Tz::UTC, &[], from(ymd(2025, 1, 1))));
+        let volume = volume_from_answer(today(), &answer(&Zone::utc(), &[], from(ymd(2025, 1, 1))));
         assert_eq!(
             volume.weeks.len(),
             12,
@@ -445,7 +451,7 @@ mod tests {
 
     #[test]
     fn nothing_stored_answers_no_weeks() {
-        let volume = volume_from_answer(today(), &answer(Tz::UTC, &[], nothing()));
+        let volume = volume_from_answer(today(), &answer(&Zone::utc(), &[], nothing()));
         assert_eq!(volume.weeks, [], "bug: nothing stored answered weeks");
     }
 
@@ -467,7 +473,7 @@ mod tests {
             Some(10_000.0),
             None,
         )];
-        let volume = volume_from_answer(today(), &answer(Tz::UTC, &sessions, short));
+        let volume = volume_from_answer(today(), &answer(&Zone::utc(), &sessions, short));
         assert_eq!(
             volume.weeks,
             [],
@@ -498,14 +504,14 @@ mod tests {
                 None,
             ),
         ];
-        let window = volume_from_answer(today(), &answer(Tz::UTC, &sessions[..1], whole()));
+        let window = volume_from_answer(today(), &answer(&Zone::utc(), &sessions[..1], whole()));
         assert!(
             window.weeks.iter().all(|week| week.sports.is_empty()),
             "bug: a week before the window was summed"
         );
         let shallow = volume_from_answer(
             today(),
-            &answer(Tz::UTC, &sessions[1..], from(ymd(2026, 9, 24))),
+            &answer(&Zone::utc(), &sessions[1..], from(ymd(2026, 9, 24))),
         );
         assert!(
             shallow.weeks.iter().all(|week| week.sports.is_empty()),
@@ -525,7 +531,7 @@ mod tests {
             Some(254.3),
             None,
         )];
-        let volume = volume_from_answer(today(), &answer(Tz::UTC, &sessions, whole()));
+        let volume = volume_from_answer(today(), &answer(&Zone::utc(), &sessions, whole()));
         assert_eq!(
             volume.weeks[11].sports[0].distance_meters, 254.3,
             "bug: the distance drifted on its way through kilometres"
@@ -536,7 +542,7 @@ mod tests {
     /// entry.
     #[test]
     fn a_group_without_a_week_and_a_sport_is_ignored() {
-        let mut answer = answer(Tz::UTC, &[], whole());
+        let mut answer = answer(&Zone::utc(), &[], whole());
         answer.groups.push(QueryGroup {
             key: BTreeMap::from([(GroupKey::Week, KeyValue::Text("2026-10-05".to_owned()))]),
             label: BTreeMap::new(),

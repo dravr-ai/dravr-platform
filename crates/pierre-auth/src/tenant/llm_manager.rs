@@ -9,7 +9,7 @@ use secrecy::{ExposeSecret, SecretString};
 use std::env;
 use std::fmt;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -234,7 +234,7 @@ impl TenantLlmManager {
         llm_creds: &dyn LlmCredentialRepository,
         security: &dyn SecurityRepository,
     ) -> AppResult<Uuid> {
-        let now = Utc::now().to_rfc3339();
+        let now = Timestamp::now().to_rfc3339();
         let id = Uuid::new_v4();
 
         // Create AAD context for encryption

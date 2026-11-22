@@ -23,7 +23,7 @@
 //! day to confirm. A hold an account never got to use lapses after
 //! `HOLD_LAPSES_AFTER_DAYS`. Nothing here logs a code.
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{GroupInvite, GroupInviteKind};
 use pierre_core::models::{GroupInviteHold, TenantId};
@@ -147,7 +147,7 @@ pub async fn hold(repos: &RepositoryRegistry, user_id: Uuid, raw: &str) -> AppRe
     }
     repos
         .signup_codes
-        .hold_group_invite(user_id, invite.id, Utc::now())
+        .hold_group_invite(user_id, invite.id, Timestamp::now())
         .await?;
     info!(user_id = %user_id, group_id = %invite.group_id, invite_id = %invite.id, kind = ?invite.kind, "Group invite held until the account joins");
     Ok(invite)
@@ -155,13 +155,13 @@ pub async fn hold(repos: &RepositoryRegistry, user_id: Uuid, raw: &str) -> AppRe
 
 /// The instant before which a hold taken has lapsed at `now`.
 #[must_use]
-pub fn lapse_cutoff(now: DateTime<Utc>) -> DateTime<Utc> {
-    now - Duration::days(HOLD_LAPSES_AFTER_DAYS)
+pub fn lapse_cutoff(now: Timestamp) -> Timestamp {
+    now - Elapsed::days(HOLD_LAPSES_AFTER_DAYS)
 }
 
 /// Whether `hold` was taken longer ago than a hold waits.
 #[must_use]
-pub fn lapsed(hold: &GroupInviteHold, now: DateTime<Utc>) -> bool {
+pub fn lapsed(hold: &GroupInviteHold, now: Timestamp) -> bool {
     hold.held_at < lapse_cutoff(now)
 }
 
@@ -171,11 +171,11 @@ mod tests {
 
     #[test]
     fn a_hold_lapses_after_its_window() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let hold = |days| GroupInviteHold {
             user_id: Uuid::new_v4(),
             invite_id: Uuid::new_v4(),
-            held_at: now - Duration::days(days),
+            held_at: now - Elapsed::days(days),
             refused_full_at: None,
         };
         assert!(

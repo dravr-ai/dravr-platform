@@ -16,6 +16,7 @@
 
 use crate::common;
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_config::constants::email_verification::{
     DEFAULT_LINK_TTL_MINUTES, DEFAULT_MAX_SENDS_PER_HOUR,
 };
@@ -270,7 +271,7 @@ async fn issued_tokens_are_counted_for_rate_limiting() {
     let user_id = setup.create_user().await.expect("user creation failed");
     let repo = &setup.resources.common.repos.email_verification;
 
-    let since = chrono::Utc::now() - chrono::Duration::hours(1);
+    let since = Timestamp::now() - Elapsed::hours(1);
     assert_eq!(
         repo.count_recent_tokens(user_id, since)
             .await
@@ -447,7 +448,7 @@ async fn re_answering_about_you_supersedes_rather_than_duplicates() {
         .expect("fact read failed");
     // Superseding sets `valid_until` rather than deleting, so "live" means the
     // horizon is absent or still in the future.
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     let live: Vec<_> = facts
         .iter()
         .filter(|f| f.valid_until.is_none_or(|until| until > now))

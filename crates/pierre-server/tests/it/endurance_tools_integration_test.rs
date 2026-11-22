@@ -32,8 +32,8 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
 use dravr_cageux::zones::{AerobicThresholdPace, AerobicThresholdPower, HrZones};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::constants::oauth::providers::{SENSITIVE_T3, STRAVA};
@@ -426,17 +426,19 @@ async fn test_export_latest_snapshot_clamps_window() -> Result<()> {
     let (user_id, tenant) = create_connected_test_user(&executor).await?;
     let tenant_id = TenantId::parse_str(&tenant)?;
     // The seeded athlete has no timezone, so their calendar is UTC's.
-    let noon = Utc::now()
-        .date_naive()
-        .and_hms_opt(12, 0, 0)
+    let noon = Timestamp::now()
+        .utc_date()
+        .and_hms(12, 0, 0)
+        .ok()
         .ok_or_else(|| anyhow::anyhow!("noon is a valid time"))?
-        .and_utc();
+        .and_utc()
+        .unwrap();
     for (id, days) in [("inside", 200), ("outside", 400)] {
         let run = ActivityBuilder::new(
             id.to_owned(),
             format!("Run {id}"),
             SportType::Run,
-            noon - Duration::days(days),
+            noon - Elapsed::days(days),
             3_000,
             STRAVA.to_owned(),
         )

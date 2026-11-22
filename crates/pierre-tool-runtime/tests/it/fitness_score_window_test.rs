@@ -31,9 +31,8 @@
 
 use std::cmp::Reverse;
 
-use chrono::{Duration, Utc};
-use chrono_tz::Tz;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_fitness_compute::AthleteInputs;
 use pierre_tool_runtime::implementations::analytics::calculate_fitness_metrics;
@@ -55,7 +54,7 @@ fn run(days_ago: i64, duration_seconds: u64) -> Activity {
         format!("run-{days_ago}"),
         format!("run {days_ago}d ago"),
         SportType::Run,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         duration_seconds,
         "test".to_owned(),
     )
@@ -93,7 +92,7 @@ fn an_improving_athlete_does_not_score_zero_for_performance() {
         "quarter",
         &AthleteInputs::default(),
         &AlgorithmConfig::default(),
-        Tz::UTC,
+        &Zone::utc(),
         providers(),
     );
 
@@ -132,7 +131,7 @@ fn the_scoring_window_does_not_truncate_chronic_load() {
         "all_time",
         &athlete,
         &config,
-        Tz::UTC,
+        &Zone::utc(),
         providers(),
     );
     let narrow = calculate_fitness_metrics(
@@ -140,7 +139,7 @@ fn the_scoring_window_does_not_truncate_chronic_load() {
         "month",
         &athlete,
         &config,
-        Tz::UTC,
+        &Zone::utc(),
         providers(),
     );
 
@@ -186,7 +185,7 @@ fn the_ctl_sentence_comes_from_config_not_a_hardcoded_42() {
         "quarter",
         &AthleteInputs::default(),
         &config,
-        Tz::UTC,
+        &Zone::utc(),
         providers(),
     );
     let FitnessScoreResult::Scored(detail) = result else {

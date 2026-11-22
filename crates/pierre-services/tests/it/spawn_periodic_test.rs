@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{WorkerRun, WorkerRunRepository};
 use pierre_services::periodic::spawn_periodic;
@@ -137,7 +137,7 @@ async fn a_worker_resumes_the_remainder_of_its_period_from_the_ledger() {
     // this one is due in ~1s, not a full period after boot. The second of
     // slack absorbs a loaded runner's setup before the worker's first read:
     // past it the worker reads itself overdue and waits a whole period.
-    let seeded = Utc::now().timestamp_millis() - 3_000;
+    let seeded = Timestamp::now().epoch_millis() - 3_000;
     ledger
         .finish_worker_run("resume probe", seeded, None)
         .await
@@ -232,7 +232,7 @@ async fn a_failed_tick_leaves_the_ledger_unstamped_for_the_next_instance() {
     let period_ms = i64::try_from(FAILING_PERIOD.as_millis()).unwrap();
     // Due ~100ms from now; whichever branch the worker's first wait takes, it
     // ticks within one period (see `FAILING_PERIOD`).
-    let last_run = Utc::now().timestamp_millis() - period_ms + 100;
+    let last_run = Timestamp::now().epoch_millis() - period_ms + 100;
     ledger
         .finish_worker_run("failing probe", last_run, None)
         .await
@@ -262,7 +262,7 @@ async fn a_failed_tick_leaves_the_ledger_unstamped_for_the_next_instance() {
     // so the defer is recognised by its shorter, one-period hold. A read that
     // misses one hold sees the next: every retry fails and defers again.
     let run = wait_for_ledger(&ledger, "failing probe", FAILING_PERIOD * 2, |row| {
-        let remaining = row.leased_until_ms - Utc::now().timestamp_millis();
+        let remaining = row.leased_until_ms - Timestamp::now().epoch_millis();
         remaining > 0 && remaining <= period_ms
     })
     .await
@@ -280,7 +280,7 @@ async fn a_failed_tick_leaves_the_ledger_unstamped_for_the_next_instance() {
         "the hold starts after the failed tick, which ran no earlier than it was due ({} ms past the seed)",
         run.leased_until_ms - last_run
     );
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     assert!(
         run.leased_until_ms <= now + period_ms,
         "the failure holds the worker for one period ({} ms from now), not the claim's lease, so the retry is next interval on whichever instance is alive",

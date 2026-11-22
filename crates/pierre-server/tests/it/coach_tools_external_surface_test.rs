@@ -36,7 +36,7 @@ mod coach_tools_external_surface_tests {
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use axum::Router;
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use embacle_tool_host::ToolSurface;
     use pierre_chat_pipeline::ToolSessionTurn;
     use pierre_core::ai_policy::ProviderTerms;
@@ -100,7 +100,7 @@ mod coach_tools_external_surface_tests {
         res.common
             .repos
             .groups
-            .set_coach_assistant_read(&group.to_string(), member.id, on, Utc::now())
+            .set_coach_assistant_read(&group.to_string(), member.id, on, Timestamp::now())
             .await
             .unwrap()
             .expect("a live member");
@@ -506,7 +506,7 @@ mod coach_tools_external_surface_tests {
             id.to_owned(),
             format!("ride {id}"),
             SportType::Ride,
-            Utc::now() - Duration::days(days_ago),
+            Timestamp::now() - Elapsed::days(days_ago),
             3_600,
             INTERVALS_ICU.to_owned(),
         )
@@ -646,7 +646,7 @@ mod coach_tools_external_surface_tests {
         let mo = &outside[place(&outside, squad.mo.id)];
         assert_eq!(
             mo.last_cached_activity
-                .map(|at| (Utc::now() - at).num_days()),
+                .map(|at| (Timestamp::now() - at).num_days()),
             Some(20),
             "never the day of a session kept in Dravr"
         );

@@ -30,7 +30,7 @@ use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::stream;
 use uuid::Uuid;
 
@@ -253,7 +253,7 @@ async fn custom_agent(fx: &Fixture, title: &str) -> String {
 /// sync.
 async fn catalogue_agent(fx: &Fixture) -> String {
     let id = Uuid::new_v4().to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let seeder = &fx.resources.common.repos.seeder;
     seeder
         .seed_insert_agent(&SeedAgent {
@@ -725,7 +725,7 @@ async fn a_room_hears_its_agent_introduce_itself_once() {
     .unwrap();
 
     let group_id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let groups = &fx.resources.common.repos.groups;
     groups
         .create_group(
@@ -886,7 +886,7 @@ async fn athlete_with_cached_activities(fx: &Fixture) {
         "strava-run-long".to_owned(),
         "Sortie longue".to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         7_200,
         "strava".to_owned(),
     )
@@ -896,7 +896,7 @@ async fn athlete_with_cached_activities(fx: &Fixture) {
         "strava-run-tempo".to_owned(),
         "Tempo".to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(4),
+        Timestamp::now() - Elapsed::days(4),
         3_600,
         "strava".to_owned(),
     )

@@ -28,7 +28,7 @@ mod shared_quota_tests {
     use axum::body::{to_bytes, Body};
     use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
     use axum::http::{Request, StatusCode};
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use dravr_tronc::mcp::tool::ToolContext;
     use pierre_chat_pipeline::quota_policy::{check_pre_chat_quotas_scoped, PreChatScope};
     use pierre_core::errors::ErrorCode;
@@ -216,9 +216,9 @@ mod shared_quota_tests {
     /// The seconds from now to the next UTC midnight, when a daily counter
     /// resets, and that instant as the counter names it.
     fn to_next_utc_midnight() -> (i64, String) {
-        let now = Utc::now();
-        let tomorrow = (now + Duration::days(1)).date_naive();
-        let midnight = tomorrow.and_hms_opt(0, 0, 0).unwrap().and_utc();
+        let now = Timestamp::now();
+        let tomorrow = (now + Elapsed::days(1)).utc_date();
+        let midnight = tomorrow.at_midnight().and_utc().unwrap();
         (
             (midnight - now).num_seconds(),
             format!("{tomorrow}T00:00:00Z"),

@@ -15,7 +15,7 @@
 //! [`AuthService::code_awaiting_activation`]. A Google sign-in, or an address
 //! already confirmed, activates at once.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use secrecy::{ExposeSecret, SecretString};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -239,7 +239,7 @@ impl AuthService {
         self.data
             .repos()
             .signup_codes
-            .mark_activated(user_id, Utc::now())
+            .mark_activated(user_id, Timestamp::now())
             .await?;
         Ok(RedeemedSignupCode {
             source: claimed.source,
@@ -261,7 +261,12 @@ impl AuthService {
             .ok_or_else(invalid_signup_code)?;
         let recorded = repos
             .signup_codes
-            .record_redemption(user_id, claimed.source, claimed.granted_by, Utc::now())
+            .record_redemption(
+                user_id,
+                claimed.source,
+                claimed.granted_by,
+                Timestamp::now(),
+            )
             .await?;
         if !recorded {
             signup_codes::release(repos, &claimed).await;
@@ -321,7 +326,7 @@ impl AuthService {
         create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), user.id).await;
         repos
             .signup_codes
-            .mark_activated(user.id, Utc::now())
+            .mark_activated(user.id, Timestamp::now())
             .await?;
         info!(user_id = %user.id, approved_by = ?approver, "Account activated by a signup code");
         Ok(activation.user)

@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::DateTime;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::pagination::{Cursor, StoreCursor, StoreSortOrder};
 
 // ============================================================================
@@ -16,7 +16,7 @@ use pierre_core::pagination::{Cursor, StoreCursor, StoreSortOrder};
 
 #[test]
 fn test_store_cursor_newest_roundtrip() {
-    let ts = DateTime::from_timestamp_millis(1_700_000_000_000).unwrap();
+    let ts = Timestamp::from_epoch_millis(1_700_000_000_000).unwrap();
     let cursor = StoreCursor::newest("coach-123".to_owned(), Some(ts));
     let encoded = cursor.encode();
 
@@ -30,7 +30,7 @@ fn test_store_cursor_newest_roundtrip() {
 
 #[test]
 fn test_store_cursor_popular_roundtrip() {
-    let ts = DateTime::from_timestamp_millis(1_700_000_000_000).unwrap();
+    let ts = Timestamp::from_epoch_millis(1_700_000_000_000).unwrap();
     let cursor = StoreCursor::popular("coach-456".to_owned(), 42, Some(ts));
     let encoded = cursor.encode();
 
@@ -110,7 +110,7 @@ fn test_store_cursor_newest_with_none_timestamp() {
 
 #[test]
 fn test_store_cursor_popular_high_install_count() {
-    let ts = DateTime::from_timestamp_millis(1_700_000_000_000).unwrap();
+    let ts = Timestamp::from_epoch_millis(1_700_000_000_000).unwrap();
     let cursor = StoreCursor::popular("popular-coach".to_owned(), 999_999, Some(ts));
     let encoded = cursor.encode();
 

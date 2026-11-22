@@ -7,7 +7,7 @@
 use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use tokio::task;
 use tracing::{debug, error, info, warn};
 
@@ -40,6 +40,7 @@ use crate::default_agent::first_athlete_facing;
 use crate::import_tombstones::{email_held, pending_email_tombstone};
 use crate::invitation::settle_coach_seat;
 use crate::link_token::split_link_token;
+use dravr_tronc::dates::Elapsed;
 
 /// Sign-in through an external identity (Firebase, Google) and the account rules both follow
 mod federated;
@@ -332,7 +333,7 @@ impl AuthService {
         // The link is spent by now: an admin who cannot be attributed
         // leaves the account unattributed rather than failing it.
         let approved_by = self.existing_admin(invitation.invited_by).await;
-        let approval = (UserStatus::Active, Some(Utc::now()), approved_by);
+        let approval = (UserStatus::Active, Some(Timestamp::now()), approved_by);
         let (user_id, user, tenant_id) = self
             .create_account(
                 &invitation.email,
@@ -394,11 +395,7 @@ impl AuthService {
         email: &str,
         password: SecretString,
         display_name: Option<String>,
-        (status, approved_at, approved_by): (
-            UserStatus,
-            Option<chrono::DateTime<Utc>>,
-            Option<uuid::Uuid>,
-        ),
+        (status, approved_at, approved_by): (UserStatus, Option<Timestamp>, Option<uuid::Uuid>),
         self_activates: bool,
         analytics_consent: Option<bool>,
     ) -> AppResult<(uuid::Uuid, User, TenantId)> {
@@ -412,7 +409,7 @@ impl AuthService {
         // so the answer is never lost to a second write failing.
         if let Some(enabled) = analytics_consent {
             user.analytics_consent = enabled;
-            user.analytics_consent_at = Some(Utc::now());
+            user.analytics_consent_at = Some(Timestamp::now());
         }
 
         // Propagated, not re-wrapped: `create` is insert-only now and reports a
@@ -542,7 +539,7 @@ impl AuthService {
             .auth_manager
             .generate_token_with_tenant(&user, &self.jwks_manager, active_tenant_id)
             .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
-        let expires_at = Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS); // Default 24h expiry
+        let expires_at = Timestamp::now() + Elapsed::hours(limits::DEFAULT_SESSION_HOURS); // Default 24h expiry
 
         info!(user_id = %user.id, "User logged in successfully");
 
@@ -611,7 +608,7 @@ impl AuthService {
         let tenant_id = TenantId::generate();
         let tenant_name = format!("{display_name}'s Workspace");
         let tenant_slug = format!("user-{}", user_id.as_simple());
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         let tenant = Tenant {
             id: tenant_id,
@@ -857,12 +854,8 @@ impl AuthService {
     async fn determine_approval_status(
         &self,
         email: &str,
-    ) -> (
-        UserStatus,
-        Option<chrono::DateTime<Utc>>,
-        Option<uuid::Uuid>,
-    ) {
-        let now = Utc::now();
+    ) -> (UserStatus, Option<Timestamp>, Option<uuid::Uuid>) {
+        let now = Timestamp::now();
         if email_held(self.data.repos(), email).await {
             return (UserStatus::Pending, None, None);
         }
@@ -909,7 +902,7 @@ impl AuthService {
         tenant_id: Option<String>,
         client_id: String,
     ) -> AppResult<String> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let record = SessionRefreshToken {
             family_id: uuid::Uuid::new_v4().to_string(),
             user_id,
@@ -936,7 +929,7 @@ impl AuthService {
     /// token, `AccountSuspended` for a suspended user, and a database error
     /// when the exchange cannot be recorded.
     pub async fn refresh_session(&self, presented: &str) -> AppResult<RefreshedSession> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let repos = self.data.repos();
         let Some(record) = consume_or_revoke_family(
             repos.session_refresh_tokens.consume_token(presented, now),
@@ -983,7 +976,7 @@ impl AuthService {
                 record.client_id.as_deref(),
             )
             .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
-        let expires_at = now + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
+        let expires_at = now + Elapsed::hours(limits::DEFAULT_SESSION_HOURS);
 
         let successor = SessionRefreshToken {
             family_id: record.family_id,
@@ -1016,7 +1009,7 @@ impl AuthService {
     }
 
     /// How long a freshly issued refresh token stays exchangeable.
-    fn refresh_token_lifetime(&self) -> chrono::Duration {
+    fn refresh_token_lifetime(&self) -> Elapsed {
         refresh_token_lifetime(self.config.auth.refresh_token_expiry_days)
     }
 

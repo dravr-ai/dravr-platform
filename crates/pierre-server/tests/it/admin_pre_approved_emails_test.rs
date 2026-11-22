@@ -27,6 +27,7 @@ use secrecy::ExposeSecret;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_config::mcp::AppBehaviorConfig;
@@ -621,11 +622,11 @@ async fn send_invite_mails_an_address_with_no_account() -> Result<()> {
     );
     let expires_at = body["data"]["invitation_expires_at"]
         .as_str()
-        .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+        .and_then(|raw| Timestamp::parse_from_rfc3339(raw).ok())
         .expect("the response must carry the link's expiry");
-    let ttl = expires_at.with_timezone(&chrono::Utc) - chrono::Utc::now();
+    let ttl = expires_at - Timestamp::now();
     assert!(
-        ttl > chrono::Duration::days(6) && ttl <= chrono::Duration::days(7),
+        ttl > Elapsed::days(6) && ttl <= Elapsed::days(7),
         "the link must live about a week: {ttl}"
     );
 
@@ -1036,7 +1037,7 @@ async fn a_returned_link_is_refused_below_super_admin_and_writes_nothing() -> Re
     let live = harness
         .repos
         .user_invitations
-        .list_live(chrono::Utc::now())
+        .list_live(Timestamp::now())
         .await?;
     assert!(live.is_empty(), "no invitation is issued: {live:?}");
     let mailed = harness.invited();

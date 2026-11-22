@@ -21,8 +21,7 @@
 //! civil date, so for any zone ahead of UTC their current day sits past the end
 //! of a UTC-bounded window and is dropped (registre#260).
 
-use chrono::{TimeZone, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_core::civil_time::{clock_date, format_clock_stamp, format_local_stamp, local_date};
 
 /// 09:00 in Sydney on the 4th is 23:00 UTC on the 3rd. The athlete's "today" is
@@ -30,16 +29,16 @@ use pierre_core::civil_time::{clock_date, format_clock_stamp, format_local_stamp
 /// the session they have already finished.
 #[test]
 fn a_zone_ahead_of_utc_is_already_on_the_next_civil_day() {
-    let instant = Utc.with_ymd_and_hms(2026, 9, 3, 23, 0, 0).unwrap();
-    let sydney: Tz = "Australia/Sydney".parse().unwrap();
+    let instant = Timestamp::parse_from_rfc3339("2026-09-03T23:00:00Z").unwrap();
+    let sydney: Zone = "Australia/Sydney".parse().unwrap();
 
     assert_eq!(
-        clock_date(instant, sydney).to_string(),
+        clock_date(instant, &sydney).to_string(),
         "2026-09-04",
         "23:00 UTC is 09:00 the next morning in Sydney"
     );
     assert_eq!(
-        instant.date_naive().to_string(),
+        instant.utc_date().to_string(),
         "2026-09-03",
         "and the server is still on the previous day — the gap this closes"
     );
@@ -52,29 +51,29 @@ fn a_zone_ahead_of_utc_is_already_on_the_next_civil_day() {
 /// ahead of UTC exactly then.
 #[test]
 fn at_midnight_utc_the_clock_converts_and_a_provider_row_does_not() {
-    let midnight = Utc.with_ymd_and_hms(2026, 9, 4, 0, 0, 0).unwrap();
-    let sydney: Tz = "Australia/Sydney".parse().unwrap();
+    let midnight = Timestamp::parse_from_rfc3339("2026-09-04T00:00:00Z").unwrap();
+    let sydney: Zone = "Australia/Sydney".parse().unwrap();
 
     assert_eq!(
-        local_date(midnight, sydney).to_string(),
+        local_date(midnight, &sydney).to_string(),
         "2026-09-04",
         "a date-only provider row keeps the day the provider named"
     );
     assert_eq!(
-        clock_date(midnight, sydney).to_string(),
+        clock_date(midnight, &sydney).to_string(),
         "2026-09-04",
         "and the clock reads 10:00 on the 4th in Sydney — the same day here"
     );
 
     // The direction where they part company: a zone BEHIND UTC.
-    let toronto: Tz = "America/Toronto".parse().unwrap();
+    let toronto: Zone = "America/Toronto".parse().unwrap();
     assert_eq!(
-        local_date(midnight, toronto).to_string(),
+        local_date(midnight, &toronto).to_string(),
         "2026-09-04",
         "the sentinel is not converted, so the provider's day survives"
     );
     assert_eq!(
-        clock_date(midnight, toronto).to_string(),
+        clock_date(midnight, &toronto).to_string(),
         "2026-09-03",
         "but the clock really does read 20:00 the previous evening in Toronto"
     );
@@ -83,11 +82,11 @@ fn at_midnight_utc_the_clock_converts_and_a_provider_row_does_not() {
 /// Away from the sentinel the two agree, which is why the split is easy to miss.
 #[test]
 fn away_from_the_sentinel_the_two_agree() {
-    let evening = Utc.with_ymd_and_hms(2026, 9, 2, 1, 30, 0).unwrap();
-    let toronto: Tz = "America/Toronto".parse().unwrap();
+    let evening = Timestamp::parse_from_rfc3339("2026-09-02T01:30:00Z").unwrap();
+    let toronto: Zone = "America/Toronto".parse().unwrap();
 
-    assert_eq!(local_date(evening, toronto), clock_date(evening, toronto));
-    assert_eq!(clock_date(evening, toronto).to_string(), "2026-09-01");
+    assert_eq!(local_date(evening, &toronto), clock_date(evening, &toronto));
+    assert_eq!(clock_date(evening, &toronto).to_string(), "2026-09-01");
 }
 
 /// The two STAMP renderers split the same way, at the same instant — and this
@@ -100,16 +99,16 @@ fn away_from_the_sentinel_the_two_agree() {
 /// those five minutes the agent was handed the UTC weekday.
 #[test]
 fn at_midnight_utc_the_clock_stamp_converts_and_a_provider_row_stamp_does_not() {
-    let midnight = Utc.with_ymd_and_hms(2026, 9, 5, 0, 0, 0).unwrap();
-    let toronto: Tz = "America/Toronto".parse().unwrap();
+    let midnight = Timestamp::parse_from_rfc3339("2026-09-05T00:00:00Z").unwrap();
+    let toronto: Zone = "America/Toronto".parse().unwrap();
 
     assert_eq!(
-        format_clock_stamp(midnight, toronto, "fr"),
+        format_clock_stamp(midnight, &toronto, "fr"),
         "2026-09-04 ven 20:00",
         "a clock reading always converts: midnight UTC is Friday evening in Toronto"
     );
     assert_eq!(
-        format_local_stamp(midnight, toronto, "fr"),
+        format_local_stamp(midnight, &toronto, "fr"),
         "2026-09-05 sam 00:00",
         "a date-only provider row keeps the day its provider named (registre#258)"
     );
@@ -119,15 +118,15 @@ fn at_midnight_utc_the_clock_stamp_converts_and_a_provider_row_stamp_does_not() 
 /// day was the only window this ever showed in.
 #[test]
 fn away_from_the_sentinel_both_stamps_agree() {
-    let evening = Utc.with_ymd_and_hms(2026, 9, 5, 1, 30, 0).unwrap();
-    let toronto: Tz = "America/Toronto".parse().unwrap();
+    let evening = Timestamp::parse_from_rfc3339("2026-09-05T01:30:00Z").unwrap();
+    let toronto: Zone = "America/Toronto".parse().unwrap();
 
     assert_eq!(
-        format_clock_stamp(evening, toronto, "fr"),
-        format_local_stamp(evening, toronto, "fr"),
+        format_clock_stamp(evening, &toronto, "fr"),
+        format_local_stamp(evening, &toronto, "fr"),
     );
     assert_eq!(
-        format_clock_stamp(evening, toronto, "fr"),
+        format_clock_stamp(evening, &toronto, "fr"),
         "2026-09-04 ven 21:30"
     );
 }
@@ -136,11 +135,11 @@ fn away_from_the_sentinel_both_stamps_agree() {
 /// too — just by naming the previous day instead of the next one.
 #[test]
 fn a_zone_ahead_of_utc_also_needs_the_clock_stamp() {
-    let midnight = Utc.with_ymd_and_hms(2026, 9, 5, 0, 0, 0).unwrap();
-    let sydney: Tz = "Australia/Sydney".parse().unwrap();
+    let midnight = Timestamp::parse_from_rfc3339("2026-09-05T00:00:00Z").unwrap();
+    let sydney: Zone = "Australia/Sydney".parse().unwrap();
 
     assert_eq!(
-        format_clock_stamp(midnight, sydney, "fr"),
+        format_clock_stamp(midnight, &sydney, "fr"),
         "2026-09-05 sam 10:00",
         "midnight UTC is Saturday mid-morning in Sydney"
     );

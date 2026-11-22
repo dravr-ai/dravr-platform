@@ -15,8 +15,9 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 use serde_json::{json, Value};
 
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user, generate_test_token};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -88,7 +89,7 @@ impl Setup {
                 provider.to_owned(),
                 "test_access_token".to_owned(),
                 Some("test_refresh_token".to_owned()),
-                Some(Utc::now() + chrono::Duration::hours(1)),
+                Some(Timestamp::now() + Elapsed::hours(1)),
                 None,
             );
             repos
@@ -316,7 +317,7 @@ mod owed_grant {
                 tenant,
                 oauth_providers::GARMIN,
                 Some("refresh_refused"),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();

@@ -29,6 +29,7 @@ use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use helpers::first_party_sign_in::{
     authorize_uri, first_party_router, fresh_state, location, FirstPartyClient, Pkce, DEFAULT_PEER,
@@ -89,7 +90,7 @@ async fn athlete(resources: &Arc<ServerContext>, email: &str, role: UserRole) ->
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     let repos = &resources.common.repos;
     repos.users.create(&user).await.unwrap();
@@ -104,8 +105,8 @@ async fn athlete(resources: &Arc<ServerContext>, email: &str, role: UserRole) ->
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -1167,7 +1168,7 @@ async fn a_refresh_family_naming_no_client_still_mints_a_session() {
     let resources = create_test_server_resources().await.unwrap();
     let athlete = athlete(&resources, "family-no-client@example.com", UserRole::User).await;
     let presented = "a-family-opened-before-the-claim";
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos
@@ -1180,7 +1181,7 @@ async fn a_refresh_family_naming_no_client_still_mints_a_session() {
                 tenant_id: None,
                 client_id: None,
                 created_at: now,
-                expires_at: now + chrono::Duration::days(30),
+                expires_at: now + Elapsed::days(30),
             },
         )
         .await

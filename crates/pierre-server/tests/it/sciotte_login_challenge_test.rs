@@ -42,8 +42,9 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
 use common::{create_test_user_with_email, generate_test_token};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::{SCIOTTE_GARMIN, TOKEN_TYPE_SESSION};
@@ -325,14 +326,14 @@ impl Athlete {
     /// Store a Garmin session for this athlete under `tenant_id`, as a login
     /// stores one, whose expiry has already passed: the re-login case.
     async fn store_expired_session_under(&self, tenant_id: TenantId, session_id: &str) {
-        let blob = session_blob(session_id, Some(Utc::now() - chrono::Duration::hours(1)));
+        let blob = session_blob(session_id, Some(Timestamp::now() - Elapsed::hours(1)));
         self.store_blob_under(tenant_id, blob).await;
     }
 
     /// Store a Garmin session for this athlete, written an hour ago (past the
     /// reuse window) and expiring tomorrow: still live at the provider.
     async fn store_old_live_session(&self, session_id: &str) {
-        let blob = session_blob(session_id, Some(Utc::now() + chrono::Duration::days(1)));
+        let blob = session_blob(session_id, Some(Timestamp::now() + Elapsed::days(1)));
         self.store_old_blob(blob).await;
     }
 
@@ -344,7 +345,7 @@ impl Athlete {
 
     async fn store_old_blob(&self, blob: String) {
         let mut token = self.session_token(self.tenant_id, blob);
-        token.updated_at = Utc::now() - chrono::Duration::hours(1);
+        token.updated_at = Timestamp::now() - Elapsed::hours(1);
         self.upsert(&token).await;
     }
 
@@ -394,7 +395,7 @@ impl Athlete {
                 self.tenant_id,
                 SCIOTTE_GARMIN,
                 Some("session_expired"),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -433,7 +434,7 @@ impl Athlete {
 
 /// A stored Garmin session blob carrying one device-trust cookie and
 /// `expires_at`, `null` when `None`.
-fn session_blob(session_id: &str, expires_at: Option<chrono::DateTime<Utc>>) -> String {
+fn session_blob(session_id: &str, expires_at: Option<Timestamp>) -> String {
     json!({
         "session_id": session_id,
         "cookies": [{
@@ -444,8 +445,8 @@ fn session_blob(session_id: &str, expires_at: Option<chrono::DateTime<Utc>>) -> 
             "secure": true,
             "http_only": true
         }],
-        "created_at": (Utc::now() - chrono::Duration::days(30)).to_rfc3339(),
-        "expires_at": expires_at.map(|expires_at| expires_at.to_rfc3339()),
+        "created_at": (Timestamp::now() - Elapsed::days(30)).to_rfc3339(),
+        "expires_at": expires_at.map(Timestamp::to_rfc3339),
     })
     .to_string()
 }

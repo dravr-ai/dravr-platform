@@ -61,8 +61,9 @@ const MODEL: &str = "group-chat-rows-model";
 #[cfg(feature = "tools-groups")]
 mod turns {
     use super::*;
+    use dravr_tronc::dates::Elapsed;
 
-    use chrono::{Datelike, Days, NaiveDate, Utc};
+    use dravr_tronc::dates::{CivilDate, Timestamp};
     use embacle::types::ToolCallRequest;
     use pierre_chat_pipeline::{
         ChatPipelineContext, InputSource, PipelineHooks, QuotaState, SurfaceId, SurfaceProfile,
@@ -239,9 +240,9 @@ mod turns {
         }
     }
 
-    fn monday() -> NaiveDate {
-        let today = Utc::now().date_naive();
-        today - Days::new(u64::from(today.weekday().num_days_from_monday()))
+    fn monday() -> CivilDate {
+        let today = Timestamp::now().utc_date();
+        today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()))
     }
 
     fn season(race: &str) -> Value {
@@ -249,7 +250,7 @@ mod turns {
         let days: Vec<Value> = (0..7)
             .map(|offset| {
                 json!({
-                    "date": (start + Days::new(offset)).format("%Y-%m-%d").to_string(),
+                    "date": (start + Elapsed::days(offset)).to_string(),
                     "sport": "run",
                     "workout": "easy aerobic run",
                     "duration_min": 40,
@@ -263,7 +264,7 @@ mod turns {
                 "strategy": format!("build toward {race}"),
             },
             "weeks": [{
-                "week_start": start.format("%Y-%m-%d").to_string(),
+                "week_start": start.to_string(),
                 "focus": "aerobic base",
                 "days": days,
             }],
@@ -302,7 +303,7 @@ mod turns {
             let agent_id = create_group_agent(repos, owner.id, owner.tenant)
                 .await
                 .unwrap();
-            let now = Utc::now();
+            let now = Timestamp::now();
             let group = repos
                 .groups
                 .create_group(

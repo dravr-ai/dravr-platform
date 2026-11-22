@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use tracing::warn;
 use uuid::Uuid;
@@ -36,7 +36,7 @@ pub trait ShortLinkRepository: Send + Sync {
         target_url: &str,
         tenant_id: &str,
         user_id: &str,
-        expires_at: DateTime<Utc>,
+        expires_at: Timestamp,
     ) -> AppResult<()>;
 
     /// Resolve `code` to its target URL when present and not yet expired.
@@ -69,7 +69,7 @@ pub async fn shorten_url(
     user_id: &str,
 ) -> String {
     let code = Uuid::new_v4().simple().to_string();
-    let expires_at = Utc::now() + Duration::hours(SHORT_LINK_TTL_HOURS);
+    let expires_at = Timestamp::now() + Elapsed::hours(SHORT_LINK_TTL_HOURS);
     match repo
         .create_short_link(&code, target_url, tenant_id, user_id, expires_at)
         .await
@@ -131,14 +131,14 @@ macro_rules! impl_short_link_repository {
                 target_url: &str,
                 tenant_id: &str,
                 user_id: &str,
-                expires_at: DateTime<Utc>,
+                expires_at: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(INSERT_SHORT_LINK_SQL)
                     .bind(code)
                     .bind(target_url)
                     .bind(tenant_id)
                     .bind(user_id)
-                    .bind(expires_at.timestamp())
+                    .bind(expires_at.epoch_seconds())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to insert short_link: {e}")))?;
@@ -148,7 +148,7 @@ macro_rules! impl_short_link_repository {
             async fn resolve_short_link(&self, code: &str) -> AppResult<Option<String>> {
                 let row = sqlx::query(RESOLVE_SHORT_LINK_SQL)
                     .bind(code)
-                    .bind(Utc::now().timestamp())
+                    .bind(Timestamp::now().epoch_seconds())
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to read short_link: {e}")))?;
@@ -157,7 +157,7 @@ macro_rules! impl_short_link_repository {
 
             async fn delete_expired_short_links(&self) -> AppResult<u64> {
                 let result = sqlx::query(SWEEP_SHORT_LINKS_SQL)
-                    .bind(Utc::now().timestamp())
+                    .bind(Timestamp::now().epoch_seconds())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to sweep short_links: {e}")))?;

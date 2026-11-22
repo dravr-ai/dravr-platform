@@ -32,6 +32,7 @@
 //! `ci-postgres` these assertions run against `PostgresAdminConfigManager`'s own
 //! SQL rather than a `SQLite` stand-in.
 
+use dravr_tronc::dates::Timestamp;
 use pierre_config::admin_types::{ConfigDataType, ConfigScope};
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
@@ -87,8 +88,8 @@ async fn seed_tenant(db: &Database, owner_user_id: &str) -> String {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: owner,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     db.repositories().tenants.create(&tenant).await.unwrap();
     tenant_id.to_string()

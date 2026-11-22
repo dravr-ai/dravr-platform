@@ -46,8 +46,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use dashmap::DashMap;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::AppError;
 use pierre_core::models::{SessionReadCap, SessionReadCaps, UserTier};
@@ -386,7 +386,7 @@ impl ProviderRateLimiter {
         windows: &[Window],
         refusing: usize,
         retry_after: Duration,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) {
         let (Some(window), Some(cap)) = (windows.get(refusing), task_caps().get(refusing).copied())
         else {
@@ -488,7 +488,7 @@ mod tests {
                 PLATFORM_SCOPE,
                 PLATFORM_SCOPE,
                 key,
-                &budget_period(Utc::now(), window),
+                &budget_period(Timestamp::now(), window),
             )
             .await
             .map_or(0, |counter| counter.value)
@@ -502,7 +502,7 @@ mod tests {
                 PLATFORM_SCOPE,
                 PLATFORM_SCOPE,
                 key,
-                &budget_period(Utc::now(), window),
+                &budget_period(Timestamp::now(), window),
                 i64::from(value),
             )
             .await
@@ -621,16 +621,16 @@ mod tests {
             budget.admit(GARMIN_SESSION).await.is_ok(),
             "bug: the last read of the Starter day is refused"
         );
-        let before = Utc::now();
+        let before = Timestamp::now();
         let refused = budget
             .admit(GARMIN_SESSION)
             .await
             .expect_err("the read past the Starter day is refused");
         let wait = refused.retry_after_secs().unwrap_or(0);
-        let day_end = before.date_naive().succ_opt().map_or(before, |day| {
-            day.and_hms_opt(0, 0, 0)
-                .map_or(before, |midnight| midnight.and_utc())
-        });
+        let day_end = before
+            .utc_date()
+            .succ()
+            .map_or(before, |day| day.at_midnight().and_utc().unwrap());
         let until_midnight = u64::try_from((day_end - before).num_seconds()).unwrap_or(0);
         assert!(
             wait.abs_diff(until_midnight) <= 2,

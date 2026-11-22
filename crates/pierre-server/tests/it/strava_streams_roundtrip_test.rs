@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use axum::extract::Query;
 use axum::http::StatusCode;
 use axum::{routing::get, Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_providers::core::{
     stream_sample_count, CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
@@ -136,7 +136,7 @@ async fn provider_serving(
                 "test_access_token_0123456789abcdef0123456789",
             )),
             refresh_token: Some(SecretString::from("test_refresh_token")),
-            expires_at: Some(Utc::now() + chrono::Duration::days(30)),
+            expires_at: Some(Timestamp::now() + Elapsed::days(30)),
             scopes: vec!["read".to_owned()],
             kind: CredentialKind::OAuthBearer,
             request_budget: None,
@@ -159,6 +159,7 @@ async fn provider_with_streams(serve_streams: bool) -> (StravaProvider, Arc<Stre
 }
 
 use axum::response::IntoResponse;
+use dravr_tronc::dates::Elapsed;
 
 #[tokio::test]
 async fn with_streams_attaches_real_samples_and_handles_dropouts() {

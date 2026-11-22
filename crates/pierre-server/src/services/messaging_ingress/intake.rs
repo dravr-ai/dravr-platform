@@ -36,7 +36,7 @@
 //! worse outcome than an unscreened athlete. The steps are recorded as skipped
 //! so the screen does not reopen on their next message.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::{
     KEY_INTAKE_COMPLETE_CLEAR, KEY_INTAKE_COMPLETE_COACH, KEY_INTAKE_COMPLETE_FLAGGED,
     KEY_INTAKE_OPENER, KEY_INTAKE_PARQ_INTRO, KEY_INTAKE_RETRY, KEY_INTAKE_YESNO_HINT,
@@ -302,7 +302,7 @@ async fn persist_check_in(
         .common
         .repos
         .check_in_preferences
-        .set_check_in_cadence(tenant_id, uuid, cadence, Utc::now())
+        .set_check_in_cadence(tenant_id, uuid, cadence, Timestamp::now())
         .await
     {
         Ok(()) => info!(

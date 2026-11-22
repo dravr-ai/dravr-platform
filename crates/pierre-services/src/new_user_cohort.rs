@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{NewUserMilestones, NewUserTurn};
@@ -41,7 +41,7 @@ pub struct NewUserCohort {
     /// The window, in days back from `generated_at`.
     pub window_days: i64,
     /// When the report was computed.
-    pub generated_at: DateTime<Utc>,
+    pub generated_at: Timestamp,
     /// Whether more accounts were created in the window than the report lists.
     pub truncated: bool,
     /// How many of the listed accounts reached each milestone.
@@ -82,27 +82,27 @@ pub struct NewUserRow {
     /// The name it chose, if any.
     pub display_name: Option<String>,
     /// When it was created.
-    pub signed_up_at: DateTime<Utc>,
+    pub signed_up_at: Timestamp,
     /// How it signed up: `email`, `google`, `apple`, …
     pub signup_source: String,
     /// `pending`, `active` or `suspended`.
     pub status: String,
     /// When it was approved or admitted.
-    pub approved_at: Option<DateTime<Utc>>,
+    pub approved_at: Option<Timestamp>,
     /// Whether it proved its address.
     pub email_verified: bool,
     /// Its first provider connection.
-    pub provider_connected_at: Option<DateTime<Utc>>,
+    pub provider_connected_at: Option<Timestamp>,
     /// When provider data first arrived: the earlier of its first cached
     /// activity and its earliest completed health sync on record.
-    pub first_sync_at: Option<DateTime<Utc>>,
+    pub first_sync_at: Option<Timestamp>,
     /// Its first message.
-    pub first_turn_at: Option<DateTime<Utc>>,
+    pub first_turn_at: Option<Timestamp>,
     /// Messages it sent in its first week (so far, for an account younger
     /// than a week).
     pub turns_first_week: usize,
     /// When it was last seen.
-    pub last_active_at: Option<DateTime<Utc>>,
+    pub last_active_at: Option<Timestamp>,
 }
 
 /// `requested` days, defaulted and clamped to `1..=MAX_WINDOW_DAYS`.
@@ -125,9 +125,9 @@ pub async fn fetch_new_user_cohort(
     repos: &RepositoryRegistry,
     window_days: i64,
     scope: Option<TenantId>,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<NewUserCohort> {
-    let since = now - Duration::days(window_days);
+    let since = now - Elapsed::days(window_days);
     // One more than listed tells whether the window holds more.
     let limit = i64::try_from(MAX_COHORT_USERS + 1).unwrap_or(i64::MAX);
     let (milestones, turns) = tokio::try_join!(
@@ -142,14 +142,14 @@ pub async fn fetch_new_user_cohort(
 #[must_use]
 fn assemble_cohort(
     window_days: i64,
-    now: DateTime<Utc>,
+    now: Timestamp,
     mut milestones: Vec<NewUserMilestones>,
     turns: &[NewUserTurn],
 ) -> NewUserCohort {
     let truncated = milestones.len() > MAX_COHORT_USERS;
     milestones.truncate(MAX_COHORT_USERS);
 
-    let mut turns_by_user: HashMap<Uuid, Vec<DateTime<Utc>>> = HashMap::new();
+    let mut turns_by_user: HashMap<Uuid, Vec<Timestamp>> = HashMap::new();
     for turn in turns {
         turns_by_user
             .entry(turn.user_id)
@@ -164,7 +164,7 @@ fn assemble_cohort(
             let sent = turns_by_user
                 .get(&account.user_id)
                 .map_or(&[][..], Vec::as_slice);
-            let first_week_end = account.signed_up_at + Duration::days(FIRST_WEEK_DAYS);
+            let first_week_end = account.signed_up_at + Elapsed::days(FIRST_WEEK_DAYS);
             let turns_first_week = sent
                 .iter()
                 .filter(|at| **at >= account.signed_up_at && **at < first_week_end)
@@ -215,7 +215,7 @@ fn assemble_cohort(
 }
 
 /// The earlier of two optional instants.
-fn earliest(a: Option<DateTime<Utc>>, b: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
+fn earliest(a: Option<Timestamp>, b: Option<Timestamp>) -> Option<Timestamp> {
     match (a, b) {
         (Some(a), Some(b)) => Some(a.min(b)),
         (one, None) | (None, one) => one,
@@ -225,15 +225,17 @@ fn earliest(a: Option<DateTime<Utc>>, b: Option<DateTime<Utc>>) -> Option<DateTi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
+    use dravr_tronc::dates::{CivilDate, CivilDateTime};
 
-    fn at(day: u32, hour: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 10, day, hour, 0, 0)
-            .single()
+    fn at(day: u32, hour: u32) -> Timestamp {
+        CivilDate::from_ymd(2026, 10, day)
+            .and_then(|date| date.and_hms(hour, 0, 0))
+            .and_then(CivilDateTime::and_utc)
+            .ok()
             .unwrap_or_default()
     }
 
-    fn account(user_id: Uuid, signed_up_at: DateTime<Utc>) -> NewUserMilestones {
+    fn account(user_id: Uuid, signed_up_at: Timestamp) -> NewUserMilestones {
         NewUserMilestones {
             user_id,
             email: "athlete@example.com".to_owned(),

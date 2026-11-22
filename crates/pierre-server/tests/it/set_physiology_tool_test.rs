@@ -8,10 +8,9 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::{Duration, NaiveDate, Utc};
-use chrono_tz::Australia::Brisbane;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::zones::{HrZoneTier, HrZones, PowerZones, Vo2maxSource};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::zones::{HrZoneModel, HrZoneSet, PowerZoneModel, PowerZoneSet};
 use pierre_core::models::{
@@ -41,6 +40,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use dravr_tronc::dates::Zone;
 
 async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
@@ -541,7 +541,7 @@ fn power_run(id: &str, days_ago: i64) -> Activity {
         id.to_owned(),
         format!("session {id}"),
         SportType::Ride,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3600,
         "synthetic".to_owned(),
     )
@@ -578,8 +578,8 @@ async fn a_saved_ftp_changes_the_training_load_the_engine_computes() -> Result<(
     );
 
     let activities: Vec<Activity> = (1..=14).map(|d| power_run(&format!("a{d}"), d)).collect();
-    let to = Utc::now().date_naive();
-    let from = to - Duration::days(13);
+    let to = Timestamp::now().utc_date();
+    let from = to - Elapsed::days(13);
     let config = AlgorithmConfig::default();
 
     let with_physiology = compute_training_history(&activities, inputs, from, to, &config, None)
@@ -906,7 +906,7 @@ async fn source_of(
 fn garmin_morning(
     user_id: Uuid,
     source_id: &str,
-    date: NaiveDate,
+    date: CivilDate,
     rhr: u32,
 ) -> StoredRecoveryMetrics {
     StoredRecoveryMetrics {
@@ -927,7 +927,7 @@ fn garmin_morning(
         daily_strain: None,
         athlete_note: None,
         source_name: "garmin".to_owned(),
-        recorded_at: Utc::now(),
+        recorded_at: Timestamp::now(),
     }
 }
 
@@ -944,7 +944,9 @@ async fn a_stated_resting_hr_is_the_days_measurement_over_the_watchs() -> Result
         .users
         .set_timezone(user_id, "Australia/Brisbane")
         .await?;
-    let today = Utc::now().with_timezone(&Brisbane).date_naive();
+    let today = Zone::from_name("Australia/Brisbane")
+        .unwrap()
+        .date_at(Timestamp::now());
     let garmin = source_of(&executor, &tenant, user_id, "garmin").await?;
     repos
         .recovery
@@ -952,19 +954,19 @@ async fn a_stated_resting_hr_is_the_days_measurement_over_the_watchs() -> Result
             &tenant,
             &garmin_morning(user_id, &garmin, today, 55),
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await?;
 
     set_physiology(&executor, user_id, &tenant_id, json!({ "resting_hr": 48 })).await?;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let read = stored_health::merged_recovery(
         repos,
         executor.resources.provider_registry().as_ref(),
         user_id,
         &tenant,
-        (now - Duration::days(3), now + Duration::days(1)),
+        (now - Elapsed::days(3), now + Elapsed::days(1)),
         SourceFilter::All,
         stored_health::as_stored,
     )
@@ -1010,14 +1012,14 @@ async fn an_empty_anchor_reads_the_latest_measurement_and_a_stored_one_stands() 
     // The athlete's own export: served over every transport, as the tool
     // reads it here.
     let export = source_of(&executor, &tenant, user_id, "garmin_archive").await?;
-    let long_ago = Utc::now().date_naive() - Duration::days(200);
+    let long_ago = Timestamp::now().utc_date() - Elapsed::days(200);
     repos
         .recovery
         .upsert_recovery_metrics(
             &tenant,
             &garmin_morning(user_id, &garmin, long_ago, 55),
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await?;
     repos
@@ -1040,10 +1042,10 @@ async fn an_empty_anchor_reads_the_latest_measurement_and_a_stored_one_stands() 
                 blood_glucose: None,
                 vo2_max: Some(52.0),
                 source_name: "garmin_archive".to_owned(),
-                recorded_at: Utc::now(),
+                recorded_at: Timestamp::now(),
             },
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await?;
     let terms = executor.resources.provider_registry();
@@ -1089,9 +1091,9 @@ async fn an_empty_anchor_reads_the_latest_measurement_and_a_stored_one_stands() 
         .recovery
         .upsert_recovery_metrics(
             &tenant,
-            &garmin_morning(user_id, &garmin, Utc::now().date_naive(), 61),
+            &garmin_morning(user_id, &garmin, Timestamp::now().utc_date(), 61),
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await?;
     let effective =
@@ -1126,8 +1128,8 @@ async fn athlete_rows(
 ) -> Result<(Vec<StoredRecoveryMetrics>, Vec<StoredHealthMetrics>)> {
     let repos = executor.resources.repos();
     let (start, end) = (
-        Utc::now() - Duration::days(3),
-        Utc::now() + Duration::days(2),
+        Timestamp::now() - Elapsed::days(3),
+        Timestamp::now() + Elapsed::days(2),
     );
     let recovery = repos
         .recovery
@@ -1232,7 +1234,9 @@ async fn a_saved_vo2max_is_an_anchor_not_the_days_measurement() -> Result<()> {
         .users
         .set_timezone(user_id, "Australia/Brisbane")
         .await?;
-    let today = Utc::now().with_timezone(&Brisbane).date_naive();
+    let today = Zone::from_name("Australia/Brisbane")
+        .unwrap()
+        .date_at(Timestamp::now());
     let garmin = source_of(&executor, &tenant, user_id, "garmin").await?;
     repos
         .health_snapshots
@@ -1254,10 +1258,10 @@ async fn a_saved_vo2max_is_an_anchor_not_the_days_measurement() -> Result<()> {
                 blood_glucose: None,
                 vo2_max: Some(54.0),
                 source_name: "garmin".to_owned(),
-                recorded_at: Utc::now(),
+                recorded_at: Timestamp::now(),
             },
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await?;
 
@@ -1268,13 +1272,13 @@ async fn a_saved_vo2max_is_an_anchor_not_the_days_measurement() -> Result<()> {
         "the anchor is saved"
     );
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let days = stored_health::merged_body(
         repos,
         executor.resources.provider_registry().as_ref(),
         user_id,
         &tenant,
-        (now - Duration::days(3), now + Duration::days(1)),
+        (now - Elapsed::days(3), now + Elapsed::days(1)),
         SourceFilter::All,
         stored_health::as_stored,
     )
@@ -1395,7 +1399,7 @@ async fn garmin_mornings(
     executor: &UniversalToolExecutor,
     tenant: &TenantId,
     user_id: Uuid,
-    today: NaiveDate,
+    today: CivilDate,
     mornings: &[u32],
 ) -> Result<()> {
     let garmin = source_of(executor, tenant, user_id, "garmin").await?;
@@ -1406,9 +1410,9 @@ async fn garmin_mornings(
             .recovery
             .upsert_recovery_metrics(
                 tenant,
-                &garmin_morning(user_id, &garmin, today - Duration::days(days_ago), *bpm),
+                &garmin_morning(user_id, &garmin, today - Elapsed::days(days_ago), *bpm),
                 WellnessWriteMode::FullDay,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await?;
     }
@@ -1421,7 +1425,7 @@ async fn stored_history_to_recompute(
     executor: &UniversalToolExecutor,
     tenant: TenantId,
     user_id: Uuid,
-) -> Result<NaiveDate> {
+) -> Result<CivilDate> {
     let repos = executor.resources.repos();
     let runs: Vec<Activity> = (1..=10)
         .map(|day| {
@@ -1429,7 +1433,7 @@ async fn stored_history_to_recompute(
                 format!("upload-run-{day}"),
                 "Run",
                 SportType::Run,
-                Utc::now() - Duration::days(day),
+                Timestamp::now() - Elapsed::days(day),
                 3_600,
                 "upload",
             )
@@ -1442,7 +1446,7 @@ async fn stored_history_to_recompute(
         .activity_cache
         .upsert_activities(user_id, &tenant, "upload", &runs)
         .await?;
-    let stale_day = Utc::now().date_naive() - Duration::days(1);
+    let stale_day = Timestamp::now().utc_date() - Elapsed::days(1);
     let mut stale = DailyTrainingState::zero(stale_day);
     stale.daily_load = 999.0;
     repos
@@ -1480,7 +1484,9 @@ async fn the_anchors_set_physiology_sets_are_stamped_as_the_athletes() -> Result
         .users
         .set_timezone(user_id, "Australia/Brisbane")
         .await?;
-    let today = Utc::now().with_timezone(&Brisbane).date_naive();
+    let today = Zone::from_name("Australia/Brisbane")
+        .unwrap()
+        .date_at(Timestamp::now());
 
     let saved = set_physiology(
         &executor,
@@ -1523,7 +1529,7 @@ async fn an_empty_resting_hr_is_promoted_from_the_weeks_median_and_recomputes_hi
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     set_physiology(&executor, user_id, &tenant_id, json!({ "max_hr": 190 })).await?;
     let zones_before = stored_profile(&executor, tenant, user_id).await?.hr_zones;
     // An eighth, older morning sits outside the window.
@@ -1603,7 +1609,7 @@ async fn two_mornings_promote_no_resting_hr() -> Result<()> {
         &executor,
         &tenant,
         user_id,
-        Utc::now().date_naive(),
+        Timestamp::now().utc_date(),
         &[50, 52],
     )
     .await?;
@@ -1629,7 +1635,7 @@ async fn a_promotion_never_overwrites_the_athletes_resting_hr() -> Result<()> {
     let executor = own_app_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     garmin_mornings(&executor, &tenant, user_id, today, &[50, 52, 49, 51, 50]).await?;
     let runtime = Arc::clone(&executor.resources);
     promote_anchors(&runtime, tenant, user_id).await?;
@@ -1699,7 +1705,7 @@ async fn a_promotion_contradicting_the_stored_maximum_saves_nothing() -> Result<
         &executor,
         &tenant,
         user_id,
-        Utc::now().date_naive(),
+        Timestamp::now().utc_date(),
         &[125, 126, 124],
     )
     .await?;
@@ -1726,7 +1732,7 @@ async fn the_weekly_pass_reaches_a_history_holder_with_no_profile() -> Result<()
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     garmin_mornings(&executor, &tenant, user_id, today, &[48, 49, 50]).await?;
     stored_history_to_recompute(&executor, tenant, user_id).await?;
     let garmin = source_of(&executor, &tenant, user_id, "garmin").await?;
@@ -1741,7 +1747,7 @@ async fn the_weekly_pass_reaches_a_history_holder_with_no_profile() -> Result<()
                     id: String::new(),
                     user_id: user_id.to_string(),
                     data_source_id: garmin.clone(),
-                    date: today - Duration::days(days_ago),
+                    date: today - Elapsed::days(days_ago),
                     weight_kg: Some(weight),
                     body_fat_pct: None,
                     muscle_mass_kg: None,
@@ -1753,10 +1759,10 @@ async fn the_weekly_pass_reaches_a_history_holder_with_no_profile() -> Result<()
                     blood_glucose: None,
                     vo2_max,
                     source_name: "garmin".to_owned(),
-                    recorded_at: Utc::now(),
+                    recorded_at: Timestamp::now(),
                 },
                 WellnessWriteMode::FullDay,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await?;
     }
@@ -1785,7 +1791,7 @@ async fn the_weekly_pass_reaches_a_history_holder_with_no_profile() -> Result<()
     assert_eq!(profile.weight, Some(70.4), "the latest weigh-in");
     assert_eq!(
         profile.anchor_provenance.weight,
-        Some(AnchorStamp::promoted(today - Duration::days(2))),
+        Some(AnchorStamp::promoted(today - Elapsed::days(2))),
         "bug: the weight is not stamped as of its weigh-in"
     );
     assert_eq!(
@@ -1795,7 +1801,7 @@ async fn the_weekly_pass_reaches_a_history_holder_with_no_profile() -> Result<()
     );
     assert_eq!(
         profile.anchor_provenance.vo2_max,
-        Some(AnchorStamp::promoted(today - Duration::days(9))),
+        Some(AnchorStamp::promoted(today - Elapsed::days(9))),
         "bug: the VO2max is not stamped as of its measurement"
     );
 
@@ -1817,7 +1823,7 @@ async fn weigh_in(
     tenant: &TenantId,
     user_id: Uuid,
     provider: &str,
-    date: NaiveDate,
+    date: CivilDate,
     weight_kg: f64,
 ) -> Result<()> {
     let source = source_of(executor, tenant, user_id, provider).await?;
@@ -1843,10 +1849,10 @@ async fn weigh_in(
                 blood_glucose: None,
                 vo2_max: None,
                 source_name: provider.to_owned(),
-                recorded_at: Utc::now(),
+                recorded_at: Timestamp::now(),
             },
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await?;
     Ok(())
@@ -1861,7 +1867,7 @@ async fn rows_read_for_an_anchor_that_did_not_move_do_not_stamp_the_profile() ->
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     garmin_mornings(&executor, &tenant, user_id, today, &[50, 52]).await?;
     weigh_in(&executor, &tenant, user_id, "wahoo", today, 70.0).await?;
 
@@ -1889,7 +1895,7 @@ async fn a_set_physiology_during_the_measurement_read_is_not_reverted() -> Resul
     let executor = own_app_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     set_physiology(&executor, user_id, &tenant_id, json!({ "ftp_watts": 250 })).await?;
     garmin_mornings(&executor, &tenant, user_id, today, &[50, 52, 49, 51]).await?;
     let runtime = Arc::clone(&executor.resources);
@@ -1945,7 +1951,7 @@ async fn a_value_written_without_its_origin_is_never_promoted_over() -> Result<(
     let executor = own_app_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     let tenant = TenantId::from_uuid(Uuid::parse_str(&tenant_id)?);
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     garmin_mornings(&executor, &tenant, user_id, today, &[50, 52, 49]).await?;
     let runtime = Arc::clone(&executor.resources);
     promote_anchors(&runtime, tenant, user_id).await?;

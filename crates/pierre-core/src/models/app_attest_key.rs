@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 
 /// Which App Attest service vouched for a key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,7 +56,7 @@ pub struct AppAttestKey {
     /// its first assertion.
     pub sign_count: u32,
     /// When the attestation was verified.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When the key last vouched for a sign-in.
-    pub last_used_at: DateTime<Utc>,
+    pub last_used_at: Timestamp,
 }

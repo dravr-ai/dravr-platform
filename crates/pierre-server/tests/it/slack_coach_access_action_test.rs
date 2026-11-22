@@ -22,8 +22,8 @@ mod slack_coach_access_action {
     use std::sync::Arc;
 
     use axum::http::StatusCode;
-    use chrono::Utc;
     use dravr_contremaitre::config::NOTIFY_ROUTING_YAML;
+    use dravr_tronc::dates::Timestamp;
     use hmac::{Hmac, Mac};
     use pierre_contremaitre::notify_routing::NOTIFY_ROUTING_PROVIDER;
     use pierre_core::models::{
@@ -93,8 +93,8 @@ mod slack_coach_access_action {
                 domain: None,
                 plan: "starter".to_owned(),
                 owner_user_id: user_id,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
             })
             .await
             .unwrap();
@@ -149,7 +149,7 @@ mod slack_coach_access_action {
             UserStatus::Active,
         )
         .await;
-        let request = CoachAccessRequest::pending(requester, None, Utc::now());
+        let request = CoachAccessRequest::pending(requester, None, Timestamp::now());
         assert!(resources
             .common
             .repos
@@ -178,7 +178,7 @@ mod slack_coach_access_action {
         .to_string();
         let body = format!("payload={}", urlencoding::encode(&payload));
 
-        let timestamp = Utc::now().timestamp().to_string();
+        let timestamp = Timestamp::now().epoch_seconds().to_string();
         let mut mac = Hmac::<Sha256>::new_from_slice(SIGNING_SECRET.as_bytes()).unwrap();
         mac.update(format!("v0:{timestamp}:{body}").as_bytes());
         let signature = format!("v0={}", hex::encode(mac.finalize().into_bytes()));

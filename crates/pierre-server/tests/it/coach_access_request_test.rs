@@ -20,6 +20,7 @@ use pierre_test_support::account::delete_account;
 
 use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named, only};
 use pierre_contremaitre::messaging_strings::{
@@ -146,8 +147,8 @@ async fn session(resources: &Arc<ServerContext>, email: &str, role: UserRole) ->
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await?;
     resources
@@ -478,7 +479,7 @@ async fn a_decision_names_a_requester_this_pod_never_saw() -> Result<()> {
         let coach = session(&resources, email, UserRole::User).await?;
         // Opened straight in the store, as when another pod announced it:
         // nothing on this one cached who asked.
-        let request = CoachAccessRequest::pending(coach.user_id, None, chrono::Utc::now());
+        let request = CoachAccessRequest::pending(coach.user_id, None, Timestamp::now());
         assert!(repos.coach_access_requests.open(&request).await?);
         assert_eq!(resolve_user_email(&coach.user_id.to_string()), None);
 
@@ -1253,8 +1254,8 @@ async fn second_tenant(resources: &Arc<ServerContext>, owner: &Session) -> Resul
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: owner.user_id,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await?;
     Ok(tenant_id)

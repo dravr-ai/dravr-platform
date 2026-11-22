@@ -23,7 +23,7 @@ use axum::{
     routing::{get, post},
     Extension, Json, Router,
 };
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::admin::models::{AdminPermission, ValidatedAdminToken};
 use pierre_database::repositories::CaptureFreshness;
 use pierre_routes_admin::auth::middleware::admin_auth_middleware;
@@ -216,9 +216,9 @@ pub struct StaleCapture {
     /// Provider slug that has gone quiet.
     pub provider: String,
     /// When this connection last served the athlete.
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<Timestamp>,
     /// When a fetch last reached the provider — `None` when none ever has.
-    pub last_fetch_at: Option<DateTime<Utc>>,
+    pub last_fetch_at: Option<Timestamp>,
     /// Hours between `last_fetch_at` and the moment of the check. `None` when no
     /// fetch has ever succeeded, which is a distinct state from a large number
     /// and is deliberately not flattened into one.
@@ -229,7 +229,7 @@ pub struct StaleCapture {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureStalenessReport {
     /// When the snapshot was taken.
-    pub checked_at: DateTime<Utc>,
+    pub checked_at: Timestamp,
     /// The stale threshold actually applied, after clamping.
     pub stale_after_hours: i64,
     /// The activity window actually applied, after clamping.
@@ -264,9 +264,9 @@ pub struct CaptureStalenessReport {
 #[must_use]
 pub fn partition_stale_captures(
     snapshot: &[CaptureFreshness],
-    now: DateTime<Utc>,
-    stale_after: Duration,
-    active_within: Duration,
+    now: Timestamp,
+    stale_after: Elapsed,
+    active_within: Elapsed,
 ) -> (usize, Vec<StaleCapture>) {
     let judged: Vec<&CaptureFreshness> = snapshot
         .iter()
@@ -350,12 +350,12 @@ pub async fn handle_capture_staleness(
             .await?,
     );
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let (connections_judged, stale) = partition_stale_captures(
         &snapshot,
         now,
-        Duration::hours(stale_after_hours),
-        Duration::hours(active_within_hours),
+        Elapsed::hours(stale_after_hours),
+        Elapsed::hours(active_within_hours),
     );
 
     Ok((
@@ -423,7 +423,7 @@ pub async fn handle_capture_refresh(
 mod tests {
     use axum::extract::Query;
     use axum::http::Uri;
-    use chrono::Duration;
+    use dravr_tronc::dates::Elapsed;
 
     use super::{CaptureRefreshQuery, SweepSelection};
 
@@ -441,12 +441,12 @@ mod tests {
         );
         assert_eq!(
             selection.active_within,
-            Some(Duration::hours(168)),
+            Some(Elapsed::hours(168)),
             "bug: active_within_hours must narrow the sweep"
         );
         assert_eq!(
             selection.skip_fetched_within,
-            Some(Duration::hours(2)),
+            Some(Elapsed::hours(2)),
             "bug: skip_fetched_within_hours must pass over fresh heads"
         );
     }
@@ -465,7 +465,7 @@ mod tests {
         );
         assert_eq!(
             selection.active_within,
-            Some(Duration::hours(168)),
+            Some(Elapsed::hours(168)),
             "bug: active_within_hours must still narrow the sweep"
         );
     }

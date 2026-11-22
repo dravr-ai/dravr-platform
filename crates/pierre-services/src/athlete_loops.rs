@@ -30,7 +30,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{PlaceRef, SportType, TenantId};
@@ -143,7 +143,7 @@ pub struct OwnLoop {
     /// The place it started at, as a row carries it.
     pub place: PlaceRef,
     /// When it started.
-    pub started_at: DateTime<Utc>,
+    pub started_at: Timestamp,
     /// Its recorded distance, in metres.
     pub distance_meters: f64,
     /// Its recorded climb, in metres; `None` when none was recorded.
@@ -184,7 +184,7 @@ pub async fn own_loops(
     tenant_id: &TenantId,
     user_id: Uuid,
     search: &LoopSearch,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<Vec<OwnLoop>> {
     let near: HashSet<String> = repos
         .athlete_places

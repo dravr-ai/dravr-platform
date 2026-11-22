@@ -25,7 +25,6 @@ base64 = "0.22"
 # Inflates the brotli-compressed locale catalogues build.rs embeds (carnet#1645);
 # the same decoder tower-http's response compression already links.
 brotli-decompressor = "6"
-chrono = { version = "0.4", features = ["serde"] }
 dravr-contremaitre = { workspace = true }
 dravr-tronc = { workspace = true, features = ["notifications"] }
 hex = "0.4"

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use uuid::Uuid;
 
 /// What the server keeps about a refresh token issued to a first-party device.
@@ -25,7 +25,7 @@ pub struct SessionRefreshToken {
     /// `client_id` claim. `None` for a session no client signed in to.
     pub client_id: Option<String>,
     /// When this token was issued.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When this token stops being exchangeable, whether or not it was used.
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
 }

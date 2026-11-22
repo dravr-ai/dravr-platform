@@ -343,7 +343,7 @@ fn loop_route(start: (f64, f64), distance_meters: f64, seed: u64) -> String {
 }
 
 /// Normalize a stored `start_date` to `RFC3339` with an explicit `Z` offset,
-/// the shape the Strava provider's chrono parser expects. Seeded rows store a
+/// the shape the Strava provider's RFC 3339 parser expects. Seeded rows store a
 /// naive UTC timestamp with no offset (e.g. `2026-05-22T02:37:08.05570`).
 fn rfc3339_z(start_date: &str) -> String {
     if start_date.ends_with('Z') || start_date.contains('+') {
@@ -358,7 +358,7 @@ mod tests {
     use super::*;
     use secrecy::SecretString;
 
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_config::environment::HttpClientConfig;
     use pierre_config::utils::http_client::initialize_http_clients;
     use pierre_dev_fixture::garmin::BEARER_PREFIX;
@@ -447,7 +447,7 @@ mod tests {
                 client_secret: SecretString::from("dev"),
                 access_token: Some(SecretString::from(format!("{BEARER_PREFIX}{user}"))),
                 refresh_token: Some(SecretString::from("dev")),
-                expires_at: Some(Utc::now() + Duration::days(1)),
+                expires_at: Some(Timestamp::now() + Elapsed::days(1)),
                 scopes: vec!["read".to_owned()],
                 kind: CredentialKind::OAuthBearer,
                 request_budget: None,
@@ -478,7 +478,7 @@ mod tests {
                 client_secret: SecretString::from("dev"),
                 access_token: Some(SecretString::from(format!("{BEARER_PREFIX}{user}"))),
                 refresh_token: Some(SecretString::from("dev")),
-                expires_at: Some(Utc::now() + Duration::days(1)),
+                expires_at: Some(Timestamp::now() + Elapsed::days(1)),
                 scopes: Vec::new(),
                 kind: CredentialKind::OAuthBearer,
                 request_budget: None,

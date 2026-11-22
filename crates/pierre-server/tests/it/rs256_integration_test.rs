@@ -10,6 +10,7 @@
 use crate::common;
 
 use anyhow::Result;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::{admin::jwks::JwksManager, auth::AuthManager};
 use pierre_core::admin::models::{AdminPermission, AdminPermissions};
 use pierre_core::admin::AdminJwtManager;
@@ -319,7 +320,7 @@ async fn test_rs256_admin_token_expiration() -> Result<()> {
     let permissions = AdminPermissions::default_admin();
 
     // Generate token that expires in the past
-    let expires_at = chrono::Utc::now() - chrono::Duration::hours(1);
+    let expires_at = Timestamp::now() - Elapsed::hours(1);
 
     let token = jwt_manager.generate_token(
         token_id,

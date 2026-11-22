@@ -39,10 +39,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{NaiveDate, Utc};
 use dravr_cageux::physiological_constants::physiological_defaults::{
     LACTATE_THRESHOLD_MAX, LACTATE_THRESHOLD_MIN,
 };
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use serde_json::{json, Map, Value};
 use tracing::info;
 use uuid::Uuid;
@@ -245,7 +245,7 @@ fn provenance_from_args(args: &Value) -> AppResult<Option<MetricProvenance>> {
         .get("measured_on")
         .and_then(Value::as_str)
         .map(|raw| {
-            NaiveDate::parse_from_str(raw.trim(), "%Y-%m-%d").map_err(|_| {
+            CivilDate::parse_from_str(raw.trim(), "%Y-%m-%d").map_err(|_| {
                 AppError::invalid_input(format!(
                     "measured_on must be a date as YYYY-MM-DD; got '{raw}'"
                 ))
@@ -253,7 +253,7 @@ fn provenance_from_args(args: &Value) -> AppResult<Option<MetricProvenance>> {
         })
         .transpose()?;
     if let Some(day) = as_of {
-        if day > Utc::now().date_naive() {
+        if day > Timestamp::now().utc_date() {
             return Err(AppError::invalid_input(format!(
                 "measured_on cannot be in the future; got {day}"
             )));
@@ -487,7 +487,7 @@ impl PhysiologyUpdate {
     /// provenance, if any, is cleared; one it does not set keeps its own. A
     /// resting heart rate, `VO2max` or weight the call sets is stamped as the
     /// athlete's, stated on `today`, so the weekly promotion never replaces it.
-    fn apply_to(&self, profile: &mut UserPhysiologicalProfile, today: NaiveDate) {
+    fn apply_to(&self, profile: &mut UserPhysiologicalProfile, today: CivilDate) {
         if let Some(v) = self.ftp_watts {
             profile.ftp_watts = Some(v);
             profile.threshold_provenance.ftp_watts = None;

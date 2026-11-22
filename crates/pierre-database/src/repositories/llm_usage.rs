@@ -12,7 +12,7 @@
 //! caller holds; `turn_id` is a `uuid` column on Postgres and `TEXT` on
 //! `SQLite`, so the shell hands the body its [`uuid_columns`](super::uuid_columns)
 //! codec. `created_at` is `TIMESTAMPTZ` on Postgres and RFC 3339 text on
-//! `SQLite`; it binds as [`DateTime<Utc>`] on both (sqlx-sqlite writes the
+//! `SQLite`; it binds as [`Timestamp`] on both (sqlx-sqlite writes the
 //! bytes `to_rfc3339()` produces), reads back as one, and the record renders
 //! it `to_rfc3339()` — the form [`insert_llm_usage`] itself returns, so a row
 //! reads back as it was returned at insert. `call_sequence` is `INTEGER` on
@@ -28,13 +28,13 @@
 //! Postgres; the shell passes that spelling as the `day` literal.
 //!
 //! The `since` a caller hands the aggregate reads is parsed here, once, and
-//! bound as a [`DateTime<Utc>`] on both — see [`since_bound`].
+//! bound as a [`Timestamp`] on both — see [`since_bound`].
 //!
 //! [`insert_llm_usage`]: super::LlmUsageRepository::insert_llm_usage
 
 use std::fmt::Display;
 
-use chrono::{DateTime, NaiveDate, NaiveTime, SubsecRound, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
 
@@ -68,7 +68,7 @@ impl LlmUsageGroupBy {
 ///
 /// Callers spell it two ways: RFC 3339 (`to_rfc3339()` from the admin and
 /// web-admin handlers) and a bare `YYYY-MM-DD` (the dashboard's window
-/// start), which is midnight UTC of that day. Bound as a [`DateTime<Utc>`]
+/// start), which is midnight UTC of that day. Bound as a [`Timestamp`]
 /// the compare is an instant on both engines; handed to the statement as
 /// text it was a `::timestamptz` cast on Postgres and a lexical compare on
 /// `SQLite`, where a `since` in any other shape matched everything or
@@ -76,19 +76,20 @@ impl LlmUsageGroupBy {
 ///
 /// # Errors
 /// Returns an invalid-input error when the text is neither form.
-pub fn since_bound(since: &str) -> AppResult<DateTime<Utc>> {
-    if let Ok(instant) = DateTime::parse_from_rfc3339(since) {
-        return Ok(instant.with_timezone(&Utc));
+pub fn since_bound(since: &str) -> AppResult<Timestamp> {
+    if let Ok(instant) = Timestamp::parse_from_rfc3339(since) {
+        return Ok(instant);
     }
-    let day = NaiveDate::parse_from_str(since, "%Y-%m-%d").map_err(|e| {
+    let day = CivilDate::parse_from_str(since, "%Y-%m-%d").map_err(|e| {
         AppError::invalid_input(format!(
             "since must be RFC 3339 or YYYY-MM-DD, got {since:?}: {e}"
         ))
     })?;
-    Ok(DateTime::<Utc>::from_naive_utc_and_offset(
-        day.and_time(NaiveTime::MIN),
-        Utc,
-    ))
+    day.at_midnight().and_utc().map_err(|e| {
+        AppError::invalid_input(format!(
+            "since must be RFC 3339 or YYYY-MM-DD, got {since:?}: {e}"
+        ))
+    })
 }
 
 /// The columns [`impl_llm_usage_repository!`]'s record parser reads, in
@@ -340,13 +341,13 @@ where
 /// The instant a usage row is stamped with: now, at the microsecond
 /// precision `TIMESTAMPTZ` holds.
 ///
-/// A `DateTime<Utc>` carries nanoseconds on Linux and Postgres keeps six
+/// A `Timestamp` carries nanoseconds on Linux and Postgres keeps six
 /// digits, so a record returned with the untruncated instant would not
 /// match the row it reads back as; `SQLite` stores the text whole and is
 /// truncated the same so both engines agree.
 #[must_use]
-pub fn recorded_at() -> DateTime<Utc> {
-    Utc::now().trunc_subsecs(6)
+pub fn recorded_at() -> Timestamp {
+    Timestamp::now().trunc_subsecs(6)
 }
 
 /// A call's position in its turn as the `INTEGER` column holds it; a value
@@ -378,7 +379,7 @@ macro_rules! impl_llm_usage_repository {
             let count = |col: &str| -> AppResult<i64> {
                 row.try_get(col).map_err(|e| llm_usage_column_error(col, e))
             };
-            let created_at: DateTime<Utc> = row
+            let created_at: Timestamp = row
                 .try_get("created_at")
                 .map_err(|e| llm_usage_column_error("created_at", e))?;
             let call_sequence: Option<i32> = row
@@ -587,8 +588,8 @@ macro_rules! impl_llm_usage_repository {
             async fn get_llm_calls_between(
                 &self,
                 tenant_id: Option<&str>,
-                start: DateTime<Utc>,
-                end: DateTime<Utc>,
+                start: Timestamp,
+                end: Timestamp,
                 limit: i64,
             ) -> AppResult<Vec<LlmUsageRecord>> {
                 sqlx::query(LLM_CALLS_BETWEEN_SQL)

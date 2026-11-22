@@ -41,6 +41,7 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
 use uuid::Uuid;
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 
 // ============================================================================
@@ -75,7 +76,7 @@ async fn seed_connected_provider(
         backend.to_owned(),
         "test_access_token".to_owned(),
         Some("test_refresh_token".to_owned()),
-        Some(chrono::Utc::now() + chrono::Duration::hours(1)),
+        Some(Timestamp::now() + Elapsed::hours(1)),
         Some("read".to_owned()),
     );
     resources

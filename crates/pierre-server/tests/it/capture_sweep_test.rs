@@ -31,7 +31,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::models::{Activity, ConnectionStatus, ConnectionType, TenantId, UserOAuthToken};
 use pierre_database::backends::factory::DatabaseBackend;
@@ -97,8 +97,8 @@ async fn fixture_with_connection(provider: &str) -> Fixture {
 async fn an_active_only_sweep_passes_over_a_connection_nobody_used() {
     let f = fixture_with_connection("whoop").await;
     let active_only = SweepSelection {
-        active_within: Some(Duration::days(7)),
-        skip_fetched_within: Some(Duration::hours(2)),
+        active_within: Some(Elapsed::days(7)),
+        skip_fetched_within: Some(Elapsed::hours(2)),
     };
 
     let report = refresh_captures(&f.runtime, SweepBudget::default(), active_only)
@@ -286,7 +286,7 @@ async fn a_flagged_connection_is_not_swept_again() {
 }
 
 /// Stamp the connection's `connected_at`, as a reconnect does, at `at`.
-async fn stamp_connected_at(f: &Fixture, provider: &str, at: DateTime<Utc>) {
+async fn stamp_connected_at(f: &Fixture, provider: &str, at: Timestamp) {
     let sql = "UPDATE provider_connections SET connected_at = $1 \
                WHERE user_id = $2 AND tenant_id = $3 AND provider = $4";
     let (user, tenant) = (f.user_id.to_string(), f.tenant.to_string());
@@ -324,7 +324,7 @@ async fn stamp_connected_at(f: &Fixture, provider: &str, at: DateTime<Utc>) {
 #[tokio::test]
 async fn a_connection_reconnected_while_its_fetch_ran_is_not_reported_flagged() {
     let f = fixture_with_connection("strava").await;
-    stamp_connected_at(&f, "strava", Utc::now() + Duration::minutes(5)).await;
+    stamp_connected_at(&f, "strava", Timestamp::now() + Elapsed::minutes(5)).await;
 
     let report = refresh_captures(
         &f.runtime,
@@ -431,7 +431,7 @@ async fn spawn_scraper() -> (Arc<Scraper>, String) {
         head_complete: AtomicBool::new(true),
         // Two days old: inside the sweep's head window and the cache's
         // retention.
-        ride_start: (Utc::now() - Duration::days(2)).to_rfc3339(),
+        ride_start: (Timestamp::now() - Elapsed::days(2)).to_rfc3339(),
     });
     let app = Router::new()
         .route(
@@ -525,7 +525,7 @@ async fn flag_as_the_sweep_does(f: &Fixture) {
             f.tenant,
             "sciotte",
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -613,7 +613,7 @@ fn head_window() -> ActivityQueryParams {
         limit: Some(50),
         offset: None,
         before: None,
-        after: Some((Utc::now() - Duration::days(7)).timestamp()),
+        after: Some((Timestamp::now() - Elapsed::days(7)).epoch_seconds()),
     }
 }
 
@@ -804,8 +804,8 @@ async fn a_capture_missing_its_head_still_rearms_the_connection() {
             f.user_id,
             &f.tenant,
             None,
-            Utc::now() - Duration::days(30),
-            Utc::now() + Duration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
             100,
         )
         .await
@@ -845,7 +845,7 @@ async fn refusing_garmin_token_endpoint() -> (String, Arc<AtomicUsize>) {
 
 /// Store a Garmin grant for the athlete, its access token expiring at
 /// `expires_at`, and its connection row.
-async fn hold_garmin_grant(f: &Fixture, expires_at: DateTime<Utc>) {
+async fn hold_garmin_grant(f: &Fixture, expires_at: Timestamp) {
     let token = UserOAuthToken::new(
         f.user_id,
         f.tenant.to_string(),
@@ -914,7 +914,7 @@ async fn the_daily_sweep_flags_a_garmin_grant_whose_refresh_is_refused() {
         user_id,
         tenant,
     };
-    hold_garmin_grant(&f, Utc::now() + Duration::hours(12)).await;
+    hold_garmin_grant(&f, Timestamp::now() + Elapsed::hours(12)).await;
     let status = || async {
         f.runtime
             .repos()
@@ -956,13 +956,13 @@ async fn the_daily_sweep_flags_a_garmin_grant_whose_refresh_is_refused() {
         "bug: a grant whose token answers stays active"
     );
 
-    hold_garmin_grant(&f, Utc::now() - Duration::hours(1)).await;
+    hold_garmin_grant(&f, Timestamp::now() - Elapsed::hours(1)).await;
     let active_only = refresh_captures(
         &f.runtime,
         SweepBudget::default(),
         SweepSelection {
-            active_within: Some(Duration::days(7)),
-            skip_fetched_within: Some(Duration::hours(2)),
+            active_within: Some(Elapsed::days(7)),
+            skip_fetched_within: Some(Elapsed::hours(2)),
         },
     )
     .await
@@ -1021,7 +1021,7 @@ async fn the_sweep_walks_the_session_and_passes_over_the_grant_beside_it() {
             provider.to_owned(),
             access.to_owned(),
             Some(format!("{provider}-refresh")),
-            Some(Utc::now() + Duration::hours(6)),
+            Some(Timestamp::now() + Elapsed::hours(6)),
             None,
         );
         repos.oauth_tokens.upsert_token(&token).await.unwrap();

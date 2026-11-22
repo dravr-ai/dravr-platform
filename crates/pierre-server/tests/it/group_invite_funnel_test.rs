@@ -34,8 +34,8 @@ use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
 use axum::Router;
-use chrono::{Duration, Utc};
 use common::create_test_server_resources;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::constants::oauth_rate_limiting::INVITE_PREVIEW_ATTEMPTS;
 use pierre_contremaitre::messaging_strings::KEY_COACH_ACCESS_ROOM_LINE_COACH;
@@ -131,7 +131,7 @@ async fn funnel_rows(resources: &ServerContext, coach: &Coach) -> Vec<GroupInvit
         .group_invite_funnels(
             coach.group_id,
             &coach.tenant.to_string(),
-            Utc::now() - Duration::days(SIGNUP_INVITE_MAX_DAYS),
+            Timestamp::now() - Elapsed::days(SIGNUP_INVITE_MAX_DAYS),
         )
         .await
         .unwrap()
@@ -235,7 +235,7 @@ async fn a_card_says_why_a_link_no_longer_works() {
         &resources,
         coach.tenant,
         expired.id,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
     )
     .await;
     let (status, body) = card(&resources, &expired.code, None).await;
@@ -448,14 +448,14 @@ async fn an_opening_is_counted_only_under_the_invites_own_tenant() {
 
     assert!(
         !signup_codes
-            .record_group_invite_open(invite.id, &other.tenant.to_string(), Utc::now())
+            .record_group_invite_open(invite.id, &other.tenant.to_string(), Timestamp::now())
             .await
             .unwrap(),
         "another tenant's id counts nothing"
     );
     assert_eq!(open_count(&resources, &coach, invite.id).await, 0);
     assert!(signup_codes
-        .record_group_invite_open(invite.id, &coach.tenant.to_string(), Utc::now())
+        .record_group_invite_open(invite.id, &coach.tenant.to_string(), Timestamp::now())
         .await
         .unwrap());
     assert_eq!(open_count(&resources, &coach, invite.id).await, 1);
@@ -550,7 +550,7 @@ async fn the_invite_list_carries_each_links_funnel() {
         .hold_group_invite(
             stale.id,
             busy.id,
-            Utc::now() - Duration::days(SIGNUP_INVITE_MAX_DAYS + 1),
+            Timestamp::now() - Elapsed::days(SIGNUP_INVITE_MAX_DAYS + 1),
         )
         .await
         .unwrap();
@@ -602,7 +602,7 @@ async fn another_tenants_coach_cannot_read_a_groups_funnel() {
         .group_invite_funnels(
             coach.group_id,
             &outsider.tenant.to_string(),
-            Utc::now() - Duration::days(SIGNUP_INVITE_MAX_DAYS),
+            Timestamp::now() - Elapsed::days(SIGNUP_INVITE_MAX_DAYS),
         )
         .await
         .unwrap();

@@ -12,13 +12,13 @@
 //! one word per locale; the reading half is per locale on purpose, because
 //! French `hier` is German `hier` (here).
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::civil_time::{
     format_civil_day, relative_day, relative_day_forms, relative_day_label, RelativeDay,
 };
 
-fn sept(d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 9, d).unwrap()
+fn sept(d: u32) -> CivilDate {
+    CivilDate::from_ymd(2026, 9, d).unwrap()
 }
 
 #[test]

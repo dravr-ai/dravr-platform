@@ -44,7 +44,7 @@
 
 use std::iter;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::MIRROR_PAIRS;
 use pierre_database::RepositoryRegistry;
@@ -346,8 +346,8 @@ pub async fn holds_activities(
                 user_id,
                 &tenant_id,
                 Some(key),
-                DateTime::<Utc>::UNIX_EPOCH,
-                Utc::now(),
+                Timestamp::UNIX_EPOCH,
+                Timestamp::now(),
                 1,
             )
             .await,
@@ -874,7 +874,7 @@ mod tests {
             tenant_id: Uuid::nil().to_string(),
             provider: provider.to_owned(),
             connection_type: ConnectionType::Manual,
-            connected_at: Utc::now(),
+            connected_at: Timestamp::now(),
             last_used_at: None,
             status,
             metadata: None,

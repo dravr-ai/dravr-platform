@@ -19,11 +19,10 @@ use crate::protocols::ProtocolError;
 use crate::read_subject::{self, WellnessInput};
 #[cfg(feature = "client-notifications")]
 use crate::runtime::ToolRuntime;
-use chrono::Utc;
-use chrono_tz::Tz;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::sleep_analysis::SleepAnalyzer;
 use dravr_cageux::training_load::{TrainingLoadCalculator, TrainingLoadLevel, TssDataPoint};
+use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_core::models::Activity;
 use pierre_core::models::{FormBand, FormReading};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
@@ -115,7 +114,7 @@ pub fn analyze_detailed_training_load(
     activities: &[Activity],
     params: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
-    zone: Tz,
+    zone: &Zone,
     providers_used: ProvidersUsed,
 ) -> TrainingLoadResult {
     use TrainingLoadCalculator;
@@ -133,8 +132,11 @@ pub fn analyze_detailed_training_load(
     let mut sorted_activities = activities.to_vec();
     sorted_activities.sort_by_key(Activity::start_date);
 
-    let calculator =
-        TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, Utc::now());
+    let calculator = TrainingLoadCalculator::as_of_today(
+        algorithm_config.clone(),
+        zone.clone(),
+        Timestamp::now(),
+    );
 
     // The saved thresholds score each session: power against FTP or critical
     // power, heart rate against LTHR, a run's pace against threshold pace.
@@ -425,7 +427,7 @@ pub(crate) fn handle_analyze_training_load(
                             &activities,
                             &physio_params,
                             &executor.cageux_config().algorithms,
-                            athlete_zone(executor.resources.repos(), user_uuid).await,
+                            &athlete_zone(executor.resources.repos(), user_uuid).await,
                             ProvidersUsed {
                                 activity_provider: provider_name.clone(),
                                 sleep_provider: sleep_provider.map(str::to_owned),

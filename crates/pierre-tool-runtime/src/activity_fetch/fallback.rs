@@ -16,7 +16,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, ConnectionStatus, ProviderConnection, TenantId};
 use pierre_providers::core::ActivityQueryParams;
@@ -205,7 +205,7 @@ pub(crate) async fn flag_refusal(
     tenant: TenantId,
     backend: &str,
     error: &AppError,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) {
     if reauth_notice::refused_backend(error, backend).as_deref() == Some(backend) {
         reauth_notice::flag_refused(
@@ -239,7 +239,7 @@ async fn read_grant_head(
         user_id,
         tenant_id: Some(&tenant_id),
         params,
-        attempt_started_at: Utc::now(),
+        attempt_started_at: Timestamp::now(),
     };
     read_provider_head(runtime, live, Routing::Exact).await
 }

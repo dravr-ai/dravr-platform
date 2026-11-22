@@ -33,7 +33,7 @@ use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -325,8 +325,8 @@ pub(crate) async fn seed_user(repos: &RepositoryRegistry, label: &str) -> (Uuid,
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -363,12 +363,12 @@ pub(crate) fn strava_token(
         access_token: SecretString::from("access-material-do-not-log"),
         refresh_token: Some(SecretString::from(REFRESH_TOKEN.to_owned())),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(Utc::now() + Duration::hours(6)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(6)),
         scope: Some("read,activity:read_all".to_owned()),
         provider_user_id: None,
         oauth_app_client_id: app.map(str::to_owned),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -397,8 +397,8 @@ async fn extra_tenant(repos: &RepositoryRegistry, owner: Uuid) -> TenantId {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: owner,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -431,7 +431,7 @@ pub(crate) async fn seed_group(
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .create_group(
@@ -467,7 +467,7 @@ pub(crate) async fn join_group(
     user_id: Uuid,
     tenant_id: TenantId,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .add_member(&GroupMember {
@@ -1051,7 +1051,7 @@ async fn seats_listing_names_each_holder_and_whether_it_counts() {
     connect_strava(repos, dead, t3, None).await;
     repos
         .provider_connections
-        .mark_needs_reauth(dead, t3, "strava", Some("invalid_grant"), Utc::now())
+        .mark_needs_reauth(dead, t3, "strava", Some("invalid_grant"), Timestamp::now())
         .await
         .unwrap();
     let (byo, t4, byo_email) = seed_user(repos, "byo").await;
@@ -1084,7 +1084,7 @@ async fn seats_listing_names_each_holder_and_whether_it_counts() {
             t7,
             "strava",
             Some("invalid_client"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1092,7 +1092,13 @@ async fn seats_listing_names_each_holder_and_whether_it_counts() {
     connect_strava(repos, expired, t8, None).await;
     repos
         .provider_connections
-        .mark_needs_reauth(expired, t8, "strava", Some("session_expired"), Utc::now())
+        .mark_needs_reauth(
+            expired,
+            t8,
+            "strava",
+            Some("session_expired"),
+            Timestamp::now(),
+        )
         .await
         .unwrap();
 
@@ -1290,7 +1296,7 @@ async fn delete_clears_every_row_no_foreign_key_cascades_to() {
             "https://example.com/plan",
             &tenant,
             &user,
-            Utc::now() + Duration::days(1),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap();
@@ -1563,7 +1569,7 @@ async fn delete_clears_the_users_quarantined_agents() {
             .bind(QUARANTINED_TENANT)
             .bind("Hill repeats")
             .bind("Coach the athlete through hill repeats.")
-            .bind(Utc::now())
+            .bind(Timestamp::now())
             .execute(db.pool())
             .await
             .unwrap();
@@ -2236,7 +2242,7 @@ async fn a_live_subscription_blocks_the_delete_and_a_canceled_one_is_cleared() {
     let resources = resources().await;
     let repos = &resources.common.repos;
     let (user_id, tenant_id, _) = seed_user(repos, "subscriber").await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut subscription = Subscription {
         id: Uuid::new_v4(),
         tenant_id,
@@ -2274,7 +2280,7 @@ async fn a_live_subscription_blocks_the_delete_and_a_canceled_one_is_cleared() {
     );
 
     subscription.status = SubscriptionStatus::Canceled;
-    subscription.canceled_at = Some(Utc::now());
+    subscription.canceled_at = Some(Timestamp::now());
     repos
         .subscriptions
         .upsert_subscription(&subscription)

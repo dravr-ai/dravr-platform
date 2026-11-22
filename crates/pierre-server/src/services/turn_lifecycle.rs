@@ -528,7 +528,7 @@ mod tests {
         use std::time::Duration;
 
         use async_trait::async_trait;
-        use chrono::{DateTime, Utc};
+        use dravr_tronc::dates::Timestamp;
         use pierre_core::errors::AppResult;
         use pierre_core::models::usage::{
             InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
@@ -605,8 +605,8 @@ mod tests {
             async fn get_llm_calls_between(
                 &self,
                 tenant_id: Option<&str>,
-                start: DateTime<Utc>,
-                end: DateTime<Utc>,
+                start: Timestamp,
+                end: Timestamp,
                 limit: i64,
             ) -> AppResult<Vec<LlmUsageRecord>> {
                 self.0

@@ -29,7 +29,7 @@ use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::request_budget;
 use crate::utils;
 use async_trait::async_trait;
-use chrono::{DateTime, FixedOffset, Utc};
+use dravr_tronc::dates::{Offset, SecondsFormat, Timestamp};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use std::fmt;
@@ -250,13 +250,11 @@ impl WhoopProvider {
 
     /// Convert WHOOP workout to our Activity model
     fn convert_workout(workout: &WhoopWorkout) -> AppResult<Activity> {
-        let start_date = DateTime::parse_from_rfc3339(&workout.start)
-            .map_err(|e| AppError::internal(format!("Failed to parse workout start date: {e}")))?
-            .with_timezone(&Utc);
+        let start_date = Timestamp::parse_from_rfc3339(&workout.start)
+            .map_err(|e| AppError::internal(format!("Failed to parse workout start date: {e}")))?;
 
-        let end_date = DateTime::parse_from_rfc3339(&workout.end)
-            .map_err(|e| AppError::internal(format!("Failed to parse workout end date: {e}")))?
-            .with_timezone(&Utc);
+        let end_date = Timestamp::parse_from_rfc3339(&workout.end)
+            .map_err(|e| AppError::internal(format!("Failed to parse workout end date: {e}")))?;
 
         let duration_seconds = (end_date - start_date).num_seconds().unsigned_abs();
 
@@ -449,13 +447,21 @@ impl FitnessProvider for WhoopProvider {
             // Build endpoint with optional time filter (WHOOP supports start/end parameters)
             let mut endpoint = format!("activity/workout?limit={page_size}");
             if let Some(after) = params.after {
-                if let Some(dt) = DateTime::from_timestamp(after, 0) {
-                    let _ = write!(endpoint, "&start={}", dt.format("%Y-%m-%dT%H:%M:%S%.3fZ"));
+                if let Ok(dt) = Timestamp::from_epoch_seconds(after) {
+                    let _ = write!(
+                        endpoint,
+                        "&start={}",
+                        dt.to_rfc3339_opts(SecondsFormat::Millis, true)
+                    );
                 }
             }
             if let Some(before) = params.before {
-                if let Some(dt) = DateTime::from_timestamp(before, 0) {
-                    let _ = write!(endpoint, "&end={}", dt.format("%Y-%m-%dT%H:%M:%S%.3fZ"));
+                if let Ok(dt) = Timestamp::from_epoch_seconds(before) {
+                    let _ = write!(
+                        endpoint,
+                        "&end={}",
+                        dt.to_rfc3339_opts(SecondsFormat::Millis, true)
+                    );
                 }
             }
             if let Some(token) = &next_token {
@@ -536,7 +542,7 @@ impl FitnessProvider for WhoopProvider {
         // Create next cursor from next_token
         let next_cursor = response.next_token.as_ref().map(|token| {
             // Use current time and token as cursor
-            Cursor::new(Utc::now(), token)
+            Cursor::new(Timestamp::now(), token)
         });
 
         // Create previous cursor from first activity
@@ -590,8 +596,8 @@ impl ProviderFactory for WhoopProviderFactory {
 /// Seconds east of UTC from WHOOP's `±HH:MM`, or `None` for anything else or
 /// a value outside every civil zone.
 fn whoop_utc_offset(stated: &str) -> Option<i32> {
-    let offset = stated.trim().parse::<FixedOffset>().ok()?;
-    utc_offset_seconds_if_civil(i64::from(offset.local_minus_utc()))
+    let offset = stated.trim().parse::<Offset>().ok()?;
+    utc_offset_seconds_if_civil(i64::from(offset.seconds()))
 }
 
 #[cfg(test)]

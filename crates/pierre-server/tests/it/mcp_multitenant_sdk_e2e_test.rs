@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::{stream, StreamExt, TryStreamExt};
 use pierre_core::models::usage::JwtUsage;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -426,7 +426,7 @@ async fn spend_jwt_budget(resources: &ServerContext, user_id: Uuid, count: u32) 
                 .record_jwt_usage(&JwtUsage {
                     id: None,
                     user_id,
-                    timestamp: Utc::now(),
+                    timestamp: Timestamp::now(),
                     endpoint: "http:jwt".to_owned(),
                     method: "AUTH".to_owned(),
                     status_code: 200,

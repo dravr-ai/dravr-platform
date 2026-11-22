@@ -21,11 +21,11 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
 use dravr_barrage::{
     ClinicalResource, Derivation, GlucoseReading, ProjectionSink, RetractReason, ReviewState,
     Scope, SelfReport, SelfReportKind, SensitivityClass, SourceKey, Tier, WellnessRecords,
 };
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers::{SENSITIVE_T2, SENSITIVE_T3};
 use pierre_core::models::TenantId;
 use pierre_core::transport::Transport;
@@ -68,7 +68,7 @@ fn clinical(
     tier: Tier,
     sensitivity_class: Option<SensitivityClass>,
 ) -> ClinicalResource {
-    let effective = (Utc::now() - Duration::days(3)).to_rfc3339();
+    let effective = (Timestamp::now() - Elapsed::days(3)).to_rfc3339();
     ClinicalResource {
         id: id.to_owned(),
         resource_type: resource_type.to_owned(),
@@ -99,10 +99,10 @@ fn clinical(
 /// mmol/L), one in a unit never stored, a self-report, an Observation (T2)
 /// and a Condition raised to T3.
 fn sensitive_export() -> WellnessRecords {
-    let at = Utc::now() - Duration::days(2);
+    let at = Timestamp::now() - Elapsed::days(2);
     let reading = |id: &str, value: f64, unit: &str, hours: i64| GlucoseReading {
         id: id.to_owned(),
-        at: at + Duration::hours(hours),
+        at: at + Elapsed::hours(hours),
         value,
         unit: unit.to_owned(),
         loinc: "2339-0".to_owned(),

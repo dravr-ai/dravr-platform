@@ -209,11 +209,11 @@ async fn write_rows<S: ChunkSink, T: Serialize>(
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
     use dravr_barrage::export::EXPORT_WITHHELD;
     use dravr_barrage::record::{StreamsState, SummaryWindow, TotalsFrom};
     use dravr_barrage::store::memory::MemoryActivityRecordStore;
     use dravr_barrage::{ActivityId, ActivityRecord, Provenance, SourceKey};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::{ActivityBuilder, SportType};
     use pierre_services::barrage_keys::memory_records;
     use serde_json::json;
@@ -233,7 +233,7 @@ mod tests {
         let rows: Vec<ActivityRecord> = (0..count)
             .map(|i| {
                 let id = format!("ride-{i:04}");
-                let start = Utc.with_ymd_and_hms(2026, 3, 1, 8, 0, 0).unwrap();
+                let start = Timestamp::parse_from_rfc3339("2026-03-01T08:00:00Z").unwrap();
                 let activity = ActivityBuilder::new(
                     &id,
                     "Ride",
@@ -307,7 +307,7 @@ mod tests {
             seq: 2,
             hash: Sha256::of(b"receipt 2"),
         };
-        cut_checkpoint(&records, &signer, anchor, "test", Utc::now())
+        cut_checkpoint(&records, &signer, anchor, "test", Timestamp::now())
             .await
             .unwrap()
             .expect("a checkpoint is cut");

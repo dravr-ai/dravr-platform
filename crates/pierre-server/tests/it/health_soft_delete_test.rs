@@ -48,9 +48,9 @@
 use crate::common;
 use crate::db_fixtures;
 
-use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use db_fixtures::seed_user;
 use dravr_riviere::{Aggregation, DataPoint, SeriesType, TimeRange};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::models::{
     ActivityBuilder, DataSource, DeviceType, SportType, StoredHealthMetrics, StoredRecoveryMetrics,
     StoredSleepSession, TenantId,
@@ -120,13 +120,13 @@ async fn deleted_at_is_set(db: &Database, id: &str) -> Option<bool> {
 }
 
 fn sleep_session(user_id: Uuid, source_name: &str, data_source_id: &str) -> StoredSleepSession {
-    let now = Utc::now();
+    let now = Timestamp::now();
     StoredSleepSession {
         id: Uuid::new_v4().to_string(),
         user_id: user_id.to_string(),
         data_source_id: data_source_id.to_owned(),
         is_nap: false,
-        start_datetime: now - Duration::hours(8),
+        start_datetime: now - Elapsed::hours(8),
         end_datetime: now,
         total_sleep_seconds: Some(28_000),
         deep_sleep_seconds: Some(5_000),
@@ -157,7 +157,7 @@ async fn sleep_soft_delete_hides_row_from_reads_but_keeps_it_in_table() {
     let end = session.end_datetime;
     repos
         .sleep
-        .upsert_sleep_session(&tenant_id, &session, Utc::now())
+        .upsert_sleep_session(&tenant_id, &session, Timestamp::now())
         .await
         .unwrap();
 
@@ -167,8 +167,8 @@ async fn sleep_soft_delete_hides_row_from_reads_but_keeps_it_in_table() {
         .get_sleep_sessions(
             user_id,
             &tenant_id,
-            start - Duration::minutes(1),
-            end + Duration::minutes(1),
+            start - Elapsed::minutes(1),
+            end + Elapsed::minutes(1),
         )
         .await
         .unwrap();
@@ -188,8 +188,8 @@ async fn sleep_soft_delete_hides_row_from_reads_but_keeps_it_in_table() {
         .get_sleep_sessions(
             user_id,
             &tenant_id,
-            start - Duration::minutes(1),
-            end + Duration::minutes(1),
+            start - Elapsed::minutes(1),
+            end + Elapsed::minutes(1),
         )
         .await
         .unwrap();
@@ -228,7 +228,7 @@ async fn sleep_hard_delete_removes_the_row_entirely() {
     let id = session.id.clone();
     repos
         .sleep
-        .upsert_sleep_session(&tenant_id, &session, Utc::now())
+        .upsert_sleep_session(&tenant_id, &session, Timestamp::now())
         .await
         .unwrap();
 
@@ -258,7 +258,7 @@ async fn sleep_find_tenant_resolves_owner_then_delete_works() {
     let id = session.id.clone();
     repos
         .sleep
-        .upsert_sleep_session(&tenant_id, &session, Utc::now())
+        .upsert_sleep_session(&tenant_id, &session, Timestamp::now())
         .await
         .unwrap();
 
@@ -292,7 +292,7 @@ async fn sleep_delete_by_id_rejects_wrong_tenant() {
     let id = session.id.clone();
     repos
         .sleep
-        .upsert_sleep_session(&owner_tenant, &session, Utc::now())
+        .upsert_sleep_session(&owner_tenant, &session, Timestamp::now())
         .await
         .unwrap();
 
@@ -321,9 +321,9 @@ async fn time_series_insert_round_trips_within_a_range() {
     let repos = Arc::clone(database.repositories());
     let (_user_id, _tenant_id, ds) = make_user_and_tenant(&database).await;
 
-    let now = Utc::now();
-    let earlier = now - Duration::minutes(10);
-    let later = now + Duration::minutes(10);
+    let now = Timestamp::now();
+    let earlier = now - Elapsed::minutes(10);
+    let later = now + Elapsed::minutes(10);
 
     // Heart rate samples, keyed by riviere's SeriesType catalog.
     let series_type = SeriesType::HeartRate.id();
@@ -344,7 +344,7 @@ async fn time_series_insert_round_trips_within_a_range() {
         .query(
             &ds,
             series_type,
-            &TimeRange::new(earlier - Duration::seconds(1), later + Duration::seconds(1)),
+            &TimeRange::new(earlier - Elapsed::seconds(1), later + Elapsed::seconds(1)),
         )
         .await
         .unwrap();
@@ -363,7 +363,7 @@ async fn time_series_insert_is_idempotent_on_conflict() {
     let repos = Arc::clone(database.repositories());
     let (_user_id, _tenant_id, ds) = make_user_and_tenant(&database).await;
 
-    let ts = Utc::now();
+    let ts = Timestamp::now();
     let series_type = SeriesType::HeartRate.id();
 
     // First insert.
@@ -386,7 +386,7 @@ async fn time_series_insert_is_idempotent_on_conflict() {
         .query(
             &ds,
             series_type,
-            &TimeRange::new(ts - Duration::seconds(1), ts + Duration::seconds(1)),
+            &TimeRange::new(ts - Elapsed::seconds(1), ts + Elapsed::seconds(1)),
         )
         .await
         .unwrap();
@@ -416,8 +416,8 @@ async fn time_series_empty_batch_is_a_no_op() {
             &ds,
             SeriesType::HeartRate.id(),
             &TimeRange::new(
-                Utc::now() - Duration::minutes(1),
-                Utc::now() + Duration::minutes(1),
+                Timestamp::now() - Elapsed::minutes(1),
+                Timestamp::now() + Elapsed::minutes(1),
             ),
         )
         .await
@@ -432,12 +432,12 @@ async fn time_series_aggregate_downsamples_into_windows() {
     let repos = Arc::clone(database.repositories());
     let (_user_id, _tenant_id, ds) = make_user_and_tenant(&database).await;
 
-    let start = Utc::now();
+    let start = Timestamp::now();
     let series_type = SeriesType::HeartRate.id();
     let points = vec![
-        DataPoint::new(start + Duration::seconds(5), 60.0),
-        DataPoint::new(start + Duration::seconds(25), 70.0),
-        DataPoint::new(start + Duration::seconds(65), 100.0),
+        DataPoint::new(start + Elapsed::seconds(5), 60.0),
+        DataPoint::new(start + Elapsed::seconds(25), 70.0),
+        DataPoint::new(start + Elapsed::seconds(65), 100.0),
     ];
     repos
         .time_series_points
@@ -450,7 +450,7 @@ async fn time_series_aggregate_downsamples_into_windows() {
         .aggregate(
             &ds,
             series_type,
-            &TimeRange::new(start, start + Duration::seconds(120)),
+            &TimeRange::new(start, start + Elapsed::seconds(120)),
             60,
             Aggregation::Avg,
         )
@@ -472,7 +472,7 @@ async fn time_series_latest_returns_most_recent_point() {
     let repos = Arc::clone(database.repositories());
     let (_user_id, _tenant_id, ds) = make_user_and_tenant(&database).await;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let series_type = SeriesType::HeartRate.id();
 
     assert!(
@@ -491,7 +491,7 @@ async fn time_series_latest_returns_most_recent_point() {
             &ds,
             series_type,
             vec![
-                DataPoint::new(now - Duration::minutes(5), 55.0),
+                DataPoint::new(now - Elapsed::minutes(5), 55.0),
                 DataPoint::new(now, 80.0),
             ],
         )
@@ -513,12 +513,12 @@ const SQLITE_MIGRATION: &str =
 const POSTGRES_MIGRATION: &str =
     include_str!("../../../../migrations_pg/20261031120000_body_battery_is_not_a_score.sql");
 
-fn morning() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 10, 21).unwrap()
+fn morning() -> CivilDate {
+    CivilDate::from_ymd(2026, 10, 21).unwrap()
 }
 
-fn night_start() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 10, 20, 23, 0, 0).unwrap()
+fn night_start() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-10-20T23:00:00Z").unwrap()
 }
 
 async fn data_source(
@@ -564,7 +564,7 @@ fn day(user_id: Uuid, data_source_id: &str, provider: &str) -> StoredRecoveryMet
         daily_strain: None,
         athlete_note: None,
         source_name: provider.to_owned(),
-        recorded_at: night_start() + Duration::hours(8),
+        recorded_at: night_start() + Elapsed::hours(8),
     }
 }
 
@@ -585,7 +585,7 @@ fn body(user_id: Uuid, data_source_id: &str, provider: &str) -> StoredHealthMetr
         blood_glucose: None,
         vo2_max: None,
         source_name: provider.to_owned(),
-        recorded_at: night_start() + Duration::hours(8),
+        recorded_at: night_start() + Elapsed::hours(8),
     }
 }
 
@@ -596,7 +596,7 @@ fn night(user_id: Uuid, data_source_id: &str, provider: &str) -> StoredSleepSess
         data_source_id: data_source_id.to_owned(),
         is_nap: false,
         start_datetime: night_start(),
-        end_datetime: night_start() + Duration::hours(8),
+        end_datetime: night_start() + Elapsed::hours(8),
         total_sleep_seconds: Some(26_000),
         deep_sleep_seconds: None,
         light_sleep_seconds: None,
@@ -623,8 +623,8 @@ async fn days(
         .get_recovery_metrics(
             user_id,
             &tenant,
-            night_start() - Duration::days(1),
-            night_start() + Duration::days(2),
+            night_start() - Elapsed::days(1),
+            night_start() + Elapsed::days(2),
         )
         .await
         .unwrap()
@@ -640,8 +640,8 @@ async fn bodies(
         .get_health_snapshots(
             user_id,
             &tenant,
-            night_start() - Duration::days(1),
-            night_start() + Duration::days(2),
+            night_start() - Elapsed::days(1),
+            night_start() + Elapsed::days(2),
         )
         .await
         .unwrap()
@@ -657,8 +657,8 @@ async fn nights(
         .get_sleep_sessions(
             user_id,
             &tenant,
-            night_start() - Duration::days(1),
-            night_start() + Duration::days(1),
+            night_start() - Elapsed::days(1),
+            night_start() + Elapsed::days(1),
         )
         .await
         .unwrap()
@@ -686,7 +686,7 @@ async fn a_whole_day_write_clears_a_retracted_athlete_note() {
     };
     let mut writes = store.writes("recovery");
     writes
-        .recovery(tenant, &noted, WellnessWriteMode::FullDay, Utc::now())
+        .recovery(tenant, &noted, WellnessWriteMode::FullDay, Timestamp::now())
         .await
         .unwrap();
     let retracted = StoredRecoveryMetrics {
@@ -694,7 +694,12 @@ async fn a_whole_day_write_clears_a_retracted_athlete_note() {
         ..noted.clone()
     };
     writes
-        .recovery(tenant, &retracted, WellnessWriteMode::FullDay, Utc::now())
+        .recovery(
+            tenant,
+            &retracted,
+            WellnessWriteMode::FullDay,
+            Timestamp::now(),
+        )
         .await
         .unwrap();
 
@@ -734,7 +739,12 @@ async fn a_write_onto_a_soft_deleted_day_brings_back_nothing_from_before_the_del
         };
         let id = repos
             .recovery
-            .upsert_recovery_metrics(&tenant, &before, WellnessWriteMode::FullDay, Utc::now())
+            .upsert_recovery_metrics(
+                &tenant,
+                &before,
+                WellnessWriteMode::FullDay,
+                Timestamp::now(),
+            )
             .await
             .unwrap();
         assert!(
@@ -751,7 +761,7 @@ async fn a_write_onto_a_soft_deleted_day_brings_back_nothing_from_before_the_del
             ..day(user_id, &source, "garmin")
         };
         writes
-            .recovery(tenant, &after, mode, Utc::now())
+            .recovery(tenant, &after, mode, Timestamp::now())
             .await
             .unwrap();
 
@@ -786,7 +796,12 @@ async fn a_write_onto_a_soft_deleted_day_brings_back_nothing_from_before_the_del
     };
     let id = repos
         .health_snapshots
-        .upsert_health_snapshot(&tenant, &weighed, WellnessWriteMode::FullDay, Utc::now())
+        .upsert_health_snapshot(
+            &tenant,
+            &weighed,
+            WellnessWriteMode::FullDay,
+            Timestamp::now(),
+        )
         .await
         .unwrap();
     assert!(
@@ -798,7 +813,12 @@ async fn a_write_onto_a_soft_deleted_day_brings_back_nothing_from_before_the_del
         ..body(user_id, &source, "garmin")
     };
     writes
-        .body(tenant, &vo2, WellnessWriteMode::PartialSummary, Utc::now())
+        .body(
+            tenant,
+            &vo2,
+            WellnessWriteMode::PartialSummary,
+            Timestamp::now(),
+        )
         .await
         .unwrap();
     let read = bodies(&repos, user_id, tenant).await;
@@ -810,7 +830,10 @@ async fn a_write_onto_a_soft_deleted_day_brings_back_nothing_from_before_the_del
     );
 
     let first = night(user_id, &source, "garmin");
-    writes.sleep(tenant, &first, Utc::now()).await.unwrap();
+    writes
+        .sleep(tenant, &first, Timestamp::now())
+        .await
+        .unwrap();
     assert!(
         store.delete_sleep_session(&first.id, true).await.unwrap(),
         "the stored night is found and soft-deleted"
@@ -825,7 +848,10 @@ async fn a_write_onto_a_soft_deleted_day_brings_back_nothing_from_before_the_del
         ..first.clone()
     };
     assert_eq!(
-        writes.sleep(tenant, &resent, Utc::now()).await.unwrap(),
+        writes
+            .sleep(tenant, &resent, Timestamp::now())
+            .await
+            .unwrap(),
         WellnessLanded::Written,
         "a night resent onto its soft-deleted row is written"
     );
@@ -850,7 +876,7 @@ async fn a_nights_spo2_is_stored() {
     };
     WellnessStore::new(&repos)
         .writes("sleep")
-        .sleep(tenant, &with_spo2, Utc::now())
+        .sleep(tenant, &with_spo2, Timestamp::now())
         .await
         .unwrap();
     let read = nights(&repos, user_id, tenant).await;
@@ -864,7 +890,7 @@ async fn an_older_night_leaves_the_later_one_standing() {
     let (_db, repos, user_id, tenant) = setup().await;
     let source = data_source(&repos, user_id, tenant, "garmin").await;
     let mut writes = WellnessStore::new(&repos).writes("sleep");
-    let later = Utc::now();
+    let later = Timestamp::now();
     let newer = StoredSleepSession {
         total_sleep_seconds: Some(27_000),
         ..night(user_id, &source, "garmin")
@@ -880,7 +906,7 @@ async fn an_older_night_leaves_the_later_one_standing() {
     );
     assert_eq!(
         writes
-            .sleep(tenant, &older, later - Duration::minutes(5))
+            .sleep(tenant, &older, later - Elapsed::minutes(5))
             .await
             .unwrap(),
         WellnessLanded::Superseded,
@@ -900,14 +926,14 @@ async fn an_older_night_leaves_the_later_one_standing() {
 #[tokio::test]
 async fn an_activity_synced_earlier_than_the_stored_copy_leaves_it_standing() {
     let (_db, repos, user_id, tenant) = setup().await;
-    let start = Utc.with_ymd_and_hms(2026, 10, 20, 7, 0, 0).unwrap();
+    let start = Timestamp::parse_from_rfc3339("2026-10-20T07:00:00Z").unwrap();
     let ride = |name: &str| {
         ActivityBuilder::new("pushed-1", name, SportType::Ride, start, 3_600, "garmin")
             .distance_meters(30_000.0)
             .build()
     };
     let cache = &repos.activity_cache;
-    let later = Utc::now();
+    let later = Timestamp::now();
     let written = cache
         .upsert_activities_synced_at(user_id, &tenant, "garmin", &[ride("Final title")], later)
         .await
@@ -919,7 +945,7 @@ async fn an_activity_synced_earlier_than_the_stored_copy_leaves_it_standing() {
             &tenant,
             "garmin",
             &[ride("Tentative title")],
-            later - Duration::minutes(10),
+            later - Elapsed::minutes(10),
         )
         .await
         .unwrap();
@@ -982,7 +1008,7 @@ async fn the_migration_clears_body_battery_scores_and_nothing_else() {
         ..day(user_id, &garmin, "garmin")
     };
     let not_a_copy = StoredRecoveryMetrics {
-        date: morning() - Duration::days(1),
+        date: morning() - Elapsed::days(1),
         body_battery: Some(70),
         recovery_score: Some(55),
         ..day(user_id, &garmin, "garmin")
@@ -996,7 +1022,7 @@ async fn the_migration_clears_body_battery_scores_and_nothing_else() {
     for row in [&copied, &not_a_copy, &other_provider] {
         repos
             .recovery
-            .upsert_recovery_metrics(&tenant, row, WellnessWriteMode::FullDay, Utc::now())
+            .upsert_recovery_metrics(&tenant, row, WellnessWriteMode::FullDay, Timestamp::now())
             .await
             .unwrap();
     }
@@ -1004,7 +1030,7 @@ async fn the_migration_clears_body_battery_scores_and_nothing_else() {
     run_migration(&db).await;
 
     let read = days(&repos, user_id, tenant).await;
-    let find = |provider: &str, date: NaiveDate| {
+    let find = |provider: &str, date: CivilDate| {
         read.iter()
             .find(|d| d.source_name == provider && d.date == date)
             .unwrap_or_else(|| panic!("no {provider} day on {date}"))
@@ -1021,7 +1047,7 @@ async fn the_migration_clears_body_battery_scores_and_nothing_else() {
         "Body Battery and the day's measurements stay"
     );
     assert_eq!(
-        find("garmin", morning() - Duration::days(1)).recovery_score,
+        find("garmin", morning() - Elapsed::days(1)).recovery_score,
         Some(55),
         "a score that is not a copy of Body Battery is left alone"
     );
@@ -1094,12 +1120,12 @@ async fn seed_s13_nights(
     let coros = &data_source(repos, user_id, tenant, "coros").await;
     let nap = StoredSleepSession {
         is_nap: true,
-        start_datetime: night_start() + Duration::hours(9),
-        end_datetime: night_start() + Duration::hours(10),
+        start_datetime: night_start() + Elapsed::hours(9),
+        end_datetime: night_start() + Elapsed::hours(10),
         ..night(user_id, garmin, "garmin")
     };
     let deleted = StoredSleepSession {
-        start_datetime: night_start() - Duration::hours(1),
+        start_datetime: night_start() - Elapsed::hours(1),
         total_sleep_seconds: Some(30_000),
         ..night(user_id, garmin, "garmin")
     };
@@ -1108,8 +1134,8 @@ async fn seed_s13_nights(
         ..night(user_id, whoop, "whoop")
     };
     let late = StoredSleepSession {
-        start_datetime: night_start() + Duration::hours(19),
-        end_datetime: night_start() + Duration::hours(27),
+        start_datetime: night_start() + Elapsed::hours(19),
+        end_datetime: night_start() + Elapsed::hours(27),
         total_sleep_seconds: Some(24_000),
         ..night(user_id, coros, "coros")
     };
@@ -1117,7 +1143,10 @@ async fn seed_s13_nights(
     let main_night = night(user_id, garmin, "garmin");
     let stored = [&main_night, &nap, &deleted, &shorter, &late];
     for session in stored {
-        writes.sleep(tenant, session, Utc::now()).await.unwrap();
+        writes
+            .sleep(tenant, session, Timestamp::now())
+            .await
+            .unwrap();
     }
     let soft_deleted = repos
         .sleep
@@ -1163,7 +1192,7 @@ async fn seed_s13_days(
     for (owner, row) in rows {
         repos
             .recovery
-            .upsert_recovery_metrics(&owner, row, WellnessWriteMode::FullDay, Utc::now())
+            .upsert_recovery_metrics(&owner, row, WellnessWriteMode::FullDay, Timestamp::now())
             .await
             .unwrap();
     }

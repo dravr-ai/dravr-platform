@@ -22,9 +22,9 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
 use dravr_sciotte::client::{ClientError, SessionRemoval};
 use dravr_sciotte::models::AuthSession;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::future::join_all;
 use pierre_auth::oauth2_client::OAuth2Config;
 use pierre_core::constants::oauth_providers;
@@ -658,7 +658,7 @@ async fn live_access_token(
 ) -> Option<SecretString> {
     let expired = token
         .expires_at
-        .is_some_and(|at| at <= Utc::now() + Duration::minutes(1));
+        .is_some_and(|at| at <= Timestamp::now() + Elapsed::minutes(1));
     if !expired && !token.access_token.expose_secret().is_empty() {
         return Some(token.access_token);
     }

@@ -50,7 +50,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_COMMITMENT_ACTIVITY_ANY, KEY_COMMITMENT_MET,
     KEY_COMMITMENT_MISSED, KEY_COMMITMENT_PARTIAL, KEY_COMMITMENT_PUSH_TITLE,
@@ -80,7 +80,7 @@ use pierre_notifications::{
 
 /// Meta's re-engagement window for `WhatsApp` and Messenger. Outside it a plain
 /// text send is rejected, so the verdict waits instead.
-const REENGAGEMENT_WINDOW: Duration = Duration::hours(24);
+const REENGAGEMENT_WINDOW: Elapsed = Elapsed::hours(24);
 
 /// Route label reported on the `commitment.reported` notify event when the
 /// verdict went out as an app push rather than into a chat.
@@ -98,8 +98,8 @@ const PUSH_ROUTE: &str = "push";
 #[must_use]
 pub fn channel_allows_proactive(
     channel: ChannelType,
-    last_inbound: Option<DateTime<Utc>>,
-    now: DateTime<Utc>,
+    last_inbound: Option<Timestamp>,
+    now: Timestamp,
 ) -> bool {
     match channel {
         // Bot-initiated messages are unrestricted for a user who started the bot.
@@ -116,12 +116,11 @@ pub fn channel_allows_proactive(
 /// `last_inbound` [`channel_allows_proactive`] reads. Only an inbound message
 /// touches the session, so its `last_message_at` is that instant; `None` when
 /// the row carries none that parses, which the window reads as closed.
-pub(crate) fn session_last_inbound(session: &Value) -> Option<DateTime<Utc>> {
+pub(crate) fn session_last_inbound(session: &Value) -> Option<Timestamp> {
     session
         .get("last_message_at")
         .and_then(Value::as_str)
-        .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
-        .map(|at| at.with_timezone(&Utc))
+        .and_then(|raw| Timestamp::parse_from_rfc3339(raw).ok())
 }
 
 /// Where a verdict resolved to.
@@ -135,7 +134,7 @@ struct ChannelRoute {
     /// Channel-native user id, used for the locale override lookup.
     channel_user_id: String,
     /// The athlete's last inbound message on this session.
-    last_inbound: Option<DateTime<Utc>>,
+    last_inbound: Option<Timestamp>,
     /// Tenant that owns the channel config and the outbound adapter — the
     /// bot/channel-owner tenant, which differs from the session tenant when a
     /// user DMs an admin-owned bot.
@@ -450,7 +449,7 @@ impl CommitmentReporter for ServerCommitmentReporter {
         let body = self.compose(commitment, &locale);
 
         if let Some(route) = route {
-            if channel_allows_proactive(route.channel_type, route.last_inbound, Utc::now()) {
+            if channel_allows_proactive(route.channel_type, route.last_inbound, Timestamp::now()) {
                 return self.send_to_channel(&route, body).await;
             }
             // The window is shut. Push is the athlete's own app, which has no

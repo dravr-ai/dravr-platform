@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 
 use crate::database::system_settings::SystemSetting;
@@ -53,15 +53,10 @@ pub(crate) const INSERT_SYSTEM_SETTING_IF_ABSENT_SQL: &str = r"
 /// the stamp is the concurrency token: on a clock running behind the instance
 /// that wrote `expected`, or in the same microsecond, a write would otherwise
 /// leave the token unmoved and a second writer holding it would still pass.
-pub(crate) fn next_setting_stamp(
-    now: DateTime<Utc>,
-    expected: Option<DateTime<Utc>>,
-) -> DateTime<Utc> {
-    use chrono::SubsecRound;
-
+pub(crate) fn next_setting_stamp(now: Timestamp, expected: Option<Timestamp>) -> Timestamp {
     let now = now.trunc_subsecs(6);
     match expected {
-        Some(prior) if now <= prior => prior.trunc_subsecs(6) + Duration::microseconds(1),
+        Some(prior) if now <= prior => prior.trunc_subsecs(6) + Elapsed::microseconds(1),
         _ => now,
     }
 }
@@ -79,7 +74,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column =
         |name: &str, e: sqlx::Error| AppError::database(format!("system_settings.{name}: {e}"));
@@ -148,7 +143,7 @@ macro_rules! impl_system_settings {
                 sqlx::query(SET_SYSTEM_SETTING_SQL)
                     .bind(key)
                     .bind(value)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -173,9 +168,9 @@ macro_rules! impl_system_settings {
                 &self,
                 key: &str,
                 value: &str,
-                expected: Option<DateTime<Utc>>,
-            ) -> AppResult<Option<DateTime<Utc>>> {
-                let stamp = next_setting_stamp(Utc::now(), expected);
+                expected: Option<Timestamp>,
+            ) -> AppResult<Option<Timestamp>> {
+                let stamp = next_setting_stamp(Timestamp::now(), expected);
                 let query = match expected {
                     Some(prior) => sqlx::query(UPDATE_SYSTEM_SETTING_IF_UNCHANGED_SQL)
                         .bind(key)
@@ -238,13 +233,13 @@ pub(crate) use impl_system_settings;
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
 
     use super::*;
 
     #[test]
     fn a_stamp_is_whole_microseconds_and_always_moves_past_the_token() {
-        let at = |nanos: u32| Utc.timestamp_opt(1_700_000_000, nanos).single().unwrap();
+        let at =
+            |nanos: u32| Timestamp::from_epoch_seconds_and_nanos(1_700_000_000, nanos).unwrap();
 
         assert_eq!(next_setting_stamp(at(1_234_567), None), at(1_234_000));
 

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::models::AdminConfigOverrideRow;
 use pierre_core::errors::AppResult;
 
@@ -28,14 +28,14 @@ pub trait UsageRepository: Send + Sync {
     async fn get_api_key_window_usage(
         &self,
         api_key_id: &str,
-        window_start: DateTime<Utc>,
+        window_start: Timestamp,
     ) -> AppResult<WindowUsage>;
     /// Get usage statistics for an API key
     async fn get_api_key_stats(
         &self,
         api_key_id: &str,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
+        start_date: Timestamp,
+        end_date: Timestamp,
     ) -> AppResult<ApiKeyUsageStats>;
     /// Record JWT token usage for rate limiting and analytics
     async fn record_jwt_usage(&self, usage: &JwtUsage) -> AppResult<()>;
@@ -48,8 +48,8 @@ pub trait UsageRepository: Send + Sync {
         &self,
         user_id: Option<Uuid>,
         api_key_id: Option<&str>,
-        start_time: Option<DateTime<Utc>>,
-        end_time: Option<DateTime<Utc>>,
+        start_time: Option<Timestamp>,
+        end_time: Option<Timestamp>,
         status_filter: Option<&str>,
         tool_filter: Option<&str>,
     ) -> AppResult<Vec<RequestLog>>;
@@ -57,16 +57,16 @@ pub trait UsageRepository: Send + Sync {
     async fn get_top_tools_analysis(
         &self,
         user_id: Uuid,
-        start_time: DateTime<Utc>,
-        end_time: DateTime<Utc>,
+        start_time: Timestamp,
+        end_time: Timestamp,
     ) -> AppResult<Vec<ToolUsage>>;
     /// How many requests the user's API keys made in the window, on every
     /// endpoint. [`Self::get_top_tools_analysis`] only reads the busiest ten.
     async fn count_api_key_requests(
         &self,
         user_id: Uuid,
-        start_time: DateTime<Utc>,
-        end_time: DateTime<Utc>,
+        start_time: Timestamp,
+        end_time: Timestamp,
     ) -> AppResult<u64>;
 }
 
@@ -210,8 +210,8 @@ pub trait LlmUsageRepository: Send + Sync {
     async fn get_llm_calls_between(
         &self,
         tenant_id: Option<&str>,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
         limit: i64,
     ) -> AppResult<Vec<LlmUsageRecord>>;
 

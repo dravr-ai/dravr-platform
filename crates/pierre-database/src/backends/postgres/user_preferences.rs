@@ -10,7 +10,7 @@
 //! [`crate::repositories::user_preferences`]; this module only names the type
 //! the pool is parameterised on and how a user id reaches a `uuid` column.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{AdminRosterGrant, CoachingPersona};
 use sqlx::{Pool, Postgres, Row};

@@ -11,7 +11,7 @@ use axum::{
     http::HeaderMap,
     response::{IntoResponse, Redirect, Response},
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::oauth2_server::endpoints::{AdminAccess, OAuth2AuthorizationServer};
 use pierre_auth::oauth2_server::models::{AuthorizeRequest, OAuth2Error};
 use pierre_core::models::{OAuthClientGrant, User, UserStatus};
@@ -204,7 +204,7 @@ impl OAuth2Routes {
             tenant_id: tid.clone(),
             client_id: client_id.to_owned(),
             scope: scope.to_owned(),
-            granted_at: Utc::now(),
+            granted_at: Timestamp::now(),
             revoked_at: None,
             consent_version: Some(consent_version(text, subject)),
             consent_locale: Some(text.lang().to_owned()),

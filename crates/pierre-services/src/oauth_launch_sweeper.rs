@@ -36,7 +36,7 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_database::repositories::{OAuthClientStateRepository, WorkerRunRepository};
 use tracing::warn;
 
@@ -67,7 +67,9 @@ pub fn start_oauth_launch_sweeper(
     spawn_periodic("oauth launch sweeper", SWEEP_INTERVAL, ledger, move || {
         let states = Arc::clone(&states);
         async move {
-            let reaped = states.reap_expired_oauth_client_states(Utc::now()).await?;
+            let reaped = states
+                .reap_expired_oauth_client_states(Timestamp::now())
+                .await?;
             report_reaped(&reaped);
             Ok(())
         }

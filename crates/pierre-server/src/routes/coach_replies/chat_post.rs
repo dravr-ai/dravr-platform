@@ -238,7 +238,7 @@ mod tests {
     use std::sync::Mutex;
 
     use async_trait::async_trait;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
     use pierre_core::models::messaging::ChannelType;
     use pierre_core::models::{CoachReplyCorrection, Tenant};
@@ -293,8 +293,8 @@ mod tests {
             channel_type: channel.map(|(c, _)| c.to_owned()),
             channel_chat_id: channel.map(|(_, id)| id.to_owned()),
             chat_connection: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         }
     }
 
@@ -312,7 +312,7 @@ mod tests {
                 content: "Your **2:41** marathon in May was a big step.".to_owned(),
                 conversation_id: Some("c1".to_owned()),
                 message_id: Some("m1".to_owned()),
-                created_at: Utc::now(),
+                created_at: Timestamp::now(),
                 transport_policy: TransportPolicy::AnyTransport,
             },
             correction: CoachReplyCorrection {
@@ -320,7 +320,7 @@ mod tests {
                 reply_entry_id: entry_id,
                 correction_entry_id: Uuid::new_v4(),
                 content: "Paul has not run a marathon yet; the May race was a half.".to_owned(),
-                created_at: Utc::now(),
+                created_at: Timestamp::now(),
             },
         }
     }
@@ -451,8 +451,8 @@ mod tests {
                 domain: None,
                 plan: "professional".to_owned(),
                 owner_user_id: user_id,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
             })
             .await
             .expect("tenant");

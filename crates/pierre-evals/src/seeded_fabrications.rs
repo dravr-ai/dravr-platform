@@ -37,7 +37,7 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
-use chrono::{NaiveDate, NaiveTime, Utc};
+use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{resolve_sport_type, DailyTrainingState};
 use pierre_memory::{ClaimCategory, ClaimStatus, VerdictLayer};
@@ -55,6 +55,7 @@ use crate::judge::ClaimJudge;
 use crate::personalized::{AthleteMetrics, PersonalizedContext};
 use crate::verdict_engine::{verify_reply, VerdictOutcome};
 use crate::verification_config::VerificationConfig;
+use dravr_tronc::dates::Zone;
 
 /// The kinds of fabrication the corpus seeds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -99,7 +100,7 @@ impl FabricationKind {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SyntheticActivity {
     /// Civil date.
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// Sport, as the tools' alias table spells it.
     pub sport: String,
     /// The provider's name for it.
@@ -147,7 +148,7 @@ pub struct SyntheticAthlete {
     /// Locale the replies are in.
     pub locale: String,
     /// The athlete's current civil day.
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// Whether any provider is connected. A connected athlete's provider is
     /// fully synced, so the record vouches for every day of its window.
     pub has_provider: bool,
@@ -219,12 +220,12 @@ impl SyntheticAthlete {
     /// fixture's dates are already civil days, and UTC leaves them as they are.
     /// No corpus athlete follows a plan, so there is no block.
     fn synced_history(&self, sessions: &[RecordedActivity]) -> Option<PeriodHistory> {
-        let now = self.today.and_time(NaiveTime::MIN).and_utc();
+        let now = self.today.at_midnight().and_utc().ok()?;
         PeriodHistory::vouched(HistoryInputs {
             sessions: sessions.to_vec(),
             by_source: Vec::new(),
             read: CacheRead {
-                from: now.checked_sub_signed(ATHLETE_RECORD_WINDOW)?,
+                from: now.checked_sub(ATHLETE_RECORD_WINDOW)?,
                 cut_day: None,
             },
             sources: vec![SourceCoverage {
@@ -232,7 +233,7 @@ impl SyntheticAthlete {
                 depth: BackfillDepth::FeedEnd,
             }],
             now,
-            zone: Utc,
+            zone: Zone::utc(),
             block_start: None,
         })
     }

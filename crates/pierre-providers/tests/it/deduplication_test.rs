@@ -19,7 +19,7 @@
 
 use std::collections::BTreeSet;
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::Feel;
 use pierre_core::models::{Activity, ActivityBuilder, ActivityTag, SportType, TagSource, TaggedBy};
@@ -29,7 +29,7 @@ use pierre_providers::deduplication::{merge_duplicates, DedupConfig, FilledField
 fn make_activity(
     id: &str,
     sport: SportType,
-    start: DateTime<Utc>,
+    start: Timestamp,
     duration_secs: u64,
     distance_m: f64,
 ) -> Activity {
@@ -47,8 +47,8 @@ fn ids(activities: &[Activity]) -> Vec<&str> {
     activities.iter().map(Activity::id).collect()
 }
 
-fn base_time() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 5, 22, 14, 0, 0).unwrap()
+fn base_time() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-05-22T14:00:00Z").unwrap()
 }
 
 #[test]
@@ -85,14 +85,14 @@ fn garmin_auto_split_three_fragments_collapse_to_one() {
         make_activity(
             "frag-b",
             SportType::Run,
-            t + Duration::seconds(905),
+            t + Elapsed::seconds(905),
             900,
             2400.0,
         ), // 15:05–30:05
         make_activity(
             "frag-c",
             SportType::Run,
-            t + Duration::seconds(1810),
+            t + Elapsed::seconds(1810),
             900,
             2400.0,
         ), // 30:10–45:10
@@ -128,7 +128,7 @@ fn dual_device_recording_groups_watch_and_bike_computer() {
         make_activity(
             "bikecomp",
             SportType::Ride,
-            t + Duration::seconds(30),
+            t + Elapsed::seconds(30),
             14_490,
             96_500.0,
         ),
@@ -153,7 +153,7 @@ fn brick_workout_ride_then_run_stays_two_distinct_sessions() {
         make_activity(
             "brick-run",
             SportType::Run,
-            t + Duration::seconds(3605),
+            t + Elapsed::seconds(3605),
             1800,
             5000.0,
         ), // 60:05–90:05
@@ -174,7 +174,7 @@ fn back_to_back_same_sport_with_long_gap_stays_distinct() {
         make_activity(
             "afternoon-run",
             SportType::Run,
-            t + Duration::seconds(3600), // 60 min after start = 30 min after end
+            t + Elapsed::seconds(3600), // 60 min after start = 30 min after end
             1800,
             5000.0,
         ),
@@ -197,7 +197,7 @@ fn twenty_recordings_fold_to_three_sessions_across_three_workouts() {
     // Workout 1: trail run, 7 GPS fragments around 14:00–15:30 UTC
     let run_start = day;
     for i in 0_i64..7 {
-        let offset = Duration::seconds(i * 600); // each fragment ~10 min after prev
+        let offset = Elapsed::seconds(i * 600); // each fragment ~10 min after prev
         let i_f = i as f64;
         activities.push(make_activity(
             &format!("run-{i}"),
@@ -210,9 +210,9 @@ fn twenty_recordings_fold_to_three_sessions_across_three_workouts() {
 
     // Workout 2: ride, 10 dual-device fragments around 09:00–12:30 local
     // (synthesized as a separate non-overlapping window from the run)
-    let ride_start = day + Duration::hours(4);
+    let ride_start = day + Elapsed::hours(4);
     for i in 0_i64..10 {
-        let offset = Duration::seconds(i * 60); // staggered starts within 10 min
+        let offset = Elapsed::seconds(i * 60); // staggered starts within 10 min
         let i_f = i as f64;
         activities.push(make_activity(
             &format!("ride-{i}"),
@@ -224,9 +224,9 @@ fn twenty_recordings_fold_to_three_sessions_across_three_workouts() {
     }
 
     // Workout 3: a real hike, 3 fragments spanning the trail
-    let hike_start = day + Duration::hours(9);
+    let hike_start = day + Elapsed::hours(9);
     for i in 0_i64..3 {
-        let offset = Duration::seconds(i * 30);
+        let offset = Elapsed::seconds(i * 30);
         let i_f = i as f64;
         activities.push(make_activity(
             &format!("hike-{i}"),
@@ -262,14 +262,8 @@ fn merged_list_keeps_one_row_per_session_in_input_order() {
     let t = base_time();
     let activities = vec![
         make_activity("a", SportType::Run, t, 1000, 5000.0),
-        make_activity(
-            "b",
-            SportType::Run,
-            t + Duration::seconds(100),
-            1200,
-            6000.0,
-        ),
-        make_activity("c", SportType::Ride, t + Duration::hours(5), 3600, 40_000.0),
+        make_activity("b", SportType::Run, t + Elapsed::seconds(100), 1200, 6000.0),
+        make_activity("c", SportType::Ride, t + Elapsed::hours(5), 3600, 40_000.0),
     ];
     let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
     assert_eq!(ids(&merged), vec!["b", "c"]);
@@ -288,7 +282,7 @@ fn custom_tolerance_tightens_grouping() {
         make_activity(
             "b",
             SportType::Run,
-            t + Duration::seconds(80), // 20-sec gap > 10-sec tolerance
+            t + Elapsed::seconds(80), // 20-sec gap > 10-sec tolerance
             60,
             200.0,
         ),
@@ -306,13 +300,7 @@ fn determinism_same_input_yields_same_canonical() {
     let t = base_time();
     let activities = vec![
         make_activity("zzz", SportType::Run, t, 600, 2000.0),
-        make_activity(
-            "aaa",
-            SportType::Run,
-            t + Duration::seconds(60),
-            600,
-            2000.0,
-        ),
+        make_activity("aaa", SportType::Run, t + Elapsed::seconds(60), 600, 2000.0),
     ];
     let report = detect(&activities, &DedupConfig::default());
     assert_eq!(report.groups.len(), 1);
@@ -326,7 +314,7 @@ fn midnight_starts_are_not_merged_as_fragments() {
     // midnight must NOT collapse into one bogus fragment group — every midnight
     // row trivially "overlaps" every other, which produced the "N sessions
     // today" hallucination. Unknown-time rows stay standalone.
-    let midnight = Utc.with_ymd_and_hms(2026, 5, 28, 0, 0, 0).unwrap();
+    let midnight = Timestamp::parse_from_rfc3339("2026-05-28T00:00:00Z").unwrap();
     let activities = vec![
         make_activity("a", SportType::Run, midnight, 1800, 5000.0),
         make_activity("b", SportType::Run, midnight, 2400, 7000.0),
@@ -348,7 +336,7 @@ fn provider_activity(
     id: &str,
     provider: &str,
     sport: SportType,
-    start: DateTime<Utc>,
+    start: Timestamp,
     duration_secs: u64,
 ) -> ActivityBuilder {
     ActivityBuilder::new(id, "Session", sport, start, duration_secs, provider)
@@ -366,7 +354,7 @@ fn same_ride_from_two_providers_counts_once() {
             "strava-1",
             "strava",
             SportType::Ride,
-            t + Duration::minutes(2),
+            t + Elapsed::minutes(2),
             11_520,
         )
         .distance_meters(84_800.0)
@@ -375,7 +363,7 @@ fn same_ride_from_two_providers_counts_once() {
             "garmin-1",
             "garmin",
             SportType::Ride,
-            t + Duration::minutes(2),
+            t + Elapsed::minutes(2),
             11_520,
         )
         .distance_meters(84_750.0)
@@ -399,7 +387,7 @@ fn distinct_rides_same_day_from_two_providers_are_both_kept() {
             "garmin-evening",
             "garmin",
             SportType::Ride,
-            t + Duration::hours(8),
+            t + Elapsed::hours(8),
             5400,
         )
         .distance_meters(60_000.0)
@@ -424,7 +412,7 @@ fn same_provider_overlapping_rides_are_one_session() {
             "strava-b",
             "strava",
             SportType::Ride,
-            t + Duration::minutes(1),
+            t + Elapsed::minutes(1),
             3600,
         )
         .distance_meters(20_000.0)
@@ -482,7 +470,7 @@ fn wrist_tracker_misclassified_ride_folds_into_the_gps_ride_and_donates_its_fiel
             "whoop-run",
             "whoop",
             SportType::Run,
-            t + Duration::minutes(2),
+            t + Elapsed::minutes(2),
             23_700,
         )
         .average_heart_rate(141)
@@ -577,7 +565,7 @@ fn self_report_from_a_second_provider_lands_on_the_gps_session() {
             "icu-run",
             "intervals_icu",
             SportType::Run,
-            t + Duration::seconds(20),
+            t + Elapsed::seconds(20),
             3_590,
         )
         .distance_meters(11_950.0)
@@ -616,7 +604,7 @@ fn an_auto_split_piece_adds_its_volume_but_none_of_its_averages() {
             "ride-tail",
             "garmin",
             SportType::Ride,
-            t + Duration::seconds(7_203),
+            t + Elapsed::seconds(7_203),
             3_600,
         )
         .distance_meters(28_000.0)
@@ -645,7 +633,7 @@ fn an_auto_split_piece_adds_its_volume_but_none_of_its_averages() {
 #[test]
 fn a_split_session_keeps_its_start_piece_s_offset_whichever_piece_is_canonical() {
     let t = base_time();
-    let later = t + Duration::seconds(7_203);
+    let later = t + Elapsed::seconds(7_203);
     // The start piece is canonical: the tail's clock is not the start's.
     let (merged, _) = merge_duplicates(
         vec![
@@ -758,7 +746,7 @@ fn a_chain_of_three_recordings_is_one_group_whatever_the_input_order() {
         "computer",
         "garmin",
         SportType::Ride,
-        t + Duration::seconds(40),
+        t + Elapsed::seconds(40),
         7_260,
     )
     .distance_meters(60_400.0)
@@ -769,7 +757,7 @@ fn a_chain_of_three_recordings_is_one_group_whatever_the_input_order() {
         "upload",
         "strava",
         SportType::Ride,
-        t + Duration::seconds(40),
+        t + Elapsed::seconds(40),
         7_258,
     )
     .distance_meters(60_380.0)
@@ -792,7 +780,7 @@ fn a_chain_of_three_recordings_is_one_group_whatever_the_input_order() {
 fn a_date_only_scrape_pairs_with_the_timed_record_of_its_day() {
     // A scrape mirror resolves only the day (T00:00:00); the API copy of the
     // same run has the real start. Same sport, same day, matching distance.
-    let day = Utc.with_ymd_and_hms(2026, 5, 28, 0, 0, 0).unwrap();
+    let day = Timestamp::parse_from_rfc3339("2026-05-28T00:00:00Z").unwrap();
     let activities = vec![
         provider_activity("scrape", "sciotte", SportType::Run, day, 2_400)
             .distance_meters(8_000.0)
@@ -801,7 +789,7 @@ fn a_date_only_scrape_pairs_with_the_timed_record_of_its_day() {
             "api",
             "strava",
             SportType::Run,
-            day + Duration::hours(17),
+            day + Elapsed::hours(17),
             2_410,
         )
         .distance_meters(8_010.0)
@@ -817,13 +805,13 @@ fn two_same_day_runs_captured_date_only_stay_two_beside_their_timed_rows() {
     // (date-only, midnight UTC), two 8 km runs at 07:00 and 18:00. Each
     // capture matches both timed runs by day and distance; the merge must
     // still pair each capture with one run, never chain all four into one.
-    let day = Utc.with_ymd_and_hms(2026, 5, 28, 0, 0, 0).unwrap();
+    let day = Timestamp::parse_from_rfc3339("2026-05-28T00:00:00Z").unwrap();
     let activities = vec![
         provider_activity(
             "g-am",
             "garmin",
             SportType::Run,
-            day + Duration::hours(7),
+            day + Elapsed::hours(7),
             2_400,
         )
         .distance_meters(8_000.0)
@@ -832,7 +820,7 @@ fn two_same_day_runs_captured_date_only_stay_two_beside_their_timed_rows() {
             "g-pm",
             "garmin",
             SportType::Run,
-            day + Duration::hours(18),
+            day + Elapsed::hours(18),
             2_400,
         )
         .distance_meters(8_000.0)
@@ -862,13 +850,13 @@ fn two_same_day_runs_captured_date_only_stay_two_beside_their_timed_rows() {
 fn a_date_only_capture_pairs_with_the_run_of_its_distance() {
     // Same day, two timed runs of different lengths; one capture of each.
     // Each capture lands on the run whose distance it carries.
-    let day = Utc.with_ymd_and_hms(2026, 5, 28, 0, 0, 0).unwrap();
+    let day = Timestamp::parse_from_rfc3339("2026-05-28T00:00:00Z").unwrap();
     let activities = vec![
         provider_activity(
             "g-short",
             "garmin",
             SportType::Run,
-            day + Duration::hours(7),
+            day + Elapsed::hours(7),
             1_800,
         )
         .distance_meters(5_000.0)
@@ -877,7 +865,7 @@ fn a_date_only_capture_pairs_with_the_run_of_its_distance() {
             "g-long",
             "garmin",
             SportType::Run,
-            day + Duration::hours(18),
+            day + Elapsed::hours(18),
             3_600,
         )
         .distance_meters(5_300.0)
@@ -919,24 +907,12 @@ fn a_report_scoped_to_a_page_keeps_only_that_page_s_groups_and_counts() {
         provider_activity("g-1", "garmin", SportType::Ride, t, 3_600)
             .distance_meters(30_050.0)
             .build(),
-        provider_activity(
-            "s-2",
-            "strava",
-            SportType::Run,
-            t + Duration::days(1),
-            1_800,
-        )
-        .distance_meters(6_000.0)
-        .build(),
-        provider_activity(
-            "g-2",
-            "garmin",
-            SportType::Run,
-            t + Duration::days(1),
-            1_800,
-        )
-        .distance_meters(6_010.0)
-        .build(),
+        provider_activity("s-2", "strava", SportType::Run, t + Elapsed::days(1), 1_800)
+            .distance_meters(6_000.0)
+            .build(),
+        provider_activity("g-2", "garmin", SportType::Run, t + Elapsed::days(1), 1_800)
+            .distance_meters(6_010.0)
+            .build(),
     ];
     let (sessions, report) = merge_duplicates(activities, &DedupConfig::default());
     assert_eq!(report.groups.len(), 2);
@@ -964,7 +940,7 @@ fn a_scraped_recording_is_named_by_the_service_it_was_read_from() {
             "strava-1",
             "strava",
             SportType::Ride,
-            t + Duration::minutes(2),
+            t + Elapsed::minutes(2),
             11_520,
         )
         .distance_meters(84_800.0)
@@ -974,7 +950,7 @@ fn a_scraped_recording_is_named_by_the_service_it_was_read_from() {
             "garmin-1",
             "sciotte",
             SportType::Ride,
-            t + Duration::minutes(2),
+            t + Elapsed::minutes(2),
             11_520,
         )
         .source("garmin")
@@ -1000,7 +976,7 @@ fn a_scraped_recording_is_named_by_the_service_it_was_read_from() {
 // ============================================================================
 
 /// A row the Garmin API pushed: provider `garmin`, keyed by Garmin's id.
-fn garmin_api_row(id: &str, start: DateTime<Utc>, duration_secs: u64) -> Activity {
+fn garmin_api_row(id: &str, start: Timestamp, duration_secs: u64) -> Activity {
     ActivityBuilder::new(
         id,
         "Pushed Ride",
@@ -1016,7 +992,7 @@ fn garmin_api_row(id: &str, start: DateTime<Utc>, duration_secs: u64) -> Activit
 
 /// A row the connection using usr/pwd from Dravr captured: provider
 /// `sciotte`, source `garmin`, keyed by the same Garmin id.
-fn garmin_credential_row(id: &str, start: DateTime<Utc>, duration_secs: u64) -> Activity {
+fn garmin_credential_row(id: &str, start: Timestamp, duration_secs: u64) -> Activity {
     ActivityBuilder::new(
         id,
         "Captured Ride",
@@ -1060,8 +1036,8 @@ fn one_garmin_activity_id_is_one_workout_and_the_api_row_wins() {
 fn a_date_only_capture_still_folds_into_the_api_row_of_its_id() {
     // A usr/pwd row scraped without its time sits at midnight UTC; the API
     // row starts the evening before in UTC. Only the id ties them.
-    let api_start = Utc.with_ymd_and_hms(2026, 5, 21, 23, 30, 0).unwrap();
-    let midnight = Utc.with_ymd_and_hms(2026, 5, 22, 0, 0, 0).unwrap();
+    let api_start = Timestamp::parse_from_rfc3339("2026-05-21T23:30:00Z").unwrap();
+    let midnight = Timestamp::parse_from_rfc3339("2026-05-22T00:00:00Z").unwrap();
     let activities = vec![
         garmin_api_row("555", api_start, 1800),
         make_activity("other", SportType::Run, base_time(), 1800, 5000.0),
@@ -1085,7 +1061,7 @@ fn equal_ids_from_other_services_are_not_one_workout() {
         "777",
         "Strava Ride",
         SportType::Ride,
-        t + Duration::days(1),
+        t + Elapsed::days(1),
         3600,
         "sciotte",
     )
@@ -1103,7 +1079,7 @@ fn distinct_garmin_ids_stay_distinct_activities() {
     let t = base_time();
     let activities = vec![
         garmin_api_row("1001", t, 1800),
-        garmin_credential_row("1002", t + Duration::days(2), 1800),
+        garmin_credential_row("1002", t + Elapsed::days(2), 1800),
     ];
     let (merged, _) = merge_duplicates(activities, &DedupConfig::default());
     assert_eq!(ids(&merged).len(), 2);
@@ -1115,7 +1091,7 @@ fn distinct_garmin_ids_stay_distinct_activities() {
 // ============================================================================
 
 /// A row the Strava API served: provider `strava`, keyed by Strava's id.
-fn strava_api_row(id: &str, start: DateTime<Utc>, duration_secs: u64) -> Activity {
+fn strava_api_row(id: &str, start: Timestamp, duration_secs: u64) -> Activity {
     ActivityBuilder::new(
         id,
         "API Ride",
@@ -1131,7 +1107,7 @@ fn strava_api_row(id: &str, start: DateTime<Utc>, duration_secs: u64) -> Activit
 
 /// A row the athlete's imported Strava export holds: provider
 /// `strava_archive`, keyed by the export's `Activity ID`, which is Strava's.
-fn strava_archive_row(id: &str, start: DateTime<Utc>, duration_secs: u64) -> Activity {
+fn strava_archive_row(id: &str, start: Timestamp, duration_secs: u64) -> Activity {
     ActivityBuilder::new(
         id,
         "Archived Ride",
@@ -1150,7 +1126,7 @@ fn strava_archive_row(id: &str, start: DateTime<Utc>, duration_secs: u64) -> Act
 /// A row the connection using usr/pwd from Dravr captured of a Strava
 /// activity: provider `sciotte`, source `strava`, scraped date-only (the list
 /// page's day at midnight UTC), the sport the athlete relabelled it to.
-fn strava_capture_row(id: &str, day: DateTime<Utc>) -> Activity {
+fn strava_capture_row(id: &str, day: Timestamp) -> Activity {
     ActivityBuilder::new(
         id,
         "Captured Ride",
@@ -1169,8 +1145,8 @@ fn a_date_only_strava_capture_folds_into_the_archive_row_of_its_id() {
     // An evening ride in Montreal: the export's start is past midnight UTC,
     // the capture sits at midnight of the athlete's own day, and the athlete
     // relabelled the sport on Strava. Only the id ties them.
-    let archived = Utc.with_ymd_and_hms(2026, 5, 22, 1, 30, 0).unwrap();
-    let local_day = Utc.with_ymd_and_hms(2026, 5, 21, 0, 0, 0).unwrap();
+    let archived = Timestamp::parse_from_rfc3339("2026-05-22T01:30:00Z").unwrap();
+    let local_day = Timestamp::parse_from_rfc3339("2026-05-21T00:00:00Z").unwrap();
     let activities = vec![
         strava_capture_row("16012345678", local_day),
         make_activity("other", SportType::Run, base_time(), 1800, 5000.0),
@@ -1275,7 +1251,7 @@ fn an_archive_id_matches_no_other_service() {
     let t = base_time();
     let activities = vec![
         garmin_api_row("888", t, 3600),
-        strava_archive_row("888", t + Duration::days(1), 3600),
+        strava_archive_row("888", t + Elapsed::days(1), 3600),
     ];
     let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
 
@@ -1293,8 +1269,8 @@ fn every_service_read_both_ways_keys_its_twins_by_its_own_id() {
     // API's copy standing for it. A capture cached under the dedicated mirror
     // backend name (`sciotte_garmin`) is Garmin's like a `sciotte` row with
     // source `garmin`.
-    let start = Utc.with_ymd_and_hms(2026, 5, 21, 23, 30, 0).unwrap();
-    let midnight = Utc.with_ymd_and_hms(2026, 5, 22, 0, 0, 0).unwrap();
+    let start = Timestamp::parse_from_rfc3339("2026-05-21T23:30:00Z").unwrap();
+    let midnight = Timestamp::parse_from_rfc3339("2026-05-22T00:00:00Z").unwrap();
     for (api, capture) in [
         (
             ActivityBuilder::new("901", "Api", SportType::Ride, start, 3600, "trainingpeaks")
@@ -1342,7 +1318,7 @@ fn every_service_read_both_ways_keys_its_twins_by_its_own_id() {
 // ============================================================================
 
 /// A Garmin auto-split piece carrying its own route.
-fn garmin_piece(id: &str, start: DateTime<Utc>, duration_secs: u64, distance_m: f64) -> Activity {
+fn garmin_piece(id: &str, start: Timestamp, duration_secs: u64, distance_m: f64) -> Activity {
     provider_activity(id, "garmin", SportType::Ride, start, duration_secs)
         .distance_meters(distance_m)
         .moving_time_seconds(duration_secs - 60)
@@ -1357,7 +1333,7 @@ fn two_pieces_sum_but_two_recordings_of_the_same_time_do_not() {
     // two seconds after the first ended.
     let pieces = vec![
         garmin_piece("g-1", t, 7_200, 70_000.0),
-        garmin_piece("g-2", t + Duration::seconds(7_202), 3_600, 30_000.0),
+        garmin_piece("g-2", t + Elapsed::seconds(7_202), 3_600, 30_000.0),
     ];
     let (merged, _) = merge_duplicates(pieces, &DedupConfig::default());
     assert_eq!(merged.len(), 1);
@@ -1372,7 +1348,7 @@ fn two_pieces_sum_but_two_recordings_of_the_same_time_do_not() {
             "bikecomp",
             "wahoo",
             SportType::Ride,
-            t + Duration::seconds(30),
+            t + Elapsed::seconds(30),
             7_190,
         )
         .distance_meters(70_400.0)
@@ -1395,7 +1371,7 @@ fn pieces_from_two_providers_sum_into_one_session() {
             "strava-leg",
             "strava",
             SportType::Ride,
-            t + Duration::seconds(3_660),
+            t + Elapsed::seconds(3_660),
             1_800,
         )
         .distance_meters(15_000.0)
@@ -1417,7 +1393,7 @@ fn split_ride_and_its_whole_recording(strava_gps: bool) -> Vec<Activity> {
         "strava-whole",
         "strava",
         SportType::Ride,
-        t + Duration::seconds(20),
+        t + Elapsed::seconds(20),
         10_790,
     )
     .distance_meters(100_300.0)
@@ -1433,7 +1409,7 @@ fn split_ride_and_its_whole_recording(strava_gps: bool) -> Vec<Activity> {
         "garmin-2",
         "garmin",
         SportType::Ride,
-        t + Duration::seconds(7_202),
+        t + Elapsed::seconds(7_202),
         3_600,
     )
     .distance_meters(30_000.0)
@@ -1499,7 +1475,7 @@ fn two_recordings_of_the_same_tail_add_it_once() {
     // The first hour on the watch; the second hour recorded by both the
     // watch and a bike computer. The tail counts once.
     let t = base_time();
-    let tail_start = t + Duration::seconds(3_602);
+    let tail_start = t + Elapsed::seconds(3_602);
     let activities = vec![
         garmin_piece("head", t, 3_600, 30_000.0),
         garmin_piece("tail-watch", tail_start, 3_600, 31_000.0),
@@ -1507,7 +1483,7 @@ fn two_recordings_of_the_same_tail_add_it_once() {
             "tail-bikecomp",
             "wahoo",
             SportType::Ride,
-            tail_start + Duration::seconds(15),
+            tail_start + Elapsed::seconds(15),
             3_580,
         )
         .distance_meters(30_900.0)
@@ -1525,7 +1501,7 @@ fn a_date_only_row_never_adds_volume() {
     // A capture scraped date-only sits at midnight: its window is not when it
     // was recorded, so it can never be a piece.
     let t = base_time();
-    let day = t.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let day = t.utc_date().at_midnight().and_utc().unwrap();
     let activities = vec![
         provider_activity("timed", "strava", SportType::Run, t, 3_600)
             .distance_meters(10_000.0)
@@ -1556,7 +1532,7 @@ fn twins_of_one_strava_activity_never_add_volume_whatever_their_clocks() {
     let t = base_time();
     let activities = vec![
         strava_api_row("15000000001", t, 3_600),
-        strava_archive_row("15000000001", t + Duration::seconds(3_700), 3_600),
+        strava_archive_row("15000000001", t + Elapsed::seconds(3_700), 3_600),
     ];
     let (merged, _) = merge_duplicates(activities, &DedupConfig::default());
 
@@ -1577,7 +1553,7 @@ fn a_twin_of_a_recording_never_adds_volume_beside_a_third_service_s_row() {
     let activities = vec![
         garmin_piece("21000000000", t, 3_601, 40_000.0),
         strava_api_row("15000000001", t, 3_600),
-        strava_archive_row("15000000001", t + Duration::seconds(3_700), 3_600),
+        strava_archive_row("15000000001", t + Elapsed::seconds(3_700), 3_600),
     ];
     let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
 
@@ -1601,7 +1577,7 @@ fn a_row_of_another_sport_never_adds_its_volume_to_the_session() {
             "garmin-run",
             "garmin",
             SportType::Run,
-            t + Duration::seconds(3_900),
+            t + Elapsed::seconds(3_900),
             1_800,
         )
         .distance_meters(6_000.0)
@@ -1629,7 +1605,7 @@ fn a_session_with_a_stop_between_its_pieces_ends_when_its_last_piece_ends() {
     let t = base_time();
     let activities = vec![
         garmin_piece("first", t, 3_600, 30_000.0),
-        garmin_piece("second", t + Duration::minutes(80), 2_400, 20_000.0),
+        garmin_piece("second", t + Elapsed::minutes(80), 2_400, 20_000.0),
         provider_activity("strava-whole", "strava", SportType::Ride, t, 7_200)
             .distance_meters(50_100.0)
             .build(),
@@ -1660,7 +1636,7 @@ fn a_split_session_spends_the_training_stress_and_calories_of_both_pieces() {
             "wahoo-2",
             "wahoo",
             SportType::Ride,
-            t + Duration::seconds(7_202),
+            t + Elapsed::seconds(7_202),
             3_600,
         )
         .distance_meters(30_000.0)
@@ -1683,7 +1659,7 @@ fn a_split_session_spends_the_training_stress_and_calories_of_both_pieces() {
 
 /// Strava's copy of a fenix ride, as its detail names the device: Strava
 /// re-derives distance and speed from the samples.
-fn strava_detail_of_fenix_ride(start: DateTime<Utc>) -> Activity {
+fn strava_detail_of_fenix_ride(start: Timestamp) -> Activity {
     ActivityBuilder::new(
         "16000000001",
         "Sunday loop",
@@ -1703,7 +1679,7 @@ fn strava_detail_of_fenix_ride(start: DateTime<Utc>) -> Activity {
 }
 
 /// Garmin's copy of the same fenix ride, as the Garmin API pushed it.
-fn garmin_push_of_fenix_ride(start: DateTime<Utc>) -> Activity {
+fn garmin_push_of_fenix_ride(start: Timestamp) -> Activity {
     ActivityBuilder::new(
         "21000000001",
         "Montreal Cycling",
@@ -1814,7 +1790,7 @@ fn a_ride_cropped_on_strava_stands_as_stravas_copy() {
         "16000000002",
         "Tempo",
         SportType::Ride,
-        t + Duration::seconds(360),
+        t + Elapsed::seconds(360),
         6_840,
         "strava",
     )
@@ -1891,7 +1867,7 @@ fn stravas_own_processing_is_no_edit() {
     let (merged, _) = merge_duplicates(
         vec![
             garmin_push_of_fenix_ride(t),
-            strava_detail_of_fenix_ride(t + Duration::seconds(3)),
+            strava_detail_of_fenix_ride(t + Elapsed::seconds(3)),
         ],
         &DedupConfig::default(),
     );
@@ -1918,7 +1894,7 @@ fn a_strava_app_run_stands_over_a_wrist_trackers_copy() {
         "w-1",
         "Running",
         SportType::Run,
-        t + Duration::seconds(30),
+        t + Elapsed::seconds(30),
         2_350,
         "whoop",
     )
@@ -1985,7 +1961,7 @@ fn a_strava_list_row_cropped_on_strava_stands_as_stravas_copy() {
         "16000000002",
         "Tempo",
         SportType::Ride,
-        t + Duration::seconds(360),
+        t + Elapsed::seconds(360),
         6_840,
         "strava",
     )
@@ -2021,7 +1997,7 @@ fn a_strava_app_recording_beside_a_garmin_one_is_no_edit_of_it() {
         "16000000003",
         "Phone ride",
         SportType::Ride,
-        t + Duration::seconds(40),
+        t + Elapsed::seconds(40),
         7_100,
         "strava",
     )
@@ -2119,7 +2095,7 @@ fn a_garmin_export_row_and_the_push_of_its_id_are_one_workout() {
         "19876543299",
         "Exported Ride",
         SportType::Ride,
-        t + Duration::hours(4),
+        t + Elapsed::hours(4),
         3_600,
         "garmin_archive",
     )
@@ -2138,7 +2114,7 @@ fn a_garmin_export_row_and_the_push_of_its_id_are_one_workout() {
 // ── The athlete's Strava title and sport (carnet#1315) ──────────────────────
 
 /// The usr/pwd capture of a Garmin trail run, titled by Garmin.
-fn garmin_capture_of_trail_run(start: DateTime<Utc>) -> Activity {
+fn garmin_capture_of_trail_run(start: Timestamp) -> Activity {
     ActivityBuilder::new(
         "21000000012",
         "Charlevoix-Est Trail",
@@ -2155,7 +2131,7 @@ fn garmin_capture_of_trail_run(start: DateTime<Utc>) -> Activity {
 }
 
 /// Strava's list row of a Garmin recording: no device, the athlete's title.
-fn strava_list_row(id: &str, name: &str, sport: SportType, start: DateTime<Utc>) -> Activity {
+fn strava_list_row(id: &str, name: &str, sport: SportType, start: Timestamp) -> Activity {
     ActivityBuilder::new(id, name, sport, start, 21_610, "strava")
         .distance_meters(41_900.0)
         .elevation_gain(1_790.0)
@@ -2394,7 +2370,7 @@ fn a_strava_app_recordings_title_never_names_the_garmin_session() {
         "16000000016",
         "Phone ride",
         SportType::Ride,
-        t + Duration::seconds(40),
+        t + Elapsed::seconds(40),
         7_100,
         "strava",
     )
@@ -2514,13 +2490,7 @@ fn a_strava_list_row_whose_detail_names_its_app_never_retypes_the_garmin_session
 const WATCH: &str = "Garmin fenix 5";
 
 /// A row of one watch's recording, the way a FIT-built row carries it.
-fn watch_row(
-    id: &str,
-    provider: &str,
-    start: DateTime<Utc>,
-    seconds: u64,
-    metres: f64,
-) -> Activity {
+fn watch_row(id: &str, provider: &str, start: Timestamp, seconds: u64, metres: f64) -> Activity {
     provider_activity(id, provider, SportType::Ride, start, seconds)
         .distance_meters(metres)
         .device_name(WATCH)
@@ -2533,7 +2503,7 @@ fn watch_row(
 #[test]
 fn two_short_rides_in_two_exports_stay_two() {
     let t = base_time();
-    let second = t + Duration::minutes(14);
+    let second = t + Elapsed::minutes(14);
     let (garmin, strava) = (
         oauth_providers::GARMIN_ARCHIVE,
         oauth_providers::STRAVA_ARCHIVE,
@@ -2566,7 +2536,7 @@ fn one_devices_two_rides_in_two_exports_stay_two() {
             watch_row(
                 "s2",
                 oauth_providers::STRAVA_ARCHIVE,
-                t + Duration::minutes(14),
+                t + Elapsed::minutes(14),
                 480,
                 2_600.0,
             ),
@@ -2586,7 +2556,7 @@ fn one_devices_two_rides_in_two_exports_stay_two() {
 #[test]
 fn two_short_rides_on_two_live_connections_stay_two() {
     let t = base_time();
-    let second = t + Duration::minutes(14);
+    let second = t + Elapsed::minutes(14);
     let row = |id, provider, start, metres| {
         provider_activity(id, provider, SportType::Ride, start, 480)
             .distance_meters(metres)
@@ -2620,7 +2590,7 @@ fn consecutive_saves_on_one_device_within_tolerance_are_summed() {
             watch_row(
                 "s2",
                 oauth_providers::STRAVA_ARCHIVE,
-                t + Duration::minutes(34),
+                t + Elapsed::minutes(34),
                 1_800,
                 14_000.0,
             ),
@@ -2641,7 +2611,7 @@ fn consecutive_saves_on_one_device_within_tolerance_are_summed() {
 #[test]
 fn a_short_ride_minutes_off_on_a_second_provider_still_folds() {
     let t = base_time();
-    let off = t + Duration::minutes(14);
+    let off = t + Elapsed::minutes(14);
     let watch = || watch_row("g1", "garmin", t, 480, 2_500.0);
     let another_device = provider_activity("w1", "wahoo", SportType::Ride, off, 480)
         .distance_meters(2_500.0)
@@ -2663,7 +2633,7 @@ fn a_short_ride_minutes_off_on_a_second_provider_still_folds() {
 #[test]
 fn a_date_only_row_of_one_device_still_pairs_with_the_timed_row() {
     let t = base_time();
-    let day = t.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let day = t.utc_date().at_midnight().and_utc().unwrap();
     let (sessions, _) = merge_duplicates(
         vec![
             watch_row("g1", "garmin", t, 3_600, 30_000.0),
@@ -2680,7 +2650,7 @@ fn a_date_only_row_of_one_device_still_pairs_with_the_timed_row() {
 #[test]
 fn a_copy_minutes_off_on_a_second_provider_adds_no_volume() {
     let t = base_time();
-    let off = t + Duration::minutes(14);
+    let off = t + Elapsed::minutes(14);
     let row = |id, provider, start| {
         provider_activity(id, provider, SportType::Ride, start, 480)
             .distance_meters(2_500.0)
@@ -2723,7 +2693,7 @@ fn a_leg_touching_the_row_before_it_still_sums_inside_the_start_window() {
             id,
             provider,
             SportType::Ride,
-            t + Duration::minutes(minute),
+            t + Elapsed::minutes(minute),
             300,
         )
         .distance_meters(metres)
@@ -2755,7 +2725,7 @@ fn pieces_a_whole_recording_ties_together_still_sum_inside_the_start_window() {
             id,
             provider,
             SportType::Ride,
-            t + Duration::minutes(minute),
+            t + Elapsed::minutes(minute),
             seconds,
         )
         .distance_meters(metres)
@@ -2791,7 +2761,7 @@ fn a_copy_minutes_off_does_not_take_the_leg_it_touches_with_it() {
             id,
             provider,
             SportType::Ride,
-            t + Duration::minutes(minute),
+            t + Elapsed::minutes(minute),
             480,
         )
         .distance_meters(metres)
@@ -2824,7 +2794,7 @@ fn a_source_and_its_export_holding_two_ids_are_two_workouts() {
             .distance_meters(metres)
             .build()
     };
-    let second = t + Duration::minutes(14);
+    let second = t + Elapsed::minutes(14);
     let (sessions, _) = merge_duplicates(
         vec![
             row("g1", "garmin", t, 2_500.0),
@@ -2861,12 +2831,12 @@ fn a_source_and_its_export_holding_one_activity_stay_one_session() {
             .distance_meters(2_500.0)
             .build()
     };
-    let off = t + Duration::minutes(14);
+    let off = t + Elapsed::minutes(14);
     for rows in [
         // One id, the clocks past the window apart.
         vec![
             row("x", "strava", t),
-            row("x", "strava_archive", t + Duration::hours(5)),
+            row("x", "strava_archive", t + Elapsed::hours(5)),
             row("g1", "garmin", off),
         ],
         // One id, one clock, a third provider minutes off.
@@ -2898,7 +2868,7 @@ fn a_source_and_its_export_holding_one_activity_stay_one_session() {
 }
 
 /// A ride of 480 s and the given distance on one provider's clock.
-fn timed_ride(id: &str, provider: &str, start: DateTime<Utc>, metres: f64) -> Activity {
+fn timed_ride(id: &str, provider: &str, start: Timestamp, metres: f64) -> Activity {
     provider_activity(id, provider, SportType::Ride, start, 480)
         .distance_meters(metres)
         .build()
@@ -2935,8 +2905,8 @@ fn a_chain_of_start_windows_adds_no_volume_whichever_copy_stands() {
         let (sessions, _) = merge_duplicates(
             vec![
                 timed_ride("a", first, t, 2_500.0),
-                timed_ride("b", second, t + Duration::minutes(14), 2_500.0),
-                timed_ride("c", third, t + Duration::minutes(28), 2_500.0),
+                timed_ride("b", second, t + Elapsed::minutes(14), 2_500.0),
+                timed_ride("c", third, t + Elapsed::minutes(28), 2_500.0),
             ],
             &DedupConfig::with_tolerance(300),
         );
@@ -2964,8 +2934,8 @@ fn a_chain_of_start_windows_adds_no_volume_whichever_copy_stands() {
 #[test]
 fn a_twin_on_a_counted_rows_clock_adds_no_volume() {
     let t = base_time();
-    let far = t + Duration::hours(5);
-    for third in [far, far + Duration::minutes(14)] {
+    let far = t + Elapsed::hours(5);
+    for third in [far, far + Elapsed::minutes(14)] {
         let (sessions, _) = merge_duplicates(
             vec![
                 timed_ride("x", "strava", t, 2_500.0),
@@ -2993,7 +2963,7 @@ fn a_twin_on_a_counted_rows_clock_adds_no_volume() {
 #[test]
 fn a_row_on_a_counted_rows_twin_clock_adds_no_volume() {
     let t = base_time();
-    let far = t + Duration::hours(5);
+    let far = t + Elapsed::hours(5);
     let (sessions, _) = merge_duplicates(
         vec![
             timed_ride("x", "garmin", t, 2_500.0),
@@ -3015,7 +2985,7 @@ fn a_row_on_a_counted_rows_twin_clock_adds_no_volume() {
 #[test]
 fn a_date_only_twin_leaves_the_pieces_of_a_session() {
     let t = base_time();
-    let day = t.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let day = t.utc_date().at_midnight().and_utc().unwrap();
     let (sessions, _) = merge_duplicates(
         vec![
             timed_ride("g1", "garmin", t, 2_500.0),
@@ -3030,7 +3000,7 @@ fn a_date_only_twin_leaves_the_pieces_of_a_session() {
             .source("garmin")
             .distance_meters(2_500.0)
             .build(),
-            timed_ride("g2", "garmin", t + Duration::minutes(9), 2_500.0),
+            timed_ride("g2", "garmin", t + Elapsed::minutes(9), 2_500.0),
         ],
         &DedupConfig::with_tolerance(120),
     );
@@ -3049,7 +3019,7 @@ fn a_date_only_twin_leaves_the_pieces_of_a_session() {
 #[test]
 fn a_timed_capture_under_another_id_is_another_workout() {
     let t = base_time();
-    let second = t + Duration::minutes(14);
+    let second = t + Elapsed::minutes(14);
     let capture = |service| {
         let backend = if service == "garmin" {
             "sciotte_garmin"
@@ -3083,7 +3053,7 @@ fn a_timed_capture_under_another_id_is_another_workout() {
 #[test]
 fn the_start_window_rules_do_not_depend_on_arrival_order() {
     let t = base_time();
-    let minute = |at| t + Duration::minutes(at);
+    let minute = |at| t + Elapsed::minutes(at);
     let shapes = vec![
         (
             vec![

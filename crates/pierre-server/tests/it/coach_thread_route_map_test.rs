@@ -14,7 +14,7 @@
 //! drawn. These tests read the map's track the way the chat pipeline does, on
 //! the turn's seat, after `get_activities` handed the model the athlete's run.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::stages::viz_route::{read_route_tracks, RouteSubject, RouteTracks};
 use pierre_chat_pipeline::{InputSource, QuotaState, TurnInput, TurnOrigin};
 use pierre_core::models::{ConnectionType, ConversationTurnId, TimeSeriesData};
@@ -92,7 +92,7 @@ async fn record_run(f: &Fixture, who: Person, start: f64) {
             origin: StreamOrigin::Upload,
             source_ref: None,
             streams: &track_from(start),
-            synced_at: Utc::now(),
+            synced_at: Timestamp::now(),
         })
         .await
         .unwrap();

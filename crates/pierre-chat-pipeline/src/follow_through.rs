@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{OnboardingState, TenantId};
 use pierre_database::database::ConversationRecord;
 use pierre_llm::stage::LlmStage;
@@ -272,7 +272,7 @@ async fn retire_completed_interview_marker(
     if onboarding.is_some() {
         return;
     }
-    if !OnboardingState::just_completed(conv.onboarding_state.as_deref(), Utc::now()) {
+    if !OnboardingState::just_completed(conv.onboarding_state.as_deref(), Timestamp::now()) {
         return;
     }
     stages::onboarding::clear_completed_marker(ctx, conv, tenant_id).await;

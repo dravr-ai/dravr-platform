@@ -6,7 +6,7 @@
 
 //! Dashboard routes for the API Key Management System frontend
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::auth::AuthResult;
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
@@ -96,15 +96,15 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
             user_id, days
         );
 
-        let start_date = Utc::now() - Duration::days(i64::from(days));
+        let start_date = Timestamp::now() - Elapsed::days(i64::from(days));
 
         // The series spans the `days` calendar days ending on the current UTC
         // day, so the newest point is today and the tab agrees with
         // /admin/usage/llm-consumption over the same range.
-        let window_start = start_date + Duration::days(1);
+        let window_start = start_date + Elapsed::days(1);
 
         // Use LLM usage daily series (covers all requests, not just API key ones)
-        let since = window_start.format("%Y-%m-%d").to_string();
+        let since = window_start.utc_date().to_string();
         let usage = &self.resources.repos().llm_usage;
         let tenant_text = scope.tenant_filter().map(|t| t.to_string());
         let llm_daily = usage
@@ -117,8 +117,8 @@ impl<C: DashboardCtx> DashboardRoutes<C> {
         // Time series data (daily aggregates from LLM usage)
         let mut time_series = Vec::new();
         for day in 0..days {
-            let day_start = window_start + Duration::days(i64::from(day));
-            let day_date = day_start.format("%Y-%m-%d").to_string();
+            let day_start = window_start + Elapsed::days(i64::from(day));
+            let day_date = day_start.utc_date().to_string();
 
             let (request_count, avg_response_ms) =
                 llm_by_date.get(&day_date).map_or((0u64, 0.0_f64), |row| {

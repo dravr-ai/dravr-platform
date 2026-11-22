@@ -45,6 +45,7 @@ use sqlx::Sqlite;
 use tokio::time;
 
 use crate::admin_tokens_test::{account, log_a_request_with_its_caller, mint, requests_of, token};
+use dravr_tronc::dates::Timestamp;
 
 /// How long a write that must wait is watched not finishing.
 const WATCHED_WAITING: Duration = Duration::from_millis(400);
@@ -148,7 +149,7 @@ async fn a_log_write_that_meets_an_open_deletion_waits_and_keeps_no_caller() {
         tokio::spawn(async move {
             db.repositories()
                 .admin
-                .record_token_use(&login, chrono::Utc::now(), Some("203.0.113.9"))
+                .record_token_use(&login, Timestamp::now(), Some("203.0.113.9"))
                 .await
         })
     };

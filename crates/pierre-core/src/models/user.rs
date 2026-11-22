@@ -8,7 +8,7 @@ use crate::transport::TransportPolicy;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::str::FromStr;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -418,7 +418,7 @@ impl FromStr for ColorScheme {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdminRosterGrant {
     /// When the admin granted it.
-    pub granted_at: DateTime<Utc>,
+    pub granted_at: Timestamp,
     /// The admin who granted it; `None` for a service token, which names
     /// no one, and once that admin's account is deleted.
     pub granted_by: Option<Uuid>,
@@ -452,9 +452,9 @@ pub struct User {
     /// Encrypted Strava tokens
     pub strava_token: Option<EncryptedToken>,
     /// When the user account was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Last time user accessed the system
-    pub last_active: DateTime<Utc>,
+    pub last_active: Timestamp,
     /// Whether the user account is active
     pub is_active: bool,
     /// User account status for admin approval workflow
@@ -465,7 +465,7 @@ pub struct User {
     /// Admin who approved this user (if approved)
     pub approved_by: Option<Uuid>,
     /// When the user was approved by admin
-    pub approved_at: Option<DateTime<Utc>>,
+    pub approved_at: Option<Timestamp>,
     /// Firebase UID if user authenticated via Firebase (Google, Apple, etc.)
     pub firebase_uid: Option<String>,
     /// Authentication provider: "email", "google.com", "apple.com", "github.com"
@@ -473,7 +473,7 @@ pub struct User {
     /// Whether the user consented to anonymized analytics tracking
     pub analytics_consent: bool,
     /// When the user last updated their analytics consent preference
-    pub analytics_consent_at: Option<DateTime<Utc>>,
+    pub analytics_consent_at: Option<Timestamp>,
     /// BCP-47 short locale code for user-facing messaging output
     /// (`"fr"`, `"en"`, `"es"`, `"de"`, `"pt"`). Defaults to
     /// [`default_locale()`] when not explicitly set. Resolved at messaging
@@ -658,7 +658,7 @@ impl User {
     /// Tenant membership is managed separately via the `tenant_users` table.
     #[must_use]
     pub fn new(email: String, password_hash: String, display_name: Option<String>) -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Self {
             id: Uuid::new_v4(),
             email: normalize_email(email),
@@ -690,7 +690,7 @@ impl User {
     pub fn has_strava_access(&self) -> bool {
         self.strava_token
             .as_ref()
-            .is_some_and(|token| token.expires_at > Utc::now())
+            .is_some_and(|token| token.expires_at > Timestamp::now())
     }
 
     /// Get list of available providers for this user
@@ -705,7 +705,7 @@ impl User {
 
     /// Update last active timestamp
     pub fn update_last_active(&mut self) {
-        self.last_active = Utc::now();
+        self.last_active = Timestamp::now();
     }
 
     /// Whether this account may take an admin's decisions now: an admin that

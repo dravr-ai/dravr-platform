@@ -792,7 +792,7 @@ mod tests {
     use pierre_llm::MessageRole;
 
     #[cfg(feature = "tools-groups")]
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     #[cfg(feature = "tools-groups")]
     use pierre_core::models::groups::OvertrainingRiskLevel;
 
@@ -1020,7 +1020,7 @@ mod tests {
             served_stale: false,
             timezone: None,
             deep_fatigue_mornings: Vec::new(),
-            computed_at: Utc::now(),
+            computed_at: Timestamp::now(),
         }
     }
 

@@ -37,7 +37,7 @@ use uuid::Error as UuidError;
 
 #[cfg(feature = "http-response")]
 use axum::response::{IntoResponse, Response};
-use chrono::{DateTime, ParseError as ChronoParseError, Utc};
+use dravr_tronc::dates::{DateError, Timestamp};
 #[cfg(feature = "http-response")]
 use http::{header::RETRY_AFTER, HeaderValue};
 #[cfg(feature = "crypto-errors")]
@@ -471,7 +471,7 @@ impl From<AppError> for ErrorResponse {
             message: error.sanitized_message(), // Use sanitized message for client
             request_id: error.request_id,
             details: error.details.map(|d| *d),
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: Timestamp::now().to_rfc3339(),
         }
     }
 }
@@ -740,9 +740,9 @@ impl AppError {
         if resets_at.is_empty() {
             return err;
         }
-        match DateTime::parse_from_rfc3339(resets_at) {
+        match Timestamp::parse_from_rfc3339(resets_at) {
             Ok(reset) => {
-                let wait = (reset.with_timezone(&Utc) - Utc::now()).num_seconds();
+                let wait = (reset - Timestamp::now()).num_seconds();
                 err.with_retry_after(u64::try_from(wait).unwrap_or(0))
             }
             Err(e) => {
@@ -814,9 +814,9 @@ impl From<UuidError> for AppError {
     }
 }
 
-/// Conversion from `chrono::ParseError` to `AppError`
-impl From<ChronoParseError> for AppError {
-    fn from(error: ChronoParseError) -> Self {
+/// Conversion from `DateError` to `AppError`
+impl From<DateError> for AppError {
+    fn from(error: DateError) -> Self {
         Self::new(
             ErrorCode::InvalidInput,
             format!("Date parse error: {error}"),

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use photograveur::{resolve_all, Locale};
 use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
@@ -345,7 +345,7 @@ pub(super) struct AthletePlanResponse {
     /// Whose plan it is.
     pub athlete: PlanSubject,
     /// The athlete's civil date the plan is projected on, `YYYY-MM-DD`.
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// The athlete's live plan, as `GET /api/me/training-plan` shapes it;
     /// `null` when they have none.
     pub live: Option<PlanCard>,
@@ -359,7 +359,7 @@ pub(super) struct SubjectPlanResponse {
     /// Whose plan: the athlete a card in the thread names as its `subject`.
     pub athlete: PlanSubject,
     /// The athlete's civil date both plans are projected on, `YYYY-MM-DD`.
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// The athlete's live plan, as `GET /api/me/training-plan` shapes it;
     /// `null` when they have none.
     pub live: Option<PlanCard>,

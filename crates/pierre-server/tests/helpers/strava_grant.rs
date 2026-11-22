@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -23,7 +23,7 @@ pub(crate) async fn hold_strava_grant(
     user_id: Uuid,
     tenant: TenantId,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let repos = &resources.common.repos;
     repos
         .oauth_tokens
@@ -36,7 +36,7 @@ pub(crate) async fn hold_strava_grant(
             access_token: SecretString::from(format!("strava_access_token_{:0>30}", 7)),
             refresh_token: Some(SecretString::from("strava_refresh")),
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now + Duration::hours(6)),
+            expires_at: Some(now + Elapsed::hours(6)),
             scope: Some("activity:read_all".to_owned()),
             provider_user_id: Some("4242".to_owned()),
             oauth_app_client_id: None,

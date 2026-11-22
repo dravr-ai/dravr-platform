@@ -563,7 +563,7 @@ mod tests {
     use crate::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig};
     use crate::provider_terms::{NOLIO, NOLIO_TRANSPORT};
     use async_trait::async_trait;
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::Athlete;
@@ -622,7 +622,7 @@ mod tests {
     }
 
     fn activity(id: &str, source: &str) -> Activity {
-        let start = Utc.with_ymd_and_hms(2026, 9, 30, 6, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-09-30T06:00:00Z").unwrap();
         ActivityBuilder::new(id, "Hills", SportType::Ride, start, 3600, "nolio")
             .average_heart_rate(150)
             .source(source)
@@ -1067,7 +1067,7 @@ mod tests {
     /// Strava backend, which stamps it `sciotte` with `source = "strava"`.
     #[cfg(all(feature = "provider-strava", feature = "provider-sciotte"))]
     fn strava_sessions() -> Vec<Activity> {
-        let start = Utc.with_ymd_and_hms(2026, 10, 6, 6, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-10-06T06:00:00Z").unwrap();
         vec![
             ActivityBuilder::new("api", "Tempo", SportType::Run, start, 3600, "strava").build(),
             ActivityBuilder::new("scraped", "Tempo", SportType::Run, start, 3600, "sciotte")

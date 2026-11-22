@@ -34,7 +34,7 @@
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::coverage::{Completeness, IncompleteReason, Pending};
 use pierre_core::models::{
@@ -149,7 +149,7 @@ async fn seed_cache(fx: &Fixture, oldest_days_ago: i64) {
                 format!("cached-{days_ago}"),
                 format!("run {days_ago}d ago"),
                 SportType::Run,
-                Utc::now() - Duration::days(days_ago),
+                Timestamp::now() - Elapsed::days(days_ago),
                 3_600,
                 BACKEND.to_owned(),
             )
@@ -231,7 +231,7 @@ async fn a_shallow_cache_writes_no_row_it_cannot_warm() {
     let computed = ask_default_window(&fx).await;
 
     let warmup = warmup_days(CTL_WINDOW_DAYS);
-    let expected_first = to - Duration::days(120) + Duration::days(warmup);
+    let expected_first = to - Elapsed::days(120) + Elapsed::days(warmup);
     assert_eq!(
         (
             computed.coverage.completeness,
@@ -265,7 +265,7 @@ async fn a_shallow_cache_writes_no_row_it_cannot_warm() {
         fx.tenant,
         fx.user_id,
         from,
-        expected_first - Duration::days(1),
+        expected_first - Elapsed::days(1),
     )
     .await
     .unwrap();
@@ -335,7 +335,7 @@ async fn an_empty_cache_computes_nothing_rather_than_a_zero_curve() {
 /// Seed the rows the OLD provider-fetching path would have written: a confident,
 /// low chronic load across the whole window, computed from a feed too short to
 /// warrant it. `ctl`/`atl`/`tsb` carry no marker saying so.
-async fn seed_fabricated_rows(fx: &Fixture, from: NaiveDate, to: NaiveDate) {
+async fn seed_fabricated_rows(fx: &Fixture, from: CivilDate, to: CivilDate) {
     let mut day = from;
     let mut rows = Vec::new();
     while day <= to {
@@ -351,7 +351,7 @@ async fn seed_fabricated_rows(fx: &Fixture, from: NaiveDate, to: NaiveDate) {
             ramp_rate: None,
             daily_load: 0.0,
         });
-        day += Duration::days(1);
+        day += Elapsed::days(1);
     }
     fx.runtime
         .repos()
@@ -388,7 +388,7 @@ async fn a_partial_recompute_clears_rows_the_old_path_fabricated() {
     let computed = ask_default_window(&fx).await;
 
     let warmup = warmup_days(CTL_WINDOW_DAYS);
-    let expected_first = to - Duration::days(120) + Duration::days(warmup);
+    let expected_first = to - Elapsed::days(120) + Elapsed::days(warmup);
     assert_eq!(
         (
             computed.coverage.completeness,
@@ -409,7 +409,7 @@ async fn a_partial_recompute_clears_rows_the_old_path_fabricated() {
         fx.tenant,
         fx.user_id,
         from,
-        expected_first - Duration::days(1),
+        expected_first - Elapsed::days(1),
     )
     .await
     .unwrap();
@@ -486,9 +486,9 @@ async fn a_narrow_ask_clears_nothing_past_its_own_end() {
     // before that is entirely un-warmable.
     seed_cache(&fx, 120).await;
     let warmup = warmup_days(CTL_WINDOW_DAYS);
-    let trustworthy_from = to - Duration::days(120) + Duration::days(warmup);
+    let trustworthy_from = to - Elapsed::days(120) + Elapsed::days(warmup);
 
-    let ask_to = to - Duration::days(80);
+    let ask_to = to - Elapsed::days(80);
     assert!(
         trustworthy_from > ask_to,
         "fixture must exercise the shallow branch: trustworthy_from={trustworthy_from} ask_to={ask_to}"
@@ -510,7 +510,7 @@ async fn a_narrow_ask_clears_nothing_past_its_own_end() {
         &fx.runtime.data(),
         fx.tenant,
         fx.user_id,
-        ask_to + Duration::days(1),
+        ask_to + Elapsed::days(1),
         to,
     )
     .await

@@ -42,7 +42,7 @@ use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use chrono::{Duration as ChronoDuration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{
     Activity, ConnectionStatus, DataSource, DeviceType, StoredRecoveryMetrics, TenantId,
@@ -93,7 +93,7 @@ pub(crate) struct ScraperSwitch {
     /// Every daily-summary read answers a server error.
     pub(crate) fail_summaries: Arc<AtomicBool>,
     /// The daily-summary read of this one day answers a server error.
-    pub(crate) fail_summary_on: Arc<Mutex<Option<NaiveDate>>>,
+    pub(crate) fail_summary_on: Arc<Mutex<Option<CivilDate>>>,
     /// The instant (unix seconds) the month walk fails at, as a scrape that
     /// read the months above it and then failed on one does: a read reaching
     /// below it answers only what lies at or above it, short of its window
@@ -122,11 +122,11 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
         calls: Arc::clone(&calls),
         switch,
     };
-    let now = Utc::now();
+    let now = Timestamp::now();
     let account = Arc::new(vec![
-        (RECENT_RIDE, "ride", now - ChronoDuration::days(3)),
-        (MID_RIDE, "ride", now - ChronoDuration::days(4 * 365)),
-        (OLD_RUN, "run", now - ChronoDuration::days(8 * 365)),
+        (RECENT_RIDE, "ride", now - Elapsed::days(3)),
+        (MID_RIDE, "ride", now - Elapsed::days(4 * 365)),
+        (OLD_RUN, "run", now - Elapsed::days(8 * 365)),
     ]);
     let app = Router::new()
         .route(
@@ -219,9 +219,9 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
                         let activities: Vec<Value> = account
                             .iter()
                             .filter(|(_, _, start)| {
-                                after.is_none_or(|after| start.timestamp() >= after)
-                                    && before.is_none_or(|before| start.timestamp() < before)
-                                    && short.is_none_or(|cut| start.timestamp() >= cut)
+                                after.is_none_or(|after| start.epoch_seconds() >= after)
+                                    && before.is_none_or(|before| start.epoch_seconds() < before)
+                                    && short.is_none_or(|cut| start.epoch_seconds() >= cut)
                             })
                             .map(|(id, sport, start)| workout(id, sport, &start.to_rfc3339()))
                             .collect();
@@ -546,7 +546,7 @@ async fn a_walk_beside_a_grant_reads_the_whole_history_from_the_session_and_keep
     );
     // Each step reads 36 months (the 11-12 directive): its `after` lies at
     // most 36 months of 31 days below its `before`, or below now for the head.
-    let read_at = Utc::now().timestamp();
+    let read_at = Timestamp::now().epoch_seconds();
     assert!(
         reads.iter().all(|read| {
             let query = read.rsplit(' ').next().unwrap_or_default();
@@ -586,7 +586,7 @@ async fn a_walk_beside_a_grant_reads_the_whole_history_from_the_session_and_keep
         "bug: a walk that reached the end of the history says so"
     );
     assert!(
-        coverage.oldest_reached_ts < (Utc::now() - ChronoDuration::days(8 * 365)).timestamp(),
+        coverage.oldest_reached_ts < (Timestamp::now() - Elapsed::days(8 * 365)).epoch_seconds(),
         "bug: the walk reached below the account's oldest workout"
     );
     assert_eq!(
@@ -597,17 +597,17 @@ async fn a_walk_beside_a_grant_reads_the_whole_history_from_the_session_and_keep
     // The wellness half read the session over the year before the grant's
     // first day, each day once, and never the grant's day or after: the
     // push holds that day on.
-    let today = Utc::now().date_naive();
-    let summary_days: Vec<NaiveDate> =
+    let today = Timestamp::now().utc_date();
+    let summary_days: Vec<CivilDate> =
         calls_matching(&calls, &format!("summary {SIGNED_IN_SESSION} "))
             .iter()
             .map(|call| {
                 let date = call.rsplit(' ').next().unwrap_or_default();
-                NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                CivilDate::parse_from_str(date, "%Y-%m-%d")
                     .unwrap_or_else(|e| panic!("summary read of a day: {call}: {e}"))
             })
             .collect();
-    let long_before = today - ChronoDuration::days(200);
+    let long_before = today - Elapsed::days(200);
     assert!(
         summary_days.contains(&long_before),
         "bug: the walk reads wellness far older than the sync's two weeks"
@@ -623,7 +623,7 @@ async fn a_walk_beside_a_grant_reads_the_whole_history_from_the_session_and_keep
     );
     assert_eq!(
         summary_days.iter().min().copied(),
-        Some(today - ChronoDuration::days(365)),
+        Some(today - Elapsed::days(365)),
         "bug: the read starts a year before the grant's first day"
     );
     let mornings = resources
@@ -633,8 +633,8 @@ async fn a_walk_beside_a_grant_reads_the_whole_history_from_the_session_and_keep
         .get_recovery_metrics(
             user_id,
             &tenant,
-            Utc::now() - ChronoDuration::days(400),
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(400),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap();
@@ -692,7 +692,7 @@ async fn push_mornings(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
-    days: &[NaiveDate],
+    days: &[CivilDate],
 ) -> String {
     let repos = &resources.common.repos;
     let source = repos
@@ -736,10 +736,10 @@ async fn push_mornings(
                     daily_strain: None,
                     athlete_note: None,
                     source_name: oauth_providers::GARMIN.to_owned(),
-                    recorded_at: Utc::now(),
+                    recorded_at: Timestamp::now(),
                 },
                 WellnessWriteMode::FullDay,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -756,11 +756,9 @@ async fn a_reconnected_grants_pushed_days_are_never_overwritten_by_the_walk() {
     let (scraper, calls) = spawn_scraper(false).await;
     let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
-    let today = Utc::now().date_naive();
-    let pushed_days: Vec<NaiveDate> = (3..=10)
-        .map(|back| today - ChronoDuration::days(back))
-        .collect();
-    let first_pushed = today - ChronoDuration::days(10);
+    let today = Timestamp::now().utc_date();
+    let pushed_days: Vec<CivilDate> = (3..=10).map(|back| today - Elapsed::days(back)).collect();
+    let first_pushed = today - Elapsed::days(10);
     let source = push_mornings(&resources, user_id, tenant, &pushed_days).await;
     // The reconnect: the grant's connection is (re)registered today.
     hold_grant(&resources, user_id, tenant).await;
@@ -776,12 +774,12 @@ async fn a_reconnected_grants_pushed_days_are_never_overwritten_by_the_walk() {
         "bug: the walk reaches the end of the history"
     );
 
-    let summary_days: Vec<NaiveDate> =
+    let summary_days: Vec<CivilDate> =
         calls_matching(&calls, &format!("summary {SIGNED_IN_SESSION} "))
             .iter()
             .map(|call| {
                 let date = call.rsplit(' ').next().unwrap_or_default();
-                NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                CivilDate::parse_from_str(date, "%Y-%m-%d")
                     .unwrap_or_else(|e| panic!("summary read of a day: {call}: {e}"))
             })
             .collect();
@@ -801,8 +799,8 @@ async fn a_reconnected_grants_pushed_days_are_never_overwritten_by_the_walk() {
         .get_recovery_metrics(
             user_id,
             &tenant,
-            Utc::now() - ChronoDuration::days(400),
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(400),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap();
@@ -936,7 +934,7 @@ async fn a_resumed_walk_reads_the_session_and_keeps_it() {
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
-    let long_ago = Utc::now().timestamp_millis() - 600_000;
+    let long_ago = Timestamp::now().epoch_millis() - 600_000;
     assert!(
         resources
             .common
@@ -986,7 +984,7 @@ async fn an_incomplete_walk_row_is_never_claimed_or_reaped() {
     let resources = server(common::test_server_config()).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
     let ledger = &resources.common.repos.activity_backfill_jobs;
-    let long_ago = Utc::now().timestamp_millis() - 600_000;
+    let long_ago = Timestamp::now().epoch_millis() - 600_000;
     assert!(
         ledger
             .record_backfill_job(&job_row(user_id, tenant, long_ago))
@@ -994,7 +992,7 @@ async fn an_incomplete_walk_row_is_never_claimed_or_reaped() {
             .unwrap(),
         "bug: the ledger records the walk"
     );
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     let claim = BackfillJobClaim {
         now_ms,
         queued_older_than_ms: 0,

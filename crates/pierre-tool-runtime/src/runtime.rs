@@ -24,7 +24,7 @@
 use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
@@ -155,7 +155,7 @@ pub struct HistoryWalkCompletion<'job> {
     /// The backend that was walked.
     pub provider: &'job str,
     /// The start of the oldest activity the walked key holds.
-    pub oldest: DateTime<Utc>,
+    pub oldest: Timestamp,
     /// The activities the whole walk wrote, every step's.
     pub activity_count: usize,
 }

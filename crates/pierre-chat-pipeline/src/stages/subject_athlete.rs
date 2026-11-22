@@ -53,7 +53,8 @@
 
 use std::fmt::Write as _;
 
-use chrono::{NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
+use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::{ConversationSubject, TenantId};
 use pierre_core::untrusted::{display_line, ROSTER_NAME_MAX_CHARS};
@@ -142,7 +143,7 @@ pub(crate) struct GrantedSubject {
     /// The athlete's live season and the coach's draft over it; `None` when
     /// they could not be read on this turn (logged).
     view: Option<CoachPlanView>,
-    today: NaiveDate,
+    today: CivilDate,
 }
 
 impl GrantedSubject {
@@ -157,7 +158,7 @@ impl GrantedSubject {
     }
 
     /// The athlete's civil date.
-    pub(crate) const fn today(&self) -> NaiveDate {
+    pub(crate) const fn today(&self) -> CivilDate {
         self.today
     }
 
@@ -428,7 +429,7 @@ async fn recorded_wellness(
         &ctx.repos,
         ctx.tool_runtime.provider_registry().as_ref(),
         &link,
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .map(Some)
@@ -566,7 +567,7 @@ fn plan_section(out: &mut String, athlete: &str, view: Option<&CoachPlanView>) {
          {drafted}.",
         name(&draft.plan.goal_race.name),
         draft.plan.goal_race.date,
-        draft.state.updated_at.format("%Y-%m-%d %H:%M UTC"),
+        draft.state.updated_at.format_with(&UTC_MINUTE),
     );
     let state = &draft.state;
     if state.is_clear() {

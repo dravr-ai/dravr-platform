@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 
 use dravr_stripe::StripeClient;
+use dravr_tronc::dates::Timestamp;
 use hmac::{Hmac, Mac};
 use pierre_core::billing::stripe::{StripePriceConfig, StripeProvider};
 use pierre_core::billing::{
@@ -126,7 +127,7 @@ fn posted_price(price_id: &str) -> String {
 /// The `Stripe-Signature` header Stripe would send for `body` right now:
 /// HMAC-SHA256 over `"{t}.{body}"` with the webhook secret, hex-encoded.
 fn sign(body: &[u8]) -> String {
-    let timestamp = chrono::Utc::now().timestamp();
+    let timestamp = Timestamp::now().epoch_seconds();
     let mut mac = Hmac::<Sha256>::new_from_slice(WEBHOOK_SECRET.as_bytes()).unwrap();
     mac.update(timestamp.to_string().as_bytes());
     mac.update(b".");
@@ -220,7 +221,7 @@ async fn normalize_subscription_created_maps_to_upserted() {
     .await;
     assert_eq!(envelope.event_id, "evt_1");
     assert_eq!(
-        envelope.occurred_at.timestamp(),
+        envelope.occurred_at.epoch_seconds(),
         EVENT_CREATED,
         "the envelope is ordered by the event's own created time"
     );
@@ -321,7 +322,7 @@ async fn stripe_api_error_becomes_external_service() {
 
 #[tokio::test]
 async fn bad_webhook_signature_becomes_invalid_input() {
-    let now = chrono::Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let mut headers = HashMap::new();
     headers.insert(
         "stripe-signature".to_owned(),

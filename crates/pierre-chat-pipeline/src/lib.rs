@@ -109,7 +109,7 @@ use recovery::{run_recovery_and_post_process, RecoveryAndPostProcessInputs};
 use std::future::Future;
 use std::pin::Pin;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_agui::AgUiEvent;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
@@ -439,7 +439,7 @@ async fn emit_run_outcome(hooks: &PipelineHooks<'_>, outcome: &AppResult<TurnEnv
 fn emit_answer_delivered(
     persona: CoachingPersona,
     origin: &str,
-    asker_created_at: Option<DateTime<Utc>>,
+    asker_created_at: Option<Timestamp>,
     telemetry: &TurnTelemetry,
     provider_data_served: bool,
 ) {
@@ -453,7 +453,7 @@ fn emit_answer_delivered(
         persona = persona.as_str(),
         origin = origin,
         grounded = first_run_hooks::grounded(telemetry, provider_data_served),
-        account_age_hours = Utc::now().signed_duration_since(created_at).num_hours(),
+        account_age_hours = Timestamp::now().signed_duration_since(created_at).num_hours(),
         "answer delivered"
     );
 }

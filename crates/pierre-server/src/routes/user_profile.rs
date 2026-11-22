@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::mcp::resources::ServerContext;
+use dravr_tronc::dates::Zone;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
@@ -66,7 +67,7 @@ async fn set_timezone(
     if tz.is_empty() {
         return Err(AppError::invalid_input("timezone must not be empty"));
     }
-    if tz.parse::<chrono_tz::Tz>().is_err() {
+    if tz.parse::<Zone>().is_err() {
         return Err(AppError::invalid_input(format!(
             "{tz} is not a valid IANA timezone database name",
         )));

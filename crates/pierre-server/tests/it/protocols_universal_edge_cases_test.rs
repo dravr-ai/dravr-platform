@@ -28,6 +28,7 @@ use std::{path::PathBuf, sync::Arc};
 use uuid::Uuid;
 
 use crate::common;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 
 /// Create test user without saving to database (local helper)
 fn create_test_user(email: &str, display_name: Option<String>) -> User {
@@ -266,7 +267,7 @@ async fn test_invalid_provider_tokens() -> Result<()> {
     executor.resources.repos().users.create(&user).await?;
 
     // Store an invalid/expired token
-    let expires_at = chrono::Utc::now() - chrono::Duration::hours(1); // Expired
+    let expires_at = Timestamp::now() - Elapsed::hours(1); // Expired
     let oauth_token = UserOAuthToken::new(
         user_id,
         "00000000-0000-0000-0000-000000000000".to_owned(), // tenant_id

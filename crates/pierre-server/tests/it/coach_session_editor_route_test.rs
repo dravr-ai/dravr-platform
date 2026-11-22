@@ -19,8 +19,8 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use chrono::{Datelike, Days, NaiveDate, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::groups::{
@@ -76,21 +76,21 @@ async fn person(res: &Arc<ServerContext>, label: &str, name: &str) -> Person {
     }
 }
 
-fn monday(weeks: u64) -> NaiveDate {
-    let today = Utc::now().date_naive();
-    let this = today - Days::new(u64::from(today.weekday().num_days_from_monday()));
-    this + Days::new(7 * weeks)
+fn monday(weeks: i64) -> CivilDate {
+    let today = Timestamp::now().utc_date();
+    let this = today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()));
+    this + Elapsed::days(7 * weeks)
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
-fn week(start: NaiveDate, workout: &str) -> Value {
+fn week(start: CivilDate, workout: &str) -> Value {
     let days: Vec<Value> = (0..7)
         .map(|offset| {
             json!({
-                "date": ymd(start + Days::new(offset)),
+                "date": ymd(start + Elapsed::days(offset)),
                 "sport": "run",
                 "workout": workout,
                 "duration_min": 40,
@@ -124,7 +124,7 @@ async fn call<T: McpTool<dyn ToolRuntime>>(
 }
 
 async fn join(repos: &RepositoryRegistry, group: &CoachingGroup, who: &Person) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .add_member(&GroupMember {
@@ -158,7 +158,7 @@ impl Fixture {
         let agent_id = create_group_agent(repos, owner.id, owner.tenant)
             .await
             .unwrap();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = repos
             .groups
             .create_group(
@@ -340,7 +340,7 @@ fn short_intervals(params: &Value) -> Value {
 #[tokio::test]
 async fn only_the_coachs_own_thread_about_an_athlete_opens_the_editor() {
     let fx = Fixture::new(true).await;
-    let date = ymd(monday(1) + Days::new(2));
+    let date = ymd(monday(1) + Elapsed::days(2));
     let build = short_intervals(&json!({}));
     let preview = json!({ "date": date, "family": FAMILY, "sport": "ride" });
 
@@ -503,7 +503,7 @@ async fn the_families_list_each_preset_with_its_ranges_per_sport() {
 #[tokio::test]
 async fn a_value_outside_the_range_previews_with_a_finding_and_writes_nothing() {
     let fx = Fixture::new(true).await;
-    let date = ymd(monday(1) + Days::new(2));
+    let date = ymd(monday(1) + Elapsed::days(2));
 
     let mut body = short_intervals(&json!({ "reps": 20 }));
     body["date"] = json!(date);
@@ -626,7 +626,7 @@ async fn a_value_outside_the_range_previews_with_a_finding_and_writes_nothing() 
 #[tokio::test]
 async fn saving_a_day_opens_a_draft_with_it_generated_and_leaves_the_live_plan() {
     let fx = Fixture::new(true).await;
-    let date = ymd(monday(1) + Days::new(2));
+    let date = ymd(monday(1) + Elapsed::days(2));
 
     let (status, saved) = fx
         .put_day(
@@ -753,7 +753,7 @@ async fn a_day_saved_into_an_open_draft_keeps_the_weeks_other_days() {
     let before = fx.get_plan().await;
     let draft_id = before["draft_state"]["draft_id"].clone();
 
-    let date = ymd(monday(1) + Days::new(3));
+    let date = ymd(monday(1) + Elapsed::days(3));
     let (status, saved) = fx
         .put_day(
             &fx.thread,
@@ -785,7 +785,7 @@ async fn a_day_saved_into_an_open_draft_keeps_the_weeks_other_days() {
         "bug: a run built over a run day keeps its own label: {day}"
     );
     for offset in [0, 1, 2, 4, 5, 6] {
-        let other = ymd(monday(1) + Days::new(offset));
+        let other = ymd(monday(1) + Elapsed::days(offset));
         assert_eq!(
             day_of(&saved["draft"], &other)["workout"],
             COACH_WORKOUT,

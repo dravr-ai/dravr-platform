@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use serde_json::Value;
 use tracing::info;
 
@@ -42,15 +42,15 @@ impl IntervalsIcuProvider {
     /// call is.
     pub(super) async fn planned_workouts(
         &self,
-        after: NaiveDate,
-        before: NaiveDate,
+        after: CivilDate,
+        before: CivilDate,
     ) -> AppResult<Vec<PlannedWorkout>> {
         let entries: Vec<Value> = self
             .get_events(after, before, Some(&planned_categories()))
             .await?;
         let events = planned_events(entries, self.planned_reader);
         let completed =
-            if !events.is_empty() && may_hold_done_workouts(after, Utc::now().date_naive()) {
+            if !events.is_empty() && may_hold_done_workouts(after, Timestamp::now().utc_date()) {
                 completed_by_event(self.list_activity_pairing(after, before).await?)
             } else {
                 HashMap::new()
@@ -67,13 +67,13 @@ impl IntervalsIcuProvider {
     /// the window's last one goes on the wire.
     async fn list_activity_pairing(
         &self,
-        oldest: NaiveDate,
-        newest: NaiveDate,
+        oldest: CivilDate,
+        newest: CivilDate,
     ) -> AppResult<Vec<IntervalsIcuActivityPairing>> {
-        let through = newest.succ_opt().unwrap_or(newest);
+        let through = newest.succ().unwrap_or(newest);
         let query = [
-            ("oldest", oldest.format("%Y-%m-%d").to_string()),
-            ("newest", through.format("%Y-%m-%d").to_string()),
+            ("oldest", oldest.to_string()),
+            ("newest", through.to_string()),
             ("fields", PAIRING_FIELDS.to_owned()),
         ];
         self.get_athlete_json(

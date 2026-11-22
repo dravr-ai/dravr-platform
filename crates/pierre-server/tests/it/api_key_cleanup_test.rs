@@ -7,14 +7,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier};
 use pierre_core::models::User;
 use pierre_services::api_key_cleanup::sweep_expired_api_keys;
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
-fn key(user_id: Uuid, expires_at: Option<DateTime<Utc>>) -> ApiKey {
+fn key(user_id: Uuid, expires_at: Option<Timestamp>) -> ApiKey {
     let id = Uuid::new_v4();
     ApiKey {
         id: format!("sweep_{id}"),
@@ -29,7 +29,7 @@ fn key(user_id: Uuid, expires_at: Option<DateTime<Utc>>) -> ApiKey {
         is_active: true,
         expires_at,
         last_used_at: None,
-        created_at: Utc::now() - Duration::days(1),
+        created_at: Timestamp::now() - Elapsed::days(1),
     }
 }
 
@@ -44,8 +44,8 @@ async fn the_sweep_deactivates_expired_keys_and_keeps_live_ones() {
     );
     repos.users.create(&user).await.unwrap();
 
-    let expired = key(user.id, Some(Utc::now() - Duration::hours(2)));
-    let live = key(user.id, Some(Utc::now() + Duration::days(30)));
+    let expired = key(user.id, Some(Timestamp::now() - Elapsed::hours(2)));
+    let live = key(user.id, Some(Timestamp::now() + Elapsed::days(30)));
     let unbounded = key(user.id, None);
     for k in [&expired, &live, &unbounded] {
         repos.api_keys.create(k).await.unwrap();

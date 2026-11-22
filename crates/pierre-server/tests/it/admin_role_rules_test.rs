@@ -37,8 +37,8 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::Router;
-use chrono::Utc;
 use common::{acting_on, create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::admin::models::{
     AdminPermission, CreateAdminTokenRequest, DELETED_ACCOUNT_ADMIN, DELETED_ACCOUNT_LABEL,
@@ -745,8 +745,8 @@ async fn desk_token(resources: &Arc<ServerContext>, members: &[Uuid]) -> String 
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: owner.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();

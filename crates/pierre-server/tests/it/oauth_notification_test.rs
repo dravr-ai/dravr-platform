@@ -8,12 +8,13 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_database::database::oauth_notifications::OAuthNotification;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use dravr_tronc::dates::Elapsed;
 
 #[tokio::test]
 async fn test_oauth_notification_storage_and_retrieval() -> Result<()> {
@@ -100,7 +101,7 @@ async fn test_oauth_notification_with_expiry() -> Result<()> {
     let database = common::create_test_database().await?;
     let (user_id, _user) = common::create_test_user(&database).await?;
 
-    let expires_at = (Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+    let expires_at = (Timestamp::now() + Elapsed::hours(1)).to_rfc3339();
 
     // Store OAuth notification with expiry
     database
@@ -343,7 +344,7 @@ async fn test_oauth_notification_with_special_characters() -> Result<()> {
 #[tokio::test]
 async fn test_oauth_notification_struct_creation() -> Result<()> {
     let user_id = Uuid::new_v4();
-    let created_at = Utc::now();
+    let created_at = Timestamp::now();
 
     // Test creating OAuthNotification struct
     let notification = OAuthNotification {

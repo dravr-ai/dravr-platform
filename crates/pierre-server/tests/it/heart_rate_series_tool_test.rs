@@ -28,10 +28,10 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use chrono::{DateTime, Duration, TimeZone, Utc};
 use dravr_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use dravr_equilibre_sync::ContinuousMetricBatch;
 use dravr_riviere::SeriesType;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::models::{ConnectionType, DataSource, DeviceType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -49,13 +49,13 @@ const TOOL: &str = "get_heart_rate_series";
 /// One sample a minute for an hour, from 06:00.
 const SAMPLES: usize = 60;
 
-fn morning() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 10, 12, 6, 0, 0).unwrap()
+fn morning() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-10-12T06:00:00Z").unwrap()
 }
 
 /// `i` minutes, as a duration.
-fn minute(i: usize) -> Duration {
-    Duration::minutes(i64::try_from(i).unwrap())
+fn minute(i: usize) -> Elapsed {
+    Elapsed::minutes(i64::try_from(i).unwrap())
 }
 
 /// Sample `i`'s heart rate: a climb from 50 bpm, one beat a minute.
@@ -118,7 +118,7 @@ async fn sync_whoop_batch(
     executor: &UniversalToolExecutor,
     (user_id, tenant): (Uuid, TenantId),
     series: SeriesType,
-    points: Vec<(DateTime<Utc>, f64)>,
+    points: Vec<(Timestamp, f64)>,
 ) -> Result<String> {
     let repos = executor.resources.repos();
     let source_id = repos
@@ -152,7 +152,7 @@ async fn sync_whoop_batch(
 }
 
 /// The morning's hour of heart rate, one sample a minute.
-fn morning_hour() -> Vec<(DateTime<Utc>, f64)> {
+fn morning_hour() -> Vec<(Timestamp, f64)> {
     (0..SAMPLES)
         .map(|i| (morning() + minute(i), bpm(i)))
         .collect()
@@ -193,7 +193,7 @@ async fn call(
 fn morning_range() -> Value {
     json!({
         "start": morning().to_rfc3339(),
-        "end": (morning() + Duration::hours(1)).to_rfc3339(),
+        "end": (morning() + Elapsed::hours(1)).to_rfc3339(),
     })
 }
 
@@ -235,7 +235,7 @@ async fn reads_back_exactly_the_points_a_whoop_sync_stored() -> Result<()> {
     let points = sources[0]["points"].as_array().unwrap();
     assert_eq!(points.len(), SAMPLES);
     for (i, point) in points.iter().enumerate() {
-        let at = DateTime::parse_from_rfc3339(point["timestamp"].as_str().unwrap())?;
+        let at = Timestamp::parse_from_rfc3339(point["timestamp"].as_str().unwrap())?;
         assert_eq!(at, morning() + minute(i));
         assert_eq!(point["value"].as_f64().unwrap(), bpm(i));
     }
@@ -249,8 +249,8 @@ async fn the_range_is_half_open_and_echoed() -> Result<()> {
     sync_whoop_batch(&executor, athlete, SeriesType::HeartRate, morning_hour()).await?;
 
     // [06:10, 06:20) holds samples 10..=19 and not the one at 06:20.
-    let start = morning() + Duration::minutes(10);
-    let end = morning() + Duration::minutes(20);
+    let start = morning() + Elapsed::minutes(10);
+    let end = morning() + Elapsed::minutes(20);
     let result = call(
         &executor,
         athlete,
@@ -290,7 +290,7 @@ async fn aggregates_the_series_into_windows() -> Result<()> {
         let mean = (first..first + 15).map(bpm).sum::<f64>() / 15.0;
         assert_eq!(window["value"].as_f64().unwrap(), mean);
         assert_eq!(window["sample_count"], 15);
-        let opens = DateTime::parse_from_rfc3339(window["window_start"].as_str().unwrap())?;
+        let opens = Timestamp::parse_from_rfc3339(window["window_start"].as_str().unwrap())?;
         assert_eq!(opens, morning() + minute(first));
     }
     assert!(avg["sources"][0].get("points").is_none());
@@ -331,7 +331,7 @@ async fn each_metric_reads_only_its_own_series() -> Result<()> {
     let executor = executor().await?;
     let athlete = whoop_athlete(&executor).await?;
     sync_whoop_batch(&executor, athlete, SeriesType::HeartRate, morning_hour()).await?;
-    let rmssd = vec![(morning() + Duration::minutes(5), 62.5)];
+    let rmssd = vec![(morning() + Elapsed::minutes(5), 62.5)];
     sync_whoop_batch(&executor, athlete, SeriesType::HrvRmssd, rmssd).await?;
 
     let hrv = call(
@@ -370,7 +370,7 @@ async fn an_athlete_reads_only_their_own_series() -> Result<()> {
         &executor,
         other,
         SeriesType::HeartRate,
-        vec![(morning() + Duration::minutes(30), 180.0)],
+        vec![(morning() + Elapsed::minutes(30), 180.0)],
     )
     .await?;
     assert_ne!(mine, theirs);
@@ -474,13 +474,13 @@ async fn bounds_and_vocabulary_are_enforced() -> Result<()> {
         with(morning_range(), &json!({ "window_minutes": 0 })),
         json!({ "start": "yesterday" }),
         json!({
-            "start": (morning() + Duration::hours(1)).to_rfc3339(),
+            "start": (morning() + Elapsed::hours(1)).to_rfc3339(),
             "end": morning().to_rfc3339(),
         }),
         // A day in one-minute windows is 1440 windows, past the cap.
         json!({
             "start": morning().to_rfc3339(),
-            "end": (morning() + Duration::days(1)).to_rfc3339(),
+            "end": (morning() + Elapsed::days(1)).to_rfc3339(),
             "window_minutes": 1,
         }),
     ] {
@@ -495,7 +495,7 @@ async fn bounds_and_vocabulary_are_enforced() -> Result<()> {
     }
 
     // A sample read wider than 48 hours keeps its most recent 48.
-    let end = morning() + Duration::days(5);
+    let end = morning() + Elapsed::days(5);
     let result = call(
         &executor,
         athlete,
@@ -504,7 +504,7 @@ async fn bounds_and_vocabulary_are_enforced() -> Result<()> {
     .await?;
     assert_eq!(
         result["range"]["start"],
-        (end - Duration::hours(48)).to_rfc3339()
+        (end - Elapsed::hours(48)).to_rfc3339()
     );
     Ok(())
 }

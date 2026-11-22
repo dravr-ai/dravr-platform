@@ -24,7 +24,7 @@ use std::time::Duration as StdDuration;
 use axum::body::{to_bytes, Body};
 use axum::extract::ConnectInfo;
 use axum::http::{header, Request as HttpRequest, StatusCode};
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::config::{ClientRetentionConfig, OAuth2ServerConfig, RateLimitConfig};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::{
@@ -111,15 +111,15 @@ async fn register_ok(database: &Database, name: &str) -> String {
 /// Issue a refresh token through `client_id`: what a user completing the
 /// authorization-code exchange leaves behind, and so what marks the client
 /// authorized.
-async fn authorize(database: &Database, client_id: &str) -> DateTime<Utc> {
-    let issued_at = Utc::now();
+async fn authorize(database: &Database, client_id: &str) -> Timestamp {
+    let issued_at = Timestamp::now();
     let token = OAuth2RefreshToken {
         token: SecretString::from(format!("refresh-{}", Uuid::new_v4())),
         client_id: client_id.to_owned(),
         user_id: Uuid::new_v4(),
         tenant_id: Uuid::new_v4().to_string(),
         scope: Some("read:fitness".to_owned()),
-        expires_at: issued_at + Duration::days(30),
+        expires_at: issued_at + Elapsed::days(30),
         created_at: issued_at,
         revoked: false,
         family_id: "test-family".to_owned(),
@@ -140,7 +140,7 @@ async fn issue_dependents(database: &Database, client_id: &str) {
     let repos = database.repositories();
     let user_id = Uuid::new_v4();
     let tenant_id = Uuid::new_v4().to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .oauth2_server
         .store_auth_code(&OAuth2AuthCode {
@@ -150,7 +150,7 @@ async fn issue_dependents(database: &Database, client_id: &str) {
             tenant_id: tenant_id.clone(),
             redirect_uri: "https://claude.ai/api/mcp/auth_callback".to_owned(),
             scope: Some("read:fitness".to_owned()),
-            expires_at: now + Duration::minutes(10),
+            expires_at: now + Elapsed::minutes(10),
             used: false,
             state: None,
             code_challenge: None,
@@ -171,7 +171,7 @@ async fn issue_dependents(database: &Database, client_id: &str) {
             code_challenge: None,
             code_challenge_method: None,
             created_at: now,
-            expires_at: now + Duration::minutes(10),
+            expires_at: now + Elapsed::minutes(10),
             used: false,
         })
         .await
@@ -189,7 +189,7 @@ async fn grant(database: &Database, client_id: &str) {
             tenant_id: Uuid::new_v4().to_string(),
             client_id: client_id.to_owned(),
             scope: "read:fitness".to_owned(),
-            granted_at: Utc::now(),
+            granted_at: Timestamp::now(),
             revoked_at: None,
             consent_version: None,
             consent_locale: None,
@@ -202,8 +202,8 @@ async fn grant(database: &Database, client_id: &str) {
 async fn backdate(
     database: &Database,
     client_id: &str,
-    created_at: DateTime<Utc>,
-    expires_at: Option<DateTime<Utc>>,
+    created_at: Timestamp,
+    expires_at: Option<Timestamp>,
 ) {
     let affected = match database.backend() {
         DatabaseBackend::SQLite(db) => sqlx::query(BACKDATE_SQL)
@@ -257,10 +257,10 @@ async fn count_all(database: &Database, sql: &str) -> i64 {
     }
 }
 
-async fn last_authorized_at(database: &Database, client_id: &str) -> Option<DateTime<Utc>> {
+async fn last_authorized_at(database: &Database, client_id: &str) -> Option<Timestamp> {
     match database.backend() {
         DatabaseBackend::SQLite(db) => {
-            sqlx::query_scalar::<_, Option<DateTime<Utc>>>(LAST_AUTHORIZED_SQL)
+            sqlx::query_scalar::<_, Option<Timestamp>>(LAST_AUTHORIZED_SQL)
                 .bind(client_id)
                 .fetch_one(db.pool())
                 .await
@@ -268,7 +268,7 @@ async fn last_authorized_at(database: &Database, client_id: &str) -> Option<Date
         }
         #[cfg(feature = "postgresql")]
         DatabaseBackend::PostgreSQL(db) => {
-            sqlx::query_scalar::<_, Option<DateTime<Utc>>>(LAST_AUTHORIZED_SQL)
+            sqlx::query_scalar::<_, Option<Timestamp>>(LAST_AUTHORIZED_SQL)
                 .bind(client_id)
                 .fetch_one(db.pool())
                 .await
@@ -289,7 +289,7 @@ async fn exists(database: &Database, client_id: &str) -> bool {
 
 async fn sweep(database: &Database, retention: &ClientRetentionConfig) -> OAuth2ClientSweep {
     manager(database)
-        .sweep_stale_clients(retention, Utc::now())
+        .sweep_stale_clients(retention, Timestamp::now())
         .await
         .unwrap()
 }
@@ -298,8 +298,8 @@ async fn sweep(database: &Database, retention: &ClientRetentionConfig) -> OAuth2
 async fn an_expired_registration_past_its_grace_goes_with_everything_issued_through_it() {
     let database = database().await;
     let retention = ClientRetentionConfig::default();
-    let now = Utc::now();
-    let long_ago = now - Duration::days(400);
+    let now = Timestamp::now();
+    let long_ago = now - Elapsed::days(400);
 
     let gone = register_ok(&database, "Past its grace").await;
     let in_grace = register_ok(&database, "Expired inside the grace").await;
@@ -309,15 +309,15 @@ async fn an_expired_registration_past_its_grace_goes_with_everything_issued_thro
     }
     issue_dependents(&database, &gone).await;
     grant(&database, &in_grace).await;
-    backdate(&database, &gone, long_ago, Some(now - Duration::days(31))).await;
+    backdate(&database, &gone, long_ago, Some(now - Elapsed::days(31))).await;
     backdate(
         &database,
         &in_grace,
         long_ago,
-        Some(now - Duration::days(29)),
+        Some(now - Elapsed::days(29)),
     )
     .await;
-    backdate(&database, &live, long_ago, Some(now + Duration::days(30))).await;
+    backdate(&database, &live, long_ago, Some(now + Elapsed::days(30))).await;
 
     assert_eq!(
         sweep(&database, &retention).await,
@@ -355,8 +355,8 @@ async fn an_expired_registration_past_its_grace_goes_with_everything_issued_thro
 async fn a_registration_no_user_authorized_is_reclaimed_after_a_day() {
     let database = database().await;
     let retention = ClientRetentionConfig::default();
-    let now = Utc::now();
-    let expiry = Some(now + Duration::days(300));
+    let now = Timestamp::now();
+    let expiry = Some(now + Elapsed::days(300));
 
     let abandoned = register_ok(&database, "Registered, never authorized").await;
     let recent = register_ok(&database, "Registered an hour ago").await;
@@ -364,9 +364,9 @@ async fn a_registration_no_user_authorized_is_reclaimed_after_a_day() {
     // A user consented but the code exchange never happened: still pending.
     grant(&database, &abandoned).await;
     authorize(&database, &connected).await;
-    backdate(&database, &abandoned, now - Duration::hours(25), expiry).await;
-    backdate(&database, &recent, now - Duration::hours(23), expiry).await;
-    backdate(&database, &connected, now - Duration::hours(48), expiry).await;
+    backdate(&database, &abandoned, now - Elapsed::hours(25), expiry).await;
+    backdate(&database, &recent, now - Elapsed::hours(23), expiry).await;
+    backdate(&database, &connected, now - Elapsed::hours(48), expiry).await;
 
     assert_eq!(
         sweep(&database, &retention).await,
@@ -404,7 +404,7 @@ async fn a_client_without_an_expiry_is_neither_swept_nor_held_by_the_ceiling() {
         client_name: Some("Provisioned".to_owned()),
         client_uri: None,
         scope: None,
-        created_at: Utc::now() - Duration::days(5 * 365),
+        created_at: Timestamp::now() - Elapsed::days(5 * 365),
         expires_at: None,
     };
     let stored = database
@@ -433,11 +433,11 @@ async fn a_client_without_an_expiry_is_neither_swept_nor_held_by_the_ceiling() {
 async fn a_retention_age_reaching_past_the_epoch_deletes_nothing() {
     let database = database().await;
     let client_id = register_ok(&database, "Long expired").await;
-    let long_ago = Utc::now() - Duration::days(4000);
+    let long_ago = Timestamp::now() - Elapsed::days(4000);
     backdate(&database, &client_id, long_ago, Some(long_ago)).await;
 
-    // Ten thousand years is a valid chrono instant but outside what
-    // PostgreSQL stores; u64::MAX is not even a valid duration.
+    // Ten thousand years back is inside the range the date types hold but
+    // outside what PostgreSQL stores; u64::MAX is not even a valid duration.
     for age_secs in [10_000 * 365 * 24 * 60 * 60, u64::MAX] {
         let retention = ClientRetentionConfig {
             expired_grace_secs: age_secs,
@@ -584,12 +584,12 @@ async fn the_sweeper_reclaims_an_abandoned_registration_on_its_first_tick() {
     let database = database().await;
     let repos = database.repositories();
     let client_id = register_ok(&database, "Abandoned before boot").await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     backdate(
         &database,
         &client_id,
-        now - Duration::days(2),
-        Some(now + Duration::days(300)),
+        now - Elapsed::days(2),
+        Some(now + Elapsed::days(300)),
     )
     .await;
 

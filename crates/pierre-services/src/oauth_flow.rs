@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
 use tracing::{debug, error, field, info, warn, Span};
 use urlencoding::encode;
@@ -37,6 +37,7 @@ use pierre_database::database::repositories::UserRepository;
 use pierre_mcp_transport::OAuthCallbackResponse;
 
 pub use crate::oauth_state_redeem::ParsedOAuthState;
+use dravr_tronc::dates::Elapsed;
 use pierre_providers::backend_resolver;
 use pierre_providers::request_budget::RequestBudget;
 use pierre_providers::spi::ProviderDescriptor;
@@ -272,7 +273,7 @@ impl OAuthService {
         Ok(OAuthCallbackResponse {
             user_id: user_id.to_string(),
             provider: provider.to_owned(),
-            expires_at: expires_at.map(|at| at.to_rfc3339()),
+            expires_at: expires_at.map(Timestamp::to_rfc3339),
             scopes: token.scope.unwrap_or_else(|| "read".to_owned()),
             mobile_redirect_url,
             tenant_id: storage_tenant.to_string(),
@@ -292,7 +293,7 @@ impl OAuthService {
         token: &OAuth2Token,
         oauth_app_client_id: Option<&str>,
         precondition: StorePrecondition,
-    ) -> AppResult<Option<chrono::DateTime<Utc>>> {
+    ) -> AppResult<Option<Timestamp>> {
         let expires_at = self
             .store_oauth_token(
                 user_id,
@@ -517,7 +518,7 @@ impl OAuthService {
         token: &OAuth2Token,
         oauth_app_client_id: Option<&str>,
         precondition: StorePrecondition,
-    ) -> AppResult<Option<chrono::DateTime<Utc>>> {
+    ) -> AppResult<Option<Timestamp>> {
         let expires_at = token.expires_at;
 
         let user_oauth_token = UserOAuthToken {
@@ -537,8 +538,8 @@ impl OAuthService {
             // Which shared-app pool member issued this token (pinned at authorize)
             // so refresh resolves the matching secret. `None` = env-default app.
             oauth_app_client_id: oauth_app_client_id.map(str::to_owned),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
 
         strava_reconnect::store_guarded(
@@ -590,7 +591,7 @@ impl OAuthService {
         &self,
         user_id: uuid::Uuid,
         provider: &str,
-        expires_at: Option<chrono::DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     ) -> AppResult<()> {
         let notification_id = self
             .data
@@ -601,7 +602,7 @@ impl OAuthService {
                 provider,
                 true,
                 "OAuth authorization completed successfully",
-                expires_at.map(|at| at.to_rfc3339()).as_deref(),
+                expires_at.map(Timestamp::to_rfc3339).as_deref(),
             )
             .await
             .map_err(|e| AppError::database(format!("Failed to store OAuth notification: {e}")))?;
@@ -829,7 +830,7 @@ impl OAuthService {
         // Store state server-side for CSRF protection with 10-minute TTL.
         // The code_challenge field stores the PKCE code_verifier (needed during
         // token exchange to prove we initiated the authorization request).
-        let now = Utc::now();
+        let now = Timestamp::now();
         let client_state = OAuthClientState {
             state: state.clone(),
             provider: provider.to_owned(),
@@ -840,7 +841,7 @@ impl OAuthService {
             pkce_code_verifier: pkce.as_ref().map(|p| p.code_verifier.clone()),
             oauth_app_client_id: oauth_app_attribution,
             created_at: now,
-            expires_at: now + chrono::Duration::minutes(10),
+            expires_at: now + Elapsed::minutes(10),
             used: false,
         };
 
@@ -912,7 +913,7 @@ impl OAuthService {
                 let (expires_at, scopes) = if conn.connection_type == ConnectionType::OAuth {
                     // Look up OAuth token details for expiry/scope info
                     token_map.get(&conn.provider).map_or((None, None), |t| {
-                        (t.expires_at.map(|dt| dt.to_rfc3339()), t.scope.clone())
+                        (t.expires_at.map(Timestamp::to_rfc3339), t.scope.clone())
                     })
                 } else {
                     (None, None)

@@ -6,7 +6,7 @@
 
 //! Parsing a count's arguments, and echoing them.
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{resolve_sport_type, ActivityTag, SportFamily, SportType};
 use pierre_core::text_fold::fold_for_match;
@@ -51,10 +51,10 @@ fn capped_text_arg<'a>(args: &'a Value, key: &str) -> AppResult<Option<&'a str>>
     }
 }
 
-fn date_arg(args: &Value, key: &str) -> AppResult<Option<NaiveDate>> {
+fn date_arg(args: &Value, key: &str) -> AppResult<Option<CivilDate>> {
     text_arg(args, key)
         .map(|raw| {
-            NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+            CivilDate::parse_from_str(raw, "%Y-%m-%d")
                 .map_err(|e| invalid(format!("{key} must be YYYY-MM-DD: {e}")))
         })
         .transpose()
@@ -236,7 +236,7 @@ fn trainer_arg(args: &Value) -> AppResult<Option<bool>> {
 /// after `to`, a least distance above the most, an unknown sport, family,
 /// tag, key or metric, more than two keys, an empty name to match, or a
 /// name, segment or gear text longer than 60 characters.
-pub fn parse_query(args: &Value, today: NaiveDate) -> AppResult<ActivityQuery> {
+pub fn parse_query(args: &Value, today: CivilDate) -> AppResult<ActivityQuery> {
     let to = date_arg(args, "to")?.unwrap_or(today);
     let from = date_arg(args, "from")?;
     if from.is_some_and(|from| from > to) {
@@ -285,9 +285,9 @@ pub fn parse_query(args: &Value, today: NaiveDate) -> AppResult<ActivityQuery> {
 pub struct AppliedQuery {
     /// First day, `YYYY-MM-DD`; absent for the whole stored history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub from: Option<NaiveDate>,
+    pub from: Option<CivilDate>,
     /// Last day, `YYYY-MM-DD`, included.
-    pub to: NaiveDate,
+    pub to: CivilDate,
     /// Sports, resolved from their aliases.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sport_type: Vec<SportType>,

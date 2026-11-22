@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-/// How many times an upsert merges over a stored copy that kept changing under it.
 pub(crate) const UPSERT_MERGE_ATTEMPTS: usize = 4;
 
 /// Insert or overwrite one cached activity.
@@ -12,7 +11,7 @@ pub(crate) const UPSERT_MERGE_ATTEMPTS: usize = 4;
 /// `$n` placeholders throughout this module: sqlx accepts them on `SQLite` as
 /// well as Postgres. `cached_activities` types its ids as TEXT on both
 /// engines, so its statements need no cast; its timestamps bind as
-/// `DateTime<Utc>` on both — sqlx-sqlite encodes one as
+/// `Timestamp` on both — sqlx-sqlite encodes one as
 /// `to_rfc3339_opts(AutoSi, false)`, the text the column's earlier writes
 /// hold, so the lexical order the reads rely on is unchanged.
 ///

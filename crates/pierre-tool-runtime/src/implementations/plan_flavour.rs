@@ -26,7 +26,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::info;
@@ -42,6 +42,7 @@ use crate::implementations::plan_flavour_output::{
     LaidPhaseReport, PlanFlavourResult, SeasonReport, ShareRange,
 };
 use crate::runtime::ToolRuntime;
+use dravr_tronc::dates::Elapsed;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_contremaitre::MessagingStringsRegistry;
@@ -123,7 +124,7 @@ impl Source {
 struct Resolved {
     inputs: FlavourInputs,
     sources: Vec<(&'static str, Source)>,
-    goal_date: Option<NaiveDate>,
+    goal_date: Option<CivilDate>,
 }
 
 /// A string property.
@@ -322,8 +323,8 @@ impl RecommendPlanFlavourTool {
     fn resolve(
         payload: &Payload,
         profile: Option<&UserPhysiologicalProfile>,
-        goal: Option<(EventClass, NaiveDate)>,
-        today: NaiveDate,
+        goal: Option<(EventClass, CivilDate)>,
+        today: CivilDate,
     ) -> Resolved {
         let mut sources = Vec::new();
         let mut take = |name: &'static str, src: Source| sources.push((name, src));
@@ -369,7 +370,7 @@ impl RecommendPlanFlavourTool {
                 // A stated runway fixes the goal on the calendar too, so the
                 // season can be laid even before an outline names the race.
                 if goal_date.is_none() {
-                    goal_date = Some(today + chrono::Duration::weeks(i64::from(w)));
+                    goal_date = Some(today + Elapsed::weeks(i64::from(w)));
                 }
                 Some(w)
             }
@@ -559,7 +560,7 @@ impl RecommendPlanFlavourTool {
     fn phase_json(p: &LaidPhase) -> LaidPhaseReport {
         LaidPhaseReport {
             kind: p.kind.as_str().to_owned(),
-            start: p.start.format("%Y-%m-%d").to_string(),
+            start: p.start.to_string(),
             weeks: p.weeks,
             purpose: p.purpose.clone(),
             volume_share_of_peak: ShareRange {
@@ -575,7 +576,7 @@ impl RecommendPlanFlavourTool {
                 .map(|k| k.as_str().to_owned())
                 .collect(),
             loading_pattern: p.loading_pattern.to_string(),
-            peak: p.peak.format("%Y-%m-%d").to_string(),
+            peak: p.peak.to_string(),
         }
     }
 
@@ -781,9 +782,9 @@ fn event_class_from_discipline(discipline: &str) -> Option<EventClass> {
 /// about the second.
 fn peak_dates(
     plan: Option<&TrainingPlan>,
-    goal_date: NaiveDate,
-    today: NaiveDate,
-) -> Vec<NaiveDate> {
+    goal_date: CivilDate,
+    today: CivilDate,
+) -> Vec<CivilDate> {
     let mut peaks = vec![goal_date];
     if let Some(plan) = plan {
         peaks.extend(

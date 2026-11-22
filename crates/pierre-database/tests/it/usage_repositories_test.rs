@@ -22,7 +22,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{DateTime, Datelike, Duration, SubsecRound, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{
@@ -61,13 +61,13 @@ async fn fresh_api_key(repos: &RepositoryRegistry, user_id: Uuid) -> ApiKey {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     repos.api_keys.create(&api_key).await.unwrap();
     api_key
 }
 
-fn api_call(api_key_id: &str, tool_name: &str, status_code: u16, at: DateTime<Utc>) -> ApiKeyUsage {
+fn api_call(api_key_id: &str, tool_name: &str, status_code: u16, at: Timestamp) -> ApiKeyUsage {
     ApiKeyUsage {
         id: None,
         api_key_id: api_key_id.to_owned(),
@@ -83,7 +83,7 @@ fn api_call(api_key_id: &str, tool_name: &str, status_code: u16, at: DateTime<Ut
     }
 }
 
-fn jwt_call(user_id: Uuid, at: DateTime<Utc>) -> JwtUsage {
+fn jwt_call(user_id: Uuid, at: Timestamp) -> JwtUsage {
     JwtUsage {
         id: None,
         user_id,
@@ -110,13 +110,13 @@ async fn an_api_call_reads_back_from_the_request_log_with_what_was_stored() {
     let failed = ApiKeyUsage {
         error_message: Some("upstream timed out".to_owned()),
         response_time_ms: Some(u32::MAX),
-        ..api_call(&api_key.id, "get_athlete", 504, Utc::now())
+        ..api_call(&api_key.id, "get_athlete", 504, Timestamp::now())
     };
     repo.record_api_key(&api_call(
         &api_key.id,
         "get_activities",
         200,
-        Utc::now() - Duration::minutes(5),
+        Timestamp::now() - Elapsed::minutes(5),
     ))
     .await
     .unwrap();
@@ -175,7 +175,7 @@ async fn an_api_call_reads_back_from_the_request_log_with_what_was_stored() {
         .get_request_logs(
             Some(user_id),
             None,
-            Some(Utc::now() - Duration::minutes(1)),
+            Some(Timestamp::now() - Elapsed::minutes(1)),
             None,
             None,
             None,
@@ -195,21 +195,21 @@ async fn the_key_window_stats_and_top_tools_count_the_recorded_calls() {
     let repo = &repos.usage;
     // Whole seconds, so the oldest call reads back equal on Postgres, whose
     // TIMESTAMPTZ keeps microseconds, as on SQLite.
-    let now = Utc::now().trunc_subsecs(0);
-    let oldest_in_window = now - Duration::minutes(2);
+    let now = Timestamp::from_epoch_seconds(Timestamp::now().epoch_seconds()).unwrap();
+    let oldest_in_window = now - Elapsed::minutes(2);
 
     for (tool, status, at) in [
         ("get_activities", 200, oldest_in_window),
-        ("get_activities", 200, now - Duration::minutes(1)),
+        ("get_activities", 200, now - Elapsed::minutes(1)),
         ("get_athlete", 500, now),
-        ("get_athlete", 200, now - Duration::hours(2)),
+        ("get_athlete", 200, now - Elapsed::hours(2)),
     ] {
         repo.record_api_key(&api_call(&api_key.id, tool, status, at))
             .await
             .unwrap();
     }
 
-    let window_start = now - Duration::seconds(i64::from(api_key.rate_limit_window_seconds));
+    let window_start = now - Elapsed::seconds(i64::from(api_key.rate_limit_window_seconds));
     assert_eq!(
         repo.get_api_key_window_usage(&api_key.id, window_start)
             .await
@@ -235,8 +235,8 @@ async fn the_key_window_stats_and_top_tools_count_the_recorded_calls() {
     let stats = repo
         .get_api_key_stats(
             &api_key.id,
-            Utc::now() - Duration::hours(1),
-            Utc::now() + Duration::hours(1),
+            Timestamp::now() - Elapsed::hours(1),
+            Timestamp::now() + Elapsed::hours(1),
         )
         .await
         .unwrap();
@@ -267,8 +267,8 @@ async fn the_key_window_stats_and_top_tools_count_the_recorded_calls() {
     let tools = repo
         .get_top_tools_analysis(
             user_id,
-            Utc::now() - Duration::hours(1),
-            Utc::now() + Duration::hours(1),
+            Timestamp::now() - Elapsed::hours(1),
+            Timestamp::now() + Elapsed::hours(1),
         )
         .await
         .unwrap();
@@ -293,13 +293,13 @@ async fn a_redirect_is_no_success_in_a_keys_tools_nor_in_the_users_top_tools() {
     let api_key = fresh_api_key(repos, user_id).await;
     let repo = &repos.usage;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     for status in [200, 302, 500, 200] {
         repo.record_api_key(&api_call(&api_key.id, "get_activities", status, now))
             .await
             .unwrap();
     }
-    let (start, end) = (now - Duration::hours(1), now + Duration::hours(1));
+    let (start, end) = (now - Elapsed::hours(1), now + Elapsed::hours(1));
 
     // The two reads answer for the same calls, so they must agree on what
     // succeeded: 2 of 4, the redirect counted as neither success nor failure.
@@ -336,7 +336,7 @@ async fn the_api_key_request_count_covers_every_endpoint() {
     let api_key = fresh_api_key(repos, user_id).await;
     let repo = &repos.usage;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     for endpoint in 0..12 {
         repo.record_api_key(&api_call(
             &api_key.id,
@@ -347,7 +347,7 @@ async fn the_api_key_request_count_covers_every_endpoint() {
         .await
         .unwrap();
     }
-    let (start, end) = (now - Duration::hours(1), now + Duration::hours(1));
+    let (start, end) = (now - Elapsed::hours(1), now + Elapsed::hours(1));
 
     let top = repo
         .get_top_tools_analysis(user_id, start, end)
@@ -369,15 +369,15 @@ async fn jwt_usage_counts_this_utc_month_and_not_last_month() {
     let user_id = fresh_user(repos).await;
     let repo = &repos.usage;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let month_start = now
+        .utc_date()
         .with_day(1)
         .unwrap()
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .unwrap()
-        .and_utc();
-    let last_month = month_start - Duration::hours(1);
+        .at_midnight()
+        .and_utc()
+        .unwrap();
+    let last_month = month_start - Elapsed::hours(1);
 
     repo.record_jwt_usage(&jwt_call(user_id, now))
         .await
@@ -406,8 +406,8 @@ fn monthly_override(user_id: Uuid, monthly_limit: Option<u32>) -> UserRateLimitO
         monthly_limit,
         note: None,
         set_by: None,
-        set_at: Utc::now(),
-        updated_at: Utc::now(),
+        set_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -417,7 +417,7 @@ async fn jwt_usage_reads_the_users_own_override_with_the_months_count() {
     let repos = db.repositories();
     let user_id = fresh_user(repos).await;
     let neighbour = fresh_user(repos).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     for _ in 0..2 {
         repos
             .usage
@@ -495,14 +495,9 @@ async fn a_counter_increment_returns_its_own_value_with_an_rfc3339_timestamp() {
         .await
         .unwrap();
     assert_eq!(first.value, 3);
-    let stamped = DateTime::parse_from_rfc3339(&first.updated_at)
+    let stamped = Timestamp::parse_from_rfc3339(&first.updated_at)
         .unwrap_or_else(|e| panic!("updated_at {:?} is RFC 3339: {e}", first.updated_at));
-    assert!(
-        (Utc::now() - stamped.with_timezone(&Utc))
-            .num_seconds()
-            .abs()
-            < 60
-    );
+    assert!((Timestamp::now() - stamped).num_seconds().abs() < 60);
 
     let second = repo
         .increment_counter(&tenant, "user-1", "messages", "2026-09", 4)
@@ -752,7 +747,7 @@ async fn since_is_a_day_or_an_instant_on_both_engines() {
         .await
         .unwrap();
 
-    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let today = Timestamp::now().utc_date().to_string();
     let daily = repo
         .get_llm_usage_daily_series(Some(&tenant), &today)
         .await
@@ -773,7 +768,7 @@ async fn since_is_a_day_or_an_instant_on_both_engines() {
     let aggregates = repo
         .get_llm_usage_aggregates(
             Some(&tenant),
-            &(Utc::now() - Duration::minutes(1)).to_rfc3339(),
+            &(Timestamp::now() - Elapsed::minutes(1)).to_rfc3339(),
         )
         .await
         .unwrap();
@@ -784,7 +779,7 @@ async fn since_is_a_day_or_an_instant_on_both_engines() {
     assert!(
         repo.get_llm_usage_aggregates_by_user(
             &user,
-            &(Utc::now() + Duration::minutes(1)).to_rfc3339()
+            &(Timestamp::now() + Elapsed::minutes(1)).to_rfc3339()
         )
         .await
         .unwrap()

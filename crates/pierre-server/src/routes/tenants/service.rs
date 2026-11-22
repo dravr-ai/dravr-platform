@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Tenant, TenantId};
@@ -114,8 +115,8 @@ pub async fn create_tenant(
         domain: tenant_request.domain.clone(), // Safe: String ownership for tenant struct
         plan: tenant_request.plan.unwrap_or_else(|| "basic".to_owned()),
         owner_user_id: auth_result.user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     repos

@@ -30,7 +30,8 @@ use std::sync::Arc;
 
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
+use dravr_tronc::dates::{CivilDateTime, Elapsed};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::{
@@ -102,7 +103,7 @@ pub(crate) async fn strava_athlete(resources: &Arc<ServerContext>) -> Athlete {
 /// athlete's Garmin would be read through the session mirror, which a walk
 /// does deepen.
 pub(crate) async fn connect_garmin(resources: &Arc<ServerContext>, (user_id, tenant): Athlete) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos
@@ -115,7 +116,7 @@ pub(crate) async fn connect_garmin(resources: &Arc<ServerContext>, (user_id, ten
             access_token: SecretString::from(format!("garmin_access_token_{:0>30}", 7)),
             refresh_token: Some(SecretString::from("garmin_refresh")),
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now + chrono::Duration::hours(6)),
+            expires_at: Some(now + Elapsed::hours(6)),
             scope: None,
             provider_user_id: Some("garmin-4242".to_owned()),
             oauth_app_client_id: None,
@@ -140,16 +141,19 @@ pub(crate) async fn connect_garmin(resources: &Arc<ServerContext>, (user_id, ten
 }
 
 /// Noon UTC on `y-m-d`.
-pub(crate) fn noon(y: i32, m: u32, d: u32) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(y, m, d, 12, 0, 0).single().unwrap()
+pub(crate) fn noon(y: i32, m: u32, d: u32) -> Timestamp {
+    CivilDate::from_ymd(y, m, d)
+        .and_then(|date| date.and_hms(12, 0, 0))
+        .and_then(CivilDateTime::and_utc)
+        .unwrap()
 }
 
-pub(crate) fn day(y: i32, m: u32, d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(y, m, d).unwrap()
+pub(crate) fn day(y: i32, m: u32, d: u32) -> CivilDate {
+    CivilDate::from_ymd(y, m, d).unwrap()
 }
 
 /// The workout `id` of `sport` that `key` listed, started `at`, of 30 km.
-pub(crate) fn workout(key: &str, id: &str, sport: SportType, at: DateTime<Utc>) -> Activity {
+pub(crate) fn workout(key: &str, id: &str, sport: SportType, at: Timestamp) -> Activity {
     let built = ActivityBuilder::new(id, "Morning ride", sport, at, 3_600, key)
         .distance_meters(30_000.0)
         .elevation_gain(250.0);
@@ -161,8 +165,8 @@ pub(crate) fn workout(key: &str, id: &str, sport: SportType, at: DateTime<Utc>) 
 }
 
 /// A ride `key` listed, its id its start.
-pub(crate) fn ride(key: &str, at: DateTime<Utc>) -> Activity {
-    workout(key, &at.timestamp().to_string(), SportType::Ride, at)
+pub(crate) fn ride(key: &str, at: Timestamp) -> Activity {
+    workout(key, &at.epoch_seconds().to_string(), SportType::Ride, at)
 }
 
 /// Store `rows` as `key` holds them for the athlete.
@@ -222,7 +226,7 @@ pub(crate) async fn owe_history_walk(
         before_ts: None,
         fetch_limit: Some(2_000),
         conversation_id: None,
-        created_at_ms: Utc::now().timestamp_millis(),
+        created_at_ms: Timestamp::now().epoch_millis(),
         leased_until_ms: 0,
         attempts: 1,
         lease_token: None,
@@ -376,11 +380,10 @@ async fn a_workout_whose_copies_straddle_new_year_counts_once_in_its_year() {
     let resources = store_server().await;
     let athlete = strava_athlete(&resources).await;
     walked_to_its_end(&resources, athlete, oauth_providers::STRAVA).await;
-    let strava_at = Utc
-        .with_ymd_and_hms(2024, 12, 31, 23, 59, 40)
-        .single()
+    let strava_at = Timestamp::parse_from_rfc3339("2024-12-31T23:59:40Z")
+        .ok()
         .unwrap();
-    let garmin_at = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 10).single().unwrap();
+    let garmin_at = Timestamp::parse_from_rfc3339("2025-01-01T00:00:10Z").unwrap();
     store(
         &resources,
         athlete,
@@ -466,12 +469,7 @@ async fn every_row_of_a_long_year_is_counted() {
     walked_to_its_end(&resources, athlete, oauth_providers::STRAVA).await;
     let first = noon(2023, 1, 1);
     let rows: Vec<Activity> = (0..2_600_i64)
-        .map(|i| {
-            ride(
-                oauth_providers::STRAVA,
-                first + chrono::Duration::hours(3 * i),
-            )
-        })
+        .map(|i| ride(oauth_providers::STRAVA, first + Elapsed::hours(3 * i)))
         .collect();
     store(&resources, athlete, oauth_providers::STRAVA, &rows).await;
 
@@ -627,7 +625,7 @@ async fn a_window_from_the_calendars_first_year_reads_the_stored_years() {
     let all = query(
         &resources,
         athlete,
-        json!({ "from": "-262143-01-01", "to": "2026-01-01" }),
+        json!({ "from": "-9999-01-01", "to": "2026-01-01" }),
     )
     .await;
     assert_eq!(
@@ -638,7 +636,7 @@ async fn a_window_from_the_calendars_first_year_reads_the_stored_years() {
     let first_day = query(
         &resources,
         athlete,
-        json!({ "from": "-262143-01-01", "to": "-262143-01-01" }),
+        json!({ "from": "-9999-01-01", "to": "-9999-01-01" }),
     )
     .await;
     assert_eq!(

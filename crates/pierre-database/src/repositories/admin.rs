@@ -7,7 +7,7 @@
 use std::fmt;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::jwt::JwtSigner;
 use pierre_core::admin::models::{
     AdminAction, AdminPermissions, AdminToken, AdminTokenUsage, CreateAdminTokenRequest,
@@ -223,15 +223,15 @@ pub trait AdminRepository: Send + Sync {
     async fn record_token_use(
         &self,
         token_id: &str,
-        used_at: DateTime<Utc>,
+        used_at: Timestamp,
         ip_address: Option<&str>,
     ) -> AppResult<()>;
     /// Get admin token usage history
     async fn get_token_usage_history(
         &self,
         token_id: &str,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
+        start_date: Timestamp,
+        end_date: Timestamp,
     ) -> AppResult<Vec<AdminTokenUsage>>;
     /// Record API key provisioning by admin
     async fn record_provisioned_key(
@@ -272,7 +272,7 @@ pub(crate) use admin_token_columns;
 /// `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
 /// Postgres, so one statement serves both backends and cannot drift between
 /// them. Every bind here is a plain `&str`, `Option<&str>`, `bool`,
-/// `DateTime<Utc>`, `Option<DateTime<Utc>>` or `i64` both drivers encode
+/// `Timestamp`, `Option<Timestamp>` or `i64` both drivers encode
 /// alike — the boolean columns are `BOOLEAN` on Postgres and 0/1 `INTEGER`
 /// on `SQLite`, and a `bool` binds and decodes as both.
 pub(crate) const CREATE_ADMIN_TOKEN_SQL: &str = r"
@@ -485,7 +485,7 @@ pub(crate) fn mint_admin_token(
 
     let permissions = request.granted_permissions();
 
-    let expires_at = request.expires_at(Utc::now())?;
+    let expires_at = request.expires_at(Timestamp::now())?;
 
     let jwt_token = AdminJwtManager::new()
         .generate_token(
@@ -516,7 +516,7 @@ pub(crate) fn mint_admin_token(
             permissions,
             is_super_admin: request.is_super_admin,
             expires_at,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         },
         token_hash,
         jwt_secret_hash,
@@ -586,8 +586,8 @@ where
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let permissions_json: String = row
         .try_get("permissions")
@@ -675,7 +675,7 @@ where
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<i32>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let action_str: String = row
         .try_get("action")
@@ -919,7 +919,7 @@ macro_rules! impl_admin_repository {
             async fn record_token_use(
                 &self,
                 token_id: &str,
-                used_at: DateTime<Utc>,
+                used_at: Timestamp,
                 ip_address: Option<&str>,
             ) -> AppResult<()> {
                 sqlx::query(RECORD_ADMIN_TOKEN_USE_SQL)
@@ -939,8 +939,8 @@ macro_rules! impl_admin_repository {
             async fn get_token_usage_history(
                 &self,
                 token_id: &str,
-                start_date: DateTime<Utc>,
-                end_date: DateTime<Utc>,
+                start_date: Timestamp,
+                end_date: Timestamp,
             ) -> AppResult<Vec<AdminTokenUsage>> {
                 let rows = sqlx::query(GET_ADMIN_TOKEN_USAGE_SQL)
                     .bind(token_id)
@@ -974,7 +974,7 @@ macro_rules! impl_admin_repository {
                     .bind(api_key_id)
                     .bind(normalize_email(user_email))
                     .bind(tier)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(service_name)
                     .bind(count_to_column(rate_limit_requests))
                     .bind(rate_limit_period)

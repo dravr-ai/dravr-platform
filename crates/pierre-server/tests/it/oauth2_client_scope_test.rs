@@ -20,7 +20,7 @@ use crate::common;
 use secrecy::{ExposeSecret, SecretString};
 
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
@@ -121,8 +121,8 @@ async fn athlete(env: &Env, email: &str) -> User {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -323,7 +323,7 @@ async fn admin_is_never_authorized_even_for_a_row_registered_before_the_check() 
                     client_name: None,
                     client_uri: None,
                     scope: scope.map(str::to_owned),
-                    created_at: Utc::now(),
+                    created_at: Timestamp::now(),
                     expires_at: None,
                 },
                 u64::MAX,
@@ -349,7 +349,7 @@ async fn admin_is_never_authorized_even_for_a_row_registered_before_the_check() 
             .database
             .repositories()
             .oauth2_server
-            .peek_auth_code(&code, client_id, REDIRECT, Utc::now())
+            .peek_auth_code(&code, client_id, REDIRECT, Timestamp::now())
             .await
             .unwrap()
             .expect("the code is live");
@@ -438,11 +438,11 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
             user_id: user.id,
             tenant_id: tenant[0].id.to_string(),
             scope: Some("fitness:read admin".to_owned()),
-            expires_at: Utc::now() + Duration::days(30),
-            created_at: Utc::now(),
+            expires_at: Timestamp::now() + Elapsed::days(30),
+            created_at: Timestamp::now(),
             revoked: false,
             family_id: "test-family".to_owned(),
-            family_created_at: Some(Utc::now()),
+            family_created_at: Some(Timestamp::now()),
             resource: None,
         })
         .await
@@ -496,8 +496,8 @@ async fn a_refresh_family_holding_admin_with_no_recorded_start_mints_nothing() {
             user_id: user.id,
             tenant_id: tenant[0].id.to_string(),
             scope: Some("fitness:read admin".to_owned()),
-            expires_at: Utc::now() + Duration::days(30),
-            created_at: Utc::now(),
+            expires_at: Timestamp::now() + Elapsed::days(30),
+            created_at: Timestamp::now(),
             revoked: false,
             family_id: "test-family-no-start".to_owned(),
             family_created_at: None,
@@ -558,7 +558,7 @@ async fn machine_client(env: &Env, scope: &str) -> ClientRegistrationResponse {
             client_name: Some("Machine".to_owned()),
             client_uri: None,
             scope: Some(scope.to_owned()),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             expires_at: None,
         })
         .await

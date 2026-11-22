@@ -8,7 +8,7 @@ use pierre_core::transport::TransportPolicy;
 use std::cmp::Ordering;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_memory::playbooks::{
     wilson_lower_bound_95, AdviceStatus, ArchetypePrior, Intervention, LabelSource, MetricBaseline,
@@ -41,7 +41,7 @@ pub struct RecordedOutcome<'a> {
     /// The verdict to fold in.
     pub label: OutcomeLabel,
     /// When the outcome was observed.
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
     /// The stamp of the advice and the measurement the outcome was labelled
     /// from (carnet#769). The playbook keeps the stricter of its own and this.
     pub transport_policy: TransportPolicy,
@@ -221,7 +221,7 @@ pub(crate) fn outcome_upsert_values(
         sc,
         fc,
         nc,
-        now: outcome.at.timestamp(),
+        now: outcome.at.epoch_seconds(),
         first_party_only: outcome.transport_policy.is_first_party_only(),
     })
 }
@@ -298,8 +298,8 @@ pub(crate) fn archetype_prior_from_row(
 
 /// Convert Unix epoch seconds to a UTC timestamp. `None` only for values outside
 /// the representable range (not reachable from our own writes).
-fn epoch_to_dt(secs: i64) -> Option<DateTime<Utc>> {
-    DateTime::from_timestamp(secs, 0)
+fn epoch_to_dt(secs: i64) -> Option<Timestamp> {
+    Timestamp::from_epoch_seconds(secs).ok()
 }
 
 /// Clamp a DB counter (`i64`, always non-negative in our schema) into the `u32`
@@ -367,8 +367,8 @@ pub(crate) fn playbook_from_row(row: PlaybookRow) -> AppResult<Playbook> {
         neutral_count: count_to_u32(row.neutral_count),
         confidence: 0.0,
         last_outcome_at: row.last_outcome_at.and_then(epoch_to_dt),
-        created_at: epoch_to_dt(row.created_at).unwrap_or_else(Utc::now),
-        updated_at: epoch_to_dt(row.updated_at).unwrap_or_else(Utc::now),
+        created_at: epoch_to_dt(row.created_at).unwrap_or_else(Timestamp::now),
+        updated_at: epoch_to_dt(row.updated_at).unwrap_or_else(Timestamp::now),
         transport_policy: TransportPolicy::from_first_party_only(row.first_party_only),
     };
     playbook.confidence = playbook.wilson_lower_bound();
@@ -431,12 +431,12 @@ pub(crate) fn pending_advice_from_row(row: PendingAdviceRow) -> AppResult<Pendin
         intervention,
         outcome_metric,
         baseline,
-        due_by: epoch_to_dt(row.due_by).unwrap_or_else(Utc::now),
+        due_by: epoch_to_dt(row.due_by).unwrap_or_else(Timestamp::now),
         status: AdviceStatus::parse_lenient(&row.status),
         label: row.label.as_deref().map(OutcomeLabel::parse_lenient),
         label_source: row.label_source.as_deref().map(LabelSource::parse_lenient),
         source_msg_id: row.source_msg_id,
-        created_at: epoch_to_dt(row.created_at).unwrap_or_else(Utc::now),
+        created_at: epoch_to_dt(row.created_at).unwrap_or_else(Timestamp::now),
         transport_policy: TransportPolicy::from_first_party_only(row.first_party_only),
     })
 }
@@ -901,12 +901,12 @@ macro_rules! impl_playbook_repository {
                     .bind(&intervention_json)
                     .bind(&outcome_metric_json)
                     .bind(&baseline_json)
-                    .bind(advice.due_by.timestamp())
+                    .bind(advice.due_by.epoch_seconds())
                     .bind(advice.status.as_str())
                     .bind(advice.label.map(OutcomeLabel::as_str))
                     .bind(advice.label_source.map(LabelSource::as_str))
                     .bind(advice.source_msg_id.as_deref())
-                    .bind(advice.created_at.timestamp())
+                    .bind(advice.created_at.epoch_seconds())
                     .bind(advice.transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await
@@ -976,7 +976,7 @@ macro_rules! impl_playbook_repository {
                     .bind(prior.success_count)
                     .bind(prior.failure_count)
                     .bind(prior.distinct_user_count)
-                    .bind(Utc::now().timestamp())
+                    .bind(Timestamp::now().epoch_seconds())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("upsert archetype prior: {e}")))?;

@@ -20,8 +20,8 @@ use crate::common;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use chrono::{DateTime, Duration, Utc};
 use dravr_barrage::parse::fit::{FitActivityFile, Position};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::models::{TenantId, TimeSeriesData};
 use pierre_database::backends::factory::DatabaseBackend;
@@ -59,12 +59,13 @@ fn runtime(resources: &Arc<ServerContext>) -> Arc<dyn ToolRuntime> {
 }
 
 /// Yesterday at 07:00 UTC.
-fn yesterday_morning() -> DateTime<Utc> {
-    (Utc::now() - Duration::days(1))
-        .date_naive()
-        .and_hms_opt(7, 0, 0)
+fn yesterday_morning() -> Timestamp {
+    (Timestamp::now() - Elapsed::days(1))
+        .utc_date()
+        .and_hms(7, 0, 0)
         .unwrap()
         .and_utc()
+        .unwrap()
 }
 
 /// A ten-minute ride's file.
@@ -176,7 +177,7 @@ async fn seed_gap_filled_row(
     let json = r#"{"timestamps":[0,1,2],"heart_rate":[120,null,122],
         "gps_coordinates":[[45.5,-73.6],[45.5,-73.6],[45.5002,-73.6]],
         "distance":[0.0,0.0,22.2]}"#;
-    let synced_at = Utc::now() - Duration::days(1);
+    let synced_at = Timestamp::now() - Elapsed::days(1);
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(seed_gap_filled_sql!(""))

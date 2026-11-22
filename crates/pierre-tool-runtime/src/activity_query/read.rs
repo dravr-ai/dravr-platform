@@ -21,8 +21,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, NaiveDate, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Zone};
 use pierre_core::civil_time::{day_start_utc, local_date};
 use pierre_core::errors::AppResult;
 use pierre_database::repositories::{CachedActivityRow, CachedRowCursor, CachedRowsQuery};
@@ -41,15 +40,15 @@ const STORE_PAGE_ROWS: i64 = 500;
 const READ_EDGE_SLACK_DAYS: i64 = 2;
 
 /// The window a read covers, on the athlete's calendar.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct CivilWindow {
     /// The first day, included; `None` reads from the oldest stored start
     /// under the keys read.
-    pub from: Option<NaiveDate>,
+    pub from: Option<CivilDate>,
     /// The last day, included.
-    pub to: NaiveDate,
+    pub to: CivilDate,
     /// The athlete's zone.
-    pub zone: Tz,
+    pub zone: Zone,
 }
 
 /// The stored keys a read takes rows under.
@@ -68,13 +67,13 @@ pub struct KeyReach {
     /// Rows read.
     pub copies: u64,
     /// The oldest row's civil day.
-    pub oldest: Option<NaiveDate>,
+    pub oldest: Option<CivilDate>,
     /// The newest row's civil day.
-    pub newest: Option<NaiveDate>,
+    pub newest: Option<CivilDate>,
 }
 
 impl KeyReach {
-    fn add(&mut self, day: NaiveDate) {
+    fn add(&mut self, day: CivilDate) {
         self.copies = self.copies.saturating_add(1);
         self.oldest = Some(self.oldest.map_or(day, |oldest| oldest.min(day)));
         self.newest = Some(self.newest.map_or(day, |newest| newest.max(day)));
@@ -94,15 +93,13 @@ pub struct ReadReach {
 impl ReadReach {
     /// The oldest civil day any row read starts on.
     #[must_use]
-    pub fn oldest(&self) -> Option<NaiveDate> {
+    pub fn oldest(&self) -> Option<CivilDate> {
         self.by_key.values().filter_map(|reach| reach.oldest).min()
     }
 }
 
 /// The civil-year chunks of `[floor, to]`, newest first, each clipped to it.
-pub(crate) fn chunks(floor: NaiveDate, to: NaiveDate) -> Vec<(NaiveDate, NaiveDate)> {
-    use chrono::Datelike;
-
+pub(crate) fn chunks(floor: CivilDate, to: CivilDate) -> Vec<(CivilDate, CivilDate)> {
     let mut out = Vec::new();
     if floor > to {
         return out;
@@ -110,8 +107,8 @@ pub(crate) fn chunks(floor: NaiveDate, to: NaiveDate) -> Vec<(NaiveDate, NaiveDa
     let mut year = to.year();
     while year >= floor.year() {
         let (Some(first), Some(last)) = (
-            NaiveDate::from_ymd_opt(year, 1, 1),
-            NaiveDate::from_ymd_opt(year, 12, 31),
+            CivilDate::from_ymd(year, 1, 1).ok(),
+            CivilDate::from_ymd(year, 12, 31).ok(),
         ) else {
             break;
         };
@@ -125,27 +122,27 @@ pub(crate) fn chunks(floor: NaiveDate, to: NaiveDate) -> Vec<(NaiveDate, NaiveDa
 /// side; the end is the last instant before the day after `last` (plus the
 /// slack) begins. At either end of the calendar the slack stops there.
 pub(crate) fn read_bounds(
-    (first, last): (NaiveDate, NaiveDate),
-    zone: Tz,
-) -> (DateTime<Utc>, DateTime<Utc>) {
-    let slack = Duration::days(READ_EDGE_SLACK_DAYS);
+    (first, last): (CivilDate, CivilDate),
+    zone: &Zone,
+) -> (Timestamp, Timestamp) {
+    let slack = Elapsed::days(READ_EDGE_SLACK_DAYS);
     let start = day_start_utc(first, zone)
-        .checked_sub_signed(slack)
-        .unwrap_or(DateTime::<Utc>::MIN_UTC);
+        .checked_sub(slack)
+        .unwrap_or(Timestamp::MIN);
     let end = last
-        .succ_opt()
-        .map_or_else(Utc::now, |next| day_start_utc(next, zone))
-        .checked_add_signed(slack - Duration::nanoseconds(1))
-        .unwrap_or(DateTime::<Utc>::MAX_UTC);
+        .succ()
+        .map_or_else(Timestamp::now, |next| day_start_utc(next, zone))
+        .checked_add(slack - Elapsed::nanoseconds(1))
+        .unwrap_or(Timestamp::MAX);
     (start, end)
 }
 
 /// Whether a start falls in the chunk `[first, last]` on the athlete's
 /// calendar.
 pub(crate) fn in_chunk(
-    start: DateTime<Utc>,
-    (first, last): (NaiveDate, NaiveDate),
-    zone: Tz,
+    start: Timestamp,
+    (first, last): (CivilDate, CivilDate),
+    zone: &Zone,
 ) -> bool {
     (first..=last).contains(&local_date(start, zone))
 }
@@ -156,8 +153,8 @@ pub(crate) async fn oldest_stored(
     runtime: &Arc<dyn ToolRuntime>,
     athlete: Athlete,
     keys: KeySet<'_>,
-    zone: Tz,
-) -> AppResult<Option<NaiveDate>> {
+    zone: &Zone,
+) -> AppResult<Option<CivilDate>> {
     let cache = &runtime.repos().activity_cache;
     let held: Vec<String> = match keys {
         KeySet::All => cache
@@ -168,7 +165,7 @@ pub(crate) async fn oldest_stored(
             .collect(),
         KeySet::Only(keys) => keys.iter().map(|key| (*key).to_owned()).collect(),
     };
-    let mut oldest: Option<DateTime<Utc>> = None;
+    let mut oldest: Option<Timestamp> = None;
     for key in &held {
         if let Some(start) = cache
             .oldest_activity_start(athlete.user_id, &athlete.tenant_id, key)
@@ -190,12 +187,10 @@ async fn paged_span(
     athlete: Athlete,
     window: CivilWindow,
     keys: KeySet<'_>,
-) -> AppResult<Option<(NaiveDate, NaiveDate)>> {
-    use chrono::Datelike;
-
+) -> AppResult<Option<(CivilDate, CivilDate)>> {
     let floor = match window.from {
         Some(from) => from,
-        None => match oldest_stored(runtime, athlete, keys, window.zone).await? {
+        None => match oldest_stored(runtime, athlete, keys, &window.zone).await? {
             Some(oldest) => oldest,
             None => return Ok(None),
         },
@@ -207,7 +202,7 @@ async fn paged_span(
         return Ok(Some((floor, window.to)));
     }
     let oldest = match window.from {
-        Some(_) => oldest_stored(runtime, athlete, keys, window.zone).await?,
+        Some(_) => oldest_stored(runtime, athlete, keys, &window.zone).await?,
         None => Some(floor),
     };
     // The newest row under any key bounds the newest under these keys.
@@ -216,7 +211,7 @@ async fn paged_span(
         .activity_cache
         .latest_activity_start(athlete.user_id, &athlete.tenant_id)
         .await?
-        .map(|start| local_date(start, window.zone));
+        .map(|start| local_date(start, &window.zone));
     let (Some(oldest), Some(newest)) = (oldest, newest) else {
         return Ok(None);
     };
@@ -229,7 +224,7 @@ async fn chunk_rows(
     runtime: &Arc<dyn ToolRuntime>,
     athlete: Athlete,
     keys: KeySet<'_>,
-    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    (start, end): (Timestamp, Timestamp),
 ) -> AppResult<Vec<CachedActivityRow>> {
     let mut rows = Vec::new();
     let mut below: Option<CachedRowCursor> = None;
@@ -309,29 +304,29 @@ pub async fn visit_stored_workouts(
     visit: &mut (dyn FnMut(&[Workout<'_>]) + Send),
 ) -> AppResult<ReadReach> {
     let mut reach = ReadReach::default();
-    let Some((first, last)) = paged_span(runtime, athlete, window, keys).await? else {
+    let Some((first, last)) = paged_span(runtime, athlete, window.clone(), keys).await? else {
         return Ok(reach);
     };
     for chunk in chunks(first, last) {
-        let rows = chunk_rows(runtime, athlete, keys, read_bounds(chunk, window.zone)).await?;
+        let rows = chunk_rows(runtime, athlete, keys, read_bounds(chunk, &window.zone)).await?;
         let (own, slack): (Vec<_>, Vec<_>) = rows
             .into_iter()
-            .partition(|row| in_chunk(row.activity.start_date(), chunk, window.zone));
+            .partition(|row| in_chunk(row.activity.start_date(), chunk, &window.zone));
         let (kept, segment_withheld) = gated(runtime, gate, own, slack).await;
         reach.segment_rows_withheld |= segment_withheld;
         let own_kept = kept
             .iter()
-            .filter(|row| in_chunk(row.activity.start_date(), chunk, window.zone));
+            .filter(|row| in_chunk(row.activity.start_date(), chunk, &window.zone));
         for row in own_kept {
             reach
                 .by_key
                 .entry(row.provider.clone())
                 .or_default()
-                .add(local_date(row.activity.start_date(), window.zone));
+                .add(local_date(row.activity.start_date(), &window.zone));
         }
         let merged: Vec<Workout<'_>> = workouts(&kept)
             .into_iter()
-            .filter(|workout| in_chunk(workout.session.start_date(), chunk, window.zone))
+            .filter(|workout| in_chunk(workout.session.start_date(), chunk, &window.zone))
             .collect();
         visit(&merged);
     }
@@ -340,13 +335,14 @@ pub async fn visit_stored_workouts(
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
     use pierre_core::civil_time::resolve_zone;
 
     use super::*;
 
-    fn ymd(year: i32, month: u32, day: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(year, month, day).unwrap_or(NaiveDate::MIN)
+    fn ymd(year: i32, month: u32, day: u32) -> CivilDate {
+        CivilDate::from_ymd(year, month, day)
+            .ok()
+            .unwrap_or(CivilDate::MIN)
     }
 
     #[test]
@@ -374,18 +370,18 @@ mod tests {
     #[test]
     fn a_chunk_reads_two_days_past_each_edge_on_the_athletes_clock() {
         let montreal = resolve_zone(Some("America/Montreal"));
-        let (start, end) = read_bounds((ymd(2025, 1, 1), ymd(2025, 12, 31)), montreal);
+        let (start, end) = read_bounds((ymd(2025, 1, 1), ymd(2025, 12, 31)), &montreal);
         assert_eq!(
             start,
-            Utc.with_ymd_and_hms(2024, 12, 30, 5, 0, 0)
-                .single()
+            Timestamp::parse_from_rfc3339("2024-12-30T05:00:00Z")
+                .ok()
                 .unwrap_or_default(),
             "bug: the read does not start two days before Montreal's new year"
         );
         assert_eq!(
-            end + Duration::nanoseconds(1),
-            Utc.with_ymd_and_hms(2026, 1, 3, 5, 0, 0)
-                .single()
+            end + Elapsed::nanoseconds(1),
+            Timestamp::parse_from_rfc3339("2026-01-03T05:00:00Z")
+                .ok()
                 .unwrap_or_default(),
             "bug: the read does not end two days after Montreal's new year's eve"
         );
@@ -394,10 +390,10 @@ mod tests {
     #[test]
     fn a_chunk_on_the_calendars_first_day_reads_from_its_first_instant() {
         let tokyo = resolve_zone(Some("Asia/Tokyo"));
-        let (start, _) = read_bounds((NaiveDate::MIN, NaiveDate::MIN), tokyo);
+        let (start, _) = read_bounds((CivilDate::MIN, CivilDate::MIN), &tokyo);
         assert_eq!(
             start,
-            DateTime::<Utc>::MIN_UTC,
+            Timestamp::MIN,
             "bug: the slack before the calendar's first day is not cut at its first instant"
         );
     }
@@ -406,16 +402,15 @@ mod tests {
     fn a_late_ride_on_new_years_eve_is_in_the_old_years_chunk() {
         let montreal = resolve_zone(Some("America/Montreal"));
         // 23:30 on Dec 31 in Montreal is 04:30 UTC on Jan 1.
-        let ride = Utc
-            .with_ymd_and_hms(2026, 1, 1, 4, 30, 0)
-            .single()
+        let ride = Timestamp::parse_from_rfc3339("2026-01-01T04:30:00Z")
+            .ok()
             .unwrap_or_default();
         assert!(
-            in_chunk(ride, (ymd(2025, 1, 1), ymd(2025, 12, 31)), montreal),
+            in_chunk(ride, (ymd(2025, 1, 1), ymd(2025, 12, 31)), &montreal),
             "bug: a ride at 23:30 local on Dec 31 is not in its own year"
         );
         assert!(
-            !in_chunk(ride, (ymd(2026, 1, 1), ymd(2026, 12, 31)), montreal),
+            !in_chunk(ride, (ymd(2026, 1, 1), ymd(2026, 12, 31)), &montreal),
             "bug: a ride at 23:30 local on Dec 31 counts in the next year"
         );
     }

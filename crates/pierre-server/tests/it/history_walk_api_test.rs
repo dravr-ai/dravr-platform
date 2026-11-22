@@ -43,7 +43,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::DatabaseBackend;
@@ -156,7 +156,7 @@ async fn athlete_profile(State(mock): State<Arc<MockStrava>>) -> Json<Value> {
     let created = *mock.created_at.lock().unwrap();
     let mut profile = json!({ "id": 4242, "username": "walker", "firstname": "Wal" });
     if let Some(created) = created {
-        profile["created_at"] = json!(Utc.timestamp_opt(created, 0).unwrap().to_rfc3339());
+        profile["created_at"] = json!(Timestamp::from_epoch_seconds(created).unwrap().to_rfc3339());
     }
     Json(profile)
 }
@@ -214,7 +214,7 @@ fn ride_json(start: i64) -> Value {
         "name": "Morning ride",
         "type": "Ride",
         "sport_type": "Ride",
-        "start_date": Utc.timestamp_opt(start, 0).unwrap().to_rfc3339(),
+        "start_date": Timestamp::from_epoch_seconds(start).unwrap().to_rfc3339(),
         "distance": 20_000.0,
         "elapsed_time": 3_600,
         "total_elevation_gain": 10.0
@@ -323,7 +323,7 @@ pub(crate) async fn steps_settled_under(
                 tenant,
                 backend,
                 kind,
-                Utc::now().timestamp_millis(),
+                Timestamp::now().epoch_millis(),
             )
             .await
             .unwrap();
@@ -500,7 +500,7 @@ async fn a_strava_grant_is_walked_a_year_a_window_down_to_the_account_creation()
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let created = now - 1_000 * DAY;
     *mock.starts.lock().unwrap() = vec![now - 10 * DAY, now - 400 * DAY, now - 800 * DAY];
     *mock.created_at.lock().unwrap() = Some(created);
@@ -584,7 +584,7 @@ async fn a_spent_budget_pauses_the_walk_and_the_next_window_resumes_it() {
     // and the first window, then nothing until the next window.
     let resources = server(&api_base, 16).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     *mock.starts.lock().unwrap() = vec![now - 10 * DAY, now - 400 * DAY];
     *mock.created_at.lock().unwrap() = Some(now - 600 * DAY);
     open_window(&resources).await;
@@ -608,7 +608,7 @@ async fn a_spent_budget_pauses_the_walk_and_the_next_window_resumes_it() {
     }
     // Same window: the walk's share is spent, so the next step pauses.
     age_job_rows(&resources, user_id).await;
-    let asked_from_ms = Utc::now().timestamp_millis();
+    let asked_from_ms = Timestamp::now().epoch_millis();
     assert_eq!(
         resume_backfill_jobs(Arc::clone(&runtime)).await.unwrap(),
         1,
@@ -626,7 +626,7 @@ async fn a_spent_budget_pauses_the_walk_and_the_next_window_resumes_it() {
         );
         sleep(Duration::from_millis(50)).await;
     };
-    let released_by_ms = Utc::now().timestamp_millis();
+    let released_by_ms = Timestamp::now().epoch_millis();
     assert_eq!(
         paused.attempts, 0,
         "bug: a paused step hands its attempt back"
@@ -690,13 +690,13 @@ async fn a_spent_budget_on_the_profile_read_pauses_the_walk_until_the_window_end
     // Three requests a window leave the background share none at all.
     let resources = server(&api_base, 3).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     *mock.starts.lock().unwrap() = vec![now - 10 * DAY];
     *mock.created_at.lock().unwrap() = Some(now - 100 * DAY);
     open_window(&resources).await;
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let asked_from_ms = Utc::now().timestamp_millis();
+    let asked_from_ms = Timestamp::now().epoch_millis();
     assert!(
         start_history_walk(
             &runtime,
@@ -719,7 +719,7 @@ async fn a_spent_budget_on_the_profile_read_pauses_the_walk_until_the_window_end
         );
         sleep(Duration::from_millis(50)).await;
     };
-    let released_by_ms = Utc::now().timestamp_millis();
+    let released_by_ms = Timestamp::now().epoch_millis();
     assert_eq!(
         *mock.profiles.lock().unwrap(),
         0,
@@ -753,7 +753,7 @@ async fn an_api_walk_with_no_floor_ends_after_two_empty_years() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     // A ride this month, one three years back past a one-year gap, then
     // nothing for two years.
     *mock.starts.lock().unwrap() = vec![now - 20 * DAY, now - 3 * 365 * DAY];
@@ -809,7 +809,7 @@ async fn a_depth_ask_never_rewalks_a_walked_source() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     *mock.starts.lock().unwrap() = vec![now - 10 * DAY];
     *mock.created_at.lock().unwrap() = Some(now - 200 * DAY);
     open_window(&resources).await;
@@ -852,7 +852,7 @@ async fn a_full_api_page_reads_the_next_below_its_oldest_activity() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     // 250 rides in the last year, one a day: more than one page.
     let starts: Vec<i64> = (1..=250).map(|day| now - day * DAY).collect();
     *mock.starts.lock().unwrap() = starts.clone();

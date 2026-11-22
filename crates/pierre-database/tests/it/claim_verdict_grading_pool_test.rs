@@ -11,7 +11,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
@@ -95,7 +95,7 @@ async fn join_group_sharing(
         )
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -173,7 +173,7 @@ async fn verdict(
 }
 
 /// Move a verdict's `created_at`, which the repository always stamps now.
-async fn backdate(db: &Database, verdict_id: &str, at: DateTime<Utc>) {
+async fn backdate(db: &Database, verdict_id: &str, at: Timestamp) {
     const SQL: &str = "UPDATE claim_verdicts SET created_at = $1 WHERE id = $2";
     match db.backend() {
         DatabaseBackend::SQLite(sqlite) => {
@@ -226,7 +226,7 @@ async fn the_pool_holds_only_what_a_grader_may_see_and_counts_the_rest() {
     // Another tenant's verdict, and one from before the window.
     verdict(repos, other_tenant, consenting, "Other tenant.", any).await;
     let old = verdict(repos, tenant_id, consenting, "Too old.", any).await;
-    backdate(&db, &old.id, Utc::now() - Duration::days(40)).await;
+    backdate(&db, &old.id, Timestamp::now() - Elapsed::days(40)).await;
 
     let pool = repos
         .claim_verdicts
@@ -281,8 +281,8 @@ async fn a_capped_read_keeps_the_newest_and_still_counts_every_eligible_verdict(
     let oldest = verdict(repos, tenant_id, consenting, "Oldest.", any).await;
     let middle = verdict(repos, tenant_id, consenting, "Middle.", any).await;
     let newest = verdict(repos, tenant_id, consenting, "Newest.", any).await;
-    backdate(&db, &oldest.id, Utc::now() - Duration::days(3)).await;
-    backdate(&db, &middle.id, Utc::now() - Duration::days(2)).await;
+    backdate(&db, &oldest.id, Timestamp::now() - Elapsed::days(3)).await;
+    backdate(&db, &middle.id, Timestamp::now() - Elapsed::days(2)).await;
 
     let pool = repos
         .claim_verdicts

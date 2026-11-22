@@ -20,7 +20,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers::TOKEN_TYPE_SESSION;
 use pierre_database::repositories::OAuthTokenRepository;
 use secrecy::ExposeSecret;
@@ -157,7 +157,7 @@ impl StoredTokenRow {
         &self,
         tokens: &dyn OAuthTokenRepository,
         session_json: &str,
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     ) {
         if let Some(stored) = self.standing(tokens).await {
             self.write_session_over(tokens, &stored, session_json, expires_at)
@@ -172,7 +172,7 @@ impl StoredTokenRow {
         tokens: &dyn OAuthTokenRepository,
         stored: &UserOAuthToken,
         session_json: &str,
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     ) {
         let Some(session_id) = session_id_of(session_json) else {
             warn!(provider = %self.provider, "a rotated sciotte session names no session id; nothing stored");

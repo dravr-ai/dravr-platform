@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::ActivityCacheRepository;
 use pierre_providers::core::ActivityQueryParams;
@@ -121,7 +121,7 @@ pub(crate) async fn write_through_activity_cache(
 /// The `synced_at` a write-through's rows carry, and whether the write is a
 /// sync of the provider's list head.
 struct HeadSyncStamp {
-    synced_at: DateTime<Utc>,
+    synced_at: Timestamp,
     is_sync: bool,
 }
 
@@ -140,8 +140,8 @@ async fn head_sync_stamp(
     read: &ActivityQueryParams,
     activities: &[Activity],
 ) -> Option<HeadSyncStamp> {
-    let now = Utc::now();
-    if covers_list_head(read, now.timestamp()) {
+    let now = Timestamp::now();
+    if covers_list_head(read, now.epoch_seconds()) {
         return Some(HeadSyncStamp {
             synced_at: now,
             is_sync: true,
@@ -173,15 +173,15 @@ async fn head_sync_stamp(
 /// guessed stamp would drop the read's rows without a word; stamping now
 /// would instead make the stale head read as current.
 fn stamp_after_head_lookup<E>(
-    head: Result<Option<DateTime<Utc>>, E>,
+    head: Result<Option<Timestamp>, E>,
     read: &ActivityQueryParams,
     activities: &[Activity],
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Option<HeadSyncStamp> {
     let head = head.ok()?;
     let vouched = read
         .before
-        .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
+        .and_then(|ts| Timestamp::from_epoch_seconds(ts).ok())
         .or_else(|| activities.iter().map(Activity::start_date).max());
     Some(HeadSyncStamp {
         synced_at: head.or(vouched).unwrap_or(now).min(now),
@@ -202,7 +202,7 @@ async fn stamp_fetch_freshness(
     provider: &str,
 ) {
     if let Err(e) = cache
-        .record_activity_fetch(user_id, &tenant_id, provider, Utc::now())
+        .record_activity_fetch(user_id, &tenant_id, provider, Timestamp::now())
         .await
     {
         info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: fetch freshness mark failed");
@@ -301,7 +301,7 @@ pub async fn write_through_served_window(
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_providers::core::ActivityQueryParams;
 
     use super::stamp_after_head_lookup;
@@ -312,9 +312,9 @@ mod tests {
             limit: Some(50),
             offset: None,
             before: Some(
-                Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0)
+                Timestamp::parse_from_rfc3339("2026-03-01T00:00:00Z")
                     .unwrap()
-                    .timestamp(),
+                    .epoch_seconds(),
             ),
             after: None,
         }
@@ -322,7 +322,7 @@ mod tests {
 
     #[test]
     fn an_unreadable_head_sync_time_writes_nothing() {
-        let now = Utc.with_ymd_and_hms(2026, 10, 31, 6, 0, 0).unwrap();
+        let now = Timestamp::parse_from_rfc3339("2026-10-31T06:00:00Z").unwrap();
         let stamp = stamp_after_head_lookup(Err("pool timed out"), &backfill_page(), &[], now);
         assert!(
             stamp.is_none(),
@@ -332,8 +332,8 @@ mod tests {
 
     #[test]
     fn a_page_lands_at_the_head_last_sync() {
-        let now = Utc.with_ymd_and_hms(2026, 10, 31, 6, 0, 0).unwrap();
-        let head = Utc.with_ymd_and_hms(2026, 10, 31, 5, 0, 0).unwrap();
+        let now = Timestamp::parse_from_rfc3339("2026-10-31T06:00:00Z").unwrap();
+        let head = Timestamp::parse_from_rfc3339("2026-10-31T05:00:00Z").unwrap();
         let stamp = stamp_after_head_lookup(Ok::<_, &str>(Some(head)), &backfill_page(), &[], now)
             .expect("a readable head gives a stamp");
         assert_eq!(
@@ -345,12 +345,12 @@ mod tests {
 
     #[test]
     fn a_never_synced_provider_lands_at_the_window_close() {
-        let now = Utc.with_ymd_and_hms(2026, 10, 31, 6, 0, 0).unwrap();
+        let now = Timestamp::parse_from_rfc3339("2026-10-31T06:00:00Z").unwrap();
         let stamp = stamp_after_head_lookup(Ok::<_, &str>(None), &backfill_page(), &[], now)
             .expect("a provider never synced still gets a stamp");
         assert_eq!(
             stamp.synced_at,
-            Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap(),
+            Timestamp::parse_from_rfc3339("2026-03-01T00:00:00Z").unwrap(),
             "a provider never synced lands at the window's close, still stale"
         );
     }

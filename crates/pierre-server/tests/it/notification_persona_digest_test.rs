@@ -34,7 +34,7 @@ mod digest_tests {
     use std::time::{Duration as StdDuration, Instant};
 
     use async_trait::async_trait;
-    use chrono::{DateTime, Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use serde_json::{json, Value};
     use tokio::time::sleep;
     use uuid::Uuid;
@@ -307,14 +307,14 @@ personas:
 
     /// Move the time a digest returned its rows, standing in for the time a
     /// cadence waits between two digests.
-    async fn backdate(db: &Database, digest: &Notification, to: DateTime<Utc>) {
+    async fn backdate(db: &Database, digest: &Notification, to: Timestamp) {
         let batch = batch_of(digest);
         match db.backend() {
             DatabaseBackend::SQLite(sqlite) => {
                 sqlx::query(
                     "UPDATE persona_digest_returns SET returned_at_ms = ? WHERE batch_id = ?",
                 )
-                .bind(to.timestamp_millis())
+                .bind(to.epoch_millis())
                 .bind(batch.to_string())
                 .execute(sqlite.pool())
                 .await
@@ -325,7 +325,7 @@ personas:
                 sqlx::query(
                     "UPDATE persona_digest_returns SET returned_at_ms = $1 WHERE batch_id = $2",
                 )
-                .bind(to.timestamp_millis())
+                .bind(to.epoch_millis())
                 .bind(batch)
                 .execute(pg.pool())
                 .await
@@ -495,14 +495,14 @@ personas:
         assert_eq!(returned(db, &digest[0]).await, ids(&[first]));
 
         let later = hold(&service, user, tenant, "low_recovery_score", PushTier::P2).await;
-        backdate(db, &digest[0], Utc::now() - Duration::days(1)).await;
+        backdate(db, &digest[0], Timestamp::now() - Elapsed::days(1)).await;
         assert_eq!(
             tick(&repos, &service, &strings).await.unwrap().digests_sent,
             0,
             "one day after the previous digest a weekly digest is not due"
         );
 
-        backdate(db, &digest[0], Utc::now() - Duration::days(7)).await;
+        backdate(db, &digest[0], Timestamp::now() - Elapsed::days(7)).await;
         assert_eq!(
             tick(&repos, &service, &strings).await.unwrap().digests_sent,
             1
@@ -596,7 +596,7 @@ personas:
             0,
             "a second digest the same day is not due"
         );
-        backdate(db, &digests[0], Utc::now() - Duration::days(1)).await;
+        backdate(db, &digests[0], Timestamp::now() - Elapsed::days(1)).await;
         assert_eq!(
             tick(&repos, &service, &strings).await.unwrap().digests_sent,
             1
@@ -857,11 +857,11 @@ personas:
             .clone()
             .expect("the server wires a notification service");
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
-        let ride = |id: &str, start: DateTime<Utc>| {
+        let ride = |id: &str, start: Timestamp| {
             ActivityBuilder::new(id, "Morning ride", SportType::Ride, start, 3_600, "strava")
                 .build()
         };
-        let first_session = ride("ride-1", Utc::now() - Duration::hours(3));
+        let first_session = ride("ride-1", Timestamp::now() - Elapsed::hours(3));
 
         let first_held = [
             hold(&service, user, tenant, "training_load_alert", PushTier::P3).await,
@@ -936,7 +936,7 @@ personas:
         );
 
         let after = hold(&service, user, tenant, "training_load_alert", PushTier::P3).await;
-        let second_session = ride("ride-2", Utc::now() - Duration::minutes(10));
+        let second_session = ride("ride-2", Timestamp::now() - Elapsed::minutes(10));
         write_through_served_window(
             &runtime,
             user,
@@ -1029,7 +1029,7 @@ personas:
             .delete_notification(user, comm(tenant), first.id)
             .await
             .unwrap());
-        backdate(db, &first, Utc::now() - Duration::days(1)).await;
+        backdate(db, &first, Timestamp::now() - Elapsed::days(1)).await;
         assert_eq!(
             tick(&repos, &service, &strings).await.unwrap().digests_sent,
             0,

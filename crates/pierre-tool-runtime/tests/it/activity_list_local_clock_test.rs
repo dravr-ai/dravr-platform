@@ -20,14 +20,14 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_tool_runtime::implementations::activity_list_render::format_activities_as_list;
 
 /// 2026-08-28 02:59:03 UTC — which is 2026-08-27 22:59 in America/Toronto.
 /// The exact instant from the incident.
 fn night_hike() -> Vec<Activity> {
-    let start = Utc.with_ymd_and_hms(2026, 8, 28, 2, 59, 3).unwrap();
+    let start = Timestamp::parse_from_rfc3339("2026-08-28T02:59:03Z").unwrap();
     vec![ActivityBuilder::new(
         "hike-1",
         "Night Hike",
@@ -43,8 +43,8 @@ fn night_hike() -> Vec<Activity> {
 /// The wall clock the 2026-08-28 rows are rendered against: 2026-08-29 noon UTC,
 /// a day after the fixture so no row reads as today or yesterday and the older
 /// assertions stay about the zone and the weekday alone.
-fn incident_clock() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 8, 29, 12, 0, 0).unwrap()
+fn incident_clock() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-08-29T12:00:00Z").unwrap()
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn an_unparseable_timezone_falls_back_rather_than_failing() {
 #[test]
 fn the_row_carries_the_time_of_day() {
     let temps = HashMap::new();
-    let morning = Utc.with_ymd_and_hms(2026, 8, 28, 10, 15, 0).unwrap();
+    let morning = Timestamp::parse_from_rfc3339("2026-08-28T10:15:00Z").unwrap();
     let activities = vec![ActivityBuilder::new(
         "run-1",
         "Sortie du matin",
@@ -223,14 +223,14 @@ fn yesterdays_ride_is_tagged_hier_and_the_header_names_today() {
         "ride-1",
         "Tester la nouvelle!",
         SportType::MountainBike,
-        Utc.with_ymd_and_hms(2026, 9, 20, 20, 59, 15).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-20T20:59:15Z").unwrap(),
         4_671,
         "sciotte",
     )
     .distance_meters(14_140.0)
     .build()];
     // 08:05 on Monday the 21st in Toronto is 12:05 UTC.
-    let now = Utc.with_ymd_and_hms(2026, 9, 21, 12, 5, 0).unwrap();
+    let now = Timestamp::parse_from_rfc3339("2026-09-21T12:05:00Z").unwrap();
 
     let rendered =
         format_activities_as_list(&ride, &temps, None, "fr", Some("America/Toronto"), now);
@@ -262,13 +262,13 @@ fn the_relative_day_follows_the_athletes_midnight_not_utc() {
         "run-1",
         "Sortie du matin",
         SportType::Run,
-        Utc.with_ymd_and_hms(2026, 9, 20, 10, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-20T10:00:00Z").unwrap(),
         1_800,
         "sciotte",
     )
     .distance_meters(5_000.0)
     .build()];
-    let late_evening = Utc.with_ymd_and_hms(2026, 9, 21, 3, 30, 0).unwrap();
+    let late_evening = Timestamp::parse_from_rfc3339("2026-09-21T03:30:00Z").unwrap();
 
     let rendered = format_activities_as_list(
         &run,
@@ -294,7 +294,7 @@ fn the_relative_day_follows_the_athletes_midnight_not_utc() {
 #[test]
 fn older_rows_carry_no_relative_tag() {
     let temps = HashMap::new();
-    let now = Utc.with_ymd_and_hms(2026, 9, 21, 12, 5, 0).unwrap();
+    let now = Timestamp::parse_from_rfc3339("2026-09-21T12:05:00Z").unwrap();
 
     let rendered = format_activities_as_list(
         &night_hike(),
@@ -328,12 +328,12 @@ fn the_relative_tag_follows_the_chat_locale() {
         "ride-1",
         "Tester la nouvelle!",
         SportType::MountainBike,
-        Utc.with_ymd_and_hms(2026, 9, 20, 20, 59, 15).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-20T20:59:15Z").unwrap(),
         4_671,
         "sciotte",
     )
     .build()];
-    let now = Utc.with_ymd_and_hms(2026, 9, 21, 12, 5, 0).unwrap();
+    let now = Timestamp::parse_from_rfc3339("2026-09-21T12:05:00Z").unwrap();
 
     for (locale, expected) in [
         ("fr", "(hier)"),
@@ -356,7 +356,7 @@ fn the_relative_tag_follows_the_chat_locale() {
 #[test]
 fn an_empty_list_still_states_today() {
     let temps = HashMap::new();
-    let now = Utc.with_ymd_and_hms(2026, 9, 21, 12, 5, 0).unwrap();
+    let now = Timestamp::parse_from_rfc3339("2026-09-21T12:05:00Z").unwrap();
 
     let rendered = format_activities_as_list(&[], &temps, None, "fr", Some("America/Toronto"), now);
 

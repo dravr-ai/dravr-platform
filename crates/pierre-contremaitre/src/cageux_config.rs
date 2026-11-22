@@ -25,8 +25,8 @@
 use std::sync::Arc;
 
 use arc_swap::{ArcSwap, Guard};
-use chrono::{DateTime, Utc};
 use dravr_cageux::config::intelligence::IntelligenceConfig;
+use dravr_tronc::dates::Timestamp;
 use sha2::{Digest, Sha256};
 use tracing::warn;
 
@@ -57,7 +57,7 @@ pub struct CageuxConfigSnapshot {
     /// Where the current snapshot came from.
     pub source: CageuxConfigSource,
     /// When the current snapshot was installed.
-    pub loaded_at: DateTime<Utc>,
+    pub loaded_at: Timestamp,
 }
 
 /// Thread-safe registry holding one hot-swappable cageux intelligence config.
@@ -113,7 +113,7 @@ impl CageuxConfigRegistry {
                 config: Arc::new(config),
                 overlay_sha256,
                 source,
-                loaded_at: Utc::now(),
+                loaded_at: Timestamp::now(),
             }),
         }
     }
@@ -179,7 +179,7 @@ impl CageuxConfigRegistry {
             config: Arc::new(config),
             overlay_sha256,
             source,
-            loaded_at: Utc::now(),
+            loaded_at: Timestamp::now(),
         }));
     }
 

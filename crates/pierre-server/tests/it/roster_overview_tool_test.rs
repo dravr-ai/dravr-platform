@@ -19,7 +19,7 @@ mod roster_overview_tests {
         create_test_server_resources, create_test_server_resources_with_chat_provider,
     };
     use async_trait::async_trait;
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use dravr_tronc::mcp::schema::ToolResponse;
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
     use embacle::types::ToolCallRequest;
@@ -70,7 +70,7 @@ mod roster_overview_tests {
 
     async fn create_tenant_owned_by(resources: &ServerContext, owner_id: Uuid) -> TenantId {
         let tenant_id = TenantId::generate();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let tenant = Tenant {
             id: tenant_id,
             name: "Roster Tenant".to_owned(),
@@ -124,7 +124,7 @@ mod roster_overview_tests {
         coach: Option<Uuid>,
     ) -> Uuid {
         let id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = CoachingGroup {
             id,
             tenant_id: tenant_id.to_string(),
@@ -165,7 +165,7 @@ mod roster_overview_tests {
         tenant_id: TenantId,
         coach_consent: bool,
     ) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         resources
             .common
             .repos
@@ -194,7 +194,7 @@ mod roster_overview_tests {
             id.to_owned(),
             format!("ride {id}"),
             SportType::Ride,
-            Utc::now() - Duration::days(2),
+            Timestamp::now() - Elapsed::days(2),
             7_200,
             "strava".to_owned(),
         )

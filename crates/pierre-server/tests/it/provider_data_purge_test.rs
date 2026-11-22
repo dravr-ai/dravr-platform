@@ -36,9 +36,9 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::Response;
 use axum::Extension;
-use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use dravr_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use dravr_equilibre_sync::ContinuousMetricBatch;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -111,12 +111,12 @@ const ONE_ROW_TABLES: [&str; 16] = [
     "activity_backfill_coverage",
 ];
 
-fn night_start() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 9, 20, 22, 0, 0).unwrap()
+fn night_start() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-09-20T22:00:00Z").unwrap()
 }
 
-fn morning() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 9, 21).unwrap()
+fn morning() -> CivilDate {
+    CivilDate::from_ymd(2026, 9, 21).unwrap()
 }
 
 /// Every scope the tests seed, each a `(user, tenant)`.
@@ -211,8 +211,8 @@ async fn seed_tenant(repos: &RepositoryRegistry, owner: Uuid, label: &str) -> Te
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: owner,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -253,7 +253,7 @@ async fn seed_run_reads(
             origin: StreamOrigin::Push,
             source_ref: None,
             streams: &two_samples(),
-            synced_at: Utc::now(),
+            synced_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -269,7 +269,7 @@ async fn seed_provider_rows(
     provider: &str,
     with_job: bool,
 ) -> String {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let ds = repos
         .data_sources
         .upsert_data_source(
@@ -294,8 +294,8 @@ async fn seed_provider_rows(
             &[ContinuousMetricBatch {
                 series_type_id: HEART_RATE_SERIES,
                 points: vec![
-                    (night_start() + Duration::hours(1), 52.0),
-                    (night_start() + Duration::hours(2), 49.0),
+                    (night_start() + Elapsed::hours(1), 52.0),
+                    (night_start() + Elapsed::hours(2), 49.0),
                 ],
             }],
         )
@@ -314,7 +314,7 @@ async fn seed_provider_rows(
                 data_source_id: ds.clone(),
                 is_nap: false,
                 start_datetime: night_start(),
-                end_datetime: night_start() + Duration::hours(8),
+                end_datetime: night_start() + Elapsed::hours(8),
                 total_sleep_seconds: Some(25_200),
                 deep_sleep_seconds: Some(5_400),
                 light_sleep_seconds: None,
@@ -329,7 +329,7 @@ async fn seed_provider_rows(
                 stages: Vec::new(),
                 source_name: provider.to_owned(),
             },
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -358,7 +358,7 @@ async fn seed_provider_rows(
                 recorded_at: now,
             },
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -385,7 +385,7 @@ async fn seed_provider_rows(
                 recorded_at: now,
             },
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -395,7 +395,7 @@ async fn seed_provider_rows(
         run_id.clone(),
         format!("{provider} run"),
         SportType::Run,
-        night_start() + Duration::hours(13),
+        night_start() + Elapsed::hours(13),
         3_600,
         provider.to_owned(),
     )
@@ -455,7 +455,7 @@ async fn seed_provider_rows(
                 elapsed_seconds: 1_500.0,
                 provider: provider.to_owned(),
                 activity_id: run_id.clone(),
-                achieved_at: night_start() + Duration::hours(13),
+                achieved_at: night_start() + Elapsed::hours(13),
             },
         )
         .await
@@ -469,7 +469,7 @@ async fn seed_provider_rows(
             tenant,
             provider,
             &PersonalBestSeed {
-                cursor_before: Some((night_start() + Duration::hours(13)).timestamp()),
+                cursor_before: Some((night_start() + Elapsed::hours(13)).epoch_seconds()),
                 completed_at: None,
             },
         )
@@ -540,7 +540,7 @@ async fn seed_provider_rows(
                 before_ts: None,
                 fetch_limit: Some(500),
                 conversation_id: None,
-                created_at_ms: now.timestamp_millis(),
+                created_at_ms: now.epoch_millis(),
                 leased_until_ms: 0,
                 attempts: 0,
                 lease_token: Some(Uuid::new_v4().to_string()),
@@ -594,7 +594,7 @@ async fn seed_daily_activity_row(
                 .bind(tenant)
                 .bind(provider)
                 .bind(data_source_id)
-                .bind(Utc::now())
+                .bind(Timestamp::now())
                 .bind(morning())
                 .execute(sqlite.pool())
                 .await
@@ -608,7 +608,7 @@ async fn seed_daily_activity_row(
                 .bind(tenant)
                 .bind(provider)
                 .bind(data_source_id)
-                .bind(Utc::now())
+                .bind(Timestamp::now())
                 .bind(morning())
                 .execute(postgres.pool())
                 .await
@@ -630,7 +630,7 @@ async fn seed_unpushed_streams(
     activity_id: &str,
 ) {
     let json = serde_json::to_string(&two_samples()).unwrap();
-    let synced_at = Utc::now() - Duration::days(30);
+    let synced_at = Timestamp::now() - Elapsed::days(30);
     let sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
     match db.backend() {
         DatabaseBackend::SQLite(sqlite) => {
@@ -711,8 +711,8 @@ async fn sleep_sources(world: &World, (user_id, tenant): (Uuid, TenantId)) -> Ve
         .get_sleep_sessions(
             user_id,
             &tenant,
-            night_start() - Duration::days(1),
-            night_start() + Duration::days(1),
+            night_start() - Elapsed::days(1),
+            night_start() + Elapsed::days(1),
         )
         .await
         .unwrap()
@@ -771,8 +771,8 @@ fn seeded_place(id: &str, name: (&str, PlaceNameSource)) -> AthletePlace {
         name: Some(name.0.to_owned()),
         name_source: Some(name.1),
         version: 1,
-        computed_at: Utc::now(),
-        created_at: Utc::now(),
+        computed_at: Timestamp::now(),
+        created_at: Timestamp::now(),
     }
 }
 
@@ -801,7 +801,7 @@ async fn a_provider_purge_keeps_the_athletes_places_for_their_recompute() {
                 rows_seen: stamp.rows,
                 newest_synced_at: stamp.newest_synced_at,
                 version: 1,
-                computed_at: Utc::now(),
+                computed_at: Timestamp::now(),
                 home_declared_at_seen: None,
                 newest_track_at_seen: stamp.newest_track_at,
             },
@@ -838,7 +838,7 @@ async fn a_provider_purge_keeps_the_athletes_places_for_their_recompute() {
         "bug: a provider purge deleted the athlete's places instead of leaving them to a recompute"
     );
     let due = places
-        .due_users(100, 1, Utc::now())
+        .due_users(100, 1, Timestamp::now())
         .await
         .unwrap()
         .contains(&(tenant, athlete));
@@ -909,7 +909,7 @@ async fn a_wellness_purge_takes_only_that_scopes_wellness() {
         sleep_sources(&world, world.athlete_elsewhere).await,
         ["whoop"]
     );
-    let window = (night_start(), night_start() + Duration::days(1));
+    let window = (night_start(), night_start() + Elapsed::days(1));
     let cached = repos
         .activity_cache
         .get_cached_activities(athlete, &tenant, Some("whoop"), window.0, window.1, 10)
@@ -982,8 +982,8 @@ async fn disconnecting_whoop_deletes_that_athletes_whoop_rows_through_the_chokep
         .get_recovery_metrics(
             athlete,
             &tenant,
-            night_start() - Duration::days(1),
-            night_start() + Duration::days(2),
+            night_start() - Elapsed::days(1),
+            night_start() + Elapsed::days(2),
         )
         .await
         .unwrap()
@@ -996,8 +996,8 @@ async fn disconnecting_whoop_deletes_that_athletes_whoop_rows_through_the_chokep
         .get_health_snapshots(
             athlete,
             &tenant,
-            night_start() - Duration::days(1),
-            night_start() + Duration::days(2),
+            night_start() - Elapsed::days(1),
+            night_start() + Elapsed::days(2),
         )
         .await
         .unwrap()
@@ -1024,7 +1024,7 @@ async fn disconnecting_whoop_deletes_that_athletes_whoop_rows_through_the_chokep
         .await
         .unwrap()
         .is_some());
-    let window = (night_start(), night_start() + Duration::days(1));
+    let window = (night_start(), night_start() + Elapsed::days(1));
     for (provider, held) in [("whoop", 0), ("garmin", 1)] {
         let cached = repos
             .activity_cache
@@ -1217,8 +1217,8 @@ async fn the_admin_purge_refuses_a_name_no_provider_column_can_hold() {
         .admin
         .get_token_usage_history(
             &token.token_id,
-            Utc::now() - Duration::hours(1),
-            Utc::now() + Duration::hours(1),
+            Timestamp::now() - Elapsed::hours(1),
+            Timestamp::now() + Elapsed::hours(1),
         )
         .await
         .unwrap();
@@ -1245,12 +1245,12 @@ async fn the_admin_purge_deletes_whoop_in_every_tenant_and_audits_it() {
             access_token: SecretString::from("whoop-access-do-not-log"),
             refresh_token: None,
             token_type: "Bearer".to_owned(),
-            expires_at: Some(Utc::now() + Duration::hours(1)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
             scope: Some("read".to_owned()),
             provider_user_id: None,
             oauth_app_client_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -1308,8 +1308,8 @@ async fn the_admin_purge_deletes_whoop_in_every_tenant_and_audits_it() {
         .admin
         .get_token_usage_history(
             &token.token_id,
-            Utc::now() - Duration::hours(1),
-            Utc::now() + Duration::hours(1),
+            Timestamp::now() - Elapsed::hours(1),
+            Timestamp::now() + Elapsed::hours(1),
         )
         .await
         .unwrap()
@@ -1336,8 +1336,8 @@ const ONE_ROW_EXPIRED_TABLES: [&str; 5] = [
 
 /// A seven-day retention's cutoff, `days_later` after the fixture was
 /// written: what the retention sweep passes for a provider set to seven days.
-fn seven_day_cutoff(days_later: i64) -> DateTime<Utc> {
-    Utc::now() + Duration::days(days_later) - Duration::days(7)
+fn seven_day_cutoff(days_later: i64) -> Timestamp {
+    Timestamp::now() + Elapsed::days(days_later) - Elapsed::days(7)
 }
 
 #[tokio::test]
@@ -1452,7 +1452,7 @@ async fn a_copy_re_synced_inside_the_window_stays() {
     let repos = world.repos();
     let (athlete, tenant) = world.athlete;
 
-    let between = Utc::now() + Duration::milliseconds(10);
+    let between = Timestamp::now() + Elapsed::milliseconds(10);
     sleep(StdDuration::from_millis(25)).await;
     // The athlete's WHOOP night is written again, as a re-sync does.
     repos
@@ -1465,7 +1465,7 @@ async fn a_copy_re_synced_inside_the_window_stays() {
                 data_source_id: world.whoop_ds.clone(),
                 is_nap: false,
                 start_datetime: night_start(),
-                end_datetime: night_start() + Duration::hours(8),
+                end_datetime: night_start() + Elapsed::hours(8),
                 total_sleep_seconds: Some(25_200),
                 deep_sleep_seconds: Some(5_400),
                 light_sleep_seconds: None,
@@ -1480,7 +1480,7 @@ async fn a_copy_re_synced_inside_the_window_stays() {
                 stages: Vec::new(),
                 source_name: "whoop".to_owned(),
             },
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1645,7 +1645,7 @@ async fn a_provider_purge_takes_only_the_samples_it_pushed() {
 /// A session's history walk whose API phase reads `grant`, filed under the
 /// session's key for `user` in `tenant`: recorded, then handed off.
 async fn walk_reading_grant(repos: &RepositoryRegistry, user: Uuid, tenant: TenantId, grant: &str) {
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let token = Uuid::new_v4().to_string();
     let row = ActivityBackfillJobRow {
         id: Uuid::new_v4().to_string(),
@@ -1880,7 +1880,7 @@ async fn a_whole_provider_purge_settles_a_walk_a_grants_purge_left_owed() {
         Some(walked_alone()),
         "bug: a walk a grant's purge left owed a reopen survives the whole-provider purge still owed"
     );
-    let lapsed = Utc::now().timestamp_millis() + 700_000;
+    let lapsed = Timestamp::now().epoch_millis() + 700_000;
     assert!(
         ledger
             .purged_history_walks(lapsed, 10)
@@ -2040,7 +2040,7 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let athlete = Uuid::new_v4();
     walk_reading_grant(repos, athlete, tenant, "strava").await;
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let claim = |now_ms: i64| BackfillJobClaim {
         now_ms,
         queued_older_than_ms: 0,
@@ -2070,7 +2070,7 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
     );
     assert!(
         ledger
-            .purged_history_walks(Utc::now().timestamp_millis(), 10)
+            .purged_history_walks(Timestamp::now().epoch_millis(), 10)
             .await
             .unwrap()
             .is_empty(),
@@ -2084,7 +2084,7 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
                 "sciotte",
                 ReopenFrom::PhasePurged,
                 &reconnect_below_session(),
-                Utc::now().timestamp_millis(),
+                Timestamp::now().epoch_millis(),
             )
             .await
             .unwrap(),
@@ -2140,7 +2140,7 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
     );
     assert_eq!(
         ledger
-            .purged_history_walks(Utc::now().timestamp_millis(), 10)
+            .purged_history_walks(Timestamp::now().epoch_millis(), 10)
             .await
             .unwrap(),
         vec![PurgedHistoryWalk {
@@ -2158,7 +2158,7 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
                 "sciotte",
                 ReopenFrom::PhasePurged,
                 &reconnect_below_session(),
-                Utc::now().timestamp_millis(),
+                Timestamp::now().epoch_millis(),
             )
             .await
             .unwrap(),
@@ -2166,7 +2166,7 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
     );
     assert_eq!(
         ledger
-            .claim_stale_backfill_jobs(claim(Utc::now().timestamp_millis() + 1))
+            .claim_stale_backfill_jobs(claim(Timestamp::now().epoch_millis() + 1))
             .await
             .unwrap()
             .len(),
@@ -2191,7 +2191,7 @@ async fn a_new_walk_ask_never_replaces_a_purged_walk() {
         .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
         .await
         .unwrap();
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let ask = ActivityBackfillJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id: tenant,
@@ -2238,7 +2238,7 @@ async fn a_purged_walk_with_no_grant_settles_as_walked_once_no_step_holds_it() {
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let athlete = Uuid::new_v4();
     walk_reading_grant(repos, athlete, tenant, "strava").await;
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let running = ledger
         .claim_stale_backfill_jobs(BackfillJobClaim {
             now_ms: now + 1,
@@ -2316,7 +2316,7 @@ async fn reasons_since(
     world: &World,
     who: (Uuid, TenantId),
     provider: &str,
-    since: DateTime<Utc>,
+    since: Timestamp,
 ) -> Vec<String> {
     let mut reasons = world
         .repos()
@@ -2346,7 +2346,7 @@ async fn the_purges_since_a_moment_are_the_athletes_own_and_the_admins() {
         .await
         .unwrap();
     sleep(StdDuration::from_millis(25)).await;
-    let since = Utc::now();
+    let since = Timestamp::now();
     sleep(StdDuration::from_millis(25)).await;
     assert_eq!(
         reasons_since(&world, world.athlete, "whoop", since).await,

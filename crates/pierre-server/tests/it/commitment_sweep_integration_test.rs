@@ -15,7 +15,7 @@ use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
@@ -71,7 +71,7 @@ impl CommitmentReporter for RecordingReporter {
 struct WarmingRefresher {
     repos: Arc<RepositoryRegistry>,
     activities: Vec<Activity>,
-    requests: Mutex<Vec<(Uuid, TenantId, DateTime<Utc>)>>,
+    requests: Mutex<Vec<(Uuid, TenantId, Timestamp)>>,
 }
 
 impl WarmingRefresher {
@@ -83,7 +83,7 @@ impl WarmingRefresher {
         }
     }
 
-    fn requests(&self) -> Vec<(Uuid, TenantId, DateTime<Utc>)> {
+    fn requests(&self) -> Vec<(Uuid, TenantId, Timestamp)> {
         self.requests.lock().unwrap().clone()
     }
 }
@@ -94,7 +94,7 @@ impl ActivityRefresher for WarmingRefresher {
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
-        window_start: DateTime<Utc>,
+        window_start: Timestamp,
     ) -> bool {
         self.requests
             .lock()
@@ -107,7 +107,7 @@ impl ActivityRefresher for WarmingRefresher {
             .unwrap();
         self.repos
             .activity_cache
-            .record_activity_fetch(user_id, tenant_id, "strava", Utc::now())
+            .record_activity_fetch(user_id, tenant_id, "strava", Timestamp::now())
             .await
             .unwrap();
         true
@@ -122,7 +122,7 @@ fn closed_window_commitment(
     target: u32,
     days_ago: i64,
 ) -> Commitment {
-    let now = Utc::now();
+    let now = Timestamp::now();
     Commitment {
         id: Uuid::new_v4().to_string(),
         tenant_id: tenant.to_string(),
@@ -132,20 +132,20 @@ fn closed_window_commitment(
         statement: "three easy runs this week".to_owned(),
         sport: sport.map(str::to_owned),
         target_sessions: target,
-        window_start: now - Duration::days(days_ago),
-        window_end: now - Duration::hours(1),
+        window_start: now - Elapsed::days(days_ago),
+        window_end: now - Elapsed::hours(1),
         status: CommitmentStatus::Open,
         outcome: None,
         completed_sessions: None,
         swept_at: None,
         reported_at: None,
-        created_at: now - Duration::days(days_ago),
-        updated_at: now - Duration::days(days_ago),
+        created_at: now - Elapsed::days(days_ago),
+        updated_at: now - Elapsed::days(days_ago),
         transport_policy: TransportPolicy::AnyTransport,
     }
 }
 
-fn activity_at(id: &str, sport: SportType, start: DateTime<Utc>) -> Activity {
+fn activity_at(id: &str, sport: SportType, start: Timestamp) -> Activity {
     ActivityBuilder::new(
         id.to_owned(),
         format!("session {id}"),
@@ -182,15 +182,15 @@ async fn three_of_three_is_met_and_reaches_the_athlete() {
     let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     seed_activities(
         &db,
         user,
         tenant,
         &[
-            activity_at("r1", SportType::Run, now - Duration::days(5)),
-            activity_at("r2", SportType::Run, now - Duration::days(3)),
-            activity_at("r3", SportType::Run, now - Duration::days(2)),
+            activity_at("r1", SportType::Run, now - Elapsed::days(5)),
+            activity_at("r2", SportType::Run, now - Elapsed::days(3)),
+            activity_at("r3", SportType::Run, now - Elapsed::days(2)),
         ],
     )
     .await;
@@ -218,14 +218,14 @@ async fn two_of_three_is_partial_and_carries_both_numbers() {
     let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     seed_activities(
         &db,
         user,
         tenant,
         &[
-            activity_at("r1", SportType::Run, now - Duration::days(5)),
-            activity_at("r2", SportType::Run, now - Duration::days(2)),
+            activity_at("r1", SportType::Run, now - Elapsed::days(5)),
+            activity_at("r2", SportType::Run, now - Elapsed::days(2)),
         ],
     )
     .await;
@@ -255,12 +255,12 @@ async fn the_wrong_sport_does_not_count() {
 
     // A ride inside the window warms the cache — so the data IS fresh and a
     // shortfall is believable — but it is not a run.
-    let now = Utc::now();
+    let now = Timestamp::now();
     seed_activities(
         &db,
         user,
         tenant,
-        &[activity_at("b1", SportType::Ride, now - Duration::days(2))],
+        &[activity_at("b1", SportType::Ride, now - Elapsed::days(2))],
     )
     .await;
 
@@ -282,14 +282,14 @@ async fn a_sport_agnostic_commitment_counts_anything() {
     let c = closed_window_commitment(tenant, user, None, 2, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     seed_activities(
         &db,
         user,
         tenant,
         &[
-            activity_at("r1", SportType::Run, now - Duration::days(4)),
-            activity_at("b1", SportType::Ride, now - Duration::days(2)),
+            activity_at("r1", SportType::Run, now - Elapsed::days(4)),
+            activity_at("b1", SportType::Ride, now - Elapsed::days(2)),
         ],
     )
     .await;
@@ -314,7 +314,7 @@ async fn a_cold_cache_defers_instead_of_accusing() {
     // No activities seeded at all: the athlete may well have run three times
     // and simply not opened the app since. Nothing has proven a miss.
     let reporter = RecordingReporter::open();
-    let outcome = tick(&repos, Some(&reporter), None, Utc::now(), 50)
+    let outcome = tick(&repos, Some(&reporter), None, Timestamp::now(), 50)
         .await
         .unwrap();
 
@@ -330,7 +330,7 @@ async fn a_cold_cache_defers_instead_of_accusing() {
     // Still open, so a later sweep will try again.
     let due = repos
         .commitments
-        .due_commitments(Utc::now().timestamp(), 50)
+        .due_commitments(Timestamp::now().epoch_seconds(), 50)
         .await
         .unwrap();
     assert_eq!(due.len(), 1);
@@ -345,11 +345,11 @@ async fn a_deferral_that_never_resolves_expires_rather_than_blocking() {
     let mut c = closed_window_commitment(tenant, user, Some("run"), 3, 30);
     // Eight days past its window with the data still cold — beyond the sweep's
     // staleness horizon, so it must stop head-of-line blocking newer rows.
-    c.window_end = Utc::now() - Duration::days(8);
+    c.window_end = Timestamp::now() - Elapsed::days(8);
     repos.commitments.insert_commitment(&c).await.unwrap();
 
     let reporter = RecordingReporter::open();
-    let outcome = tick(&repos, Some(&reporter), None, Utc::now(), 50)
+    let outcome = tick(&repos, Some(&reporter), None, Timestamp::now(), 50)
         .await
         .unwrap();
 
@@ -359,7 +359,7 @@ async fn a_deferral_that_never_resolves_expires_rather_than_blocking() {
     assert_eq!(
         repos
             .commitments
-            .due_commitments(Utc::now().timestamp(), 50)
+            .due_commitments(Timestamp::now().epoch_seconds(), 50)
             .await
             .unwrap(),
         []
@@ -373,12 +373,12 @@ async fn a_closed_route_holds_the_verdict_for_the_next_tick() {
 
     let c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     seed_activities(
         &db,
         user,
         tenant,
-        &[activity_at("r1", SportType::Run, now - Duration::days(2))],
+        &[activity_at("r1", SportType::Run, now - Elapsed::days(2))],
     )
     .await;
 
@@ -391,7 +391,7 @@ async fn a_closed_route_holds_the_verdict_for_the_next_tick() {
 
     // The athlete says something; the window reopens; the next tick delivers.
     let open = RecordingReporter::open();
-    let second = tick(&repos, Some(&open), None, Utc::now(), 50)
+    let second = tick(&repos, Some(&open), None, Timestamp::now(), 50)
         .await
         .unwrap();
     assert_eq!(second.scanned, 0, "nothing new was due");
@@ -413,12 +413,12 @@ async fn the_cadence_cap_stops_two_verdicts_landing_at_once() {
     repos.commitments.insert_commitment(&runs).await.unwrap();
     repos.commitments.insert_commitment(&swims).await.unwrap();
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     seed_activities(
         &db,
         user,
         tenant,
-        &[activity_at("r1", SportType::Run, now - Duration::days(2))],
+        &[activity_at("r1", SportType::Run, now - Elapsed::days(2))],
     )
     .await;
 
@@ -446,12 +446,12 @@ async fn a_sweep_with_no_reporter_still_counts_and_ages_out() {
 
     let c = closed_window_commitment(tenant, user, Some("run"), 2, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     seed_activities(
         &db,
         user,
         tenant,
-        &[activity_at("r1", SportType::Run, now - Duration::days(2))],
+        &[activity_at("r1", SportType::Run, now - Elapsed::days(2))],
     )
     .await;
 
@@ -463,7 +463,7 @@ async fn a_sweep_with_no_reporter_still_counts_and_ages_out() {
 
     // Much later, with still nothing able to deliver, the verdict ages out
     // instead of queueing forever.
-    let stale = tick(&repos, None, None, now + Duration::days(8), 50)
+    let stale = tick(&repos, None, None, now + Elapsed::days(8), 50)
         .await
         .unwrap();
     assert_eq!(stale.expired, 1);
@@ -484,13 +484,13 @@ async fn a_cold_cache_is_warmed_by_the_refresh_and_the_verdict_lands() {
     // The athlete ran three times but never opened a chat, so nothing warmed
     // the cache. The refresher stands in for the provider fetch the sweep
     // requests.
-    let now = Utc::now();
+    let now = Timestamp::now();
     let refresher = WarmingRefresher::returning(
         Arc::clone(&repos),
         vec![
-            activity_at("r1", SportType::Run, now - Duration::days(5)),
-            activity_at("r2", SportType::Run, now - Duration::days(3)),
-            activity_at("r3", SportType::Run, now - Duration::days(2)),
+            activity_at("r1", SportType::Run, now - Elapsed::days(5)),
+            activity_at("r2", SportType::Run, now - Elapsed::days(3)),
+            activity_at("r3", SportType::Run, now - Elapsed::days(2)),
         ],
     );
 
@@ -509,15 +509,21 @@ async fn a_cold_cache_is_warmed_by_the_refresh_and_the_verdict_lands() {
     assert_eq!(requests[0].1, tenant);
     // `window_start` is stored as unix seconds, so compare at that granularity.
     assert_eq!(
-        requests[0].2.timestamp(),
-        c.window_start.timestamp(),
+        requests[0].2.epoch_seconds(),
+        c.window_start.epoch_seconds(),
         "asked for the promise's window"
     );
 
     // The refresh warmed the cache; the next tick counts and delivers.
-    let second = tick(&repos, Some(&reporter), Some(&refresher), Utc::now(), 50)
-        .await
-        .unwrap();
+    let second = tick(
+        &repos,
+        Some(&reporter),
+        Some(&refresher),
+        Timestamp::now(),
+        50,
+    )
+    .await
+    .unwrap();
     assert_eq!(second.labeled, 1);
     assert_eq!(second.reported, 1);
     assert_eq!(second.refreshes, 0, "fresh data needs no second refresh");
@@ -542,15 +548,27 @@ async fn a_refresh_that_finds_nothing_lets_missed_land_instead_of_expiring() {
     let refresher = WarmingRefresher::returning(Arc::clone(&repos), Vec::new());
     let reporter = RecordingReporter::open();
 
-    let first = tick(&repos, Some(&reporter), Some(&refresher), Utc::now(), 50)
-        .await
-        .unwrap();
+    let first = tick(
+        &repos,
+        Some(&reporter),
+        Some(&refresher),
+        Timestamp::now(),
+        50,
+    )
+    .await
+    .unwrap();
     assert_eq!(first.deferred, 1);
     assert_eq!(first.refreshes, 1);
 
-    let second = tick(&repos, Some(&reporter), Some(&refresher), Utc::now(), 50)
-        .await
-        .unwrap();
+    let second = tick(
+        &repos,
+        Some(&reporter),
+        Some(&refresher),
+        Timestamp::now(),
+        50,
+    )
+    .await
+    .unwrap();
     assert_eq!(second.labeled, 1, "an honest zero is a believable verdict");
     assert_eq!(second.reported, 1);
 
@@ -568,14 +586,14 @@ async fn a_fresh_met_count_requests_no_refresh() {
     let c = closed_window_commitment(tenant, user, Some("run"), 2, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     seed_activities(
         &db,
         user,
         tenant,
         &[
-            activity_at("r1", SportType::Run, now - Duration::days(4)),
-            activity_at("r2", SportType::Run, now - Duration::days(2)),
+            activity_at("r1", SportType::Run, now - Elapsed::days(4)),
+            activity_at("r2", SportType::Run, now - Elapsed::days(2)),
         ],
     )
     .await;
@@ -601,11 +619,11 @@ async fn a_future_window_is_left_alone() {
     let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
 
     let mut c = closed_window_commitment(tenant, user, Some("run"), 3, 7);
-    c.window_end = Utc::now() + Duration::days(3);
+    c.window_end = Timestamp::now() + Elapsed::days(3);
     repos.commitments.insert_commitment(&c).await.unwrap();
 
     let reporter = RecordingReporter::open();
-    let outcome = tick(&repos, Some(&reporter), None, Utc::now(), 50)
+    let outcome = tick(&repos, Some(&reporter), None, Timestamp::now(), 50)
         .await
         .unwrap();
 
@@ -625,8 +643,8 @@ async fn a_ride_held_live_and_in_the_export_counts_once() {
     let c = closed_window_commitment(tenant, user, Some("bike_ride"), 2, 7);
     repos.commitments.insert_commitment(&c).await.unwrap();
 
-    let day = (Utc::now() - Duration::days(3)).date_naive();
-    let midnight = day.and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let day = (Timestamp::now() - Elapsed::days(3)).utc_date();
+    let midnight = day.at_midnight().and_utc().unwrap();
     let capture = ActivityBuilder::new(
         "16012345678".to_owned(),
         "Evening Ride".to_owned(),
@@ -642,7 +660,7 @@ async fn a_ride_held_live_and_in_the_export_counts_once() {
         "16012345678".to_owned(),
         "Evening Ride".to_owned(),
         SportType::Ride,
-        midnight + Duration::hours(25) + Duration::minutes(30),
+        midnight + Elapsed::hours(25) + Elapsed::minutes(30),
         2_700,
         "strava_archive".to_owned(),
     )
@@ -657,7 +675,7 @@ async fn a_ride_held_live_and_in_the_export_counts_once() {
     }
 
     let reporter = RecordingReporter::open();
-    let outcome = tick(&repos, Some(&reporter), None, Utc::now(), 50)
+    let outcome = tick(&repos, Some(&reporter), None, Timestamp::now(), 50)
         .await
         .unwrap();
 

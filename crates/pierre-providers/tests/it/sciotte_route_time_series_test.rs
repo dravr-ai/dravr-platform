@@ -18,8 +18,8 @@
 //! Both scenarios share one stub, which the provider reaches through a client
 //! built for it rather than through the environment.
 
-use chrono::{TimeZone, Utc};
 use dravr_sciotte::models::AuthSession;
+use dravr_tronc::dates::Timestamp;
 use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
@@ -120,7 +120,7 @@ async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
     let session = AuthSession {
         session_id: "stub-session".to_owned(),
         cookies: vec![],
-        created_at: Utc.with_ymd_and_hms(2026, 9, 5, 12, 0, 0).unwrap(), // Safe: literal calendar date is valid
+        created_at: Timestamp::parse_from_rfc3339("2026-09-05T12:00:00Z").unwrap(), // Safe: literal calendar date is valid
         expires_at: None,
     };
     provider

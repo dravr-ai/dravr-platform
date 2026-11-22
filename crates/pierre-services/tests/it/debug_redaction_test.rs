@@ -9,7 +9,7 @@
 
 use std::fmt::Debug;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{InvitationKind, Pillar, SignupCode, TenantId};
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::{FactKind, FactSource};
@@ -36,7 +36,7 @@ fn an_issued_invitation_never_prints_its_token() {
     let invitation = IssuedInvitation {
         email: "invitee@example.com".to_owned(),
         token: "sentinel-selector.sentinel-verifier-7f3a".to_owned(),
-        expires_at: Utc::now(),
+        expires_at: Timestamp::now(),
         kind: InvitationKind::CoachSeat,
     };
     let printed = printed_without(
@@ -69,7 +69,7 @@ fn a_minted_signup_code_never_prints_the_code() {
             max_uses: Some(10),
             use_count: 0,
             revoked_at: None,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         },
     };
     let printed = printed_without(&minted, &["SENTINEL-CODE-7F3A"]);

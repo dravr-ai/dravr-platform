@@ -41,7 +41,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode, ErrorResponse};
 use pierre_memory::training_plans::parse_plan_date;
@@ -72,7 +72,7 @@ fn invalid_date(raw: &str) -> AppError {
 }
 
 /// `raw` as a plan date, or the 400 naming it.
-fn plan_date(raw: &str) -> Result<NaiveDate, AppError> {
+fn plan_date(raw: &str) -> Result<CivilDate, AppError> {
     parse_plan_date(raw).ok_or_else(|| invalid_date(raw))
 }
 

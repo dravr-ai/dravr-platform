@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use http::StatusCode;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -434,9 +434,9 @@ pub struct OAuth2AccessToken {
     /// Space-separated list of granted scopes
     pub scope: Option<String>,
     /// When this token expires
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// When this token was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// Validate and Refresh Request

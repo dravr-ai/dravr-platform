@@ -34,7 +34,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{DataAccessLaw, DataAccessRequest, DataAccessScope};
@@ -63,16 +63,16 @@ pub(crate) struct RequestView {
     status: &'static str,
     /// `due_soon`, `overdue`, or `null`: read from the due date today.
     derived_state: Option<&'static str>,
-    sent_on: Option<NaiveDate>,
-    due_on: Option<NaiveDate>,
-    extended_until: Option<NaiveDate>,
-    answered_on: Option<NaiveDate>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
+    sent_on: Option<CivilDate>,
+    due_on: Option<CivilDate>,
+    extended_until: Option<CivilDate>,
+    answered_on: Option<CivilDate>,
+    created_at: Timestamp,
+    updated_at: Timestamp,
 }
 
 impl RequestView {
-    fn of(request: DataAccessRequest, today: NaiveDate) -> Self {
+    fn of(request: DataAccessRequest, today: CivilDate) -> Self {
         Self {
             derived_state: derived_state(&request, today).map(DerivedState::as_str),
             id: request.id,
@@ -130,21 +130,21 @@ pub(crate) struct EditBody {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SentBody {
-    sent_on: NaiveDate,
+    sent_on: CivilDate,
 }
 
 /// What `POST …/extension` takes.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ExtensionBody {
-    extended_until: NaiveDate,
+    extended_until: CivilDate,
 }
 
 /// What `POST …/answered` takes.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct AnsweredBody {
-    answered_on: NaiveDate,
+    answered_on: CivilDate,
 }
 
 /// What `GET …/letter` takes.
@@ -179,8 +179,8 @@ async fn session(
 }
 
 /// One request's view, as a response with `status`.
-fn view(status: StatusCode, request: DataAccessRequest, now: DateTime<Utc>) -> Response {
-    (status, Json(RequestView::of(request, now.date_naive()))).into_response()
+fn view(status: StatusCode, request: DataAccessRequest, now: Timestamp) -> Response {
+    (status, Json(RequestView::of(request, now.utc_date()))).into_response()
 }
 
 /// `GET /api/user/data-access-requests` — the athlete's requests.
@@ -197,7 +197,7 @@ pub(crate) async fn handle_list(
     headers: HeaderMap,
 ) -> AppResult<Response> {
     let (user_id, tenant_id) = session(&resources, &headers).await?;
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     let requests: Vec<RequestView> = DataAccessRequests::new(&resources.repos, tenant_id, user_id)
         .list()
         .await?
@@ -242,7 +242,7 @@ pub(crate) async fn handle_create(
         scope: scope(&body.scope)?,
         letter_locale,
     };
-    let now = Utc::now();
+    let now = Timestamp::now();
     let request = DataAccessRequests::new(&resources.repos, tenant_id, user_id)
         .create(&details, now)
         .await?;
@@ -266,7 +266,7 @@ pub(crate) async fn handle_get(
     let request = DataAccessRequests::new(&resources.repos, tenant_id, user_id)
         .get(id)
         .await?;
-    Ok(view(StatusCode::OK, request, Utc::now()))
+    Ok(view(StatusCode::OK, request, Timestamp::now()))
 }
 
 /// `PATCH /api/user/data-access-requests/{id}` — edit a draft.
@@ -293,7 +293,7 @@ pub(crate) async fn handle_edit(
         scope: body.scope.as_deref().map(scope).transpose()?,
         letter_locale: body.letter_locale,
     };
-    let now = Utc::now();
+    let now = Timestamp::now();
     let request = DataAccessRequests::new(&resources.repos, tenant_id, user_id)
         .edit_draft(id, &edit, now)
         .await?;
@@ -316,7 +316,7 @@ pub(crate) async fn handle_sent(
     Json(body): Json<SentBody>,
 ) -> AppResult<Response> {
     let (user_id, tenant_id) = session(&resources, &headers).await?;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let request = DataAccessRequests::new(&resources.repos, tenant_id, user_id)
         .mark_sent(id, body.sent_on, now)
         .await?;
@@ -340,7 +340,7 @@ pub(crate) async fn handle_extension(
     Json(body): Json<ExtensionBody>,
 ) -> AppResult<Response> {
     let (user_id, tenant_id) = session(&resources, &headers).await?;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let request = DataAccessRequests::new(&resources.repos, tenant_id, user_id)
         .record_extension(id, body.extended_until, now)
         .await?;
@@ -363,7 +363,7 @@ pub(crate) async fn handle_answered(
     Json(body): Json<AnsweredBody>,
 ) -> AppResult<Response> {
     let (user_id, tenant_id) = session(&resources, &headers).await?;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let request = DataAccessRequests::new(&resources.repos, tenant_id, user_id)
         .mark_answered(id, body.answered_on, now)
         .await?;
@@ -385,7 +385,7 @@ pub(crate) async fn handle_close(
     headers: HeaderMap,
 ) -> AppResult<Response> {
     let (user_id, tenant_id) = session(&resources, &headers).await?;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let request = DataAccessRequests::new(&resources.repos, tenant_id, user_id)
         .close(id, now)
         .await?;
@@ -432,7 +432,7 @@ pub(crate) async fn handle_letter(
         &request,
         &locale,
         name,
-        Utc::now().date_naive(),
+        Timestamp::now().utc_date(),
     )?;
     Ok(Json(json!({
         "locale": letter.locale,

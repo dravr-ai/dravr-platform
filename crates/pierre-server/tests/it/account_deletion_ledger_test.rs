@@ -19,7 +19,6 @@ use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use chrono::{Duration, Utc};
 use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::{BlobId, BlobKey, BlobMeta, BlobStore};
 use dravr_barrage::digest::Sha256 as BarrageSha256;
@@ -30,6 +29,7 @@ use dravr_barrage::record_log::{merkle, RecordLog};
 use dravr_barrage::store::memory::MemoryImportJobStore;
 use dravr_barrage::store::{ActivityRecordStore, BarrageStores};
 use dravr_barrage::{ActivityId, ActivityRecord, Provenance, Scope, SourceKey};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::dto::auth::{LoginRequest, RegisterRequest};
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_cache::{CacheKey, CacheResource};
@@ -145,8 +145,8 @@ async fn seed_athlete(repos: &RepositoryRegistry, label: &str) -> (Uuid, TenantI
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -172,7 +172,7 @@ async fn connect_strava(
         "strava".to_owned(),
         "access-material-do-not-log".to_owned(),
         Some("refresh-material-do-not-log".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     );
     token.provider_user_id = Some(strava_id.to_owned());
@@ -198,7 +198,7 @@ async fn seed_strava_sleep(repos: &RepositoryRegistry, user_id: Uuid, tenant_id:
         )
         .await
         .unwrap();
-    let night = Utc::now() - Duration::days(1);
+    let night = Timestamp::now() - Elapsed::days(1);
     repos
         .sleep
         .upsert_sleep_session(
@@ -209,7 +209,7 @@ async fn seed_strava_sleep(repos: &RepositoryRegistry, user_id: Uuid, tenant_id:
                 data_source_id: source,
                 is_nap: false,
                 start_datetime: night,
-                end_datetime: night + Duration::hours(8),
+                end_datetime: night + Elapsed::hours(8),
                 total_sleep_seconds: Some(25_200),
                 deep_sleep_seconds: None,
                 light_sleep_seconds: None,
@@ -224,7 +224,7 @@ async fn seed_strava_sleep(repos: &RepositoryRegistry, user_id: Uuid, tenant_id:
                 stages: Vec::new(),
                 source_name: "strava".to_owned(),
             },
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -252,7 +252,7 @@ async fn seed_owned_group(repos: &RepositoryRegistry, owner: Uuid, tenant_id: Te
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .create_group(
@@ -1548,7 +1548,7 @@ async fn the_keyed_name_backfill_resumes_across_ticks_and_restarts_after_a_sweep
 
 /// One archive ride of `scope`.
 fn anchor_ride(scope: Scope, id: ActivityId) -> ActivityRecord {
-    let start = Utc::now() - Duration::days(1);
+    let start = Timestamp::now() - Elapsed::days(1);
     let activity = ActivityBuilder::new(
         id.as_str(),
         "Ride",

@@ -88,8 +88,7 @@ dravr-riviere = { workspace = true }
 async-trait = "0.1"
 base64 = "0.22"
 bcrypt = "0.16"
-chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.10"
+dravr-tronc = { workspace = true, features = ["zones", "schemars1"] }
 dashmap = "6.1"
 futures-util = "0.3"
 hex = "0.4"

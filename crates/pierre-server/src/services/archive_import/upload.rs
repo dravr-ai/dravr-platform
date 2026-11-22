@@ -37,11 +37,11 @@ use std::sync::Arc;
 
 use axum::http::Uri;
 use bytes::Bytes;
-use chrono::{Duration, Utc};
 use dravr_barrage::blob::{BlobKey, BlobMeta, UploadTarget};
 use dravr_barrage::import::archive::ArchiveLimits;
 use dravr_barrage::store::{ImportJob, NewImportJob};
 use dravr_barrage::{BarrageError, FailureCode, ImportId, JobStatus, Scope, SourceKey};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::stream::BoxStream;
 use futures_util::StreamExt;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -117,7 +117,7 @@ pub struct StartedUpload {
 #[derive(Debug, Clone)]
 pub enum FinishedUpload {
     /// The object landed and the step that reads it is scheduled.
-    Started(ImportView),
+    Started(Box<ImportView>),
     /// The object was over the cap: it is deleted and the import has failed.
     TooLarge,
 }
@@ -220,7 +220,7 @@ pub async fn start_upload(
                 url_sha256,
                 url_ciphertext,
                 spool: Some(spool),
-                expires_at: Some(Utc::now() + Duration::days(UPLOAD_WAIT_DAYS)),
+                expires_at: Some(Timestamp::now() + Elapsed::days(UPLOAD_WAIT_DAYS)),
             },
         )
         .await
@@ -372,7 +372,9 @@ pub async fn finish_upload(
     };
     wiring.runner.schedule(resources, task).await?;
     info!(import = %job.id, source = %source, size, "upload finished");
-    Ok(FinishedUpload::Started(ImportView::of(&job, false)))
+    Ok(FinishedUpload::Started(Box::new(ImportView::of(
+        &job, false,
+    ))))
 }
 
 /// The spool `job` waits to receive.

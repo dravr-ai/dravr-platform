@@ -32,7 +32,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers::{
     sensitive_display_name, SENSITIVE_T2, SENSITIVE_T3, WHOOP,
 };
@@ -79,12 +79,12 @@ async fn file_glucose(f: &Fixture) {
         )
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let day = |days_ago: i64, weight_kg: Option<f64>, glucose: f64| StoredHealthMetrics {
         id: String::new(),
         user_id: athlete.id.to_string(),
         data_source_id: source.clone(),
-        date: now.date_naive() - Duration::days(days_ago),
+        date: now.utc_date() - Elapsed::days(days_ago),
         weight_kg,
         body_fat_pct: None,
         muscle_mass_kg: None,
@@ -147,7 +147,7 @@ async fn athlete_sets(f: &Fixture, class: &str, allowed: bool) {
 
 /// The athlete shares (`true`) or stops sharing their health records with
 /// the coach, lapsing at `until` (`None`: until revoked).
-async fn coach_flag(f: &Fixture, shared: bool, until: Option<DateTime<Utc>>) {
+async fn coach_flag(f: &Fixture, shared: bool, until: Option<Timestamp>) {
     f.repos()
         .groups
         .set_coach_sensitive_reads(
@@ -156,7 +156,7 @@ async fn coach_flag(f: &Fixture, shared: bool, until: Option<DateTime<Utc>>) {
             None,
             None,
             Some((shared, until)),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap()
@@ -269,7 +269,7 @@ async fn the_coachs_agent_needs_wellness_the_unexpired_flag_and_the_athletes_con
     );
 
     // A lapsed window: none again.
-    coach_flag(&f, true, Some(Utc::now() - Duration::minutes(1))).await;
+    coach_flag(&f, true, Some(Timestamp::now() - Elapsed::minutes(1))).await;
     let lapsed = coach_agent(&f).await;
     assert!(
         glucose(&lapsed).is_empty(),
@@ -426,7 +426,7 @@ async fn the_class_is_no_provider_and_its_get_reads_back_what_was_set() {
 #[tokio::test]
 async fn the_export_carries_the_coach_health_records_flag() {
     let f = world().await;
-    coach_flag(&f, true, Some(Utc::now() + Duration::days(30))).await;
+    coach_flag(&f, true, Some(Timestamp::now() + Elapsed::days(30))).await;
     let table = USER_EXPORT_TABLES
         .iter()
         .find(|table| table.name == "coaching_group_members")
@@ -639,7 +639,7 @@ async fn file_note(f: &Fixture) {
         )
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .recovery
         .upsert_recovery_metrics(
@@ -648,7 +648,7 @@ async fn file_note(f: &Fixture) {
                 id: format!("icu-note-{}", Uuid::new_v4()),
                 user_id: athlete.id.to_string(),
                 data_source_id: source,
-                date: now.date_naive() - Duration::days(1),
+                date: now.utc_date() - Elapsed::days(1),
                 recovery_score: None,
                 readiness_score: Some(64),
                 hrv_ms: None,
@@ -786,7 +786,7 @@ async fn file_health_records(f: &Fixture) {
         provider: INTERVALS_ICU,
         data_source_id: &source,
     };
-    let effective = Utc::now() - Duration::days(3);
+    let effective = Timestamp::now() - Elapsed::days(3);
     let lab = ClinicalRecordWrite {
         record_id: "lab-ferritin".to_owned(),
         resource_type: "Observation".to_owned(),
@@ -815,7 +815,7 @@ async fn file_health_records(f: &Fixture) {
         record_id: "cycle-start".to_owned(),
         kind: "menstrual_flow".to_owned(),
         start_at: effective,
-        end_at: effective + Duration::hours(1),
+        end_at: effective + Elapsed::hours(1),
         value_code: Some("light".to_owned()),
         value: None,
         unit: None,
@@ -900,7 +900,7 @@ async fn the_coachs_agent_reads_a_t2_health_record_under_all_three_and_a_t3_one_
     );
 
     // A lapsed flag: none again.
-    coach_flag(&f, true, Some(Utc::now() - Duration::minutes(1))).await;
+    coach_flag(&f, true, Some(Timestamp::now() - Elapsed::minutes(1))).await;
     let lapsed = coach_records(&f, "labs").await;
     assert_eq!(
         listed(&lapsed, "records"),

@@ -34,7 +34,8 @@ use axum::extract::Query;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_config::environment::ServerConfig;
 use pierre_core::models::{
     ActivityBuilder, ActivityGearKey, AttributionSource, DelegatedConnection, GearAttribution,
@@ -94,7 +95,7 @@ async fn mock_strava() -> (String, Arc<MockStrava>) {
                         "name": "Lunch Ride",
                         "type": "Ride",
                         "sport_type": "Ride",
-                        "start_date": Utc::now().to_rfc3339(),
+                        "start_date": Timestamp::now().to_rfc3339(),
                         "distance": 32_000.0,
                         "elapsed_time": 4_200,
                         "total_elevation_gain": 310.0
@@ -151,7 +152,7 @@ async fn mock_strava_run(seconds_per_km: u32) -> (String, Arc<MockRuns>) {
                             "name": "Tempo Run",
                             "type": "Run",
                             "sport_type": "Run",
-                            "start_date": Utc::now().to_rfc3339(),
+                            "start_date": Timestamp::now().to_rfc3339(),
                             "distance": 6_000.0,
                             "elapsed_time": duration,
                             "total_elevation_gain": 20.0
@@ -244,7 +245,7 @@ async fn seed_linked_athlete(resources: &ServerContext) -> (Uuid, TenantId) {
     )
     .await
     .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -254,7 +255,7 @@ async fn seed_linked_athlete(resources: &ServerContext) -> (Uuid, TenantId) {
         access_token: SecretString::from("strava_access_token_0123456789abcdef0123456789"),
         refresh_token: Some(SecretString::from("strava_refresh")),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(now + chrono::Duration::hours(6)),
+        expires_at: Some(now + Elapsed::hours(6)),
         scope: Some("activity:read_all".to_owned()),
         provider_user_id: Some(OWNER_ID.to_string()),
         oauth_app_client_id: None,
@@ -322,8 +323,8 @@ async fn cached_strava_rows(
             user_id,
             tenant_id,
             Some("strava"),
-            Utc::now() - chrono::Duration::days(30),
-            Utc::now() + chrono::Duration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
             100,
         )
         .await
@@ -352,7 +353,7 @@ async fn activity_create_fetches_the_owners_activities_into_the_cache() {
         .register_notification_stream(user_id)
         .await;
 
-    let event_time = Utc::now().timestamp();
+    let event_time = Timestamp::now().epoch_seconds();
     let status = post_event(&resources, &strava_event("create", OWNER_ID, event_time)).await;
     assert_eq!(
         status,
@@ -392,8 +393,8 @@ async fn activity_create_fetches_the_owners_activities_into_the_cache() {
             user_id,
             &tenant_id,
             Some("strava"),
-            Utc::now() - chrono::Duration::days(30),
-            Utc::now() + chrono::Duration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
             100,
         )
         .await
@@ -410,7 +411,7 @@ async fn activity_create_fetches_the_owners_activities_into_the_cache() {
         .unwrap()
         .expect("last_sync is stamped after the fetch");
     assert!(
-        Utc::now() - last_sync < chrono::Duration::minutes(1),
+        Timestamp::now() - last_sync < Elapsed::minutes(1),
         "last_sync is the fetch time"
     );
 
@@ -449,7 +450,7 @@ async fn unknown_owner_is_acknowledged_and_nothing_is_fetched() {
 
     let status = post_event(
         &resources,
-        &strava_event("create", OWNER_ID + 1, Utc::now().timestamp()),
+        &strava_event("create", OWNER_ID + 1, Timestamp::now().epoch_seconds()),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -523,7 +524,7 @@ async fn seed_member_linked_through_a_coach(resources: &ServerContext) -> (Uuid,
         .expect("no live link holds this member or athlete yet");
     repos
         .delegated_connections
-        .confirm(link.id, member, member_tenant, Utc::now())
+        .confirm(link.id, member, member_tenant, Timestamp::now())
         .await
         .unwrap()
         .expect("the member confirms their own proposal");
@@ -545,7 +546,7 @@ async fn member_reached_through_a_coach_link_is_skipped() {
         "9001",
         "Morning ride",
         SportType::Ride,
-        Utc::now() - chrono::Duration::hours(5),
+        Timestamp::now() - Elapsed::hours(5),
         3_600,
         "strava",
     )
@@ -558,9 +559,9 @@ async fn member_reached_through_a_coach_link_is_skipped() {
         .await
         .unwrap();
 
-    let create = strava_event("create", OWNER_ID, Utc::now().timestamp());
+    let create = strava_event("create", OWNER_ID, Timestamp::now().epoch_seconds());
     assert_eq!(post_event(&resources, &create).await, StatusCode::OK);
-    let delete = strava_event("delete", OWNER_ID, Utc::now().timestamp());
+    let delete = strava_event("delete", OWNER_ID, Timestamp::now().epoch_seconds());
     assert_eq!(post_event(&resources, &delete).await, StatusCode::OK);
     await_spawned_turns(&resources).await;
 
@@ -602,7 +603,7 @@ async fn delete_aspect_evicts_the_cached_activity_without_a_fetch() {
             id,
             "Morning ride",
             SportType::Ride,
-            Utc::now() - chrono::Duration::hours(hours_ago),
+            Timestamp::now() - Elapsed::hours(hours_ago),
             3_600,
             "strava",
         )
@@ -624,7 +625,7 @@ async fn delete_aspect_evicts_the_cached_activity_without_a_fetch() {
 
     let status = post_event(
         &resources,
-        &strava_event("delete", OWNER_ID, Utc::now().timestamp()),
+        &strava_event("delete", OWNER_ID, Timestamp::now().epoch_seconds()),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -667,7 +668,7 @@ async fn delete_aspect_erases_the_activity_so_no_later_read_brings_it_back() {
             id,
             "Morning ride",
             SportType::Ride,
-            Utc::now() - chrono::Duration::hours(hours_ago),
+            Timestamp::now() - Elapsed::hours(hours_ago),
             3_600,
             "strava",
         )
@@ -681,7 +682,7 @@ async fn delete_aspect_erases_the_activity_so_no_later_read_brings_it_back() {
             tenant_id,
             "strava",
             &read,
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Live,
         )
         .await
@@ -695,7 +696,7 @@ async fn delete_aspect_erases_the_activity_so_no_later_read_brings_it_back() {
 
     let status = post_event(
         &resources,
-        &strava_event("delete", OWNER_ID, Utc::now().timestamp()),
+        &strava_event("delete", OWNER_ID, Timestamp::now().epoch_seconds()),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "bug: the delete event was refused");
@@ -708,7 +709,7 @@ async fn delete_aspect_erases_the_activity_so_no_later_read_brings_it_back() {
             tenant_id,
             "strava",
             &read,
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Live,
         )
         .await
@@ -748,7 +749,7 @@ async fn delete_aspect_erases_a_ride_only_the_cache_held() {
         "9001",
         "Morning ride",
         SportType::Ride,
-        Utc::now() - chrono::Duration::hours(5),
+        Timestamp::now() - Elapsed::hours(5),
         3_600,
         "strava",
     )
@@ -763,7 +764,7 @@ async fn delete_aspect_erases_a_ride_only_the_cache_held() {
 
     let status = post_event(
         &resources,
-        &strava_event("delete", OWNER_ID, Utc::now().timestamp()),
+        &strava_event("delete", OWNER_ID, Timestamp::now().epoch_seconds()),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "bug: the delete event was refused");
@@ -777,7 +778,7 @@ async fn delete_aspect_erases_a_ride_only_the_cache_held() {
             tenant_id,
             "strava",
             &[ride],
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Live,
         )
         .await
@@ -807,7 +808,7 @@ async fn delete_aspect_before_any_read_still_refuses_the_ride_later() {
 
     let status = post_event(
         &resources,
-        &strava_event("delete", OWNER_ID, Utc::now().timestamp()),
+        &strava_event("delete", OWNER_ID, Timestamp::now().epoch_seconds()),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "bug: the delete event was refused");
@@ -818,7 +819,7 @@ async fn delete_aspect_before_any_read_still_refuses_the_ride_later() {
         "9001",
         "Morning ride",
         SportType::Ride,
-        Utc::now() - chrono::Duration::hours(5),
+        Timestamp::now() - Elapsed::hours(5),
         3_600,
         "strava",
     )
@@ -831,7 +832,7 @@ async fn delete_aspect_before_any_read_still_refuses_the_ride_later() {
             tenant_id,
             "strava",
             &[ride],
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Live,
         )
         .await
@@ -857,7 +858,7 @@ async fn delete_aspect_lets_the_deleted_runs_pair_go() {
     let (api_base, _mock) = mock_strava().await;
     let resources = context_pointed_at(&api_base).await;
     let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
-    let start = Utc::now() - chrono::Duration::hours(5);
+    let start = Timestamp::now() - Elapsed::hours(5);
     let repos = &resources.common.repos;
     let pair = repos
         .athlete_gear
@@ -871,7 +872,7 @@ async fn delete_aspect_lets_the_deleted_runs_pair_go() {
                 warn_distance_meters: DEFAULT_SHOE_WARN_DISTANCE_METERS,
                 pinned: false,
             },
-            start - chrono::Duration::days(10),
+            start - Elapsed::days(10),
         )
         .await
         .unwrap();
@@ -914,7 +915,7 @@ async fn delete_aspect_lets_the_deleted_runs_pair_go() {
 
     let status = post_event(
         &resources,
-        &strava_event("delete", OWNER_ID, Utc::now().timestamp()),
+        &strava_event("delete", OWNER_ID, Timestamp::now().epoch_seconds()),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -943,7 +944,7 @@ async fn delete_aspect_takes_a_run_past_the_caches_retention_off_its_pair() {
     let (api_base, _mock) = mock_strava().await;
     let resources = context_pointed_at(&api_base).await;
     let (user_id, _) = seed_linked_athlete(&resources).await;
-    let long_ago = Utc::now() - chrono::Duration::days(400);
+    let long_ago = Timestamp::now() - Elapsed::days(400);
     let repos = &resources.common.repos;
     let pair = repos
         .athlete_gear
@@ -957,7 +958,7 @@ async fn delete_aspect_takes_a_run_past_the_caches_retention_off_its_pair() {
                 warn_distance_meters: DEFAULT_SHOE_WARN_DISTANCE_METERS,
                 pinned: false,
             },
-            long_ago - chrono::Duration::days(10),
+            long_ago - Elapsed::days(10),
         )
         .await
         .unwrap();
@@ -982,7 +983,7 @@ async fn delete_aspect_takes_a_run_past_the_caches_retention_off_its_pair() {
 
     let status = post_event(
         &resources,
-        &strava_event("delete", OWNER_ID, Utc::now().timestamp()),
+        &strava_event("delete", OWNER_ID, Timestamp::now().epoch_seconds()),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -1011,7 +1012,7 @@ fn athlete_update(updates: &Value) -> Value {
         "updates": updates,
         "owner_id": OWNER_ID,
         "subscription_id": REGISTERED_SUBSCRIPTION_ID,
-        "event_time": Utc::now().timestamp()
+        "event_time": Timestamp::now().epoch_seconds()
     })
 }
 
@@ -1030,7 +1031,7 @@ async fn deauthorization_disconnects_the_athlete_and_deletes_their_strava_data()
         "9001",
         "Morning ride",
         SportType::Ride,
-        Utc::now() - chrono::Duration::hours(5),
+        Timestamp::now() - Elapsed::hours(5),
         3_600,
         "strava",
     )
@@ -1146,7 +1147,7 @@ async fn event_for_another_subscription_is_refused() {
     let resources = context_pointed_at(&api_base).await;
     let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
 
-    let mut forged = strava_event("create", OWNER_ID, Utc::now().timestamp());
+    let mut forged = strava_event("create", OWNER_ID, Timestamp::now().epoch_seconds());
     forged["subscription_id"] = json!(REGISTERED_SUBSCRIPTION_ID + 1);
     assert_eq!(post_event(&resources, &forged).await, StatusCode::FORBIDDEN);
     assert_eq!(
@@ -1171,7 +1172,7 @@ async fn events_are_refused_while_no_subscription_is_registered() {
 
     let status = post_event(
         &resources,
-        &strava_event("create", OWNER_ID, Utc::now().timestamp()),
+        &strava_event("create", OWNER_ID, Timestamp::now().epoch_seconds()),
     )
     .await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
@@ -1188,7 +1189,7 @@ async fn second_event_inside_the_window_is_deferred_not_fetched() {
     let resources = context_pointed_at(&api_base).await;
     seed_linked_athlete(&resources).await;
 
-    let event = strava_event("create", OWNER_ID, Utc::now().timestamp());
+    let event = strava_event("create", OWNER_ID, Timestamp::now().epoch_seconds());
     assert_eq!(post_event(&resources, &event).await, StatusCode::OK);
     await_spawned_turns(&resources).await;
     assert_eq!(
@@ -1280,7 +1281,7 @@ async fn the_first_synced_run_seeds_the_bests_silently() {
     let resources = context_pointed_at(&api_base).await;
     let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
 
-    let event = strava_event("create", OWNER_ID, Utc::now().timestamp());
+    let event = strava_event("create", OWNER_ID, Timestamp::now().epoch_seconds());
     assert_eq!(post_event(&resources, &event).await, StatusCode::OK);
     await_spawned_turns(&resources).await;
 
@@ -1312,7 +1313,7 @@ async fn the_first_synced_run_seeds_the_bests_silently() {
 /// Store what an earlier sync measured: a slower 5 km on another run.
 async fn store_slower_5k(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) {
     let repo = &resources.common.repos.personal_bests;
-    repo.record_activity_scan(user_id, tenant_id, "strava", "8001", Utc::now())
+    repo.record_activity_scan(user_id, tenant_id, "strava", "8001", Timestamp::now())
         .await
         .unwrap();
     repo.record_personal_best(
@@ -1323,7 +1324,7 @@ async fn store_slower_5k(resources: &ServerContext, user_id: Uuid, tenant_id: Te
             elapsed_seconds: 1500.0,
             provider: "strava".to_owned(),
             activity_id: "8001".to_owned(),
-            achieved_at: Utc::now() - chrono::Duration::days(20),
+            achieved_at: Timestamp::now() - Elapsed::days(20),
         },
     )
     .await
@@ -1343,7 +1344,7 @@ async fn a_faster_run_is_not_told_while_the_history_walk_is_incomplete() {
     let (user_id, tenant_id) = seed_linked_athlete(&resources).await;
     store_slower_5k(&resources, user_id, tenant_id).await;
 
-    let event = strava_event("create", OWNER_ID, Utc::now().timestamp());
+    let event = strava_event("create", OWNER_ID, Timestamp::now().epoch_seconds());
     assert_eq!(post_event(&resources, &event).await, StatusCode::OK);
     await_spawned_turns(&resources).await;
 
@@ -1385,14 +1386,14 @@ async fn a_new_run_beating_the_stored_5k_is_told_once() {
         tenant_id,
         "strava",
         &PersonalBestSeed {
-            cursor_before: Some((Utc::now() - chrono::Duration::days(900)).timestamp()),
-            completed_at: Some(Utc::now()),
+            cursor_before: Some((Timestamp::now() - Elapsed::days(900)).epoch_seconds()),
+            completed_at: Some(Timestamp::now()),
         },
     )
     .await
     .unwrap();
 
-    let event = strava_event("create", OWNER_ID, Utc::now().timestamp());
+    let event = strava_event("create", OWNER_ID, Timestamp::now().epoch_seconds());
     assert_eq!(post_event(&resources, &event).await, StatusCode::OK);
     await_spawned_turns(&resources).await;
 

@@ -30,6 +30,7 @@
 
 #[cfg(feature = "client-messaging")]
 mod agent_alias {
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::transport::TransportPolicy;
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::atomic::Ordering;
@@ -306,7 +307,7 @@ mod agent_alias {
         );
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(chrono::Utc::now());
+        user.approved_at = Some(Timestamp::now());
 
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
@@ -319,8 +320,8 @@ mod agent_alias {
             domain: None,
             plan: "professional".to_owned(),
             owner_user_id: user_id,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common
@@ -541,7 +542,7 @@ mod agent_alias {
         name: &str,
         agent_id: &str,
     ) -> Uuid {
-        let now = chrono::Utc::now();
+        let now = Timestamp::now();
         let group_id = Uuid::new_v4();
         let group = CoachingGroup {
             id: group_id,

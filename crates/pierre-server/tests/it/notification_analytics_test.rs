@@ -21,6 +21,7 @@ mod notification_analytics_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
+    use dravr_tronc::dates::Timestamp;
     use pierre_database::backends::factory::{Database, DatabaseBackend};
     use pierre_notifications::models::TransportPolicy as PushTransportPolicy;
     use pierre_notifications::models::{
@@ -217,7 +218,7 @@ mod notification_analytics_tests {
             read_at: None,
             delivered_at: None,
             opened_at: None,
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: Timestamp::now().to_rfc3339(),
             actions: None,
             collapsed_count: 1,
             collapsed_ids: Vec::new(),

@@ -51,7 +51,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Form, Json, Router};
-use chrono::{Days, NaiveDate, NaiveTime, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use serde_json::{json, Map, Value};
 use tokio::time::sleep;
 use tracing::{info, warn};
@@ -185,7 +185,7 @@ pub(crate) struct RenderContext<'ctx> {
     /// The Garmin user every record names.
     pub garmin_user: &'ctx str,
     /// The day `$T` and `$DAY` count from (its UTC midnight).
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// The origin activity-file callbacks point at.
     pub files_base: &'ctx str,
 }
@@ -228,19 +228,27 @@ fn render_placeholder(text: &str, ctx: &RenderContext<'_>) -> Result<Value, Fixt
     }
     if let Some(offset) = text.strip_prefix("$DAY") {
         let days: i64 = offset.parse().map_err(|_| unknown())?;
-        let magnitude = Days::new(days.unsigned_abs());
-        let date = if days < 0 {
-            ctx.today.checked_sub_days(magnitude)
-        } else {
-            ctx.today.checked_add_days(magnitude)
-        };
+        let date = i64::try_from(days.unsigned_abs())
+            .ok()
+            .and_then(|magnitude| {
+                if days < 0 {
+                    ctx.today.checked_sub_days(magnitude)
+                } else {
+                    ctx.today.checked_add_days(magnitude)
+                }
+            });
         return date
-            .map(|d| Value::String(d.format("%Y-%m-%d").to_string()))
+            .map(|d| Value::String(d.to_string()))
             .ok_or_else(unknown);
     }
     if let Some(offset) = text.strip_prefix("$T") {
         let seconds: i64 = offset.parse().map_err(|_| unknown())?;
-        let midnight = ctx.today.and_time(NaiveTime::MIN).and_utc().timestamp();
+        let midnight = ctx
+            .today
+            .at_midnight()
+            .and_utc()
+            .map_err(|_| unknown())?
+            .epoch_seconds();
         return Ok(json!(midnight + seconds));
     }
     Err(unknown())
@@ -305,7 +313,7 @@ impl GarminFixture {
             .map_err(FixtureError::Http)?;
         // Seeded from the clock so a restarted fixture never mints a Garmin
         // user id an earlier run handed out.
-        let seed = u64::try_from(Utc::now().timestamp_millis()).unwrap_or_default();
+        let seed = u64::try_from(Timestamp::now().epoch_millis()).unwrap_or_default();
         Ok(Self {
             inner: Arc::new(Inner {
                 config,
@@ -343,7 +351,7 @@ impl GarminFixture {
             .ok_or(FixtureError::NoPushTarget)?;
         let ctx = RenderContext {
             garmin_user,
-            today: Utc::now().date_naive(),
+            today: Timestamp::now().utc_date(),
             files_base: &self.inner.config.files_base,
         };
         let mut sent = Vec::with_capacity(names.len());
@@ -546,7 +554,7 @@ mod tests {
     fn ctx() -> RenderContext<'static> {
         RenderContext {
             garmin_user: "devfixture-garmin-1",
-            today: NaiveDate::from_ymd_opt(2026, 10, 27).unwrap_or_default(),
+            today: CivilDate::from_ymd(2026, 10, 27).ok().unwrap_or_default(),
             files_base: "http://127.0.0.1:9555/wellness-api/rest",
         }
     }

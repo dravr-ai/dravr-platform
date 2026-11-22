@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::models::periodization::{Confidence, FlavourVerdict};
 use pierre_core::models::{LoadSnapshot, TenantId};
@@ -124,17 +124,17 @@ impl CoverageGap {
 ///
 /// A week or block whose date does not parse, or whose span leaves the
 /// calendar, is skipped rather than guessed at — `parse_plan_date` is a format
-/// check, so a stored `+262142-12-31` reaches here intact.
+/// check, so a stored `9999-12-31` reaches here intact.
 pub(super) fn coverage_gaps(
     weeks: &[PlanWeek],
     phases: &[PlanPhase],
-    today: NaiveDate,
+    today: CivilDate,
 ) -> Vec<CoverageGap> {
-    let spans: Vec<(NaiveDate, NaiveDate)> = weeks
+    let spans: Vec<(CivilDate, CivilDate)> = weeks
         .iter()
         .filter_map(|w| {
             let start = parse_plan_date(&w.week_start)?;
-            let end = start.checked_add_days(chrono::Days::new(6))?;
+            let end = start.checked_add_days(6)?;
             Some((start, end))
         })
         .collect();
@@ -162,7 +162,7 @@ pub(super) fn coverage_gaps(
     // one day short and the signal fires on every save.
     let outline_last_day = phases
         .iter()
-        .filter_map(|p| p.end_exclusive()?.checked_sub_days(chrono::Days::new(1)))
+        .filter_map(|p| p.end_exclusive()?.checked_sub_days(1))
         .max();
     if let (Some(week_end), Some(block_end)) = (last_week_end, outline_last_day) {
         if block_end > week_end {
@@ -191,7 +191,7 @@ pub(super) async fn emit_coverage_check(
     user_id: &str,
     plan_id: &str,
     phases: &[PlanPhase],
-    today: NaiveDate,
+    today: CivilDate,
 ) {
     let weeks = match repos
         .training_plans

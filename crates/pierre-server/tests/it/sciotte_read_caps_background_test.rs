@@ -25,7 +25,7 @@ use crate::common;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
@@ -128,7 +128,7 @@ async fn strava_session_reads(resources: &Arc<ServerContext>, user_id: Uuid, cou
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &session_read_counter_key("sciotte", counter, user_id),
-            &budget_period(Utc::now(), ONE_DAY),
+            &budget_period(Timestamp::now(), ONE_DAY),
         )
         .await
         .unwrap()

@@ -13,7 +13,7 @@
 
 use std::collections::HashSet;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::CreateChannelLinkParams;
@@ -260,29 +260,22 @@ const POSTGRES_BACKFILL_MIGRATION_SQL: &str = include_str!(
     "../../../../migrations_pg/20260608000003_backfill_coach_proposal_predating_links.sql"
 );
 
-fn at(rfc3339: &str) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(rfc3339)
-        .unwrap()
-        .with_timezone(&Utc)
+fn at(rfc3339: &str) -> Timestamp {
+    Timestamp::parse_from_rfc3339(rfc3339).unwrap()
 }
 
 /// Write a link's `linked_at` and `agent_proposal_sent_at` directly: the
 /// repository stamps `linked_at` with the clock, and the backfill's cutoff is
 /// a date in the past. `SQLite` keeps timestamps as RFC 3339 text, the way its
 /// backend writes them; `PostgreSQL` binds them natively.
-async fn set_link_dates(
-    db: &Database,
-    id: &str,
-    linked_at: DateTime<Utc>,
-    sent_at: Option<DateTime<Utc>>,
-) {
+async fn set_link_dates(db: &Database, id: &str, linked_at: Timestamp, sent_at: Option<Timestamp>) {
     const SQL: &str = "UPDATE messaging_channel_links \
                        SET linked_at = $1, agent_proposal_sent_at = $2 WHERE id = $3";
     match db.backend() {
         DatabaseBackend::SQLite(d) => {
             sqlx::query(SQL)
                 .bind(linked_at.to_rfc3339())
-                .bind(sent_at.map(|sent| sent.to_rfc3339()))
+                .bind(sent_at.map(Timestamp::to_rfc3339))
                 .bind(id)
                 .execute(d.pool())
                 .await
@@ -330,7 +323,7 @@ async fn run_backfill(db: &Database) {
 }
 
 /// Read a single link's `agent_proposal_sent_at` (NULL ⇒ `None`).
-async fn proposal_sent_at(db: &Database, id: &str) -> Option<DateTime<Utc>> {
+async fn proposal_sent_at(db: &Database, id: &str) -> Option<Timestamp> {
     const SQL: &str = "SELECT agent_proposal_sent_at FROM messaging_channel_links WHERE id = $1";
     match db.backend() {
         DatabaseBackend::SQLite(d) => sqlx::query_scalar(SQL)

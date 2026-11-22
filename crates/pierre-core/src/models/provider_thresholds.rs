@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 
 /// One threshold a provider holds, in the unit its field name carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,7 +13,7 @@ pub struct ProviderThreshold<T> {
     pub value: T,
     /// The day the provider's setting holding it last changed, when the
     /// provider says.
-    pub as_of: Option<NaiveDate>,
+    pub as_of: Option<CivilDate>,
 }
 
 /// The thresholds a provider holds for the athlete, as the provider set them.

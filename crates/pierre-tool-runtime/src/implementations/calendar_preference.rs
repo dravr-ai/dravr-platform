@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use serde::Serialize;
 use serde_json::Value;
@@ -156,7 +156,7 @@ impl McpTool<dyn ToolRuntime> for SetPreferredCalendarTool {
                     scope.user_id,
                     &backend,
                     scope.writer.user_id,
-                    Utc::now(),
+                    Timestamp::now(),
                 )
                 .await?;
             if scope.acts_for_athlete() {

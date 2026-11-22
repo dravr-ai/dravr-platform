@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_providers::request_budget;
@@ -88,5 +88,5 @@ fn refreshed_own_head(job: &ActivityBackfillJob, read: &AppResult<HeadRead>) -> 
             served_by_grant: None,
             ..
         })
-    ) && sync_verdict::covers_list_head(&job.query_params, Utc::now().timestamp())
+    ) && sync_verdict::covers_list_head(&job.query_params, Timestamp::now().epoch_seconds())
 }

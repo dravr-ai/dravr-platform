@@ -9,7 +9,7 @@
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::{AssistantTurn, ReplyBlock};
 use pierre_core::models::{MessageRecord, TenantId};
 use pierre_core::transport::TransportPolicy;
@@ -75,7 +75,7 @@ impl PlatformPost for RecordingPost {
                     finish_reason: Some("stop".to_owned()),
                     content_blocks: None,
                     transport_policy: TransportPolicy::AnyTransport,
-                    created_at: Utc::now().to_rfc3339(),
+                    created_at: Timestamp::now().to_rfc3339(),
                     channel_type: None,
                     about_user_id: None,
                     turn_attempted_write: None,

@@ -25,7 +25,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
@@ -204,7 +204,7 @@ fn seeded_row(
     lease: Duration,
     attempts: i64,
 ) -> ActivityBackfillJobRow {
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let age_ms = i64::try_from(age.as_millis()).unwrap();
     let lease_ms = i64::try_from(lease.as_millis()).unwrap();
     ActivityBackfillJobRow {
@@ -239,7 +239,7 @@ fn lease_ms() -> i64 {
 #[tokio::test]
 async fn spawn_records_the_row_and_a_transient_failure_leaves_it() {
     let fx = fixture().await;
-    let before_spawn = Utc::now().timestamp_millis();
+    let before_spawn = Timestamp::now().epoch_millis();
 
     let started = spawn_activity_backfill(job(&fx, UNKNOWN_PROVIDER, Some("conv-1"))).await;
     assert!(started, "a fresh pair starts a backfill");
@@ -271,7 +271,7 @@ async fn spawn_records_the_row_and_a_transient_failure_leaves_it() {
     );
     assert!(
         row.leased_until_ms >= before_spawn + lease_ms()
-            && row.leased_until_ms <= Utc::now().timestamp_millis() + lease_ms(),
+            && row.leased_until_ms <= Timestamp::now().epoch_millis() + lease_ms(),
         "the row is leased to the spawning instance for the full lease: {}",
         row.leased_until_ms
     );
@@ -374,7 +374,7 @@ async fn the_sweep_claims_a_lapsed_row_and_runs_it() {
         .await
         .unwrap());
 
-    let before_sweep = Utc::now().timestamp_millis();
+    let before_sweep = Timestamp::now().epoch_millis();
     let resumed = resume_backfill_jobs(Arc::clone(&fx.runtime)).await.unwrap();
     assert_eq!(resumed, 1, "the lapsed row is claimed and started");
 
@@ -535,7 +535,7 @@ async fn a_released_claim_returns_its_attempt() {
         "bug: the ledger records the job"
     );
     let claim = BackfillJobClaim {
-        now_ms: Utc::now().timestamp_millis(),
+        now_ms: Timestamp::now().epoch_millis(),
         queued_older_than_ms: 0,
         lease_ms: 60_000,
         max_attempts: 10,

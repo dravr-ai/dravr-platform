@@ -11,7 +11,7 @@
 //! each provider's terms decide which sessions, and which of their fields,
 //! the list may name.
 
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::ai_policy::{ProviderTerms, Withheld};
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::transport::Transport;
@@ -52,11 +52,10 @@ pub(crate) async fn read_warmed_window(
     after_ts: i64,
     transport: Transport,
 ) -> (Vec<Activity>, Withheld) {
-    let now = Utc::now();
-    let start = Utc
-        .timestamp_opt(after_ts, 0)
-        .single()
-        .unwrap_or_else(|| now - Duration::days(BACKFILL_FALLBACK_WINDOW_DAYS));
+    let now = Timestamp::now();
+    let start = Timestamp::from_epoch_seconds(after_ts)
+        .ok()
+        .unwrap_or_else(|| now - Elapsed::days(BACKFILL_FALLBACK_WINDOW_DAYS));
     let read = async {
         match repos
             .activity_cache
@@ -116,7 +115,7 @@ mod tests {
             id,
             name,
             SportType::Run,
-            Utc::now() - Duration::days(days_ago),
+            Timestamp::now() - Elapsed::days(days_ago),
             3_600,
             RELAY,
         )
@@ -147,7 +146,7 @@ mod tests {
             .await
             .unwrap();
 
-        let after = (Utc::now() - Duration::days(10)).timestamp();
+        let after = (Timestamp::now() - Elapsed::days(10)).epoch_seconds();
         let (warmed, withheld) = read_warmed_window(
             &repos,
             &NolioTerms,

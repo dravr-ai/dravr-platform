@@ -25,7 +25,7 @@ use std::time::Duration;
 use crate::common::create_test_server_resources_with_llm;
 use crate::helpers::agent_fixtures::{install_catalogue_agent, publish_catalogue_agent};
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 use pierre_chat_pipeline::stages::agent_mention::{mention_candidates, strip_mention};
 use pierre_chat_pipeline::{
@@ -181,7 +181,7 @@ async fn create_athlete(resources: &Arc<ServerContext>, email: &str) -> (Uuid, T
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
 
@@ -193,8 +193,8 @@ async fn create_athlete(resources: &Arc<ServerContext>, email: &str) -> (Uuid, T
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common
@@ -678,7 +678,7 @@ mod messaging {
                 "update_id": 9_100 + msg_id,
                 "message": {
                     "message_id": msg_id,
-                    "date": Utc::now().timestamp(),
+                    "date": Timestamp::now().epoch_seconds(),
                     "chat": { "id": CHAT_ID, "type": "private" },
                     "from": { "id": CHAT_ID, "is_bot": false, "first_name": "Mention" },
                     "text": text

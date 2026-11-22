@@ -9,7 +9,7 @@
 //! These types carry owned data from seeder binaries into database-backend-specific
 //! implementations, avoiding lifetime complexity across async boundaries.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use std::fmt;
 use uuid::Uuid;
 
@@ -48,7 +48,7 @@ pub struct SeedLlmUsageRecord {
     /// Execution time in milliseconds
     pub execution_time_ms: i64,
     /// When the call was made
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 // ================================
@@ -69,7 +69,7 @@ pub struct SeedSyntheticActivity {
     /// Sport type (e.g., "run", "ride", "`nordic_ski`")
     pub sport_type: String,
     /// When the activity started
-    pub start_date: DateTime<Utc>,
+    pub start_date: Timestamp,
     /// Duration in seconds
     pub duration_seconds: i64,
     /// Distance in meters (None for non-distance activities)
@@ -97,9 +97,9 @@ pub struct SeedSyntheticActivity {
     /// Longitude of [`Self::start_latitude`]
     pub start_longitude: Option<f64>,
     /// Record creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Record update timestamp
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// Provider connection for registering synthetic data source
@@ -116,7 +116,7 @@ pub struct SeedProviderConnection {
     /// Connection type (e.g., "synthetic")
     pub connection_type: String,
     /// When the connection was established
-    pub connected_at: DateTime<Utc>,
+    pub connected_at: Timestamp,
     /// JSON metadata about the connection
     pub metadata: String,
 }
@@ -156,7 +156,7 @@ pub struct SeedDemoUser {
     /// default (`fr`), which is not what a demo or a test account wants.
     pub locale: String,
     /// Record creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 impl fmt::Debug for SeedDemoUser {
@@ -189,9 +189,9 @@ pub struct SeedTenant {
     /// User who owns this tenant
     pub owner_user_id: Uuid,
     /// Record creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Record update timestamp
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// API key for seeding
@@ -213,9 +213,9 @@ pub struct SeedApiKey {
     /// Rate limit (requests per window)
     pub rate_limit: Option<i32>,
     /// When the key expires (None = no expiry)
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Record creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 impl fmt::Debug for SeedApiKey {
@@ -249,9 +249,9 @@ pub struct SeedA2AClient {
     /// JSON capabilities array
     pub capabilities: String,
     /// Record creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Record update timestamp
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// API key usage record for seeding analytics
@@ -262,7 +262,7 @@ pub struct SeedApiKeyUsage {
     /// API key that was used
     pub api_key_id: Uuid,
     /// When the call was made
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     /// Tool that was called
     pub tool_name: String,
     /// HTTP status code returned
@@ -279,7 +279,7 @@ pub struct SeedA2AUsage {
     /// A2A client that made the call
     pub client_id: Uuid,
     /// When the call was made
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     /// Tool that was called
     pub tool_name: String,
     /// HTTP status code returned
@@ -345,9 +345,9 @@ pub struct SeedAgent {
     /// when the agent frontmatter declares none.
     pub visuals: Option<String>,
     /// Record creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Record update timestamp
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// Per-locale translation overlay for a seeded agent.
@@ -391,7 +391,7 @@ pub struct SeedAgentRelation {
     /// Relation type ("related", "alternative", "prerequisite", "sequel")
     pub relation_type: String,
     /// Record creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// Agent author profile for seeding (Store creator profiles)
@@ -406,9 +406,9 @@ pub struct SeedAgentAuthor {
     /// Display name in Store
     pub display_name: String,
     /// Record creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Record update timestamp
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// Store listing for seeding
@@ -423,5 +423,5 @@ pub struct SeedStoreListing {
     /// Agent author ID (references `agent_authors.id`, not `users.id`)
     pub author_id: String,
     /// Record creation timestamp
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use tracing::{error, info};
 use uuid::Uuid;
 
@@ -107,8 +107,8 @@ pub async fn create_tenant_for_user(
         domain: None,
         plan: tiers::STARTER.to_owned(),
         owner_user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     database

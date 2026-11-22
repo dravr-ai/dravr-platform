@@ -19,7 +19,7 @@
 //! This mirrors [`crate::memory_facts::SentenceRenderer`]: one renderer over
 //! the live string catalogue, one locale, no surface gluing English to data.
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_contremaitre::messaging_strings::{
     envelope_anchor_label_key, MessagingStringsRegistry, KEY_COACH_ACCESS_DECLINED_REASON_BODY,
     KEY_GROUP_DIGEST_ALL_CLEAR, KEY_GROUP_DIGEST_CONCERNS_HEADER,
@@ -225,7 +225,7 @@ impl<'a> NotificationTextRenderer<'a> {
     /// date that does not parse is shown as stored rather than dropped.
     fn data_access_body(&self, event: NotificationEvent, params: &Map<String, Value>) -> String {
         let stored = param_text(params.get(DATA_ACCESS_DUE_ON_PARAM));
-        let due = NaiveDate::parse_from_str(&stored, "%Y-%m-%d").map_or(stored, |date| {
+        let due = CivilDate::parse_from_str(&stored, "%Y-%m-%d").map_or(stored, |date| {
             data_access_requests::written_date(date, self.locale)
         });
         self.line(

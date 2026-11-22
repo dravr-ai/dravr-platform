@@ -12,7 +12,7 @@
 
 #![allow(clippy::unwrap_used, missing_docs)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::usage::{InsertLlmUsage, LlmUsageRecord};
 use pierre_core::models::ConversationTurnId;
 use pierre_database::repositories::LlmUsageScope;
@@ -75,7 +75,7 @@ fn close(actual: f64, expected: f64) -> bool {
 async fn prompt_size_bands_price_to_the_sum_of_their_calls_in_every_scope() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let since = (Utc::now() - Duration::days(1)).to_rfc3339();
+    let since = (Timestamp::now() - Elapsed::days(1)).to_rfc3339();
 
     let mut alice = Vec::new();
     for call in MIXED {

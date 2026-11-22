@@ -21,7 +21,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{normalize_email, UserStatus};
 use pierre_database::RepositoryRegistry;
@@ -179,7 +179,7 @@ pub struct AllowedEmail {
     /// Admin note recorded with the allow (cohort, reason).
     pub note: Option<String>,
     /// When the allow was recorded.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// The admin who recorded it, when attributable.
     pub allowed_by: Option<Uuid>,
     /// That admin's email, resolved for display.
@@ -190,7 +190,7 @@ pub struct AllowedEmail {
     pub account_status: Option<String>,
     /// When the address's outstanding invitation link stops working, or `None`
     /// when no invitation is waiting to be redeemed.
-    pub invitation_expires_at: Option<DateTime<Utc>>,
+    pub invitation_expires_at: Option<Timestamp>,
 }
 
 /// Record a standing pre-approval, approving a pending account on the spot.

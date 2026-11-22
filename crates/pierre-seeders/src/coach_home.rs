@@ -42,7 +42,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Days, Duration, NaiveDate, NaiveTime, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{GroupRole, NewGroupTranscriptEntry, TranscriptSpeaker};
 use pierre_core::models::periodization::PhaseKind;
@@ -279,7 +279,7 @@ pub async fn run(
     for index in 0..GROUP_NAMES.len() {
         groups.push(seed_coached_group(repos, &group_spec(index), &coach, &coach, &[]).await?);
     }
-    let now = Utc::now();
+    let now = Timestamp::now();
     let password_hash = hash_password(DEMO_USER_PASSWORD)?;
     for (index, (scenario, name)) in SCENARIOS.iter().zip(NAMES).enumerate() {
         let athlete = athlete_account(repos, index, name, &password_hash).await?;
@@ -389,7 +389,7 @@ struct Seeded<'a> {
     group_id: Uuid,
     coach: &'a Account,
     slot: Slot,
-    now: DateTime<Utc>,
+    now: Timestamp,
 }
 
 impl Seeded<'_> {
@@ -415,7 +415,7 @@ impl Seeded<'_> {
                 &self.athlete.tenant.to_string(),
                 self.group_id,
                 self.athlete.id,
-                self.now - Duration::days(joined_days_ago),
+                self.now - Elapsed::days(joined_days_ago),
             )
             .await?;
         if scenario != Scenario::NoSource {
@@ -425,7 +425,7 @@ impl Seeded<'_> {
     }
 
     async fn seed_situation(&self, scenario: Scenario, model: &str) -> AppResult<()> {
-        let today = self.now.date_naive();
+        let today = self.now.utc_date();
         match scenario {
             Scenario::Revoked => {
                 self.repos
@@ -446,7 +446,7 @@ impl Seeded<'_> {
                         PROVIDER,
                         Some("invalid_grant"),
                         // After the connection seed_sessions just made.
-                        Utc::now(),
+                        Timestamp::now(),
                     )
                     .await?;
                 self.live_plan(&a_race_season(self.slot, today)).await?;
@@ -491,7 +491,7 @@ impl Seeded<'_> {
         let offset = session_offset(self.now);
         for &(days_ago, seconds) in sessions {
             let id = Uuid::new_v4();
-            let start = self.now - Duration::days(days_ago) - offset;
+            let start = self.now - Elapsed::days(days_ago) - offset;
             #[allow(clippy::cast_precision_loss)]
             let metres = seconds as f64 * 30_000.0 / 3_600.0;
             let duration = i64::try_from(seconds).unwrap_or(i64::MAX);
@@ -532,7 +532,7 @@ impl Seeded<'_> {
                 self.athlete.tenant,
                 PROVIDER,
                 &cached,
-                Utc::now(),
+                Timestamp::now(),
                 WriteOrigin::Import,
             )
             .await?;
@@ -568,7 +568,7 @@ impl Seeded<'_> {
 
     /// The coach's draft: a season of its own (`season`), or one week over
     /// the athlete's live plan.
-    async fn draft(&self, season: Option<&Season>, today: NaiveDate) -> AppResult<()> {
+    async fn draft(&self, season: Option<&Season>, today: CivilDate) -> AppResult<()> {
         let (tenant, athlete, coach) = (
             self.athlete.tenant.to_string(),
             self.athlete.id.to_string(),
@@ -705,9 +705,10 @@ fn served_activity(row: &SeedSyntheticActivity) -> Activity {
 /// both `n` whole days old (the roster's days without a session) and on the
 /// calendar day `n` days back (the day the training load counts it on), at
 /// any hour the seeder runs.
-fn session_offset(now: DateTime<Utc>) -> Duration {
-    let since_midnight = now - now.date_naive().and_time(NaiveTime::MIN).and_utc();
-    since_midnight.min(Duration::hours(3))
+fn session_offset(now: Timestamp) -> Elapsed {
+    let since_midnight = Elapsed::seconds(i64::from(now.utc_time().num_seconds_from_midnight()))
+        + Elapsed::nanoseconds(i64::from(now.subsec_nanos()));
+    since_midnight.min(Elapsed::hours(3))
 }
 
 /// The sessions a scenario trains: `(days ago, seconds)`.
@@ -761,21 +762,15 @@ impl Season {
     }
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
-fn shifted(today: NaiveDate, days: i64) -> NaiveDate {
-    let magnitude = Days::new(days.unsigned_abs());
-    if days < 0 {
-        today.checked_sub_days(magnitude)
-    } else {
-        today.checked_add_days(magnitude)
-    }
-    .unwrap_or(today)
+fn shifted(today: CivilDate, days: i64) -> CivilDate {
+    today.checked_add_days(days).unwrap_or(today)
 }
 
-fn phase(kind: PhaseKind, start: NaiveDate, weeks: u8) -> PlanPhase {
+fn phase(kind: PhaseKind, start: CivilDate, weeks: u8) -> PlanPhase {
     PlanPhase {
         kind,
         start: ymd(start),
@@ -794,7 +789,7 @@ fn phase(kind: PhaseKind, start: NaiveDate, weeks: u8) -> PlanPhase {
 }
 
 /// Phases laid back to back from `start`; a zero-week block is left out.
-fn phases(start: NaiveDate, blocks: &[(PhaseKind, u8)]) -> Vec<PlanPhase> {
+fn phases(start: CivilDate, blocks: &[(PhaseKind, u8)]) -> Vec<PlanPhase> {
     let mut at = start;
     blocks
         .iter()
@@ -867,7 +862,7 @@ impl Slot {
         &DISCIPLINES[self.group % DISCIPLINES.len()]
     }
 
-    fn race(self, name: &str, date: NaiveDate, priority: RacePriority) -> GoalRace {
+    fn race(self, name: &str, date: CivilDate, priority: RacePriority) -> GoalRace {
         GoalRace {
             name: name.to_owned(),
             date: ymd(date),
@@ -908,7 +903,7 @@ fn build_to_race(total: i64) -> [(PhaseKind, u8); 4] {
 /// A plan toward an A race between two weeks and eight months out, entered a
 /// few weeks ago. One athlete in nine is in transition after an A race run
 /// last week; one in six has a B race on the way, one in seven a C race.
-fn a_race_season(slot: Slot, today: NaiveDate) -> Season {
+fn a_race_season(slot: Slot, today: CivilDate) -> Season {
     let index = i64::try_from(slot.index).unwrap_or(0);
     let weeks_out = WEEKS_OUT[slot.index % WEEKS_OUT.len()];
     let race_day = shifted(today, weeks_out * 7 - 1);
@@ -953,7 +948,7 @@ fn a_race_season(slot: Slot, today: NaiveDate) -> Season {
 }
 
 /// A base and a build toward a B race, no A race.
-fn b_race_season(slot: Slot, today: NaiveDate) -> Season {
+fn b_race_season(slot: Slot, today: CivilDate) -> Season {
     let start = shifted(today, -7);
     let tune_up = slot.discipline().tune_ups[slot.index % 2];
     Season {
@@ -964,7 +959,7 @@ fn b_race_season(slot: Slot, today: NaiveDate) -> Season {
 }
 
 /// A ten-week plan that ended two weeks ago with its goal race.
-fn ended_season(slot: Slot, today: NaiveDate, priority: RacePriority) -> Season {
+fn ended_season(slot: Slot, today: CivilDate, priority: RacePriority) -> Season {
     let start = shifted(today, -12 * 7);
     let name = if priority == RacePriority::A {
         slot.a_race_name()
@@ -1015,9 +1010,7 @@ mod tests {
 
     #[test]
     fn a_warmed_session_is_keyed_and_filled_as_the_fixture_serves_it() {
-        let now = DateTime::parse_from_rfc3339("2026-11-02T15:19:28Z")
-            .unwrap()
-            .with_timezone(&Utc);
+        let now = Timestamp::parse_from_rfc3339("2026-11-02T15:19:28Z").unwrap();
         let id = Uuid::parse_str("45a5cfc9-a75b-4bd3-a6d8-167253afd3c8").unwrap();
         let row = SeedSyntheticActivity {
             id,
@@ -1083,7 +1076,7 @@ mod tests {
 
     /// A fatigue athlete's seeded sessions, as the warmed cache holds them,
     /// with the form the roster reads off them on the morning of `as_of`.
-    fn fatigue_form(seed: DateTime<Utc>, as_of: NaiveDate) -> FormReading {
+    fn fatigue_form(seed: Timestamp, as_of: CivilDate) -> FormReading {
         let offset = session_offset(seed);
         let activities: Vec<Activity> = sessions(Scenario::Fatigue)
             .into_iter()
@@ -1096,7 +1089,7 @@ mod tests {
                     tenant_id: Uuid::nil(),
                     name: "Sortie vélo".to_owned(),
                     sport_type: "ride".to_owned(),
-                    start_date: seed - Duration::days(days_ago) - offset,
+                    start_date: seed - Elapsed::days(days_ago) - offset,
                     duration_seconds: i64::try_from(seconds).unwrap(),
                     distance_meters: Some(metres),
                     elevation_gain: None,
@@ -1129,11 +1122,9 @@ mod tests {
         // load on their own calendar day, and seeded athletes have no
         // timezone on file, so they resolve to UTC: their day turns over at
         // midnight UTC, and the band must hold on both sides of it.
-        let seed = DateTime::parse_from_rfc3339("2026-11-02T15:19:28Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let today = seed.date_naive();
-        for as_of in [today, today.succ_opt().unwrap()] {
+        let seed = Timestamp::parse_from_rfc3339("2026-11-02T15:19:28Z").unwrap();
+        let today = seed.utc_date();
+        for as_of in [today, today.succ().unwrap()] {
             let form = fatigue_form(seed, as_of);
             assert_eq!(form.band, FormBand::DeepFatigue, "{as_of}: {form:?}");
             let pct = form.form_pct.unwrap();
@@ -1143,17 +1134,17 @@ mod tests {
 
     #[test]
     fn the_seasons_end_where_their_scenario_needs() {
-        let today = NaiveDate::from_ymd_opt(2026, 10, 30).unwrap();
+        let today = CivilDate::from_ymd(2026, 10, 30).unwrap();
         let slot = Slot { group: 2, index: 7 };
         let ended = ended_season(slot, today, RacePriority::A);
         let last = ended.phases.last().unwrap().end_exclusive().unwrap();
         assert!(last <= today, "the ended plan is over: {last}");
-        assert_eq!(ended.goal.date, ymd(last.pred_opt().unwrap()));
+        assert_eq!(ended.goal.date, ymd(last.pred().unwrap()));
     }
 
     #[test]
     fn a_race_plans_vary_and_each_ends_on_its_race_with_today_inside() {
-        let today = NaiveDate::from_ymd_opt(2026, 10, 30).unwrap();
+        let today = CivilDate::from_ymd(2026, 10, 30).unwrap();
         let mut goals = BTreeSet::new();
         let mut current = BTreeSet::new();
         for index in 0..SCENARIOS.len() {
@@ -1162,18 +1153,14 @@ mod tests {
                 index,
             };
             let season = a_race_season(slot, today);
-            let race_day = NaiveDate::parse_from_str(&season.goal.date, "%Y-%m-%d").unwrap();
+            let race_day = CivilDate::parse_from_str(&season.goal.date, "%Y-%m-%d").unwrap();
             assert!(race_day > today, "{index}: the A race is ahead");
             assert!(
                 race_day <= shifted(today, 8 * 31),
                 "{index}: within eight months"
             );
             let end = season.phases.last().unwrap().end_exclusive().unwrap();
-            assert_eq!(
-                end,
-                race_day.succ_opt().unwrap(),
-                "{index}: ends on the race"
-            );
+            assert_eq!(end, race_day.succ().unwrap(), "{index}: ends on the race");
             let now = season
                 .phases
                 .iter()

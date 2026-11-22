@@ -28,7 +28,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::KEY_GROUP_CHAT_DISCONNECTED;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{CoachingGroup, ReleasedGroupChat};
@@ -59,7 +59,7 @@ pub(crate) struct ChatConnectionResponse {
     /// platform sent one.
     chat_title: Option<String>,
     /// When the chat was connected from the web app.
-    connected_at: Option<DateTime<Utc>>,
+    connected_at: Option<Timestamp>,
     /// Whether the caller may connect or disconnect: the owner or the coach.
     can_manage: bool,
 }
@@ -85,7 +85,7 @@ pub(crate) struct ChatConnectCodeResponse {
     /// The link as a QR code, for a person on a desktop whose chat app is on
     /// their phone.
     qr_svg: Option<String>,
-    expires_at: DateTime<Utc>,
+    expires_at: Timestamp,
 }
 
 impl fmt::Debug for ChatConnectCodeResponse {

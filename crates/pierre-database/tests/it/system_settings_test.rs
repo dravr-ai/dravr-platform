@@ -15,7 +15,7 @@
 
 use std::time::Duration as StdDuration;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
 use uuid::Uuid;
@@ -27,7 +27,7 @@ async fn a_setting_round_trips_and_an_overwrite_moves_its_timestamp() {
 
     assert!(db.get_system_setting(&key).await.unwrap().is_none());
 
-    let before = Utc::now() - Duration::seconds(1);
+    let before = Timestamp::now() - Elapsed::seconds(1);
     db.set_system_setting(&key, "first").await.unwrap();
     let first = db
         .get_system_setting(&key)
@@ -38,7 +38,7 @@ async fn a_setting_round_trips_and_an_overwrite_moves_its_timestamp() {
     assert_eq!(first.value, "first");
     assert_eq!(first.description, None);
     assert!(
-        first.updated_at >= before && first.updated_at <= Utc::now(),
+        first.updated_at >= before && first.updated_at <= Timestamp::now(),
         "updated_at is the write's instant, got {}",
         first.updated_at
     );
@@ -69,7 +69,7 @@ async fn a_compare_and_set_lands_only_on_the_row_it_read() {
 
     // No row yet: the token "absent" creates it, a timestamp matches nothing.
     assert_eq!(
-        db.compare_and_set_system_setting(&key, "ghost", Some(Utc::now()))
+        db.compare_and_set_system_setting(&key, "ghost", Some(Timestamp::now()))
             .await
             .unwrap(),
         None
@@ -95,9 +95,7 @@ async fn a_compare_and_set_lands_only_on_the_row_it_read() {
     );
 
     // The token survives the wire form an admin's client echoes.
-    let token = DateTime::parse_from_rfc3339(&row.updated_at.to_rfc3339())
-        .unwrap()
-        .with_timezone(&Utc);
+    let token = Timestamp::parse_from_rfc3339(&row.updated_at.to_rfc3339()).unwrap();
     let moved = db
         .compare_and_set_system_setting(&key, "second", Some(token))
         .await
@@ -126,9 +124,7 @@ async fn a_compare_and_set_matches_a_row_the_plain_upsert_wrote() {
 
     db.set_system_setting(&key, "first").await.unwrap();
     let row = db.get_system_setting(&key).await.unwrap().unwrap();
-    let token = DateTime::parse_from_rfc3339(&row.updated_at.to_rfc3339())
-        .unwrap()
-        .with_timezone(&Utc);
+    let token = Timestamp::parse_from_rfc3339(&row.updated_at.to_rfc3339()).unwrap();
 
     assert!(db
         .compare_and_set_system_setting(&key, "second", Some(token))

@@ -60,3 +60,5 @@ pub(crate) mod sciotte_mock;
 /// A live Strava API grant (token row and connection) for a seeded athlete.
 pub(crate) mod strava_grant;
 pub(crate) mod synthetic_data;
+/// A served tool list with every `def_hash` checked, then set aside for comparison.
+pub(crate) mod tool_def_hash;

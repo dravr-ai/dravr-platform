@@ -344,7 +344,7 @@ mod tests {
 
     use pierre_database::repositories::{verify_receipt_chain, DeletionReceipt, GENESIS_HASH};
 
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_database::repositories::ReceiptAnchor;
 
     use super::{anchor_from, anchor_lines, receipts_from, verification_lines};
@@ -410,7 +410,7 @@ mod tests {
             tree_size: 3,
             tree_root: "ab".to_owned(),
             note: "note".to_owned(),
-            anchored_at: Utc::now(),
+            anchored_at: Timestamp::now(),
         };
         assert!(
             anchor_lines(Some(&anchor), &receipts).fault.is_none(),

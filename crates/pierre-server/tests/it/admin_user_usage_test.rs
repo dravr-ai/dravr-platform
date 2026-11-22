@@ -11,7 +11,7 @@
     clippy::items_after_statements
 )]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_database::repositories::LlmUsageScope;
@@ -27,7 +27,7 @@ async fn aggregates_by_user_isolates_users_in_same_tenant() {
     let tenant_id = TenantId::generate();
     let user_a = Uuid::new_v4();
     let user_b = Uuid::new_v4();
-    let since = (Utc::now() - Duration::days(7)).to_rfc3339();
+    let since = (Timestamp::now() - Elapsed::days(7)).to_rfc3339();
 
     // Seed two distinct users in the same tenant.
     for (uid, tokens) in [(user_a, 1_000_i32), (user_b, 5_000_i32)] {
@@ -85,7 +85,7 @@ async fn daily_series_by_user_filters_to_owner_only() {
     let tenant_id = TenantId::generate();
     let owner = Uuid::new_v4();
     let other = Uuid::new_v4();
-    let since = (Utc::now() - Duration::days(2)).to_rfc3339();
+    let since = (Timestamp::now() - Elapsed::days(2)).to_rfc3339();
 
     // One row per user.
     for uid in [owner, other] {
@@ -138,7 +138,7 @@ async fn a_long_prompt_rate_model_is_priced_per_call_within_the_scope() {
     let other_tenant = TenantId::generate();
     let user_a = Uuid::new_v4();
     let user_b = Uuid::new_v4();
-    let since = (Utc::now() - Duration::days(7)).to_rfc3339();
+    let since = (Timestamp::now() - Elapsed::days(7)).to_rfc3339();
 
     for (tenant, user, calls) in [
         (tenant_id, user_a, 2),

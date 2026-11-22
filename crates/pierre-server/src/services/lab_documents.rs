@@ -45,10 +45,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use chrono::Utc;
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::import::ingest_reader::{DocumentReading, LabDocument, LabDocumentReader};
 use dravr_barrage::Tier;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConversationTurnId, DataSource, DeviceType, TenantId};
 use pierre_core::transport::Transport;
@@ -150,7 +150,7 @@ pub struct LabDocumentSummary {
     /// Why a configured model's reading was not used.
     pub model_failure: Option<String>,
     /// When it was received.
-    pub received_at: chrono::DateTime<Utc>,
+    pub received_at: Timestamp,
 }
 
 impl From<StoredLabDocument> for LabDocumentSummary {
@@ -184,7 +184,7 @@ pub struct LabRecordView {
     /// The athlete's answer: `confirmed`, `rejected`, or none yet.
     pub review_decision: Option<String>,
     /// When it was effective.
-    pub effective_at: Option<chrono::DateTime<Utc>>,
+    pub effective_at: Option<Timestamp>,
 }
 
 /// A stored JSON column, `null` when it does not parse.
@@ -423,7 +423,7 @@ async fn read_pages(
     (tenant_id, user_id): (TenantId, Uuid),
     pages: Vec<String>,
     sha256: Sha256,
-    received: chrono::DateTime<Utc>,
+    received: Timestamp,
 ) -> AppResult<Option<DocumentReading>> {
     if !pages.iter().any(|page| !page.trim().is_empty()) {
         return Ok(None);
@@ -446,7 +446,7 @@ async fn read_pages(
 fn document_write(
     (file_sha256, size_bytes, pages): (String, u64, u32),
     reading: Option<&DocumentReading>,
-    received_at: chrono::DateTime<Utc>,
+    received_at: Timestamp,
 ) -> LabDocumentWrite {
     let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
     LabDocumentWrite {
@@ -543,7 +543,7 @@ pub async fn upload_lab_document(
             body,
         )
         .await?;
-    let received_at = Utc::now();
+    let received_at = Timestamp::now();
     let reading = read_pages(resources, (tenant_id, user_id), pages, digest, received_at).await?;
     let write = document_write(
         (file_sha256.clone(), size_bytes, page_count),

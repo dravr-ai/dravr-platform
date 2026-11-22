@@ -7,7 +7,7 @@
 //!
 //! Strong Rust types for the admin authentication system
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -58,11 +58,11 @@ pub struct AdminToken {
     /// column existed, which reads as a revoked one.
     pub rotated_to_token_id: Option<String>,
     /// When the token was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Optional token expiration time
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// When the token was last used
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<Timestamp>,
     /// IP address from last use
     pub last_used_ip: Option<String>,
     /// Total number of times token has been used
@@ -128,11 +128,11 @@ pub struct AdminTokenSummary {
     /// what tells a rotated token from a revoked one among the inactive.
     pub rotated_to_token_id: Option<String>,
     /// When the token was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Optional token expiration time
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// When the token was last used
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<Timestamp>,
     /// Total number of times token has been used
     pub usage_count: u64,
 }
@@ -422,13 +422,13 @@ impl CreateAdminTokenRequest {
     /// # Errors
     /// Returns an invalid-input error for a lifetime that ends past the last
     /// instant a timestamp can name.
-    pub fn expires_at(&self, now: DateTime<Utc>) -> AppResult<Option<DateTime<Utc>>> {
+    pub fn expires_at(&self, now: Timestamp) -> AppResult<Option<Timestamp>> {
         match self.expires_in_days {
             None | Some(0) => Ok(None),
             Some(days) => i64::try_from(days)
                 .ok()
-                .and_then(Duration::try_days)
-                .and_then(|lifetime| now.checked_add_signed(lifetime))
+                .and_then(Elapsed::try_days)
+                .and_then(|lifetime| now.checked_add(lifetime))
                 .map(Some)
                 .ok_or_else(|| {
                     AppError::invalid_input(format!(
@@ -506,7 +506,7 @@ impl CreateAdminTokenRequest {
     /// Returns an invalid-input error for a reserved name, or for a lifetime
     /// past any date.
     pub fn for_creator(self) -> AppResult<Self> {
-        self.expires_at(Utc::now())?;
+        self.expires_at(Timestamp::now())?;
         if self.service_name.starts_with(DEVICE_CLI_SERVICE_PREFIX) {
             return Err(AppError::invalid_input(format!(
                 "Service names starting with '{DEVICE_CLI_SERVICE_PREFIX}' are reserved for device logins"
@@ -584,9 +584,9 @@ pub struct GeneratedAdminToken {
     /// Whether this is a super admin token
     pub is_super_admin: bool,
     /// When the token expires (if set)
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// When the token was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// Admin token usage audit entry
@@ -597,7 +597,7 @@ pub struct AdminTokenUsage {
     /// ID of the admin token that was used
     pub admin_token_id: String,
     /// When the action was performed
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     /// Type of admin action performed
     pub action: AdminAction,
     /// Resource that was targeted (if applicable)

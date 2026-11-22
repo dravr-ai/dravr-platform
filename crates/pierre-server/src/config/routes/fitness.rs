@@ -10,6 +10,7 @@ use pierre_core::config::fitness::FitnessConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 // Trait methods dispatched through repos.fitness_config / repos.tenants / repos.users
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
@@ -64,7 +65,7 @@ pub struct FitnessConfigurationSaveResponse {
 #[derive(Debug, Serialize)]
 pub struct ResponseMetadata {
     /// Response timestamp
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub timestamp: Timestamp,
     /// Request processing time in milliseconds
     pub processing_time_ms: Option<u64>,
     /// API version
@@ -122,7 +123,7 @@ impl FitnessConfigurationRoutes {
     /// Create response metadata
     fn create_metadata(processing_start: Instant) -> ResponseMetadata {
         ResponseMetadata {
-            timestamp: chrono::Utc::now(),
+            timestamp: Timestamp::now(),
             processing_time_ms: u64::try_from(processing_start.elapsed().as_millis()).ok(),
             api_version: "1.0.0".into(),
         }
@@ -184,8 +185,8 @@ impl FitnessConfigurationRoutes {
             user_id: Some(user_id.to_string()),
             configuration_name: configuration_name.to_owned(),
             configuration: config,
-            created_at: chrono::Utc::now().to_rfc3339(),
-            updated_at: chrono::Utc::now().to_rfc3339(),
+            created_at: Timestamp::now().to_rfc3339(),
+            updated_at: Timestamp::now().to_rfc3339(),
             metadata: Self::create_metadata(processing_start),
         })
     }

@@ -43,8 +43,8 @@
 //! session.
 
 use async_trait::async_trait;
-use chrono::Utc;
 use dravr_sciotte::models::AuthSession;
+use dravr_tronc::dates::Timestamp;
 use pierre_cache::Cache;
 use pierre_core::constants::oauth::providers::{
     SCIOTTE, SCIOTTE_GARMIN, SCIOTTE_TRAININGPEAKS, TOKEN_TYPE_SESSION,
@@ -93,7 +93,7 @@ pub async fn persist_sciotte_session(
 ) -> AppResult<StoredSession> {
     let session_json = sciotte_session::session_json(session)?;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,

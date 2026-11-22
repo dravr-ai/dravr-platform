@@ -37,7 +37,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
     default_pair, parse_shoe_sport, shoe_sport_slug, AthleteGear, AttributionSource,
@@ -83,16 +83,16 @@ pub struct GearItem {
     /// last, or declared last.
     pub is_default: bool,
     /// When it was declared; it takes no activity that started before.
-    pub added_at: DateTime<Utc>,
+    pub added_at: Timestamp,
     /// When it was retired, `null` while it is in use.
-    pub retired_at: Option<DateTime<Utc>>,
+    pub retired_at: Option<Timestamp>,
     /// When the latest activity attributed to it started.
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<Timestamp>,
 }
 
 impl GearItem {
     /// The pair as answered, against the ledger it belongs to.
-    fn of(pair: &AthleteGear, ledger: &[AthleteGear], now: DateTime<Utc>) -> Self {
+    fn of(pair: &AthleteGear, ledger: &[AthleteGear], now: Timestamp) -> Self {
         let declaration = &pair.declaration;
         Self {
             id: pair.id,
@@ -236,7 +236,7 @@ async fn answered_pair(
         .athlete_gear
         .list_gear(user_id)
         .await?;
-    let now = Utc::now();
+    let now = Timestamp::now();
     ledger
         .iter()
         .find(|pair| pair.id == gear_id)
@@ -250,7 +250,7 @@ async fn list_gear(
     auth: AuthenticatedUser,
 ) -> AppResult<Json<GearList>> {
     let tenant_id = active_tenant(&auth)?;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let ledger = read_ledger(&resources, auth.user_id, &tenant_id, now).await?;
     Ok(Json(GearList {
         gear: ledger
@@ -281,7 +281,7 @@ async fn create_gear(
         .common
         .repos
         .athlete_gear
-        .create_gear(auth.user_id, &declaration, Utc::now())
+        .create_gear(auth.user_id, &declaration, Timestamp::now())
         .await?;
     let pair = answered_pair(&resources, auth.user_id, id).await?;
     Ok((StatusCode::CREATED, Json(pair)))
@@ -342,7 +342,7 @@ async fn retire_gear(
     auth: AuthenticatedUser,
     Path(gear_id): Path<String>,
 ) -> AppResult<Json<GearItem>> {
-    set_retired(&resources, auth.user_id, &gear_id, Some(Utc::now())).await
+    set_retired(&resources, auth.user_id, &gear_id, Some(Timestamp::now())).await
 }
 
 /// `POST /api/me/gear/{gear_id}/restore`.
@@ -359,7 +359,7 @@ async fn set_retired(
     resources: &ServerContext,
     user_id: Uuid,
     gear_id: &str,
-    retired_at: Option<DateTime<Utc>>,
+    retired_at: Option<Timestamp>,
 ) -> AppResult<Json<GearItem>> {
     let gear_id = parse_uuid(gear_id)?;
     let gear = &resources.common.repos.athlete_gear;

@@ -7,8 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{DateTime, TimeZone, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_core::models::groups::{
     CoachingGroup, GroupChatConnection, GroupDigestMode, GroupRespondMode,
 };
@@ -17,27 +16,37 @@ use pierre_core::models::TenantId;
 use pierre_groups::strategies::tier::tier_enables_digest;
 use pierre_routes_groups::group_digest_scheduler::{digest_room, plurality_locale, DigestRoom};
 use pierre_routes_groups::group_digest_slot::{due_week, group_zone};
+use std::sync::LazyLock;
+
+use dravr_tronc::dates::{CivilDate, CivilDateTime};
 use uuid::Uuid;
 
-const TORONTO: Tz = Tz::America__Toronto;
-const PARIS: Tz = Tz::Europe__Paris;
-const AUCKLAND: Tz = Tz::Pacific__Auckland;
+static TORONTO: LazyLock<Zone> = LazyLock::new(|| Zone::from_name("America/Toronto").unwrap());
+static PARIS: LazyLock<Zone> = LazyLock::new(|| Zone::from_name("Europe/Paris").unwrap());
+static AUCKLAND: LazyLock<Zone> = LazyLock::new(|| Zone::from_name("Pacific/Auckland").unwrap());
 
-fn utc(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(y, mo, d, h, mi, 0).unwrap()
+fn utc(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> Timestamp {
+    CivilDate::from_ymd(y, mo, d)
+        .and_then(|date| date.and_hms(h, mi, 0))
+        .and_then(CivilDateTime::and_utc)
+        .unwrap()
 }
 
 /// A group that has existed for years, so every week's slot is owed.
-fn long_ago() -> DateTime<Utc> {
+fn long_ago() -> Timestamp {
     utc(2020, 1, 1, 0, 0)
 }
 
 /// A wall-clock time in `zone`, as the UTC instant a tick would see.
-fn local(zone: Tz, y: i32, mo: u32, d: u32, h: u32, mi: u32) -> DateTime<Utc> {
-    zone.with_ymd_and_hms(y, mo, d, h, mi, 0)
-        .single()
-        .unwrap()
-        .with_timezone(&Utc)
+fn local(zone: &Zone, y: i32, mo: u32, d: u32, h: u32, mi: u32) -> Timestamp {
+    zone.resolve(
+        CivilDate::from_ymd(y, mo, d)
+            .unwrap()
+            .and_hms(h, mi, 0)
+            .unwrap(),
+    )
+    .single()
+    .unwrap()
 }
 
 #[test]
@@ -54,26 +63,26 @@ fn weekly_digest_eligibility_follows_the_tier_flag() {
 /// Monday 2026-09-28 in Montreal: the slot opens at 08:00 and shuts at 20:00.
 #[test]
 fn the_slot_opens_at_eight_on_monday_and_shuts_at_twenty() {
-    let zone = Some(TORONTO);
+    let zone = Some(&*TORONTO);
     assert_eq!(
-        due_week(local(TORONTO, 2026, 9, 28, 7, 59), zone, long_ago()),
+        due_week(local(&TORONTO, 2026, 9, 28, 7, 59), zone, long_ago()),
         None
     );
     assert_eq!(
-        due_week(local(TORONTO, 2026, 9, 28, 8, 0), zone, long_ago()).as_deref(),
+        due_week(local(&TORONTO, 2026, 9, 28, 8, 0), zone, long_ago()).as_deref(),
         Some("2026-W40")
     );
     assert_eq!(
-        due_week(local(TORONTO, 2026, 9, 28, 19, 59), zone, long_ago()).as_deref(),
+        due_week(local(&TORONTO, 2026, 9, 28, 19, 59), zone, long_ago()).as_deref(),
         Some("2026-W40")
     );
     assert_eq!(
-        due_week(local(TORONTO, 2026, 9, 28, 20, 0), zone, long_ago()),
+        due_week(local(&TORONTO, 2026, 9, 28, 20, 0), zone, long_ago()),
         None
     );
     // The 01:39 send that motivated the slot is refused outright.
     assert_eq!(
-        due_week(local(TORONTO, 2026, 9, 29, 1, 39), zone, long_ago()),
+        due_week(local(&TORONTO, 2026, 9, 29, 1, 39), zone, long_ago()),
         None
     );
 }
@@ -82,19 +91,19 @@ fn the_slot_opens_at_eight_on_monday_and_shuts_at_twenty() {
 /// and every day of the week answers that same week.
 #[test]
 fn a_missed_monday_is_caught_up_the_same_week() {
-    let zone = Some(TORONTO);
+    let zone = Some(&*TORONTO);
     assert_eq!(
-        due_week(local(TORONTO, 2026, 9, 29, 10, 0), zone, long_ago()).as_deref(),
+        due_week(local(&TORONTO, 2026, 9, 29, 10, 0), zone, long_ago()).as_deref(),
         Some("2026-W40"),
         "Tuesday 10:00 catches up the week"
     );
     assert_eq!(
-        due_week(local(TORONTO, 2026, 10, 4, 10, 0), zone, long_ago()).as_deref(),
+        due_week(local(&TORONTO, 2026, 10, 4, 10, 0), zone, long_ago()).as_deref(),
         Some("2026-W40"),
         "Sunday belongs to the week of the Monday before it"
     );
     assert_eq!(
-        due_week(local(TORONTO, 2026, 10, 5, 8, 0), zone, long_ago()).as_deref(),
+        due_week(local(&TORONTO, 2026, 10, 5, 8, 0), zone, long_ago()).as_deref(),
         Some("2026-W41"),
         "the next Monday opens the next week"
     );
@@ -103,7 +112,7 @@ fn a_missed_monday_is_caught_up_the_same_week() {
 /// The slot follows the zone's clock across a DST change, not a fixed offset.
 #[test]
 fn the_slot_follows_daylight_saving_time() {
-    let zone = Some(TORONTO);
+    let zone = Some(&*TORONTO);
     // Autumn: EDT (UTC-4) the Monday before, EST (UTC-5) the Monday after the
     // 2026-11-01 change.
     assert_eq!(
@@ -143,23 +152,23 @@ fn the_slot_follows_daylight_saving_time() {
 #[test]
 fn each_zone_reads_its_own_clock_and_calendar() {
     // Monday 08:00 in Paris is 02:00 in Montreal.
-    let paris_morning = local(PARIS, 2026, 9, 28, 8, 0);
+    let paris_morning = local(&PARIS, 2026, 9, 28, 8, 0);
     assert_eq!(
-        due_week(paris_morning, Some(PARIS), long_ago()).as_deref(),
+        due_week(paris_morning, Some(&*PARIS), long_ago()).as_deref(),
         Some("2026-W40")
     );
-    assert_eq!(due_week(paris_morning, Some(TORONTO), long_ago()), None);
+    assert_eq!(due_week(paris_morning, Some(&*TORONTO), long_ago()), None);
 
     // Monday 08:00 in Auckland is still Sunday afternoon in Montreal: both are
     // in the slot, each in its own week.
-    let auckland_monday = local(AUCKLAND, 2026, 10, 5, 8, 0);
+    let auckland_monday = local(&AUCKLAND, 2026, 10, 5, 8, 0);
     assert_eq!(auckland_monday, utc(2026, 10, 4, 19, 0));
     assert_eq!(
-        due_week(auckland_monday, Some(AUCKLAND), long_ago()).as_deref(),
+        due_week(auckland_monday, Some(&*AUCKLAND), long_ago()).as_deref(),
         Some("2026-W41")
     );
     assert_eq!(
-        due_week(auckland_monday, Some(TORONTO), long_ago()).as_deref(),
+        due_week(auckland_monday, Some(&*TORONTO), long_ago()).as_deref(),
         Some("2026-W40")
     );
 }
@@ -191,22 +200,22 @@ fn the_group_zone_is_the_owners_then_the_coachs_then_the_members() {
     ];
     assert_eq!(
         group_zone(Some("America/Toronto"), Some("Europe/Paris"), members),
-        Some(TORONTO),
+        Some(TORONTO.clone()),
         "the owner's zone wins"
     );
     assert_eq!(
         group_zone(Some("Mars/Olympus"), Some("Europe/Paris"), members),
-        Some(PARIS),
+        Some(PARIS.clone()),
         "an owner zone that does not parse is passed over for the coach's"
     );
     assert_eq!(
         group_zone(None, None, members),
-        Some(PARIS),
+        Some(PARIS.clone()),
         "else the zone most members share"
     );
     assert_eq!(
         group_zone(None, None, [Some("America/Toronto"), Some("Europe/Paris")]),
-        Some(TORONTO),
+        Some(TORONTO.clone()),
         "the earliest-joined among equals"
     );
     assert_eq!(
@@ -263,8 +272,8 @@ fn group_in_mode(
         channel_type: channel_type.map(str::to_owned),
         channel_chat_id: chat_id.map(str::to_owned),
         chat_connection: None,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -310,7 +319,7 @@ fn a_connected_chat_is_posted_into_through_the_bot_that_serves_it() {
     connected.chat_connection = Some(GroupChatConnection {
         channel_tenant_id: bot_tenant,
         chat_title: Some("Les Rouleurs".to_owned()),
-        connected_at: Utc::now(),
+        connected_at: Timestamp::now(),
     });
     assert_eq!(
         digest_room(&connected).map(|room| room.tenant_id),
@@ -359,8 +368,8 @@ fn the_digest_mode_defaults_to_off_and_parses_its_three_values() {
         "is_active": true,
         "channel_type": "telegram",
         "channel_chat_id": "-1",
-        "created_at": Utc::now(),
-        "updated_at": Utc::now(),
+        "created_at": Timestamp::now(),
+        "updated_at": Timestamp::now(),
     }))
     .unwrap();
     assert_eq!(legacy.digest_mode, GroupDigestMode::Off);
@@ -373,29 +382,29 @@ fn the_digest_mode_defaults_to_off_and_parses_its_three_values() {
 /// later in the week if the Monday tick never ran.
 #[test]
 fn a_week_is_owed_only_when_its_monday_slot_came_after_the_group() {
-    let zone = Some(TORONTO);
-    let thursday_bind = local(TORONTO, 2026, 10, 1, 10, 0);
+    let zone = Some(&*TORONTO);
+    let thursday_bind = local(&TORONTO, 2026, 10, 1, 10, 0);
     assert_eq!(
-        due_week(local(TORONTO, 2026, 10, 1, 10, 15), zone, thursday_bind),
+        due_week(local(&TORONTO, 2026, 10, 1, 10, 15), zone, thursday_bind),
         None,
         "the week the group joined"
     );
     assert_eq!(
-        due_week(local(TORONTO, 2026, 10, 5, 8, 0), zone, thursday_bind).as_deref(),
+        due_week(local(&TORONTO, 2026, 10, 5, 8, 0), zone, thursday_bind).as_deref(),
         Some("2026-W41"),
         "the next Monday"
     );
 
-    let sunday_bind = local(TORONTO, 2026, 9, 27, 18, 0);
+    let sunday_bind = local(&TORONTO, 2026, 9, 27, 18, 0);
     assert_eq!(
-        due_week(local(TORONTO, 2026, 9, 30, 11, 0), zone, sunday_bind).as_deref(),
+        due_week(local(&TORONTO, 2026, 9, 30, 11, 0), zone, sunday_bind).as_deref(),
         Some("2026-W40"),
         "created before Monday's slot: Wednesday catches it up"
     );
 
-    let monday_after_slot = local(TORONTO, 2026, 9, 28, 9, 30);
+    let monday_after_slot = local(&TORONTO, 2026, 9, 28, 9, 30);
     assert_eq!(
-        due_week(local(TORONTO, 2026, 9, 28, 9, 45), zone, monday_after_slot),
+        due_week(local(&TORONTO, 2026, 9, 28, 9, 45), zone, monday_after_slot),
         None,
         "created on Monday after 08:00"
     );

@@ -26,7 +26,7 @@ use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 
 use axum::{extract::State, Extension, Json};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{error, info, warn};
@@ -195,7 +195,7 @@ async fn mint_sign_in_url(
 
     let tokens = &context.repos.website_sign_in_tokens;
     let sent = tokens
-        .count_recent_tokens(user.id, Utc::now() - Duration::hours(1))
+        .count_recent_tokens(user.id, Timestamp::now() - Elapsed::hours(1))
         .await?;
     if sent >= SIGN_IN_LINKS_PER_HOUR {
         warn!(user_id = %user.id, sent, "Website sign-in link: hourly send budget spent");

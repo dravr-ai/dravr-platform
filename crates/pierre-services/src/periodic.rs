@@ -39,7 +39,7 @@ use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt as _;
 use pierre_core::errors::AppResult;
@@ -246,5 +246,5 @@ async fn wait_until_due(
 }
 
 fn now_ms() -> i64 {
-    Utc::now().timestamp_millis()
+    Timestamp::now().epoch_millis()
 }

@@ -58,7 +58,7 @@ pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-mcp-schema = { version = "0.3.0", path = "../pierre-mcp-schema" }
 pierre-tools-core = { version = "0.3.0", path = "../pierre-tools-core" }
-dravr-tronc = { workspace = true }
+dravr-tronc = { workspace = true, features = ["zones", "schemars1"] }
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 # The delegated-connection chokepoint a linked read ends a link through when it no longer reads.
@@ -77,18 +77,14 @@ dravr-riviere = { workspace = true }
 
 async-trait = "0.1"
 bitflags = { version = "2.13", features = ["serde"] }
-chrono = { version = "0.4", features = ["serde"] }
-# The athlete's zone get_segment_history reads its window and years on
-# (pierre_core::civil_time::resolve_zone); the version pierre-core pins.
-chrono-tz = "0.10"
 futures-util = "0.3"
 lru = "0.18.5"
 secrecy = { workspace = true }
 num-traits = "0.2"
 regex = "1.13"
-# chrono04: sleep answers carry DateTime<Utc>, which the schema states as
-# a date-time string rather than an opaque one.
-schemars = { version = "1.2", features = ["chrono04", "uuid1"] }
+# uuid1 for the ids answers carry; their dates bring their own schemas
+# (dravr-tronc's schemars1, a date-time string rather than an opaque one).
+schemars = { version = "1.2", features = ["uuid1"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # The chat catalogue's digest: two turns whose tool blocks differ cannot share

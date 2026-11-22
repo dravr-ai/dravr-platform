@@ -18,7 +18,7 @@
 //! before they reach a caller, so their first and last points sit past the
 //! privacy radius.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, RouteGeometrySource, SportType, TenantId};
 use pierre_database::repositories::{CachedActivityRow, StoredRouteOutcome, StoredRouteTrack};
@@ -42,7 +42,7 @@ pub enum StoredTrack {
         /// it, `unavailable` when it did not.
         reason: String,
         /// When the answer is read again; `None` when it stands.
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     },
 }
 
@@ -94,7 +94,7 @@ pub struct RouteRead<'read> {
     /// slug of why there is none.
     pub outcome: Result<&'read RouteTrack, &'read str>,
     /// When the stored answer is read again; `None` when it stands.
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
 }
 
 /// A read's track as a Home map draws it and the store keeps it: simplified
@@ -256,7 +256,7 @@ pub(crate) fn records_outdoor_route(activity: &Activity) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{Duration, TimeZone};
+    use dravr_tronc::dates::Elapsed;
     use pierre_core::models::{ActivityBuilder, TimeSeriesData, User};
     use pierre_database::backends::factory::Database;
     use pierre_database::repositories::{ActivityStreamsWrite, StoredRouteTrack, StreamOrigin};
@@ -348,7 +348,7 @@ mod tests {
                     origin: StreamOrigin::Push,
                     source_ref: None,
                     streams: &streams,
-                    synced_at: Utc::now(),
+                    synced_at: Timestamp::now(),
                 })
                 .await
                 .unwrap();
@@ -367,7 +367,7 @@ mod tests {
         polyline: bool,
         route: Option<StoredRouteOutcome>,
     ) -> CachedActivityRow {
-        let start = Utc.with_ymd_and_hms(2026, 6, 1, 8, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-06-01T08:00:00Z").unwrap();
         let builder = ActivityBuilder::new(id, "Ride", sport, start, 3_600, "garmin");
         let builder = if polyline {
             builder.summary_polyline(encode_polyline(&line(POLYLINE.0, POLYLINE.1)))
@@ -563,7 +563,7 @@ mod tests {
         let unavailable = RouteRead {
             source: RouteGeometrySource::Streams,
             outcome: Err("unavailable"),
-            expires_at: Some(Utc::now() + Duration::minutes(10)),
+            expires_at: Some(Timestamp::now() + Elapsed::minutes(10)),
         };
         store_route_read(
             world.repos(),

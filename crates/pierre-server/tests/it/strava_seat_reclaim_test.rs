@@ -30,7 +30,7 @@ mod strava_seat_reclaim_tests {
     use std::time::Duration as StdDuration;
 
     use async_trait::async_trait;
-    use chrono::{DateTime, Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
     use pierre_auth::auth::DelegatedGrant;
     use pierre_config::admin_types::{
@@ -108,7 +108,7 @@ mod strava_seat_reclaim_tests {
                     let n = stream.read(&mut buf).await.unwrap_or(0);
                     let first = bump.lock().unwrap().take();
                     if let Some((resources, athlete)) = first {
-                        set_last_active(&resources, athlete, Utc::now()).await;
+                        set_last_active(&resources, athlete, Timestamp::now()).await;
                     }
                     if tx
                         .send(String::from_utf8_lossy(&buf[..n]).into_owned())
@@ -250,8 +250,8 @@ mod strava_seat_reclaim_tests {
     async fn seed_user(
         repos: &RepositoryRegistry,
         label: &str,
-        t0: DateTime<Utc>,
-        idle: Duration,
+        t0: Timestamp,
+        idle: Elapsed,
         locale: &str,
     ) -> Holder {
         let mut user = User::new(
@@ -288,7 +288,7 @@ mod strava_seat_reclaim_tests {
         resources: &ServerContext,
         holder: Holder,
         app: Option<&str>,
-        connected_at: DateTime<Utc>,
+        connected_at: Timestamp,
     ) {
         let repos = &resources.common.repos;
         repos
@@ -312,12 +312,12 @@ mod strava_seat_reclaim_tests {
                 access_token: SecretString::from("seat-reclaim-access-do-not-log"),
                 refresh_token: Some(SecretString::from(REFRESH_TOKEN.to_owned())),
                 token_type: "Bearer".to_owned(),
-                expires_at: Some(Utc::now() + Duration::hours(6)),
+                expires_at: Some(Timestamp::now() + Elapsed::hours(6)),
                 scope: Some("read,activity:read_all".to_owned()),
                 provider_user_id: None,
                 oauth_app_client_id: app.map(str::to_owned),
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
             })
             .await
             .unwrap();
@@ -325,13 +325,13 @@ mod strava_seat_reclaim_tests {
     }
 
     /// Idle `days` whole days and an hour, so no pass lands on a day boundary.
-    fn idle(days: i64) -> Duration {
-        Duration::days(days) + Duration::hours(1)
+    fn idle(days: i64) -> Elapsed {
+        Elapsed::days(days) + Elapsed::hours(1)
     }
 
     /// When every seeded athlete connected: long before any of them went idle.
-    fn long_ago(t0: DateTime<Utc>) -> DateTime<Utc> {
-        t0 - Duration::days(365)
+    fn long_ago(t0: Timestamp) -> Timestamp {
+        t0 - Elapsed::days(365)
     }
 
     /// An English-speaking Strava seat holder on the env app, last active
@@ -339,7 +339,7 @@ mod strava_seat_reclaim_tests {
     async fn holder(
         resources: &ServerContext,
         label: &str,
-        t0: DateTime<Utc>,
+        t0: Timestamp,
         idle_days: i64,
     ) -> Holder {
         holder_on(resources, label, t0, idle_days, None).await
@@ -350,7 +350,7 @@ mod strava_seat_reclaim_tests {
     async fn holder_on(
         resources: &ServerContext,
         label: &str,
-        t0: DateTime<Utc>,
+        t0: Timestamp,
         idle_days: i64,
         app: Option<&str>,
     ) -> Holder {
@@ -495,7 +495,7 @@ mod strava_seat_reclaim_tests {
             .get_seat_reclaim_warning(holder.user_id, holder.tenant_id)
             .await
             .unwrap()
-            .map(|w| (w.warned_at.timestamp_millis(), w.reached))
+            .map(|w| (w.warned_at.epoch_millis(), w.reached))
     }
 
     async fn holds_strava_token(resources: &ServerContext, holder: Holder) -> bool {
@@ -528,7 +528,7 @@ mod strava_seat_reclaim_tests {
     }
 
     /// Move an athlete's `users.last_active`, as a login or a message would.
-    async fn set_last_active(resources: &ServerContext, holder: Holder, at: DateTime<Utc>) {
+    async fn set_last_active(resources: &ServerContext, holder: Holder, at: Timestamp) {
         const SQL: &str = "UPDATE users SET last_active = $1 WHERE id = $2";
         match resources.agent.database.backend() {
             DatabaseBackend::SQLite(db) => {
@@ -553,7 +553,7 @@ mod strava_seat_reclaim_tests {
 
     /// Set when the athlete's Strava connection was made. Both engines store
     /// this table's ids as text.
-    async fn set_connected_at(resources: &ServerContext, holder: Holder, at: DateTime<Utc>) {
+    async fn set_connected_at(resources: &ServerContext, holder: Holder, at: Timestamp) {
         const SQL: &str = "UPDATE provider_connections SET connected_at = $1 \
                            WHERE user_id = $2 AND tenant_id = $3 AND provider = 'strava'";
         let user_id = holder.user_id.to_string();
@@ -590,7 +590,7 @@ mod strava_seat_reclaim_tests {
         let mut stub = RevokeStub::start().await;
         let resources = resources(&stub.url).await;
         observe(&resources).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
         let long_gone = holder(&resources, "long-gone", t0, 30).await;
         let gone = holder(&resources, "gone", t0, 20).await;
         let fading = holder(&resources, "fading", t0, 8).await;
@@ -680,7 +680,7 @@ mod strava_seat_reclaim_tests {
         let mut stub = RevokeStub::start().await;
         let resources = resources(&stub.url).await;
         enforce(&resources).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
         let first = holder(&resources, "first", t0, 30).await;
         let second = holder(&resources, "second", t0, 20).await;
         holder(&resources, "busy-a", t0, 1).await;
@@ -693,7 +693,7 @@ mod strava_seat_reclaim_tests {
         assert!(pass.reclaimed.is_empty(), "nobody is reclaimed unwarned");
         assert_eq!(
             warning_of(&resources, first).await,
-            Some((t0.timestamp_millis(), true)),
+            Some((t0.epoch_millis(), true)),
             "recorded as reached: it went out on the athlete's linked channel"
         );
         assert_eq!(
@@ -720,7 +720,7 @@ mod strava_seat_reclaim_tests {
 
         // An hour on, the lead is still running: the first waits, and the
         // second is warned because the shortfall is two seats.
-        let pass = sweeper.tick(t0 + Duration::hours(1)).await.unwrap();
+        let pass = sweeper.tick(t0 + Elapsed::hours(1)).await.unwrap();
         assert_eq!(action_of(&pass, first), Some(ReclaimAction::AwaitLead));
         assert_eq!(warned_users(&pass), vec![second.user_id]);
         assert_eq!(pass.reclaimed, []);
@@ -738,7 +738,7 @@ mod strava_seat_reclaim_tests {
         // Past the first one's lead: reclaimed, one per pass.
         let (events, guard) = capture_notify();
         let pass = sweeper
-            .tick(t0 + Duration::days(3) + Duration::minutes(30))
+            .tick(t0 + Elapsed::days(3) + Elapsed::minutes(30))
             .await
             .unwrap();
         drop(guard);
@@ -764,7 +764,7 @@ mod strava_seat_reclaim_tests {
         // One seat is free now, so one more is needed: the second goes once
         // its own lead is over, and then the pool is back at min_free_seats.
         let pass = sweeper
-            .tick(t0 + Duration::days(3) + Duration::hours(2))
+            .tick(t0 + Elapsed::days(3) + Elapsed::hours(2))
             .await
             .unwrap();
         assert_eq!(pass.free_seats, 1);
@@ -772,7 +772,7 @@ mod strava_seat_reclaim_tests {
         assert!(!holds_strava_token(&resources, second).await);
 
         let pass = sweeper
-            .tick(t0 + Duration::days(3) + Duration::hours(3))
+            .tick(t0 + Elapsed::days(3) + Elapsed::hours(3))
             .await
             .unwrap();
         assert_eq!(pass.free_seats, 2);
@@ -796,10 +796,10 @@ mod strava_seat_reclaim_tests {
         let mut stub = RevokeStub::start().await;
         let resources = resources(&stub.url).await;
         enforce(&resources).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
         let returning = holder(&resources, "returning", t0, 30).await;
         let back_for_good = holder(&resources, "back-for-good", t0, 25).await;
-        let pass_at = t0 + Duration::days(8) + Duration::hours(2);
+        let pass_at = t0 + Elapsed::days(8) + Elapsed::hours(2);
         for label in ["busy-a", "busy-b"] {
             let busy = holder(&resources, label, t0, 0).await;
             set_last_active(&resources, busy, pass_at).await;
@@ -811,12 +811,12 @@ mod strava_seat_reclaim_tests {
             vec![returning.user_id]
         );
         assert_eq!(
-            warned_users(&sweeper.tick(t0 + Duration::hours(1)).await.unwrap()),
+            warned_users(&sweeper.tick(t0 + Elapsed::hours(1)).await.unwrap()),
             vec![back_for_good.user_id]
         );
         // Each comes back once, right after being warned, then goes quiet
         // again; only the second stays active up to the pass.
-        set_last_active(&resources, returning, t0 + Duration::hours(1)).await;
+        set_last_active(&resources, returning, t0 + Elapsed::hours(1)).await;
         set_last_active(&resources, back_for_good, pass_at).await;
 
         let pass = sweeper.tick(pass_at).await.unwrap();
@@ -834,7 +834,7 @@ mod strava_seat_reclaim_tests {
         );
         assert_eq!(
             warning_of(&resources, returning).await,
-            Some((pass_at.timestamp_millis(), true))
+            Some((pass_at.epoch_millis(), true))
         );
         assert_eq!(notifications_of(&resources, returning).await.len(), 2);
         for kept in [returning, back_for_good] {
@@ -855,7 +855,7 @@ mod strava_seat_reclaim_tests {
     async fn mcp_connector_and_api_key_requests_count_as_activity() {
         let stub = RevokeStub::start().await;
         let resources = resources(&stub.url).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
         let connector = holder(&resources, "connector", t0, 30).await;
         let api_client = holder(&resources, "api-client", t0, 30).await;
         let idle_one = holder(&resources, "idle", t0, 30).await;
@@ -912,7 +912,7 @@ mod strava_seat_reclaim_tests {
             .unwrap();
         assert_eq!(by_key.user_id, api_client.user_id);
 
-        let report = reclaimer(&resources).tick(Utc::now()).await.unwrap();
+        let report = reclaimer(&resources).tick(Timestamp::now()).await.unwrap();
         let candidates: Vec<Uuid> = report.candidates.iter().map(|c| c.user_id).collect();
         assert_eq!(
             candidates,
@@ -933,7 +933,7 @@ mod strava_seat_reclaim_tests {
                 .unwrap()
                 .last_active;
             assert!(
-                Utc::now() - seen < Duration::minutes(1),
+                Timestamp::now() - seen < Elapsed::minutes(1),
                 "a request with {via} moved last_active to now, not {seen}"
             );
         }
@@ -952,7 +952,7 @@ mod strava_seat_reclaim_tests {
         let resources = resources(&stub.url).await;
         let repos = &resources.common.repos;
         enforce(&resources).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
         repos
             .oauth_tokens
             .upsert_strava_pool_app(DISABLED, "disabled-secret-with-thirty-chars", 3, None)
@@ -1024,17 +1024,17 @@ mod strava_seat_reclaim_tests {
         assert_eq!(warned_users(&pass), vec![env_idle.user_id]);
 
         for hour in 1..=3 {
-            let pass = sweeper.tick(t0 + Duration::hours(hour)).await.unwrap();
+            let pass = sweeper.tick(t0 + Elapsed::hours(hour)).await.unwrap();
             assert!(
                 pass.warned.is_empty(),
                 "no one else's disconnect would free a seat"
             );
         }
-        let pass = sweeper.tick(t0 + Duration::days(4)).await.unwrap();
+        let pass = sweeper.tick(t0 + Elapsed::days(4)).await.unwrap();
         assert_eq!(reclaimed_users(&pass), vec![env_idle.user_id]);
         assert_eq!(pass.free_seats, 0, "counted before the pass's own reclaim");
         let pass = sweeper
-            .tick(t0 + Duration::days(4) + Duration::hours(1))
+            .tick(t0 + Elapsed::days(4) + Elapsed::hours(1))
             .await
             .unwrap();
         assert_eq!(pass.free_seats, 1, "the reclaim freed a counted seat");
@@ -1063,7 +1063,7 @@ mod strava_seat_reclaim_tests {
         enforce(&resources).await;
         let admin_id = admin(&resources.common.repos).await;
         set_policy_ok(&resources, &admin_id, &[(keys::MAX_PER_TICK_KEY, json!(2))]).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
         let reconnected = holder(&resources, "reconnected", t0, 30).await;
         let forgotten = holder(&resources, "forgotten", t0, 30).await;
         for label in ["busy-a", "busy-b"] {
@@ -1080,8 +1080,8 @@ mod strava_seat_reclaim_tests {
 
         // The first reconnects a day after the warning, through a path that
         // does not touch last_active.
-        connect_strava(&resources, reconnected, None, t0 + Duration::days(1)).await;
-        let pass = sweeper.tick(t0 + Duration::days(4)).await.unwrap();
+        connect_strava(&resources, reconnected, None, t0 + Elapsed::days(1)).await;
+        let pass = sweeper.tick(t0 + Elapsed::days(4)).await.unwrap();
         assert_eq!(
             reclaimed_users(&pass),
             vec![forgotten.user_id],
@@ -1105,7 +1105,7 @@ mod strava_seat_reclaim_tests {
             &[(keys::MODE_KEY, json!(keys::MODE_OBSERVE))],
         )
         .await;
-        let observed = sweeper.tick(t0 + Duration::days(8)).await.unwrap();
+        let observed = sweeper.tick(t0 + Elapsed::days(8)).await.unwrap();
         assert_eq!(
             action_of(&observed, reconnected),
             Some(ReclaimAction::Reclaim)
@@ -1118,7 +1118,7 @@ mod strava_seat_reclaim_tests {
         )
         .await;
         let stale_at =
-            t0 + Duration::days(4) + Duration::days(keys::DEFAULT_IDLE_DAYS) + Duration::hours(1);
+            t0 + Elapsed::days(4) + Elapsed::days(keys::DEFAULT_IDLE_DAYS) + Elapsed::hours(1);
         let pass = sweeper.tick(stale_at).await.unwrap();
         assert!(
             pass.reclaimed.is_empty(),
@@ -1128,7 +1128,7 @@ mod strava_seat_reclaim_tests {
         assert_eq!(warned_users(&pass), vec![reconnected.user_id]);
         assert_eq!(
             warning_of(&resources, reconnected).await,
-            Some((stale_at.timestamp_millis(), true))
+            Some((stale_at.epoch_millis(), true))
         );
         assert_eq!(notifications_of(&resources, reconnected).await.len(), 3);
         assert!(
@@ -1149,7 +1149,7 @@ mod strava_seat_reclaim_tests {
         enforce(&resources).await;
         let admin_id = admin(&resources.common.repos).await;
         set_policy_ok(&resources, &admin_id, &[(keys::MAX_PER_TICK_KEY, json!(2))]).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
         let gone = holder(&resources, "gone", t0, 40).await;
         let coming_back = holder(&resources, "coming-back", t0, 30).await;
         for label in ["busy-a", "busy-b"] {
@@ -1159,7 +1159,7 @@ mod strava_seat_reclaim_tests {
         let sweeper = reclaimer(&resources);
         assert_eq!(sweeper.tick(t0).await.unwrap().warned.len(), 2);
 
-        let pass = sweeper.tick(t0 + Duration::days(4)).await.unwrap();
+        let pass = sweeper.tick(t0 + Elapsed::days(4)).await.unwrap();
         assert_eq!(action_of(&pass, gone), Some(ReclaimAction::Reclaim));
         assert_eq!(
             action_of(&pass, coming_back),
@@ -1181,7 +1181,7 @@ mod strava_seat_reclaim_tests {
         let resources = resources(&stub.url).await;
         enforce(&resources).await;
         let admin_id = admin(&resources.common.repos).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
         let idlers = [
             holder(&resources, "idle-a", t0, 40).await,
             holder(&resources, "idle-b", t0, 30).await,
@@ -1221,7 +1221,7 @@ mod strava_seat_reclaim_tests {
             vec![idlers[0].user_id, idlers[1].user_id],
             "two per pass, longest idle first"
         );
-        let pass = sweeper.tick(t0 + Duration::hours(1)).await.unwrap();
+        let pass = sweeper.tick(t0 + Elapsed::hours(1)).await.unwrap();
         assert_eq!(
             warned_users(&pass),
             vec![idlers[2].user_id],
@@ -1229,14 +1229,14 @@ mod strava_seat_reclaim_tests {
         );
         assert!(notifications_of(&resources, idlers[3]).await.is_empty());
 
-        let pass = sweeper.tick(t0 + Duration::days(4)).await.unwrap();
+        let pass = sweeper.tick(t0 + Elapsed::days(4)).await.unwrap();
         assert_eq!(
             reclaimed_users(&pass),
             vec![idlers[0].user_id, idlers[1].user_id],
             "max_per_tick disconnects"
         );
         let pass = sweeper
-            .tick(t0 + Duration::days(4) + Duration::hours(1))
+            .tick(t0 + Elapsed::days(4) + Elapsed::hours(1))
             .await
             .unwrap();
         assert_eq!(reclaimed_users(&pass), vec![idlers[2].user_id]);
@@ -1244,7 +1244,7 @@ mod strava_seat_reclaim_tests {
         assert!(holds_strava_token(&resources, idlers[3]).await);
 
         let pass = sweeper
-            .tick(t0 + Duration::days(4) + Duration::hours(2))
+            .tick(t0 + Elapsed::days(4) + Elapsed::hours(2))
             .await
             .unwrap();
         assert_eq!(pass.free_seats, 3);
@@ -1260,7 +1260,7 @@ mod strava_seat_reclaim_tests {
         let resources = resources(&stub.url).await;
         let repos = &resources.common.repos;
         enforce(&resources).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
 
         let byo = holder(&resources, "byo", t0, 90).await;
         repos
@@ -1282,7 +1282,7 @@ mod strava_seat_reclaim_tests {
                 dead.tenant_id,
                 "strava",
                 Some("invalid_grant"),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -1298,7 +1298,7 @@ mod strava_seat_reclaim_tests {
         assert_eq!(candidates, vec![idler.user_id]);
         assert_eq!(warned_users(&pass), vec![idler.user_id]);
 
-        let pass = sweeper.tick(t0 + Duration::days(4)).await.unwrap();
+        let pass = sweeper.tick(t0 + Elapsed::days(4)).await.unwrap();
         assert_eq!(reclaimed_users(&pass), vec![idler.user_id]);
         assert_eq!(stub.received().len(), 1);
         for untouched in [byo, dead] {
@@ -1319,7 +1319,7 @@ mod strava_seat_reclaim_tests {
         let mut stub = RevokeStub::start().await;
         let resources = resources(&stub.url).await;
         enforce(&resources).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
         let web_only = holder(&resources, "web-only", t0, 30).await;
         let next = holder(&resources, "next", t0, 20).await;
         for label in ["busy-a", "busy-b"] {
@@ -1333,11 +1333,11 @@ mod strava_seat_reclaim_tests {
         assert_eq!(unreached, vec![web_only.user_id]);
         assert_eq!(
             warning_of(&resources, web_only).await,
-            Some((t0.timestamp_millis(), false))
+            Some((t0.epoch_millis(), false))
         );
         assert_eq!(notifications_of(&resources, web_only).await.len(), 1);
 
-        let pass = sweeper.tick(t0 + Duration::hours(1)).await.unwrap();
+        let pass = sweeper.tick(t0 + Elapsed::hours(1)).await.unwrap();
         assert_eq!(action_of(&pass, web_only), Some(ReclaimAction::Unreached));
         let unreached: Vec<Uuid> = pass.warned_unreached.iter().map(|(u, _)| *u).collect();
         assert_eq!(
@@ -1346,7 +1346,7 @@ mod strava_seat_reclaim_tests {
             "an unreached warning frees no seat to count on, so the next athlete is warned"
         );
 
-        let pass = sweeper.tick(t0 + Duration::days(4)).await.unwrap();
+        let pass = sweeper.tick(t0 + Elapsed::days(4)).await.unwrap();
         assert_eq!(action_of(&pass, web_only), Some(ReclaimAction::Unreached));
         assert_eq!(action_of(&pass, next), Some(ReclaimAction::Unreached));
         assert_eq!(pass.reclaimed, []);
@@ -1371,7 +1371,7 @@ mod strava_seat_reclaim_tests {
         let mut stub = RevokeStub::start().await;
         let resources = resources(&stub.url).await;
         enforce(&resources).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
         let muted = holder(&resources, "muted", t0, 30).await;
         for label in ["busy-a", "busy-b", "busy-c"] {
             holder(&resources, label, t0, 0).await;
@@ -1395,7 +1395,7 @@ mod strava_seat_reclaim_tests {
         let sweeper = reclaimer_with(&resources, Some(Arc::clone(&notifications)));
 
         for hours in [0, 1, 96] {
-            let pass = sweeper.tick(t0 + Duration::hours(hours)).await.unwrap();
+            let pass = sweeper.tick(t0 + Elapsed::hours(hours)).await.unwrap();
             assert_eq!(action_of(&pass, muted), Some(ReclaimAction::Warn));
             assert!(pass.warned.is_empty() && pass.warned_unreached.is_empty());
             assert_eq!(pass.reclaimed, []);
@@ -1413,12 +1413,12 @@ mod strava_seat_reclaim_tests {
             .upsert_notification_preference(&preference(true))
             .await
             .unwrap();
-        let resumed_at = t0 + Duration::hours(97);
+        let resumed_at = t0 + Elapsed::hours(97);
         let pass = sweeper.tick(resumed_at).await.unwrap();
         assert_eq!(warned_users(&pass), vec![muted.user_id]);
         assert_eq!(
             warning_of(&resources, muted).await,
-            Some((resumed_at.timestamp_millis(), true))
+            Some((resumed_at.epoch_millis(), true))
         );
     }
 
@@ -1430,7 +1430,7 @@ mod strava_seat_reclaim_tests {
         let stub = RevokeStub::start().await;
         let resources = resources(&stub.url).await;
         let admin_id = admin(&resources.common.repos).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
         let nine_days = holder(&resources, "nine-days", t0, 9).await;
         let sweeper = reclaimer(&resources);
 
@@ -1592,7 +1592,7 @@ mod strava_seat_reclaim_tests {
             ),
             "{error}"
         );
-        let pass = sweeper.tick(Utc::now()).await.unwrap();
+        let pass = sweeper.tick(Timestamp::now()).await.unwrap();
         assert_eq!(
             (pass.policy.idle_days, pass.policy.warn_lead_days),
             (30, 20),
@@ -1611,7 +1611,7 @@ mod strava_seat_reclaim_tests {
             response.reset_keys,
             vec![keys::WARN_LEAD_DAYS_KEY.to_owned()]
         );
-        let pass = sweeper.tick(Utc::now()).await.unwrap();
+        let pass = sweeper.tick(Timestamp::now()).await.unwrap();
         assert_eq!((pass.policy.idle_days, pass.policy.warn_lead_days), (30, 3));
 
         set_policy_ok(
@@ -1625,7 +1625,7 @@ mod strava_seat_reclaim_tests {
             .await
             .unwrap();
         assert_eq!(response.reset_count, 2);
-        let pass = sweeper.tick(Utc::now()).await.unwrap();
+        let pass = sweeper.tick(Timestamp::now()).await.unwrap();
         assert_eq!(
             (pass.policy.idle_days, pass.policy.warn_lead_days),
             (keys::DEFAULT_IDLE_DAYS, keys::DEFAULT_WARN_LEAD_DAYS)
@@ -1642,7 +1642,13 @@ mod strava_seat_reclaim_tests {
         let stub = RevokeStub::start().await;
         let resources = resources(&stub.url).await;
         let sweeper = reclaimer(&resources);
-        let refusal = || async { sweeper.tick(Utc::now()).await.unwrap_err().to_string() };
+        let refusal = || async {
+            sweeper
+                .tick(Timestamp::now())
+                .await
+                .unwrap_err()
+                .to_string()
+        };
 
         hand_edit(
             &resources,
@@ -1725,7 +1731,7 @@ mod strava_seat_reclaim_tests {
         )
         .await;
         assert_eq!(
-            sweeper.tick(Utc::now()).await.unwrap().policy.mode,
+            sweeper.tick(Timestamp::now()).await.unwrap().policy.mode,
             ReclaimMode::Observe,
             "every value back in range, the pass runs"
         );
@@ -1738,7 +1744,7 @@ mod strava_seat_reclaim_tests {
         let stub = RevokeStub::start().await;
         let resources = resources(&stub.url).await;
         enforce(&resources).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
         let french = seed_user(&resources.common.repos, "francais", t0, idle(12), "fr").await;
         connect_strava(&resources, french, None, long_ago(t0)).await;
         for label in ["b", "c", "d"] {
@@ -1775,7 +1781,7 @@ mod strava_seat_reclaim_tests {
         let stub = RevokeStub::start().await;
         let resources = resources(&stub.url).await;
         enforce(&resources).await;
-        let t0 = Utc::now();
+        let t0 = Timestamp::now();
         let idle_one = holder(&resources, "idle", t0, 30).await;
         for label in ["busy-a", "busy-b", "busy-c"] {
             holder(&resources, label, t0, 0).await;
@@ -1783,7 +1789,7 @@ mod strava_seat_reclaim_tests {
         let ledger = Arc::clone(&resources.common.repos.worker_runs);
         // Last run a period ago, less two seconds: due two seconds from now.
         let period_ms = i64::try_from(TICK_INTERVAL.as_millis()).unwrap();
-        let seeded_last_run = Utc::now().timestamp_millis() - period_ms + 2_000;
+        let seeded_last_run = Timestamp::now().epoch_millis() - period_ms + 2_000;
         ledger
             .finish_worker_run(WORKER_NAME, seeded_last_run, None)
             .await
@@ -1807,6 +1813,6 @@ mod strava_seat_reclaim_tests {
             .await
             .expect("the pass warned the idle athlete");
         assert!(reached);
-        assert!(warned_at_ms >= t0.timestamp_millis());
+        assert!(warned_at_ms >= t0.epoch_millis());
     }
 }

@@ -12,7 +12,7 @@
 //! `valid_until` stamps a re-run leaves on the facts of the *other* walk.
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_commands::calibration::CalibrateHandler;
 use pierre_commands::season::SeasonHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
@@ -132,7 +132,7 @@ async fn is_live(resources: &Arc<ServerContext>, tenant: TenantId, user: &str, i
         .await
         .expect("facts readable")
         .iter()
-        .any(|f| f.id == id && f.valid_until.is_none_or(|until| until > Utc::now()))
+        .any(|f| f.id == id && f.valid_until.is_none_or(|until| until > Timestamp::now()))
 }
 
 #[tokio::test]
@@ -258,7 +258,7 @@ async fn a_calibration_re_run_leaves_a_season_captured_after_it_alone() -> Resul
     let repos = &resources.common.repos;
 
     // A calibration that ran and completed.
-    let calibration_started = Utc::now().to_rfc3339();
+    let calibration_started = Timestamp::now().to_rfc3339();
     sleep(Duration::from_millis(20)).await;
     let calibration_answer = land(
         &resources,
@@ -270,7 +270,7 @@ async fn a_calibration_re_run_leaves_a_season_captured_after_it_alone() -> Resul
     )
     .await?;
     sleep(Duration::from_millis(20)).await;
-    let calibration_done = Utc::now().to_rfc3339();
+    let calibration_done = Timestamp::now().to_rfc3339();
     let profile = GuidedWindow::record_start(None, GuidedFlow::Calibration, &calibration_started);
     let profile =
         GuidedWindow::record_completion(Some(profile), GuidedFlow::Calibration, &calibration_done);
@@ -311,7 +311,7 @@ async fn a_calibration_re_run_leaves_a_season_captured_after_it_alone() -> Resul
 
     // And the other direction: a season re-run supersedes its own previous
     // window and nothing else.
-    let season_started = Utc::now().to_rfc3339();
+    let season_started = Timestamp::now().to_rfc3339();
     sleep(Duration::from_millis(20)).await;
     let old_best = land(
         &resources,
@@ -323,7 +323,7 @@ async fn a_calibration_re_run_leaves_a_season_captured_after_it_alone() -> Resul
     )
     .await?;
     sleep(Duration::from_millis(20)).await;
-    let season_done = Utc::now().to_rfc3339();
+    let season_done = Timestamp::now().to_rfc3339();
     let profile = repos.profiles.get_profile(user_id).await?;
     let profile = GuidedWindow::record_start(profile, GuidedFlow::Season, &season_started);
     let profile = GuidedWindow::record_completion(Some(profile), GuidedFlow::Season, &season_done);

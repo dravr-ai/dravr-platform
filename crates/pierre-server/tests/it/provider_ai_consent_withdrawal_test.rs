@@ -25,7 +25,7 @@ use crate::helpers;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::constants::oauth::providers::{SCIOTTE_TRAININGPEAKS, WHOOP};
@@ -107,7 +107,7 @@ fn workouts() -> Vec<Activity> {
         "w1",
         WORKOUT,
         SportType::Ride,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3_600,
         WHOOP,
     )
@@ -199,7 +199,7 @@ async fn connect_whoop(resources: &ServerContext) -> (Uuid, User, TenantId) {
         WHOOP.to_owned(),
         "whoop-access".to_owned(),
         Some("whoop-refresh".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         None,
     );
     repos.oauth_tokens.upsert_token(&token).await.unwrap();
@@ -332,8 +332,8 @@ async fn a_withdrawn_ai_consent_stops_the_model_reading_and_leaves_the_connectio
             user_id,
             &tenant,
             Some(WHOOP),
-            Utc::now() - Duration::days(30),
-            Utc::now(),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now(),
             50,
         )
         .await

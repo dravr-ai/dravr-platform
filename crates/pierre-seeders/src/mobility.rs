@@ -21,7 +21,7 @@
 
 use std::collections::HashMap;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::mobility::{
     ActivityMuscleMapping, DifficultyLevel, StretchingCategory, StretchingExercise, YogaCategory,
@@ -796,7 +796,7 @@ const ACTIVITY_MAPPINGS: &[ActivityMappingData] = &[
 /// Returns an error if any repository upsert fails.
 pub async fn run(repos: &RepositoryRegistry) -> AppResult<()> {
     info!("=== Pierre MCP Server Mobility Data Seeder ===");
-    let now = Utc::now();
+    let now = Timestamp::now();
     seed_stretching_exercises(repos, now).await?;
     seed_yoga_poses(repos, now).await?;
     seed_activity_mappings(repos, now).await?;
@@ -814,10 +814,7 @@ fn log_mobility_summary() {
     );
 }
 
-async fn seed_stretching_exercises(
-    repos: &RepositoryRegistry,
-    now: chrono::DateTime<Utc>,
-) -> AppResult<()> {
+async fn seed_stretching_exercises(repos: &RepositoryRegistry, now: Timestamp) -> AppResult<()> {
     info!(
         "Seeding {} stretching exercises...",
         STRETCHING_EXERCISES.len()
@@ -833,7 +830,7 @@ async fn seed_stretching_exercises(
     Ok(())
 }
 
-async fn seed_yoga_poses(repos: &RepositoryRegistry, now: chrono::DateTime<Utc>) -> AppResult<()> {
+async fn seed_yoga_poses(repos: &RepositoryRegistry, now: Timestamp) -> AppResult<()> {
     info!("Seeding {} yoga poses...", YOGA_POSES.len());
     for data in YOGA_POSES {
         let pose = to_yoga_pose(data, now);
@@ -843,10 +840,7 @@ async fn seed_yoga_poses(repos: &RepositoryRegistry, now: chrono::DateTime<Utc>)
     Ok(())
 }
 
-async fn seed_activity_mappings(
-    repos: &RepositoryRegistry,
-    now: chrono::DateTime<Utc>,
-) -> AppResult<()> {
+async fn seed_activity_mappings(repos: &RepositoryRegistry, now: Timestamp) -> AppResult<()> {
     info!(
         "Seeding {} activity-muscle mappings...",
         ACTIVITY_MAPPINGS.len()
@@ -868,7 +862,7 @@ fn to_str_vec(slice: &[&str]) -> Vec<String> {
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn to_stretching_exercise(data: &StretchingData, now: chrono::DateTime<Utc>) -> StretchingExercise {
+fn to_stretching_exercise(data: &StretchingData, now: Timestamp) -> StretchingExercise {
     StretchingExercise {
         id: Uuid::new_v4().to_string(),
         name: data.name.to_owned(),
@@ -892,7 +886,7 @@ fn to_stretching_exercise(data: &StretchingData, now: chrono::DateTime<Utc>) -> 
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn to_yoga_pose(data: &YogaPoseData, now: chrono::DateTime<Utc>) -> YogaPose {
+fn to_yoga_pose(data: &YogaPoseData, now: Timestamp) -> YogaPose {
     YogaPose {
         id: Uuid::new_v4().to_string(),
         english_name: data.english_name.to_owned(),
@@ -923,10 +917,7 @@ fn to_yoga_pose(data: &YogaPoseData, now: chrono::DateTime<Utc>) -> YogaPose {
     }
 }
 
-fn to_activity_mapping(
-    data: &ActivityMappingData,
-    now: chrono::DateTime<Utc>,
-) -> ActivityMuscleMapping {
+fn to_activity_mapping(data: &ActivityMappingData, now: Timestamp) -> ActivityMuscleMapping {
     let primary_muscles: HashMap<String, u8> = data
         .primary_muscles
         .iter()

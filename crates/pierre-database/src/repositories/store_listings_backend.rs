@@ -4,21 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-/// Emit the whole [`StoreListingsRepository`](super::store_listings::StoreListingsRepository)
-/// implementation for one backend type. The body is written once here; each
-/// backend's shell invokes it with its own type, its uuid codec, its agent
-/// row parser and its match operator, and sqlx resolves the driver from
-/// `self.pool()` per expansion. The body names its consts, helpers and types
-/// unqualified, so the invoking shell must `use` every one of them.
-///
-/// `$ids` is the codec in [`super::uuid_columns`] for how that backend's
-/// `users.id`, `agents.user_id` and `agent_assignments.user_id` columns bind.
-/// `$agent_row` is the backend's `agents` row parser. `$like` is the
-/// backend's case-folding text match, spliced into the search: `"ILIKE"` on
-/// Postgres, `"LIKE"` on `SQLite`. `SQLite`'s `LIKE` folds case for ASCII
-/// letters only, so a search for a title with an accented letter is
-/// case-sensitive there and not on Postgres; production runs Postgres, so no
-/// athlete sees the narrower fold.
 macro_rules! impl_store_listings_repository {
     ($ty:ty, $ids:ident, $agent_row:path, $like:literal) => {
         impl $ty {
@@ -138,7 +123,7 @@ macro_rules! impl_store_listings_repository {
                 user_id: Uuid,
                 tenant_id: TenantId,
             ) -> AppResult<StoreListing> {
-                let now = Utc::now();
+                let now = Timestamp::now();
 
                 let agent_row = sqlx::query(OWNED_AGENT_SQL)
                     .bind(agent_id)
@@ -239,7 +224,7 @@ macro_rules! impl_store_listings_repository {
                 tenant_id: TenantId,
                 admin_user_id: Option<Uuid>,
             ) -> AppResult<AgentWithListing> {
-                let now = Utc::now();
+                let now = Timestamp::now();
 
                 let mut tx =
                     self.pool().begin().await.map_err(|e| {
@@ -278,7 +263,7 @@ macro_rules! impl_store_listings_repository {
             ) -> AppResult<AgentWithListing> {
                 let result = sqlx::query(REJECT_LISTING_SQL)
                     .bind(PublishStatus::Rejected.as_str())
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(admin_user_id.map(|id| id.to_string()))
                     .bind(reason)
                     .bind(agent_id)
@@ -303,7 +288,7 @@ macro_rules! impl_store_listings_repository {
             ) -> AppResult<AgentWithListing> {
                 let result = sqlx::query(UNPUBLISH_LISTING_SQL)
                     .bind(PublishStatus::Draft.as_str())
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(agent_id)
                     .bind(tenant_id.to_string())
                     .execute(self.pool())
@@ -523,7 +508,7 @@ macro_rules! impl_store_listings_repository {
 
             async fn increment_install_count(&self, agent_id: &str) -> AppResult<()> {
                 sqlx::query(INCREMENT_INSTALLS_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(agent_id)
                     .execute(self.pool())
                     .await
@@ -535,7 +520,7 @@ macro_rules! impl_store_listings_repository {
 
             async fn decrement_install_count(&self, agent_id: &str) -> AppResult<()> {
                 sqlx::query(DECREMENT_INSTALLS_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(agent_id)
                     .execute(self.pool())
                     .await
@@ -586,7 +571,7 @@ macro_rules! impl_store_listings_repository {
                     )));
                 }
 
-                let now = Utc::now();
+                let now = Timestamp::now();
                 if source.agent.is_system {
                     // A catalogue agent joins the team as itself: no copy, so
                     // the athlete runs the live agent. A usage row they already

@@ -11,7 +11,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::groups::{
     CoachingGroup, GroupDigestMode, GroupRespondMode, UpdateGroupRequest,
 };
@@ -66,7 +66,7 @@ async fn seed_owner_tenant_agent(repos: &RepositoryRegistry) -> (Uuid, TenantId,
 }
 
 fn group_bound_to_telegram(tenant_id: TenantId, owner_id: Uuid, agent_id: &str) -> CoachingGroup {
-    let now = Utc::now();
+    let now = Timestamp::now();
     CoachingGroup {
         id: Uuid::new_v4(),
         tenant_id: tenant_id.to_string(),
@@ -144,7 +144,7 @@ async fn insert_group_without_digest_mode(
     const SQL: &str = "INSERT INTO coaching_groups
          (id, tenant_id, name, agent_id, owner_id, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $6)";
-    let now = Utc::now();
+    let now = Timestamp::now();
     match db.backend() {
         DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(SQL)

@@ -26,10 +26,11 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use chrono::{Datelike, Days, NaiveDate, Utc};
 use common::{
     create_test_server_resources, create_test_user_with_plan, generate_test_token, in_web_turn,
 };
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_logs, CapturedEvents};
@@ -107,7 +108,7 @@ async fn coached_group(
     let agent_id = create_group_agent(repos, owner.id, owner.tenant)
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -167,23 +168,23 @@ async fn coached_group(
 
 /// The Monday `weeks` weeks after this one's, in the athlete's today (UTC:
 /// no zone is set on them).
-fn monday(weeks: u64) -> NaiveDate {
-    let today = Utc::now().date_naive();
-    let this = today - Days::new(u64::from(today.weekday().num_days_from_monday()));
-    this + Days::new(7 * weeks)
+fn monday(weeks: i64) -> CivilDate {
+    let today = Timestamp::now().utc_date();
+    let this = today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()));
+    this + Elapsed::days(7 * weeks)
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
 /// One week of seven sessions all called `workout`, so whatever day today is,
 /// the athlete's compact `/plan` shows it.
-fn week(start: NaiveDate, focus: &str, workout: &str) -> Value {
+fn week(start: CivilDate, focus: &str, workout: &str) -> Value {
     let days: Vec<Value> = (0..7)
         .map(|offset| {
             json!({
-                "date": ymd(start + Days::new(offset)),
+                "date": ymd(start + Elapsed::days(offset)),
                 "sport": "run",
                 "workout": workout,
                 "duration_min": 40,
@@ -324,7 +325,7 @@ impl Fixture {
         self.athlete_get(&format!(
             "/api/me/calendar?from={}&to={}",
             ymd(monday(0)),
-            ymd(monday(1) + Days::new(6))
+            ymd(monday(1) + Elapsed::days(6))
         ))
         .await
     }
@@ -383,7 +384,7 @@ impl Fixture {
     /// Every surface the athlete reads their plan on.
     async fn athlete_surfaces(&self) -> Surfaces {
         let repos = self.repos();
-        let today = Utc::now().date_naive();
+        let today = Timestamp::now().utc_date();
         let card = load_plan_card(
             repos,
             self.subject.tenant,
@@ -406,10 +407,14 @@ impl Fixture {
             "BASE PROMPT".to_owned(),
         )
         .await;
-        let (state, _) =
-            AthleteState::read(repos, self.subject.tenant, self.subject.id, Utc::now())
-                .await
-                .unwrap();
+        let (state, _) = AthleteState::read(
+            repos,
+            self.subject.tenant,
+            self.subject.id,
+            Timestamp::now(),
+        )
+        .await
+        .unwrap();
         Surfaces {
             home: self.home().await,
             calendar: self.calendar().await,
@@ -470,7 +475,7 @@ impl Surfaces {
 }
 
 /// The workouts of the live week starting `start`, from Home's card.
-fn home_week(home: &Value, start: NaiveDate) -> Vec<String> {
+fn home_week(home: &Value, start: CivilDate) -> Vec<String> {
     home["plan"]["weeks"]
         .as_array()
         .unwrap_or_else(|| panic!("Home's plan has weeks: {home}"))
@@ -774,7 +779,7 @@ async fn seed_weekly_load(fx: &Fixture, seconds: u64) {
                 format!("baseline-{i}"),
                 format!("baseline ride {i}"),
                 SportType::Ride,
-                Utc::now() - chrono::Duration::days(2 + i * 7),
+                Timestamp::now() - Elapsed::days(2 + i * 7),
                 seconds,
                 "strava",
             )
@@ -803,7 +808,7 @@ fn flavoured_outline(race: &str) -> Value {
 }
 
 /// A quality session built from the catalogue's threshold template.
-fn threshold_day(date: NaiveDate) -> Value {
+fn threshold_day(date: CivilDate) -> Value {
     json!({
         "date": ymd(date),
         "sport": "run",
@@ -815,27 +820,27 @@ fn threshold_day(date: NaiveDate) -> Value {
     })
 }
 
-fn easy_day(date: NaiveDate, minutes: u32) -> Value {
+fn easy_day(date: CivilDate, minutes: u32) -> Value {
     json!({ "date": ymd(date), "sport": "run", "workout": "easy", "duration_min": minutes, "intensity": "Z2" })
 }
 
 /// A week of the flavoured outline's build phase holding `days`.
-fn phase_week(start: NaiveDate, focus: &str, days: &[Value]) -> Value {
+fn phase_week(start: CivilDate, focus: &str, days: &[Value]) -> Value {
     json!({ "week_start": ymd(start), "focus": focus, "phase_index": 0, "days": days })
 }
 
 /// Seven hours whose two thresholds sit on back-to-back days: 24 h apart
 /// against the flavour's 48 h minimum, and far above a one-hour week.
-fn crowded_heavy_week(start: NaiveDate, focus: &str) -> Value {
+fn crowded_heavy_week(start: CivilDate, focus: &str) -> Value {
     phase_week(
         start,
         focus,
         &[
             threshold_day(start),
-            threshold_day(start + Days::new(1)),
-            easy_day(start + Days::new(2), 90),
-            easy_day(start + Days::new(3), 90),
-            easy_day(start + Days::new(4), 90),
+            threshold_day(start + Elapsed::days(1)),
+            easy_day(start + Elapsed::days(2), 90),
+            easy_day(start + Elapsed::days(3), 90),
+            easy_day(start + Elapsed::days(4), 90),
         ],
     )
 }
@@ -921,13 +926,13 @@ async fn a_draft_whose_opening_week_far_exceeds_the_athletes_load_reports_the_ra
 #[tokio::test]
 async fn a_drafted_week_crowding_the_live_weeks_last_hard_day_is_reported() {
     let fx = Fixture::new().await;
-    let sunday = monday(0) + Days::new(6);
+    let sunday = monday(0) + Elapsed::days(6);
     fx.athlete_saves(json!({
         "outline": flavoured_outline(ATHLETE_RACE),
         "weeks": [phase_week(
             monday(0),
             "athlete week zero",
-            &[easy_day(monday(0), 60), easy_day(monday(0) + Days::new(2), 60), threshold_day(sunday)],
+            &[easy_day(monday(0), 60), easy_day(monday(0) + Elapsed::days(2), 60), threshold_day(sunday)],
         )],
     }))
     .await;
@@ -939,8 +944,8 @@ async fn a_drafted_week_crowding_the_live_weeks_last_hard_day_is_reported() {
                 "coach week one",
                 &[
                     threshold_day(monday(1)),
-                    easy_day(monday(1) + Days::new(1), 60),
-                    threshold_day(monday(1) + Days::new(2)),
+                    easy_day(monday(1) + Elapsed::days(1), 60),
+                    threshold_day(monday(1) + Elapsed::days(2)),
                 ],
             )],
         }))
@@ -982,9 +987,9 @@ async fn a_clean_draft_reports_no_safety() {
                 "coach week zero",
                 &[
                     threshold_day(monday(0)),
-                    easy_day(monday(0) + Days::new(1), 60),
-                    threshold_day(monday(0) + Days::new(2)),
-                    easy_day(monday(0) + Days::new(3), 60),
+                    easy_day(monday(0) + Elapsed::days(1), 60),
+                    threshold_day(monday(0) + Elapsed::days(2)),
+                    easy_day(monday(0) + Elapsed::days(3), 60),
                 ],
             )],
         }))

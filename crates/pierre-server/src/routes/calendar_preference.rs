@@ -27,7 +27,7 @@ use std::sync::Arc;
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_middleware::extractors::AuthenticatedUser;
@@ -178,7 +178,13 @@ async fn put_calendar(
         .common
         .repos
         .calendar_preferences
-        .set_calendar_preference(tenant_id, auth.user_id, &backend, auth.user_id, Utc::now())
+        .set_calendar_preference(
+            tenant_id,
+            auth.user_id,
+            &backend,
+            auth.user_id,
+            Timestamp::now(),
+        )
         .await?;
     info!(
         user_id = %auth.user_id,

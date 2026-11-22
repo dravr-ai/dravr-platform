@@ -35,12 +35,12 @@
 //!
 //! `$n` placeholders throughout; every id column is TEXT on both engines,
 //! like `cached_activities`, so the ids bind as hyphenated text with no cast.
-//! Timestamps bind as `DateTime<Utc>`: RFC 3339 text on `SQLite`,
+//! Timestamps bind as `Timestamp`: RFC 3339 text on `SQLite`,
 //! `TIMESTAMPTZ` on Postgres, the form `cached_activities.synced_at` takes on
 //! each, so the stamps compare alike on both engines.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CachedRowKey, HomeDeclaration, StoredHome, TenantId};
 use tracing::warn;
@@ -103,9 +103,9 @@ pub struct AthletePlace {
     /// The clustering version that computed the place.
     pub version: u32,
     /// When the place was last computed.
-    pub computed_at: DateTime<Utc>,
+    pub computed_at: Timestamp,
     /// When the place was first created; kept across re-clustering.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// One `athlete_place_runs` row: what the last clustering of a user saw.
@@ -114,22 +114,22 @@ pub struct PlaceRun {
     /// How many cached rows the user held when the clustering read them.
     pub rows_seen: u32,
     /// The newest `synced_at` among those rows; `None` when there were none.
-    pub newest_synced_at: Option<DateTime<Utc>>,
+    pub newest_synced_at: Option<Timestamp>,
     /// The clustering version that ran.
     pub version: u32,
     /// When it ran. A failed recompute moves it too
     /// ([`AthletePlaceRepository::record_failed_recompute`]), so it reads as
     /// when the user was last tried.
-    pub computed_at: DateTime<Utc>,
+    pub computed_at: Timestamp,
     /// The `declared_at` of the home declaration the clustering read; `None`
     /// when the user never declared. A failed recompute leaves it alone, so
     /// a declaration no successful recompute saw keeps the user due.
-    pub home_declared_at_seen: Option<DateTime<Utc>>,
+    pub home_declared_at_seen: Option<Timestamp>,
     /// The newest `created_at` among the user's drawn route tracks when the
     /// clustering read them ([`CachedRowsStamp::newest_track_at`]); `None`
     /// when there were none. A failed recompute leaves it alone, so a track
     /// no successful recompute saw keeps the user due.
-    pub newest_track_at_seen: Option<DateTime<Utc>>,
+    pub newest_track_at_seen: Option<Timestamp>,
 }
 
 /// How many cached rows a user holds in a tenant, the newest `synced_at`
@@ -140,12 +140,12 @@ pub struct CachedRowsStamp {
     /// How many cached rows.
     pub rows: u32,
     /// The newest `synced_at` among them; `None` when there are none.
-    pub newest_synced_at: Option<DateTime<Utc>>,
+    pub newest_synced_at: Option<Timestamp>,
     /// The newest `created_at` among the user's drawn route tracks in the
     /// tenant; `None` when there are none. A drawn track gives a ride the
     /// trimmed start a place forms from, and arrives on a detail or route
     /// read that moves neither of the counts above (carnet#1679).
-    pub newest_track_at: Option<DateTime<Utc>>,
+    pub newest_track_at: Option<Timestamp>,
 }
 
 /// Persistence for athlete places.
@@ -253,7 +253,7 @@ pub trait AthletePlaceRepository: Send + Sync {
         &self,
         limit: u32,
         version: u32,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Vec<(TenantId, Uuid)>>;
 
     /// Record that the user's places recompute failed at `now`: their run's
@@ -273,7 +273,7 @@ pub trait AthletePlaceRepository: Send + Sync {
         tenant_id: &TenantId,
         user_id: Uuid,
         version: u32,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<()>;
 
     /// What the user declared about home in the tenant, and when; `Inferred`
@@ -300,7 +300,7 @@ pub trait AthletePlaceRepository: Send + Sync {
         tenant_id: &TenantId,
         user_id: Uuid,
         home: HomeDeclaration,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<()>;
 }
 
@@ -500,7 +500,7 @@ where
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     f64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     fn col<R, T>(row: &R, column: &str) -> AppResult<T>
     where
@@ -589,7 +589,7 @@ where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let rows: i64 = row
         .try_get("n")
@@ -628,7 +628,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     fn col<R, T>(row: &R, column: &str) -> AppResult<T>
     where
@@ -884,10 +884,10 @@ macro_rules! impl_athlete_place_repository {
                 &self,
                 limit: u32,
                 version: u32,
-                now: chrono::DateTime<chrono::Utc>,
+                now: dravr_tronc::dates::Timestamp,
             ) -> AppResult<Vec<(TenantId, uuid::Uuid)>> {
                 let version = integer_column(version, "places version")?;
-                let stale_before = now - chrono::Duration::hours(24);
+                let stale_before = now - dravr_tronc::dates::Elapsed::hours(24);
                 // A skipped row takes no slot: read again with room for every
                 // row skipped so far, until a read skips no more than it made
                 // room for or comes back short.
@@ -919,7 +919,7 @@ macro_rules! impl_athlete_place_repository {
                 tenant_id: &TenantId,
                 user_id: uuid::Uuid,
                 version: u32,
-                now: chrono::DateTime<chrono::Utc>,
+                now: dravr_tronc::dates::Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(RECORD_FAILED_PLACE_RUN_SQL)
                     .bind(tenant_id.to_string())
@@ -957,7 +957,7 @@ macro_rules! impl_athlete_place_repository {
                 tenant_id: &TenantId,
                 user_id: uuid::Uuid,
                 home: HomeDeclaration,
-                now: chrono::DateTime<chrono::Utc>,
+                now: dravr_tronc::dates::Timestamp,
             ) -> AppResult<()> {
                 let (state, seed_lat, seed_lon) = home_columns(home);
                 sqlx::query(STORE_HOME_DECLARATION_SQL)

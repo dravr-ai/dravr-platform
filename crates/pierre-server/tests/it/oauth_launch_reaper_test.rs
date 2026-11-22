@@ -22,14 +22,14 @@
 
 use crate::common;
 
-use chrono::{Duration, Utc};
 use common::create_test_server_resources;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::OAuthClientState;
 use uuid::Uuid;
 
 /// Build a state row, parameterised on the two axes that decide its fate.
 fn state(name: &str, provider: &str, age_minutes: i64, used: bool) -> OAuthClientState {
-    let now = Utc::now();
+    let now = Timestamp::now();
     OAuthClientState {
         state: name.to_owned(),
         provider: provider.to_owned(),
@@ -39,9 +39,9 @@ fn state(name: &str, provider: &str, age_minutes: i64, used: bool) -> OAuthClien
         scope: None,
         pkce_code_verifier: None,
         oauth_app_client_id: None,
-        created_at: now - Duration::minutes(age_minutes + 10),
+        created_at: now - Elapsed::minutes(age_minutes + 10),
         // Negative age puts expiry in the future: a launch still in flight.
-        expires_at: now - Duration::minutes(age_minutes),
+        expires_at: now - Elapsed::minutes(age_minutes),
         used,
     }
 }
@@ -76,7 +76,7 @@ async fn the_reaper_claims_only_launches_that_died() {
         .unwrap();
 
     let reaped = states
-        .reap_expired_oauth_client_states(Utc::now())
+        .reap_expired_oauth_client_states(Timestamp::now())
         .await
         .unwrap();
 
@@ -92,7 +92,7 @@ async fn the_reaper_claims_only_launches_that_died() {
     // dead ones must be gone. Re-reaping proves it: a second pass finds nothing
     // left, which also makes the sweeper idempotent between ticks.
     let second = states
-        .reap_expired_oauth_client_states(Utc::now())
+        .reap_expired_oauth_client_states(Timestamp::now())
         .await
         .unwrap();
     assert!(
@@ -117,7 +117,7 @@ async fn a_clean_sweep_reports_nothing() {
         .unwrap();
 
     let reaped = states
-        .reap_expired_oauth_client_states(Utc::now())
+        .reap_expired_oauth_client_states(Timestamp::now())
         .await
         .unwrap();
 

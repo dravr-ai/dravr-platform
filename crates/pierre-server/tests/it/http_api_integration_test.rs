@@ -14,6 +14,7 @@ use secrecy::{ExposeSecret, SecretString};
 use anyhow::Result;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::{
     api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest},
     auth::AuthManager,
@@ -82,8 +83,8 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -110,8 +111,8 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: admin_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     database.repositories().tenants.create(&tenant).await?;
 
@@ -307,7 +308,7 @@ async fn create_approved_test_user(
     // Create user with active status
     let mut active_user = user;
     active_user.user_status = UserStatus::Active;
-    active_user.approved_at = Some(chrono::Utc::now());
+    active_user.approved_at = Some(Timestamp::now());
 
     database.repositories().users.create(&active_user).await?;
     Ok(user_id.to_string())

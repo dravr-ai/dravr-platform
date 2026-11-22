@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
@@ -760,7 +760,7 @@ pub(super) async fn handle_validate_recipe(
             servings,
             nutrition_per_serving,
             warnings,
-            validated_at: Utc::now().to_rfc3339(),
+            validated_at: Timestamp::now().to_rfc3339(),
             validation_completeness,
             usda_matched_count,
             total_ingredients: validated_ingredients.len(),
@@ -836,7 +836,7 @@ pub(super) async fn handle_save_recipe(
             name: params.name.clone(),
             servings: params.servings,
             meal_timing: format!("{meal_timing:?}").to_lowercase(),
-            created_at: Utc::now().to_rfc3339(),
+            created_at: Timestamp::now().to_rfc3339(),
         },
     )
 }

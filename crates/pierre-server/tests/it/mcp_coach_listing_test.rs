@@ -25,6 +25,7 @@ mod mcp_coach_listing_tests {
     use crate::helpers::coach_roster_fixtures::{
         coach, coached_group, group_agent, person, Person,
     };
+    use crate::helpers::tool_def_hash::without_def_hashes;
 
     use std::collections::BTreeSet;
     use std::sync::Arc;
@@ -200,8 +201,10 @@ mod mcp_coach_listing_tests {
         let sam = person(&res, "sam2@coach-listing.test", "Sam Athlete").await;
         let app = ProviderToolRouter::build_http_app(&res);
 
-        let for_coach = tools(&app, &grant(&res, &casey)).await;
-        let for_sam = tools(&app, &grant(&res, &sam)).await;
+        // Each served hash is checked against its own definition and set aside:
+        // removing `athlete` makes a different definition, so a different hash.
+        let for_coach = without_def_hashes(&tools(&app, &grant(&res, &casey)).await);
+        let for_sam = without_def_hashes(&tools(&app, &grant(&res, &sam)).await);
 
         let mut stripped: Vec<Value> = for_coach
             .into_iter()

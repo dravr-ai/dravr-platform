@@ -34,10 +34,10 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{Duration, Utc};
 use dravr_enforme::error::EnformeError;
 use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_enforme::traits::credential_store::CredentialStore;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::connect_order::{set_connect_order, ConnectOrder};
@@ -96,7 +96,7 @@ async fn connect(
     provider: &str,
     garmin_user: Option<&str>,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -109,7 +109,7 @@ async fn connect(
         } else {
             "session".to_owned()
         },
-        expires_at: Some(now + Duration::hours(12)),
+        expires_at: Some(now + Elapsed::hours(12)),
         scope: None,
         provider_user_id: garmin_user.map(str::to_owned),
         oauth_app_client_id: None,
@@ -631,12 +631,12 @@ async fn a_garmin_api_users_read_serves_the_pushes_and_never_calls_garmin() {
         Some("garmin-user-routed"),
     )
     .await;
-    let received = Utc::now() - Duration::days(2);
+    let received = Timestamp::now() - Elapsed::days(2);
     let pushed = ActivityBuilder::new(
         "20123456789",
         "Pushed Ride",
         SportType::Ride,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         3_600,
         oauth_providers::GARMIN,
     )
@@ -693,8 +693,8 @@ async fn a_garmin_api_users_read_serves_the_pushes_and_never_calls_garmin() {
         .unwrap()
         .expect("the push recorded a sync");
     assert_eq!(
-        last_sync.timestamp(),
-        received.timestamp(),
+        last_sync.epoch_seconds(),
+        received.epoch_seconds(),
         "the read does not restamp the pushes as a fresh sync"
     );
 }
@@ -715,7 +715,7 @@ async fn mark_dead(
             tenant,
             provider,
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -830,7 +830,7 @@ async fn store_under(
         .common
         .repos
         .activity_cache
-        .upsert_activities_synced_at(user_id, &tenant, key, rows, Utc::now())
+        .upsert_activities_synced_at(user_id, &tenant, key, rows, Timestamp::now())
         .await
         .unwrap();
 }
@@ -866,7 +866,7 @@ async fn a_grant_holders_garmin_read_serves_the_sessions_history_merged_with_the
         Some("garmin-user-dual"),
     )
     .await;
-    let ride_start = Utc::now() - Duration::days(2);
+    let ride_start = Timestamp::now() - Elapsed::days(2);
     let ride = |id: &str, key: &str| {
         ActivityBuilder::new(id, "Morning Ride", SportType::Ride, ride_start, 3_600, key)
             .source(oauth_providers::GARMIN)
@@ -885,7 +885,7 @@ async fn a_grant_holders_garmin_read_serves_the_sessions_history_merged_with_the
         "18000000001",
         "Imported Run",
         SportType::Run,
-        Utc::now() - Duration::days(20),
+        Timestamp::now() - Elapsed::days(20),
         2_400,
         oauth_providers::SCIOTTE_GARMIN,
     )
@@ -930,7 +930,7 @@ async fn a_usr_pwd_only_garmin_athlete_still_reads_through_the_session() {
         "id": "18000000001",
         "name": "Morning Run",
         "sport_type": "run",
-        "start_date": (Utc::now() - Duration::days(3)).to_rfc3339(),
+        "start_date": (Timestamp::now() - Elapsed::days(3)).to_rfc3339(),
         "duration_seconds": 2_400,
         "provider": "garmin",
         "distance_meters": 8_000.0,
@@ -1089,7 +1089,7 @@ async fn the_garmin_card_follows_the_session_once_one_stands_beside_the_grant() 
         "18999999999",
         "Imported Ride",
         SportType::Ride,
-        Utc::now() - Duration::days(40),
+        Timestamp::now() - Elapsed::days(40),
         1_800,
         oauth_providers::SCIOTTE_GARMIN,
     )
@@ -1178,7 +1178,7 @@ async fn dual_key_athlete(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
         Some("garmin-user-dual-dead"),
     )
     .await;
-    let ride_start = Utc::now() - Duration::days(2);
+    let ride_start = Timestamp::now() - Elapsed::days(2);
     let ride = |id: &str, key: &str| {
         ActivityBuilder::new(id, "Morning Ride", SportType::Ride, ride_start, 3_600, key)
             .source(oauth_providers::GARMIN)
@@ -1197,7 +1197,7 @@ async fn dual_key_athlete(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
         "18000000001",
         "Imported Run",
         SportType::Run,
-        Utc::now() - Duration::days(20),
+        Timestamp::now() - Elapsed::days(20),
         2_400,
         oauth_providers::SCIOTTE_GARMIN,
     )
@@ -1233,8 +1233,8 @@ async fn stored_ids(
             user_id,
             &tenant,
             Some(key),
-            Utc::now() - Duration::days(400),
-            Utc::now(),
+            Timestamp::now() - Elapsed::days(400),
+            Timestamp::now(),
             100,
         )
         .await
@@ -1262,7 +1262,7 @@ async fn a_read_naming_the_session_beside_a_flagged_grant_is_the_grants() {
             tenant,
             oauth_providers::GARMIN,
             Some("permission_withdrawn"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1271,7 +1271,7 @@ async fn a_read_naming_the_session_beside_a_flagged_grant_is_the_grants() {
         limit: Some(10),
         offset: None,
         before: None,
-        after: Some((Utc::now() - Duration::days(60)).timestamp()),
+        after: Some((Timestamp::now() - Elapsed::days(60)).epoch_seconds()),
     };
 
     let served = fetch_provider_activities(
@@ -1398,7 +1398,7 @@ async fn a_live_garmin_grant_answers_a_failed_session_read_with_its_pushes() {
         .unwrap();
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let head = ActivityQueryParams {
-        after: Some((Utc::now() - Duration::days(30)).timestamp()),
+        after: Some((Timestamp::now() - Elapsed::days(30)).epoch_seconds()),
         before: None,
         limit: Some(50),
         offset: None,

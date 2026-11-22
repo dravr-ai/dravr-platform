@@ -14,7 +14,7 @@
 //! on read rather than failing, so an upgrade cannot lock every session out.
 //!
 //! Nothing here differs per backend once the binds are chosen: `$n`
-//! placeholders serve both drivers; timestamps bind as [`DateTime<Utc>`]
+//! placeholders serve both drivers; timestamps bind as [`Timestamp`]
 //! (`TIMESTAMPTZ` on Postgres, RFC 3339 text on `SQLite`, which orders
 //! correctly under `ORDER BY created_at DESC` because every value shares one
 //! offset and width); `is_active` binds and reads as `bool` (`BOOLEAN` on
@@ -24,7 +24,7 @@
 //! which both backends implement.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 
 /// Security and secret repository
@@ -41,14 +41,12 @@ pub trait SecurityRepository: Send + Sync {
         kid: &str,
         private_key_pem: &str,
         public_key_pem: &str,
-        created_at: DateTime<Utc>,
+        created_at: Timestamp,
         is_active: bool,
         key_size_bits: i32,
     ) -> AppResult<()>;
     /// Load all RSA keypairs from database
-    async fn load_rsa_keypairs(
-        &self,
-    ) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>>;
+    async fn load_rsa_keypairs(&self) -> AppResult<Vec<(String, String, String, Timestamp, bool)>>;
     /// Get or create system secret (generates if not exists)
     ///
     /// Only a definite not-found mints a value, and the mint is
@@ -177,7 +175,7 @@ macro_rules! impl_security_repository {
                 kid: &str,
                 private_key_pem: &str,
                 public_key_pem: &str,
-                created_at: DateTime<Utc>,
+                created_at: Timestamp,
                 is_active: bool,
                 key_size_bits: i32,
             ) -> AppResult<()> {
@@ -199,7 +197,7 @@ macro_rules! impl_security_repository {
 
             async fn load_rsa_keypairs(
                 &self,
-            ) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
+            ) -> AppResult<Vec<(String, String, String, Timestamp, bool)>> {
                 let rows = sqlx::query(LOAD_RSA_KEYPAIRS_SQL)
                     .fetch_all(self.pool())
                     .await
@@ -229,7 +227,7 @@ macro_rules! impl_security_repository {
                     let public_key_pem: String = row.try_get("public_key_pem").map_err(|e| {
                         AppError::database(format!("Failed to get public_key_pem: {e}"))
                     })?;
-                    let created_at: DateTime<Utc> = row.try_get("created_at").map_err(|e| {
+                    let created_at: Timestamp = row.try_get("created_at").map_err(|e| {
                         AppError::database(format!("Failed to get created_at: {e}"))
                     })?;
                     let is_active: bool = row
@@ -287,7 +285,7 @@ macro_rules! impl_security_repository {
                 secret_type: &str,
                 value: &str,
             ) -> AppResult<String> {
-                let now = Utc::now();
+                let now = Timestamp::now();
                 sqlx::query(INSERT_SYSTEM_SECRET_IF_ABSENT_SQL)
                     .bind(secret_type)
                     .bind(value)
@@ -305,7 +303,7 @@ macro_rules! impl_security_repository {
                 secret_type: &str,
                 new_value: &str,
             ) -> AppResult<()> {
-                let now = Utc::now();
+                let now = Timestamp::now();
                 sqlx::query(UPSERT_SYSTEM_SECRET_SQL)
                     .bind(secret_type)
                     .bind(new_value)

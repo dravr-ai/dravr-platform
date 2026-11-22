@@ -538,7 +538,7 @@ fn test_progression_config_weekly_vs_monthly_limits() {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::{Activity, SportType};
 
     fn create_test_activity() -> Activity {
@@ -548,7 +548,7 @@ mod integration_tests {
             "test_123",
             "Test Run",
             SportType::Run,
-            Utc::now(),
+            Timestamp::now(),
             3600, // 1 hour
             "test",
         )

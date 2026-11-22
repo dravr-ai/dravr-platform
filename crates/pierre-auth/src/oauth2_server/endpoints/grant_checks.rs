@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use tracing::{error, warn};
 use uuid::Uuid;
 
@@ -166,8 +166,8 @@ impl OAuth2AuthorizationServer {
         grant: Option<&OAuth2RefreshToken>,
         client_id: &str,
     ) -> Result<(), OAuth2Error> {
-        let live =
-            grant.filter(|grant| grant.client_id == client_id && grant.expires_at > Utc::now());
+        let live = grant
+            .filter(|grant| grant.client_id == client_id && grant.expires_at > Timestamp::now());
         match live {
             Some(grant) => {
                 self.admit_grant_user(grant.user_id, client_id, "refresh_token")
@@ -195,7 +195,7 @@ impl OAuth2AuthorizationServer {
         }
         let live = self
             .oauth2_server
-            .peek_auth_code(code, client_id, redirect_uri, Utc::now())
+            .peek_auth_code(code, client_id, redirect_uri, Timestamp::now())
             .await
             .map_err(|e| {
                 error!(client_id, error = %e, "Could not read the authorization code's user");

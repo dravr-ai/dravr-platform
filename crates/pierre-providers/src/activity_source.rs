@@ -135,7 +135,7 @@ pub async fn resolve_activity_source(
 mod tests {
     use super::*;
     #[cfg(all(feature = "provider-whoop", feature = "provider-strava"))]
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     #[cfg(all(feature = "provider-whoop", feature = "provider-strava"))]
     use pierre_core::models::ConnectionType;
 
@@ -147,7 +147,7 @@ mod tests {
             tenant_id: Uuid::nil().to_string(),
             provider: provider.to_owned(),
             connection_type: ConnectionType::OAuth,
-            connected_at: Utc::now(),
+            connected_at: Timestamp::now(),
             last_used_at: None,
             status: ConnectionStatus::Active,
             metadata: None,

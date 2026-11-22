@@ -7,14 +7,14 @@
 //! Goldens for the dates the repositories compute (carnet#1620, gates 7 and 8).
 //!
 //! Most repositories hand an instant to the driver and take one back. Four
-//! places do their own date work, in functions that are private to the crate.
+//! places do their own date work, in code that is private to the crate.
 //! Each is asserted here through the nearest public method that reaches it:
 //!
-//! | Private function | Reached through | What it does |
+//! | Private code | Reached through | What it does |
 //! |---|---|---|
 //! | `parse_step_time` | `UserOnboardingRepository::get_onboarding_steps` | reads `updated_at` text in three shapes |
 //! | `next_setting_stamp` | `compare_and_set_system_setting` | cuts a stamp to microseconds and moves it past the prior one |
-//! | `whole_seconds` | `SubscriptionsRepository::upsert_subscription` | cuts `last_event_at` to whole seconds |
+//! | the `last_event_at` bind | `SubscriptionsRepository::upsert_subscription` | cuts `last_event_at` to whole seconds |
 //! | (public) | `analytics::next_utc_month_start` | the first instant of the next UTC month |
 //!
 //! `next_setting_stamp` reads the wall clock and has no clock seam, so only
@@ -37,20 +37,21 @@ use uuid::Uuid;
 
 /// Everything in this file that names the date engine.
 mod engine {
-    use chrono::{DateTime, NaiveDateTime, Utc};
+    use dravr_tronc::dates::CivilDateTime;
 
-    pub(super) type Instant = DateTime<Utc>;
+    pub(super) use dravr_tronc::dates::Timestamp as Instant;
 
     /// A UTC instant from `2026-11-17T10:00:05.123456789`, any fraction or none.
     pub(super) fn instant(text: &str) -> Instant {
-        NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
+        CivilDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
             .unwrap()
             .and_utc()
+            .unwrap()
     }
 
     /// The instant at nanosecond precision in UTC.
     pub(super) fn show(value: Instant) -> String {
-        value.format("%Y-%m-%dT%H:%M:%S%.9fZ").to_string()
+        value.format("%Y-%m-%dT%H:%M:%S%.9fZ").unwrap()
     }
 }
 
@@ -154,7 +155,7 @@ async fn an_onboarding_step_time_reads_in_three_shapes() {
         ("2026-11-13 10:04", "rejected"),
         ("2026-11-13", "rejected"),
         ("2026-1-3 9:4:5", "2026-01-03T09:04:05.000000000Z"),
-        ("2026-11-13 10:04:60", "2026-11-13T10:04:60.000000000Z"),
+        ("2026-11-13 10:04:60", "2026-11-13T10:04:59.000000000Z"),
         ("2026-11-13 24:00:00", "rejected"),
         ("1794909605", "rejected"),
         ("yesterday", "rejected"),

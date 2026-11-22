@@ -64,6 +64,7 @@ fn turn_actions_title(body: &TurnResponse) -> Option<&str> {
         _ => None,
     })
 }
+use dravr_tronc::dates::Timestamp;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 use tokio::task::spawn_blocking;
@@ -170,7 +171,7 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
 
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
@@ -183,8 +184,8 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
         domain: None,
         plan: "professional".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     // tenants.create() adds the owner to tenant_users automatically.
     resources
@@ -269,7 +270,7 @@ async fn seed_group_membership(
     agent_id: &str,
     role: GroupRole,
 ) -> Uuid {
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     let group_id = Uuid::new_v4();
     let group = CoachingGroup {
         id: group_id,
@@ -339,7 +340,7 @@ async fn seed_admin_from_another_tenant(
         admin_tenant, group_tenant,
         "fixture bug: the admin must join from another tenant"
     );
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos

@@ -28,7 +28,7 @@ use std::sync::Arc;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -86,7 +86,7 @@ async fn build_context() -> (
 async fn seed_tenant(repos: &pierre_database::RepositoryRegistry) -> TenantId {
     let user_id = Uuid::new_v4();
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let user = User {
         id: user_id,
         email: format!("owner+{user_id}@example.com"),

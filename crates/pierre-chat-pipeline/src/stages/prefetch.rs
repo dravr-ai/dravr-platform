@@ -37,7 +37,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 
 use pierre_core::models::agents::{ActivityDataRequirements, DataRequirements};
 use pierre_core::models::AgentRuntimeContext;
@@ -253,7 +253,7 @@ pub fn build_prefetch_params(activities_req: &ActivityDataRequirements) -> serde
     // default newest-first ordering, so the prefetched batch shows the
     // most recent activities up to `count`.
     if let Some(seconds) = activities_req.time_frame_seconds() {
-        let now = Utc::now().timestamp();
+        let now = Timestamp::now().epoch_seconds();
         let after = now - seconds;
         params["after"] = serde_json::Value::Number(serde_json::Number::from(after));
         params["before"] = serde_json::Value::Number(serde_json::Number::from(now));
@@ -280,15 +280,15 @@ pub fn build_prefetch_params(activities_req: &ActivityDataRequirements) -> serde
 ///
 /// Pure over `now` so the wording is unit-testable.
 #[must_use]
-pub fn window_scope_note(activities_req: &ActivityDataRequirements, now: DateTime<Utc>) -> String {
+pub fn window_scope_note(activities_req: &ActivityDataRequirements, now: Timestamp) -> String {
     let covered = activities_req.time_frame_seconds().map_or_else(
         || format!("the {} most recent activities", activities_req.count),
         |seconds| {
             format!(
                 "up to {} activities from {} to {}",
                 activities_req.count,
-                (now - Duration::seconds(seconds)).format("%Y-%m-%d"),
-                now.format("%Y-%m-%d"),
+                (now - Elapsed::seconds(seconds)).utc_date(),
+                now.utc_date(),
             )
         },
     );
@@ -405,7 +405,7 @@ pub async fn inject_startup_context(
                 let scope_note = data_reqs
                     .activities
                     .as_ref()
-                    .map_or_default(|req| window_scope_note(req, Utc::now()));
+                    .map_or_default(|req| window_scope_note(req, Timestamp::now()));
                 let context_msg = format!(
                     "{STARTUP_GROUNDING_LEAD} {scope_note}\n\n{}",
                     injectable_activity_text(&window.content)
@@ -721,7 +721,7 @@ pub async fn maybe_refresh_activity_context(
     let scope_note = data_reqs
         .activities
         .as_ref()
-        .map_or_default(|req| window_scope_note(req, Utc::now()));
+        .map_or_default(|req| window_scope_note(req, Timestamp::now()));
     inject_activity_refresh(llm_messages, &window.content, &scope_note) && window.served
 }
 

@@ -17,7 +17,7 @@
 use crate::common;
 use crate::helpers;
 
-use chrono::{DateTime, Datelike, Duration, NaiveTime, Utc};
+use dravr_tronc::dates::{CivilTime, Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_a2a::client::USAGE_HISTORY_DAYS;
 use pierre_config::environment::{
@@ -1132,7 +1132,7 @@ async fn test_registered_contact_email_reads_back_normalized() {
 }
 
 /// One `a2a_usage` row for `client_id`, stamped `at` and answered `status_code`.
-fn usage_row(client_id: &str, at: DateTime<Utc>, status_code: u16) -> A2AUsage {
+fn usage_row(client_id: &str, at: Timestamp, status_code: u16) -> A2AUsage {
     A2AUsage {
         id: None,
         client_id: client_id.to_owned(),
@@ -1180,13 +1180,14 @@ async fn test_client_usage_counts_the_clients_calls_by_day() {
     // call, inside the window because that day is counted whole. The day
     // before it, a second before its end, and forty days back: one call
     // each, outside the breakdown but still part of the client's total.
-    let now = Utc::now();
-    let yesterday = now - Duration::days(1);
-    let oldest_day = now.date_naive() - Duration::days(i64::from(USAGE_HISTORY_DAYS - 1));
-    let oldest_day_dawn = oldest_day.and_time(NaiveTime::MIN).and_utc() + Duration::seconds(1);
+    let now = Timestamp::now();
+    let yesterday = now - Elapsed::days(1);
+    let oldest_day = now.utc_date() - Elapsed::days(i64::from(USAGE_HISTORY_DAYS - 1));
+    let oldest_day_dawn =
+        oldest_day.and_time(CivilTime::MIDNIGHT).and_utc().unwrap() + Elapsed::seconds(1);
     let day_before_window_dusk =
-        oldest_day.and_time(NaiveTime::MIN).and_utc() - Duration::seconds(1);
-    let long_ago = now - Duration::days(40);
+        oldest_day.and_time(CivilTime::MIDNIGHT).and_utc().unwrap() - Elapsed::seconds(1);
+    let long_ago = now - Elapsed::days(40);
     let rows = [
         (now, 200),
         (now, 200),
@@ -1233,11 +1234,12 @@ async fn test_client_usage_counts_the_clients_calls_by_day() {
     let body: serde_json::Value = response.json();
 
     let month_start = now
-        .date_naive()
+        .utc_date()
         .with_day(1)
         .expect("the first of the month exists")
-        .and_time(NaiveTime::MIN)
-        .and_utc();
+        .and_time(CivilTime::MIDNIGHT)
+        .and_utc()
+        .unwrap();
     let this_month = rows.iter().filter(|(at, _)| *at >= month_start).count();
 
     assert_eq!(body["client_id"], client_id.as_str());
@@ -1247,22 +1249,26 @@ async fn test_client_usage_counts_the_clients_calls_by_day() {
         body["total_requests"], 7,
         "every call the client made: {body}"
     );
-    let last_request_at: DateTime<Utc> = body["last_request_at"]
+    let last_request_at: Timestamp = body["last_request_at"]
         .as_str()
         .expect("last_request_at is an RFC 3339 string")
         .parse()
         .expect("last_request_at parses");
-    assert_eq!(last_request_at.timestamp(), now.timestamp(), "{body}");
+    assert_eq!(
+        last_request_at.epoch_seconds(),
+        now.epoch_seconds(),
+        "{body}"
+    );
     assert_eq!(
         body["daily_usage"],
         serde_json::json!([
             {
-                "date": now.date_naive().to_string(),
+                "date": now.utc_date().to_string(),
                 "success_count": 2,
                 "error_count": 1
             },
             {
-                "date": yesterday.date_naive().to_string(),
+                "date": yesterday.utc_date().to_string(),
                 "success_count": 1,
                 "error_count": 0
             },

@@ -127,7 +127,7 @@ macro_rules! impl_admin_config_repository {
                     reason,
                 } = params;
                 let id = Uuid::new_v4().to_string();
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let value_str = serde_json::to_string(value)?;
                 let created_by = $ids::bind_text(admin_user_id)?;
                 let query = match scope {
@@ -232,7 +232,7 @@ macro_rules! impl_admin_config_repository {
                 let old_value_str = old_value.map(|v| serde_json::to_string(v).unwrap_or_default());
                 sqlx::query(LOG_CHANGE_SQL)
                     .bind(&id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind($ids::bind_text(admin_user_id)?)
                     .bind(normalize_email(admin_email))
                     .bind(category)

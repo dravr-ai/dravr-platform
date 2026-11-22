@@ -42,10 +42,11 @@ mod slack_room {
     use crate::helpers::axum_test::AxumTestRequest;
     use crate::helpers::offline_channel::OfflineSendAdapters;
     use axum::http::StatusCode;
-    use chrono::Utc;
     use dravr_canot::channel::MessagingChannel;
     use dravr_canot::channels::slack::{ephemeral_payload, SlackChannel};
     use dravr_canot::turn::ConversationTurnId as CanotTurnId;
+    use dravr_tronc::dates::Elapsed;
+    use dravr_tronc::dates::Timestamp;
     use hmac::{Hmac, Mac};
     use pierre_chat_pipeline::stages::command_persistence::is_room_visible;
     use pierre_contremaitre::messaging_strings::{
@@ -118,7 +119,7 @@ mod slack_room {
         );
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
 
@@ -130,8 +131,8 @@ mod slack_room {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common
@@ -191,14 +192,10 @@ mod slack_room {
         tenant: TenantId,
         agent_slug: &str,
     ) {
-        let today = Utc::now().date_naive();
-        let start = today - chrono::Days::new(2);
-        let date = |offset: u64| {
-            (start + chrono::Days::new(offset))
-                .format("%Y-%m-%d")
-                .to_string()
-        };
-        let day = |offset: u64, sport: &str, workout: &str, minutes: Option<u32>| PlannedDay {
+        let today = Timestamp::now().utc_date();
+        let start = today - Elapsed::days(2);
+        let date = |offset: i64| (start + Elapsed::days(offset)).to_string();
+        let day = |offset: i64, sport: &str, workout: &str, minutes: Option<u32>| PlannedDay {
             date: date(offset),
             sport: sport.to_owned(),
             workout: workout.to_owned(),
@@ -302,7 +299,7 @@ mod slack_room {
         bot_tenant: TenantId,
         role: GroupRole,
     ) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         resources
             .common
             .repos
@@ -404,7 +401,7 @@ mod slack_room {
         // bootstrapping one, exactly as the Telegram room fixtures pre-bind.
         let room_persona = seed_persona(&resources, bot_owner, bot_tenant, "Room Coach").await;
         let group_id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         resources
             .common
             .repos
@@ -467,7 +464,7 @@ mod slack_room {
             }
         })
         .to_string();
-        let timestamp = Utc::now().timestamp().to_string();
+        let timestamp = Timestamp::now().epoch_seconds().to_string();
         let sig = compute_slack_sig(SIGNING_SECRET, &timestamp, &body);
         let router = MessagingRoutes::routes_with_adapters(
             Arc::clone(&room.resources),

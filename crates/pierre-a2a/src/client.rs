@@ -19,12 +19,13 @@ pub use crate::client_types::{
 use crate::constants::rate_limits::DEFAULT_BURST_LIMIT;
 use crate::constants::time_constants::SECONDS_PER_HOUR;
 use crate::{map_db_error, A2AError};
-use chrono::{DateTime, Datelike, Days, NaiveTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::oauth2_server::{ClientRegistrationManager, OAuth2Error};
 use pierre_auth::rate_limiting::a2a_client_window_start;
 pub use pierre_core::models::a2a::{A2AClient, A2ASession, A2AUsage};
 use secrecy::SecretString;
 // Trait methods are dispatched through repos.a2a / repos.oauth2_server Arc<dyn Trait>;
+use dravr_tronc::dates::CivilDate;
 use pierre_database::AuthRepos;
 use std::collections::HashMap;
 use std::fmt;
@@ -112,10 +113,10 @@ impl A2AClientManager {
                 .filter(|email| !email.is_empty())
                 .map(ToOwned::to_owned),
             is_active: true,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             rate_limit_requests: DEFAULT_BURST_LIMIT * 10,
             rate_limit_window_seconds: SECONDS_PER_HOUR,
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
         };
 
         // Store the client with its OAuth2 registration
@@ -294,7 +295,7 @@ impl A2AClientManager {
             .get_client(client_id)
             .await?
             .ok_or_else(|| A2AError::ClientNotRegistered(client_id.to_owned()))?;
-        self.client_usage_at(&client.id, Utc::now()).await
+        self.client_usage_at(&client.id, Timestamp::now()).await
     }
 
     /// `client_id`'s usage with every window cut from `now`, so today always
@@ -302,15 +303,19 @@ impl A2AClientManager {
     async fn client_usage_at(
         &self,
         client_id: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Result<ClientUsageStats, A2AError> {
-        let today = now.date_naive();
-        let start_of_day = today.and_time(NaiveTime::MIN).and_utc();
-        let start_of_month = today
-            .with_day(1)
-            .ok_or_else(|| A2AError::InternalError("Every month has a first day".to_owned()))?
-            .and_time(NaiveTime::MIN)
-            .and_utc();
+        let today = now.utc_date();
+        let midnight = |day: CivilDate| {
+            day.at_midnight()
+                .and_utc()
+                .map_err(|e| A2AError::InternalError(format!("{day} has no UTC midnight: {e}")))
+        };
+        let start_of_day = midnight(today)?;
+        let start_of_month =
+            midnight(today.with_day(1).ok_or_else(|| {
+                A2AError::InternalError("Every month has a first day".to_owned())
+            })?)?;
 
         let today_stats = self
             .repos
@@ -327,19 +332,19 @@ impl A2AClientManager {
         let lifetime_stats = self
             .repos
             .a2a
-            .get_usage_stats(client_id, DateTime::UNIX_EPOCH, now)
+            .get_usage_stats(client_id, Timestamp::UNIX_EPOCH, now)
             .await
             .map_err(map_db_error("Failed to get the client's total usage"))?;
 
         let first_day = today
-            .checked_sub_days(Days::new(u64::from(USAGE_HISTORY_DAYS.saturating_sub(1))))
+            .checked_sub_days(i64::from(USAGE_HISTORY_DAYS.saturating_sub(1)))
             .ok_or_else(|| {
                 A2AError::InternalError("Daily usage window precedes the calendar".to_owned())
             })?;
         let history = self
             .repos
             .a2a
-            .get_client_usage_history(client_id, first_day.and_time(NaiveTime::MIN).and_utc())
+            .get_client_usage_history(client_id, midnight(first_day)?)
             .await
             .map_err(map_db_error("Failed to get the client's daily usage"))?;
 
@@ -352,7 +357,7 @@ impl A2AClientManager {
             daily_usage: history
                 .into_iter()
                 .map(|(day, success_count, error_count)| DailyUsage {
-                    date: day.date_naive(),
+                    date: day.utc_date(),
                     success_count,
                     error_count,
                 })
@@ -380,7 +385,9 @@ impl A2AClientManager {
             let sessions = self.active_sessions.read().await;
             sessions
                 .values()
-                .filter(|session| session.client_id == client_id && session.expires_at > Utc::now())
+                .filter(|session| {
+                    session.client_id == client_id && session.expires_at > Timestamp::now()
+                })
                 .cloned()
                 .collect::<Vec<A2ASession>>()
         };
@@ -424,7 +431,7 @@ impl A2AClientManager {
             .get_client(client_id)
             .await?
             .ok_or_else(|| A2AError::ClientNotRegistered(client_id.to_owned()))?;
-        let now = Utc::now();
+        let now = Timestamp::now();
         let usage = self
             .repos
             .a2a

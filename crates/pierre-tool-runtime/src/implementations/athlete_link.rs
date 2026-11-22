@@ -507,7 +507,7 @@ crate::declare_security!(ProposeAthleteLinkTool => empty; first_party_only);
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
     use pierre_core::models::RosterAthlete;
     use pierre_services::delegated_link_states::CoachedMember;
@@ -515,7 +515,7 @@ mod tests {
     use super::*;
 
     fn group() -> CoachingGroup {
-        let now = Utc::now();
+        let now = Timestamp::now();
         CoachingGroup {
             id: Uuid::new_v4(),
             tenant_id: Uuid::new_v4().to_string(),

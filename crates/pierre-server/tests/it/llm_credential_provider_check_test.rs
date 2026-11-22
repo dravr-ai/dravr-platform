@@ -14,7 +14,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::tenant::llm_manager::{
     CredentialSource, LlmProvider, StoreLlmCredentialsRequest, TenantLlmManager,
 };
@@ -80,7 +80,7 @@ async fn user_with_tenant(database: &Database) -> (Uuid, TenantId) {
     let user = create_test_user(&format!("llm-{}@example.com", Uuid::new_v4()), None);
     let user_id = database.repositories().users.create(&user).await.unwrap();
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     database
         .repositories()
         .tenants

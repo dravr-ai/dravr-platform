@@ -17,6 +17,7 @@ use crate::common;
 use crate::helpers;
 use secrecy::ExposeSecret;
 
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_config::environment::{
@@ -1043,7 +1044,7 @@ async fn setup_with_admin_flag(
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     user.role = if global_admin {
         UserRole::Admin
     } else {
@@ -1063,8 +1064,8 @@ async fn setup_with_admin_flag(
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     repos.tenants.create(&tenant).await?;
     repos.users.update_tenant_id(user_id, tenant_id).await?;

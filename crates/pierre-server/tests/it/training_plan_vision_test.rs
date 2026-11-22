@@ -15,7 +15,8 @@ use pierre_core::transport::TransportPolicy;
 use std::collections::BTreeMap;
 
 use anyhow::Result;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::models::periodization::{
     FlavourFamily, LoadingPattern, PhaseKind, Sequencing, Share, TidTarget, WorkoutPurpose,
@@ -31,8 +32,8 @@ use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::training_plan_render::render_training_plan_block;
 use pierre_test_support::db::create_test_db;
 
-fn d(s: &str) -> NaiveDate {
-    NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap_or_default()
+fn d(s: &str) -> CivilDate {
+    CivilDate::parse_from_str(s, "%Y-%m-%d").unwrap_or_default()
 }
 
 fn goal() -> GoalRace {
@@ -290,8 +291,8 @@ async fn the_prompt_carries_the_current_phase_header() -> Result<()> {
         status: PlanStatus::Active,
         supersedes_id: None,
         source_conversation_id: None,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
     };
     let block = render_training_plan_block(
@@ -368,8 +369,8 @@ async fn a_phase_without_a_mix_lists_every_template_that_fits_it() -> Result<()>
         status: PlanStatus::Active,
         supersedes_id: None,
         source_conversation_id: None,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
     };
     plan.phases.remove(0);
@@ -416,8 +417,8 @@ fn empty_week(week_start: &str, phase_index: u32) -> PlanWeek {
         supersedes_id: None,
         adjustment_reason: String::new(),
         author_agent_id: None,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -442,8 +443,8 @@ async fn a_fortnight_crossing_a_phase_boundary_carries_both_headers() -> Result<
         status: PlanStatus::Active,
         supersedes_id: None,
         source_conversation_id: None,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
     };
     // The fortnight the block renders is the last build week and the first
@@ -492,8 +493,8 @@ async fn a_fortnight_inside_one_phase_carries_that_phase_alone() -> Result<()> {
         status: PlanStatus::Active,
         supersedes_id: None,
         source_conversation_id: None,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
     };
     // Both weeks sit inside build; the taper is a fortnight away.

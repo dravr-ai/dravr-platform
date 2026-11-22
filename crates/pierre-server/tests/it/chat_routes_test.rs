@@ -18,8 +18,7 @@ use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAg
 use pierre_mcp_server::routes::chat::{ChatRoutes, ConversationListResponse, ConversationResponse};
 
 use axum::http::StatusCode;
-use chrono::{DateTime, Datelike, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{Timestamp, Zone};
 use serde_json::json;
 
 // ============================================================================
@@ -205,19 +204,23 @@ async fn test_dated_title_reads_in_the_athletes_language_and_timezone() {
     assert_eq!(prefix, "Discussion");
     let router = ChatRoutes::routes(resources);
 
-    let zone: Tz = ZONE.parse().unwrap();
-    let local = |at: DateTime<Utc>| {
-        let at = at.with_timezone(&zone);
-        let month = FRENCH_MONTHS[usize::try_from(at.month0()).unwrap()];
-        format!("Discussion {} {month} {}", at.day(), at.format("%H:%M"))
+    let zone: Zone = ZONE.parse().unwrap();
+    let local = |at: Timestamp| {
+        let at = zone.civil_at(at);
+        let month = FRENCH_MONTHS[usize::try_from(at.date().month() - 1).unwrap()];
+        format!(
+            "Discussion {} {month} {}",
+            at.date().day(),
+            at.format("%H:%M").unwrap()
+        )
     };
-    let before = local(Utc::now());
+    let before = local(Timestamp::now());
     let response = AxumTestRequest::post("/api/chat/conversations")
         .header("authorization", &format!("Bearer {token}"))
         .json(&json!({}))
         .send(router)
         .await;
-    let after = local(Utc::now());
+    let after = local(Timestamp::now());
     assert_eq!(response.status_code(), StatusCode::CREATED);
     let conv: ConversationResponse = response.json();
     assert!(

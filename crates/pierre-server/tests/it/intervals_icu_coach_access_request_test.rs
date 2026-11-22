@@ -39,8 +39,8 @@ use axum::routing::get;
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named};
 use pierre_core::constants::oauth::INTERVALS_ICU;
@@ -215,7 +215,7 @@ impl World {
 
     /// `who`'s own Intervals.icu key, stored as the link route stores it.
     async fn connect(&self, who: &Person) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let repos = &self.res.common.repos;
         repos
             .oauth_tokens

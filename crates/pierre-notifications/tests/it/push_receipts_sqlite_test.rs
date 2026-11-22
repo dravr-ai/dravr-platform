@@ -12,9 +12,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{Duration, Utc};
 use dravr_commere::expo_push::ExpoPushService;
 use dravr_commere::service::NotificationService;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_test_support::db::create_sqlite_test_db;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -55,7 +55,7 @@ async fn insert_pending(pool: &sqlx::SqlitePool, ticket_id: &str, minutes_ago: i
     .bind(Uuid::new_v4().to_string())
     .bind(Uuid::new_v4().to_string())
     .bind(Uuid::new_v4().to_string())
-    .bind((Utc::now() - Duration::minutes(minutes_ago)).to_rfc3339())
+    .bind((Timestamp::now() - Elapsed::minutes(minutes_ago)).to_rfc3339())
     .execute(pool)
     .await
     .unwrap();

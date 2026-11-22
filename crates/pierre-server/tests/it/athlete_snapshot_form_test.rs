@@ -10,8 +10,8 @@
 use crate::common;
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
 use dravr_cageux::config::intelligence::{AlgorithmConfig, TrainingZonesConfig};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::activity::ActivityBuilder;
@@ -40,7 +40,7 @@ fn synthetic_run(id: &str, days_ago: i64) -> Activity {
         id.to_owned(),
         format!("synthetic {id}"),
         SportType::Run,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3600,
         "synthetic".to_owned(),
     )
@@ -127,7 +127,7 @@ async fn the_snapshot_carries_the_reading_the_tools_render() -> Result<()> {
 
     // The same stored activities, through the same rollup the Home block and
     // `get_training_history` read, banded by the row's own `form_reading`.
-    let now = Utc::now();
+    let now = Timestamp::now();
     let stored = ai_scope::filter_activities(
         &common::offline_provider_registry(),
         repos
@@ -136,17 +136,17 @@ async fn the_snapshot_carries_the_reading_the_tools_render() -> Result<()> {
                 user_id,
                 &tenant_id,
                 None,
-                now - Duration::days(180),
+                now - Elapsed::days(180),
                 now,
                 500,
             )
             .await?,
     );
-    let today = clock_date(now, resolve_zone(None));
+    let today = clock_date(now, &resolve_zone(None));
     let states = compute_training_history(
         &stored,
         AthleteInputs::from_profile(Some(&profile)),
-        today - Duration::days(90),
+        today - Elapsed::days(90),
         today,
         &AlgorithmConfig::default(),
         None,

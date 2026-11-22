@@ -22,7 +22,7 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -167,7 +167,7 @@ impl GroupRoutes {
     /// Build metadata for responses
     fn build_metadata() -> GroupMetadata {
         GroupMetadata {
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: Timestamp::now().to_rfc3339(),
             api_version: "1.0".to_owned(),
         }
     }
@@ -391,7 +391,7 @@ impl GroupRoutes {
                 tenant_id = %tenant_id,
                 group_id = %created.id,
                 coach_attached = created.coach_user_id.is_some(),
-                seconds_since_signup = Utc::now()
+                seconds_since_signup = Timestamp::now()
                     .signed_duration_since(coach.created_at)
                     .num_seconds()
                     .max(0),
@@ -818,7 +818,7 @@ impl GroupRoutes {
             resources
                 .repos()
                 .groups
-                .answer_assistant_notice(&group_id, auth.user_id, Utc::now())
+                .answer_assistant_notice(&group_id, auth.user_id, Timestamp::now())
                 .await?;
         }
         info!(
@@ -934,7 +934,7 @@ impl GroupRoutes {
                     resources.repos(),
                     first.group_id,
                     &first.tenant_id,
-                    Utc::now(),
+                    Timestamp::now(),
                 )
                 .await?
             }

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::a2a::{
     A2AClient, A2APushNotificationConfig, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus,
@@ -64,7 +64,7 @@ pub trait A2ARepository: Send + Sync {
         client_id: Option<&str>,
         status_filter: Option<&TaskStatus>,
         context_id: Option<&str>,
-        updated_after: Option<DateTime<Utc>>,
+        updated_after: Option<Timestamp>,
         limit: Option<u32>,
         offset: Option<u32>,
     ) -> AppResult<Vec<A2ATask>>;
@@ -104,14 +104,14 @@ pub trait A2ARepository: Send + Sync {
     async fn get_client_window_usage(
         &self,
         client_id: &str,
-        window_start: DateTime<Utc>,
+        window_start: Timestamp,
     ) -> AppResult<WindowUsage>;
     /// Get A2A usage statistics for a client
     async fn get_usage_stats(
         &self,
         client_id: &str,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
+        start_date: Timestamp,
+        end_date: Timestamp,
     ) -> AppResult<A2AUsageStats>;
     /// A client's daily success and error counts for calls at or after
     /// `since`, one row per UTC calendar day that saw a call, newest first;
@@ -119,8 +119,8 @@ pub trait A2ARepository: Send + Sync {
     async fn get_client_usage_history(
         &self,
         client_id: &str,
-        since: DateTime<Utc>,
-    ) -> AppResult<Vec<(DateTime<Utc>, u32, u32)>>;
+        since: Timestamp,
+    ) -> AppResult<Vec<(Timestamp, u32, u32)>>;
 }
 
 // ── Statements, written once for both backends ──
@@ -135,7 +135,7 @@ pub trait A2ARepository: Send + Sync {
 // JSON columns of `a2a_tasks` are `JSONB` on Postgres and `TEXT` on
 // `SQLite`; both bind and read a [`Value`], and what comes back is a
 // re-rendering of what was stored, never the caller's bytes. Timestamps bind
-// and read as `DateTime<Utc>` on both, and every comparison against "now"
+// and read as `Timestamp` on both, and every comparison against "now"
 // binds the instant rather than naming the engine's clock, so `SQLite`
 // holds one text form and compares it as one. Three spellings remain per
 // engine and arrive as macro literals: the calendar day of a usage row, the

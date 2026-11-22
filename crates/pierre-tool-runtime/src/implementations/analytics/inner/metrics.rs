@@ -17,6 +17,7 @@ use dravr_cageux::metrics::distance_per_climb_score;
 use dravr_cageux::models::maxhr::MaxHrAlgorithm;
 use dravr_cageux::physiological_constants::unit_conversions::MS_TO_KMH_FACTOR;
 use dravr_cageux::zones::{HeartRateReading, HrZones};
+use dravr_tronc::dates::Timestamp;
 use pierre_config::constants::time_constants::SECONDS_PER_MINUTE;
 use pierre_config::constants::units::METERS_PER_KM;
 use pierre_core::models::zones::HrZonesUnavailable;
@@ -258,7 +259,7 @@ fn build_metrics_response(
             let mut map = HashMap::new();
             map.insert(
                 "calculation_timestamp".into(),
-                serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
+                serde_json::Value::String(Timestamp::now().to_rfc3339()),
             );
             map.insert(
                 "metric_version".into(),

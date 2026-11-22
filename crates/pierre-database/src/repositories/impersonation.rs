@@ -7,7 +7,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::impersonation::{BoundCredential, ImpersonationSession};
 use uuid::Uuid;
@@ -45,18 +45,13 @@ pub trait ImpersonationRepository: Send + Sync {
         &self,
         user_id: Uuid,
         grant_id: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<bool>;
     /// Whether the OAuth grant `grant_id` that `user_id` holds has a token
     /// neither revoked nor expired at `now`: the grant may start a support
     /// session. Strict where [`Self::grant_unexpired`] is not, because a
     /// start refused mid-rotation is retried and ends nothing.
-    async fn grant_live(
-        &self,
-        user_id: Uuid,
-        grant_id: &str,
-        now: DateTime<Utc>,
-    ) -> AppResult<bool>;
+    async fn grant_live(&self, user_id: Uuid, grant_id: &str, now: Timestamp) -> AppResult<bool>;
     /// End an impersonation session
     async fn end_session(&self, session_id: &str) -> AppResult<()>;
     /// End all active impersonation sessions for an impersonator
@@ -76,7 +71,7 @@ pub trait ImpersonationRepository: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionCursor {
     /// That row's `started_at`.
-    pub started_at: DateTime<Utc>,
+    pub started_at: Timestamp,
     /// That row's id, which orders the sessions sharing that start.
     pub id: String,
 }
@@ -98,7 +93,7 @@ pub(crate) use session_columns;
 /// Postgres, so one statement serves both backends and cannot drift between
 /// them. The two user ids bind through the backend's uuid codec (see
 /// [`super::uuid_columns`]); every other bind is a plain `&str`,
-/// `Option<&str>`, `bool` or `DateTime<Utc>` both drivers encode alike —
+/// `Option<&str>`, `bool` or `Timestamp` both drivers encode alike —
 /// `is_active` is `BOOLEAN` on Postgres and a 0/1 `INTEGER` on `SQLite`,
 /// and a `bool` binds and decodes as both.
 pub(crate) const CREATE_SESSION_SQL: &str = concat!(
@@ -318,7 +313,7 @@ macro_rules! impl_impersonation_repository {
                 &self,
                 user_id: Uuid,
                 grant_id: &str,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<bool> {
                 let row = sqlx::query(GRANT_UNEXPIRED_SQL)
                     .bind(grant_id)
@@ -339,7 +334,7 @@ macro_rules! impl_impersonation_repository {
                 &self,
                 user_id: Uuid,
                 grant_id: &str,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<bool> {
                 let row = sqlx::query(GRANT_LIVE_SQL)
                     .bind(grant_id)
@@ -358,7 +353,7 @@ macro_rules! impl_impersonation_repository {
 
             async fn end_session(&self, session_id: &str) -> AppResult<()> {
                 sqlx::query(END_SESSION_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(session_id)
                     .execute(self.pool())
                     .await
@@ -371,7 +366,7 @@ macro_rules! impl_impersonation_repository {
 
             async fn end_all_sessions(&self, impersonator_id: Uuid) -> AppResult<u64> {
                 let result = sqlx::query(END_ALL_SESSIONS_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind($ids::bind(impersonator_id))
                     .execute(self.pool())
                     .await

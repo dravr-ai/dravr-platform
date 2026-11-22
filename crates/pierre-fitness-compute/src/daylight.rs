@@ -16,7 +16,7 @@
 //! longitude / 15 hours. It is right to the day everywhere but a few hours
 //! either side of a political zone line, and needs no zone database.
 
-use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 
 /// Zenith of sunrise and sunset: the Sun's centre 0.833° below the horizon,
 /// for its radius and the atmosphere's refraction.
@@ -35,9 +35,9 @@ pub enum Daylight {
     /// The Sun rises and sets.
     Day {
         /// When the Sun's upper limb clears the horizon.
-        sunrise: DateTime<Utc>,
+        sunrise: Timestamp,
         /// When it goes below.
-        sunset: DateTime<Utc>,
+        sunset: Timestamp,
     },
     /// The Sun never sets that day.
     PolarDay,
@@ -48,17 +48,17 @@ pub enum Daylight {
 /// The place's solar date at `instant`: the civil date at its mean solar
 /// time, `longitude / 15` hours from UTC.
 #[must_use]
-pub fn solar_date(instant: DateTime<Utc>, longitude: f64) -> NaiveDate {
+pub fn solar_date(instant: Timestamp, longitude: f64) -> CivilDate {
     // Four minutes a degree, rounded to the second: the shift is ±12 h.
     #[allow(clippy::cast_possible_truncation)] // |longitude| ≤ 180, so |seconds| ≤ 43 200
     let seconds = (longitude * 240.0).round() as i64;
-    (instant + Duration::seconds(seconds)).date_naive()
+    (instant + Elapsed::seconds(seconds)).utc_date()
 }
 
 /// Sunrise and sunset at (`latitude`, `longitude`), in decimal degrees, on
 /// the solar `date` there.
 #[must_use]
-pub fn daylight(latitude: f64, longitude: f64, date: NaiveDate) -> Daylight {
+pub fn daylight(latitude: f64, longitude: f64, date: CivilDate) -> Daylight {
     let noon = solar_position(julian_century(date, 4.0f64.mul_add(-longitude, 720.0)));
     match hour_angle(latitude, noon.declination) {
         HourAngle::Never => Daylight::PolarNight,
@@ -99,7 +99,7 @@ struct SolarPosition {
 
 /// The `kind` event at the place on its solar `date`, refined until the
 /// Sun's position is read at the event itself.
-fn event(latitude: f64, longitude: f64, date: NaiveDate, kind: Event) -> Option<DateTime<Utc>> {
+fn event(latitude: f64, longitude: f64, date: CivilDate, kind: Event) -> Option<Timestamp> {
     let mut minutes = 4.0f64.mul_add(-longitude, 720.0);
     for _ in 0..=REFINEMENTS {
         let sun = solar_position(julian_century(date, minutes));
@@ -112,10 +112,10 @@ fn event(latitude: f64, longitude: f64, date: NaiveDate, kind: Event) -> Option<
         };
         minutes = 4.0f64.mul_add(-(longitude + signed), 720.0) - sun.equation_of_time;
     }
-    let midnight = Utc.from_utc_datetime(&date.and_hms_opt(0, 0, 0)?);
+    let midnight = date.at_midnight().and_utc().ok()?;
     #[allow(clippy::cast_possible_truncation)] // within a few days of the date, in milliseconds
     let millis = (minutes * 60_000.0).round() as i64;
-    Some(midnight + Duration::milliseconds(millis))
+    Some(midnight + Elapsed::milliseconds(millis))
 }
 
 /// The hour angle of sunrise at `latitude` for a Sun at `declination`.
@@ -135,8 +135,8 @@ fn hour_angle(latitude: f64, declination: f64) -> HourAngle {
 }
 
 /// Julian centuries since J2000.0 at `minutes` past UTC midnight of `date`.
-fn julian_century(date: NaiveDate, minutes: f64) -> f64 {
-    let epoch = NaiveDate::from_ymd_opt(2000, 1, 1).unwrap_or(date);
+fn julian_century(date: CivilDate, minutes: f64) -> f64 {
+    let epoch = CivilDate::from_ymd(2000, 1, 1).ok().unwrap_or(date);
     let days = (date - epoch).num_days();
     // J2000.0 is 2000-01-01 12:00 UTC.
     #[allow(clippy::cast_precision_loss)] // a few hundred thousand days
@@ -195,14 +195,12 @@ mod tests {
     /// The tolerance against the published times.
     const TOLERANCE_SECONDS: i64 = 120;
 
-    fn utc(text: &str) -> DateTime<Utc> {
-        DateTime::parse_from_rfc3339(text)
-            .unwrap()
-            .with_timezone(&Utc)
+    fn utc(text: &str) -> Timestamp {
+        Timestamp::parse_from_rfc3339(text).unwrap()
     }
 
-    fn date(y: i32, m: u32, d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    fn date(y: i32, m: u32, d: u32) -> CivilDate {
+        CivilDate::from_ymd(y, m, d).unwrap()
     }
 
     /// Assert the day at the place rises and sets within the tolerance of
@@ -211,7 +209,7 @@ mod tests {
         place: &str,
         latitude: f64,
         longitude: f64,
-        on: NaiveDate,
+        on: CivilDate,
         sunrise: &str,
         sunset: &str,
     ) {

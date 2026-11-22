@@ -31,8 +31,8 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use dravr_barrage::parse::fit::{FitActivityFile, Position};
+use dravr_tronc::dates::Timestamp;
 use pierre_database::repositories::{ActivityStreamRepository, ActivityStreamsWrite, StreamOrigin};
 use ring::digest::{digest, SHA256};
 use uuid::Uuid;
@@ -109,7 +109,7 @@ pub async fn store_upload_series(
     user_id: Uuid,
     file_sha256: &str,
     series: &[(usize, TimeSeriesData)],
-    synced_at: DateTime<Utc>,
+    synced_at: Timestamp,
 ) -> AppResult<()> {
     for (index, samples) in series {
         let activity_id = upload_activity_id(file_sha256, *index);

@@ -8,9 +8,9 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::zones::{HrZones, COGGAN_POWER_ZONE_NAMES};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::{Activity, SportType};
@@ -222,7 +222,7 @@ fn alternating_runs() -> Vec<Activity> {
                 format!("run-{day}"),
                 "Run",
                 SportType::Run,
-                Utc::now() - Duration::days(day),
+                Timestamp::now() - Elapsed::days(day),
                 3000,
                 "test",
             )

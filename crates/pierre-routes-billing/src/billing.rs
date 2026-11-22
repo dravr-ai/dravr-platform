@@ -14,7 +14,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::billing::{
     BillingEvent, CheckoutRequest, CheckoutResponse, Invoice, PortalRequest, PortalResponse,
     SubscriptionEventPayload, WebhookPayload,
@@ -332,8 +332,8 @@ async fn get_subscription<C: BillingCtx + MiddlewareCtx>(
         provider_subscription_id: row.provider_subscription_id,
         status: row.status.as_str().to_owned(),
         plan_tier: row.plan_tier.as_str().to_owned(),
-        current_period_start: row.current_period_start.map(|d| d.to_rfc3339()),
-        current_period_end: row.current_period_end.map(|d| d.to_rfc3339()),
+        current_period_start: row.current_period_start.map(Timestamp::to_rfc3339),
+        current_period_end: row.current_period_end.map(Timestamp::to_rfc3339),
         cancel_at_period_end: row.cancel_at_period_end,
     }))
 }
@@ -517,7 +517,7 @@ pub async fn dispatch_billing_event(
     auth_repos: &AuthRepos,
     usage_repos: &UsageRepos,
     provider: &str,
-    occurred_at: DateTime<Utc>,
+    occurred_at: Timestamp,
     event: &BillingEvent,
 ) -> AppResult<EventOutcome> {
     match event {
@@ -552,7 +552,7 @@ pub async fn dispatch_billing_event(
 /// Log an event the subscription row refused as superseded. `subscription`
 /// is the provider's subscription id, or its customer id when the event names
 /// no subscription (the row is keyed on the customer).
-fn log_superseded(provider: &str, occurred_at: DateTime<Utc>, subscription: &str) {
+fn log_superseded(provider: &str, occurred_at: Timestamp, subscription: &str) {
     tracing::warn!(
         billing_provider = provider,
         occurred_at = %occurred_at,
@@ -688,7 +688,7 @@ async fn handle_subscription_upsert(
     auth_repos: &AuthRepos,
     usage_repos: &UsageRepos,
     provider: &str,
-    occurred_at: DateTime<Utc>,
+    occurred_at: Timestamp,
     payload: &SubscriptionEventPayload,
 ) -> AppResult<EventOutcome> {
     let tenant_id = TenantId::parse_str(&payload.tenant_id)
@@ -709,7 +709,7 @@ async fn handle_subscription_upsert(
         .get_subscription_by_user(user_id)
         .await?;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let sub = Subscription {
         id: Uuid::new_v4(),
         tenant_id,
@@ -755,9 +755,9 @@ async fn handle_subscription_canceled(
     auth_repos: &AuthRepos,
     usage_repos: &UsageRepos,
     provider: &str,
-    occurred_at: DateTime<Utc>,
+    occurred_at: Timestamp,
     provider_subscription_id: &str,
-    canceled_at: Option<DateTime<Utc>>,
+    canceled_at: Option<Timestamp>,
 ) -> AppResult<EventOutcome> {
     let mut existing = usage_repos
         .subscriptions
@@ -771,8 +771,8 @@ async fn handle_subscription_canceled(
     existing.status = SubscriptionStatus::Canceled;
     existing.canceled_at = canceled_at
         .or(existing.canceled_at)
-        .or_else(|| Some(Utc::now()));
-    existing.updated_at = Utc::now();
+        .or_else(|| Some(Timestamp::now()));
+    existing.updated_at = Timestamp::now();
     existing.last_event_at = Some(occurred_at);
     let Some(stored) = usage_repos
         .subscriptions
@@ -809,7 +809,7 @@ async fn handle_subscription_canceled(
 async fn handle_payment_failed(
     usage_repos: &UsageRepos,
     provider: &str,
-    occurred_at: DateTime<Utc>,
+    occurred_at: Timestamp,
     provider_subscription_id: &str,
 ) -> AppResult<EventOutcome> {
     let mut existing = usage_repos
@@ -822,7 +822,7 @@ async fn handle_payment_failed(
             ))
         })?;
     existing.status = SubscriptionStatus::PastDue;
-    existing.updated_at = Utc::now();
+    existing.updated_at = Timestamp::now();
     existing.last_event_at = Some(occurred_at);
     if usage_repos
         .subscriptions

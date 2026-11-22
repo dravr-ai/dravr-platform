@@ -31,7 +31,7 @@
 //! its catalogue requirements hold. The wrap-up's own words stay the reply;
 //! the steps are the same choices as taps.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::{
     KEY_AGENTS_TEAM_OFFER_ADD, KEY_AGENTS_TEAM_OFFER_NOT_NOW, KEY_CALIBRATE_COMPLETE_HEADER,
     KEY_CALIBRATE_COMPLETE_MISSING, KEY_CALIBRATE_FOLLOWUP_NO_PLAN, KEY_CALIBRATE_FOLLOWUP_PLAN,
@@ -64,9 +64,8 @@ const LANDED_FETCH_LIMIT: i64 = 100;
 ///
 /// An unparseable start stamp falls back to now, which credits nothing and
 /// re-asks — the same safe direction as an unreadable fact store.
-fn walk_started_at(state: &OnboardingState) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(&state.started_at)
-        .map_or_else(|_| Utc::now(), |d| d.with_timezone(&Utc))
+fn walk_started_at(state: &OnboardingState) -> Timestamp {
+    Timestamp::parse_from_rfc3339(&state.started_at).unwrap_or_else(|_| Timestamp::now())
 }
 
 /// The subject's interview-sourced facts this turn may read.
@@ -154,7 +153,7 @@ const fn topic_label_key(topic: CalibrationTopic) -> Option<&'static str> {
 fn assess(
     landed: &[UserFact],
     asked: &[CalibrationTopic],
-    started_at: DateTime<Utc>,
+    started_at: Timestamp,
 ) -> (usize, Vec<CalibrationTopic>) {
     let kinds: Vec<&str> = asked.iter().map(|t| t.fact_kind()).collect();
     let (captured, missing) = credit_by_kind(landed, &kinds, started_at);
@@ -172,7 +171,7 @@ fn assess(
 fn credit_by_kind(
     landed: &[UserFact],
     asked_kinds: &[&str],
-    started_at: DateTime<Utc>,
+    started_at: Timestamp,
 ) -> (usize, Vec<usize>) {
     let kinds_landed: Vec<&str> = landed
         .iter()
@@ -214,7 +213,7 @@ fn credit_by_kind(
 fn assess_season(
     landed: &[UserFact],
     asked: &[SeasonTopic],
-    started_at: DateTime<Utc>,
+    started_at: Timestamp,
 ) -> (usize, bool) {
     let kinds: Vec<&str> = asked.iter().map(|t| t.landed_kind()).collect();
     let (captured, missing) = credit_by_kind(landed, &kinds, started_at);

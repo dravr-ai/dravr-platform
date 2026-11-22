@@ -22,7 +22,7 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::models::{
     ActivityBuilder, ConnectionType, DailyTrainingState, SportType, TenantId,
@@ -92,7 +92,7 @@ async fn store_runs(fx: &Fixture, oldest_days_ago: i64) {
                 format!("run-{days_ago}"),
                 format!("run {days_ago}d ago"),
                 SportType::Run,
-                Utc::now() - Duration::days(days_ago),
+                Timestamp::now() - Elapsed::days(days_ago),
                 3_600,
                 BACKEND.to_owned(),
             )
@@ -143,7 +143,7 @@ async fn walk_state(fx: &Fixture) -> Option<BackfillJobState> {
 async fn walk_a_third_down(fx: &Fixture) -> JobLease {
     let lease = owe_history_walk(fx.runtime.repos(), fx.user_id, fx.tenant, BACKEND).await;
     let step = JobProgressStep {
-        before_ts: (Utc::now() - Duration::days(36 * 30)).timestamp(),
+        before_ts: (Timestamp::now() - Elapsed::days(36 * 30)).epoch_seconds(),
         units_done: 36,
         rows_landed: 140,
         secs_per_unit: Some(4.0),
@@ -209,7 +209,7 @@ async fn a_history_never_walked_asks_a_walk_and_says_so() {
 async fn persist_last_ten_days(fx: &Fixture) {
     let (_, to) = default_window(&fx.runtime, fx.user_id).await.unwrap();
     let rows: Vec<DailyTrainingState> = (0..10)
-        .map(|back| DailyTrainingState::zero(to - Duration::days(back)))
+        .map(|back| DailyTrainingState::zero(to - Elapsed::days(back)))
         .collect();
     fx.runtime
         .repos()
@@ -234,7 +234,7 @@ async fn rows_that_start_late_over_a_deep_store_answer_the_whole_window() {
     let days = result["days"].as_array().expect("days");
     assert_eq!(
         days.first().and_then(|day| day["date"].as_str()),
-        Some(from.format("%Y-%m-%d").to_string().as_str()),
+        Some(from.to_string().as_str()),
         "bug: a complete window starts on `from`: {result}"
     );
     assert_eq!(
@@ -306,12 +306,7 @@ async fn rows_over_nothing_stored_say_they_answer_from_their_first_day() {
     );
     assert_eq!(
         coverage["trustworthy_from"].as_str(),
-        Some(
-            (to - Duration::days(9))
-                .format("%Y-%m-%d")
-                .to_string()
-                .as_str()
-        ),
+        Some((to - Elapsed::days(9)).to_string().as_str()),
         "bug: the coverage does not vouch from the first row it returns: {result}"
     );
     assert!(

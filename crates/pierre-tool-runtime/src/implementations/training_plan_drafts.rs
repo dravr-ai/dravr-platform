@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
@@ -208,7 +208,7 @@ pub struct PublishedDraftReport {
     /// The two safety-shaped findings of the rails, empty when none.
     pub safety: PlanSafetyReport,
     /// The athlete's civil date the rails measured against.
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// Where the line saying the publish in the athlete's room landed
     /// (carnet#1249).
     pub room_post: RoomPostOutcome,

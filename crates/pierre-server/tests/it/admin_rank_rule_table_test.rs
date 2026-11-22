@@ -36,7 +36,7 @@ use crate::helpers::axum_test::AxumTestRequest;
 use std::sync::Arc;
 
 use axum::Router;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::models::{AdminPermission, AdminPermissions, GeneratedAdminToken};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
@@ -305,8 +305,8 @@ async fn seed(
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();

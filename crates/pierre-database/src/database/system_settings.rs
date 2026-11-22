@@ -10,7 +10,7 @@ use crate::repositories::system_settings::{
     INSERT_SYSTEM_SETTING_IF_ABSENT_SQL, SET_SYSTEM_SETTING_SQL,
     UPDATE_SYSTEM_SETTING_IF_UNCHANGED_SQL,
 };
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 
@@ -51,7 +51,7 @@ pub struct SystemSetting {
     /// Human-readable description of what this setting controls
     pub description: Option<String>,
     /// When the setting was last modified
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 impl_system_settings!(Database);

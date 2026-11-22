@@ -8,7 +8,7 @@
 // Only the suites a feature set compiles call it.
 #![allow(dead_code)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillJobKind, BackfillJobState, JobLease, JobProgress,
@@ -29,7 +29,7 @@ pub(crate) async fn owe_history_walk(
     tenant_id: TenantId,
     backend: &str,
 ) -> JobLease {
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     let row = ActivityBackfillJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id,

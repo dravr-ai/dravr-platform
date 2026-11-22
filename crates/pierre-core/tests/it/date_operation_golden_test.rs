@@ -11,7 +11,7 @@
 //!
 //! | Operation | Used by |
 //! |---|---|
-//! | cut an instant to microseconds or seconds | `next_setting_stamp`, `whole_seconds`, the usage stamp (`pierre-database`), coach attention |
+//! | cut an instant to microseconds or seconds | `next_setting_stamp`, a subscription's `last_event_at`, the usage stamp (`pierre-database`), coach attention |
 //! | the Sunday that starts a week | the usage counters' weekly period (`pierre-services`) |
 //! | the first day of a month | the monthly request window (`pierre-database`), the turn clock |
 //! | seconds since local midnight, the zoneless local date-time | the check-in schedule (`pierre-server`) |
@@ -37,33 +37,30 @@ use pierre_core::models::CheckInCadence;
 
 /// Everything in this file that names the date engine.
 mod engine {
+    use std::iter;
     use std::time::Duration as StdDuration;
 
-    use chrono::{
-        DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, SubsecRound, TimeDelta, Timelike,
-        Utc,
-    };
-    use chrono_tz::Tz;
+    use dravr_tronc::dates::{CivilDate, Elapsed, Zone};
 
-    pub(super) type Instant = DateTime<Utc>;
-    pub(super) type CivilDateTime = NaiveDateTime;
+    pub(super) use dravr_tronc::dates::{CivilDateTime, Timestamp as Instant};
 
     const STAMP: &str = "%Y-%m-%dT%H:%M:%S%.9f";
 
     /// A UTC instant from `2026-11-17T10:00:05.123456789`, any fraction or none.
     pub(super) fn instant(text: &str) -> Instant {
-        NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
+        CivilDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
             .unwrap()
             .and_utc()
+            .unwrap()
     }
 
     /// The instant at nanosecond precision.
     pub(super) fn show(value: Instant) -> String {
-        value.format(STAMP).to_string()
+        value.format(STAMP).unwrap()
     }
 
-    fn date(text: &str) -> NaiveDate {
-        NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap()
+    fn date(text: &str) -> CivilDate {
+        CivilDate::parse_from_str(text, "%Y-%m-%d").unwrap()
     }
 
     /// The instant cut to microseconds and to whole seconds.
@@ -77,7 +74,7 @@ mod engine {
     pub(super) fn sunday_week(text: &str) -> (u32, String, u32) {
         let day = date(text);
         let since_sunday = day.weekday().num_days_from_sunday();
-        let sunday = day - Duration::days(i64::from(since_sunday));
+        let sunday = day - Elapsed::days(i64::from(since_sunday));
         (since_sunday, sunday.to_string(), 7 - since_sunday)
     }
 
@@ -90,41 +87,36 @@ mod engine {
 
     /// The zoneless date-time an instant shows in a zone.
     pub(super) fn local_clock(value: Instant, zone: &str) -> CivilDateTime {
-        value
-            .with_timezone(&zone.parse::<Tz>().unwrap())
-            .naive_local()
+        zone.parse::<Zone>().unwrap().civil_at(value)
     }
 
     /// Seconds since the zone's wall-clock midnight, the instant that many
     /// seconds earlier, and the zoneless local date-time.
     pub(super) fn since_local_midnight(text: &str, zone: &str) -> (u32, String, String) {
         let value = instant(text);
-        let local = value.with_timezone(&zone.parse::<Tz>().unwrap());
+        let local = zone.parse::<Zone>().unwrap().civil_at(value);
         let seconds = local.time().num_seconds_from_midnight();
         (
             seconds,
-            show(value - Duration::seconds(i64::from(seconds))),
-            local.naive_local().format(STAMP).to_string(),
+            show(value - Elapsed::seconds(i64::from(seconds))),
+            local.format(STAMP).unwrap(),
         )
     }
 
     /// The instant plus and minus a number of days, each refusing an overflow.
     pub(super) fn checked_days(text: &str, days: i64) -> [String; 2] {
         let value = instant(text);
-        let Some(step) = Duration::try_days(days) else {
+        let Some(step) = Elapsed::try_days(days) else {
             return ["no such duration".to_owned(), "no such duration".to_owned()];
         };
-        [
-            value.checked_add_signed(step),
-            value.checked_sub_signed(step),
-        ]
-        .map(|moved| moved.map_or_else(|| "none".to_owned(), show))
+        [value.checked_add(step), value.checked_sub(step)]
+            .map(|moved| moved.map_or_else(|| "none".to_owned(), show))
     }
 
     /// A `std` duration as a signed one: its whole seconds and the nanoseconds
     /// past them.
     pub(super) fn from_std(seconds: u64, nanos: u32) -> String {
-        TimeDelta::from_std(StdDuration::new(seconds, nanos)).map_or_else(
+        Elapsed::from_std(StdDuration::new(seconds, nanos)).map_or_else(
             |_| "rejected".to_owned(),
             |delta| format!("{}s+{}ns", delta.num_seconds(), delta.subsec_nanos()),
         )
@@ -132,7 +124,7 @@ mod engine {
 
     /// A signed duration of that many milliseconds as a `std` one.
     pub(super) fn to_std(millis: i64) -> String {
-        TimeDelta::milliseconds(millis).to_std().map_or_else(
+        Elapsed::milliseconds(millis).to_std().map_or_else(
             |_| "rejected".to_owned(),
             |std| format!("{}s+{}ns", std.as_secs(), std.subsec_nanos()),
         )
@@ -141,8 +133,7 @@ mod engine {
     /// Every day from `from` up to and including `to`.
     pub(super) fn days_through(from: &str, to: &str) -> Vec<String> {
         let last = date(to);
-        date(from)
-            .iter_days()
+        iter::successors(Some(date(from)), |day| day.succ())
             .take_while(|day| *day <= last)
             .map(|day| day.to_string())
             .collect()
@@ -221,8 +212,8 @@ fn cutting_an_instant_to_microseconds_or_seconds_drops_digits() {
         (
             "2016-12-31T23:59:60.500000001",
             [
-                "2016-12-31T23:59:60.500000000",
-                "2016-12-31T23:59:60.000000000",
+                "2016-12-31T23:59:59.500000000",
+                "2016-12-31T23:59:59.000000000",
             ],
         ),
     ];
@@ -482,15 +473,12 @@ fn adding_a_lifetime_refuses_an_overflow() {
         (
             "2026-11-17T10:00:05.123456789",
             95_000_000,
-            [
-                "+262128-01-17T10:00:05.123456789",
-                "-258075-09-18T10:00:05.123456789",
-            ],
+            ["none", "none"],
         ),
         (
             "2026-11-17T10:00:05.123456789",
             96_000_000,
-            ["none", "-260813-10-22T10:00:05.123456789"],
+            ["none", "none"],
         ),
         (
             "2026-11-17T10:00:05.123456789",
@@ -529,7 +517,7 @@ fn an_admin_token_lifetime_ends_exactly_that_many_days_later_or_is_refused() {
         (Some(30), "2026-12-17T10:00:05.123456789"),
         (Some(365), "2027-11-17T10:00:05.123456789"),
         (Some(36_500), "2126-10-24T10:00:05.123456789"),
-        (Some(95_000_000), "+262128-01-17T10:00:05.123456789"),
+        (Some(95_000_000), "refused"),
         (Some(96_000_000), "refused"),
         (Some(u64::MAX), "refused"),
     ];

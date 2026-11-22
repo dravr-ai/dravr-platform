@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, SubsecRound, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{TenantId, User, UserStatus};
 use pierre_database::repositories::UseCaseExposure;
 use pierre_database::RepositoryRegistry;
@@ -39,8 +39,9 @@ async fn each_showing_counts_and_a_tap_restarts_the_count() {
     let repos = db.repositories();
     let user = athlete(repos).await;
     let tenant = TenantId::generate();
-    let first = Utc::now().trunc_subsecs(3) - Duration::hours(2);
-    let second = first + Duration::hours(1);
+    let first =
+        Timestamp::from_epoch_millis(Timestamp::now().epoch_millis()).unwrap() - Elapsed::hours(2);
+    let second = first + Elapsed::hours(1);
 
     let exposures = &repos.use_case_exposures;
     exposures
@@ -59,7 +60,7 @@ async fn each_showing_counts_and_a_tap_restarts_the_count() {
     assert_eq!(find(&read, "connect").shown_count, 1);
     assert_eq!(find(&read, "connect").tapped_at, None);
 
-    let tap = second + Duration::minutes(5);
+    let tap = second + Elapsed::minutes(5);
     exposures
         .record_use_case_tapped(tenant, user, "recovered", tap)
         .await
@@ -80,7 +81,7 @@ async fn a_tap_on_a_starter_never_counted_shown_is_recorded() {
     let repos = db.repositories();
     let user = athlete(repos).await;
     let tenant = TenantId::generate();
-    let tap = Utc::now().trunc_subsecs(3);
+    let tap = Timestamp::from_epoch_millis(Timestamp::now().epoch_millis()).unwrap();
 
     repos
         .use_case_exposures
@@ -110,7 +111,7 @@ async fn exposures_stay_in_their_tenant_and_with_their_athlete() {
     let repos = db.repositories();
     let (user, teammate) = (athlete(repos).await, athlete(repos).await);
     let (tenant, elsewhere) = (TenantId::generate(), TenantId::generate());
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     repos
         .use_case_exposures

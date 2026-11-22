@@ -16,7 +16,7 @@ use secrecy::SecretString;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{ConnectionType, TenantId, User, UserOAuthToken, API_KEY_TOKEN_TYPE};
 use pierre_database::RepositoryRegistry;
@@ -117,7 +117,7 @@ async fn strava_has_a_fifteen_minute_budget_of_one_hundred_by_default() {
     let counters = Arc::clone(&repos.usage_counters);
     let limiter = limiter_over(&repos);
     let key = budget_counter_key("strava", APP);
-    let now = Utc::now();
+    let now = Timestamp::now();
     counters
         .increment_counter(
             PLATFORM_SCOPE,
@@ -160,7 +160,7 @@ async fn strava_has_a_daily_budget_of_one_thousand_by_default() {
     let counters = Arc::clone(&repos.usage_counters);
     let limiter = limiter_over(&repos);
     let key = budget_counter_key("strava", APP);
-    let now = Utc::now();
+    let now = Timestamp::now();
     counters
         .increment_counter(
             PLATFORM_SCOPE,
@@ -260,7 +260,7 @@ async fn a_spent_window_refuses_until_it_ends() {
     let limiter = fresh_limiter().await;
     limiter.set_budgets("strava", &[(2, window)]);
     // Start at the top of a window, so the three requests share one.
-    let into_window = u64::try_from(Utc::now().timestamp_millis().rem_euclid(1_000)).unwrap();
+    let into_window = u64::try_from(Timestamp::now().epoch_millis().rem_euclid(1_000)).unwrap();
     sleep(Duration::from_millis(1_000 - into_window + 20)).await;
 
     assert_eq!(
@@ -339,7 +339,7 @@ async fn a_tenant_apps_own_daily_limit_replaces_the_providers() {
     );
     // The refusal gave back the fifteen-minute slot it took first.
     let key = budget_counter_key("strava", "tenant-app");
-    let period = budget_period(Utc::now(), FIFTEEN_MINUTES);
+    let period = budget_period(Timestamp::now(), FIFTEEN_MINUTES);
     assert_eq!(
         counters
             .get_counter(PLATFORM_SCOPE, PLATFORM_SCOPE, &key, &period)
@@ -411,7 +411,7 @@ async fn spend(repos: &RepositoryRegistry, key: &str, window: Duration, value: i
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             key,
-            &budget_period(Utc::now(), window),
+            &budget_period(Timestamp::now(), window),
             value,
         )
         .await
@@ -426,7 +426,7 @@ async fn spent(repos: &RepositoryRegistry, key: &str, window: Duration) -> i64 {
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             key,
-            &budget_period(Utc::now(), window),
+            &budget_period(Timestamp::now(), window),
         )
         .await
         .unwrap()
@@ -453,7 +453,7 @@ async fn link_athletes(repos: &RepositoryRegistry, athletes: u32, token_type: &s
             ))
             .await
             .unwrap();
-        let now = Utc::now();
+        let now = Timestamp::now();
         repos
             .oauth_tokens
             .upsert_token(&UserOAuthToken {
@@ -1117,7 +1117,7 @@ async fn a_detail_walk_refusal_waits_until_the_athletes_day_ends() {
         "bug: a walk call past the athlete's day is not the limiter's own refusal"
     );
     assert!(refused_before_send(&refused), "nothing was sent");
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let to_midnight = i64::try_from(ONE_DAY.as_secs()).unwrap() - now.rem_euclid(86_400);
     let wait = i64::try_from(
         refused

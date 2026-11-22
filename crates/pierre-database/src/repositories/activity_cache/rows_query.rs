@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 
 #[cfg(doc)]
 use super::ActivityCacheRepository;
@@ -16,9 +16,9 @@ use super::CachedActivityRow;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CachedRowsQuery<'keys> {
     /// The window's oldest start.
-    pub start: DateTime<Utc>,
+    pub start: Timestamp,
     /// The window's newest start.
-    pub end: DateTime<Utc>,
+    pub end: Timestamp,
     /// At most this many rows.
     pub limit: i64,
     /// Only rows filed under these provider keys; `None` reads every key,
@@ -42,12 +42,12 @@ const STORABLE_FIRST_SECS: i64 = -62_135_596_800;
 const STORABLE_LAST_SECS: i64 = 253_402_300_799;
 
 /// `instant`, moved inside the span both engines store, so an open-ended
-/// window (a chrono bound like `DateTime::<Utc>::MIN_UTC`) reads every row
+/// window (a bound like `Timestamp::MIN`) reads every row
 /// instead of failing on PostgreSQL.
-fn storable(instant: DateTime<Utc>) -> DateTime<Utc> {
-    let first =
-        DateTime::from_timestamp(STORABLE_FIRST_SECS, 0).unwrap_or(DateTime::<Utc>::MIN_UTC);
-    let last = DateTime::from_timestamp(STORABLE_LAST_SECS, 0).unwrap_or(DateTime::<Utc>::MAX_UTC);
+fn storable(instant: Timestamp) -> Timestamp {
+    let first = Timestamp::from_epoch_seconds(STORABLE_FIRST_SECS).unwrap_or(Timestamp::MIN);
+    // Past the date types' last instant: their own end is then the edge.
+    let last = Timestamp::from_epoch_seconds(STORABLE_LAST_SECS).unwrap_or(Timestamp::MAX);
     instant.clamp(first, last)
 }
 
@@ -56,7 +56,7 @@ impl<'keys> CachedRowsQuery<'keys> {
     /// Bounds past what the store can hold are moved to its edges, which
     /// selects the same rows.
     #[must_use]
-    pub fn window(start: DateTime<Utc>, end: DateTime<Utc>, limit: i64) -> Self {
+    pub fn window(start: Timestamp, end: Timestamp, limit: i64) -> Self {
         Self {
             start: storable(start),
             end: storable(end),
@@ -100,7 +100,7 @@ impl<'keys> CachedRowsQuery<'keys> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CachedRowCursor {
     /// The last row's start.
-    pub start_date: DateTime<Utc>,
+    pub start_date: Timestamp,
     /// The key the last row is filed under.
     pub provider: String,
     /// The last row's activity id.
@@ -125,18 +125,21 @@ mod tests {
 
     #[test]
     fn an_open_ended_window_reads_inside_what_both_engines_store() {
-        let query = CachedRowsQuery::window(DateTime::<Utc>::MIN_UTC, DateTime::<Utc>::MAX_UTC, 10);
+        let query = CachedRowsQuery::window(Timestamp::MIN, Timestamp::MAX, 10);
         assert_eq!(
             query.start.to_rfc3339(),
             "0001-01-01T00:00:00+00:00",
-            "bug: a window from chrono's first instant reaches PostgreSQL out of range"
+            "bug: a window from the date types' first instant reaches PostgreSQL out of range"
         );
+        // The date types end before 9999-12-31T23:59:59Z (carnet#1620: years
+        // -9999 to 9999, accepted), so their last instant is already inside
+        // what both engines store and passes unmoved.
         assert_eq!(
             query.end.to_rfc3339(),
-            "9999-12-31T23:59:59+00:00",
-            "bug: a window to chrono's last instant reaches the store out of range"
+            "9999-12-30T22:00:00.999999999+00:00",
+            "bug: a window to the last instant reaches the store out of range"
         );
-        let now = Utc::now();
+        let now = Timestamp::now();
         assert_eq!(
             CachedRowsQuery::window(now, now, 1).start,
             now,

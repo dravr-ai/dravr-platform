@@ -20,13 +20,13 @@
 //!
 //! `invited_by` is a `uuid` column on Postgres and `TEXT` on `SQLite`, so the
 //! shell hands the body its [`uuid_columns`](super::uuid_columns) codec;
-//! timestamps bind as [`DateTime<Utc>`] on both. The consume runs through
+//! timestamps bind as [`Timestamp`] on both. The consume runs through
 //! the one body every link token shares
 //! ([`link_token_consume`](super::link_token_consume)), which binds the
 //! attempt cap against the `INTEGER` `attempt_count` column on both drivers.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{InvitationKind, UserInvitation};
 use uuid::Uuid;
@@ -47,7 +47,7 @@ pub trait UserInvitationRepository: Send + Sync {
         invited_by: Option<Uuid>,
         selector: &str,
         verifier_hash: &str,
-        expires_at: DateTime<Utc>,
+        expires_at: Timestamp,
         kind: InvitationKind,
     ) -> AppResult<UserInvitation>;
     /// Redeem an invitation once, returning it.
@@ -62,13 +62,13 @@ pub trait UserInvitationRepository: Send + Sync {
     /// invitation, leaving a plain one alone. Returns whether there was one.
     async fn revoke_coach_seat_for_email(&self, email: &str) -> AppResult<bool>;
     /// Every invitation still redeemable at `now`, oldest first.
-    async fn list_live(&self, now: DateTime<Utc>) -> AppResult<Vec<UserInvitation>>;
+    async fn list_live(&self, now: Timestamp) -> AppResult<Vec<UserInvitation>>;
     /// Every coach-seat invitation neither redeemed nor revoked, expired or
     /// not, oldest first: the console lists an expired one so it can be sent
     /// again.
     async fn list_outstanding_coach_seats(&self) -> AppResult<Vec<UserInvitation>>;
     /// Invitations issued to an address since `since`, live or not, for the send budget.
-    async fn count_recent(&self, email: &str, since: DateTime<Utc>) -> AppResult<i64>;
+    async fn count_recent(&self, email: &str, since: Timestamp) -> AppResult<i64>;
 }
 
 /// Supersede whatever the address still holds: unredeemed and unrevoked rows,
@@ -162,7 +162,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     Ok(UserInvitation {
         email: row
@@ -197,11 +197,11 @@ macro_rules! impl_user_invitation_repository {
                 invited_by: Option<Uuid>,
                 selector: &str,
                 verifier_hash: &str,
-                expires_at: DateTime<Utc>,
+                expires_at: Timestamp,
                 kind: InvitationKind,
             ) -> AppResult<UserInvitation> {
                 let email = normalize_email(email);
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let issue_error =
                     |e: sqlx::Error| AppError::database(format!("Failed to issue invitation: {e}"));
 
@@ -251,7 +251,7 @@ macro_rules! impl_user_invitation_repository {
 
             async fn revoke_for_email(&self, email: &str) -> AppResult<bool> {
                 let result = sqlx::query(REVOKE_LIVE_INVITATIONS_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(normalize_email(email))
                     .execute(self.pool())
                     .await
@@ -262,7 +262,7 @@ macro_rules! impl_user_invitation_repository {
 
             async fn revoke_coach_seat_for_email(&self, email: &str) -> AppResult<bool> {
                 let result = sqlx::query(REVOKE_LIVE_INVITATION_OF_KIND_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(normalize_email(email))
                     .bind(InvitationKind::CoachSeat.stored())
                     .execute(self.pool())
@@ -274,7 +274,7 @@ macro_rules! impl_user_invitation_repository {
                 Ok(result.rows_affected() > 0)
             }
 
-            async fn list_live(&self, now: DateTime<Utc>) -> AppResult<Vec<UserInvitation>> {
+            async fn list_live(&self, now: Timestamp) -> AppResult<Vec<UserInvitation>> {
                 let rows = sqlx::query(LIST_LIVE_INVITATIONS_SQL)
                     .bind(now)
                     .fetch_all(self.pool())
@@ -300,7 +300,7 @@ macro_rules! impl_user_invitation_repository {
                     .collect()
             }
 
-            async fn count_recent(&self, email: &str, since: DateTime<Utc>) -> AppResult<i64> {
+            async fn count_recent(&self, email: &str, since: Timestamp) -> AppResult<i64> {
                 let row = sqlx::query(COUNT_RECENT_INVITATIONS_SQL)
                     .bind(normalize_email(email))
                     .bind(since)

@@ -6,7 +6,7 @@
 
 use super::manager::AdminConfigManager;
 use super::repository::{AdminConfigRepository, LogChangeParams, SetOverrideParams};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_config::activity_landed::register_activity_landed;
 use pierre_config::activity_retention::register_activity_retention;
 use pierre_config::admin_definitions::{
@@ -691,7 +691,7 @@ impl AdminConfigService {
                 updated_count: 0,
                 validation_errors,
                 requires_restart: false,
-                effective_at: Utc::now(),
+                effective_at: Timestamp::now(),
                 shadowed_by_env: Vec::new(),
             });
         }
@@ -768,7 +768,7 @@ impl AdminConfigService {
             updated_count,
             validation_errors: Vec::new(),
             requires_restart,
-            effective_at: Utc::now(),
+            effective_at: Timestamp::now(),
             shadowed_by_env,
         })
     }

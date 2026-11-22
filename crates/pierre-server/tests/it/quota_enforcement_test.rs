@@ -11,7 +11,7 @@
     clippy::items_after_statements
 )]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier, PROFESSIONAL, STARTER};
 use pierre_core::permissions::UserRole;
@@ -27,7 +27,7 @@ async fn build_user(
 ) -> (Uuid, TenantId) {
     let user_id = Uuid::new_v4();
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let user = User {
         id: user_id,
         email: format!("phase3+{user_id}@example.com"),

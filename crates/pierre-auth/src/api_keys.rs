@@ -9,7 +9,7 @@
 //! Provides B2B API key generation, validation, and usage tracking
 //! for the Pierre MCP Fitness API platform.
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::key_prefixes;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::UserTier;
@@ -181,11 +181,11 @@ impl ApiKeyManager {
                 .expires_in_days
                 .or_else(|| request.tier.default_trial_days())
                 .unwrap_or(14);
-            Some(Utc::now() + Duration::days(days))
+            Some(Timestamp::now() + Elapsed::days(days))
         } else {
             request
                 .expires_in_days
-                .map(|days| Utc::now() + Duration::days(days))
+                .map(|days| Timestamp::now() + Elapsed::days(days))
         };
 
         // Get rate limits - use custom if provided, otherwise use tier defaults
@@ -212,7 +212,7 @@ impl ApiKeyManager {
             is_active: true,
             last_used_at: None,
             expires_at,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
 
         Ok((api_key, full_key))
@@ -251,7 +251,7 @@ impl ApiKeyManager {
         }
 
         if let Some(expires_at) = api_key.expires_at {
-            if Utc::now() > expires_at {
+            if Timestamp::now() > expires_at {
                 return Err(AppError::invalid_input("API key has expired"));
             }
         }

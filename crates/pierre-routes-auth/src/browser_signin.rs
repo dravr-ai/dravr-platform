@@ -32,10 +32,10 @@ use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use axum::Json;
-use chrono::Utc;
 use dravr_sciotte::client::ClientError;
 use dravr_sciotte::models::{AuthSession, CookieData};
 use dravr_sciotte::wire::{BrowserSignin, BrowserSigninCatalog};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_providers::sciotte_error;
 use pierre_providers::sciotte_provider::SciotteTarget;
@@ -234,7 +234,7 @@ fn session_of(cookies: &[BrowserCookie], cookie_domain: &str) -> Result<AuthSess
     Ok(AuthSession {
         session_id: format!("browser-{}", Uuid::new_v4().simple()),
         cookies: kept,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         expires_at: None,
     })
 }

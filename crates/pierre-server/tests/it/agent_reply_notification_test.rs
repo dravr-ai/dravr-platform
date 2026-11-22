@@ -28,7 +28,7 @@
 use crate::common;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier};
 use pierre_core::errors::AppError;
@@ -514,7 +514,7 @@ async fn a_group_member_reads_the_groups_agent_in_their_own_language() {
     let agent_id = translated_agent(&resources, owner.id, group_tenant).await;
 
     let group_id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let groups = &resources.common.repos.groups;
     groups
         .create_group(
@@ -715,7 +715,7 @@ async fn stored_api_key(resources: &ServerContext, user_id: Uuid) -> String {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     resources.common.repos.api_keys.create(&key).await.unwrap();
     data.full_key

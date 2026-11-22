@@ -24,8 +24,7 @@
 //! share ([`group_zone`]). With none on file the slot is read on the UTC clock
 //! and opens at [`NO_ZONE_SLOT_START_HOUR_UTC`] instead — the no-zone rule.
 
-use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Timelike, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use pierre_core::civil_time::{clock_date, monday_of, parse_zone};
 
 /// Local hour the digest lands at on Monday, and the first hour of the day
@@ -54,35 +53,34 @@ pub const NO_ZONE_SLOT_START_HOUR_UTC: u32 = 12;
 /// window, so the first tick to answer a week is at or after its Monday slot.
 /// A `None` zone applies the no-zone rule ([`NO_ZONE_SLOT_START_HOUR_UTC`]).
 #[must_use]
-pub fn due_week(now: DateTime<Utc>, zone: Option<Tz>, owed_since: DateTime<Utc>) -> Option<String> {
-    let (zone, opens) = zone.map_or((Tz::UTC, NO_ZONE_SLOT_START_HOUR_UTC), |zone| {
-        (zone, SLOT_START_HOUR)
-    });
-    let hour = now.with_timezone(&zone).hour();
+pub fn due_week(now: Timestamp, zone: Option<&Zone>, owed_since: Timestamp) -> Option<String> {
+    let (zone, opens) = zone.map_or_else(
+        || (Zone::utc(), NO_ZONE_SLOT_START_HOUR_UTC),
+        |zone| (zone.clone(), SLOT_START_HOUR),
+    );
+    let hour = zone.civil_at(now).time().hour();
     if !(opens..SLOT_END_HOUR).contains(&hour) {
         return None;
     }
-    let today = clock_date(now, zone);
-    let slot_owed = monday_slot(today, zone, opens).is_none_or(|slot| slot >= owed_since);
+    let today = clock_date(now, &zone);
+    let slot_owed = monday_slot(today, &zone, opens).is_none_or(|slot| slot >= owed_since);
     slot_owed.then(|| week_key(today))
 }
 
 /// The instant the slot opens on the Monday of `date`'s ISO week, or `None`
 /// when that local hour does not exist in `zone` (a transition at the slot
 /// hour, which no zone in use has) — such a week is treated as owed.
-fn monday_slot(date: NaiveDate, zone: Tz, opens: u32) -> Option<DateTime<Utc>> {
-    let local = monday_of(date).and_hms_opt(opens, 0, 0)?;
-    zone.from_local_datetime(&local)
-        .earliest()
-        .map(|slot| slot.with_timezone(&Utc))
+fn monday_slot(date: CivilDate, zone: &Zone, opens: u32) -> Option<Timestamp> {
+    let local = monday_of(date).and_hms(opens, 0, 0).ok()?;
+    zone.resolve(local).earliest()
 }
 
 /// The ISO week `date` falls in, as `2026-W39`: the key the delivery ledger
 /// holds one digest per group under.
 #[must_use]
-pub fn week_key(date: NaiveDate) -> String {
-    let week = date.iso_week();
-    format!("{}-W{:02}", week.year(), week.week())
+pub fn week_key(date: CivilDate) -> String {
+    let (year, week) = date.iso_week();
+    format!("{year}-W{week:02}")
 }
 
 /// The zone a group's digest slot is read in.
@@ -96,14 +94,14 @@ pub fn group_zone<'a>(
     owner: Option<&str>,
     coach: Option<&str>,
     members: impl IntoIterator<Item = Option<&'a str>>,
-) -> Option<Tz> {
+) -> Option<Zone> {
     parse_zone(owner)
         .or_else(|| parse_zone(coach))
         .or_else(|| most_common(members.into_iter().filter_map(parse_zone)))
 }
 
 /// The value seen most often, the first-seen one among equals.
-fn most_common<T: Copy + PartialEq>(values: impl Iterator<Item = T>) -> Option<T> {
+fn most_common<T: PartialEq>(values: impl Iterator<Item = T>) -> Option<T> {
     let mut counts: Vec<(T, usize)> = Vec::new();
     for value in values {
         match counts.iter_mut().find(|(seen, _)| *seen == value) {

@@ -12,6 +12,7 @@
 //! unit — the tests and the derived schemas both name them — and none of them
 //! needs the tool plumbing next door.
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::agents::{Agent, AgentListItem};
 use serde::Serialize;
 
@@ -334,7 +335,7 @@ pub fn list_agents_payload(
             is_system: item.agent.is_system,
             is_assigned: item.is_assigned,
             use_count: item.use_count,
-            last_used_at: item.last_used_at.map(|dt| dt.to_rfc3339()),
+            last_used_at: item.last_used_at.map(Timestamp::to_rfc3339),
             updated_at: item.agent.updated_at.to_rfc3339(),
         })
         .collect();

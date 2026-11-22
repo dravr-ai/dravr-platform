@@ -8,7 +8,7 @@ use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::http::oauth_client;
 use pierre_core::errors::messaging::MessagingError;
 use pierre_core::models::messaging::{ChannelType, LinkingMethod, LINK_CODE_TTL_MINUTES};
@@ -223,7 +223,7 @@ pub(crate) async fn init_channel_link(
         _ => None,
     };
     let code = generate_link_code();
-    let expires_at = Utc::now() + Duration::minutes(LINK_CODE_TTL_MINUTES);
+    let expires_at = Timestamp::now() + Elapsed::minutes(LINK_CODE_TTL_MINUTES);
     let id = Uuid::new_v4().to_string();
 
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();

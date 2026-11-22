@@ -39,8 +39,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration as StdDuration, Instant};
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_commands::group_membership::GroupJoinHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::errors::{AppError, AppResult};
@@ -313,7 +313,7 @@ impl World {
     /// An active group `coach` coaches, made `age_days` ago.
     async fn group(&self, name: &str, coach: Person, age_days: i64) -> CoachingGroup {
         let repos = &self.res.common.repos;
-        let made = Utc::now() - Duration::days(age_days);
+        let made = Timestamp::now() - Elapsed::days(age_days);
         let group = repos
             .groups
             .create_group(
@@ -355,7 +355,7 @@ impl World {
 
     /// `who` joins `group`, sharing with its coach or not.
     async fn join(&self, group: &CoachingGroup, who: Person, shares: bool) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.res
             .common
             .repos
@@ -420,7 +420,7 @@ impl World {
             .common
             .repos
             .delegated_connections
-            .confirm(link.id, member.id, member.tenant, Utc::now())
+            .confirm(link.id, member.id, member.tenant, Timestamp::now())
             .await
             .unwrap()
             .expect("the proposal names the member")
@@ -586,14 +586,14 @@ async fn connect_coachhub_as(
     tenant: TenantId,
     account: &str,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut token = UserOAuthToken::new(
         who.id,
         tenant.to_string(),
         COACHHUB.to_owned(),
         format!("coachhub-token-{}", who.id.as_simple()),
         None,
-        Some(now + Duration::hours(6)),
+        Some(now + Elapsed::hours(6)),
         None,
     );
     token.provider_user_id = Some(account.to_owned());

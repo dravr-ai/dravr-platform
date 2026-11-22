@@ -21,7 +21,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -133,7 +133,7 @@ pub struct AuditEventRecord {
     /// Row id.
     pub id: String,
     /// When it happened.
-    pub occurred_at: DateTime<Utc>,
+    pub occurred_at: Timestamp,
     /// What was done (see [`NewAuditEvent::action`]).
     pub action: String,
     /// The line an admin reads.
@@ -161,7 +161,7 @@ pub struct AuditEventFilter {
     /// The page cursor's instant: the previous page's last `occurred_at`. Alone
     /// it selects the rows strictly older; with [`Self::before_id`] it also
     /// keeps the rows of that same instant that sort after the cursor's id.
-    pub before: Option<DateTime<Utc>>,
+    pub before: Option<Timestamp>,
     /// The page cursor's id: the previous page's last row, which orders the
     /// rows sharing [`Self::before`]'s instant.
     pub before_id: Option<String>,
@@ -237,7 +237,7 @@ pub struct RecentReadKey<'read> {
     /// The row's summary, which names the scope.
     pub summary: &'read str,
     /// The oldest row that still counts.
-    pub since: DateTime<Utc>,
+    pub since: Timestamp,
 }
 
 /// Append one row. `severity` is the column the table was born with; the
@@ -328,7 +328,7 @@ pub(crate) fn audit_column_error(col: &str, e: impl Display) -> AppError {
 /// Emit the whole [`AdminAuditRepository`] implementation for one backend:
 /// `$ty` the database type, `$ids` its uuid codec (`TextUuid` or
 /// `NativeUuid`). The statements, the binds and the row decode are written
-/// once here; the invoking shell brings `DateTime`, `Utc`, `Json`, `Row`,
+/// once here; the invoking shell brings `Timestamp`, `Json`, `Row`,
 /// `Uuid` and `Value` into scope.
 macro_rules! impl_admin_audit_repository {
     ($ty:ty, $ids:ident) => {
@@ -348,7 +348,7 @@ macro_rules! impl_admin_audit_repository {
                     .bind(&event.ip_address)
                     .bind(&event.user_agent)
                     .bind(Json(&event.metadata))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -392,7 +392,7 @@ macro_rules! impl_admin_audit_repository {
                         Ok(AuditEventRecord {
                             id: text("id")?,
                             occurred_at: row
-                                .try_get::<DateTime<Utc>, _>("timestamp")
+                                .try_get::<Timestamp, _>("timestamp")
                                 .map_err(|e| audit_column_error("timestamp", e))?,
                             action: text("event_type")?,
                             summary: text("message")?,

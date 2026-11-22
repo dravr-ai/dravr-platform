@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{TenantPlan, ToolCatalogEntry, ToolCategory};
@@ -128,8 +128,8 @@ async fn insert_missing_tools(
                 None
             },
             min_plan: TenantPlan::Starter,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
 
         if let Err(e) = repo.upsert_tool_catalog_entry(&entry).await {

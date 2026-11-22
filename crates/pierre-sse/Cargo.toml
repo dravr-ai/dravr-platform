@@ -19,7 +19,7 @@ pierre-services = { version = "0.3.0", path = "../pierre-services" }
 async-stream = "0.3"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["macros"] }
-chrono = { version = "0.4", features = ["serde"] }
+dravr-tronc = { workspace = true }
 dashmap = "6.1"
 futures-util = "0.3"
 serde_json = "1.0"

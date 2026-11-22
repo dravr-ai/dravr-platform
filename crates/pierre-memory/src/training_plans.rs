@@ -36,7 +36,7 @@
 use pierre_core::transport::TransportPolicy;
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::models::periodization::serde_num::{whole_u32_opt, whole_u8};
 use pierre_core::models::periodization::{
     AnchorChoice, EnvelopeFinding, EnvelopeReport, EvidenceBadge, FlavourFamily, FlavourInputs,
@@ -299,22 +299,22 @@ pub struct PlanPhase {
 impl PlanPhase {
     /// Civil start date, when it parses.
     #[must_use]
-    pub fn start_date(&self) -> Option<NaiveDate> {
+    pub fn start_date(&self) -> Option<CivilDate> {
         parse_plan_date(&self.start)
     }
 
     /// First day after the phase — `start + 7 × weeks` — when it exists on
-    /// the calendar. A phase whose span runs past `NaiveDate::MAX` holds no
+    /// the calendar. A phase whose span runs past `CivilDate::MAX` holds no
     /// end date, the same way an unparseable start holds no start.
     #[must_use]
-    pub fn end_exclusive(&self) -> Option<NaiveDate> {
-        let days = u64::from(self.weeks).checked_mul(7)?;
-        self.start_date()?.checked_add_days(chrono::Days::new(days))
+    pub fn end_exclusive(&self) -> Option<CivilDate> {
+        let days = i64::from(self.weeks).checked_mul(7)?;
+        self.start_date()?.checked_add_days(days)
     }
 
     /// Whether `date` falls inside the phase's span.
     #[must_use]
-    pub fn covers(&self, date: NaiveDate) -> bool {
+    pub fn covers(&self, date: CivilDate) -> bool {
         match (self.start_date(), self.end_exclusive()) {
             (Some(start), Some(end)) => (start..end).contains(&date),
             _ => false,
@@ -618,9 +618,9 @@ pub struct TrainingPlan {
     /// Conversation the plan was agreed in, for provenance.
     pub source_conversation_id: Option<String>,
     /// When this outline row was created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When this outline row last changed status.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// Where this plan may be served (carnet#769): first-party-only when what it
     /// was derived from was. Plans written before the stamp read as unstamped.
     #[serde(default, skip_serializing)]
@@ -667,9 +667,9 @@ pub struct PlanWeek {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author_agent_id: Option<String>,
     /// When this week row was created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When this week row last changed status.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// Maximum day rows in one week — a microcycle is a calendar week.
@@ -679,11 +679,11 @@ pub const MAX_DAYS_PER_WEEK: usize = 7;
 /// `YYYY-MM-DD`.
 ///
 /// Stored dates sort lexically (`ORDER BY week_start`), so a non-padded
-/// `2026-8-8` — which chrono would happily parse — must be rejected or it
-/// would sort after every August entry. Plan dates are athlete-visible and
+/// `2026-8-8` — which `CivilDate::parse_from_str` would happily parse — must
+/// be rejected or it would sort after every August entry. Plan dates are athlete-visible and
 /// must never be guessed.
 #[must_use]
-pub fn parse_plan_date(s: &str) -> Option<NaiveDate> {
-    let parsed = NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()?;
-    (parsed.format("%Y-%m-%d").to_string() == s).then_some(parsed)
+pub fn parse_plan_date(s: &str) -> Option<CivilDate> {
+    let parsed = CivilDate::parse_from_str(s, "%Y-%m-%d").ok()?;
+    (parsed.to_string() == s).then_some(parsed)
 }

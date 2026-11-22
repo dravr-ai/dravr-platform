@@ -28,7 +28,7 @@
 
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 use tracing::{info, warn};
@@ -329,13 +329,11 @@ async fn fetch_assistant_messages(
     let since = params
         .since
         .map(|since| {
-            DateTime::parse_from_rfc3339(since)
-                .map(|dt| dt.with_timezone(&Utc))
-                .map_err(|e| {
-                    AppError::invalid_input(format!(
-                        "since must be an RFC 3339 timestamp, got {since:?}: {e}"
-                    ))
-                })
+            Timestamp::parse_from_rfc3339(since).map_err(|e| {
+                AppError::invalid_input(format!(
+                    "since must be an RFC 3339 timestamp, got {since:?}: {e}"
+                ))
+            })
         })
         .transpose()?;
     repos

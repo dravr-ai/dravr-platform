@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers::{INTERVALS_ICU, USER_PROVIDED_PROVIDERS, WAHOO};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
@@ -94,7 +94,7 @@ fn session(provider: &str) -> Activity {
         format!("{provider}-run"),
         "Riverside Loop",
         SportType::Run,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3_600,
         provider,
     )
@@ -234,7 +234,7 @@ async fn connect(resources: &ServerContext, athlete: &Rider, provider: &str) {
         provider.to_owned(),
         format!("{provider}-access"),
         Some(format!("{provider}-refresh")),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         None,
     );
     repos.oauth_tokens.upsert_token(&token).await.unwrap();

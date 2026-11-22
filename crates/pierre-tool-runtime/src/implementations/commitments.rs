@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Duration, NaiveDate, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::models::TenantId;
 use pierre_memory::commitments::{
@@ -123,22 +123,18 @@ fn require_whole_number(args: &Value, key: &str) -> AppResult<u32> {
 /// Lebanon both spring forward at exactly midnight — the window closes at the
 /// first instant that does. Rejecting the date instead would refuse a perfectly
 /// ordinary promise twice a year in those countries.
-fn window_end_for(due_date: NaiveDate, timezone: Option<&str>) -> AppResult<chrono::DateTime<Utc>> {
+fn window_end_for(due_date: CivilDate, timezone: Option<&str>) -> AppResult<Timestamp> {
     let tz = resolve_zone(timezone);
     let end_of_day = due_date
-        .succ_opt()
-        .and_then(|next| next.and_hms_opt(0, 0, 0))
+        .succ()
+        .map(CivilDate::at_midnight)
         .ok_or_else(|| AppError::invalid_input("due_date is out of range"))?;
 
     // Real spring-forward gaps are 30 or 60 minutes; stepping to 120 clears any
     // of them with room to spare.
     (0..=120)
         .step_by(30)
-        .find_map(|skip| {
-            tz.from_local_datetime(&(end_of_day + Duration::minutes(skip)))
-                .earliest()
-        })
-        .map(|local| local.with_timezone(&Utc))
+        .find_map(|skip| tz.resolve(end_of_day + Elapsed::minutes(skip)).earliest())
         .ok_or_else(|| AppError::invalid_input("due_date has no valid local midnight"))
 }
 
@@ -277,13 +273,13 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
             let timezone = athlete_timezone(&context, user_id).await;
             let window_end = window_end_for(due_date, timezone.as_deref())?;
 
-            let now = Utc::now();
+            let now = Timestamp::now();
             if window_end <= now {
                 return Err(AppError::invalid_input(
                     "due_date has already passed in the athlete's timezone",
                 ));
             }
-            if window_end > now + Duration::days(MAX_WINDOW_DAYS) {
+            if window_end > now + Elapsed::days(MAX_WINDOW_DAYS) {
                 return Err(AppError::invalid_input(format!(
                     "due_date is more than {MAX_WINDOW_DAYS} days out; that is a training plan, not a commitment"
                 )));

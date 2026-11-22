@@ -35,7 +35,7 @@ mod turn_service_quota_tests {
     use crate::helpers::axum_test::AxumTestRequest;
     use async_trait::async_trait;
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use futures_util::stream;
     use pierre_chat_pipeline::{
         CommandPersistence, InputSource, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile,
@@ -139,7 +139,7 @@ mod turn_service_quota_tests {
         );
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
 
@@ -177,8 +177,8 @@ mod turn_service_quota_tests {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: owner,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common
@@ -315,7 +315,7 @@ mod turn_service_quota_tests {
                 "update_id": 5150,
                 "message": {
                     "message_id": 1,
-                    "date": Utc::now().timestamp(),
+                    "date": Timestamp::now().epoch_seconds(),
                     "chat": { "id": chat_id.parse::<i64>().unwrap(), "type": "private" },
                     "from": { "id": chat_id.parse::<i64>().unwrap(), "is_bot": false },
                     "text": "Comment se présente ma semaine d'entraînement?"

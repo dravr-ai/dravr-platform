@@ -43,7 +43,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
@@ -121,11 +121,9 @@ fn historical_backfill_threshold_days() -> i64 {
 /// test suite.
 #[must_use]
 pub fn is_historical_backfill_window(after_ts: i64) -> bool {
-    Utc.timestamp_opt(after_ts, 0)
-        .single()
-        .is_some_and(|after| {
-            after < Utc::now() - Duration::days(historical_backfill_threshold_days())
-        })
+    Timestamp::from_epoch_seconds(after_ts).is_ok_and(|after| {
+        after < Timestamp::now() - Elapsed::days(historical_backfill_threshold_days())
+    })
 }
 
 /// The depth a completed backfill may claim as covered, in unix seconds.
@@ -671,7 +669,7 @@ fn keep_backfill_lease(job: &ActivityBackfillJob, row_id: &JobLease) -> LeaseRen
 }
 
 fn now_ms() -> i64 {
-    Utc::now().timestamp_millis()
+    Timestamp::now().epoch_millis()
 }
 
 fn lease_ms() -> i64 {
@@ -931,7 +929,7 @@ async fn record_backfill_coverage(
     let Some(oldest) = activities.iter().map(Activity::start_date).min() else {
         return;
     };
-    let oldest_reached_ts = oldest.timestamp();
+    let oldest_reached_ts = oldest.epoch_seconds();
     let fetch_limit = job.query_params.limit.unwrap_or(usize::MAX);
     let coverage = BackfillCoverage {
         oldest_reached_ts: backfill_covered_floor_ts(
@@ -991,7 +989,7 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) -> BackfillRunOutcome 
         UniversalExecutor::new(job.resources.clone()).with_scopes(OAuthScope::self_grant());
     // Taken before the fetch reads the session: a reconnect that lands during
     // a long scrape is newer than the failure the scrape reports.
-    let attempt_started_at = Utc::now();
+    let attempt_started_at = Timestamp::now();
     let activities = match fetch_backfill_activities(job, &executor).await {
         BackfillFetch::Activities(activities) => activities,
         BackfillFetch::AuthRequired => {

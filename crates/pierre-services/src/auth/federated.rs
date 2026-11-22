@@ -19,7 +19,7 @@
 //! credential it held before: whoever registered that address first proved
 //! nothing about it, so their password and sessions end here.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -36,6 +36,7 @@ use pierre_database::repositories::FederatedLink;
 use pierre_middleware::mask_email;
 
 use super::{invalid_credentials, AuthService};
+use dravr_tronc::dates::Elapsed;
 
 /// Where a federated account was created, as the `user.signed_up` notify
 /// event's `source` reports it.
@@ -351,7 +352,7 @@ impl AuthService {
 
         let sessions = repos
             .session_refresh_tokens
-            .revoke_user_tokens(user.id, Utc::now())
+            .revoke_user_tokens(user.id, Timestamp::now())
             .await?;
         let user_id = user.id.to_string();
 
@@ -444,7 +445,7 @@ impl AuthService {
             .unwrap_or_else(|| email.split('@').next().unwrap_or("user"));
 
         // Step 1: Create user first - tenant membership managed via tenant_users table
-        let now = Utc::now();
+        let now = Timestamp::now();
         let new_user = User {
             id: user_id,
             email: email.to_owned(),
@@ -513,7 +514,7 @@ impl AuthService {
             .generate_token_with_tenant(user, &self.jwks_manager, active_tenant_id)
             .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
 
-        let expires_at = Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
+        let expires_at = Timestamp::now() + Elapsed::hours(limits::DEFAULT_SESSION_HOURS);
 
         self.data.repos().users.update_last_active(user.id).await?;
 

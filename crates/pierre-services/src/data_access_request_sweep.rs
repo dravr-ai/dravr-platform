@@ -25,7 +25,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::AppResult;
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::{DataAccessRequest, ReminderStage};
@@ -85,7 +85,7 @@ const fn event(stage: ReminderStage) -> NotificationEvent {
 }
 
 /// The reminder for `request` at `stage`, due on `due_on`.
-fn reminder(request: &DataAccessRequest, stage: ReminderStage, due_on: NaiveDate) -> EventDispatch {
+fn reminder(request: &DataAccessRequest, stage: ReminderStage, due_on: CivilDate) -> EventDispatch {
     EventDispatch {
         user_id: request.user_id,
         tenant_id: CommereTenantId(request.tenant_id.as_uuid()),
@@ -94,7 +94,7 @@ fn reminder(request: &DataAccessRequest, stage: ReminderStage, due_on: NaiveDate
         params: json!({
             DATA_ACCESS_COMPANY_PARAM: request.controller,
             DATA_ACCESS_REFERENCE_PARAM: request.reference,
-            DATA_ACCESS_DUE_ON_PARAM: due_on.format("%Y-%m-%d").to_string(),
+            DATA_ACCESS_DUE_ON_PARAM: due_on.to_string(),
         }),
         // A tap opens the request in Settings → Privacy & Data. The body
         // still names where to go, for a client too old to know the screen.
@@ -115,8 +115,8 @@ fn reminder(request: &DataAccessRequest, stage: ReminderStage, due_on: NaiveDate
 pub async fn sweep(
     repos: &RepositoryRegistry,
     notifications: &NotificationService,
-    today: NaiveDate,
-    now: DateTime<Utc>,
+    today: CivilDate,
+    now: Timestamp,
 ) -> AppResult<SweepOutcome> {
     let mut outcome = SweepOutcome::default();
     for stage in [ReminderStage::Overdue, ReminderStage::DueSoon] {
@@ -143,7 +143,7 @@ async fn remind(
     notifications: &NotificationService,
     request: &DataAccessRequest,
     stage: ReminderStage,
-    now: DateTime<Utc>,
+    now: Timestamp,
     outcome: &mut SweepOutcome,
 ) -> AppResult<()> {
     let Some(due_on) = request.due_on else {
@@ -206,8 +206,8 @@ pub fn spawn_data_access_request_sweep(
         let repos = Arc::clone(&repos);
         let notifications = Arc::clone(&notifications);
         async move {
-            let now = Utc::now();
-            let outcome = sweep(&repos, &notifications, now.date_naive(), now).await?;
+            let now = Timestamp::now();
+            let outcome = sweep(&repos, &notifications, now.utc_date(), now).await?;
             if outcome.claimed > 0 {
                 debug!(
                     worker = WORKER_NAME,

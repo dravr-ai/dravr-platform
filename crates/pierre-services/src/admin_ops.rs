@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::pricing::{cost_for_record, costs_of_usage_groups};
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
@@ -59,7 +59,7 @@ pub struct UserRateLimits {
     /// Monthly quota remaining (None means unlimited)
     pub monthly_remaining: Option<u32>,
     /// Wall-clock time when the monthly counter resets
-    pub monthly_reset: DateTime<Utc>,
+    pub monthly_reset: Timestamp,
     /// True when a per-user override is in effect (tier default ignored).
     pub override_active: bool,
     /// Admin note attached to the override, if any.
@@ -837,7 +837,7 @@ pub async fn compute_user_rate_limits(
         monthly_limit,
         monthly_used: usage.used,
         monthly_remaining: monthly_limit.map(|l| l.saturating_sub(usage.used)),
-        monthly_reset: next_utc_month_start(Utc::now()),
+        monthly_reset: next_utc_month_start(Timestamp::now()),
         override_active: usage.monthly_override != MonthlyLimitOverride::NotSet,
         override_note,
     })
@@ -872,8 +872,8 @@ pub async fn compute_user_activity(
 
     // Get time range for activity using days parameter (default 30)
     let days = i64::from(days.unwrap_or(30).clamp(1, 365));
-    let now = Utc::now();
-    let start_time = now - Duration::days(days);
+    let now = Timestamp::now();
+    let start_time = now - Elapsed::days(days);
 
     // The list stops at the busiest endpoints, the count does not, so a share is
     // of everything the keys did.
@@ -1040,16 +1040,11 @@ pub async fn fetch_recent_activity(
     scope: AdminScope,
 ) -> Result<RecentActivityResult, AppError> {
     // Time boundary for "today" stats
-    let today_start = Utc::now()
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .map_or_else(Utc::now, |t| {
-            DateTime::<Utc>::from_naive_utc_and_offset(t, Utc)
-        });
+    let today_start = Timestamp::now().utc_date().at_midnight().and_utc()?;
     let today_str = today_start.to_rfc3339();
 
     // Time boundary for "active conversations" (last 15 minutes)
-    let fifteen_min_ago = (Utc::now() - Duration::minutes(15)).to_rfc3339();
+    let fifteen_min_ago = (Timestamp::now() - Elapsed::minutes(15)).to_rfc3339();
 
     let repos = data.repos();
     let tenant_text = scope.tenant_filter().map(|t| t.to_string());

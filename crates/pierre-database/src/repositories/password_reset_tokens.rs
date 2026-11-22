@@ -15,7 +15,7 @@
 //! The two backends differ in one respect: `user_id` is a `uuid` column on
 //! Postgres and `TEXT` on `SQLite`, so the shell hands the body its
 //! [`uuid_columns`](super::uuid_columns) codec. The token's own `id` is `TEXT`
-//! on both. Timestamps bind as [`DateTime<Utc>`] on both: `TIMESTAMPTZ` on
+//! on both. Timestamps bind as [`Timestamp`] on both: `TIMESTAMPTZ` on
 //! Postgres, RFC 3339 text on `SQLite`, which orders correctly for the
 //! `expires_at > now` filter because every value shares one offset and width.
 //! The consume runs through the one body every link token shares
@@ -111,8 +111,8 @@ macro_rules! impl_password_reset_repository {
                 ttl_minutes: i64,
             ) -> AppResult<Uuid> {
                 let id = Uuid::new_v4();
-                let now = Utc::now();
-                let expires_at = now + chrono::Duration::minutes(ttl_minutes);
+                let now = Timestamp::now();
+                let expires_at = now + dravr_tronc::dates::Elapsed::minutes(ttl_minutes);
 
                 sqlx::query(STORE_RESET_TOKEN_SQL)
                     .bind(id.to_string())
@@ -139,7 +139,7 @@ macro_rules! impl_password_reset_repository {
 
             async fn invalidate_tokens(&self, user_id: Uuid) -> AppResult<()> {
                 sqlx::query(INVALIDATE_USER_RESET_TOKENS_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind($ids::bind(user_id))
                     .execute(self.pool())
                     .await
@@ -150,11 +150,7 @@ macro_rules! impl_password_reset_repository {
                 Ok(())
             }
 
-            async fn count_recent_tokens(
-                &self,
-                user_id: Uuid,
-                since: DateTime<Utc>,
-            ) -> AppResult<i64> {
+            async fn count_recent_tokens(&self, user_id: Uuid, since: Timestamp) -> AppResult<i64> {
                 let row = sqlx::query(COUNT_RECENT_RESET_TOKENS_SQL)
                     .bind($ids::bind(user_id))
                     .bind(since)

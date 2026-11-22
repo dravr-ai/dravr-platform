@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::commitments::{Commitment, CommitmentOutcome, CommitmentStatus};
@@ -25,7 +25,7 @@ pub struct SweptVerdict<'a> {
     /// How many matching sessions were counted.
     pub completed_sessions: u32,
     /// When the sweep ran.
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
     /// The stamp of the sessions the count read (carnet#769): the commitment
     /// keeps the stricter of its own and this.
     pub transport_policy: TransportPolicy,
@@ -93,7 +93,7 @@ pub trait CommitmentRepository: Send + Sync {
         &self,
         tenant_id: &str,
         commitment_id: &str,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> AppResult<bool>;
 
     /// Close a commitment out without a verdict reaching the athlete — the
@@ -114,7 +114,7 @@ pub trait CommitmentRepository: Send + Sync {
         &self,
         tenant_id: &str,
         user_id: &str,
-    ) -> AppResult<Option<DateTime<Utc>>>;
+    ) -> AppResult<Option<Timestamp>>;
 }
 
 /// Build a complete `SELECT` over `athlete_commitments` at compile time.
@@ -214,8 +214,8 @@ pub(crate) const LAST_REPORT_SQL: &str = r"
 ";
 
 /// Convert epoch seconds to a UTC timestamp.
-fn epoch_to_dt(secs: i64) -> Option<DateTime<Utc>> {
-    DateTime::from_timestamp(secs, 0)
+fn epoch_to_dt(secs: i64) -> Option<Timestamp> {
+    Timestamp::from_epoch_seconds(secs).ok()
 }
 
 /// Clamp a DB counter (`i64`, always non-negative in our schema) into the `u32`
@@ -298,15 +298,15 @@ pub(crate) fn commitment_from_row(row: CommitmentRow) -> AppResult<Commitment> {
         statement: row.statement,
         sport: empty_to_none(row.sport),
         target_sessions: clamp_count(row.target_sessions),
-        window_start: epoch_to_dt(row.window_start).unwrap_or_else(Utc::now),
-        window_end: epoch_to_dt(row.window_end).unwrap_or_else(Utc::now),
+        window_start: epoch_to_dt(row.window_start).unwrap_or_else(Timestamp::now),
+        window_end: epoch_to_dt(row.window_end).unwrap_or_else(Timestamp::now),
         status,
         outcome,
         completed_sessions: row.completed_sessions.map(clamp_count),
         swept_at: row.swept_at.and_then(epoch_to_dt),
         reported_at: row.reported_at.and_then(epoch_to_dt),
-        created_at: epoch_to_dt(row.created_at).unwrap_or_else(Utc::now),
-        updated_at: epoch_to_dt(row.updated_at).unwrap_or_else(Utc::now),
+        created_at: epoch_to_dt(row.created_at).unwrap_or_else(Timestamp::now),
+        updated_at: epoch_to_dt(row.updated_at).unwrap_or_else(Timestamp::now),
         transport_policy: TransportPolicy::from_first_party_only(row.first_party_only),
     })
 }

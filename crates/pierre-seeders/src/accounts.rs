@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use bcrypt::{hash, DEFAULT_COST};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::UserRole;
@@ -77,7 +77,7 @@ pub(crate) async fn create_account(
     new: &NewAccount<'_>,
 ) -> AppResult<Uuid> {
     let user_id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     repos
         .seeder

@@ -12,7 +12,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg(feature = "postgresql")]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{CoachingPersona, ConnectionType, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
@@ -31,9 +31,9 @@ async fn seed_pg_user(db: &Database) -> Uuid {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
@@ -73,7 +73,7 @@ async fn test_pg_snapshot_joins_across_the_uuid_text_split() {
         .await
         .unwrap();
 
-    let fetched_at = Utc::now() - Duration::hours(50);
+    let fetched_at = Timestamp::now() - Elapsed::hours(50);
     repos
         .activity_cache
         .record_activity_fetch(user_id, &tenant, "sciotte", fetched_at)
@@ -160,7 +160,13 @@ async fn test_pg_reauth_connection_is_excluded() {
         .unwrap();
     repos
         .provider_connections
-        .mark_needs_reauth(user_id, tenant, "strava", Some("invalid_grant"), Utc::now())
+        .mark_needs_reauth(
+            user_id,
+            tenant,
+            "strava",
+            Some("invalid_grant"),
+            Timestamp::now(),
+        )
         .await
         .unwrap();
 
@@ -223,7 +229,7 @@ async fn test_pg_snapshot_survives_a_non_uuid_tenant_id() {
     .bind("acme-corp")
     .bind("garmin")
     .bind("oauth")
-    .bind(Utc::now())
+    .bind(Timestamp::now())
     .execute(pool)
     .await
     .expect("a TEXT id column accepts a non-UUID value");

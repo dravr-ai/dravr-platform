@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::permissions::scopes::OAuthScope;
 use secrecy::SecretString;
@@ -43,7 +43,7 @@ impl OAuth2AuthorizationServer {
         presented: &str,
         client_id: &str,
     ) -> AppResult<Option<Rotated>> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let Some(consumed) = consume_or_revoke_family(
             self.oauth2_server
                 .consume_refresh_token(presented, client_id, now),

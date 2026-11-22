@@ -8,7 +8,7 @@
 //! coarse clock). A cursor on the timestamp alone asked for rows strictly older
 //! than the boundary, so the tied rows past it were never shown.
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::models::{DELETED_ACCOUNT_LABEL, DEVICE_CLI_SERVICE_PREFIX};
 use pierre_core::models::User;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
@@ -27,7 +27,7 @@ use crate::admin_tokens_test::account;
 /// Move every row of `action` to one instant: the repository stamps `now`,
 /// which no test can make two rows share.
 async fn stamp_all(db: &Database, action: &str) {
-    let tied = Utc.with_ymd_and_hms(2026, 11, 4, 20, 31, 45).unwrap();
+    let tied = Timestamp::parse_from_rfc3339("2026-11-04T20:31:45Z").unwrap();
     let sql = "UPDATE audit_events SET timestamp = $1 WHERE event_type = $2";
     match db.backend() {
         DatabaseBackend::SQLite(sqlite) => {

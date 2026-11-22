@@ -37,7 +37,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
@@ -84,7 +84,7 @@ pub struct DraftState {
     /// discarded.
     pub draft_id: String,
     /// When the coach last saved into the draft.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// The drafted weeks the athlete changed since the coach drafted them.
     /// Publishing refuses them unless the coach overwrites them; a week the
     /// coach never drafted is never here.
@@ -574,8 +574,8 @@ mod tests {
             supersedes_id: None,
             adjustment_reason: String::new(),
             author_agent_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         }
     }
 

@@ -6,7 +6,7 @@
 
 use axum::http::header::AUTHORIZATION;
 use axum::http::HeaderMap;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::future::BoxFuture;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::ApiKeyManager;
@@ -521,7 +521,7 @@ impl McpAuthMiddleware {
         // refusal renders its numbers too — it used to surface as
         // `ExternalServiceError` (HTTP 502), which read as "server broken" to
         // clients and misfired their backoff (registre#10).
-        let now = Utc::now();
+        let now = Timestamp::now();
         let window_usage = self
             .repos
             .usage
@@ -631,7 +631,7 @@ impl McpAuthMiddleware {
             );
         })?;
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
         let budget = calculate_jwt_rate_limit(&user, usage, now);
         enforce_request_budget(budget, now).map_err(|error| {
@@ -779,7 +779,7 @@ impl McpAuthMiddleware {
         // the localized "slow down" reply, and the old `ExternalServiceError`
         // shape fell through to the admin-error catch-all instead — the
         // rate-limited user got silence and on-call got paged (registre#8).
-        let now = Utc::now();
+        let now = Timestamp::now();
         let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
         let budget = calculate_jwt_rate_limit(&user, usage, now);
         enforce_request_budget(budget, now).inspect_err(|e| {
@@ -921,7 +921,7 @@ impl McpAuthMiddleware {
         // auth_invalid shape sent rate-limited clients into re-login loops
         // (registre#10). It carries the budget that refused it, so the
         // refusal renders its numbers too.
-        let now = Utc::now();
+        let now = Timestamp::now();
         let usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
         let budget = calculate_jwt_rate_limit(&user, usage, now);
         enforce_request_budget(budget, now).map_err(|error| {
@@ -1055,7 +1055,7 @@ impl McpAuthMiddleware {
     /// [`LAST_ACTIVE_REFRESH_MINUTES`]. Best-effort, like the usage row: a
     /// failed write is logged and the request proceeds.
     async fn note_activity(&self, user: &User) {
-        if Utc::now() - user.last_active < Duration::minutes(LAST_ACTIVE_REFRESH_MINUTES) {
+        if Timestamp::now() - user.last_active < Elapsed::minutes(LAST_ACTIVE_REFRESH_MINUTES) {
             return;
         }
         if let Err(e) = self.repos.users.update_last_active(user.id).await {
@@ -1094,7 +1094,7 @@ pub async fn record_jwt_usage_for_request(
     let usage = JwtUsage {
         id: None,
         user_id,
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
         endpoint: endpoint.to_owned(),
         method: method.to_owned(),
         status_code: 200,

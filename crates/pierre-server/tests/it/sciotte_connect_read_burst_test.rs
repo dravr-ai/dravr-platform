@@ -37,8 +37,9 @@ use axum::extract::{Path, RawQuery, State};
 use axum::http::HeaderMap;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
 use common::{create_test_server_resources_with_sciotte, create_test_user, generate_test_token};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::SCIOTTE_COROS;
@@ -134,7 +135,7 @@ fn runs() -> Value {
                 "id": format!("coros-run-{days}"),
                 "name": format!("Run {days} days ago"),
                 "sport_type": "run",
-                "start_date": (Utc::now() - chrono::Duration::days(*days)).to_rfc3339(),
+                "start_date": (Timestamp::now() - Elapsed::days(*days)).to_rfc3339(),
                 "duration_seconds": 3000,
                 "provider": "coros",
                 "distance_meters": 10000.0

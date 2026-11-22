@@ -10,8 +10,9 @@
 use crate::common;
 use secrecy::{ExposeSecret, SecretString};
 
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::UserOAuthToken;
 use uuid::Uuid;
 
@@ -35,7 +36,7 @@ async fn seeded_oauth_token_roundtrips_through_get_tokens() {
         .find(|t| t.owner_user_id == user_id)
         .expect("test user should own a tenant");
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -44,7 +45,7 @@ async fn seeded_oauth_token_roundtrips_through_get_tokens() {
         access_token: SecretString::from("seed-access-token"),
         refresh_token: Some(SecretString::from("seed-refresh-token")),
         token_type: "bearer".to_owned(),
-        expires_at: Some(now + chrono::Duration::days(3650)),
+        expires_at: Some(now + Elapsed::days(3650)),
         scope: Some("read,activity:read_all".to_owned()),
         provider_user_id: None,
         oauth_app_client_id: None,
@@ -102,7 +103,7 @@ async fn intervals_icu_token_roundtrips_provider_user_id() {
         .find(|t| t.owner_user_id == user_id)
         .expect("test user should own a tenant");
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,

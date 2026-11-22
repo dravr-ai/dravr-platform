@@ -59,7 +59,7 @@ use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::request_budget;
 use crate::utils;
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use std::fmt;
@@ -361,22 +361,22 @@ impl CorosProvider {
     }
 
     /// Parse datetime from various formats (ISO 8601 or Unix timestamp)
-    fn parse_datetime(datetime_str: &str) -> AppResult<DateTime<Utc>> {
+    fn parse_datetime(datetime_str: &str) -> AppResult<Timestamp> {
         // Try ISO 8601 first
-        if let Ok(dt) = DateTime::parse_from_rfc3339(datetime_str) {
-            return Ok(dt.with_timezone(&Utc));
+        if let Ok(dt) = Timestamp::parse_from_rfc3339(datetime_str) {
+            return Ok(dt);
         }
 
         // Try Unix timestamp (seconds)
         if let Ok(ts) = datetime_str.parse::<i64>() {
-            if let Some(dt) = DateTime::from_timestamp(ts, 0) {
+            if let Ok(dt) = Timestamp::from_epoch_seconds(ts) {
                 return Ok(dt);
             }
         }
 
         // Try Unix timestamp (milliseconds)
         if let Ok(ts_ms) = datetime_str.parse::<i64>() {
-            if let Some(dt) = DateTime::from_timestamp(ts_ms / 1000, 0) {
+            if let Ok(dt) = Timestamp::from_epoch_seconds(ts_ms / 1000) {
                 return Ok(dt);
             }
         }
@@ -543,14 +543,14 @@ impl FitnessProvider for CorosProvider {
             }
 
             if let Some(after) = params.after {
-                if let Some(dt) = DateTime::from_timestamp(after, 0) {
-                    let _ = write!(endpoint, "&start_date={}", dt.format("%Y-%m-%d"));
+                if let Ok(dt) = Timestamp::from_epoch_seconds(after) {
+                    let _ = write!(endpoint, "&start_date={}", dt.utc_date());
                 }
             }
 
             if let Some(before) = params.before {
-                if let Some(dt) = DateTime::from_timestamp(before, 0) {
-                    let _ = write!(endpoint, "&end_date={}", dt.format("%Y-%m-%d"));
+                if let Ok(dt) = Timestamp::from_epoch_seconds(before) {
+                    let _ = write!(endpoint, "&end_date={}", dt.utc_date());
                 }
             }
 
@@ -623,7 +623,7 @@ impl FitnessProvider for CorosProvider {
             .pagination
             .as_ref()
             .and_then(|p| p.next_token.as_ref())
-            .map(|token| Cursor::new(Utc::now(), token));
+            .map(|token| Cursor::new(Timestamp::now(), token));
 
         // Create previous cursor from first activity
         let prev_cursor = if params.cursor.is_some() {

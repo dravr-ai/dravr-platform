@@ -50,7 +50,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::CoachingGroup;
@@ -357,7 +357,7 @@ pub async fn coach_session_state(
         .await?
         .into_iter()
         .find(|c| c.provider == provider && c.connection_type != ConnectionType::Delegated);
-    let expired = token.expires_at.is_some_and(|at| at <= Utc::now());
+    let expired = token.expires_at.is_some_and(|at| at <= Timestamp::now());
     if expired
         || connection
             .as_ref()
@@ -690,7 +690,7 @@ pub async fn confirm(
     }
     let confirmed = repos
         .delegated_connections
-        .confirm(link.id, member, member_tenant, Utc::now())
+        .confirm(link.id, member, member_tenant, Timestamp::now())
         .await?
         .ok_or_else(|| AppError::not_found("Pending link"))?;
     info!(

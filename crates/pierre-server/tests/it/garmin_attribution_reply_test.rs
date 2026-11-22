@@ -30,7 +30,7 @@ use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use embacle::types::ToolCallRequest;
 use futures_util::stream;
 use pierre_chat_pipeline::{
@@ -208,7 +208,7 @@ async fn seed_ride(
         "strava-ride-1".to_owned(),
         "Sortie longue".to_owned(),
         SportType::Ride,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         7_200,
         "strava".to_owned(),
     )

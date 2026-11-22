@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{DecryptedToken, TenantId, User, UserOAuthToken, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
@@ -33,9 +34,9 @@ async fn test_strava_token_storage() {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -54,9 +55,9 @@ async fn test_strava_token_storage() {
         .expect("Failed to create user");
 
     // Create test token with timestamp precision truncated to seconds
-    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(3600);
+    let expires_at = Timestamp::now() + Elapsed::seconds(3600);
     let expires_at_truncated =
-        chrono::DateTime::from_timestamp(expires_at.timestamp(), 0).expect("Valid timestamp");
+        Timestamp::from_epoch_seconds(expires_at.epoch_seconds()).expect("Valid timestamp");
     let token = DecryptedToken {
         access_token: "test_access_token".into(),
         refresh_token: "test_refresh_token".into(),
@@ -96,7 +97,7 @@ async fn test_strava_token_storage() {
     let retrieved = DecryptedToken {
         access_token: retrieved_oauth.access_token,
         refresh_token: retrieved_oauth.refresh_token.unwrap_or_default(),
-        expires_at: retrieved_oauth.expires_at.unwrap_or_else(chrono::Utc::now),
+        expires_at: retrieved_oauth.expires_at.unwrap_or_else(Timestamp::now),
         scope: retrieved_oauth.scope.unwrap_or_default(),
     };
 
@@ -155,9 +156,9 @@ async fn test_whoop_token_storage() {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -176,9 +177,9 @@ async fn test_whoop_token_storage() {
         .expect("Failed to create user");
 
     // Create test token with timestamp precision truncated to seconds
-    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(7200);
+    let expires_at = Timestamp::now() + Elapsed::seconds(7200);
     let expires_at_truncated =
-        chrono::DateTime::from_timestamp(expires_at.timestamp(), 0).expect("Valid timestamp");
+        Timestamp::from_epoch_seconds(expires_at.epoch_seconds()).expect("Valid timestamp");
     let token = DecryptedToken {
         access_token: "whoop_access_token".into(),
         refresh_token: "whoop_refresh_token".into(),
@@ -218,7 +219,7 @@ async fn test_whoop_token_storage() {
     let retrieved = DecryptedToken {
         access_token: retrieved_oauth.access_token,
         refresh_token: retrieved_oauth.refresh_token.unwrap_or_default(),
-        expires_at: retrieved_oauth.expires_at.unwrap_or_else(chrono::Utc::now),
+        expires_at: retrieved_oauth.expires_at.unwrap_or_else(Timestamp::now),
         scope: retrieved_oauth.scope.unwrap_or_default(),
     };
 

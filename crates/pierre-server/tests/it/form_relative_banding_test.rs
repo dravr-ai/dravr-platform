@@ -8,11 +8,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, NaiveDate, Utc};
-use chrono_tz::Tz;
 use dravr_cageux::algorithms::training_load::DailyTrainingLoad;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Zone};
 use pierre_core::models::groups::{FlagEvidence, HealthFlagSeverity, MemberFlag};
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel};
 use pierre_core::models::{Activity, SportType};
@@ -51,7 +50,7 @@ fn snapshot(ctl: f64, atl: f64, tsb: f64) -> MemberFitnessSnapshot {
         served_stale: false,
         timezone: None,
         deep_fatigue_mornings: Vec::new(),
-        computed_at: Utc::now(),
+        computed_at: Timestamp::now(),
     }
 }
 
@@ -59,7 +58,7 @@ fn snapshot(ctl: f64, atl: f64, tsb: f64) -> MemberFitnessSnapshot {
 /// CTL `tsb` is a share of) equals the end-of-day `ctl`.
 fn steady_day(tsb: f64, form_ctl: f64) -> DailyTrainingLoad {
     DailyTrainingLoad {
-        date: NaiveDate::from_ymd_opt(2026, 9, 27).unwrap(),
+        date: CivilDate::from_ymd(2026, 9, 27).unwrap(),
         ctl: form_ctl,
         atl: form_ctl - tsb,
         tsb,
@@ -109,7 +108,7 @@ fn every_platform_reading_divides_form_by_yesterdays_ctl() {
     // Yesterday ended at CTL 60 / ATL 75: form today is -15, -25% of 60, a
     // heavy block. Today's big ride has since lifted CTL to 80.
     let day = DailyTrainingLoad {
-        date: NaiveDate::from_ymd_opt(2026, 9, 27).unwrap(),
+        date: CivilDate::from_ymd(2026, 9, 27).unwrap(),
         ctl: 80.0,
         atl: 95.0,
         tsb: -15.0,
@@ -238,14 +237,14 @@ const ELITE_BLOCK_DAYS: i64 = 60;
 /// LTHR, no max/resting HR, no weight. This is the athlete whose absolute TSB
 /// used to read as an emergency.
 fn elite_block_activities() -> Vec<Activity> {
-    let start = Utc::now() - Duration::days(ELITE_BLOCK_DAYS);
+    let start = Timestamp::now() - Elapsed::days(ELITE_BLOCK_DAYS);
     (0..ELITE_BLOCK_DAYS)
         .map(|day| {
             ActivityBuilder::new(
                 format!("elite_{day}"),
                 "Endurance block session",
                 SportType::Ride,
-                start + Duration::days(day),
+                start + Elapsed::days(day),
                 // ~2h15 at threshold-ish effort lands near 95 TSS with the
                 // duration-only estimator the empty profile forces.
                 8_100,
@@ -259,7 +258,7 @@ fn elite_block_activities() -> Vec<Activity> {
 
 #[test]
 fn elite_block_with_empty_profile_is_not_deep_fatigue() {
-    let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
+    let calculator = TrainingLoadCalculator::new(Timestamp::now().utc_date());
     let load = calculator
         .calculate_training_load(&elite_block_activities(), None, None, None, None, None)
         .expect("60 days of activities produce a training load");
@@ -324,11 +323,12 @@ const DAILY_RIDER_DAYS: i64 = 100;
 /// A daily rider: exactly 100 TSS at 06:00 UTC on each of the 100 days before
 /// today, plus today's ride when it has landed.
 fn daily_rider(todays_ride_landed: bool) -> Vec<Activity> {
-    let six_am = Utc::now()
-        .date_naive()
-        .and_hms_opt(6, 0, 0)
+    let six_am = Timestamp::now()
+        .utc_date()
+        .and_hms(6, 0, 0)
         .unwrap()
-        .and_utc();
+        .and_utc()
+        .unwrap();
     let first = i64::from(!todays_ride_landed);
     (first..=DAILY_RIDER_DAYS)
         .map(|days_ago| {
@@ -336,7 +336,7 @@ fn daily_rider(todays_ride_landed: bool) -> Vec<Activity> {
                 format!("daily_{days_ago}"),
                 "Daily ride",
                 SportType::Ride,
-                six_am - Duration::days(days_ago),
+                six_am - Elapsed::days(days_ago),
                 3_600,
                 "test",
             )
@@ -352,7 +352,7 @@ fn load_payload(activities: &[Activity]) -> serde_json::Value {
         activities,
         &AthleteInputs::default(),
         &AlgorithmConfig::default(),
-        Tz::UTC,
+        &Zone::utc(),
         ProvidersUsed {
             activity_provider: "strava".to_owned(),
             sleep_provider: None,
@@ -396,7 +396,7 @@ fn a_daily_rider_asked_at_noon_hears_last_nights_form() {
     let metrics = &payload["load_metrics"];
 
     // Yesterday evening, from the same calculator the tool uses.
-    let yesterday = Utc::now().date_naive() - Duration::days(1);
+    let yesterday = Timestamp::now().utc_date() - Elapsed::days(1);
     let evening = TrainingLoadCalculator::new(yesterday)
         .calculate_training_load(&activities, None, None, None, None, None)
         .unwrap();
@@ -593,7 +593,7 @@ fn training_load_payload_reports_form_pct_and_band() {
         &elite_block_activities(),
         &AthleteInputs::default(),
         &AlgorithmConfig::default(),
-        Tz::UTC,
+        &Zone::utc(),
         ProvidersUsed {
             activity_provider: "strava".to_owned(),
             sleep_provider: None,

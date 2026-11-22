@@ -21,7 +21,7 @@
 
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{ConnectionStatus, ConnectionType, ReauthMark, TenantId};
 use pierre_database::backends::factory::Database;
 use tokio::time::sleep;
@@ -88,7 +88,7 @@ async fn mark_needs_reauth_flips_status() {
             tenant_id,
             "whoop",
             Some("invalid_request"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -123,7 +123,7 @@ async fn mark_active_rearms_after_reauth() {
             tenant_id,
             "whoop",
             Some("invalid_request"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -153,7 +153,13 @@ async fn mark_needs_reauth_is_noop_for_unknown_provider() {
 
     let mark = repos
         .provider_connections
-        .mark_needs_reauth(user_id, tenant_id, "made_up_provider", None, Utc::now())
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            "made_up_provider",
+            None,
+            Timestamp::now(),
+        )
         .await
         .expect("mark_needs_reauth on nonexistent row must not error");
     assert_eq!(mark, ReauthMark::NoConnection);
@@ -194,7 +200,7 @@ async fn mark_needs_reauth_is_idempotent() {
                     tenant_id,
                     "whoop",
                     Some("invalid_request"),
-                    Utc::now(),
+                    Timestamp::now(),
                 )
                 .await
                 .unwrap(),
@@ -237,7 +243,7 @@ async fn claim_reauth_notification_fires_once_per_disconnect() {
         tenant_id,
         "whoop",
         Some("invalid_request"),
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -262,7 +268,7 @@ async fn claim_reauth_notification_fires_once_per_disconnect() {
         tenant_id,
         "whoop",
         Some("invalid_request"),
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -327,7 +333,7 @@ async fn a_flag_from_an_attempt_that_began_before_a_reconnect_leaves_it_active()
         .await
         .unwrap();
 
-    let attempt_started_at = Utc::now();
+    let attempt_started_at = Timestamp::now();
     sleep(Duration::from_millis(10)).await;
     pc.register_connection(user_id, tenant_id, "strava", &ConnectionType::OAuth, None)
         .await
@@ -359,7 +365,7 @@ async fn a_flag_from_an_attempt_that_began_before_a_reconnect_leaves_it_active()
             tenant_id,
             "strava",
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -386,12 +392,12 @@ async fn a_flag_from_an_attempt_that_began_before_a_rearm_leaves_it_active() {
         tenant_id,
         "whoop",
         Some("invalid_request"),
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
 
-    let attempt_started_at = Utc::now();
+    let attempt_started_at = Timestamp::now();
     sleep(Duration::from_millis(10)).await;
     pc.mark_active(user_id, tenant_id, "whoop").await.unwrap();
     let mark = pc
@@ -449,7 +455,7 @@ async fn mark_active_if_needs_reauth_flips_only_a_flagged_connection() {
         tenant_id,
         "sciotte",
         Some("session_expired"),
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -485,7 +491,7 @@ async fn mark_active_if_needs_reauth_flips_only_a_flagged_connection() {
         tenant_id,
         "sciotte",
         Some("session_expired"),
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();

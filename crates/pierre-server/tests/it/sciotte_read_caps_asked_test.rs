@@ -18,7 +18,7 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers::{GARMIN, SCIOTTE_GARMIN, TOKEN_TYPE_SESSION};
 use pierre_core::models::{
     ActivityBuilder, ConnectionType, SessionReadCaps, SportType, TenantId, TimeSeriesData,
@@ -73,7 +73,7 @@ async fn garmin_athlete_on(resources: &Arc<ServerContext>, tier: UserTier) -> (U
         }],
         "created_at": "2026-11-19T00:00:00Z"
     });
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .oauth_tokens
         .upsert_token(&UserOAuthToken {
@@ -136,7 +136,7 @@ async fn spend_the_day_at(
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &key,
-            &budget_period(Utc::now(), ONE_DAY),
+            &budget_period(Timestamp::now(), ONE_DAY),
             i64::from(day),
         )
         .await
@@ -152,7 +152,7 @@ async fn store_runs(resources: &Arc<ServerContext>, user_id: Uuid, tenant: Tenan
                 id.to_owned(),
                 "Easy run".to_owned(),
                 SportType::Run,
-                Utc::now() - Duration::days(days_ago),
+                Timestamp::now() - Elapsed::days(days_ago),
                 3_600,
                 SCIOTTE_GARMIN,
             )
@@ -180,7 +180,7 @@ async fn asked_reads(resources: &Arc<ServerContext>, backend: &str, user_id: Uui
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &session_read_counter_key(backend, "asked", user_id),
-            &budget_period(Utc::now(), ONE_DAY),
+            &budget_period(Timestamp::now(), ONE_DAY),
         )
         .await
         .unwrap()
@@ -367,7 +367,7 @@ async fn store_pushed_samples(resources: &Arc<ServerContext>, user_id: Uuid, ten
         "run-1".to_owned(),
         "Easy run".to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         3_600,
         GARMIN,
     )
@@ -401,7 +401,7 @@ async fn store_pushed_samples(resources: &Arc<ServerContext>, user_id: Uuid, ten
             origin: StreamOrigin::Push,
             source_ref: None,
             streams: &samples,
-            synced_at: Utc::now(),
+            synced_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -488,7 +488,7 @@ async fn a_professional_athlete_reads_past_the_starter_day() {
         "id": "8000000001",
         "name": "Garmin ride",
         "sport_type": "ride",
-        "start_date": (Utc::now() - Duration::days(1)).to_rfc3339(),
+        "start_date": (Timestamp::now() - Elapsed::days(1)).to_rfc3339(),
         "duration_seconds": 3600,
         "provider": "garmin",
         "distance_meters": 30000.0
@@ -539,7 +539,7 @@ async fn a_capped_read_answered_by_the_stored_copy_writes_no_route() {
         "run-1".to_owned(),
         "Easy run".to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         3_600,
         GARMIN,
     )
@@ -577,7 +577,7 @@ async fn a_capped_read_answered_by_the_stored_copy_writes_no_route() {
             origin: StreamOrigin::Push,
             source_ref: None,
             streams: &samples,
-            synced_at: Utc::now(),
+            synced_at: Timestamp::now(),
         })
         .await
         .unwrap();

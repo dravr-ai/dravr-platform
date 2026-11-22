@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::messaging::{
     channel_label, ChannelType, IncomingMessage, MessageContent, OutgoingMessage, MAX_OTP_ATTEMPTS,
     OTP_TTL_MINUTES,
@@ -769,7 +769,7 @@ pub async fn start_otp_flow(
     invalidate_otp_flows(db, tenant_id, &channel_str, sender_id, "before a new flow").await;
 
     let code = generate_link_code();
-    let expires_at = Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
+    let expires_at = Timestamp::now() + Elapsed::minutes(OTP_TTL_MINUTES);
     let id = Uuid::new_v4().to_string();
 
     let params = CreateLinkStateParams {

@@ -20,7 +20,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::api_keys::CreateApiKeyRequestSimple;
 use pierre_core::errors::AppError;
 use pierre_middleware::AuthenticatedUser;
@@ -32,9 +32,9 @@ use std::sync::Arc;
 #[derive(Debug, Deserialize)]
 pub struct UsageQuery {
     /// Start date for usage statistics (ISO 8601 format)
-    pub start_date: DateTime<Utc>,
+    pub start_date: Timestamp,
     /// End date for usage statistics (ISO 8601 format)
-    pub end_date: DateTime<Utc>,
+    pub end_date: Timestamp,
 }
 
 /// API key management routes

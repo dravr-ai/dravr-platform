@@ -6,7 +6,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::tenant::TenantRole;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::CoachingPersona;
@@ -23,7 +23,7 @@ use uuid::Uuid;
 async fn user_owning_a_tenant(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
     let user_id = Uuid::new_v4();
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let user = User {
         id: user_id,
         email: format!("membership+{user_id}@example.com"),

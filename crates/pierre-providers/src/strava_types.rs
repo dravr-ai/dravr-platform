@@ -11,7 +11,7 @@
 // the visibility it had inside `strava_provider`; fields that were private to
 // that module are `pub(crate)` so the provider can still read them.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::Deserialize;
 
 /// Strava API error response format
@@ -45,7 +45,7 @@ pub(crate) struct StravaAthleteResponse {
     /// When the account was created: the floor of the athlete's history,
     /// since nothing is recorded on Strava before it.
     #[serde(default)]
-    pub(crate) created_at: Option<DateTime<Utc>>,
+    pub(crate) created_at: Option<Timestamp>,
 }
 
 /// Strava map data in API responses
@@ -347,7 +347,7 @@ mod athlete_sex_tests {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
 
     use super::{StravaAthleteResponse, StravaErrorResponse};
 
@@ -359,7 +359,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             athlete.created_at,
-            Some(Utc.with_ymd_and_hms(2014, 6, 2, 18, 12, 0).unwrap()),
+            Some(Timestamp::parse_from_rfc3339("2014-06-02T18:12:00Z").unwrap()),
             "bug: the athlete's created_at decodes from Strava's /athlete"
         );
         let without: StravaAthleteResponse = serde_json::from_str(r#"{"id":1}"#).unwrap();

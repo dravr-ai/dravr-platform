@@ -8,6 +8,7 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_core::admin::models::{
     rotated_token_refusal, AdminPermission, AdminToken, CreateAdminTokenRequest,
 };
+use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{TokenRevocation, TokenRotation};
@@ -27,6 +28,8 @@ use std::collections::HashMap;
 use tracing::{error, info, warn};
 
 use crate::helpers::display::display_generated_token;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 
 /// Generate a new admin token
 pub(crate) async fn generate(
@@ -264,19 +267,16 @@ pub(crate) async fn list(
                 "Error No"
             }
         );
-        println!(
-            "   Created: {}",
-            token.created_at.format("%Y-%m-%d %H:%M UTC")
-        );
+        println!("   Created: {}", token.created_at.format_with(&UTC_MINUTE));
 
         if let Some(expires_at) = token.expires_at {
-            println!("   Expires: {}", expires_at.format("%Y-%m-%d %H:%M UTC"));
+            println!("   Expires: {}", expires_at.format_with(&UTC_MINUTE));
         } else {
             println!("   Expires: Never");
         }
 
         if let Some(last_used) = token.last_used_at {
-            println!("   Last Used: {}", last_used.format("%Y-%m-%d %H:%M UTC"));
+            println!("   Last Used: {}", last_used.format_with(&UTC_MINUTE));
         } else {
             println!("   Last Used: Never");
         }
@@ -432,8 +432,8 @@ pub(crate) async fn stats(
     token_id: Option<String>,
     days: u32,
 ) -> Result<()> {
-    let start_date = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
-    let end_date = chrono::Utc::now();
+    let start_date = Timestamp::now() - Elapsed::days(i64::from(days));
+    let end_date = Timestamp::now();
 
     if let Some(id) = token_id {
         info!("Token usage statistics for: {} ({} days)", id, days);
@@ -452,8 +452,8 @@ pub(crate) async fn stats(
         println!("{}", "=".repeat(60));
         println!(
             "Period: {} to {}",
-            start_date.format("%Y-%m-%d"),
-            end_date.format("%Y-%m-%d")
+            start_date.utc_date(),
+            end_date.utc_date()
         );
         println!("Total Requests: {}", usage_history.len());
 
@@ -520,7 +520,7 @@ pub(crate) async fn stats(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::admin::models::AdminPermissions;
     use uuid::Uuid;
 
@@ -541,7 +541,7 @@ mod tests {
             tenant_id: Some("3f0c1a52-0000-4000-8000-000000000001".to_owned()),
             operator_user_id: None,
             rotated_to_token_id: None,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             expires_at: None,
             last_used_at: None,
             last_used_ip: None,

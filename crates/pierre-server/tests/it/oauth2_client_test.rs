@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::oauth2_client::{OAuth2Client, OAuth2Config, OAuth2Token, PkceParams};
 use secrecy::{ExposeSecret, SecretString};
 
@@ -78,7 +78,7 @@ fn test_oauth2_token_is_expired_when_past() {
     let token = OAuth2Token {
         access_token: SecretString::from("test_access_token"),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(Utc::now() - Duration::hours(1)),
+        expires_at: Some(Timestamp::now() - Elapsed::hours(1)),
         refresh_token: Some(SecretString::from("test_refresh_token")),
         scope: Some("read write".to_owned()),
         provider_user_id: None,
@@ -92,7 +92,7 @@ fn test_oauth2_token_not_expired_when_future() {
     let token = OAuth2Token {
         access_token: SecretString::from("test_access_token"),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(Utc::now() + Duration::hours(1)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
         refresh_token: Some(SecretString::from("test_refresh_token")),
         scope: Some("read write".to_owned()),
         provider_user_id: None,
@@ -298,7 +298,7 @@ fn test_oauth2_token_serialization() {
     let token = OAuth2Token {
         access_token: SecretString::from("access123"),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(Utc::now() + Duration::hours(1)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
         refresh_token: Some(SecretString::from("refresh456")),
         scope: Some("read write".to_owned()),
         provider_user_id: None,
@@ -357,7 +357,7 @@ fn test_oauth2_token_boundary_expiration() {
     let token = OAuth2Token {
         access_token: SecretString::from("test"),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(Utc::now()),
+        expires_at: Some(Timestamp::now()),
         refresh_token: None,
         scope: None,
         provider_user_id: None,

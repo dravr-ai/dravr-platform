@@ -25,7 +25,7 @@
 //!   which is why those flows have no re-ask budget and lean on the
 //!   completion check instead.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{
     CalibrationConditions, CalibrationTopic, ConversationRecord, CoverageMap, CoverageTarget,
     Dossier, GuidedFlow, GuidedWindow, LoadSnapshot, OnboardingState, Pillar, SeasonConditions,
@@ -531,7 +531,7 @@ async fn leave_guided_mode(inputs: LeaveGuidedMode<'_>) -> GuidedResolution {
     // the pre-existing behaviour — the flow still ends, only the release
     // directive is lost.
     let retired = state
-        .completed(Utc::now().to_rfc3339())
+        .completed(Timestamp::now().to_rfc3339())
         .to_column()
         .map_err(|e| {
             tracing::warn!(error = %e, "failed to serialize completed onboarding_state; clearing it instead");
@@ -572,7 +572,7 @@ async fn close_walk_window(
             return;
         }
     };
-    let merged = GuidedWindow::record_completion(profile, flow, &Utc::now().to_rfc3339());
+    let merged = GuidedWindow::record_completion(profile, flow, &Timestamp::now().to_rfc3339());
     if let Err(e) = ctx.repos.profiles.upsert_profile(user_id, merged).await {
         tracing::warn!(error = %e, tenant_id = %facts_tenant, "failed to close the walk window");
     }
@@ -677,7 +677,7 @@ pub async fn record_delivered_probe(
 /// the interview release, which would open with "the guided interview is
 /// over" to an athlete who was never interviewed.
 #[must_use]
-pub fn just_completed_interview(raw: Option<&str>, now: DateTime<Utc>) -> bool {
+pub fn just_completed_interview(raw: Option<&str>, now: Timestamp) -> bool {
     OnboardingState::just_completed(raw, now)
         && OnboardingState::retired_flow(raw).is_some_and(GuidedFlow::is_interview)
 }
@@ -689,7 +689,7 @@ pub fn just_completed_interview(raw: Option<&str>, now: DateTime<Utc>) -> bool {
 /// layout — so it is where the walk's next step, the fortnight, can first
 /// stand on a season.
 #[must_use]
-pub fn season_laid_out(raw: Option<&str>, now: DateTime<Utc>, plan_saved: bool) -> bool {
+pub fn season_laid_out(raw: Option<&str>, now: Timestamp, plan_saved: bool) -> bool {
     plan_saved
         && OnboardingState::just_completed(raw, now)
         && OnboardingState::retired_flow(raw) == Some(GuidedFlow::Season)

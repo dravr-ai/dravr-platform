@@ -30,7 +30,7 @@
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{BackfillJobState, HistoryWalkRowState};
 use pierre_services::training_history_read;
@@ -74,7 +74,7 @@ async fn owe_again(
     trigger: WalkTrigger,
 ) -> bool {
     let back_off_ms = i64::try_from(INCOMPLETE_WALK_BACK_OFF.as_millis()).unwrap_or(i64::MAX);
-    let ended_by_ms = Utc::now().timestamp_millis().saturating_sub(back_off_ms);
+    let ended_by_ms = Timestamp::now().epoch_millis().saturating_sub(back_off_ms);
     match runtime
         .repos()
         .activity_backfill_jobs

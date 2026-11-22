@@ -44,7 +44,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -142,7 +142,7 @@ fn session_ride() -> Value {
         "id": SESSION_RIDE,
         "name": "Sortie vélo matinale",
         "sport_type": "ride",
-        "start_date": (Utc::now() - ChronoDuration::days(2)).to_rfc3339(),
+        "start_date": (Timestamp::now() - Elapsed::days(2)).to_rfc3339(),
         "duration_seconds": 2_700,
         "provider": "strava",
         "distance_meters": 21_000.0
@@ -155,7 +155,7 @@ fn grant_ride() -> Value {
         "name": "Sortie longue",
         "type": "Ride",
         "sport_type": "Ride",
-        "start_date": (Utc::now() - ChronoDuration::days(1)).to_rfc3339(),
+        "start_date": (Timestamp::now() - Elapsed::days(1)).to_rfc3339(),
         "distance": 80_000.0,
         "elapsed_time": 10_800,
         "moving_time": 10_200,
@@ -495,7 +495,7 @@ async fn incomplete_walk(
             .unwrap(),
         "bug: the ledger records the walk"
     );
-    let cursor = (Utc::now() - ChronoDuration::days(6 * 365)).timestamp();
+    let cursor = (Timestamp::now() - Elapsed::days(6 * 365)).epoch_seconds();
     update_walk_row(
         resources,
         user_id,
@@ -565,7 +565,7 @@ async fn a_chat_read_that_carried_the_list_head_resumes_an_incomplete_history_wa
     let past = session_athlete(&resources, "chat-resume-past").await;
     let unstamped = session_athlete(&resources, "chat-resume-unstamped").await;
     let inside = session_athlete(&resources, "chat-resume-inside").await;
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     let past_cursor = incomplete_walk(
         &resources,
         past,
@@ -632,7 +632,7 @@ async fn a_chat_read_of_a_grant_alone_leaves_its_incomplete_history_walk() {
     let (url, stand_in) = spawn_stand_in().await;
     let resources = server(&url).await;
     let grant_only = grant_athlete(&resources).await;
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     let cursor = incomplete_walk(
         &resources,
         grant_only,

@@ -11,6 +11,7 @@ use crate::protocol_types::{
     PushNotificationAuthenticationInfo, PushNotificationConfigInput, TaskPushNotificationConfig,
 };
 use crate::{push, A2ARequest, A2AResponse};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::a2a::A2APushNotificationConfig;
 use serde_json::{from_value, json, to_value, Map, Value};
 use tracing::error;
@@ -31,7 +32,7 @@ impl A2AServer {
             )));
         }
 
-        let now = chrono::Utc::now();
+        let now = Timestamp::now();
         let record = A2APushNotificationConfig {
             config_id: input.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
             task_id: task_id.to_owned(),

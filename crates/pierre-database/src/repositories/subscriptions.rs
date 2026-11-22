@@ -7,7 +7,7 @@
 use std::str::FromStr;
 
 use async_trait::async_trait;
-use chrono::{DateTime, SubsecRound, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, UserId, UserTier};
 use serde_json::Value;
@@ -80,7 +80,7 @@ macro_rules! subscription_columns {
 /// Postgres. `id` binds as [`UuidColumn`], `tenant_id` as [`TenantId`] and
 /// `user_id` as [`UserId`], each of which encodes as hyphenated text on
 /// `SQLite` and as a native `uuid` on Postgres. Timestamps bind as
-/// `DateTime<Utc>`: RFC3339 text on `SQLite`, `TIMESTAMPTZ` on Postgres.
+/// `Timestamp`: RFC3339 text on `SQLite`, `TIMESTAMPTZ` on Postgres.
 /// `cancel_at_period_end` binds as `bool`, which `SQLite` stores as 0/1 in
 /// its `INTEGER` column. `metadata` binds as an optional [`Value`]: the
 /// stored JSON is an opaque blob whose only reader is
@@ -165,13 +165,6 @@ pub(crate) const GET_SUBSCRIPTION_BY_PROVIDER_CUSTOMER_ID_SQL: &str = concat!(
             "
 );
 
-/// `at` cut to whole seconds, the resolution `last_event_at` is stored at:
-/// provider event times are whole seconds, and on `SQLite` one resolution
-/// keeps the stored RFC 3339 text comparing in time order.
-pub(crate) fn whole_seconds(at: DateTime<Utc>) -> DateTime<Utc> {
-    at.trunc_subsecs(0)
-}
-
 /// How many times a provider event has been recorded (0 or 1).
 pub(crate) const COUNT_BILLING_EVENT_SQL: &str =
     "SELECT COUNT(*) FROM billing_events WHERE provider = $1 AND event_id = $2";
@@ -196,7 +189,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Value: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     UuidColumn: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     TenantId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
@@ -229,31 +222,31 @@ where
         plan_tier: UserTier::from_str(&plan_tier_str)
             .map_err(|e| AppError::internal(format!("invalid plan_tier: {e}")))?,
         current_period_start: row
-            .try_get::<Option<DateTime<Utc>>, _>("current_period_start")
+            .try_get::<Option<Timestamp>, _>("current_period_start")
             .map_err(|e| map_row_err(&e))?,
         current_period_end: row
-            .try_get::<Option<DateTime<Utc>>, _>("current_period_end")
+            .try_get::<Option<Timestamp>, _>("current_period_end")
             .map_err(|e| map_row_err(&e))?,
         cancel_at_period_end: row
             .try_get::<bool, _>("cancel_at_period_end")
             .map_err(|e| map_row_err(&e))?,
         canceled_at: row
-            .try_get::<Option<DateTime<Utc>>, _>("canceled_at")
+            .try_get::<Option<Timestamp>, _>("canceled_at")
             .map_err(|e| map_row_err(&e))?,
         trial_end: row
-            .try_get::<Option<DateTime<Utc>>, _>("trial_end")
+            .try_get::<Option<Timestamp>, _>("trial_end")
             .map_err(|e| map_row_err(&e))?,
         metadata: row
             .try_get::<Option<Value>, _>("metadata")
             .map_err(|e| map_row_err(&e))?,
         created_at: row
-            .try_get::<DateTime<Utc>, _>("created_at")
+            .try_get::<Timestamp, _>("created_at")
             .map_err(|e| map_row_err(&e))?,
         updated_at: row
-            .try_get::<DateTime<Utc>, _>("updated_at")
+            .try_get::<Timestamp, _>("updated_at")
             .map_err(|e| map_row_err(&e))?,
         last_event_at: row
-            .try_get::<Option<DateTime<Utc>>, _>("last_event_at")
+            .try_get::<Option<Timestamp>, _>("last_event_at")
             .map_err(|e| map_row_err(&e))?,
     })
 }
@@ -291,7 +284,11 @@ macro_rules! impl_subscriptions_repository {
                     .bind(&subscription.metadata)
                     .bind(subscription.created_at)
                     .bind(subscription.updated_at)
-                    .bind(subscription.last_event_at.map(whole_seconds))
+                    // `last_event_at` is stored at whole seconds: provider
+                    // event times are whole seconds, and on `SQLite` one
+                    // resolution keeps the stored RFC 3339 text comparing in
+                    // time order.
+                    .bind(subscription.last_event_at.map(|at| at.trunc_subsecs(0)))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

@@ -32,7 +32,7 @@ use axum::body::{to_bytes, Body};
 use axum::http::{header, HeaderMap, Request, StatusCode};
 use axum::routing::post;
 use axum::{Json, Router};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::DelegatedGrant;
 use pierre_auth::connect_order::{set_connect_order, ConnectOrder};
@@ -63,7 +63,7 @@ async fn mock_strava() -> String {
                 "refresh_token": "refresh-from-the-exchange",
                 "token_type": "Bearer",
                 "expires_in": 21_600,
-                "expires_at": (Utc::now() + Duration::hours(6)).timestamp(),
+                "expires_at": (Timestamp::now() + Elapsed::hours(6)).epoch_seconds(),
                 "athlete": { "id": 4242 }
             }))
         }),

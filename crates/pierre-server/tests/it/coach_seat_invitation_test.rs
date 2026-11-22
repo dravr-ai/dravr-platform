@@ -24,7 +24,7 @@ use secrecy::ExposeSecret;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_config::environment::{
@@ -506,7 +506,7 @@ async fn an_expired_coach_seat_invitation_is_refused() -> Result<()> {
             Some(harness.admin_id),
             &generated.selector,
             &generated.verifier_hash,
-            Utc::now() - Duration::minutes(1),
+            Timestamp::now() - Elapsed::minutes(1),
             InvitationKind::CoachSeat,
         )
         .await?;
@@ -614,10 +614,11 @@ async fn the_console_lists_each_outstanding_coach_seat_invitation_with_its_expir
     assert_eq!(row["invited_by_email"], harness.admin_email.as_str());
     assert_eq!(row["expired"], false);
     let expires_at = row["expires_at"].as_str().expect("an expiry");
-    let expires_at = chrono::DateTime::parse_from_rfc3339(expires_at)?;
+    let expires_at = Timestamp::parse_from_rfc3339(expires_at)?;
     assert!(
         expires_at
-            > Utc::now() + Duration::days(invitation::INVITATION_TTL_DAYS) - Duration::minutes(1),
+            > Timestamp::now() + Elapsed::days(invitation::INVITATION_TTL_DAYS)
+                - Elapsed::minutes(1),
         "the invitation TTL applies: {expires_at}"
     );
 

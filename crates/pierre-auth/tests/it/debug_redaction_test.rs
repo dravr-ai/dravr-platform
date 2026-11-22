@@ -9,7 +9,7 @@
 
 use std::fmt::Debug;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::admin::jwks::RsaKeyPair;
 use pierre_auth::config::{FirebaseConfig, GoogleSignInConfig};
 use pierre_auth::dto::auth::{
@@ -286,7 +286,7 @@ fn an_authorized_flow_state_never_prints_its_code_state_or_verifier() {
         code: "sentinel-code-7f3a".to_owned(),
         state: Some("sentinel-state-7f3a".to_owned()),
         code_verifier: Some("sentinel-verifier-7f3a".to_owned()),
-        expires_at: Utc::now(),
+        expires_at: Timestamp::now(),
     };
     let printed = printed_without(
         &authorized,

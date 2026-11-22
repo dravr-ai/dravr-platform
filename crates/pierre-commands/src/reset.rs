@@ -5,8 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::Utc;
 use dravr_canot::commands::CommandResponse;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::{
     KEY_NEW_CONVERSATION_TITLE_PREFIX, KEY_RESET_CONFIRM, KEY_RESET_WALK_INTERRUPTED,
 };
@@ -90,7 +90,7 @@ impl CommandHandler for ResetHandler {
             &reg.render(KEY_NEW_CONVERSATION_TITLE_PREFIX, locale, &[]),
             locale,
             timezone.as_deref(),
-            Utc::now(),
+            Timestamp::now(),
         );
 
         // A reset is a swap: the thread being left is archived and stops

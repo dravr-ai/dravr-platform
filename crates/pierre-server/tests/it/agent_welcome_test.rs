@@ -35,6 +35,7 @@ use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
 use common::create_test_server_resources;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, WelcomeTarget};
 use pierre_chat_pipeline::SurfaceId;
@@ -101,7 +102,7 @@ async fn athlete(resources: &Arc<ServerContext>, email: &str) -> Athlete {
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     let repos = &resources.common.repos;
     repos.users.create(&user).await.unwrap();
@@ -116,8 +117,8 @@ async fn athlete(resources: &Arc<ServerContext>, email: &str) -> Athlete {
             domain: None,
             plan: "professional".to_owned(),
             owner_user_id: user_id,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -781,7 +782,7 @@ async fn a_ride_puts_last_workout_in_a_training_welcome_stamped_first_party() {
         format!("strava-{}", Uuid::new_v4()),
         "Morning ride".to_owned(),
         SportType::Ride,
-        chrono::Utc::now() - chrono::Duration::hours(20),
+        Timestamp::now() - Elapsed::hours(20),
         3_600,
         "strava".to_owned(),
     )
@@ -854,7 +855,7 @@ async fn room(
     tenant: TenantId,
     members: &[Uuid],
 ) -> Uuid {
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     let group_id = Uuid::new_v4();
     let repos = &resources.common.repos;
     repos

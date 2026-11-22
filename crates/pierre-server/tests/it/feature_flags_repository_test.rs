@@ -6,7 +6,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -17,7 +17,7 @@ use uuid::Uuid;
 async fn build_user(repos: &pierre_database::RepositoryRegistry) -> (Uuid, TenantId) {
     let user_id = Uuid::new_v4();
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let user = User {
         id: user_id,
         email: format!("ff+{user_id}@example.com"),

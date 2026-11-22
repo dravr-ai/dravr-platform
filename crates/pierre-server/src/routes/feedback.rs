@@ -48,7 +48,7 @@ use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use bytes::Bytes;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
@@ -133,7 +133,7 @@ struct MessageBody {
     id: String,
     author: &'static str,
     body: String,
-    created_at: DateTime<Utc>,
+    created_at: Timestamp,
     about: Option<AboutBody>,
     has_image: bool,
 }
@@ -261,7 +261,7 @@ async fn post_message(
             locale: locale.as_deref(),
             about: about.as_ref(),
             image: kept_image,
-            at: Utc::now(),
+            at: Timestamp::now(),
         })
         .await?;
 
@@ -419,7 +419,7 @@ async fn mark_read(
         .common
         .repos
         .feedback_messages
-        .mark_team_replies_read(tenant_id, auth.user_id, Utc::now())
+        .mark_team_replies_read(tenant_id, auth.user_id, Timestamp::now())
         .await?;
     Ok(Json(MarkedBody { marked }))
 }

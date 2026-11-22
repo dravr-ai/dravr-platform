@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 
 /// `tool_name` a parked agent draft carries in the pending-action store.
@@ -59,7 +59,7 @@ pub trait AgentDraftsRepository: Send + Sync {
     async fn create_pending_action(
         &self,
         action: &PendingAgentDraft,
-        expires_at: DateTime<Utc>,
+        expires_at: Timestamp,
     ) -> AppResult<()>;
 
     /// Atomically claim a pending action for `user_id`/`tenant_id`, flipping
@@ -86,7 +86,7 @@ pub trait AgentDraftsRepository: Send + Sync {
 ///
 /// `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
 /// Postgres, so one statement serves both backends and cannot drift between
-/// them. `resolved_at` binds a `DateTime<Utc>` on both: sqlx-sqlite encodes it
+/// them. `resolved_at` binds a `Timestamp` on both: sqlx-sqlite encodes it
 /// as `to_rfc3339_opts(AutoSi, false)`, which is what `to_rfc3339()` produces,
 /// so the TEXT column keeps the bytes it always held while Postgres gets its
 /// native `TIMESTAMPTZ`.
@@ -168,7 +168,7 @@ macro_rules! impl_agent_drafts_repository {
             async fn create_pending_action(
                 &self,
                 action: &PendingAgentDraft,
-                expires_at: DateTime<Utc>,
+                expires_at: Timestamp,
             ) -> AppResult<()> {
                 // Opportunistic hygiene: the parking path is rare (an athlete
                 // drafting an agent), so sweeping here keeps the table bounded
@@ -185,7 +185,7 @@ macro_rules! impl_agent_drafts_repository {
                     .bind(&action.tool_name)
                     .bind(arguments)
                     .bind(&action.deny_reason)
-                    .bind(expires_at.timestamp())
+                    .bind(expires_at.epoch_seconds())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -206,7 +206,7 @@ macro_rules! impl_agent_drafts_repository {
                         "invalid pending-action resolution '{resolution}' (confirmed|denied)"
                     )));
                 }
-                let now = Utc::now();
+                let now = Timestamp::now();
 
                 let claimed = sqlx::query(CLAIM_PENDING_ACTION_SQL)
                     .bind(resolution)
@@ -214,7 +214,7 @@ macro_rules! impl_agent_drafts_repository {
                     .bind(id)
                     .bind(user_id)
                     .bind(tenant_id)
-                    .bind(now.timestamp())
+                    .bind(now.epoch_seconds())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -233,7 +233,7 @@ macro_rules! impl_agent_drafts_repository {
                     .bind(id)
                     .bind(user_id)
                     .bind(tenant_id)
-                    .bind(now.timestamp())
+                    .bind(now.epoch_seconds())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -254,7 +254,7 @@ macro_rules! impl_agent_drafts_repository {
 
             async fn delete_expired_pending_actions(&self) -> AppResult<u64> {
                 let result = sqlx::query(SWEEP_PENDING_ACTIONS_SQL)
-                    .bind(Utc::now().timestamp())
+                    .bind(Timestamp::now().epoch_seconds())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

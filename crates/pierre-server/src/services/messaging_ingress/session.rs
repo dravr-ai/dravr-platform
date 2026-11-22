@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage, LINK_CODE_TTL_MINUTES};
 use pierre_core::models::{OnboardingState, TenantId};
 use pierre_database::backends::{CreateLinkStateParams, CreateSessionParams, MessagingRepository};
@@ -974,7 +974,7 @@ pub async fn create_link_and_prompt(
     locale: &str,
 ) -> OutgoingMessage {
     let code = generate_link_code();
-    let expires_at = Utc::now() + Duration::minutes(LINK_CODE_TTL_MINUTES);
+    let expires_at = Timestamp::now() + Elapsed::minutes(LINK_CODE_TTL_MINUTES);
     let id = Uuid::new_v4().to_string();
     let channel_str = channel_type.to_string();
 

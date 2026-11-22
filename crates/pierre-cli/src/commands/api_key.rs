@@ -4,7 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
+use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::RepositoryRegistry;
 
@@ -29,10 +30,9 @@ pub(crate) async fn list(repos: &RepositoryRegistry, email: String) -> Result<()
     );
     for key in keys {
         let state = if key.is_active { "active" } else { "revoked" };
-        let last_used = key.last_used_at.map_or_else(
-            || "never".to_owned(),
-            |at| at.format("%Y-%m-%d %H:%M UTC").to_string(),
-        );
+        let last_used = key
+            .last_used_at
+            .map_or_else(|| "never".to_owned(), |at| at.format_with(&UTC_MINUTE));
         println!(
             "{:<38}  {:<24}  {:<16}  {:<7}  {last_used}",
             key.id, key.name, key.key_prefix, state
@@ -61,9 +61,9 @@ pub(crate) async fn usage(
     if days == 0 {
         return Err(AppError::invalid_input("--days must be at least 1"));
     }
-    let end = Utc::now();
-    let start = Duration::try_days(i64::from(days))
-        .and_then(|window| end.checked_sub_signed(window))
+    let end = Timestamp::now();
+    let start = Elapsed::try_days(i64::from(days))
+        .and_then(|window| end.checked_sub(window))
         .ok_or_else(|| {
             AppError::invalid_input(format!(
                 "--days {days} reaches past the earliest representable date"

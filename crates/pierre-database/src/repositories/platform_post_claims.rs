@@ -32,7 +32,7 @@
 //! Every statement is keyed by `tenant_id` and `user_id` together.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -53,8 +53,8 @@ pub trait PlatformPostClaimRepository: Send + Sync {
         user_id: Uuid,
         purpose: &str,
         subject: &str,
-        lease_expired_before: DateTime<Utc>,
-        claimed_at: DateTime<Utc>,
+        lease_expired_before: Timestamp,
+        claimed_at: Timestamp,
     ) -> AppResult<Option<String>>;
 
     /// Record that the post for `purpose` about `subject` to `user_id` in
@@ -68,7 +68,7 @@ pub trait PlatformPostClaimRepository: Send + Sync {
         purpose: &str,
         subject: &str,
         lease_token: &str,
-        posted_at: DateTime<Utc>,
+        posted_at: Timestamp,
     ) -> AppResult<bool>;
 
     /// Claim the post for `purpose` about `subject` to `user_id` in
@@ -84,8 +84,8 @@ pub trait PlatformPostClaimRepository: Send + Sync {
         user_id: Uuid,
         purpose: &str,
         subject: &str,
-        since: DateTime<Utc>,
-        claimed_at: DateTime<Utc>,
+        since: Timestamp,
+        claimed_at: Timestamp,
     ) -> AppResult<Option<String>>;
 
     /// Release the claim for `purpose` about `subject` to `user_id` in
@@ -112,7 +112,7 @@ pub trait PlatformPostClaimRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: Uuid,
         purpose: &str,
-    ) -> AppResult<Option<DateTime<Utc>>>;
+    ) -> AppResult<Option<Timestamp>>;
 }
 
 /// The primary key is the claim: a row an earlier trigger inserted is left
@@ -173,8 +173,8 @@ macro_rules! impl_platform_post_claim_repository {
                 user_id: Uuid,
                 purpose: &str,
                 subject: &str,
-                lease_expired_before: DateTime<Utc>,
-                claimed_at: DateTime<Utc>,
+                lease_expired_before: Timestamp,
+                claimed_at: Timestamp,
             ) -> AppResult<Option<String>> {
                 let token = uuid::Uuid::new_v4().to_string();
                 let result = sqlx::query(CLAIM_PLATFORM_POST_ONCE_SQL)
@@ -182,8 +182,8 @@ macro_rules! impl_platform_post_claim_repository {
                     .bind($ids::bind(user_id))
                     .bind(purpose)
                     .bind(subject)
-                    .bind(claimed_at.timestamp_millis())
-                    .bind(lease_expired_before.timestamp_millis())
+                    .bind(claimed_at.epoch_millis())
+                    .bind(lease_expired_before.epoch_millis())
                     .bind(&token)
                     .execute(self.pool())
                     .await
@@ -200,14 +200,14 @@ macro_rules! impl_platform_post_claim_repository {
                 purpose: &str,
                 subject: &str,
                 lease_token: &str,
-                posted_at: DateTime<Utc>,
+                posted_at: Timestamp,
             ) -> AppResult<bool> {
                 let result = sqlx::query(MARK_PLATFORM_POST_POSTED_SQL)
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
                     .bind(purpose)
                     .bind(subject)
-                    .bind(posted_at.timestamp_millis())
+                    .bind(posted_at.epoch_millis())
                     .bind(lease_token)
                     .execute(self.pool())
                     .await
@@ -223,8 +223,8 @@ macro_rules! impl_platform_post_claim_repository {
                 user_id: Uuid,
                 purpose: &str,
                 subject: &str,
-                since: DateTime<Utc>,
-                claimed_at: DateTime<Utc>,
+                since: Timestamp,
+                claimed_at: Timestamp,
             ) -> AppResult<Option<String>> {
                 let token = uuid::Uuid::new_v4().to_string();
                 let result = sqlx::query(CLAIM_PLATFORM_POST_SINCE_SQL)
@@ -232,8 +232,8 @@ macro_rules! impl_platform_post_claim_repository {
                     .bind($ids::bind(user_id))
                     .bind(purpose)
                     .bind(subject)
-                    .bind(claimed_at.timestamp_millis())
-                    .bind(since.timestamp_millis())
+                    .bind(claimed_at.epoch_millis())
+                    .bind(since.epoch_millis())
                     .bind(&token)
                     .execute(self.pool())
                     .await
@@ -272,7 +272,7 @@ macro_rules! impl_platform_post_claim_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 purpose: &str,
-            ) -> AppResult<Option<DateTime<Utc>>> {
+            ) -> AppResult<Option<Timestamp>> {
                 let posted_at_ms: Option<Option<i64>> =
                     sqlx::query_scalar(PLATFORM_POST_POSTED_AT_SQL)
                         .bind($ids::bind(tenant_id.as_uuid()))
@@ -288,7 +288,7 @@ macro_rules! impl_platform_post_claim_repository {
                 posted_at_ms
                     .flatten()
                     .map(|ms| {
-                        DateTime::from_timestamp_millis(ms).ok_or_else(|| {
+                        Timestamp::from_epoch_millis(ms).ok().ok_or_else(|| {
                             AppError::database(format!(
                                 "platform_post_claims.posted_at_ms {ms} is not a representable instant"
                             ))

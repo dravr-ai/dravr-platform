@@ -26,7 +26,7 @@
 //! `$n` placeholders throughout; ids go through the backend's uuid codec.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -61,9 +61,9 @@ pub struct SelfReportWrite {
     /// What it records (`menstrual_flow`, ...).
     pub kind: String,
     /// When it starts.
-    pub start_at: DateTime<Utc>,
+    pub start_at: Timestamp,
     /// When it ends.
-    pub end_at: DateTime<Utc>,
+    pub end_at: Timestamp,
     /// A coded value, for a category.
     pub value_code: Option<String>,
     /// A measured value, for a quantity.
@@ -86,9 +86,9 @@ pub struct StoredSelfReport {
     /// What it records.
     pub kind: String,
     /// When it starts.
-    pub start_at: DateTime<Utc>,
+    pub start_at: Timestamp,
     /// When it ends.
-    pub end_at: DateTime<Utc>,
+    pub end_at: Timestamp,
     /// A coded value.
     pub value_code: Option<String>,
     /// A measured value.
@@ -134,7 +134,7 @@ pub struct ClinicalRecordWrite {
     /// The engine that read it from its document.
     pub read_by: Option<String>,
     /// When it was effective, for date filters.
-    pub effective_at: Option<DateTime<Utc>>,
+    pub effective_at: Option<Timestamp>,
     /// The lab document it was read from.
     pub lab_document_id: Option<String>,
 }
@@ -175,11 +175,11 @@ pub struct StoredClinicalRecord {
     /// The engine that read it.
     pub read_by: Option<String>,
     /// When it was effective.
-    pub effective_at: Option<DateTime<Utc>>,
+    pub effective_at: Option<Timestamp>,
     /// The lab document it was read from.
     pub lab_document_id: Option<String>,
     /// When the athlete answered.
-    pub decided_at: Option<DateTime<Utc>>,
+    pub decided_at: Option<Timestamp>,
 }
 
 /// Which clinical records a list returns.
@@ -200,9 +200,9 @@ pub enum ClinicalSelection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecordWindow {
     /// From this instant, inclusive.
-    pub since: Option<DateTime<Utc>>,
+    pub since: Option<Timestamp>,
     /// Until this instant, exclusive.
-    pub until: Option<DateTime<Utc>>,
+    pub until: Option<Timestamp>,
     /// At most this many rows, capped at [`MAX_HEALTH_RECORDS_PAGE`].
     pub limit: u32,
 }
@@ -257,7 +257,7 @@ pub struct LabDocumentWrite {
     /// Why a supplied model's reading was not used.
     pub model_failure: Option<String>,
     /// When it was received.
-    pub received_at: DateTime<Utc>,
+    pub received_at: Timestamp,
 }
 
 /// Where a lab document's PDF is kept: whose upload, under which hash.
@@ -295,7 +295,7 @@ pub struct StoredLabDocument {
     /// Why a supplied model's reading was not used.
     pub model_failure: Option<String>,
     /// When it was received.
-    pub received_at: DateTime<Utc>,
+    pub received_at: Timestamp,
 }
 
 /// The athlete's health records.
@@ -360,7 +360,7 @@ pub trait HealthRecordRepository: Send + Sync {
         user_id: Uuid,
         id: &str,
         decision: ReviewDecision,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> AppResult<bool>;
 
     /// Store a lab document's row. Returns its id, or `None` when the athlete
@@ -701,7 +701,7 @@ macro_rules! impl_health_record_repository {
                 filing: RecordFiling<'_>,
                 reports: &[SelfReportWrite],
             ) -> AppResult<u64> {
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let mut written = 0;
                 for report in reports {
                     let done = sqlx::query(UPSERT_SELF_REPORT_SQL)
@@ -733,7 +733,7 @@ macro_rules! impl_health_record_repository {
                 filing: RecordFiling<'_>,
                 records: &[ClinicalRecordWrite],
             ) -> AppResult<u64> {
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let mut written = 0;
                 for record in records {
                     let done = sqlx::query(UPSERT_CLINICAL_RECORD_SQL)
@@ -822,7 +822,7 @@ macro_rules! impl_health_record_repository {
                 user_id: Uuid,
                 id: &str,
                 decision: ReviewDecision,
-                at: DateTime<Utc>,
+                at: Timestamp,
             ) -> AppResult<bool> {
                 let done = sqlx::query(DECIDE_CLINICAL_RECORD_SQL)
                     .bind($ids::bind(tenant_id.as_uuid()))

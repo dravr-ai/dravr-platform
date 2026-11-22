@@ -6,8 +6,8 @@
 
 //! The types of [`super::latest_anchor_measurements`].
 
-use chrono::NaiveDate;
 use dravr_equilibre_sync::Merged;
+use dravr_tronc::dates::CivilDate;
 use pierre_providers::ai_scope::StoredHealthRecord;
 
 /// One measurement of an anchor reading: its value, the day it was
@@ -17,7 +17,7 @@ pub struct Measured<T> {
     /// The value, in the unit its field names.
     pub value: T,
     /// The athlete's local day it was measured on.
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// The key of the source standing for that day (`garmin`, `athlete`, ...).
     pub source: String,
 }
@@ -49,7 +49,7 @@ pub struct AnchorMeasurements {
 pub(super) fn newest<T, V>(
     days: &[Merged<T>],
     field: impl Fn(&T) -> Option<V>,
-    date: impl Fn(&T) -> NaiveDate,
+    date: impl Fn(&T) -> CivilDate,
 ) -> Option<Measured<V>>
 where
     T: StoredHealthRecord,

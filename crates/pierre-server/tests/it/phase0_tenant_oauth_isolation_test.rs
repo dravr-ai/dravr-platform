@@ -14,7 +14,8 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::tenant::oauth_manager::{
     default_rate_limit_for_provider, issuing_client, IssuingClient, IssuingLookup,
 };
@@ -59,9 +60,9 @@ async fn create_test_user(database: &Database, email: &str) -> Result<Uuid> {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -95,7 +96,7 @@ fn make_tenant(
     plan: &str,
     owner_user_id: Uuid,
 ) -> Tenant {
-    let now = Utc::now();
+    let now = Timestamp::now();
     Tenant {
         id: tenant_id,
         name: name.to_owned(),
@@ -296,7 +297,7 @@ async fn create_tenant_with_token(
         oauth_providers::STRAVA.to_owned(),
         access_token.to_owned(),
         Some(format!("refresh_{access_token}")),
-        Some(Utc::now() + chrono::Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read,activity:read_all".to_owned()),
     );
     database
@@ -446,7 +447,7 @@ async fn test_oauth_callback_tenant_preservation() -> Result<()> {
         "user_id": user_id.to_string(),
         "tenant_id": tenant_id.to_string(),
         "provider": oauth_providers::STRAVA,
-        "timestamp": Utc::now().timestamp(),
+        "timestamp": Timestamp::now().epoch_seconds(),
     });
 
     let state_json = serde_json::to_string(&state_data)?;
@@ -671,7 +672,7 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
                 oauth_providers::STRAVA.to_owned(),
                 format!("access_token_{i}"),
                 Some(format!("refresh_token_{i}")),
-                Some(Utc::now() + chrono::Duration::hours(6)),
+                Some(Timestamp::now() + Elapsed::hours(6)),
                 Some("read,activity:read_all".to_owned()),
             );
             db.repositories().oauth_tokens.upsert_token(&token).await?;

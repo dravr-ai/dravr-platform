@@ -19,6 +19,7 @@
 use crate::common;
 
 use anyhow::Result;
+use dravr_tronc::dates::Timestamp;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::admin_ops;
@@ -42,7 +43,7 @@ async fn add_user_to_tenant_as_member(
                           (id, tenant_id, user_id, role, invited_at, joined_at) \
                           VALUES ($1, $2, $3, 'member', $4, $5)";
     let row_id = Uuid::new_v4();
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => {
             sqlx::query(INSERT)

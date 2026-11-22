@@ -242,7 +242,7 @@ pub fn withhold_tier(tier: Tier) {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::{Activity, ActivityBuilder, SportType};
@@ -283,7 +283,7 @@ mod tests {
     }
 
     fn workout(id: &str, provider: &str) -> Activity {
-        let start = Utc.with_ymd_and_hms(2026, 9, 30, 6, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-09-30T06:00:00Z").unwrap();
         ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3600, provider).build()
     }
 

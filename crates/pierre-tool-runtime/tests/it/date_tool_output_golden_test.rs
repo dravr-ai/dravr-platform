@@ -38,21 +38,24 @@ use pierre_tool_runtime::implementations::goals_spec::activities_toward_goal;
 
 /// Everything in this file that names the date engine.
 mod engine {
-    use chrono::{DateTime, FixedOffset, NaiveDateTime, Utc};
+    use dravr_tronc::dates::CivilDateTime;
 
-    pub(super) type Instant = DateTime<Utc>;
-    pub(super) type OffsetInstant = DateTime<FixedOffset>;
+    pub(super) use dravr_tronc::dates::Timestamp as Instant;
+
+    /// What a goal's `created_at` is read as: the instant, its offset dropped.
+    pub(super) type OffsetInstant = Instant;
 
     /// A UTC instant from `2026-11-17T15:00:05.250`, any fraction or none.
     pub(super) fn instant(text: &str) -> Instant {
-        NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
+        CivilDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
             .unwrap()
             .and_utc()
+            .unwrap()
     }
 
-    /// An instant that keeps the offset it is written with.
+    /// An instant read from text that carries an offset.
     pub(super) fn offset_instant(text: &str) -> OffsetInstant {
-        DateTime::parse_from_rfc3339(text).unwrap()
+        Instant::parse_from_rfc3339(text).unwrap()
     }
 }
 

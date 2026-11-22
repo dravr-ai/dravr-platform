@@ -19,7 +19,7 @@
 
 #[cfg(feature = "tools-groups")]
 mod groups_tools_gate {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::{ConnectionType, Tenant, TenantId};
     use pierre_services::member_reads::readable_members;
     use pierre_tool_runtime::protocols::UniversalResponse;
@@ -61,7 +61,7 @@ mod groups_tools_gate {
 
         /// The athlete belongs to a second tenant too.
         async fn give_the_athlete_a_second_tenant(&self) {
-            let now = Utc::now();
+            let now = Timestamp::now();
             let second = TenantId::generate();
             self.repos()
                 .tenants

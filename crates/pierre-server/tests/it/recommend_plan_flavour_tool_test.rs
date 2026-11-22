@@ -13,8 +13,8 @@
 //! data, read through the tool, produces the answers the plan promised.
 
 use anyhow::Result;
-use chrono::Utc;
 use dravr_contremaitre::training;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -31,6 +31,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use dravr_tronc::dates::Elapsed;
 
 async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
@@ -800,7 +801,7 @@ async fn seed_named_user(
     let user_id = user.id;
     repos.users.create(&user).await?;
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .tenants
         .create(&Tenant {
@@ -846,7 +847,7 @@ async fn attach_as_coach(
         .await?
         .id;
     let group_id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = Timestamp::now();
     grant_coach_access(repos, agent).await?;
     repos
         .groups
@@ -1138,13 +1139,9 @@ async fn save_two_a_race_outline(
 async fn a_second_a_race_becomes_a_second_peak_with_a_transition_between() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
-    let today = Utc::now().date_naive();
-    let first_a = (today + chrono::Duration::weeks(20))
-        .format("%Y-%m-%d")
-        .to_string();
-    let goal_a = (today + chrono::Duration::weeks(36))
-        .format("%Y-%m-%d")
-        .to_string();
+    let today = Timestamp::now().utc_date();
+    let first_a = (today + Elapsed::weeks(20)).to_string();
+    let goal_a = (today + Elapsed::weeks(36)).to_string();
     save_two_a_race_outline(&executor, user_id, &tenant_id, &first_a, &goal_a).await?;
 
     let payload = recommend(
@@ -1202,13 +1199,9 @@ async fn a_second_a_race_becomes_a_second_peak_with_a_transition_between() -> Re
 async fn a_b_race_is_not_a_peak() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
-    let today = Utc::now().date_naive();
-    let b_race = (today + chrono::Duration::weeks(20))
-        .format("%Y-%m-%d")
-        .to_string();
-    let goal_a = (today + chrono::Duration::weeks(30))
-        .format("%Y-%m-%d")
-        .to_string();
+    let today = Timestamp::now().utc_date();
+    let b_race = (today + Elapsed::weeks(20)).to_string();
+    let goal_a = (today + Elapsed::weeks(30)).to_string();
 
     let response = executor
         .execute_tool(request(
@@ -1263,13 +1256,9 @@ async fn a_b_race_is_not_a_peak() -> Result<()> {
 async fn the_laid_season_never_goes_backwards() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
-    let today = Utc::now().date_naive();
-    let first_a = (today + chrono::Duration::weeks(20))
-        .format("%Y-%m-%d")
-        .to_string();
-    let goal_a = (today + chrono::Duration::weeks(36))
-        .format("%Y-%m-%d")
-        .to_string();
+    let today = Timestamp::now().utc_date();
+    let first_a = (today + Elapsed::weeks(20)).to_string();
+    let goal_a = (today + Elapsed::weeks(36)).to_string();
     save_two_a_race_outline(&executor, user_id, &tenant_id, &first_a, &goal_a).await?;
 
     let payload = recommend(
@@ -1304,15 +1293,11 @@ async fn the_laid_season_never_goes_backwards() -> Result<()> {
 async fn an_a_race_too_soon_for_a_block_is_named_not_silently_dropped() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     // Six weeks after the first: under the marathon skeleton's twelve-week
     // floor, so it cannot carry a block of its own.
-    let crowded = (today + chrono::Duration::weeks(26))
-        .format("%Y-%m-%d")
-        .to_string();
-    let goal_a = (today + chrono::Duration::weeks(20))
-        .format("%Y-%m-%d")
-        .to_string();
+    let crowded = (today + Elapsed::weeks(26)).to_string();
+    let goal_a = (today + Elapsed::weeks(20)).to_string();
     save_two_a_race_outline(&executor, user_id, &tenant_id, &crowded, &goal_a).await?;
 
     let payload = recommend(

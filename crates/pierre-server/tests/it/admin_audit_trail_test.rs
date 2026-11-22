@@ -35,6 +35,7 @@ use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, generate_test_token};
 use crate::helpers::axum_test::AxumTestRequest;
+use dravr_tronc::dates::Timestamp;
 
 /// A signed-in admin: the bearer header and the account id.
 struct Admin {
@@ -65,8 +66,8 @@ async fn admin(resources: &Arc<ServerContext>, email: &str, role: UserRole) -> R
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await?;
     resources

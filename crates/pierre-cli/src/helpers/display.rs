@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::admin::models::GeneratedAdminToken;
+use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::constants::ports::DEFAULT_HTTP_PORT;
 use secrecy::ExposeSecret;
 
@@ -25,7 +26,7 @@ pub(crate) fn display_generated_token(token: &GeneratedAdminToken) {
     );
 
     if let Some(expires) = token.expires_at {
-        println!("   Expires: {}", expires.format("%Y-%m-%d %H:%M UTC"));
+        println!("   Expires: {}", expires.format_with(&UTC_MINUTE));
     } else {
         println!("   Expires: Never");
     }

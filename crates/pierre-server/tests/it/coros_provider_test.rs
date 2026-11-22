@@ -13,7 +13,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use crate::common;
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::coros_provider::CorosProvider;
@@ -86,7 +87,7 @@ async fn test_coros_provider_authentication_lifecycle() {
         client_secret: SecretString::from("test_client_secret"),
         access_token: Some(SecretString::from("test_access_token")),
         refresh_token: Some(SecretString::from("test_refresh_token")),
-        expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
         scopes: vec!["read:workouts".to_owned(), "read:sleep".to_owned()],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,
@@ -112,7 +113,7 @@ async fn test_coros_provider_expired_token() {
         client_secret: SecretString::from("test_client_secret"),
         access_token: Some(SecretString::from("expired_token")),
         refresh_token: Some(SecretString::from("test_refresh_token")),
-        expires_at: Some(Utc::now() - chrono::Duration::hours(1)), // Already expired
+        expires_at: Some(Timestamp::now() - Elapsed::hours(1)), // Already expired
         scopes: vec!["read:workouts".to_owned()],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,

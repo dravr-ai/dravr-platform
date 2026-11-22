@@ -11,7 +11,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
 use dravr_cageux::activity_analyzer::AdvancedActivityAnalyzer;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_cageux::metrics::AdvancedMetrics;
@@ -26,6 +25,8 @@ use dravr_cageux::types::{
     ActivityIntelligence, Confidence, ContextualFactors, Goal, PerformanceMetrics, TimeOfDay,
     TrendAnalysis, TrendDataPoint, TrendDirection,
 };
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::intelligence::{
     FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
 };
@@ -108,7 +109,7 @@ fn test_activity_intelligence_creation() {
         TimeOfDay::Morning => (),
         _ => panic!("Expected Morning time of day"),
     }
-    assert!(intelligence.generated_at <= Utc::now());
+    assert!(intelligence.generated_at <= Timestamp::now());
 }
 
 #[test]
@@ -167,15 +168,15 @@ fn test_timeframe_durations() {
     assert_eq!(TimeFrame::Year.to_days(), 365);
 
     let custom = TimeFrame::Custom {
-        start: Utc::now() - chrono::Duration::days(14),
-        end: Utc::now(),
+        start: Timestamp::now() - Elapsed::days(14),
+        end: Timestamp::now(),
     };
     assert_eq!(custom.to_days(), 14);
 }
 
 #[test]
 fn test_timeframe_dates() {
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     // Test start dates are in the past
     assert!(TimeFrame::Week.start_date() < now);
@@ -188,8 +189,8 @@ fn test_timeframe_dates() {
     assert!((end_week - now).num_seconds().abs() < 2);
     assert!((end_month - now).num_seconds().abs() < 2);
 
-    let custom_start = now - chrono::Duration::days(7);
-    let custom_end = now - chrono::Duration::days(1);
+    let custom_start = now - Elapsed::days(7);
+    let custom_end = now - Elapsed::days(1);
     let custom = TimeFrame::Custom {
         start: custom_start,
         end: custom_end,
@@ -244,10 +245,10 @@ fn test_goal_creation() {
             distance: 5000.0,
         },
         target_value: 25.0,
-        target_date: Utc::now() + chrono::Duration::days(60),
+        target_date: Timestamp::now() + Elapsed::days(60),
         current_value: 27.5,
-        created_at: Utc::now() - chrono::Duration::days(7),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now() - Elapsed::days(7),
+        updated_at: Timestamp::now(),
         status: GoalStatus::Active,
     };
 
@@ -319,7 +320,7 @@ fn test_progress_report() {
     let milestone1 = Milestone {
         name: "25% Complete".to_owned(),
         target_value: 25.0,
-        achieved_date: Some(Utc::now() - chrono::Duration::days(14)),
+        achieved_date: Some(Timestamp::now() - Elapsed::days(14)),
         achieved: true,
     };
 
@@ -333,7 +334,7 @@ fn test_progress_report() {
     let progress = ProgressReport {
         goal_id: "goal_123".to_owned(),
         progress_percentage: 35.0,
-        completion_date_estimate: Some(Utc::now() + chrono::Duration::days(45)),
+        completion_date_estimate: Some(Timestamp::now() + Elapsed::days(45)),
         milestones_achieved: vec![milestone1, milestone2],
         insights: vec![],
         recommendations: vec!["Increase training frequency".to_owned()],
@@ -531,17 +532,17 @@ fn test_anomaly() {
 fn test_trend_analysis() {
     let data_points = vec![
         TrendDataPoint {
-            date: Utc::now() - chrono::Duration::days(30),
+            date: Timestamp::now() - Elapsed::days(30),
             value: 5.5,
             smoothed_value: Some(5.4),
         },
         TrendDataPoint {
-            date: Utc::now() - chrono::Duration::days(15),
+            date: Timestamp::now() - Elapsed::days(15),
             value: 5.3,
             smoothed_value: Some(5.35),
         },
         TrendDataPoint {
-            date: Utc::now(),
+            date: Timestamp::now(),
             value: 5.1,
             smoothed_value: Some(5.2),
         },

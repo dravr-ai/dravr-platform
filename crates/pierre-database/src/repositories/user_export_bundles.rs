@@ -20,7 +20,7 @@
 //! placeholders throughout, and every id column is `TEXT` on both engines.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -89,13 +89,13 @@ pub struct ExportBundle {
     /// Why the build failed.
     pub error: Option<String>,
     /// When it was asked for.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// The building task's last sign of life.
-    pub heartbeat_at: DateTime<Utc>,
+    pub heartbeat_at: Timestamp,
     /// When it became ready or failed.
-    pub finished_at: Option<DateTime<Utc>>,
+    pub finished_at: Option<Timestamp>,
     /// When the sweep deletes it.
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
 }
 
 /// What a finished build holds.
@@ -150,7 +150,7 @@ pub trait UserExportBundleRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: Uuid,
         id: Uuid,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> AppResult<bool>;
 
     /// Mark a building bundle ready with `contents`, expiring at
@@ -164,7 +164,7 @@ pub trait UserExportBundleRepository: Send + Sync {
         user_id: Uuid,
         id: Uuid,
         contents: &BundleContents,
-        expires_at: DateTime<Utc>,
+        expires_at: Timestamp,
     ) -> AppResult<bool>;
 
     /// Mark a building bundle failed for `error`; `false` when it is no
@@ -186,14 +186,14 @@ pub trait UserExportBundleRepository: Send + Sync {
     ///
     /// # Errors
     /// Returns a database error when the read fails.
-    async fn stale_building(&self, before: DateTime<Utc>) -> AppResult<Vec<ExportBundle>>;
+    async fn stale_building(&self, before: Timestamp) -> AppResult<Vec<ExportBundle>>;
 
     /// Bundles of every athlete past their expiry at `now`. The sweep's read,
     /// across scopes by design.
     ///
     /// # Errors
     /// Returns a database error when the read fails.
-    async fn expired(&self, now: DateTime<Utc>) -> AppResult<Vec<ExportBundle>>;
+    async fn expired(&self, now: Timestamp) -> AppResult<Vec<ExportBundle>>;
 
     /// Delete the athlete's bundle row `id`; `false` when there was none.
     ///
@@ -334,7 +334,7 @@ macro_rules! impl_user_export_bundle_repository {
             async fn bundles(
                 &self,
                 sql: &'static str,
-                at: DateTime<Utc>,
+                at: Timestamp,
             ) -> AppResult<Vec<ExportBundle>> {
                 let rows = sqlx::query(sql)
                     .bind(at)
@@ -408,7 +408,7 @@ macro_rules! impl_user_export_bundle_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 id: Uuid,
-                at: DateTime<Utc>,
+                at: Timestamp,
             ) -> AppResult<bool> {
                 let done = sqlx::query(HEARTBEAT_SQL)
                     .bind(tenant_id.to_string())
@@ -427,7 +427,7 @@ macro_rules! impl_user_export_bundle_repository {
                 user_id: Uuid,
                 id: Uuid,
                 contents: &BundleContents,
-                expires_at: DateTime<Utc>,
+                expires_at: Timestamp,
             ) -> AppResult<bool> {
                 let done = sqlx::query(FINISH_READY_SQL)
                     .bind(tenant_id.to_string())
@@ -438,7 +438,7 @@ macro_rules! impl_user_export_bundle_repository {
                     .bind(stored(contents.damaged))
                     .bind(stored(contents.byte_size))
                     .bind(contents.sha256.as_str())
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(expires_at)
                     .execute(self.pool())
                     .await
@@ -458,18 +458,18 @@ macro_rules! impl_user_export_bundle_repository {
                     .bind(user_id.to_string())
                     .bind(id.to_string())
                     .bind(error)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("export bundle failed: {e}")))?;
                 Ok(done.rows_affected() > 0)
             }
 
-            async fn stale_building(&self, before: DateTime<Utc>) -> AppResult<Vec<ExportBundle>> {
+            async fn stale_building(&self, before: Timestamp) -> AppResult<Vec<ExportBundle>> {
                 self.bundles(STALE_BUILDING_SQL, before).await
             }
 
-            async fn expired(&self, now: DateTime<Utc>) -> AppResult<Vec<ExportBundle>> {
+            async fn expired(&self, now: Timestamp) -> AppResult<Vec<ExportBundle>> {
                 self.bundles(EXPIRED_SQL, now).await
             }
 

@@ -189,7 +189,7 @@ pub fn oauth_failure_url(base: &str, provider: &str, error: &AppError) -> String
 mod tests {
     use super::*;
     use crate::import_tombstones::refusal;
-    use chrono::{DateTime, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_database::repositories::{
         provider_identity_hash, subject_hash, ImportTombstone, TombstoneKind,
     };
@@ -203,9 +203,7 @@ mod tests {
             kind: TombstoneKind::ProviderAccount,
             provider: Some("strava".to_owned()),
             identity_hash: provider_identity_hash("42"),
-            created_at: DateTime::parse_from_rfc3339("2026-10-20T08:00:00Z")
-                .unwrap()
-                .with_timezone(&Utc),
+            created_at: Timestamp::parse_from_rfc3339("2026-10-20T08:00:00Z").unwrap(),
             cleared_at: None,
             cleared_by: None,
             claimed_by: None,

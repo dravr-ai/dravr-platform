@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use uuid::Uuid;
 
 use super::groups::CoachingGroup;
@@ -29,7 +29,7 @@ pub struct GroupChatConnection {
     /// <title> ». `None` when the platform sent none.
     pub chat_title: Option<String>,
     /// When the chat was connected.
-    pub connected_at: DateTime<Utc>,
+    pub connected_at: Timestamp,
 }
 
 /// A connect code a group's owner or coach minted in the web app, which the
@@ -49,7 +49,7 @@ pub struct GroupChatConnectCode {
     /// Who minted it.
     pub created_by: Uuid,
     /// When it stops being redeemable.
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
 }
 
 /// The chat a group is being connected to, with the code that authorizes it.
@@ -76,7 +76,7 @@ pub struct ConnectGroupChat<'a> {
     /// (they own it). `None` when the chat is bound to no other group.
     pub release_group_id: Option<Uuid>,
     /// The instant the connection is recorded at; the code must be live then.
-    pub now: DateTime<Utc>,
+    pub now: Timestamp,
 }
 
 impl fmt::Debug for GroupChatConnectCode {

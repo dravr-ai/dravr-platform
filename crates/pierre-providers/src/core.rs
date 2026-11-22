@@ -17,7 +17,7 @@
 //! All providers accept standardized request parameters:
 //! - **IDs**: String identifiers for resources (`activity_id`, etc.)
 //! - **Pagination**: `PaginationParams` for cursor-based or offset-based paging
-//! - **Date Ranges**: `DateTime<Utc>` for time-based queries
+//! - **Date Ranges**: `Timestamp` for time-based queries
 //! - **Options**: `Option<T>` for optional filtering/limiting
 //!
 //! ### Response Side (Shared Domain Models)
@@ -134,7 +134,7 @@ use crate::pagination::{CursorPage, PaginationParams};
 use crate::provider_context::unsupported as context_unsupported;
 use crate::request_budget::RequestBudget;
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_database::repositories::{ActivityCacheRepository, ActivityStreamRepository};
 use pierre_database::RepositoryRegistry;
 use secrecy::SecretString;
@@ -218,7 +218,7 @@ pub struct OAuth2Credentials {
     #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
     pub refresh_token: Option<SecretString>,
     /// When the access token expires
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Granted OAuth scopes
     pub scopes: Vec<String>,
     /// What `access_token` is, and so how a call presents it
@@ -443,14 +443,14 @@ pub trait FitnessProvider: Send + Sync {
     ///
     /// ```rust,no_run
     /// # use pierre_providers::core::{FitnessProvider, ActivityQueryParams};
-    /// # use chrono::{Duration, Utc};
+    /// # use dravr_tronc::dates::{Elapsed, Timestamp};
     /// # async fn example(provider: &impl FitnessProvider) -> Result<(), pierre_core::errors::AppError> {
     /// // Get last 10 activities
     /// let params = ActivityQueryParams::with_pagination(Some(10), None);
     /// let activities = provider.get_activities_with_params(&params).await?;
     ///
     /// // Get activities from the last 30 days
-    /// let thirty_days_ago = (Utc::now() - Duration::days(30)).timestamp();
+    /// let thirty_days_ago = (Timestamp::now() - Elapsed::days(30)).epoch_seconds();
     /// let time_params = ActivityQueryParams::with_time_range(None, Some(thirty_days_ago));
     /// let recent = provider.get_activities_with_params(&time_params).await?;
     ///
@@ -592,8 +592,8 @@ pub trait FitnessProvider: Send + Sync {
     /// read as a calendar with nothing planned on it.
     async fn list_planned_workouts(
         &self,
-        after: NaiveDate,
-        before: NaiveDate,
+        after: CivilDate,
+        before: CivilDate,
     ) -> AppResult<Vec<PlannedWorkout>> {
         let _ = (after, before);
         Err(planned_workouts_unsupported(self.name()))
@@ -727,8 +727,8 @@ pub trait FitnessProvider: Send + Sync {
     /// compare Dravr's ledger against what is actually on the calendar.
     async fn list_calendar_events(
         &self,
-        from: NaiveDate,
-        to: NaiveDate,
+        from: CivilDate,
+        to: CivilDate,
     ) -> AppResult<Vec<CalendarEventRef>> {
         let _ = (from, to);
         Err(AppError::invalid_input(format!(

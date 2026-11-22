@@ -15,9 +15,9 @@ use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::Utc;
 use dravr_cageux::nutrition_calculator::Gender;
 use dravr_cageux::zones::AerobicThresholdPace;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::{
@@ -99,7 +99,7 @@ impl World {
     }
 
     async fn connect(&self, (user, tenant): (Uuid, TenantId)) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let repos = &self.res.common.repos;
         repos
             .oauth_tokens

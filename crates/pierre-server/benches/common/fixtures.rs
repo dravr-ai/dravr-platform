@@ -8,7 +8,7 @@
 //!
 //! Provides deterministic data generation for reproducible performance measurements.
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, SportType};
 
 /// Predefined batch sizes for benchmark scenarios
@@ -34,13 +34,13 @@ impl ActivityBatchSize {
 #[derive(Debug, Clone)]
 struct BenchmarkConfig {
     /// Base date for activity generation (activities go backwards from here)
-    base_date: DateTime<Utc>,
+    base_date: Timestamp,
 }
 
 impl Default for BenchmarkConfig {
     fn default() -> Self {
         Self {
-            base_date: Utc::now(),
+            base_date: Timestamp::now(),
         }
     }
 }
@@ -57,7 +57,7 @@ fn generate_activity(index: usize, config: &BenchmarkConfig) -> Activity {
     let distance_meters = calculate_distance(index);
     let avg_hr = calculate_heart_rate(index);
     let days_ago = (index * 2) as i64;
-    let start_date = config.base_date - Duration::days(days_ago);
+    let start_date = config.base_date - Elapsed::days(days_ago);
 
     build_activity(
         index,
@@ -103,7 +103,7 @@ const fn calculate_heart_rate(index: usize) -> u32 {
 fn build_activity(
     index: usize,
     sport_type: SportType,
-    start_date: DateTime<Utc>,
+    start_date: Timestamp,
     duration_seconds: u64,
     distance_meters: f64,
     avg_hr: u32,

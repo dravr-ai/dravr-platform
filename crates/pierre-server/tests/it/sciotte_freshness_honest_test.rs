@@ -27,8 +27,9 @@ use secrecy::SecretString;
 
 use std::sync::Arc;
 
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
     ActivityBuilder, OAuthNotification, RefreshConfig, SportType, UserOAuthToken,
@@ -58,7 +59,7 @@ async fn seed_sciotte_token(
     user_id: Uuid,
     tenant: &str,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -166,7 +167,7 @@ async fn sciotte_with_fresh_cache_is_reported_fresh() {
         "sc1".to_owned(),
         "morning ride".to_owned(),
         SportType::Ride,
-        Utc::now() - chrono::Duration::hours(2),
+        Timestamp::now() - Elapsed::hours(2),
         3_600,
         "sciotte".to_owned(),
     )

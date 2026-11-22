@@ -49,10 +49,10 @@ use axum::routing::{get, put};
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
 use common::{
     create_test_server_resources, create_test_user_with_plan, generate_test_token, in_web_turn,
 };
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Weekday};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::INTERVALS_ICU;
@@ -283,7 +283,7 @@ async fn person(res: &Arc<ServerContext>, email: &str, name: &str) -> Person {
 /// `who`'s own Intervals.icu API key for account `athlete`, with the
 /// connection a linked key registers.
 async fn connect_intervals(repos: &RepositoryRegistry, who: &Person, key: &str, athlete: &str) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .oauth_tokens
         .upsert_token(&UserOAuthToken {
@@ -318,19 +318,19 @@ async fn connect_intervals(repos: &RepositoryRegistry, who: &Person, key: &str, 
 
 /// The Monday at least a week out, so every plan date is in the future on
 /// whatever day the suite runs.
-fn next_plan_monday() -> NaiveDate {
-    let mut day = Utc::now().date_naive() + Duration::days(7);
+fn next_plan_monday() -> CivilDate {
+    let mut day = Timestamp::now().utc_date() + Elapsed::days(7);
     while day.weekday() != Weekday::Mon {
-        day += Duration::days(1);
+        day += Elapsed::days(1);
     }
     day
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
-fn planned(date: NaiveDate, workout: &str, minutes: u32) -> PlannedDay {
+fn planned(date: CivilDate, workout: &str, minutes: u32) -> PlannedDay {
     PlannedDay {
         date: ymd(date),
         sport: "run".to_owned(),
@@ -355,7 +355,7 @@ fn week_args(workout: &str) -> Value {
         "week_start": ymd(monday),
         "focus": workout,
         "days": [{
-            "date": ymd(monday + Duration::days(1)),
+            "date": ymd(monday + Elapsed::days(1)),
             "sport": "run",
             "workout": workout,
             "duration_min": 50,
@@ -445,7 +445,7 @@ impl World {
     }
 
     async fn join(&self, who: &Person) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.repos()
             .groups
             .add_member(&GroupMember {
@@ -487,7 +487,7 @@ impl World {
             .expect("no live link holds this member or athlete yet");
         let link = repos
             .delegated_connections
-            .confirm(proposed.id, member.id, member.tenant, Utc::now())
+            .confirm(proposed.id, member.id, member.tenant, Timestamp::now())
             .await
             .unwrap()
             .expect("the proposal names the member");
@@ -509,7 +509,7 @@ impl World {
                 member.id,
                 Some(true),
                 None,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap()
@@ -523,7 +523,7 @@ impl World {
         let monday = next_plan_monday();
         let goal = GoalRace {
             name: RACE.to_owned(),
-            date: ymd(monday + Duration::days(70)),
+            date: ymd(monday + Elapsed::days(70)),
             discipline: "trail".to_owned(),
             priority: RacePriority::A,
         };
@@ -544,7 +544,7 @@ impl World {
         }];
         let days = vec![
             planned(monday, "Easy 45", 45),
-            planned(monday + Duration::days(2), "Steady 60", 60),
+            planned(monday + Elapsed::days(2), "Steady 60", 60),
         ];
         let start = ymd(monday);
         self.repos()
@@ -676,7 +676,7 @@ async fn coached_group(
     let agent_id = create_group_agent(repos, owner.id, owner.tenant)
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(

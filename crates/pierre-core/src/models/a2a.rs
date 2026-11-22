@@ -12,7 +12,7 @@
 
 use crate::constants::rate_limits::DEFAULT_BURST_LIMIT;
 use crate::constants::time_constants::SECONDS_PER_HOUR;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display, Formatter};
@@ -50,7 +50,7 @@ pub struct A2AClient {
     /// Whether this client is active
     pub is_active: bool,
     /// When this client was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Maximum requests allowed per window
     #[serde(default = "default_rate_limit_requests")]
     pub rate_limit_requests: u32,
@@ -58,8 +58,8 @@ pub struct A2AClient {
     #[serde(default = "default_rate_limit_window")]
     pub rate_limit_window_seconds: u32,
     /// When this client was last updated
-    #[serde(default = "chrono::Utc::now")]
-    pub updated_at: DateTime<Utc>,
+    #[serde(default = "Timestamp::now")]
+    pub updated_at: Timestamp,
 }
 
 const fn default_rate_limit_requests() -> u32 {
@@ -82,11 +82,11 @@ pub struct A2ASession {
     /// `OAuth2` scopes granted to this session
     pub granted_scopes: Vec<String>,
     /// When the session was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When the session expires
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// Timestamp of the last API activity
-    pub last_activity: DateTime<Utc>,
+    pub last_activity: Timestamp,
     /// Total number of requests made in this session
     pub requests_count: u64,
 }
@@ -126,9 +126,9 @@ pub struct A2ATask {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<serde_json::Value>,
     /// When the task was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When the task was last updated (A2A status timestamp)
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// Task lifecycle states per the A2A protocol 1.0 `TaskState` enum.
@@ -221,9 +221,9 @@ pub struct A2APushNotificationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_credentials: Option<String>,
     /// When this configuration was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When this configuration was last updated
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// Records of A2A protocol usage for analytics and billing
@@ -237,7 +237,7 @@ pub struct A2AUsage {
     #[serde(serialize_with = "crate::secret::serialize_exposed_option")]
     pub session_token: Option<SecretString>,
     /// When the request was made
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     /// Name of the tool/endpoint called
     pub tool_name: String,
     /// Response time in milliseconds
@@ -268,9 +268,9 @@ pub struct A2AUsageStats {
     /// A2A client identifier
     pub client_id: String,
     /// Start of the statistics period
-    pub period_start: DateTime<Utc>,
+    pub period_start: Timestamp,
     /// End of the statistics period
-    pub period_end: DateTime<Utc>,
+    pub period_end: Timestamp,
     /// Total number of requests in period
     pub total_requests: u32,
     /// Number of successful requests (2xx status)
@@ -284,5 +284,5 @@ pub struct A2AUsageStats {
     /// Total bytes sent in responses
     pub total_response_bytes: Option<u64>,
     /// The most recent request in the period, if any
-    pub last_request_at: Option<DateTime<Utc>>,
+    pub last_request_at: Option<Timestamp>,
 }

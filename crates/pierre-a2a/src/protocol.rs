@@ -25,7 +25,7 @@ use crate::protocol_types::{
     StreamResponse, Task, TaskState, WireTaskStatus,
 };
 use crate::{A2ARequest, A2AResponse, JSONRPC_VERSION};
-use chrono::SecondsFormat;
+use dravr_tronc::dates::SecondsFormat;
 use pierre_core::models::a2a::user_task_key;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use pierre_core::permissions::impersonation::CallerCredential;
@@ -64,6 +64,7 @@ mod text_turn;
 use principal::AuthPrincipal;
 use text_turn::AdmittedTextTurn;
 
+use dravr_tronc::dates::Timestamp;
 use params::SubscribeParams;
 
 /// Caller-facing explanation for a message that holds nothing to run: no text
@@ -344,7 +345,7 @@ impl A2AServer {
 
     /// Current instant in the spec's ISO-8601 UTC millisecond format.
     pub(crate) fn now_timestamp() -> String {
-        chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
+        Timestamp::now().to_rfc3339_opts(SecondsFormat::Millis, true)
     }
 
     /// Assemble the wire `Task` from a database record, applying

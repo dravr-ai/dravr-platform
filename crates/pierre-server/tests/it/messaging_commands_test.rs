@@ -22,7 +22,8 @@ mod command_tests {
     use crate::common::create_test_server_resources;
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Elapsed;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::agents::Agent;
     use pierre_core::models::ConnectionType;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
@@ -58,7 +59,7 @@ mod command_tests {
         );
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
 
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
@@ -71,8 +72,8 @@ mod command_tests {
             domain: None,
             plan: "professional".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common
@@ -687,7 +688,7 @@ mod command_tests {
     /// chat-bound group.
     #[tokio::test]
     async fn test_group_consent_uses_conversation_group_id() {
-        use chrono::Utc;
+        use dravr_tronc::dates::Timestamp;
         use pierre_commands::group_consent::GroupConsentHandler;
         use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
         use pierre_core::models::agents::{
@@ -733,7 +734,7 @@ mod command_tests {
         // miss the update under the buggy code path.
         let chat_group_id = Uuid::new_v4();
         let other_group_id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let mk_group = |id: Uuid, name: &str, updated_at| CoachingGroup {
             id,
             tenant_id: tenant_id.to_string(),
@@ -756,11 +757,7 @@ mod command_tests {
         let chat_group = mk_group(chat_group_id, "Chat-bound group", now);
         // Other group has a *later* updated_at — it would win under
         // `list_groups_for_user.first()`.
-        let other_group = mk_group(
-            other_group_id,
-            "Other group",
-            now + chrono::Duration::seconds(60),
-        );
+        let other_group = mk_group(other_group_id, "Other group", now + Elapsed::seconds(60));
         resources
             .common
             .repos
@@ -1016,8 +1013,8 @@ mod command_tests {
             domain: None,
             plan: "professional".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common
@@ -1047,7 +1044,7 @@ mod command_tests {
             .await
             .unwrap();
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         let chat_group_id = Uuid::new_v4();
         let other_group_id = Uuid::new_v4();
         let mk_group = |id: Uuid, name: &str, owner_tenant: TenantId, updated_at| CoachingGroup {
@@ -1081,7 +1078,7 @@ mod command_tests {
             other_group_id,
             "Member's own group",
             member_tenant_id,
-            now + chrono::Duration::seconds(60),
+            now + Elapsed::seconds(60),
         );
         resources
             .common
@@ -1183,7 +1180,7 @@ mod command_tests {
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         let mk_system = |title: &str| CreateSystemAgentRequest {
             title: title.to_owned(),
@@ -1341,7 +1338,7 @@ mod command_tests {
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         let persona = resources
             .common
@@ -1718,7 +1715,7 @@ mod command_tests {
         peer_data_sharing: bool,
     ) -> Uuid {
         let id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = CoachingGroup {
             id,
             tenant_id: tenant_id.to_string(),
@@ -1757,7 +1754,7 @@ mod command_tests {
         display_name: Option<&str>,
         consent: bool,
     ) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         resources
             .common
             .repos

@@ -128,7 +128,7 @@ macro_rules! impl_home_preferences_repository {
                     .bind($ids::bind(user_id))
                     .bind(update.plan_suggestion_hidden)
                     .bind(update.getting_started_hidden)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| home_preferences_error("store", e))?;

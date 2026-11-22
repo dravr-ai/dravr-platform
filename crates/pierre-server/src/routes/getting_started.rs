@@ -24,7 +24,7 @@
 use std::sync::Arc;
 
 use axum::{extract::State, http::HeaderMap, Json};
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::suggestions::report_getting_started_shown;
 use pierre_contremaitre::use_case_catalogue::UseCaseCatalogue;
 use pierre_core::errors::AppError;
@@ -91,7 +91,7 @@ pub struct GettingStartedResponse {
     pub total: usize,
     /// When the last row became done (RFC 3339); `null` until every row is.
     /// Home folds the list to one line then, and drops it seven days later.
-    pub folded_at: Option<DateTime<Utc>>,
+    pub folded_at: Option<Timestamp>,
     /// The athlete hid the list (Home preferences); Settings brings it back.
     pub hidden: bool,
 }
@@ -114,7 +114,8 @@ pub async fn get_getting_started(
     let tenant_id = get_tenant_id(&auth, &resources).await?;
     let repos = &resources.common.repos;
     let surface = client_surface(&headers);
-    let (state, policy) = AthleteState::read(repos, tenant_id, auth.user_id, Utc::now()).await?;
+    let (state, policy) =
+        AthleteState::read(repos, tenant_id, auth.user_id, Timestamp::now()).await?;
     // Which rows are done says what the athlete's data holds, as a starter
     // does: an interface that may not carry that data is not told (carnet#769).
     if !ai_scope::admit_derived(policy) {

@@ -20,7 +20,7 @@ use pierre_core::transport::Transport;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 use uuid::Uuid;
 
@@ -129,7 +129,7 @@ async fn setup(email: &str) -> (Fixture, String) {
             .await
             .unwrap();
     let agent_id = Uuid::new_v4().to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos

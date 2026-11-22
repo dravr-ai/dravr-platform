@@ -638,7 +638,7 @@ pub(crate) async fn connected_coach_platforms(
 mod tests {
     use std::sync::Arc;
 
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::API_KEY_TOKEN_TYPE;
     use pierre_providers::request_budget::{
@@ -859,7 +859,7 @@ mod tests {
                 PLATFORM_SCOPE,
                 PLATFORM_SCOPE,
                 &api_key_counter_key(INTERVALS_ICU, "i100"),
-                &budget_period(Utc::now(), FIFTEEN_MINUTES),
+                &budget_period(Timestamp::now(), FIFTEEN_MINUTES),
                 2_500,
             )
             .await

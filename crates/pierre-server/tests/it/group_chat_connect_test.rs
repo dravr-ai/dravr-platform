@@ -18,7 +18,7 @@ mod group_chat_connect_tests {
     use std::time::Duration;
 
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::groups::{
         CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     };
@@ -58,7 +58,7 @@ mod group_chat_connect_tests {
         let agent = e2e
             .seed_coach_agent(owner.user_id, owner.home_tenant, "Web Group Agent")
             .await;
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = CoachingGroup {
             id: Uuid::new_v4(),
             tenant_id: owner.home_tenant.to_string(),
@@ -91,7 +91,7 @@ mod group_chat_connect_tests {
     }
 
     async fn enrol(e2e: &CommandE2e, group: &CoachingGroup, m: &Member, role: GroupRole) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         e2e.resources
             .common
             .repos
@@ -465,7 +465,7 @@ mod group_chat_connect_tests {
                 .common
                 .repos
                 .groups
-                .live_chat_connect_code(&code, "telegram", e2e.bot_tenant, Utc::now())
+                .live_chat_connect_code(&code, "telegram", e2e.bot_tenant, Timestamp::now())
                 .await
                 .unwrap()
                 .is_some(),

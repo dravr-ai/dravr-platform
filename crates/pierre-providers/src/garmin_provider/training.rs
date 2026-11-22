@@ -36,8 +36,8 @@
 
 use std::fmt;
 
-use chrono::{NaiveDate, Utc};
 use dravr_cageux::periodization::{band_coordinates, AnchorRatios, SportFamily};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tracing::{info, warn};
@@ -536,10 +536,10 @@ pub(super) fn updated_workout_body(
 
 /// A schedule putting `workout_id` on `date`, under `schedule_id` when it
 /// already exists.
-pub(super) fn schedule_body(workout_id: i64, date: NaiveDate, schedule_id: Option<i64>) -> Value {
+pub(super) fn schedule_body(workout_id: i64, date: CivilDate, schedule_id: Option<i64>) -> Value {
     let mut body = json!({
         "workoutId": workout_id,
-        "date": date.format("%Y-%m-%d").to_string(),
+        "date": date.to_string(),
     });
     if let Some(id) = schedule_id {
         body["scheduleId"] = json!(id);
@@ -610,7 +610,7 @@ impl StoredWorkout {
             workout_provider = %raw(self.provider.as_ref()),
             workout_source_id = %raw(self.source_id.as_ref()),
             held_steps = ?self.held_steps(),
-            observed_at = %Utc::now().to_rfc3339(),
+            observed_at = %Timestamp::now().to_rfc3339(),
             "Garmin workout stamps"
         );
     }
@@ -665,8 +665,8 @@ pub(super) struct Schedule {
 
 impl Schedule {
     /// The schedule's civil date, or `None` when it is unreadable.
-    pub(super) fn date(&self) -> Option<NaiveDate> {
-        NaiveDate::parse_from_str(self.date.get(..10)?, "%Y-%m-%d").ok()
+    pub(super) fn date(&self) -> Option<CivilDate> {
+        CivilDate::parse_from_str(self.date.get(..10)?, "%Y-%m-%d").ok()
     }
 
     /// The calendar entry this schedule is.
@@ -728,7 +728,7 @@ mod tests {
         PlannedSession {
             external_id: "dravr:plan:4b0f3c1e-8a2d-4f6b-9c3e-2d1a7e5f9b10:2026-10-08:0".to_owned(),
             kind: PlannedSessionKind::Workout,
-            date: NaiveDate::from_ymd_opt(2026, 10, 8).unwrap_or_default(),
+            date: CivilDate::from_ymd(2026, 10, 8).ok().unwrap_or_default(),
             sport: SportType::Ride,
             name: "Julie threshold — HRV low so keep it honest".to_owned(),
             duration_seconds: Some(5400),
@@ -1136,7 +1136,7 @@ mod tests {
 
     #[test]
     fn a_schedule_body_names_the_workout_and_the_civil_date() {
-        let date = NaiveDate::from_ymd_opt(2026, 10, 8).unwrap_or_default();
+        let date = CivilDate::from_ymd(2026, 10, 8).ok().unwrap_or_default();
         assert_eq!(
             schedule_body(41, date, None),
             json!({"workoutId": 41, "date": "2026-10-08"})

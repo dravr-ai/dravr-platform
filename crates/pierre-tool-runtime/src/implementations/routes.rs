@@ -839,6 +839,7 @@ crate::declare_security!(DiscoverRoutesTool => empty);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dravr_tronc::dates::{Timestamp, Zone};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
@@ -917,13 +918,13 @@ mod tests {
 
         let weather_args = json!({
             "place": "Paris, Texas",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "timestamp": Timestamp::now().to_rfc3339(),
         });
         let weather = forecast(
             &DummyWeatherProvider::temperate(),
             &geocoder,
             &weather_args,
-            chrono_tz::UTC,
+            &Zone::utc(),
         )
         .await
         .unwrap();

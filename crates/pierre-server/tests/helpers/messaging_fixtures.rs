@@ -18,10 +18,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use dravr_canot::channel::MessagingChannel;
 use dravr_canot::error::{MessagingError, MessagingResult};
 use dravr_canot::turn::ConversationTurnId;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use http::HeaderMap;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::models::messaging::{
@@ -124,7 +124,7 @@ pub(crate) fn cached_activity(id: &str, name: &str, age_days: i64) -> Activity {
         id.to_owned(),
         name.to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(age_days),
+        Timestamp::now() - Elapsed::days(age_days),
         3_600,
         "strava".to_owned(),
     )
@@ -234,7 +234,7 @@ impl MessagingChannel for CapturingChannel {
             message_id: "test-message".to_owned(),
             channel_message_id,
             status: DeliveryStatus::Sent,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             turn_id: msg.turn_id,
         })
     }
@@ -249,7 +249,7 @@ impl MessagingChannel for CapturingChannel {
             message_id: "test-message".to_owned(),
             channel_message_id: None,
             status: DeliveryStatus::Sent,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             turn_id,
         })
     }

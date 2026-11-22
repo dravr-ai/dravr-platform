@@ -16,7 +16,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use chrono::{Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_config::agent_recommendations::AgentRecommendationConfig;
 use pierre_core::errors::{AppError, ErrorCode};
@@ -240,7 +240,8 @@ async fn load_sport_profile<C: ToolRuntime>(
     // at the binding rather than inside Arc::clone's argument inference.
     let runtime_concrete: Arc<C> = Arc::clone(ctx);
     let runtime: Arc<dyn ToolRuntime> = runtime_concrete;
-    let after_ts = (Utc::now() - ChronoDuration::days(i64::from(config.window_days))).timestamp();
+    let after_ts =
+        (Timestamp::now() - Elapsed::days(i64::from(config.window_days))).epoch_seconds();
     let activities = fetch_recent_activities_all_providers(
         &runtime,
         user_id,
@@ -535,8 +536,8 @@ async fn sleep_source_name<C: MiddlewareCtx>(
     user_providers: &HashSet<String>,
     (user_id, tenant_id): (Uuid, TenantId),
 ) -> Option<&'static str> {
-    let now = Utc::now();
-    let window = (now - ChronoDuration::days(SLEEP_SOURCE_LOOKBACK_DAYS), now);
+    let now = Timestamp::now();
+    let window = (now - Elapsed::days(SLEEP_SOURCE_LOOKBACK_DAYS), now);
     match stored_health::latest_night_source(
         MiddlewareCtx::repos(ctx.as_ref()),
         registry,
@@ -1008,7 +1009,7 @@ pub(super) async fn handle_submit_for_review<C: AgentsCtx + MiddlewareCtx>(
     let response = SubmitForReviewResponse {
         agent_id: id,
         publish_status: listing.publish_status,
-        review_submitted_at: listing.review_submitted_at.map(|at| at.to_rfc3339()),
+        review_submitted_at: listing.review_submitted_at.map(Timestamp::to_rfc3339),
     };
     Ok((StatusCode::OK, Json(response)).into_response())
 }

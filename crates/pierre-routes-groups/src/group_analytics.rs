@@ -26,7 +26,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{GroupMember, MemberFitnessSnapshot};
 use pierre_core::models::TenantId;
@@ -50,9 +50,9 @@ use pierre_auth::auth::AuthResult;
 #[derive(Debug, Deserialize, Default)]
 pub struct PeriodQuery {
     /// Period start (ISO 8601). Defaults to 7 days ago.
-    pub from: Option<DateTime<Utc>>,
+    pub from: Option<Timestamp>,
     /// Period end (ISO 8601). Defaults to now.
-    pub to: Option<DateTime<Utc>>,
+    pub to: Option<Timestamp>,
 }
 
 /// Group analytics route registry.
@@ -82,7 +82,7 @@ impl GroupAnalyticsRoutes {
     /// Build response metadata.
     fn build_metadata() -> GroupMetadata {
         GroupMetadata {
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: Timestamp::now().to_rfc3339(),
             api_version: "1.0".to_owned(),
         }
     }

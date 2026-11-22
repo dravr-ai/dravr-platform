@@ -21,11 +21,11 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use bytes::Bytes;
-use chrono::{Duration, Utc};
 use dravr_barrage::blob::BlobKey;
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::store::{PageReq, RecordQuery};
 use dravr_barrage::Scope;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::agents::AgentVisibility;
@@ -166,7 +166,7 @@ async fn seed_lived_in_account(
             "https://example.com/plan",
             &tenant,
             &user,
-            Utc::now() + Duration::days(1),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap();
@@ -184,8 +184,8 @@ async fn seed_lived_in_account(
                 user_id,
                 tenant_id: Some(tenant.clone()),
                 client_id: Some("dravr-web".to_owned()),
-                created_at: Utc::now(),
-                expires_at: Utc::now() + Duration::days(30),
+                created_at: Timestamp::now(),
+                expires_at: Timestamp::now() + Elapsed::days(30),
             },
         )
         .await
@@ -197,8 +197,8 @@ async fn seed_lived_in_account(
             tier: UserTier::Professional,
             note: Some("pilot".to_owned()),
             set_by: None,
-            set_at: Utc::now(),
-            updated_at: Utc::now(),
+            set_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -242,7 +242,7 @@ async fn reset_wipes_everything_the_account_owns_and_keeps_the_account() {
     assert!(
         !repos
             .archive_erasures
-            .due(Utc::now() + Duration::days(365), 1000)
+            .due(Timestamp::now() + Elapsed::days(365), 1000)
             .await
             .unwrap()
             .iter()
@@ -324,7 +324,7 @@ async fn reset_wipes_everything_the_account_owns_and_keeps_the_account() {
     // The account stays signed in: its app session still exchanges.
     let session = repos
         .session_refresh_tokens
-        .consume_token(&session_token(user_id), Utc::now())
+        .consume_token(&session_token(user_id), Timestamp::now())
         .await
         .unwrap()
         .expect("the app session survives the reset");
@@ -598,7 +598,7 @@ async fn seed_archived_group_on_a_private_agent(
         AgentVisibility::Private,
     )
     .await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group_id = repos
         .groups
         .create_group(
@@ -1107,7 +1107,7 @@ async fn reset_erases_the_activity_stores_provider_reads_where_imports_do_not_ru
         "g-7001",
         "Morning ride",
         SportType::Ride,
-        Utc::now() - Duration::days(3),
+        Timestamp::now() - Elapsed::days(3),
         3_600,
         "garmin",
     )
@@ -1118,7 +1118,7 @@ async fn reset_erases_the_activity_stores_provider_reads_where_imports_do_not_ru
             tenant_id,
             "garmin",
             &[ride],
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Import,
         )
         .await
@@ -1145,7 +1145,7 @@ async fn reset_erases_the_activity_stores_provider_reads_where_imports_do_not_ru
 
 /// A ride file `athlete` uploads; the key its bytes are kept under.
 async fn upload_ride(resources: &ServerContext, athlete: &Athlete, days_ago: i64) -> BlobKey {
-    let upload = FitWorkout::ride(Utc::now() - Duration::days(days_ago), 600).encode();
+    let upload = FitWorkout::ride(Timestamp::now() - Elapsed::days(days_ago), 600).encode();
     let sha = file_sha256(&upload);
     resources
         .common

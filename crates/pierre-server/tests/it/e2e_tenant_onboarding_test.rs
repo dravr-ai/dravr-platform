@@ -40,6 +40,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use dravr_tronc::dates::Timestamp;
 
 /// Test configuration for end-to-end tenant onboarding
 #[tokio::test]
@@ -70,13 +71,13 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Enterprise,
         strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::Admin,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
+        approved_at: Some(Timestamp::now()),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -95,13 +96,13 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Professional,
         strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::Admin,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
+        approved_at: Some(Timestamp::now()),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -124,8 +125,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         domain: None,
         plan: "enterprise".to_owned(),
         owner_user_id: acme_admin_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     database.repositories().tenants.create(&acme_tenant).await?;
@@ -138,8 +139,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         domain: None,
         plan: "professional".to_owned(),
         owner_user_id: beta_admin_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     database.repositories().tenants.create(&beta_tenant).await?;
@@ -348,13 +349,13 @@ async fn setup_multitenant_scenario(
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Professional,
         strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
+        approved_at: Some(Timestamp::now()),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -375,8 +376,8 @@ async fn setup_multitenant_scenario(
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     let tenant2 = Tenant {
@@ -386,8 +387,8 @@ async fn setup_multitenant_scenario(
         domain: None,
         plan: "professional".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     database.repositories().tenants.create(&tenant1).await?;

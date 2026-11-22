@@ -22,10 +22,10 @@
 /// Reading them: one reader for the athlete, Dravr's agent and a coach's read.
 pub mod read;
 
-use chrono::{DateTime, NaiveDate, Utc};
 use dravr_barrage::{
     ClinicalResource, GlucoseReading, Locator, ReadingEngine, SelfReport, WellnessRecords,
 };
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{ClinicalRecordWrite, RecordFiling, SelfReportWrite};
 use pierre_database::RepositoryRegistry;
@@ -103,16 +103,12 @@ pub fn self_report_write(report: &SelfReport) -> AppResult<SelfReportWrite> {
 
 /// The instant a FHIR date or date-time names: RFC 3339, or a bare date at
 /// midnight UTC.
-fn fhir_instant(text: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(text)
-        .map(|at| at.with_timezone(&Utc))
-        .ok()
-        .or_else(|| {
-            NaiveDate::parse_from_str(text, "%Y-%m-%d")
-                .ok()
-                .and_then(|day| day.and_hms_opt(0, 0, 0))
-                .map(|at| at.and_utc())
-        })
+fn fhir_instant(text: &str) -> Option<Timestamp> {
+    Timestamp::parse_from_rfc3339(text).ok().or_else(|| {
+        CivilDate::parse_from_str(text, "%Y-%m-%d")
+            .ok()
+            .and_then(|day| day.at_midnight().and_utc().ok())
+    })
 }
 
 /// The FHIR elements a resource is dated by, in the order they are tried.
@@ -129,7 +125,7 @@ const FHIR_DATE_ELEMENTS: [&str; 7] = [
 /// When a clinical record was effective: the flattened Observation's date,
 /// else the first date element the resource carries.
 #[must_use]
-pub fn effective_at(record: &ClinicalResource) -> Option<DateTime<Utc>> {
+pub fn effective_at(record: &ClinicalResource) -> Option<Timestamp> {
     record
         .flat
         .as_ref()
@@ -231,14 +227,12 @@ pub async fn store_sensitive(
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
-
     use super::*;
 
     fn glucose(value: f64, unit: &str) -> GlucoseReading {
         GlucoseReading {
             id: "g".to_owned(),
-            at: Utc.timestamp_opt(1_700_000_000, 0).single().unwrap(),
+            at: Timestamp::from_epoch_seconds(1_700_000_000).unwrap(),
             value,
             unit: unit.to_owned(),
             loinc: "2339-0".to_owned(),
@@ -282,12 +276,12 @@ mod tests {
     fn a_fhir_date_or_date_time_is_read_as_an_instant() {
         assert_eq!(
             fhir_instant("2026-03-04"),
-            Utc.with_ymd_and_hms(2026, 3, 4, 0, 0, 0).single(),
+            Timestamp::parse_from_rfc3339("2026-03-04T00:00:00Z").ok(),
             "bug: a bare date"
         );
         assert_eq!(
             fhir_instant("2026-03-04T08:30:00-05:00"),
-            Utc.with_ymd_and_hms(2026, 3, 4, 13, 30, 0).single(),
+            Timestamp::parse_from_rfc3339("2026-03-04T13:30:00Z").ok(),
             "bug: a date-time with an offset"
         );
         assert_eq!(fhir_instant("March"), None, "bug: prose read as a date");

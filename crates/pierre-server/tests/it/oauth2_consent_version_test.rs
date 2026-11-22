@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
 use base64::{engine::general_purpose, Engine as _};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::security::cookies::auth_cookie_name;
@@ -285,7 +285,7 @@ async fn a_grant_recorded_without_a_version_asks_again() {
             tenant_id: tenant.to_string(),
             client_id: client_id.clone(),
             scope: OAuthScope::render_granted(&OAuthScope::default_grant()),
-            granted_at: Utc::now(),
+            granted_at: Timestamp::now(),
             revoked_at: None,
             consent_version: None,
             consent_locale: None,

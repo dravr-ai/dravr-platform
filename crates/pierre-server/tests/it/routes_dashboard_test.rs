@@ -152,7 +152,7 @@ use crate::common;
 use common::placeholder_llm_chain;
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::{stream, StreamExt, TryStreamExt};
 use pierre_auth::{
     api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest},
@@ -431,14 +431,14 @@ impl DashboardTestSetup {
         /// busy; SQLite's single connection serialises regardless.
         const USAGE_WRITE_CONCURRENCY: usize = 8;
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         let mut rows = Vec::new();
 
         // Create some API key usage records for testing
         for (i, api_key) in api_keys.iter().enumerate() {
             // Create usage for the last few days
             for days_ago in 0..7 {
-                let timestamp = now - Duration::days(days_ago);
+                let timestamp = now - Elapsed::days(days_ago);
 
                 // Vary usage patterns by API key tier
                 let base_requests = match api_key.tier {
@@ -456,7 +456,7 @@ impl DashboardTestSetup {
                     rows.push(ApiKeyUsage {
                         id: None,
                         api_key_id: api_key.id.clone(),
-                        timestamp: timestamp + Duration::minutes(i64::from(j) * 2),
+                        timestamp: timestamp + Elapsed::minutes(i64::from(j) * 2),
                         tool_name: match j % 4 {
                             0 => "strava_activities".to_owned(),
                             1 => "whoop_data".to_owned(),

@@ -25,10 +25,10 @@
 //! one that lands last stands.
 //!
 //! `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
-//! Postgres. Instants bind as `DateTime<Utc>`.
+//! Postgres. Instants bind as `Timestamp`.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -48,7 +48,7 @@ pub trait PushedDataRepository: Send + Sync {
         provider: &str,
         activity_id: &str,
         bytes: &[u8],
-        fetched_at: DateTime<Utc>,
+        fetched_at: Timestamp,
     ) -> AppResult<()>;
 
     /// The kept copy of an activity's file, or `None` when none is kept.
@@ -82,7 +82,7 @@ pub trait PushedDataRepository: Send + Sync {
     ///
     /// # Errors
     /// Returns a database error when the delete fails.
-    async fn drop_files_fetched_before(&self, cutoff: DateTime<Utc>) -> AppResult<u64>;
+    async fn drop_files_fetched_before(&self, cutoff: Timestamp) -> AppResult<u64>;
 }
 
 /// Keep, or replace, one activity's downloaded file.
@@ -127,7 +127,7 @@ macro_rules! impl_pushed_data_repository {
                 provider: &str,
                 activity_id: &str,
                 bytes: &[u8],
-                fetched_at: DateTime<Utc>,
+                fetched_at: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(KEEP_PUSHED_FILE_SQL)
                     .bind(tenant_id.to_string())
@@ -177,7 +177,7 @@ macro_rules! impl_pushed_data_repository {
                 Ok(())
             }
 
-            async fn drop_files_fetched_before(&self, cutoff: DateTime<Utc>) -> AppResult<u64> {
+            async fn drop_files_fetched_before(&self, cutoff: Timestamp) -> AppResult<u64> {
                 sqlx::query(DROP_STALE_PUSHED_FILES_SQL)
                     .bind(cutoff)
                     .execute(self.pool())

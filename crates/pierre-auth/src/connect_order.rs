@@ -202,7 +202,7 @@ pub async fn order_and_seats(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_database::database::system_settings::SystemSetting;
 
     /// A one-row store, or one whose every read fails: the database fault the
@@ -219,7 +219,7 @@ mod tests {
                         key: key.to_owned(),
                         value: value.to_owned(),
                         description: None,
-                        updated_at: Utc::now(),
+                        updated_at: Timestamp::now(),
                     })
                 })
                 .map_err(|()| AppError::internal("the store is down"))

@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::agents::{
     Agent, AgentAssignment, AgentCategory, AgentHandle, AgentListItem, AgentUserState,
@@ -517,7 +517,7 @@ pub trait CoachingGroupRepository:
         user_id: Uuid,
         calendar_write: Option<bool>,
         wellness_read: Option<bool>,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<GroupMember>> {
         self.set_coach_sensitive_reads(group_id, user_id, calendar_write, wellness_read, None, now)
             .await
@@ -537,8 +537,8 @@ pub trait CoachingGroupRepository:
         user_id: Uuid,
         calendar_write: Option<bool>,
         wellness_read: Option<bool>,
-        t2_read: Option<(bool, Option<DateTime<Utc>>)>,
-        now: DateTime<Utc>,
+        t2_read: Option<(bool, Option<Timestamp>)>,
+        now: Timestamp,
     ) -> AppResult<Option<GroupMember>>;
 
     /// Count active members in a group.
@@ -576,7 +576,7 @@ pub trait CoachingGroupRepository:
     async fn claim_signup_invite(
         &self,
         code: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<GroupInvite>>;
 
     /// Look up an invite by id (cross-tenant, for signup-code activation)
@@ -722,7 +722,7 @@ pub trait CoachingGroupRepository:
 // `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
 // Postgres. Booleans bind as `bool` and are spelled `TRUE`/`FALSE`: Postgres
 // has the type, `SQLite` stores 1/0 and reads them back as `bool`. Timestamps
-// bind as `DateTime<Utc>` on both; sqlx-sqlite writes the RFC 3339 text the
+// bind as `Timestamp` on both; sqlx-sqlite writes the RFC 3339 text the
 // `SQLite` TEXT columns always held. `agents.user_id` and every other
 // `users(id)` reference are `uuid` on Postgres and TEXT on `SQLite`, so the
 // shared body binds them through a [`super::uuid_columns`] codec.

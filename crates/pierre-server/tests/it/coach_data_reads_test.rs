@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use chrono::{Duration, Months, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_commands::group_reads::GroupReadsHandler;
 use pierre_commands::plan::PlanShowHandler;
@@ -180,7 +180,7 @@ impl Fixture {
     }
 
     /// One read recorded directly, `ago` before now.
-    async fn record_at(&self, tenant: TenantId, athlete: Uuid, ago: Duration) {
+    async fn record_at(&self, tenant: TenantId, athlete: Uuid, ago: Elapsed) {
         self.repos()
             .coach_data_reads
             .record_coach_read(&NewCoachDataRead {
@@ -190,7 +190,7 @@ impl Fixture {
                 group: self.group,
                 tool: "get_activities",
                 class: CoachReadClass::Training,
-                read_at: Utc::now() - ago,
+                read_at: Timestamp::now() - ago,
                 transport: None,
                 impersonator: None,
             })
@@ -204,7 +204,7 @@ impl Fixture {
 #[tokio::test]
 async fn a_daily_read_is_recorded_once_per_utc_day_and_a_per_read_one_each_time() {
     let f = fixture().await;
-    let read_at = Utc::now();
+    let read_at = Timestamp::now();
     let read = |read_at| NewCoachDataRead {
         tenant: f.athlete.tenant,
         athlete: f.athlete.id,
@@ -223,7 +223,7 @@ async fn a_daily_read_is_recorded_once_per_utc_day_and_a_per_read_one_each_time(
     );
     assert!(
         !reads
-            .record_daily_coach_read(&read(read_at + Duration::seconds(1)))
+            .record_daily_coach_read(&read(read_at + Elapsed::seconds(1)))
             .await
             .unwrap(),
         "bug: a second read the same UTC day writes nothing, and is no failure"
@@ -235,7 +235,7 @@ async fn a_daily_read_is_recorded_once_per_utc_day_and_a_per_read_one_each_time(
     );
     assert!(
         reads
-            .record_daily_coach_read(&read(read_at - Duration::days(1)))
+            .record_daily_coach_read(&read(read_at - Elapsed::days(1)))
             .await
             .unwrap(),
         "bug: a read on another UTC day is written: the key is the day, not the source"
@@ -283,7 +283,7 @@ async fn a_thread_read_writes_exactly_one_row_naming_the_coach_tool_and_class() 
     assert_eq!(row.tool, "get_activities", "bug: and the tool read through");
     assert_eq!(row.class, CoachReadClass::Training, "bug: and the class");
     assert!(
-        (Utc::now() - row.read_at).num_minutes().abs() < 5,
+        (Timestamp::now() - row.read_at).num_minutes().abs() < 5,
         "bug: and when: {}",
         row.read_at
     );
@@ -420,7 +420,7 @@ async fn a_plan_read_over_mcp_records_that_it_was_served_over_mcp() {
 #[tokio::test]
 async fn a_read_recorded_without_a_transport_reads_back_as_undeclared() {
     let f = fixture().await;
-    f.record_at(f.athlete.tenant, f.athlete.id, Duration::minutes(5))
+    f.record_at(f.athlete.tenant, f.athlete.id, Elapsed::minutes(5))
         .await;
     let recorded = f.recorded().await;
     assert_eq!(recorded.len(), 1, "bug: the read is recorded once");
@@ -441,7 +441,7 @@ async fn a_read_recorded_without_a_transport_reads_back_as_undeclared() {
 #[tokio::test]
 async fn a_read_recorded_before_the_column_reads_back_as_not_recorded() {
     let f = fixture().await;
-    f.record_at(f.athlete.tenant, f.athlete.id, Duration::minutes(5))
+    f.record_at(f.athlete.tenant, f.athlete.id, Elapsed::minutes(5))
         .await;
     f.clear_stored_transports().await;
     assert_eq!(
@@ -543,7 +543,7 @@ async fn a_read_repeated_within_one_turn_writes_one_row() {
 #[tokio::test]
 async fn a_read_the_athletes_tenant_switched_off_writes_none() {
     let f = fixture().await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     f.repos()
         .tool_selection
         .upsert_tool_catalog_entry(&ToolCatalogEntry {
@@ -936,7 +936,7 @@ async fn the_rest_roster_writes_one_row_per_sharer_read_and_none_for_a_refused_o
 
     // The roster still lists them as sharing, but the coach-read gate refuses
     // an athlete of two tenants: nothing of theirs is read, nor recorded.
-    let now = Utc::now();
+    let now = Timestamp::now();
     let second = TenantId::generate();
     f.repos()
         .tenants
@@ -1020,7 +1020,7 @@ async fn the_athlete_lists_their_own_reads_and_no_one_elses() {
 #[tokio::test]
 async fn a_row_under_another_tenant_never_reaches_the_athlete() {
     let f = fixture().await;
-    f.record_at(TenantId::generate(), f.athlete.id, Duration::hours(1))
+    f.record_at(TenantId::generate(), f.athlete.id, Elapsed::hours(1))
         .await;
     assert!(
         f.recorded().await.is_empty(),
@@ -1042,7 +1042,7 @@ async fn a_read_under_another_tenant_of_the_athletes_reaches_every_surface() {
     // A read is recorded under the athlete's home tenant at the time; the
     // athlete may since belong to another, and their session sit in either.
     let f = fixture().await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let second = TenantId::generate();
     f.repos()
         .tenants
@@ -1058,9 +1058,9 @@ async fn a_read_under_another_tenant_of_the_athletes_reaches_every_surface() {
         })
         .await
         .unwrap();
-    f.record_at(f.athlete.tenant, f.athlete.id, Duration::hours(2))
+    f.record_at(f.athlete.tenant, f.athlete.id, Elapsed::hours(2))
         .await;
-    f.record_at(second, f.athlete.id, Duration::hours(1)).await;
+    f.record_at(second, f.athlete.id, Elapsed::hours(1)).await;
 
     let (status, body) = f.get_reads(f.athlete, f.group).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -1079,26 +1079,38 @@ async fn a_read_under_another_tenant_of_the_athletes_reaches_every_surface() {
 
 // ── Retention ────────────────────────────────────────────────────────────
 
+/// `now` twelve calendar months back, at the same time of day.
+fn twelve_months_ago(now: Timestamp) -> Timestamp {
+    let civil = now.utc_datetime();
+    civil
+        .date()
+        .checked_sub_months(12)
+        .unwrap()
+        .and_time(civil.time())
+        .and_utc()
+        .unwrap()
+}
+
 #[tokio::test]
 async fn the_purge_removes_reads_past_twelve_months_and_keeps_the_rest() {
     let f = fixture().await;
-    let twelve_months = Utc::now() - (Utc::now() - Months::new(12));
+    let twelve_months = Timestamp::now() - twelve_months_ago(Timestamp::now());
     f.record_at(
         f.athlete.tenant,
         f.athlete.id,
-        twelve_months + Duration::days(2),
+        twelve_months + Elapsed::days(2),
     )
     .await;
     f.record_at(
         f.athlete.tenant,
         f.athlete.id,
-        twelve_months - Duration::days(2),
+        twelve_months - Elapsed::days(2),
     )
     .await;
-    f.record_at(f.athlete.tenant, f.athlete.id, Duration::hours(1))
+    f.record_at(f.athlete.tenant, f.athlete.id, Elapsed::hours(1))
         .await;
 
-    let purged = purge_expired_coach_reads(f.repos().coach_data_reads.as_ref(), Utc::now())
+    let purged = purge_expired_coach_reads(f.repos().coach_data_reads.as_ref(), Timestamp::now())
         .await
         .unwrap();
     assert_eq!(purged, 1, "bug: only the read past 12 months goes");
@@ -1106,7 +1118,7 @@ async fn the_purge_removes_reads_past_twelve_months_and_keeps_the_rest() {
     assert_eq!(kept.len(), 2, "bug: the newer reads stay: {kept:?}");
     assert!(
         kept.iter()
-            .all(|read| read.read_at > Utc::now() - Months::new(12)),
+            .all(|read| read.read_at > twelve_months_ago(Timestamp::now())),
         "bug: every kept read is within 12 months: {kept:?}"
     );
 }
@@ -1252,7 +1264,7 @@ async fn a_read_served_to_the_coachs_outside_assistant_is_marked_on_every_surfac
         .await,
         "get_training_history over MCP",
     );
-    f.record_at(f.athlete.tenant, f.athlete.id, Duration::days(1))
+    f.record_at(f.athlete.tenant, f.athlete.id, Elapsed::days(1))
         .await;
 
     let (status, body) = f.get_reads(f.athlete, f.group).await;

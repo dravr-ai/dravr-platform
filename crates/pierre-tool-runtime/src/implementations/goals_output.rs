@@ -12,11 +12,11 @@
 //! unit, they are what the tests and the derived schemas both name, and nothing
 //! in them needs the tool plumbing next door.
 
-use chrono::Utc;
 use dravr_cageux::physiological_constants::goal_feasibility::{
     DAYS_PER_MONTH_APPROX, EXCELLENT_DATA_QUALITY_THRESHOLD, GOOD_DATA_QUALITY_THRESHOLD,
     SAFE_MONTHLY_IMPROVEMENT_RATE_PERCENT,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_config::constants::time_constants::SECONDS_PER_HOUR_F64;
 use pierre_config::constants::units::METERS_PER_KM;
 use pierre_core::models::Activity;
@@ -177,7 +177,7 @@ pub struct GoalFeasibilityResult {
 pub(crate) fn build_goal_creation_payload(
     goal_id: &str,
     goal: &NewGoal,
-    created_at: chrono::DateTime<Utc>,
+    created_at: Timestamp,
 ) -> SetGoalResult {
     SetGoalResult {
         goal_id: goal_id.to_owned(),

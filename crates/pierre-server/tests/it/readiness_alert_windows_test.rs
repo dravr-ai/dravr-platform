@@ -17,7 +17,7 @@
 //! keep its records off every external transport (carnet#766).
 
 use anyhow::Result;
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::models::{
     ConnectionType, DailyTrainingState, DataSource, DeviceType, StoredRecoveryMetrics,
@@ -107,8 +107,8 @@ fn request(tool: &str, params: Value, user_id: Uuid, tenant: TenantId) -> Univer
     }
 }
 
-fn today() -> NaiveDate {
-    Utc::now().date_naive()
+fn today() -> CivilDate {
+    Timestamp::now().utc_date()
 }
 
 /// A plan with a flavour, so the ladder has one to read; the week itself is
@@ -118,7 +118,7 @@ async fn save_plan(
     user_id: Uuid,
     tenant: TenantId,
 ) -> Result<()> {
-    let week = (today() + Duration::days(7)).format("%Y-%m-%d").to_string();
+    let week = (today() + Elapsed::days(7)).to_string();
     let saved = executor
         .execute_tool(request(
             "save_training_plan",
@@ -174,18 +174,19 @@ async fn alerts(
 
 /// One night of `hours` asleep, woken on the morning `days_ago` days back.
 fn night(user_id: Uuid, data_source: &str, days_ago: i64, hours: i64) -> StoredSleepSession {
-    let woke = today() - Duration::days(days_ago);
-    let start = (woke - Duration::days(1))
-        .and_hms_opt(23, 0, 0)
+    let woke = today() - Elapsed::days(days_ago);
+    let start = (woke - Elapsed::days(1))
+        .and_hms(23, 0, 0)
         .expect("a valid time")
-        .and_utc();
+        .and_utc()
+        .unwrap();
     StoredSleepSession {
         id: format!("whoop-{}", Uuid::new_v4()),
         user_id: user_id.to_string(),
         data_source_id: data_source.to_owned(),
         is_nap: false,
         start_datetime: start,
-        end_datetime: start + Duration::hours(hours),
+        end_datetime: start + Elapsed::hours(hours),
         total_sleep_seconds: Some(u32::try_from(hours * HOUR).expect("a night fits")),
         deep_sleep_seconds: None,
         light_sleep_seconds: None,
@@ -208,7 +209,7 @@ fn morning(user_id: Uuid, data_source: &str, days_ago: i64, rmssd: f64) -> Store
         id: format!("whoop-{}", Uuid::new_v4()),
         user_id: user_id.to_string(),
         data_source_id: data_source.to_owned(),
-        date: today() - Duration::days(days_ago),
+        date: today() - Elapsed::days(days_ago),
         recovery_score: None,
         readiness_score: None,
         hrv_ms: Some(rmssd),
@@ -222,7 +223,7 @@ fn morning(user_id: Uuid, data_source: &str, days_ago: i64, rmssd: f64) -> Store
         daily_strain: None,
         athlete_note: None,
         source_name: "whoop".to_owned(),
-        recorded_at: Utc::now(),
+        recorded_at: Timestamp::now(),
     }
 }
 
@@ -245,7 +246,7 @@ async fn seed_nights(
             .upsert_sleep_session(
                 &tenant,
                 &night(user_id, data_source, days_ago, hours),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await?;
     }
@@ -307,7 +308,12 @@ async fn hrv_trending_down_reads_the_trailing_week() -> Result<()> {
         let reading = morning(user_id, &data_source, i64::from(days_ago), rmssd);
         repos
             .recovery
-            .upsert_recovery_metrics(&tenant, &reading, WellnessWriteMode::FullDay, Utc::now())
+            .upsert_recovery_metrics(
+                &tenant,
+                &reading,
+                WellnessWriteMode::FullDay,
+                Timestamp::now(),
+            )
             .await?;
     }
 
@@ -330,7 +336,7 @@ async fn the_strain_baseline_is_dated_from_the_day_judged() -> Result<()> {
     // the days before the one judged, so today's own strain stays out of it.
     let states: Vec<DailyTrainingState> = (0..=28)
         .map(|days_ago| {
-            let mut day = DailyTrainingState::zero(today() - Duration::days(days_ago));
+            let mut day = DailyTrainingState::zero(today() - Elapsed::days(days_ago));
             day.strain = Some(if days_ago == 0 { 1500.0 } else { 1000.0 });
             day
         })

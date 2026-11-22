@@ -41,11 +41,11 @@ use axum::routing::get;
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::{Duration as ChronoDuration, Utc};
 use common::{
     create_test_server_resources_with_config, create_test_user_with_plan, generate_test_token,
     test_server_config_with_api_base,
 };
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::INTERVALS_ICU;
@@ -151,9 +151,9 @@ fn activity(id: &str, athlete: &str) -> Value {
         "id": id,
         "name": "Easy run",
         "type": "Run",
-        "start_date_local": (Utc::now() - ChronoDuration::days(2))
+        "start_date_local": (Timestamp::now() - Elapsed::days(2))
             .format("%Y-%m-%dT%H:%M:%S")
-            .to_string(),
+            .unwrap(),
         "elapsed_time": 1800,
         "distance": 5000.0,
         "icu_athlete_id": athlete,
@@ -315,7 +315,7 @@ async fn person(res: &Arc<ServerContext>, email: &str, name: &str) -> Person {
 /// The coach's stored Intervals.icu credential: their API key, or with
 /// `token_type` another kind of grant.
 fn coach_token(coach: &Person, key: &str, token_type: &str) -> UserOAuthToken {
-    let now = Utc::now();
+    let now = Timestamp::now();
     UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id: coach.id,
@@ -374,7 +374,7 @@ async fn world(api: Api, api_base: &str) -> World {
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(

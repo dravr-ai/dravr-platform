@@ -24,7 +24,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
@@ -288,7 +288,7 @@ async fn the_retention_sweep_never_deletes_an_a2a_client_credential() {
         .await
         .unwrap();
 
-    let far_future = Utc::now() + Duration::days(3650);
+    let far_future = Timestamp::now() + Elapsed::days(3650);
     let sweep = oauth2_server
         .delete_stale_clients(far_future, far_future)
         .await

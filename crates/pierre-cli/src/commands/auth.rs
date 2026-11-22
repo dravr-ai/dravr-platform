@@ -10,7 +10,7 @@
 //! `auth approve`/`auth deny` let an admin resolve someone else's pending
 //! login; `auth status`/`auth logout` inspect and clear the local cache.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use secrecy::SecretString;
 use serde_json::{json, Value};
@@ -126,7 +126,7 @@ pub(crate) fn admin_client(
             })?;
         return RemoteClient::new(&server, Some(token));
     }
-    let creds = CachedCredentials::require(Utc::now().timestamp())?;
+    let creds = CachedCredentials::require(Timestamp::now().epoch_seconds())?;
     match server {
         Some(server) if !same_server(&server, &creds.server) => {
             Err(AppError::auth_invalid(format!(

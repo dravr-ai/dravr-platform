@@ -31,7 +31,7 @@ use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
@@ -60,9 +60,9 @@ pub struct RecordsQuery {
     /// `labs`, `clinical`, `glucose` or `self_reports`.
     pub kind: String,
     /// From this instant, inclusive.
-    pub since: Option<DateTime<Utc>>,
+    pub since: Option<Timestamp>,
     /// Until this instant, exclusive.
-    pub until: Option<DateTime<Utc>>,
+    pub until: Option<Timestamp>,
     /// At most this many records, 1 to 200.
     pub limit: Option<u32>,
 }
@@ -177,7 +177,7 @@ async fn decide(
         .common
         .repos
         .health_records
-        .decide_clinical_record(&tenant_id, auth.user_id, id, decision, Utc::now())
+        .decide_clinical_record(&tenant_id, auth.user_id, id, decision, Timestamp::now())
         .await?;
     if decided {
         Ok(StatusCode::NO_CONTENT)

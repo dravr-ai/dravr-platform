@@ -207,7 +207,7 @@ const fn relays_recordings(service: Service) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::constants::oauth_providers::USER_PROVIDED_PROVIDERS;
     use pierre_core::constants::oauth_providers::{
         APPLE_HEALTH_ARCHIVE, ATHLETE, COROS_ARCHIVE, GARMIN, GARMIN_ARCHIVE, INTERVALS_ICU,
@@ -232,7 +232,7 @@ mod tests {
     }
 
     fn run(key: &str, device: Option<&str>, source: Option<&str>) -> Activity {
-        let start = Utc.with_ymd_and_hms(2026, 10, 1, 7, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-10-01T07:00:00Z").unwrap();
         ActivityBuilder::new("1", "Run", SportType::Run, start, 3_600, key)
             .device_name_opt(device.map(str::to_owned))
             .source_opt(source.map(str::to_owned))

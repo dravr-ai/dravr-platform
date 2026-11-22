@@ -17,7 +17,7 @@
 //! prescriptions were flagged with "je n'ai pas pu étayer". He saw warnings on
 //! the advice and none on the facts (registre#249).
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::models::SportType;
 use pierre_evals::athlete_data::{check, AthleteRecord, RecordedActivity};
 use pierre_evals::claim_extractor::{ClaimSource, ExtractedClaim};
@@ -31,8 +31,8 @@ fn claim(text: &str) -> ExtractedClaim {
     }
 }
 
-fn day(d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 9, d).expect("valid date")
+fn day(d: u32) -> CivilDate {
+    CivilDate::from_ymd(2026, 9, d).expect("valid date")
 }
 
 /// Raph's week, as the record actually held it.
@@ -57,7 +57,7 @@ fn raphs_week() -> AthleteRecord {
                 average_hr_bpm: None,
             },
             RecordedActivity {
-                date: NaiveDate::from_ymd_opt(2026, 8, 28).expect("valid date"),
+                date: CivilDate::from_ymd(2026, 8, 28).expect("valid date"),
                 sport: SportType::Run,
                 name: "Passion rando".to_owned(),
                 distance_km: Some(26.0),

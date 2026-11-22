@@ -13,6 +13,7 @@ use crate::helpers;
 use std::sync::Arc;
 
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{ConversationTurnId, InsertLlmUsage, Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
@@ -30,7 +31,7 @@ async fn owner_and_token(resources: &Arc<ServerContext>) -> (Uuid, TenantId, Str
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
 
@@ -42,8 +43,8 @@ async fn owner_and_token(resources: &Arc<ServerContext>) -> (Uuid, TenantId, Str
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common

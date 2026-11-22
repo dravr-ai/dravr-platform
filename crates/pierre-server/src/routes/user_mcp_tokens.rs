@@ -17,6 +17,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppError;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_middleware::AuthenticatedUser;
@@ -128,7 +129,7 @@ impl UserMcpTokenRoutes {
             name: result.token.name,
             token_prefix: result.token.token_prefix,
             token_value: result.token_value,
-            expires_at: result.token.expires_at.map(|dt| dt.to_rfc3339()),
+            expires_at: result.token.expires_at.map(Timestamp::to_rfc3339),
             created_at: result.token.created_at.to_rfc3339(),
         };
 
@@ -157,8 +158,8 @@ impl UserMcpTokenRoutes {
                     id: t.id,
                     name: t.name,
                     token_prefix: t.token_prefix,
-                    expires_at: t.expires_at.map(|dt| dt.to_rfc3339()),
-                    last_used_at: t.last_used_at.map(|dt| dt.to_rfc3339()),
+                    expires_at: t.expires_at.map(Timestamp::to_rfc3339),
+                    last_used_at: t.last_used_at.map(Timestamp::to_rfc3339),
                     usage_count: t.usage_count,
                     is_revoked: t.is_revoked,
                     created_at: t.created_at.to_rfc3339(),

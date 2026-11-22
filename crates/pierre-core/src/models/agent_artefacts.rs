@@ -25,8 +25,8 @@
 //! the resolver re-parses, and a kernel that grows a field needs no
 //! migration here.
 
-use chrono::{DateTime, Utc};
 use dravr_cageux::periodization::{CatalogueError, Flavour, SkeletonTemplate, WorkoutTemplate};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
@@ -131,9 +131,9 @@ pub struct AgentArtefact {
     /// SHA-256 hex digest of `content`.
     pub sha256: String,
     /// When the row was first written.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When the row was last rewritten.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 impl AgentArtefact {

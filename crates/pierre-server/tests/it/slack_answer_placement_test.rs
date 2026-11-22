@@ -26,9 +26,9 @@ mod slack_answer_placement {
     use axum::http::StatusCode;
     use axum::routing::post;
     use axum::{Json, Router};
-    use chrono::Utc;
     use dravr_canot::channel::MessagingChannel;
     use dravr_canot::error::MessagingResult;
+    use dravr_tronc::dates::Timestamp;
     use hmac::{Hmac, Mac};
     use pierre_core::llm::LlmProvider;
     use pierre_core::models::messaging::{ChannelType, MessageContent, OutgoingMessage};
@@ -180,7 +180,7 @@ mod slack_answer_placement {
             }
         })
         .to_string();
-        let timestamp = Utc::now().timestamp().to_string();
+        let timestamp = Timestamp::now().epoch_seconds().to_string();
         let response = AxumTestRequest::post("/api/messaging/webhook/slack")
             .header("content-type", "application/json")
             .header("x-slack-request-timestamp", &timestamp)

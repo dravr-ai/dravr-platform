@@ -522,6 +522,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:4b78a057cdf57c32addef6309a347c2994184eba45a93a57191183efebf2d871"
+        }
       }
     },
     {
@@ -751,6 +756,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:526a3bfc4c4de7ab79b4b9ca77f35c1369c117cf4b1ccf822bd54564334e7b0d"
+        }
       }
     },
     {
@@ -861,6 +871,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:8586d43503136f2035dba79afc459c03017ebd289c9ea9a3e5b8604145c90d40"
+        }
       }
     },
     {
@@ -1138,6 +1153,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:93bd43f2d843cc698dd0c2c3959f8e6bc1e94bf812cadc128fcd09ce2c2ef96a"
+        }
       }
     },
     {
@@ -1480,6 +1500,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:e4f666e875cfa34b37bdbf6f057752a606e6b42d4fc136b546a4966e77bc607a"
+        }
       }
     },
     {
@@ -1967,6 +1992,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:793fcdf5942e59dfe0615010e9474a8631b9f221a4e759834644656ce549342e"
+        }
       }
     },
     {
@@ -2251,6 +2281,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:c59b851d32041629f63659dba87a99e92fdead233a1ed7e101cc9979d914a125"
+        }
       }
     },
     {
@@ -2695,6 +2730,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:fc91fb611c34150b9bf1dd95e9f706697aacc76244c910a054e5cc02791f2175"
+        }
       }
     },
     {
@@ -3033,6 +3073,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:0cbb5e4ae48256e71c084d11f0ab20caf1fffcc144a1a9ef1adcefc81b4113c1"
+        }
       }
     },
     {
@@ -3526,6 +3571,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:52f633bd5fd9233ee983c7f359e5dcef99b54793f5f5559734f40d8ad2e8bdcf"
+        }
       }
     },
     {
@@ -3971,6 +4021,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:64a1e40bf64d272abade1a1cda3f47902e195756dfb82539a83a0064e3d54dbc"
+        }
       }
     },
     {
@@ -4295,6 +4350,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:29a7f03109f87acfff69febeb3b984e2ec90807c1a4bd388f78744188bcc9865"
+        }
       }
     },
     {
@@ -4392,6 +4452,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:83cb6dce22a21a3b0e71ee2c3507d4735d8b18c890860bf2e58df37bd32d9836"
+        }
       }
     },
     {
@@ -4892,6 +4957,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:b0bce9931ee1e5d85cffbbb9c0d95cf70d30ec89dc5d85472f84f5959ac66c99"
+        }
       }
     },
     {
@@ -4961,6 +5031,11 @@
         "destructiveHint": false,
         "idempotentHint": false,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:1c6fe719e2e1dcec3842a757c50bad89ab659fd072ffd7b6740e76ba579cdf72"
+        }
       }
     },
     {
@@ -5025,6 +5100,11 @@
         "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:c447b2b9f789fa9582f333ce8a8f851b19f9c063005fc57e507e8fb19cc4a114"
+        }
       }
     },
     {
@@ -5068,6 +5148,11 @@
         "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:adfa721a91686e27900dbe83908b902208c1616799028d0fd8a11c248dfcbacc"
+        }
       }
     },
     {
@@ -5562,6 +5647,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:7984ef29bffda92bbda61ee4da556c8295dfb3f2c4c78a3c2f0a07b9fd1424f3"
+        }
       }
     },
     {
@@ -5610,6 +5700,11 @@
         "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:7186fe371eede64cf3d475d3073821d6852a909c218d9d827ebc8320359a4d36"
+        }
       }
     },
     {
@@ -5901,6 +5996,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:163b88191e214d018f7143704e75219d7388ce8baccded4b74b6ba9ce26d4851"
+        }
       }
     },
     {
@@ -6355,6 +6455,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:2a8e0ee3350709c88ca539da2a442cc796eebbd39d7b9917c5e34f21f1899960"
+        }
       }
     },
     {
@@ -6484,6 +6589,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:315b381928bddd627f88610065947f1c6016cd908ec2d7fd5f936bca16a81060"
+        }
       }
     },
     {
@@ -7976,6 +8086,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:ad0eac67603a5c2185b7c2de6c60d8a5d09d2400603bbdae7a873c050be80252"
+        }
       }
     },
     {
@@ -8182,6 +8297,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:2a9c0dfaa46e1707c43823ad8ea1492411a792aa75b26f955e8161f24b3f30df"
+        }
       }
     },
     {
@@ -8540,6 +8660,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:c197ecbdd4457053374999b4442a798fd18787521828eee59586740d955b7762"
+        }
       }
     },
     {
@@ -8783,6 +8908,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:9f9a18b01979f57a2d32caa2da561f3ab29af0c0c5f3c0f0504bce95d4c3a0e6"
+        }
       }
     },
     {
@@ -9059,6 +9189,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:f89b81f1ce0707a5b6625f6920bcd6a1b375aad90f94cd246bc4201d07cb7ca6"
+        }
       }
     },
     {
@@ -9820,6 +9955,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:19b1abc7a0858fe7b0a3f48380a1ec18c44cbaba2b66888a894ad85228b8e9cc"
+        }
       }
     },
     {
@@ -10369,7 +10509,7 @@
             "type": "object"
           },
           "FragmentDedupSummary": {
-            "description": "LLM-facing summary of the session merge that produced an activity slice.\n\nCounterpart of [`pierre_providers::deduplication::FragmentReport`] — the\nprovider-side type carries `chrono::DateTime` values and the full sport\nenum, this serializes them to strings so the JSON shape stays portable\nacross MCP / A2A / REST consumers and stable across cageux upgrades.",
+            "description": "LLM-facing summary of the session merge that produced an activity slice.\n\nCounterpart of [`pierre_providers::deduplication::FragmentReport`] — the\nprovider-side type carries `Timestamp` values and the full sport\nenum, this serializes them to strings so the JSON shape stays portable\nacross MCP / A2A / REST consumers and stable across cageux upgrades.",
             "properties": {
               "advice": {
                 "description": "Pre-formatted human-readable advice line the LLM should echo to the\nuser when reporting counts. Example: \"20 GPS recordings represent 12\ndistinct sessions; the rest are likely re-uploads or auto-splits\".",
@@ -10837,6 +10977,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:1a4c0de00b1beeffb56d7adb9daa2fab6d1984398d438981ac7651d5e851d55b"
+        }
       }
     },
     {
@@ -11361,6 +11506,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:fd1f7132d3d8b689e90c96c86c1bc24223c9d2b75390a5ac7c01507e448b8154"
+        }
       }
     },
     {
@@ -11883,6 +12033,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:7f801ebc12c9f602b76135e23bcbc9039db979afee63fb34ebe88656b725072c"
+        }
       }
     },
     {
@@ -12160,6 +12315,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:af08a24f3329ccf4b5e7ad26d62e767bc93526f31916d62f72c22728696c0a1b"
+        }
       }
     },
     {
@@ -12298,6 +12458,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:2034445ff5d6a35015eab7b9e49c7a2b8f0bce907c7df13b35c8d1d422fdf78a"
+        }
       }
     },
     {
@@ -12406,6 +12571,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:41e990221bf4b418f2bad7e0efa57da19205c133357496afb47c12eb404d3bdf"
+        }
       }
     },
     {
@@ -12597,6 +12767,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:9561e99f932708f6be7575eefbf0bf64a103245ba7f2630fba15218dc46ee884"
+        }
       }
     },
     {
@@ -12715,6 +12890,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:8d296b056bc1ae7c04ac170544d7e42638fdfc3a8e9fff82a004011381b39589"
+        }
       }
     },
     {
@@ -13068,6 +13248,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:ff66e338a75a3913f88d047542075a466d63a9d69498c172f2e019a79e3d83ee"
+        }
       }
     },
     {
@@ -13537,6 +13722,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:895ac1a331653435eba4e239586fbcaac5d9204fdc17a71e3fb5500a5164ccec"
+        }
       }
     },
     {
@@ -13868,6 +14058,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:d7dc6455827f61caa6c1879ccf9c8203c67f07384ccce667b6cc828b730a932e"
+        }
       }
     },
     {
@@ -13897,7 +14092,7 @@
       "outputSchema": {
         "$defs": {
           "PlannedWorkout": {
-            "description": "A workout a provider's calendar plans for the athlete — prescribed by a\ncoach or a plan on `TrainingPeaks`, a Garmin calendar, Intervals.icu —\nread back as the provider states it.\n\nEvery planned figure is optional because providers state them\nindependently: a coach may write a title and a duration and nothing\nelse. The steps use the periodization kernel's [`WorkoutStep`], with each\nstep's target in the [`RelativeIntensity`](crate::periodization::RelativeIntensity)\ngrammar, so a planned session and a Dravr-authored one read the same way.\n\n# Examples\n\n```rust\nuse chrono::NaiveDate;\nuse dravr_cageux::models::{PlannedWorkoutBuilder, SportType};\n\n# fn main() -> Result<(), &'static str> {\nlet date = NaiveDate::from_ymd_opt(2026, 9, 24).ok_or(\"not a calendar date\")?;\nlet workout = PlannedWorkoutBuilder::new(\n    \"trainingpeaks\",\n    \"2941803311\",\n    date,\n    SportType::Ride,\n    \"Sweet spot 3x12\",\n)\n.planned_duration_seconds(4500)\n.planned_training_stress_score(78.0)\n.build();\n\nassert_eq!(workout.title(), \"Sweet spot 3x12\");\nassert_eq!(workout.planned_duration_seconds(), Some(4500));\n# Ok(())\n# }\n```",
+            "description": "A workout a provider's calendar plans for the athlete — prescribed by a\ncoach or a plan on `TrainingPeaks`, a Garmin calendar, Intervals.icu —\nread back as the provider states it.\n\nEvery planned figure is optional because providers state them\nindependently: a coach may write a title and a duration and nothing\nelse. The steps use the periodization kernel's [`WorkoutStep`], with each\nstep's target in the [`RelativeIntensity`](crate::periodization::RelativeIntensity)\ngrammar, so a planned session and a Dravr-authored one read the same way.\n\n# Examples\n\n```rust\nuse dravr_cageux::models::{PlannedWorkoutBuilder, SportType};\nuse dravr_tronc::dates::CivilDate;\n\n# fn main() -> Result<(), &'static str> {\nlet date = CivilDate::from_ymd(2026, 9, 24).map_err(|_| \"not a calendar date\")?;\nlet workout = PlannedWorkoutBuilder::new(\n    \"trainingpeaks\",\n    \"2941803311\",\n    date,\n    SportType::Ride,\n    \"Sweet spot 3x12\",\n)\n.planned_duration_seconds(4500)\n.planned_training_stress_score(78.0)\n.build();\n\nassert_eq!(workout.title(), \"Sweet spot 3x12\");\nassert_eq!(workout.planned_duration_seconds(), Some(4500));\n# Ok(())\n# }\n```",
             "properties": {
               "completed_activity_id": {
                 "description": "Identifier of the recorded activity the provider matched to this\nplanned workout, once the athlete completed it",
@@ -14380,6 +14575,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:5b0d77e8793d5877b4d3524316c824731412ac4fb6267e2d5f2fb09e2ede8083"
+        }
       }
     },
     {
@@ -14696,6 +14896,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:24480becaf0602bfc883da857da4174f429870a3c28fff44ff949a6f5ca6687d"
+        }
       }
     },
     {
@@ -14931,6 +15136,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:08465d285f0fda48a49b5ae716efe10d184a3083c376c30de3817a0e0b33ef34"
+        }
       }
     },
     {
@@ -15325,6 +15535,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:70f8aa7c12ac62fc6d1faa0507c9c41270a766b3072a8316f9ce155e8c4317d0"
+        }
       }
     },
     {
@@ -15615,6 +15830,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:175d83e8f0aa8c5ef833106da4d8192dd9a720ec5fe130e6e6fc86658378ff65"
+        }
       }
     },
     {
@@ -16315,6 +16535,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:4c0eaa941e7413160101c74cd4335aa7d6ef648bff5c236bcec7784ef5115c12"
+        }
       }
     },
     {
@@ -16783,6 +17008,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:748d5942265f54445500b791bc1ed81eaeaa96d1b0c47966ae63758b0b448068"
+        }
       }
     },
     {
@@ -17429,6 +17659,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:ff207e9eac86abb4a489e538757b68242dfe5808247d32f2498e88a5d95d96d1"
+        }
       }
     },
     {
@@ -17575,6 +17810,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:828b86d62f6a0c60be67ba8efd1664c90d0498ee171b3837bacf799ccdca8166"
+        }
       }
     },
     {
@@ -18257,6 +18497,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:47db3b3d3bc21a4ef0f445d271330d35d339aaed5e7be3eae6248b3244fc2fc5"
+        }
       }
     },
     {
@@ -21427,6 +21672,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:b09562ab755b0b375a159da57989a2a8ea43f83262d6a975338b9978410427cf"
+        }
       }
     },
     {
@@ -21687,6 +21937,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:1ded4bbc172e89313b7ac50c431809084c860e9f9130e4a2e2f96b50efbe8650"
+        }
       }
     },
     {
@@ -21893,6 +22148,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:fcd13afbc97f9677be90a9153e592de28892f415839db3b0e5c1a90969b5143f"
+        }
       }
     },
     {
@@ -23644,6 +23904,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:d2f9c63d8cbe042dffdd49ce656f83b7525c60ed93f458a8aa131b711b4362e5"
+        }
       }
     },
     {
@@ -23846,6 +24111,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:b6d2cbc434772c08c7218a036618a3dbf5b285791879e1f0dd1a2ab2e9625e17"
+        }
       }
     },
     {
@@ -24049,6 +24319,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:0d0b302132ed99eed855ec8d153e6042c52025d419297c5536879e59acbfaa46"
+        }
       }
     },
     {
@@ -24180,6 +24455,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:555fdd5a8c1fd08b630db58493db58bbe37240da9dbfc1a6ae71372e61059083"
+        }
       }
     },
     {
@@ -26505,6 +26785,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:8e19db76efe598ab11f0348773a78e1935eafb96d33d6dca31e203953b882e83"
+        }
       }
     },
     {
@@ -26638,6 +26923,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:ca2c9c978466394e078767048f8fb0be1333409f32100176b10fa3866992443b"
+        }
       }
     },
     {
@@ -26760,6 +27050,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:2ff383e7702f1e6feab17b4bfb43e73e0c6b21075e2d5d65d1d9ddadc2a0e57a"
+        }
       }
     },
     {
@@ -26942,6 +27237,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:1b7cce68b1b4b639ab81e417e18f13ef530fb245d3c55a5f329334352e599d1b"
+        }
       }
     },
     {
@@ -27249,6 +27549,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:cdd7b74eb7f53ad67c54d6898cd3706a008f390d4b7f01bc840fc2c9b26229e6"
+        }
       }
     },
     {
@@ -28503,6 +28808,11 @@
         "destructiveHint": false,
         "idempotentHint": false,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:c2c4ee087d2c97f5e6ab10a0203e5d79bab34223456005345fb5694083153278"
+        }
       }
     },
     {
@@ -28747,6 +29057,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:235b849daa6bed3dbdbe0020f889d1a76fce520af512d97a94119fe825358b21"
+        }
       }
     },
     {
@@ -30083,6 +30398,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:1e16382fe3efe735422a24785f4af507a9921ddc853f3f746ad7884084d67310"
+        }
       }
     },
     {
@@ -30190,6 +30510,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:5a49e400ea35661675549727e4199cedcebfabb57412044646be20b51612f7d7"
+        }
       }
     },
     {
@@ -31099,6 +31424,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:b33645b9e10ed2731d53aab0f22e13abee24e36a6fa3c11951fafb8442163a46"
+        }
       }
     },
     {
@@ -31318,6 +31648,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:10727bc8230adfe41a2b85de1ca47cb9e56f7c301d5ae4c1cb47cb99c05e2c5c"
+        }
       }
     },
     {
@@ -31448,6 +31783,11 @@
         "destructiveHint": false,
         "idempotentHint": false,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:4e776f26782663da8c7a3c9e3ef8693cea70a6703bdd48b21b91d083ea8fa7bd"
+        }
       }
     },
     {
@@ -33207,6 +33547,11 @@
         "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:465f445585c5f7017a7fc165c4709e49243351f1f92d78c71cb108d24fc88934"
+        }
       }
     },
     {
@@ -33337,6 +33682,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:fd3904264f6f416a80f5fdad09268d6f51968b396454a9d84e4d6521d37b71c9"
+        }
       }
     },
     {
@@ -33535,6 +33885,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:c6f2c383b799ba4e5d403afbde2435e04d51b3b3d5c10b2b364370c6fb89e6e7"
+        }
       }
     },
     {
@@ -33606,6 +33961,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:0294f6e121fb0ea34ae92dd747efe7b9250c45b72dfda48b47bffe81c18b3985"
+        }
       }
     },
     {
@@ -33700,6 +34060,11 @@
         "destructiveHint": false,
         "idempotentHint": false,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:839afd6ff03159c97565ecff7472abefe8b1a584efebcc81b1d027017ac37b83"
+        }
       }
     },
     {
@@ -35111,6 +35476,11 @@
         "destructiveHint": false,
         "idempotentHint": false,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:e540d9a1d518dda0aa974fc4c7505c06bf7d301f6fd0eb548f8f6a0c28ba4c5e"
+        }
       }
     },
     {
@@ -35166,6 +35536,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:a093686a57f7ed83882d9d14669e8965d93f70e5f72248666785922fcacf76fb"
+        }
       }
     },
     {
@@ -35310,6 +35685,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:41411e306fdeedbb2f64c0dba0095a9eb4324efe8f100f4f2f6b5ef5e803d261"
+        }
       }
     },
     {
@@ -35655,6 +36035,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:f4f0e7b21c10dea0e4efb3d9dfd300c0cfde6bfae449eaae144c077767314081"
+        }
       }
     },
     {
@@ -35788,6 +36173,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:0dd14e3bd299b60ca32ce510425af182226ff3af7f139e52353c5483573e74a6"
+        }
       }
     },
     {
@@ -35953,6 +36343,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:4a4a929682b8a5c9c5c20f99cd11506aad8d8db8cd550a77ed5494d186bfa189"
+        }
       }
     },
     {
@@ -36147,6 +36542,11 @@
       },
       "execution": {
         "taskSupport": "optional"
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:4bf9ed046a44304b8d5f963c07342aae228d84f1355d49a3bafe0d72590b322d"
+        }
       }
     },
     {
@@ -36382,6 +36782,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:c17e4b81e1cc261349cd958d1925d39fa03517fcaf5c3fba93af0cfb16c1a973"
+        }
       }
     },
     {
@@ -36437,6 +36842,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:56a7bffdd657550f9f3581d1ebb2356fe49f07e583519e3a6f2890b4c391627e"
+        }
       }
     },
     {
@@ -36654,6 +37064,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:0f0ba38aebf6548fe0640c85def8de0f322a8ddf7bfbb240c071ee74e3bfa2fe"
+        }
       }
     },
     {
@@ -36745,6 +37160,11 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:bd62d9021f7aee86d02d71b19b91aa82ad67775b04f3cc0d8d9304e709419ee0"
+        }
       }
     },
     {
@@ -36865,6 +37285,11 @@
         "destructiveHint": true,
         "idempotentHint": true,
         "openWorldHint": false
+      },
+      "_meta": {
+        "ai.dravr.vault/tool": {
+          "def_hash": "sha256:108096a6f041c069bfb4032dfe0b96fc3e912b3f14cfaf4e6382fdcf5fabeb82"
+        }
       }
     }
   ]

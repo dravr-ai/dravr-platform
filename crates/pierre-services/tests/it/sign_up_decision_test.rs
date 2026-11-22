@@ -15,7 +15,7 @@
 //! used to leave it active with none, on a card whose buttons were gone.
 //! It is put back to the status it had, where the next approval finishes it.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_database::RepositoryRegistry;
@@ -63,8 +63,8 @@ async fn take_the_slug_of(repos: &RepositoryRegistry, sign_up: Uuid, owner: Uuid
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: owner,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .expect("the tenant in the way is stored");

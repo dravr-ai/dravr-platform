@@ -23,7 +23,7 @@
 //! wellness through the coach's account) lives on their coach relationship
 //! ([`crate::models::groups::CoachConsents`]), not on the link.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -163,12 +163,12 @@ pub struct DelegatedConnection {
     /// Where the link stands.
     pub status: DelegationStatus,
     /// When the coach proposed it.
-    pub proposed_at: DateTime<Utc>,
+    pub proposed_at: Timestamp,
     /// When the member confirmed it. Kept after a revoke, so a revoked row
     /// tells "had been confirmed" apart from "was only ever proposed".
-    pub confirmed_at: Option<DateTime<Utc>>,
+    pub confirmed_at: Option<Timestamp>,
     /// When it ended.
-    pub revoked_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<Timestamp>,
     /// Who ended it; `None` when the system did.
     pub revoked_by: Option<Uuid>,
     /// Why it ended.
@@ -277,7 +277,7 @@ impl DelegatedConnection {
             provider_athlete_name: athlete.name,
             provider_athlete_email: athlete.email,
             status: DelegationStatus::Proposed,
-            proposed_at: Utc::now(),
+            proposed_at: Timestamp::now(),
             confirmed_at: None,
             revoked_at: None,
             revoked_by: None,

@@ -17,13 +17,13 @@
 //! As with the verification tokens, `user_id` is a `uuid` column on Postgres
 //! and `TEXT` on `SQLite`, so the shell hands the body its
 //! [`uuid_columns`](super::uuid_columns) codec; timestamps bind as
-//! [`DateTime<Utc>`] on both. The consume runs through the one body every
+//! [`Timestamp`] on both. The consume runs through the one body every
 //! link token shares ([`link_token_consume`](super::link_token_consume)),
 //! which binds the attempt cap against the `INTEGER` `attempt_count` column
 //! on both drivers.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use uuid::Uuid;
 
@@ -49,7 +49,7 @@ pub trait WebsiteSignInTokenRepository: Send + Sync {
     /// answers the same error, so the caller cannot tell which it hit.
     async fn consume_token(&self, selector: &str, verifier_hash: &str) -> AppResult<Uuid>;
     /// Count tokens issued for a user since `since`, used or not, for the send budget.
-    async fn count_recent_tokens(&self, user_id: Uuid, since: DateTime<Utc>) -> AppResult<i64>;
+    async fn count_recent_tokens(&self, user_id: Uuid, since: Timestamp) -> AppResult<i64>;
 }
 
 /// Issue one token: the selector half in clear, the verifier half hashed.
@@ -100,8 +100,8 @@ macro_rules! impl_website_sign_in_token_repository {
                 verifier_hash: &str,
                 ttl_minutes: i64,
             ) -> AppResult<()> {
-                let now = Utc::now();
-                let expires_at = now + chrono::Duration::minutes(ttl_minutes);
+                let now = Timestamp::now();
+                let expires_at = now + dravr_tronc::dates::Elapsed::minutes(ttl_minutes);
 
                 sqlx::query(STORE_SIGN_IN_TOKEN_SQL)
                     .bind(Uuid::new_v4().to_string())
@@ -124,11 +124,7 @@ macro_rules! impl_website_sign_in_token_repository {
                 $ids::read(&row, "user_id")
             }
 
-            async fn count_recent_tokens(
-                &self,
-                user_id: Uuid,
-                since: DateTime<Utc>,
-            ) -> AppResult<i64> {
+            async fn count_recent_tokens(&self, user_id: Uuid, since: Timestamp) -> AppResult<i64> {
                 let row = sqlx::query(COUNT_RECENT_SIGN_IN_TOKENS_SQL)
                     .bind($ids::bind(user_id))
                     .bind(since)

@@ -22,7 +22,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::database::Database as SqliteDatabase;
@@ -48,7 +48,7 @@ async fn open_in_memory_db() -> Result<Arc<SqliteDatabase>> {
 async fn seed_user_and_tenant(db: &SqliteDatabase) -> Result<(TenantId, Uuid)> {
     let user_uuid = Uuid::new_v4();
     let tenant_uuid = Uuid::new_v4();
-    let now = Utc::now().to_rfc3339();
+    let now = Timestamp::now().to_rfc3339();
     let pool = db.pool();
 
     pool.execute(
@@ -90,7 +90,7 @@ async fn insert_credentials_row(
     tenant_id: TenantId,
     raw_created_by: &str,
 ) -> Result<()> {
-    let now = Utc::now().to_rfc3339();
+    let now = Timestamp::now().to_rfc3339();
     db.pool()
         .execute(
             sqlx::query(
@@ -172,7 +172,7 @@ async fn corrupt_created_by_column_fails_the_read_and_names_the_column() {
     // per-connection, so the pragma and the write must ride the SAME pooled
     // connection — issuing them separately against the pool lets the pool hand
     // the INSERT a different connection that still enforces the key.
-    let now = Utc::now().to_rfc3339();
+    let now = Timestamp::now().to_rfc3339();
     let mut conn = db.pool().acquire().await.unwrap();
     conn.execute(sqlx::query("PRAGMA foreign_keys = OFF"))
         .await
@@ -209,11 +209,11 @@ async fn corrupt_created_by_column_fails_the_read_and_names_the_column() {
 
 // ---------------------------------------------------------------------------
 // Same class, different table: coaching_groups row mappers used to decode a bad
-// UUID to nil and a bad timestamp to `Utc::now()`. Both now fail the read.
+// UUID to nil and a bad timestamp to `Timestamp::now()`. Both now fail the read.
 // ---------------------------------------------------------------------------
 
 /// A corrupt `created_at` is the sharper of the two: the old code substituted
-/// `Utc::now()`, which is a plausible value nothing downstream could tell apart
+/// `Timestamp::now()`, which is a plausible value nothing downstream could tell apart
 /// from a real one.
 #[tokio::test]
 async fn corrupt_coaching_group_timestamp_fails_the_read() {
@@ -248,7 +248,7 @@ async fn corrupt_coaching_group_timestamp_fails_the_read() {
     let err = db
         .get_group(&group_id.to_string(), tenant_id)
         .await
-        .expect_err("a malformed created_at must fail the read, not become Utc::now()");
+        .expect_err("a malformed created_at must fail the read, not become Timestamp::now()");
 
     let message = err.to_string();
     assert!(

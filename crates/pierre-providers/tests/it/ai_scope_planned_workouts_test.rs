@@ -13,7 +13,7 @@
 
 use std::collections::BTreeSet;
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
 use pierre_core::models::{PlannedWorkout, PlannedWorkoutBuilder, SportType};
 use pierre_core::transport::{Transport, TransportPolicy};
@@ -46,7 +46,7 @@ impl ProviderTerms for Unrestricted {
 }
 
 fn trainingpeaks_plans() -> Vec<PlannedWorkout> {
-    let date = NaiveDate::from_ymd_opt(2026, 10, 15).unwrap();
+    let date = CivilDate::from_ymd(2026, 10, 15).unwrap();
     ["Sweet spot 3x12", "Easy spin"]
         .iter()
         .enumerate()

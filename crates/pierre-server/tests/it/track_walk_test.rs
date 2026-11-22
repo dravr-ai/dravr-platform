@@ -39,7 +39,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_database::repositories::{
@@ -142,8 +142,8 @@ async fn detail(
     let start = id
         .parse::<i64>()
         .ok()
-        .and_then(|at| Utc.timestamp_opt(at, 0).single())
-        .unwrap_or_else(Utc::now);
+        .and_then(|at| Timestamp::from_epoch_seconds(at).ok())
+        .unwrap_or_else(Timestamp::now);
     let mut body = json!({
         "id": id,
         "name": "Morning ride",
@@ -344,7 +344,7 @@ async fn day_count(resources: &Arc<ServerContext>, key: &str) -> i64 {
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             key,
-            &budget_period(Utc::now(), ONE_DAY),
+            &budget_period(Timestamp::now(), ONE_DAY),
         )
         .await
         .map_or(0, |counter| counter.value)
@@ -361,7 +361,7 @@ async fn a_ride_read_for_its_efforts_before_its_route_was_kept_is_read_once_more
     let resources = session_server(&scraper_url).await;
     let (user_id, tenant) = session_athlete(&resources, "track-walk").await;
     let (other_user, other_tenant) = session_athlete(&resources, "track-walk-other").await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (unrendered, no_gps, drawn) = (now - 30 * DAY, now - 20 * DAY, now - 10 * DAY);
     scraper.answer(drawn, Detail::Route);
     scraper.answer(no_gps, Detail::NoGps);
@@ -468,7 +468,7 @@ async fn a_ride_whose_track_is_settled_is_never_read_again() {
     let (scraper_url, scraper) = spawn_scraper().await;
     let resources = session_server(&scraper_url).await;
     let (user_id, tenant) = session_athlete(&resources, "track-walk-settled").await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (drawn, no_gps, overview, never_read, unavailable) = (
         now - 25 * DAY,
         now - 20 * DAY,
@@ -517,7 +517,7 @@ async fn a_ride_whose_track_is_settled_is_never_read_again() {
         &StoredRouteTrack::Unavailable {
             source: "streams".to_owned(),
             reason: "unavailable".to_owned(),
-            expires_at: Some(Utc::now() + ChronoDuration::hours(1)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
         },
     )
     .await;
@@ -526,7 +526,7 @@ async fn a_ride_whose_track_is_settled_is_never_read_again() {
         overview.to_string(),
         "Morning ride",
         SportType::Ride,
-        Utc.timestamp_opt(overview, 0).unwrap(),
+        Timestamp::from_epoch_seconds(overview).unwrap(),
         3_600,
         oauth_providers::STRAVA,
     )
@@ -540,7 +540,7 @@ async fn a_ride_whose_track_is_settled_is_never_read_again() {
             tenant,
             oauth_providers::STRAVA,
             &[listed],
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Walk,
         )
         .await
@@ -577,7 +577,7 @@ async fn the_rides_no_detail_read_reached_go_before_the_re_reads() {
     let (scraper_url, scraper) = spawn_scraper().await;
     let resources = session_server(&scraper_url).await;
     let (user_id, tenant) = session_athlete(&resources, "track-walk-order").await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (never_read, walked) = (now - 20 * DAY, now - 5 * DAY);
     scraper.answer(never_read, Detail::Route);
     scraper.answer(walked, Detail::Route);
@@ -618,7 +618,7 @@ async fn a_failed_re_read_ends_the_walk_short_and_the_next_ask_resumes_below_it(
     let (scraper_url, scraper) = spawn_scraper().await;
     let resources = session_server(&scraper_url).await;
     let (user_id, tenant) = session_athlete(&resources, "track-walk-fails").await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (older, failing, newest) = (now - 20 * DAY, now - 10 * DAY, now - 5 * DAY);
     scraper.answer(newest, Detail::NoRoute);
     scraper.answer(failing, Detail::Fails);

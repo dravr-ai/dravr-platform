@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -159,9 +159,9 @@ pub struct ConfigOverride {
     /// User who created/updated this override
     pub created_by: String,
     /// When created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When last updated
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// Reason for the override
     pub reason: Option<String>,
 }
@@ -422,7 +422,7 @@ pub struct UpdateConfigResponse {
     /// Whether any changes require server restart
     pub requires_restart: bool,
     /// When the changes became effective
-    pub effective_at: DateTime<Utc>,
+    pub effective_at: Timestamp,
     /// Keys whose stored value will not apply because an environment pin
     /// outranks the system-wide scope. The write still succeeded — the row is
     /// stored and takes effect once the variable is unset.

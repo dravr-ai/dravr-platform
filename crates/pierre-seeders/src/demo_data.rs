@@ -21,7 +21,7 @@
 //! pierre-cli seed demo-data --reset
 //! ```
 
-use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
+use dravr_tronc::dates::{Elapsed, Timestamp, Weekday};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::feature_flags::FeatureKey;
 use pierre_database::repositories::SeedTable;
@@ -526,8 +526,8 @@ fn random_response_time(rng: &mut impl Rng, tool: &str) -> i32 {
 }
 
 /// Check if a date is a weekend
-fn is_weekend(dt: DateTime<Utc>) -> bool {
-    matches!(dt.weekday(), Weekday::Sat | Weekday::Sun)
+fn is_weekend(dt: Timestamp) -> bool {
+    matches!(dt.utc_date().weekday(), Weekday::Sat | Weekday::Sun)
 }
 
 /// Seed demo users, API keys, A2A clients, and time-series usage data for dashboard analytics.
@@ -743,10 +743,10 @@ async fn seed_api_keys(
             let key_prefix = format!("pk_{:08x}", rng.random::<u32>());
             let key_hash = format!("{:064x}", rng.random::<u128>());
             let days_ago: i64 = rng.random_range(5..30);
-            let created_at = Utc::now() - Duration::days(days_ago);
+            let created_at = Timestamp::now() - Elapsed::days(days_ago);
 
             let expires_at = if key.tier == "trial" {
-                Some(Utc::now() + Duration::days(14))
+                Some(Timestamp::now() + Elapsed::days(14))
             } else {
                 None
             };
@@ -802,8 +802,8 @@ async fn seed_a2a_clients(
                 user_ids[i % user_ids.len()]
             };
             let days_ago: i64 = rng.random_range(10..45);
-            let created_at = Utc::now() - Duration::days(days_ago);
-            let updated_at = Utc::now();
+            let created_at = Timestamp::now() - Elapsed::days(days_ago);
+            let updated_at = Timestamp::now();
 
             let seed_client = SeedA2AClient {
                 id,
@@ -846,7 +846,7 @@ async fn seed_api_usage(
         };
 
         for day_offset in 0..days {
-            let day = Utc::now() - Duration::days(i64::from(day_offset));
+            let day = Timestamp::now() - Elapsed::days(i64::from(day_offset));
 
             // Weekend adjustment (30% of normal)
             let weekend_factor: f64 = if is_weekend(day) { 0.3 } else { 1.0 };
@@ -873,12 +873,14 @@ async fn seed_api_usage(
                 let second: u32 = rng.random_range(0..60);
 
                 let timestamp = day
-                    .with_hour(hour)
-                    .unwrap_or(day)
-                    .with_minute(minute)
-                    .unwrap_or(day)
-                    .with_second(second)
-                    .unwrap_or(day);
+                    .utc_date()
+                    .and_hms(hour, minute, second)
+                    .ok()
+                    .and_then(|at| at.and_utc().ok())
+                    // The time of day changes; the fraction of a second stays.
+                    .map_or(day, |at| {
+                        at + Elapsed::nanoseconds(i64::from(day.subsec_nanos()))
+                    });
 
                 let usage = SeedApiKeyUsage {
                     id,
@@ -911,7 +913,7 @@ async fn seed_a2a_usage(
         let base_requests: u32 = rng.random_range(20..50);
 
         for day_offset in 0..days {
-            let day = Utc::now() - Duration::days(i64::from(day_offset));
+            let day = Timestamp::now() - Elapsed::days(i64::from(day_offset));
             let daily_requests: u32 = rng.random_range(base_requests / 2..base_requests * 2);
 
             for _ in 0..daily_requests {
@@ -924,10 +926,14 @@ async fn seed_a2a_usage(
                 let minute: u32 = rng.random_range(0..60);
 
                 let timestamp = day
-                    .with_hour(hour)
-                    .unwrap_or(day)
-                    .with_minute(minute)
-                    .unwrap_or(day);
+                    .utc_date()
+                    .and_hms(hour, minute, day.utc_time().second())
+                    .ok()
+                    .and_then(|at| at.and_utc().ok())
+                    // The time of day changes; the fraction of a second stays.
+                    .map_or(day, |at| {
+                        at + Elapsed::nanoseconds(i64::from(day.subsec_nanos()))
+                    });
 
                 let usage = SeedA2AUsage {
                     id,

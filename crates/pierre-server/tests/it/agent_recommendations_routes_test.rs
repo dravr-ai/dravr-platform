@@ -32,6 +32,7 @@ use pierre_services::default_agent::{
 use pierre_services::team_rules::{TeamRule, COLD_START_LEAD_ORDER, RED_S_AGENT_HANDLE};
 
 use axum::http::StatusCode;
+use dravr_tronc::dates::Timestamp;
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
@@ -483,7 +484,7 @@ async fn sport_agent(
     activity_types: &[&str],
 ) -> String {
     let id = Uuid::new_v4().to_string();
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     resources
         .agent
         .database

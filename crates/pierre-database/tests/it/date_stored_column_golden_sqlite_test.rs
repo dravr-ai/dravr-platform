@@ -42,20 +42,21 @@ use uuid::Uuid;
 
 /// Everything in this file that names the date engine.
 mod engine {
-    use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+    use dravr_tronc::dates::{CivilDateTime, Elapsed};
 
-    pub(super) type Instant = DateTime<Utc>;
+    pub(super) use dravr_tronc::dates::Timestamp as Instant;
 
     /// A UTC instant from `2026-11-17T10:00:05.123456789`, any fraction or none.
     pub(super) fn instant(text: &str) -> Instant {
-        NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
+        CivilDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
             .unwrap()
             .and_utc()
+            .unwrap()
     }
 
     /// The instant plus a whole number of days, negative to go back.
     pub(super) fn plus_days(value: Instant, days: i64) -> Instant {
-        value + Duration::days(days)
+        value + Elapsed::days(days)
     }
 }
 

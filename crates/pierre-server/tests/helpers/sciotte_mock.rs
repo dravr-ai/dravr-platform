@@ -9,7 +9,8 @@ use std::sync::Arc;
 
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
 use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -143,8 +144,8 @@ pub(crate) async fn seed_scrape_session(
             "secure": true,
             "http_only": true
         }],
-        "created_at": Utc::now().to_rfc3339(),
-        "expires_at": (Utc::now() + chrono::Duration::hours(6)).to_rfc3339(),
+        "created_at": Timestamp::now().to_rfc3339(),
+        "expires_at": (Timestamp::now() + Elapsed::hours(6)).to_rfc3339(),
     })
     .to_string();
 
@@ -154,7 +155,7 @@ pub(crate) async fn seed_scrape_session(
         backend.to_owned(),
         session_json,
         None,
-        Some(Utc::now() + chrono::Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         None,
     );
     TOKEN_TYPE_SESSION.clone_into(&mut token.token_type);

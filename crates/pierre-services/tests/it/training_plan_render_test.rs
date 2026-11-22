@@ -6,7 +6,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used)]
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::training_plans::parse_plan_date;
@@ -23,6 +23,7 @@ fn catalogue() -> PackagedCatalogue<'static> {
         LazyLock::new(TrainingCatalogueRegistry::new);
     PackagedCatalogue::catalogue_only(&REGISTRY)
 }
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::periodization::PhaseKind;
 use pierre_memory::training_plans::{
     GoalRace, PlanPhase, PlanStatus, PlanWeek, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
@@ -81,8 +82,8 @@ fn plan() -> TrainingPlan {
         status: PlanStatus::Active,
         supersedes_id: None,
         source_conversation_id: None,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
     }
 }
@@ -130,13 +131,13 @@ fn week(start: &str, focus: &str) -> PlanWeek {
         supersedes_id: None,
         adjustment_reason: String::new(),
         author_agent_id: None,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
-fn d(s: &str) -> NaiveDate {
-    NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap_or_default()
+fn d(s: &str) -> CivilDate {
+    CivilDate::parse_from_str(s, "%Y-%m-%d").unwrap_or_default()
 }
 
 #[test]
@@ -226,20 +227,20 @@ fn injection_in_plan_text_is_neutralized() {
     );
 }
 
-/// `parse_plan_date` only checks the `YYYY-MM-DD` shape, and chrono's `%Y`
-/// round-trips a signed five/six-digit year, so `NaiveDate::MAX`
-/// (`+262142-12-31`) survives a save and reaches this renderer — which runs
-/// during prompt assembly on every turn. Closing that week needs six more
-/// days than the calendar has.
+/// `parse_plan_date` only checks the `YYYY-MM-DD` shape, so `CivilDate::MAX`
+/// (`9999-12-31`) reads back from a stored row and reaches this renderer —
+/// which runs during prompt assembly on every turn — even though the save
+/// path refuses year 9999. Closing that week needs six more days than the
+/// calendar has.
 #[test]
 fn week_at_the_calendar_edge_is_skipped_not_panicked() {
     assert_eq!(
-        parse_plan_date("+262142-12-31"),
-        Some(NaiveDate::MAX),
+        parse_plan_date("9999-12-31"),
+        Some(CivilDate::MAX),
         "the fixture must be a date the save path actually accepts"
     );
     let weeks = vec![
-        week("+262142-12-31", "edge of the calendar"),
+        week("9999-12-31", "edge of the calendar"),
         week("2026-07-13", "volume"),
     ];
     let block = render_training_plan_block(
@@ -261,13 +262,13 @@ fn week_at_the_calendar_edge_is_skipped_not_panicked() {
 }
 
 /// Same root cause on the outline side: `weeks` is a `u8`, so a stored
-/// block can claim 255 weeks from a date near `NaiveDate::MAX`.
+/// block can claim 255 weeks from a date near `CivilDate::MAX`.
 #[test]
 fn phase_past_the_calendar_edge_renders_without_a_marker() {
     let mut p = plan();
     p.phases = vec![PlanPhase {
         kind: PhaseKind::Base,
-        start: "+262142-01-01".to_owned(),
+        start: "9999-01-01".to_owned(),
         weeks: 255,
         intent: "far side of the calendar".to_owned(),
         target_hours: None,
@@ -289,7 +290,7 @@ fn phase_past_the_calendar_edge_renders_without_a_marker() {
     )
     .unwrap_or_default();
     assert!(
-        block.contains("- base × 255wk from +262142-01-01: far side of the calendar"),
+        block.contains("- base × 255wk from 9999-01-01: far side of the calendar"),
         "block must render, unmarked: {block}"
     );
     assert!(

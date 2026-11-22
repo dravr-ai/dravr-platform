@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 use pierre_chat_pipeline::stages::persistence::persist_assistant_response;
 use pierre_chat_pipeline::{
@@ -231,7 +231,7 @@ async fn seed_whoop_morning(resources: &ServerContext, user_id: Uuid, tenant_id:
         id: format!("whoop-{}", Uuid::new_v4()),
         user_id: user_id.to_string(),
         data_source_id,
-        date: Utc::now().date_naive(),
+        date: Timestamp::now().utc_date(),
         recovery_score: Some(71),
         readiness_score: None,
         hrv_ms: None,
@@ -245,11 +245,16 @@ async fn seed_whoop_morning(resources: &ServerContext, user_id: Uuid, tenant_id:
         daily_strain: None,
         athlete_note: None,
         source_name: "whoop".to_owned(),
-        recorded_at: Utc::now(),
+        recorded_at: Timestamp::now(),
     };
     repos
         .recovery
-        .upsert_recovery_metrics(&tenant_id, &morning, WellnessWriteMode::FullDay, Utc::now())
+        .upsert_recovery_metrics(
+            &tenant_id,
+            &morning,
+            WellnessWriteMode::FullDay,
+            Timestamp::now(),
+        )
         .await
         .unwrap();
 }

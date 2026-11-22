@@ -5,8 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::transport::TransportPolicy;
-use chrono::{DateTime, NaiveDate, Utc};
 use dravr_cageux::periodization::{WorkoutStep, WorkoutTemplate};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -40,7 +40,7 @@ pub struct PlannedSession {
     /// Workout or week note.
     pub kind: PlannedSessionKind,
     /// Civil date of the entry (a week note's is the week's first day).
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// Sport the entry is for; carried but unused for a week note.
     pub sport: SportType,
     /// Title shown on the calendar.
@@ -59,7 +59,7 @@ pub struct PlannedSession {
 impl PlannedSession {
     /// Render a prescription's template as the calendar entry for `date`.
     #[must_use]
-    pub fn from_template(template: &WorkoutTemplate, date: NaiveDate, external_id: String) -> Self {
+    pub fn from_template(template: &WorkoutTemplate, date: CivilDate, external_id: String) -> Self {
         Self {
             external_id,
             kind: PlannedSessionKind::Workout,
@@ -128,22 +128,14 @@ impl CalendarKey {
 
     /// Key of the `ordinal`-th session on `date` of an athlete's plan.
     #[must_use]
-    pub fn plan_day(user_id: Uuid, date: NaiveDate, ordinal: usize) -> String {
-        format!(
-            "{}{}:{ordinal}",
-            Self::plan_prefix(user_id),
-            date.format("%Y-%m-%d")
-        )
+    pub fn plan_day(user_id: Uuid, date: CivilDate, ordinal: usize) -> String {
+        format!("{}{}:{ordinal}", Self::plan_prefix(user_id), date)
     }
 
     /// Key of the week-level note of the plan week starting `week_start`.
     #[must_use]
-    pub fn plan_week_note(user_id: Uuid, week_start: NaiveDate) -> String {
-        format!(
-            "{}week:{}",
-            Self::plan_prefix(user_id),
-            week_start.format("%Y-%m-%d")
-        )
+    pub fn plan_week_note(user_id: Uuid, week_start: CivilDate) -> String {
+        format!("{}week:{}", Self::plan_prefix(user_id), week_start)
     }
 }
 
@@ -157,10 +149,10 @@ pub struct CalendarEventRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
     /// Civil date of the event.
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// When the provider last saw the event change, when it reports that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<Timestamp>,
 }
 
 /// Which write path produced a calendar ledger row.
@@ -234,7 +226,7 @@ pub struct PrescribedWorkout {
     /// Sport label.
     pub sport: SportType,
     /// Calendar date the entry is scheduled for.
-    pub prescribed_for_date: NaiveDate,
+    pub prescribed_for_date: CivilDate,
     /// Provider the entry was written to (e.g. `intervals_icu`).
     pub provider: String,
     /// Provider-side event id when known (returned by the push call).
@@ -266,11 +258,11 @@ pub struct PrescribedWorkout {
     /// [`Self::STATUS_WITHDRAWN`] once the entry was deleted from the provider.
     pub status: String,
     /// Timestamp when the row was recorded.
-    #[serde(default = "Utc::now")]
-    pub created_at: DateTime<Utc>,
+    #[serde(default = "Timestamp::now")]
+    pub created_at: Timestamp,
     /// Timestamp of the last status change.
-    #[serde(default = "Utc::now")]
-    pub updated_at: DateTime<Utc>,
+    #[serde(default = "Timestamp::now")]
+    pub updated_at: Timestamp,
     /// Where this entry may be served (carnet#769): first-party-only when the
     /// plan or turn it was written from was. Rows written before the stamp
     /// read as unstamped.
@@ -298,13 +290,13 @@ impl PrescribedWorkout {
 #[cfg(test)]
 mod tests {
     use super::CalendarKey;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use uuid::Uuid;
 
     #[test]
     fn every_key_dravr_writes_is_told_apart_from_anyone_elses() {
         let athlete = Uuid::new_v4();
-        let day = Utc::now().date_naive();
+        let day = Timestamp::now().utc_date();
         for ours in [
             CalendarKey::prescription(Uuid::new_v4()),
             CalendarKey::plan_day(athlete, day, 0),

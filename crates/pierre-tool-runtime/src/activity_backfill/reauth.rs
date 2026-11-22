@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{ReauthMark, TenantId};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -23,7 +23,7 @@ pub(super) const SESSION_EXPIRED: &str = "session_expired";
 /// connection, tell the athlete once, and answer the conversation that asked.
 pub(super) async fn notify_backfill_reauth(
     job: &ActivityBackfillJob,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) {
     backfill_session_expired(
         &job.resources,
@@ -58,7 +58,7 @@ pub async fn backfill_session_expired(
     tenant_id: TenantId,
     provider: &str,
     pierre_conversation_id: Option<&str>,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) {
     let notice = match flag_needs_reauth(
         runtime,

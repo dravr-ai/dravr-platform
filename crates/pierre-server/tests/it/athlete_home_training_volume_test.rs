@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::civil_time::monday_of;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType, TenantId};
@@ -84,33 +84,34 @@ async fn volume(resources: &Arc<ServerContext>, athlete: &Athlete) -> Value {
 
 /// 06:00 UTC `days` days before today, `days` at least one; the seeded
 /// athletes have no timezone, so their calendar is UTC's.
-fn days_ago(days: i64) -> DateTime<Utc> {
-    Utc::now()
-        .date_naive()
-        .and_hms_opt(6, 0, 0)
+fn days_ago(days: i64) -> Timestamp {
+    Timestamp::now()
+        .utc_date()
+        .and_hms(6, 0, 0)
         .unwrap()
         .and_utc()
-        - Duration::days(days)
+        .unwrap()
+        - Elapsed::days(days)
 }
 
 /// `hours` hours before now: always in the past, so the read up to now holds it.
-fn hours_ago(hours: i64) -> DateTime<Utc> {
-    Utc::now() - Duration::hours(hours)
+fn hours_ago(hours: i64) -> Timestamp {
+    Timestamp::now() - Elapsed::hours(hours)
 }
 
 /// The Monday of the week an instant falls in, on the UTC calendar.
-fn week_of(instant: DateTime<Utc>) -> NaiveDate {
-    monday_of(instant.date_naive())
+fn week_of(instant: Timestamp) -> CivilDate {
+    monday_of(instant.utc_date())
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
 fn activity(
     id: &str,
     sport: SportType,
-    started: DateTime<Utc>,
+    started: Timestamp,
     seconds: u64,
     provider: &str,
 ) -> ActivityBuilder {
@@ -150,7 +151,7 @@ async fn cache_in(
 }
 
 /// The week entry whose Monday is `week_start`.
-fn week(body: &Value, week_start: NaiveDate) -> &Value {
+fn week(body: &Value, week_start: CivilDate) -> &Value {
     body["weeks"]
         .as_array()
         .unwrap()
@@ -160,7 +161,7 @@ fn week(body: &Value, week_start: NaiveDate) -> &Value {
 }
 
 /// The `sport` entry of the week `instant` falls in.
-fn sport_in<'a>(body: &'a Value, instant: DateTime<Utc>, sport: &str) -> &'a Value {
+fn sport_in<'a>(body: &'a Value, instant: Timestamp, sport: &str) -> &'a Value {
     week(body, week_of(instant))["sports"]
         .as_array()
         .unwrap()
@@ -226,14 +227,14 @@ async fn a_deep_history_answers_twelve_weeks_summed_per_sport() {
     .await;
 
     let body = volume(&resources, &athlete).await;
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     assert_eq!(body["today"], ymd(today));
     let starts = week_starts(&body);
     assert_eq!(starts.len(), usize::try_from(VOLUME_WEEKS).unwrap());
     assert_eq!(starts.last().unwrap(), &ymd(monday_of(today)));
     assert_eq!(
         starts.first().unwrap(),
-        &ymd(monday_of(today) - Duration::weeks(VOLUME_WEEKS - 1))
+        &ymd(monday_of(today) - Elapsed::weeks(VOLUME_WEEKS - 1))
     );
 
     assert_eq!(
@@ -257,7 +258,7 @@ async fn a_deep_history_answers_twelve_weeks_summed_per_sport() {
         })
     );
     assert_eq!(
-        week(&body, monday_of(today - Duration::days(21)))["sports"],
+        week(&body, monday_of(today - Elapsed::days(21)))["sports"],
         json!([{
             "sport_type": "run",
             "activities": 1,
@@ -354,13 +355,13 @@ async fn weeks_before_the_stored_history_are_absent_not_zero() {
     .await;
 
     let body = volume(&resources, &athlete).await;
-    let today = Utc::now().date_naive();
-    let first = monday_of(today - Duration::days(15));
+    let today = Timestamp::now().utc_date();
+    let first = monday_of(today - Elapsed::days(15));
     let mut expected = Vec::new();
     let mut monday = first;
     while monday <= monday_of(today) {
         expected.push(ymd(monday));
-        monday += Duration::weeks(1);
+        monday += Elapsed::weeks(1);
     }
     assert_eq!(week_starts(&body), expected);
     assert_eq!(week(&body, first)["sports"][0]["activities"], 1);
@@ -479,7 +480,7 @@ async fn the_weeks_say_what_garmin_data_contributed() {
         &[activity(
             "g-ride",
             SportType::Ride,
-            ride + Duration::seconds(20),
+            ride + Elapsed::seconds(20),
             5_380,
             oauth_providers::SCIOTTE,
         )
@@ -559,7 +560,7 @@ async fn a_history_older_than_an_idle_window_vouches_for_every_week() {
 
     let body = volume(&resources, &athlete).await;
     let starts = week_starts(&body);
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     assert_eq!(
         starts.len(),
         usize::try_from(VOLUME_WEEKS).unwrap(),
@@ -628,10 +629,10 @@ async fn a_new_connection_with_its_walk_owed_does_not_cut_the_weeks() {
     .await;
 
     let body = volume(&resources, &athlete).await;
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     assert_eq!(
         week_starts(&body).first().unwrap(),
-        &ymd(monday_of(today) - Duration::weeks(VOLUME_WEEKS - 1)),
+        &ymd(monday_of(today) - Elapsed::weeks(VOLUME_WEEKS - 1)),
         "bug: a connection with its walk owed cut Home's vouched weeks: {body}"
     );
     assert_eq!(

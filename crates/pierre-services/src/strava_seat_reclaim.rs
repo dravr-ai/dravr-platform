@@ -65,7 +65,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::config::oauth::OAuthConfig;
 use pierre_auth::strava_pool::{strava_seat_apps, summarize_seats, StravaAppSeats};
 use pierre_config::constants::strava_seat_reclaim as keys;
@@ -224,18 +224,18 @@ impl ReclaimPolicy {
     }
 
     /// Idle time from which a holder is a candidate and may be warned.
-    fn warn_after(&self) -> Duration {
-        Duration::days(self.idle_days - self.warn_lead_days)
+    fn warn_after(&self) -> Elapsed {
+        Elapsed::days(self.idle_days - self.warn_lead_days)
     }
 
     /// Idle time from which a warned holder may be disconnected.
-    fn reclaim_after(&self) -> Duration {
-        Duration::days(self.idle_days)
+    fn reclaim_after(&self) -> Elapsed {
+        Elapsed::days(self.idle_days)
     }
 
     /// How old a warning must be before its disconnect.
-    fn lead(&self) -> Duration {
-        Duration::days(self.warn_lead_days)
+    fn lead(&self) -> Elapsed {
+        Elapsed::days(self.warn_lead_days)
     }
 
     /// Age at which a warning no longer stands and is sent again.
@@ -245,8 +245,8 @@ impl ReclaimPolicy {
     /// old to be the one a disconnect follows. The window after the lead is
     /// `idle_days - warn_lead_days`, at least a day, since the catalog keeps
     /// the lead below `idle_days`.
-    fn warning_validity(&self) -> Duration {
-        Duration::days(self.idle_days)
+    fn warning_validity(&self) -> Elapsed {
+        Elapsed::days(self.idle_days)
     }
 }
 
@@ -330,7 +330,7 @@ pub struct ReclaimCandidate {
     /// Tenant the Strava token is stored under.
     pub tenant_id: TenantId,
     /// When the athlete was last active on Dravr.
-    pub last_active: DateTime<Utc>,
+    pub last_active: Timestamp,
     /// Whole days since then.
     pub idle_days: i64,
     /// The app that issued the token: `None` for the env app, else the pool
@@ -460,7 +460,7 @@ impl StravaSeatReclaimer {
     /// Returns an error when the policy cannot be read or is invalid, or when
     /// listing the holders, the seat counts or a warning fails. A failed warning
     /// or disconnect is logged and retried on the next pass instead.
-    pub async fn tick(&self, now: DateTime<Utc>) -> AppResult<ReclaimReport> {
+    pub async fn tick(&self, now: Timestamp) -> AppResult<ReclaimReport> {
         let policy = ReclaimPolicy::resolve(self.config.as_ref()).await?;
         let mut report = ReclaimReport::new(policy);
         if policy.mode == ReclaimMode::Off {
@@ -490,7 +490,7 @@ impl StravaSeatReclaimer {
         &self,
         policy: &ReclaimPolicy,
         apps: &[StravaAppSeats],
-        now: DateTime<Utc>,
+        now: Timestamp,
         report: &mut ReclaimReport,
     ) -> AppResult<()> {
         let holders = self.repos.oauth_tokens.list_strava_seat_holders().await?;
@@ -538,7 +538,7 @@ impl StravaSeatReclaimer {
         holder: &StravaSeatHolder,
         frees_seat: bool,
         policy: &ReclaimPolicy,
-        now: DateTime<Utc>,
+        now: Timestamp,
         report: &mut ReclaimReport,
     ) -> AppResult<Option<ReclaimCandidate>> {
         let Some(last_active) = holder.last_active else {
@@ -598,7 +598,7 @@ impl StravaSeatReclaimer {
     /// Disconnects go first: each one was planned on activity read at the
     /// start of the pass, and a warning's push and channel sends take time
     /// the athlete could spend coming back.
-    async fn enforce(&self, report: &mut ReclaimReport, now: DateTime<Utc>) {
+    async fn enforce(&self, report: &mut ReclaimReport, now: Timestamp) {
         let planned: Vec<ReclaimCandidate> = report
             .candidates
             .iter()
@@ -759,7 +759,7 @@ impl StravaSeatReclaimer {
         &self,
         candidate: &ReclaimCandidate,
         policy: &ReclaimPolicy,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Option<bool> {
         let Some(notifications) = &self.notifications else {
             warn!(
@@ -780,7 +780,7 @@ impl StravaSeatReclaimer {
         &self,
         candidate: &ReclaimCandidate,
         policy: &ReclaimPolicy,
-        now: DateTime<Utc>,
+        now: Timestamp,
         reached: bool,
     ) -> bool {
         match self
@@ -925,12 +925,7 @@ fn log_pass(report: &ReclaimReport) {
 /// still needs once the reached warnings already out are counted, so an
 /// athlete is warned when their disconnect is likely rather than whenever
 /// they are idle.
-fn plan(
-    candidates: &mut [ReclaimCandidate],
-    policy: &ReclaimPolicy,
-    deficit: u32,
-    now: DateTime<Utc>,
-) {
+fn plan(candidates: &mut [ReclaimCandidate], policy: &ReclaimPolicy, deficit: u32, now: Timestamp) {
     let reclaim_budget = deficit.min(policy.max_per_tick);
     let mut reclaims = 0_u32;
     let mut outstanding = 0_u32;
@@ -982,6 +977,6 @@ pub fn start_strava_seat_reclaimer(
 ) {
     spawn_periodic(WORKER_NAME, TICK_INTERVAL, ledger, move || {
         let reclaimer = Arc::clone(&reclaimer);
-        async move { reclaimer.tick(Utc::now()).await.map(|_| ()) }
+        async move { reclaimer.tick(Timestamp::now()).await.map(|_| ()) }
     });
 }

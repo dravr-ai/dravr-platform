@@ -7,8 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::NaiveDate;
 use dravr_cageux::zones::{HrZones, PowerZones};
+use dravr_tronc::dates::CivilDate;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
 use pierre_core::models::{
@@ -239,7 +239,7 @@ async fn dossier_carries_critical_power_with_its_provenance() {
         MetricProvenance {
             kind: MeasurementKind::Estimated,
             origin: Some("vekta".to_owned()),
-            as_of: NaiveDate::from_ymd_opt(2026, 10, 1),
+            as_of: CivilDate::from_ymd(2026, 10, 1).ok(),
         },
     ));
     let repos = db.repositories();

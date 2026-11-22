@@ -33,7 +33,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{CoachConsents, CoachingGroup};
@@ -352,7 +352,7 @@ impl DelegatedConnectionRoutes {
 
     fn build_metadata() -> GroupMetadata {
         GroupMetadata {
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: Timestamp::now().to_rfc3339(),
             api_version: "1.0".to_owned(),
         }
     }
@@ -487,7 +487,7 @@ impl DelegatedConnectionRoutes {
             provider_athlete_name: link.provider_athlete_name.clone(),
             status: link.status,
             proposed_at: link.proposed_at.to_rfc3339(),
-            confirmed_at: link.confirmed_at.map(|at| at.to_rfc3339()),
+            confirmed_at: link.confirmed_at.map(Timestamp::to_rfc3339),
             read_refused: read_refused.map(str::to_owned),
             calendar_write: consents.calendar_write,
             calendar_write_supported: offer.calendar_write,
@@ -729,19 +729,19 @@ impl DelegatedConnectionRoutes {
         }
         Ok(CoachConsentsResponse {
             calendar_write: consents.calendar_write,
-            calendar_write_at: consents.calendar_write_at.map(|at| at.to_rfc3339()),
+            calendar_write_at: consents.calendar_write_at.map(Timestamp::to_rfc3339),
             calendar_write_supported: offer.calendar_write,
             wellness_read: consents.wellness_read,
-            wellness_read_at: consents.wellness_read_at.map(|at| at.to_rfc3339()),
+            wellness_read_at: consents.wellness_read_at.map(Timestamp::to_rfc3339),
             wellness_read_supported: offer.wellness_read,
             wellness_read_skipped: skipped.map(|skip| skip.as_str().to_owned()),
             wellness_notice_due: wellness_notice_due(offer, consents),
             assistant_read: consents.assistant_read,
-            assistant_read_at: consents.assistant_read_at.map(|at| at.to_rfc3339()),
+            assistant_read_at: consents.assistant_read_at.map(Timestamp::to_rfc3339),
             assistant_read_supported: offer.assistant_read,
-            sensitive_t2_read: consents.sensitive_t2_standing(Utc::now()),
-            sensitive_t2_read_at: consents.sensitive_t2_read_at.map(|at| at.to_rfc3339()),
-            sensitive_t2_read_until: consents.sensitive_t2_read_until.map(|at| at.to_rfc3339()),
+            sensitive_t2_read: consents.sensitive_t2_standing(Timestamp::now()),
+            sensitive_t2_read_at: consents.sensitive_t2_read_at.map(Timestamp::to_rfc3339),
+            sensitive_t2_read_until: consents.sensitive_t2_read_until.map(Timestamp::to_rfc3339),
             sensitive_t2_read_supported: offer.wellness_read,
         })
     }

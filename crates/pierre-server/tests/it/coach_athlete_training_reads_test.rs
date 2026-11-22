@@ -23,7 +23,7 @@
 
 use std::time::Duration as StdDuration;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::models::{
     Athlete, ConnectionType, DataSource, DeviceType, SportType, TimeSeriesData, UserOAuthToken,
@@ -110,7 +110,7 @@ fn cached_athlete(first_name: &str) -> Athlete {
 /// An Intervals.icu-shaped token naming `provider`, the row a source's
 /// freshness is read from.
 fn token(who: Person, provider: &str) -> UserOAuthToken {
-    let now = Utc::now();
+    let now = Timestamp::now();
     UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id: who.id,
@@ -249,7 +249,7 @@ pub(crate) async fn world() -> (Fixture, String) {
             origin: StreamOrigin::Upload,
             source_ref: None,
             streams: &route_samples(),
-            synced_at: Utc::now(),
+            synced_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -263,7 +263,7 @@ pub(crate) async fn world() -> (Fixture, String) {
                 "timeframe": "month",
                 "title": "200 km this month",
                 "sport": "Run",
-                "created_at": (Utc::now() - Duration::days(20)).to_rfc3339(),
+                "created_at": (Timestamp::now() - Elapsed::days(20)).to_rfc3339(),
             }),
         )
         .await

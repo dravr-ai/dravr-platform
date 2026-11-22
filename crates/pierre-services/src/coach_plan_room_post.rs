@@ -36,7 +36,7 @@
 
 use std::collections::BTreeSet;
 
-use chrono::{Datelike, NaiveDate};
+use dravr_tronc::dates::CivilDate;
 use photograveur::Locale;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PLAN_PUBLISHED_ROOM_POST, KEY_PLAN_PUBLISHED_ROOM_POST_MORE,
@@ -66,7 +66,7 @@ pub enum PlanChange {
     New,
     /// The days whose session the publish changed — written, rewritten or
     /// taken away — in date order. Never empty.
-    Days(Vec<NaiveDate>),
+    Days(Vec<CivilDate>),
 }
 
 /// What publishing `published` over `previous` changed, or `None` when it
@@ -96,7 +96,7 @@ pub fn plan_change(previous: Option<&[PlanWeek]>, published: &[PlanWeek]) -> Opt
             .filter(|day| !week.days.iter().any(|after| after.date == day.date));
         changed.extend(rewritten.chain(removed).map(|day| day.date.as_str()));
     }
-    let days: Vec<NaiveDate> = changed
+    let days: Vec<CivilDate> = changed
         .into_iter()
         .filter_map(|date| {
             parse_plan_date(date).or_else(|| {
@@ -114,7 +114,7 @@ pub fn plan_change(previous: Option<&[PlanWeek]>, published: &[PlanWeek]) -> Opt
 /// One day as the room post names it: the weekday, then the short date —
 /// photograveur's, the one conversation titles and chart axes write — in
 /// `locale`.
-fn day_label(date: NaiveDate, locale: &str) -> String {
+fn day_label(date: CivilDate, locale: &str) -> String {
     format!(
         "{} {}",
         weekday_short(date.weekday(), locale),
@@ -374,7 +374,7 @@ async fn post_in_chat(poster: &dyn GroupChatPoster, group: &CoachingGroup, text:
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_memory::training_plans::{PlannedDay, WeekStatus};
 
     use super::*;
@@ -410,12 +410,12 @@ mod tests {
             supersedes_id: None,
             adjustment_reason: String::new(),
             author_agent_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         }
     }
 
-    fn date(raw: &str) -> NaiveDate {
+    fn date(raw: &str) -> CivilDate {
         parse_plan_date(raw).unwrap()
     }
 
@@ -499,7 +499,7 @@ mod tests {
     /// counted last.
     #[test]
     fn the_post_names_four_days_and_counts_the_rest() {
-        let days: Vec<NaiveDate> = [
+        let days: Vec<CivilDate> = [
             "2026-10-27",
             "2026-10-29",
             "2026-10-30",

@@ -30,9 +30,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
 use dravr_riviere::aggregation::window_count;
 use dravr_riviere::{Aggregation, SeriesType};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::TenantId;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -189,12 +189,11 @@ fn parse_window(args: &Value) -> AppResult<Option<(i64, &'static str, Aggregatio
 
 /// Parse an RFC 3339 argument, refusing one that does not parse rather than
 /// silently reading a default window in its place.
-fn parse_instant(args: &Value, key: &str) -> AppResult<Option<DateTime<Utc>>> {
+fn parse_instant(args: &Value, key: &str) -> AppResult<Option<Timestamp>> {
     args.get(key)
         .and_then(Value::as_str)
         .map(|s| {
-            DateTime::parse_from_rfc3339(s)
-                .map(|dt| dt.with_timezone(&Utc))
+            Timestamp::parse_from_rfc3339(s)
                 .map_err(|e| AppError::invalid_input(format!("{key} is not RFC 3339: {e}")))
         })
         .transpose()
@@ -208,13 +207,10 @@ fn parse_instant(args: &Value, key: &str) -> AppResult<Option<DateTime<Utc>>> {
 ///
 /// Returns `invalid_input` when an instant does not parse or `start` is not
 /// before `end`.
-fn parse_series_range(
-    args: &Value,
-    max_span: Duration,
-) -> AppResult<(DateTime<Utc>, DateTime<Utc>)> {
-    let end = parse_instant(args, "end")?.unwrap_or_else(Utc::now);
+fn parse_series_range(args: &Value, max_span: Elapsed) -> AppResult<(Timestamp, Timestamp)> {
+    let end = parse_instant(args, "end")?.unwrap_or_else(Timestamp::now);
     let mut start =
-        parse_instant(args, "start")?.unwrap_or(end - Duration::hours(DEFAULT_LOOKBACK_HOURS));
+        parse_instant(args, "start")?.unwrap_or(end - Elapsed::hours(DEFAULT_LOOKBACK_HOURS));
     if start >= end {
         return Err(AppError::invalid_input(format!(
             "start ({start}) must be before end ({end})"
@@ -278,10 +274,7 @@ fn input_properties() -> HashMap<String, PropertySchema> {
 }
 
 /// Refuse a windowing that folds the range into more than [`MAX_WINDOWS`].
-fn check_window_count(
-    (start, end): (DateTime<Utc>, DateTime<Utc>),
-    window_secs: i64,
-) -> AppResult<()> {
+fn check_window_count((start, end): (Timestamp, Timestamp), window_secs: i64) -> AppResult<()> {
     let windows = window_count(start, end, window_secs)
         .map_err(|e| AppError::invalid_input(format!("window_minutes: {e}")))?;
     if windows > MAX_WINDOWS {
@@ -358,9 +351,9 @@ impl McpTool<dyn ToolRuntime> for GetHeartRateSeriesTool {
             }
             let window = parse_window(&args)?;
             let max_span = if window.is_some() {
-                Duration::days(MAX_WINDOWED_RANGE_DAYS)
+                Elapsed::days(MAX_WINDOWED_RANGE_DAYS)
             } else {
-                Duration::hours(MAX_POINTS_RANGE_HOURS)
+                Elapsed::hours(MAX_POINTS_RANGE_HOURS)
             };
             let range = parse_series_range(&args, max_span)?;
             let read = match window {

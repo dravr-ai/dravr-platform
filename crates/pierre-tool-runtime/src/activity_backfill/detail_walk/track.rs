@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{BackfillJobKind, BackfillJobState, JobProgress};
 use pierre_providers::core::ActivityQueryParams;
@@ -84,7 +84,7 @@ pub async fn ask_track_walk(
         provider_name: backend.to_owned(),
         query_params: ActivityQueryParams {
             after: None,
-            before: Some(stopped_at.unwrap_or_else(|| Utc::now().timestamp())),
+            before: Some(stopped_at.unwrap_or_else(|| Timestamp::now().epoch_seconds())),
             limit: None,
             offset: None,
         },

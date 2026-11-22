@@ -14,7 +14,7 @@ mod group_transcript_tests {
     use crate::helpers::offline_channel::{name_fixture_bot, OfflineSendAdapters};
     use async_trait::async_trait;
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use futures_util::stream;
     use pierre_core::errors::AppError;
     use pierre_core::llm::{
@@ -164,7 +164,7 @@ mod group_transcript_tests {
         );
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
 
@@ -176,8 +176,8 @@ mod group_transcript_tests {
             domain: None,
             plan: "professional".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common
@@ -307,7 +307,7 @@ mod group_transcript_tests {
         // (group sessions live there). Mentions mode so unaddressed chatter is
         // captured for the room without dispatching a turn.
         let group_id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = CoachingGroup {
             id: group_id,
             tenant_id: bot_tenant.to_string(),
@@ -1150,8 +1150,8 @@ mod group_transcript_tests {
                 coach_sharing_consent: true,
                 coach_sharing_consent_at: None,
                 coach_consents: CoachConsents::default(),
-                consent_given_at: Utc::now(),
-                joined_at: Utc::now(),
+                consent_given_at: Timestamp::now(),
+                joined_at: Timestamp::now(),
                 left_at: None,
                 display_name: None,
             })

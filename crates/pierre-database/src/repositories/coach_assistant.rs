@@ -11,7 +11,7 @@
 //! `user_id` bind through the backend's uuid codec.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::GroupMember;
 use uuid::Uuid;
@@ -30,7 +30,7 @@ pub trait CoachAssistantRepository: Send + Sync {
         &self,
         group_id: &str,
         user_id: Uuid,
-    ) -> AppResult<Option<DateTime<Utc>>>;
+    ) -> AppResult<Option<Timestamp>>;
 
     /// Record that the live member `user_id` of `group_id` answered the
     /// one-time notice of their coach's AI tools at `at`. Returns `false`
@@ -40,7 +40,7 @@ pub trait CoachAssistantRepository: Send + Sync {
         &self,
         group_id: &str,
         user_id: Uuid,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> AppResult<bool>;
 
     /// The live member `user_id` of `group_id` turns on (`granted`) or off
@@ -54,7 +54,7 @@ pub trait CoachAssistantRepository: Send + Sync {
         group_id: &str,
         user_id: Uuid,
         granted: bool,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<GroupMember>>;
 }
 
@@ -88,7 +88,7 @@ macro_rules! impl_coach_assistant_repository {
                 &self,
                 group_id: &str,
                 user_id: Uuid,
-            ) -> AppResult<Option<DateTime<Utc>>> {
+            ) -> AppResult<Option<Timestamp>> {
                 let row = sqlx::query(GET_ASSISTANT_NOTICE_ANSWERED_SQL)
                     .bind($ids::bind_text(group_id)?)
                     .bind($ids::bind(user_id))
@@ -106,7 +106,7 @@ macro_rules! impl_coach_assistant_repository {
                 &self,
                 group_id: &str,
                 user_id: Uuid,
-                at: DateTime<Utc>,
+                at: Timestamp,
             ) -> AppResult<bool> {
                 let result = sqlx::query(ANSWER_ASSISTANT_NOTICE_SQL)
                     .bind(at)
@@ -128,7 +128,7 @@ macro_rules! impl_coach_assistant_repository {
                 group_id: &str,
                 user_id: Uuid,
                 granted: bool,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<GroupMember>> {
                 let result = sqlx::query(SET_COACH_ASSISTANT_READ_SQL)
                     .bind(granted)

@@ -47,7 +47,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use serde::Serialize;
 use uuid::Uuid;
@@ -192,7 +192,7 @@ pub struct RosterMember {
     /// instant across the coach's groups holding them, only while the status
     /// is `NoCoachConsent` and only when one is recorded. `None` otherwise,
     /// including for a revoke from before the instant was recorded.
-    pub sharing_stopped_at: Option<DateTime<Utc>>,
+    pub sharing_stopped_at: Option<Timestamp>,
     /// Their first live membership among the coach's groups: when they joined
     /// the coach, and through which group.
     pub joined: RosterJoin,
@@ -207,7 +207,7 @@ pub struct RosterMember {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RosterJoin {
     /// When they joined.
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
     /// The group they joined.
     pub group: RosterGroupRef,
 }
@@ -414,7 +414,7 @@ const fn includes_assistant(member: &GroupMember) -> bool {
 /// there. That is when they declined, not when they stopped; reporting it as a
 /// stop told the coach "sharing cut on <join day>" for someone who never
 /// shared.
-fn revoked_at(member: &GroupMember) -> Option<DateTime<Utc>> {
+fn revoked_at(member: &GroupMember) -> Option<Timestamp> {
     member
         .coach_sharing_consent_at
         .filter(|at| *at > member.joined_at)
@@ -481,7 +481,7 @@ pub struct OrderedMember {
     pub name: String,
     /// The day the activity cache last saw a session from them; only for a
     /// readable sharer, and only a session the reader may be shown.
-    pub last_cached_activity: Option<DateTime<Utc>>,
+    pub last_cached_activity: Option<Timestamp>,
     /// They share and have connected services, and every one of those keeps
     /// its data in Dravr: served to an outside client, nothing of their
     /// training reaches it. Listed as present with their data withheld, never
@@ -573,7 +573,7 @@ async fn last_consented_activity(
     repos: &RepositoryRegistry,
     member: &RosterMember,
     outside: Option<&dyn ProviderTerms>,
-) -> AppResult<Option<DateTime<Utc>>> {
+) -> AppResult<Option<Timestamp>> {
     if member.source_tenants.is_empty() {
         return Ok(None);
     }
@@ -628,8 +628,8 @@ async fn latest_unwithheld_start(
     user_id: Uuid,
     tenant: &TenantId,
     hidden: &Hidden<'_>,
-) -> AppResult<Option<DateTime<Utc>>> {
-    let mut end = Utc::now();
+) -> AppResult<Option<Timestamp>> {
+    let mut end = Timestamp::now();
     let mut previous_oldest = None;
     for _ in 0..WITHHELD_SCAN_MAX_PAGES {
         let page = repos
@@ -638,7 +638,7 @@ async fn latest_unwithheld_start(
                 user_id,
                 tenant,
                 None,
-                DateTime::UNIX_EPOCH,
+                Timestamp::UNIX_EPOCH,
                 end,
                 WITHHELD_SCAN_PAGE,
             )
@@ -657,7 +657,7 @@ async fn latest_unwithheld_start(
         // skipped; the withheld ones re-read with it are passed over again. A
         // page holding that one instant alone made no progress: step past it.
         end = if previous_oldest == Some(oldest) {
-            oldest - Duration::microseconds(1)
+            oldest - Elapsed::microseconds(1)
         } else {
             oldest
         };
@@ -717,7 +717,7 @@ mod tests {
                 source_providers: Vec::new(),
                 sharing_stopped_at: None,
                 joined: RosterJoin {
-                    at: DateTime::UNIX_EPOCH,
+                    at: Timestamp::UNIX_EPOCH,
                     group: RosterGroupRef {
                         id: String::new(),
                         name: String::new(),
@@ -726,7 +726,7 @@ mod tests {
                 assistant_read: false,
             },
             name: name.to_owned(),
-            last_cached_activity: last.map(|secs| DateTime::from_timestamp(secs, 0).unwrap()),
+            last_cached_activity: last.map(|secs| Timestamp::from_epoch_seconds(secs).unwrap()),
             kept_in_dravr,
         }
     }
@@ -792,9 +792,7 @@ mod tests {
         );
         assert_eq!(
             revoked_at(&member("2026-10-27T21:48:00Z")),
-            DateTime::parse_from_rfc3339("2026-10-27T21:48:00Z")
-                .ok()
-                .map(|at| at.with_timezone(&Utc)),
+            Timestamp::parse_from_rfc3339("2026-10-27T21:48:00Z").ok(),
             "a decision after the join is a stop"
         );
     }

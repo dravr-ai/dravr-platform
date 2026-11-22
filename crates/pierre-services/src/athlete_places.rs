@@ -38,7 +38,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, CachedRowKey, HomeDeclaration, TenantId};
 use pierre_core::untrusted::display_line;
@@ -168,7 +168,7 @@ pub enum HomeState {
 /// Returns the repository error when the due athletes cannot be listed.
 pub async fn places_pass(
     repos: &RepositoryRegistry,
-    now: DateTime<Utc>,
+    now: Timestamp,
     max_users: u32,
 ) -> AppResult<PlacesPassReport> {
     let due = repos
@@ -320,7 +320,7 @@ pub async fn declare_home(
     };
     repos
         .athlete_places
-        .store_home_declaration(tenant_id, user_id, home, Utc::now())
+        .store_home_declaration(tenant_id, user_id, home, Timestamp::now())
         .await?;
     recompute_after_change(repos, tenant_id, user_id).await;
     Ok(Ok(state))
@@ -385,8 +385,8 @@ async fn activity_rows(
 ) -> AppResult<Vec<CachedActivityRow>> {
     let ids = [activity_id];
     let query = CachedRowsQuery::window(
-        DateTime::UNIX_EPOCH,
-        Utc::now() + Duration::days(1),
+        Timestamp::UNIX_EPOCH,
+        Timestamp::now() + Elapsed::days(1),
         COPIES_PER_ACTIVITY,
     )
     .with_ids(&ids);
@@ -427,7 +427,7 @@ async fn create_single_visit_place(
     let Some(((lat, lon), row)) = trimmed_start(repos, tenant_id, user_id, rows).await? else {
         return Ok(Err(PlaceRefusal::ActivityHasNoRoute));
     };
-    let now = Utc::now();
+    let now = Timestamp::now();
     let place = AthletePlace {
         id: Uuid::new_v4().to_string(),
         centroid_lat: lat,
@@ -457,7 +457,7 @@ async fn recompute_after_change(
     tenant_id: &TenantId,
     user_id: Uuid,
 ) -> Option<Vec<AthletePlace>> {
-    match recompute(repos, tenant_id, user_id, Utc::now()).await {
+    match recompute(repos, tenant_id, user_id, Timestamp::now()).await {
         Ok(places) => Some(places),
         Err(e) => {
             warn!(
@@ -483,7 +483,7 @@ async fn recompute(
     repos: &RepositoryRegistry,
     tenant_id: &TenantId,
     user_id: Uuid,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<Vec<AthletePlace>> {
     // Read before the rows: a row synced, or a track drawn, while this runs
     // makes the athlete due again rather than being taken as seen.
@@ -579,10 +579,10 @@ pub(crate) async fn all_rows(
     repos: &RepositoryRegistry,
     tenant_id: &TenantId,
     user_id: Uuid,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<Vec<CachedActivityRow>> {
     let window =
-        CachedRowsQuery::window(DateTime::UNIX_EPOCH, now + Duration::days(1), ROWS_PER_PAGE);
+        CachedRowsQuery::window(Timestamp::UNIX_EPOCH, now + Elapsed::days(1), ROWS_PER_PAGE);
     let mut rows: Vec<CachedActivityRow> = Vec::new();
     loop {
         let query = rows.last().map_or_else(
@@ -715,7 +715,7 @@ fn stored_place(
     previous: Option<&AthletePlace>,
     members: &[&Workout],
     rows: &[CachedActivityRow],
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AthletePlace {
     let athlete_named = previous.filter(|p| p.name_source == Some(PlaceNameSource::Athlete));
     let (name, name_source) = athlete_named.map_or_else(
@@ -780,10 +780,10 @@ fn non_blank(raw: &str) -> Option<String> {
 
 /// How many workouts carry each name, and when the latest of them started.
 #[derive(Default)]
-struct Tally(HashMap<String, (u32, DateTime<Utc>)>);
+struct Tally(HashMap<String, (u32, Timestamp)>);
 
 impl Tally {
-    fn count(&mut self, name: String, started: DateTime<Utc>) {
+    fn count(&mut self, name: String, started: Timestamp) {
         let entry = self.0.entry(name).or_insert((0, started));
         entry.0 += 1;
         entry.1 = entry.1.max(started);
@@ -815,12 +815,11 @@ fn row_key(row: &CachedActivityRow) -> CachedRowKey {
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
     use pierre_core::models::{ActivityBuilder, SportType};
 
     use super::*;
 
-    fn row(provider: &str, id: &str, start: DateTime<Utc>) -> CachedActivityRow {
+    fn row(provider: &str, id: &str, start: Timestamp) -> CachedActivityRow {
         CachedActivityRow {
             provider: provider.to_owned(),
             activity: ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3_600, provider)
@@ -846,8 +845,8 @@ mod tests {
 
     #[test]
     fn a_merged_workout_never_takes_another_providers_activity_that_shares_its_id() {
-        let ride = Utc.with_ymd_and_hms(2025, 6, 1, 8, 0, 0).unwrap();
-        let year_later = Utc.with_ymd_and_hms(2026, 6, 1, 8, 0, 0).unwrap();
+        let ride = Timestamp::parse_from_rfc3339("2025-06-01T08:00:00Z").unwrap();
+        let year_later = Timestamp::parse_from_rfc3339("2026-06-01T08:00:00Z").unwrap();
         // Newest first, as the window read returns them: the unrelated
         // Garmin activity holding id 123 comes before the Strava one.
         let rows = vec![
@@ -875,8 +874,8 @@ mod tests {
 
     #[test]
     fn every_row_takes_exactly_one_workout_its_canonical_copy_first() {
-        let ride = Utc.with_ymd_and_hms(2025, 6, 1, 8, 0, 0).unwrap();
-        let run = Utc.with_ymd_and_hms(2025, 6, 3, 8, 0, 0).unwrap();
+        let ride = Timestamp::parse_from_rfc3339("2025-06-01T08:00:00Z").unwrap();
+        let run = Timestamp::parse_from_rfc3339("2025-06-03T08:00:00Z").unwrap();
         let rows = vec![
             row("strava", "r-1", run),
             row("wahoo", "w-1", ride),

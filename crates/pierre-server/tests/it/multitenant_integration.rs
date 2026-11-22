@@ -146,6 +146,7 @@ use common::placeholder_llm_chain;
 use secrecy::{ExposeSecret, SecretString};
 
 use anyhow::Result;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig as MemoryCacheConfig};
 use pierre_config::environment::{
@@ -389,9 +390,9 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -489,7 +490,7 @@ async fn test_database_encryption() -> Result<()> {
     let user_id = repos.users.create(&user).await?;
 
     // Store encrypted Strava token
-    let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
+    let expires_at = Timestamp::now() + Elapsed::hours(6);
     let oauth_token = UserOAuthToken::new(
         user_id,
         "00000000-0000-0000-0000-000000000000".to_owned(),
@@ -592,7 +593,7 @@ async fn test_user_isolation() -> Result<()> {
     let user2_id = repos.users.create(&user2).await?;
 
     // Store tokens for each user
-    let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
+    let expires_at = Timestamp::now() + Elapsed::hours(6);
 
     let oauth_token1 = UserOAuthToken::new(
         user1_id,

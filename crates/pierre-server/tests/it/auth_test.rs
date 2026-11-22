@@ -10,7 +10,7 @@
 use crate::common;
 use secrecy::{ExposeSecret, SecretString};
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::{
     admin::jwks::JwksManager,
     auth::{
@@ -53,7 +53,7 @@ fn test_generate_and_validate_token() {
     let claims = auth_manager.validate_token(&token, &jwks_manager).unwrap();
     assert_eq!(claims.email, "test@example.com");
     assert_eq!(claims.sub, user.id.to_string());
-    assert!(claims.exp > Utc::now().timestamp());
+    assert!(claims.exp > Timestamp::now().epoch_seconds());
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn test_create_session() {
     assert_eq!(session.user_id, user.id);
     assert_eq!(session.email, "test@example.com");
     assert_ne!(session.jwt_token.expose_secret(), "");
-    assert!(session.expires_at > Utc::now());
+    assert!(session.expires_at > Timestamp::now());
 }
 
 #[test]
@@ -534,8 +534,8 @@ async fn test_session_token_names_the_client_it_was_signed_in_to() {
 
 #[test]
 fn test_jwt_validation_error_display() {
-    let now = Utc::now();
-    let expired_at = now - Duration::minutes(30);
+    let now = Timestamp::now();
+    let expired_at = now - Elapsed::minutes(30);
 
     let error = JwtValidationError::TokenExpired {
         expired_at,

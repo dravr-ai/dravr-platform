@@ -6,7 +6,7 @@
 
 use std::fmt::Write;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::a2a::TaskStatus;
 
@@ -71,7 +71,7 @@ pub(crate) struct TaskListing<'a> {
     /// The context to match.
     pub context_id: Option<&'a str>,
     /// Only tasks whose status moved after this instant.
-    pub updated_after: Option<DateTime<Utc>>,
+    pub updated_after: Option<Timestamp>,
     /// Page size.
     pub limit: Option<u32>,
     /// Page offset.
@@ -185,7 +185,7 @@ macro_rules! impl_a2a_repository {
             let col = |name: &str| -> AppResult<String> {
                 row.try_get(name).map_err(|e| a2a_column_error(name, &e))
             };
-            let stamp = |name: &str| -> AppResult<DateTime<Utc>> {
+            let stamp = |name: &str| -> AppResult<Timestamp> {
                 row.try_get(name).map_err(|e| a2a_column_error(name, &e))
             };
             Ok(A2ASession {
@@ -309,7 +309,7 @@ macro_rules! impl_a2a_repository {
 
             async fn deactivate_client(&self, client_id: &str) -> AppResult<()> {
                 let result = sqlx::query(DEACTIVATE_CLIENT_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(client_id)
                     .execute(self.pool())
                     .await
@@ -322,7 +322,7 @@ macro_rules! impl_a2a_repository {
 
             async fn invalidate_client_sessions(&self, client_id: &str) -> AppResult<()> {
                 sqlx::query(INVALIDATE_CLIENT_SESSIONS_SQL)
-                    .bind(Utc::now() - Duration::hours(1))
+                    .bind(Timestamp::now() - dravr_tronc::dates::Elapsed::hours(1))
                     .bind(client_id)
                     .execute(self.pool())
                     .await
@@ -340,13 +340,13 @@ macro_rules! impl_a2a_repository {
                 expires_in_hours: i64,
             ) -> AppResult<String> {
                 let session_token = format!("sess_{}", Uuid::new_v4());
-                let now = Utc::now();
+                let now = Timestamp::now();
                 sqlx::query(CREATE_SESSION_SQL)
                     .bind(&session_token)
                     .bind(client_id)
                     .bind($ids::bind_opt(user_id.copied()))
                     .bind($lists::bind_csv(granted_scopes))
-                    .bind(now + Duration::hours(expires_in_hours))
+                    .bind(now + dravr_tronc::dates::Elapsed::hours(expires_in_hours))
                     .bind(now)
                     .execute(self.pool())
                     .await
@@ -357,7 +357,7 @@ macro_rules! impl_a2a_repository {
             async fn get_session(&self, session_token: &str) -> AppResult<Option<A2ASession>> {
                 let row = sqlx::query(GET_SESSION_SQL)
                     .bind(session_token)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to query A2A session: {e}")))?;
@@ -366,7 +366,7 @@ macro_rules! impl_a2a_repository {
 
             async fn update_session_activity(&self, session_token: &str) -> AppResult<()> {
                 sqlx::query(TOUCH_SESSION_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(session_token)
                     .execute(self.pool())
                     .await
@@ -379,7 +379,7 @@ macro_rules! impl_a2a_repository {
             async fn get_active_sessions(&self, client_id: &str) -> AppResult<Vec<A2ASession>> {
                 let rows = sqlx::query(ACTIVE_SESSIONS_SQL)
                     .bind(client_id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -407,7 +407,7 @@ macro_rules! impl_a2a_repository {
                     .bind(input_data)
                     .bind(task_status_to_str(&TaskStatus::Submitted))
                     .bind(context_id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to create A2A task: {e}")))?;
@@ -428,7 +428,7 @@ macro_rules! impl_a2a_repository {
                 client_id: Option<&str>,
                 status_filter: Option<&TaskStatus>,
                 context_id: Option<&str>,
-                updated_after: Option<DateTime<Utc>>,
+                updated_after: Option<Timestamp>,
                 limit: Option<u32>,
                 offset: Option<u32>,
             ) -> AppResult<Vec<A2ATask>> {
@@ -482,7 +482,7 @@ macro_rules! impl_a2a_repository {
                     .bind(task_status_to_str(status))
                     .bind(result)
                     .bind(status_message)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -601,7 +601,7 @@ macro_rules! impl_a2a_repository {
             async fn get_client_window_usage(
                 &self,
                 client_id: &str,
-                window_start: DateTime<Utc>,
+                window_start: Timestamp,
             ) -> AppResult<WindowUsage> {
                 // A system-level lookup with no user scoping: the rate
                 // limiter has only the client in hand, and a client id is
@@ -617,7 +617,7 @@ macro_rules! impl_a2a_repository {
                 let count: i64 = row
                     .try_get("count")
                     .map_err(|e| a2a_column_error("count", &e))?;
-                let oldest: Option<DateTime<Utc>> = row
+                let oldest: Option<Timestamp> = row
                     .try_get("oldest")
                     .map_err(|e| a2a_column_error("oldest", &e))?;
                 Ok(WindowUsage {
@@ -629,8 +629,8 @@ macro_rules! impl_a2a_repository {
             async fn get_usage_stats(
                 &self,
                 client_id: &str,
-                start_date: DateTime<Utc>,
-                end_date: DateTime<Utc>,
+                start_date: Timestamp,
+                end_date: Timestamp,
             ) -> AppResult<A2AUsageStats> {
                 let row = sqlx::query(USAGE_STATS_SQL)
                     .bind(client_id)
@@ -651,7 +651,7 @@ macro_rules! impl_a2a_repository {
                 let avg_response_time: Option<f64> = row
                     .try_get("avg_response_time")
                     .map_err(|e| a2a_column_error("avg_response_time", &e))?;
-                let last_request_at: Option<DateTime<Utc>> = row
+                let last_request_at: Option<Timestamp> = row
                     .try_get("last_request_at")
                     .map_err(|e| a2a_column_error("last_request_at", &e))?;
                 Ok(A2AUsageStats {
@@ -671,8 +671,8 @@ macro_rules! impl_a2a_repository {
             async fn get_client_usage_history(
                 &self,
                 client_id: &str,
-                since: DateTime<Utc>,
-            ) -> AppResult<Vec<(DateTime<Utc>, u32, u32)>> {
+                since: Timestamp,
+            ) -> AppResult<Vec<(Timestamp, u32, u32)>> {
                 let rows = sqlx::query(usage_history_sql!($day))
                     .bind(client_id)
                     .bind(since)
@@ -683,7 +683,7 @@ macro_rules! impl_a2a_repository {
                     })?;
                 rows.iter()
                     .map(|row| {
-                        let day: NaiveDate = row
+                        let day: CivilDate = row
                             .try_get("usage_date")
                             .map_err(|e| a2a_column_error("usage_date", &e))?;
                         let count = |name: &str| -> AppResult<u32> {
@@ -691,8 +691,11 @@ macro_rules! impl_a2a_repository {
                                 row.try_get(name).map_err(|e| a2a_column_error(name, &e))?;
                             u32_from_count(value, name)
                         };
+                        let midnight = day.at_midnight().and_utc().map_err(|e| {
+                            AppError::database(format!("usage_date {day} has no UTC midnight: {e}"))
+                        })?;
                         Ok((
-                            day.and_time(NaiveTime::MIN).and_utc(),
+                            midnight,
                             count("success_count")?,
                             count("error_count")?,
                         ))

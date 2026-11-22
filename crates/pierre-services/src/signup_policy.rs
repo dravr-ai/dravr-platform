@@ -23,7 +23,7 @@
 //! admin trips the switch from the console or `pierre-cli settings signup`
 //! and every replica reads it on the next sign-up.
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_config::constants::signup as defaults;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::backends::factory::Database;
@@ -177,7 +177,7 @@ pub async fn set_signup_policy(db: &Database, update: SignupPolicyUpdate) -> App
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CeilingCount {
     /// The window's start: the later of 24 hours ago and the last reset
-    pub since: DateTime<Utc>,
+    pub since: Timestamp,
     /// Accounts created since then, whatever created them
     pub counted: i64,
 }
@@ -185,13 +185,12 @@ pub struct CeilingCount {
 /// When an admin last reset the ceiling's count, `None` when never or when
 /// the row cannot be read or parsed. An unreadable reset counts the full 24
 /// hours, so a database hiccup never widens the ceiling.
-async fn resolve_reset_at(db: &Database) -> Option<DateTime<Utc>> {
+async fn resolve_reset_at(db: &Database) -> Option<Timestamp> {
     match db
         .get_system_setting(SETTING_SIGNUP_DAILY_LIMIT_RESET_AT)
         .await
     {
-        Ok(Some(setting)) => DateTime::parse_from_rfc3339(setting.value.trim())
-            .map(|at| at.with_timezone(&Utc))
+        Ok(Some(setting)) => Timestamp::parse_from_rfc3339(setting.value.trim())
             .map_err(|e| warn!(error = %e, "sign-up reset time is not RFC 3339; ignoring it"))
             .ok(),
         Ok(None) => None,
@@ -204,8 +203,8 @@ async fn resolve_reset_at(db: &Database) -> Option<DateTime<Utc>> {
 
 /// The window the daily ceiling counts in: the last 24 hours, cut short by
 /// an admin's reset inside them.
-pub async fn ceiling_window_start(db: &Database) -> DateTime<Utc> {
-    let day_ago = Utc::now() - Duration::hours(24);
+pub async fn ceiling_window_start(db: &Database) -> Timestamp {
+    let day_ago = Timestamp::now() - Elapsed::hours(24);
     resolve_reset_at(db)
         .await
         .map_or(day_ago, |reset_at| reset_at.max(day_ago))
@@ -228,8 +227,8 @@ pub async fn ceiling_count(db: &Database, users: &dyn UserRepository) -> AppResu
 /// # Errors
 ///
 /// Returns an internal error when the reset cannot be stored.
-pub async fn reset_ceiling_count(db: &Database, by: Option<Uuid>) -> AppResult<DateTime<Utc>> {
-    let now = Utc::now();
+pub async fn reset_ceiling_count(db: &Database, by: Option<Uuid>) -> AppResult<Timestamp> {
+    let now = Timestamp::now();
     db.set_system_setting(SETTING_SIGNUP_DAILY_LIMIT_RESET_AT, &now.to_rfc3339())
         .await
         .map_err(|e| {

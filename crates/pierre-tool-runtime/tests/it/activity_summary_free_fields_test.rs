@@ -10,7 +10,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_tool_runtime::implementations::activity_summary::{summary_json, ActivitySummary};
 use serde_json::{json, Value};
@@ -20,7 +20,7 @@ fn outing(device: Option<&str>) -> Activity {
         "16001",
         "Bûcheronner !",
         SportType::Workout,
-        Utc.with_ymd_and_hms(2026, 11, 7, 13, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-11-07T13:00:00Z").unwrap(),
         13_320,
         "strava",
     )
@@ -65,7 +65,7 @@ fn a_row_without_these_fields_omits_them() {
         "1",
         "Run",
         SportType::Run,
-        Utc.with_ymd_and_hms(2026, 11, 7, 13, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-11-07T13:00:00Z").unwrap(),
         1_800,
         "garmin",
     )

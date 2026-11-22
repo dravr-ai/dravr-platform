@@ -29,33 +29,32 @@ use uuid::Uuid;
 
 /// Everything in this file that names the date engine.
 mod engine {
-    use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+    use dravr_tronc::dates::Elapsed;
 
-    pub(super) type Instant = DateTime<Utc>;
-    pub(super) type CivilDate = NaiveDate;
-    pub(super) type CivilTime = NaiveTime;
-    pub(super) type CivilDateTime = NaiveDateTime;
+    pub(super) use dravr_tronc::dates::{
+        CivilDate, CivilDateTime, CivilTime, Timestamp as Instant,
+    };
 
     const STAMP: &str = "%Y-%m-%dT%H:%M:%S%.9f";
 
     /// A zoneless date-time from `2026-11-17T10:00:05.120000000`.
     pub(super) fn civil(text: &str) -> CivilDateTime {
-        NaiveDateTime::parse_from_str(text, STAMP).unwrap()
+        CivilDateTime::parse_from_str(text, STAMP).unwrap()
     }
 
     /// The UTC instant at that date and time.
     pub(super) fn instant(text: &str) -> Instant {
-        civil(text).and_utc()
+        civil(text).and_utc().unwrap()
     }
 
     /// The same shape back.
     pub(super) fn show(value: Instant) -> String {
-        value.format(STAMP).to_string()
+        value.format(STAMP).unwrap()
     }
 
     /// The same shape for a zoneless date-time.
     pub(super) fn show_civil(value: CivilDateTime) -> String {
-        value.format(STAMP).to_string()
+        value.format(STAMP).unwrap()
     }
 
     /// The date part of a zoneless date-time.
@@ -75,17 +74,17 @@ mod engine {
 
     /// A time of day at nanosecond precision.
     pub(super) fn show_time(value: CivilTime) -> String {
-        value.format("%H:%M:%S%.9f").to_string()
+        value.format("%H:%M:%S%.9f").unwrap()
     }
 
     /// The instant a whole number of days away.
     pub(super) fn plus_days(value: Instant, days: i64) -> Instant {
-        value + Duration::days(days)
+        value + Elapsed::days(days)
     }
 
     /// The instant a whole number of milliseconds away.
     pub(super) fn plus_millis(value: Instant, millis: i64) -> Instant {
-        value + Duration::milliseconds(millis)
+        value + Elapsed::milliseconds(millis)
     }
 }
 

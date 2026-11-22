@@ -379,6 +379,7 @@ pub fn parse_member_reasons<S: BuildHasher>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::DossierFact;
 
     const FLOOR: u32 = 3;
@@ -562,7 +563,7 @@ mod tests {
             object: object.to_owned(),
             confidence: 0.9,
             source: "onboarding".to_owned(),
-            updated_at: chrono::Utc::now(),
+            updated_at: Timestamp::now(),
             valid_until: None,
             stale,
         }
@@ -593,7 +594,7 @@ mod tests {
             object: object.to_owned(),
             confidence: 1.0,
             source: "onboarding".to_owned(),
-            updated_at: chrono::Utc::now(),
+            updated_at: Timestamp::now(),
             valid_until: None,
             stale,
         }

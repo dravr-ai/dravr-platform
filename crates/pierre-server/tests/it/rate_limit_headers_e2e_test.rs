@@ -30,7 +30,7 @@ use axum::http::header::{
 };
 use axum::http::{HeaderMap, Method, Request, StatusCode};
 use axum::Router;
-use chrono::{DateTime, Duration, SubsecRound, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::{stream, StreamExt, TryStreamExt};
 use hmac::{Hmac, Mac};
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage};
@@ -87,8 +87,8 @@ async fn athlete(resources: &Arc<ServerContext>, tier: UserTier, role: UserRole)
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -119,7 +119,7 @@ async fn active_user(resources: &Arc<ServerContext>, tier: UserTier, role: UserR
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     resources.common.repos.users.create(&user).await.unwrap();
     user
 }
@@ -175,7 +175,7 @@ async fn api_key(
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     resources
         .common
@@ -191,7 +191,7 @@ async fn seed_key_calls(
     resources: &Arc<ServerContext>,
     api_key_id: &str,
     count: u32,
-    at: DateTime<Utc>,
+    at: Timestamp,
 ) {
     for i in 0..count {
         resources
@@ -221,7 +221,7 @@ async fn key_calls(resources: &Arc<ServerContext>, api_key_id: &str) -> u32 {
         .common
         .repos
         .usage
-        .get_api_key_window_usage(api_key_id, Utc::now() - Duration::days(1))
+        .get_api_key_window_usage(api_key_id, Timestamp::now() - Elapsed::days(1))
         .await
         .unwrap()
         .count
@@ -241,7 +241,7 @@ async fn seed_jwt_calls(resources: &Arc<ServerContext>, user_id: Uuid, count: u3
                     .record_jwt_usage(&JwtUsage {
                         id: None,
                         user_id,
-                        timestamp: Utc::now(),
+                        timestamp: Timestamp::now(),
                         endpoint: "http:jwt".to_owned(),
                         method: "AUTH".to_owned(),
                         status_code: 200,
@@ -401,10 +401,10 @@ async fn a2a_client(
         capabilities: vec!["fitness-data-analysis".to_owned()],
         redirect_uris: Vec::new(),
         is_active: true,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         rate_limit_requests: limit,
         rate_limit_window_seconds: KEY_WINDOW_SECS,
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common
@@ -433,7 +433,7 @@ async fn seed_a2a_calls(
     resources: &Arc<ServerContext>,
     client_id: &str,
     count: u32,
-    at: DateTime<Utc>,
+    at: Timestamp,
 ) {
     for i in 0..count {
         resources
@@ -580,7 +580,8 @@ async fn test_api_key_request_returns_numeric_rate_limit_headers() {
     let app = ProviderToolRouter::build_http_app(&resources);
     let owner = athlete(&resources, UserTier::Starter, UserRole::User).await;
     let (key, full_key) = api_key(&resources, owner.user.id, ApiKeyTier::Starter, 5, false).await;
-    let seeded_at = Utc::now().trunc_subsecs(0) - Duration::seconds(600);
+    let seeded_at = Timestamp::from_epoch_seconds(Timestamp::now().epoch_seconds()).unwrap()
+        - Elapsed::seconds(600);
     seed_key_calls(&resources, &key.id, 1, seeded_at).await;
 
     let first = send(
@@ -592,7 +593,7 @@ async fn test_api_key_request_returns_numeric_rate_limit_headers() {
     assert_eq!(first.header("x-ratelimit-limit"), Some("5"));
     // One seeded call and this request: 5 - 2
     assert_eq!(first.header("x-ratelimit-remaining"), Some("3"));
-    let expected_reset = (seeded_at + Duration::seconds(i64::from(KEY_WINDOW_SECS))).timestamp();
+    let expected_reset = (seeded_at + Elapsed::seconds(i64::from(KEY_WINDOW_SECS))).epoch_seconds();
     assert!(
         seconds_apart(first.numeric_header("x-ratelimit-reset"), expected_reset) <= 2,
         "the window frees its first slot when the seeded call leaves it"
@@ -621,14 +622,14 @@ async fn test_jwt_bearer_request_returns_numeric_rate_limit_headers() {
     let athlete = athlete(&resources, UserTier::Starter, UserRole::User).await;
     seed_jwt_calls(&resources, athlete.user.id, 3).await;
 
-    let before = next_utc_month_start(Utc::now()).timestamp();
+    let before = next_utc_month_start(Timestamp::now()).epoch_seconds();
     let bearer = format!("Bearer {}", athlete.token);
     let answer = send(
         &app,
         get_with("/api/usage/status", &[("authorization", &bearer)]),
     )
     .await;
-    let after = next_utc_month_start(Utc::now()).timestamp();
+    let after = next_utc_month_start(Timestamp::now()).epoch_seconds();
 
     assert_eq!(answer.status, StatusCode::OK, "{}", answer.body);
     assert_eq!(answer.header("x-ratelimit-limit"), Some("10000"));
@@ -714,11 +715,11 @@ async fn test_an_admin_override_below_the_tier_is_the_enforced_and_reported_limi
     assert_eq!(fourth.header("x-ratelimit-remaining"), Some("0"));
 
     // The fifth is past the override, far below the tier's 10 000
-    let before = next_utc_month_start(Utc::now()).timestamp();
+    let before = next_utc_month_start(Timestamp::now()).epoch_seconds();
     let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
     let fifth = usage_status(&app, &starter).await;
     drop(usage_guard);
-    let after = next_utc_month_start(Utc::now()).timestamp();
+    let after = next_utc_month_start(Timestamp::now()).epoch_seconds();
     assert_one_usage_refusal(
         &usage_lines,
         &UsageRefusal {
@@ -908,10 +909,10 @@ async fn test_jwt_cookie_request_returns_rate_limit_headers() {
     let athlete = athlete(&resources, UserTier::Starter, UserRole::User).await;
     seed_jwt_calls(&resources, athlete.user.id, 3).await;
 
-    let before = next_utc_month_start(Utc::now()).timestamp();
+    let before = next_utc_month_start(Timestamp::now()).epoch_seconds();
     let cookie = format!("{}={}", auth_cookie_name(), athlete.token);
     let answer = send(&app, get_with("/api/usage/status", &[("cookie", &cookie)])).await;
-    let after = next_utc_month_start(Utc::now()).timestamp();
+    let after = next_utc_month_start(Timestamp::now()).epoch_seconds();
 
     assert_eq!(answer.status, StatusCode::OK, "{}", answer.body);
     assert_eq!(answer.header("x-ratelimit-limit"), Some("10000"));
@@ -958,7 +959,8 @@ async fn test_rate_limited_api_key_gets_429_with_retry_after_matching_body() {
     let app = ProviderToolRouter::build_http_app(&resources);
     let owner = athlete(&resources, UserTier::Starter, UserRole::User).await;
     let (key, full_key) = api_key(&resources, owner.user.id, ApiKeyTier::Starter, 2, false).await;
-    let seeded_at = Utc::now().trunc_subsecs(0) - Duration::seconds(600);
+    let seeded_at = Timestamp::from_epoch_seconds(Timestamp::now().epoch_seconds()).unwrap()
+        - Elapsed::seconds(600);
     seed_key_calls(&resources, &key.id, 2, seeded_at).await;
 
     let answer = send(
@@ -966,7 +968,7 @@ async fn test_rate_limited_api_key_gets_429_with_retry_after_matching_body() {
         get_with("/api/usage/status", &[("authorization", &full_key)]),
     )
     .await;
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     assert_eq!(answer.status, StatusCode::TOO_MANY_REQUESTS, "not a 401");
     assert_eq!(answer.body["code"], "RateLimitExceeded");
@@ -976,7 +978,7 @@ async fn test_rate_limited_api_key_gets_429_with_retry_after_matching_body() {
         Some(retry_after),
         "header and body carry one value"
     );
-    let expected = (seeded_at + Duration::seconds(i64::from(KEY_WINDOW_SECS)) - now).num_seconds();
+    let expected = (seeded_at + Elapsed::seconds(i64::from(KEY_WINDOW_SECS)) - now).num_seconds();
     assert!(retry_after >= 1);
     assert!(
         seconds_apart(retry_after, expected) <= 2,
@@ -987,7 +989,7 @@ async fn test_rate_limited_api_key_gets_429_with_retry_after_matching_body() {
     assert!(
         seconds_apart(
             answer.numeric_header("x-ratelimit-reset"),
-            now.timestamp() + retry_after
+            now.epoch_seconds() + retry_after
         ) <= 2
     );
     assert_eq!(
@@ -1007,7 +1009,7 @@ async fn test_rate_limited_jwt_session_restore_and_extractor_get_429_not_401() {
 
     for uri in ["/api/auth/session", "/api/usage/status"] {
         let answer = send(&app, get_with(uri, &[("cookie", &cookie)])).await;
-        let to_reset = (next_utc_month_start(Utc::now()) - Utc::now()).num_seconds();
+        let to_reset = (next_utc_month_start(Timestamp::now()) - Timestamp::now()).num_seconds();
 
         assert_eq!(
             answer.status,
@@ -1109,7 +1111,8 @@ async fn test_superseded_cookie_budget_never_reaches_another_credentials_refusal
     // never the cookie's month.
     let owner = athlete(&resources, UserTier::Starter, UserRole::User).await;
     let (key, full_key) = api_key(&resources, owner.user.id, ApiKeyTier::Starter, 2, false).await;
-    let seeded_at = Utc::now().trunc_subsecs(0) - Duration::seconds(600);
+    let seeded_at = Timestamp::from_epoch_seconds(Timestamp::now().epoch_seconds()).unwrap()
+        - Elapsed::seconds(600);
     seed_key_calls(&resources, &key.id, 2, seeded_at).await;
     let spent = send(
         &app,
@@ -1119,7 +1122,7 @@ async fn test_superseded_cookie_budget_never_reaches_another_credentials_refusal
         ),
     )
     .await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     assert_eq!(
         spent.status,
         StatusCode::TOO_MANY_REQUESTS,
@@ -1130,7 +1133,7 @@ async fn test_superseded_cookie_budget_never_reaches_another_credentials_refusal
     assert_eq!(spent.header("x-ratelimit-limit"), Some("2"));
     assert_eq!(spent.header("x-ratelimit-remaining"), Some("0"));
     let retry_after = spent.numeric_header("retry-after");
-    let expected = (seeded_at + Duration::seconds(i64::from(KEY_WINDOW_SECS)) - now).num_seconds();
+    let expected = (seeded_at + Elapsed::seconds(i64::from(KEY_WINDOW_SECS)) - now).num_seconds();
     assert!(
         seconds_apart(retry_after, expected) <= 2,
         "the key's window, not the cookie's month: retry {retry_after}s, expected about {expected}s"
@@ -1138,7 +1141,7 @@ async fn test_superseded_cookie_budget_never_reaches_another_credentials_refusal
     assert!(
         seconds_apart(
             spent.numeric_header("x-ratelimit-reset"),
-            now.timestamp() + retry_after
+            now.epoch_seconds() + retry_after
         ) <= 2
     );
     assert_eq!(
@@ -1156,7 +1159,7 @@ async fn test_session_restore_reports_the_admitting_credentials_numbers() {
     // The cookie alone admits the request: its month is reported.
     let restoring = athlete(&resources, UserTier::Starter, UserRole::User).await;
     seed_jwt_calls(&resources, restoring.user.id, 3).await;
-    let before = next_utc_month_start(Utc::now()).timestamp();
+    let before = next_utc_month_start(Timestamp::now()).epoch_seconds();
     let by_cookie = send(
         &app,
         get_with(
@@ -1168,7 +1171,7 @@ async fn test_session_restore_reports_the_admitting_credentials_numbers() {
         ),
     )
     .await;
-    let after = next_utc_month_start(Utc::now()).timestamp();
+    let after = next_utc_month_start(Timestamp::now()).epoch_seconds();
     assert_eq!(by_cookie.status, StatusCode::OK, "{}", by_cookie.body);
     assert_eq!(
         by_cookie.body["user"]["id"].as_str(),
@@ -1191,7 +1194,8 @@ async fn test_session_restore_reports_the_admitting_credentials_numbers() {
     seed_jwt_calls(&resources, exhausted.user.id, 10_000).await;
     let owner = athlete(&resources, UserTier::Starter, UserRole::User).await;
     let (key, full_key) = api_key(&resources, owner.user.id, ApiKeyTier::Starter, 5, false).await;
-    let seeded_at = Utc::now().trunc_subsecs(0) - Duration::seconds(600);
+    let seeded_at = Timestamp::from_epoch_seconds(Timestamp::now().epoch_seconds()).unwrap()
+        - Elapsed::seconds(600);
     seed_key_calls(&resources, &key.id, 1, seeded_at).await;
     let by_key = send(
         &app,
@@ -1217,7 +1221,7 @@ async fn test_session_restore_reports_the_admitting_credentials_numbers() {
     assert_eq!(by_key.header("x-ratelimit-limit"), Some("5"));
     // One seeded call and this request: 5 - 2
     assert_eq!(by_key.header("x-ratelimit-remaining"), Some("3"));
-    let expected_reset = (seeded_at + Duration::seconds(i64::from(KEY_WINDOW_SECS))).timestamp();
+    let expected_reset = (seeded_at + Elapsed::seconds(i64::from(KEY_WINDOW_SECS))).epoch_seconds();
     assert!(
         seconds_apart(by_key.numeric_header("x-ratelimit-reset"), expected_reset) <= 2,
         "the key's window frees its first slot when the seeded call leaves it"
@@ -1236,7 +1240,13 @@ async fn test_rate_limited_admin_config_request_gets_429() {
     let app = ProviderToolRouter::build_http_app(&resources);
     let admin = athlete(&resources, UserTier::Starter, UserRole::Admin).await;
     let (key, full_key) = api_key(&resources, admin.user.id, ApiKeyTier::Starter, 1, false).await;
-    seed_key_calls(&resources, &key.id, 1, Utc::now() - Duration::seconds(60)).await;
+    seed_key_calls(
+        &resources,
+        &key.id,
+        1,
+        Timestamp::now() - Elapsed::seconds(60),
+    )
+    .await;
 
     let answer = send(
         &app,
@@ -1602,11 +1612,12 @@ async fn test_exhausted_key_on_mcp_gets_429_with_retry_after_not_invalid_token()
     let app = ProviderToolRouter::build_http_app(&resources);
     let owner = athlete(&resources, UserTier::Starter, UserRole::User).await;
     let (key, full_key) = api_key(&resources, owner.user.id, ApiKeyTier::Starter, 1, false).await;
-    let seeded_at = Utc::now().trunc_subsecs(0) - Duration::seconds(600);
+    let seeded_at = Timestamp::from_epoch_seconds(Timestamp::now().epoch_seconds()).unwrap()
+        - Elapsed::seconds(600);
     seed_key_calls(&resources, &key.id, 1, seeded_at).await;
 
     let post = send(&app, mcp_ping(Some(&full_key))).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     assert_eq!(
         post.status,
         StatusCode::TOO_MANY_REQUESTS,
@@ -1624,7 +1635,7 @@ async fn test_exhausted_key_on_mcp_gets_429_with_retry_after_not_invalid_token()
         "header and JSON-RPC error carry one value: {}",
         post.body
     );
-    let expected = (seeded_at + Duration::seconds(i64::from(KEY_WINDOW_SECS)) - now).num_seconds();
+    let expected = (seeded_at + Elapsed::seconds(i64::from(KEY_WINDOW_SECS)) - now).num_seconds();
     assert!(
         seconds_apart(retry_after, expected) <= 2,
         "retry {retry_after}s, expected about {expected}s"
@@ -1727,7 +1738,7 @@ async fn test_a2a_user_jwt_reports_its_budget_and_a_spent_one_gets_429() {
         a2a_request(&mcp_grant(&resources, &exhausted), "GetExtendedAgentCard"),
     )
     .await;
-    let to_reset = (next_utc_month_start(Utc::now()) - Utc::now()).num_seconds();
+    let to_reset = (next_utc_month_start(Timestamp::now()) - Timestamp::now()).num_seconds();
     assert_eq!(
         refused.status,
         StatusCode::TOO_MANY_REQUESTS,
@@ -1769,9 +1780,10 @@ async fn test_a2a_client_token_spends_its_clients_window_and_a_spent_one_gets_42
     let app = ProviderToolRouter::build_http_app(&resources);
     let owner = athlete(&resources, UserTier::Starter, UserRole::User).await;
     let (client, token) = a2a_client(&resources, &owner, 3).await;
-    let seeded_at = Utc::now().trunc_subsecs(0) - Duration::seconds(600);
+    let seeded_at = Timestamp::from_epoch_seconds(Timestamp::now().epoch_seconds()).unwrap()
+        - Elapsed::seconds(600);
     seed_a2a_calls(&resources, &client.id, 1, seeded_at).await;
-    let expected_reset = (seeded_at + Duration::seconds(i64::from(KEY_WINDOW_SECS))).timestamp();
+    let expected_reset = (seeded_at + Elapsed::seconds(i64::from(KEY_WINDOW_SECS))).epoch_seconds();
 
     let card = send(&app, a2a_request(&token, "GetExtendedAgentCard")).await;
     assert_eq!(card.status, StatusCode::OK, "{}", card.body);
@@ -1803,7 +1815,7 @@ async fn test_a2a_client_token_spends_its_clients_window_and_a_spent_one_gets_42
     let (usage_lines, usage_guard) = capture_target(usage_log::TARGET);
     let refused = send(&app, a2a_request(&token, "GetExtendedAgentCard")).await;
     drop(usage_guard);
-    let now = Utc::now();
+    let now = Timestamp::now();
     assert_eq!(
         refused.status,
         StatusCode::TOO_MANY_REQUESTS,
@@ -1825,7 +1837,7 @@ async fn test_a2a_client_token_spends_its_clients_window_and_a_spent_one_gets_42
         "the token is good, the budget is spent"
     );
     let retry_after = refused.numeric_header("retry-after");
-    let expected_wait = expected_reset - now.timestamp();
+    let expected_wait = expected_reset - now.epoch_seconds();
     assert!(
         seconds_apart(retry_after, expected_wait) <= 2,
         "retry {retry_after}s, the seeded call leaves the window in {expected_wait}s"

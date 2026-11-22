@@ -31,7 +31,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_document::{
@@ -136,7 +136,7 @@ async fn super_admin_with_account(context: &AdminApiContext) -> ValidatedAdminTo
     }
 }
 
-fn revision(expected: Option<DateTime<Utc>>) -> ExpectedRevision {
+fn revision(expected: Option<Timestamp>) -> ExpectedRevision {
     expected.map_or(ExpectedRevision::NoRow, ExpectedRevision::At)
 }
 
@@ -159,7 +159,7 @@ fn put_request(
 /// A save from an editor that read `expected`.
 fn save(
     document: &GuardianConfigDocument,
-    expected: Option<DateTime<Utc>>,
+    expected: Option<Timestamp>,
 ) -> Json<GuardianConfigPutRequest> {
     put_request(document, revision(expected))
 }
@@ -174,12 +174,10 @@ async fn get_config(context: &Arc<AdminApiContext>) -> Value {
 }
 
 /// The concurrency token as a client echoes it: the `updated_at` text.
-fn token_of(response: &Value) -> Option<DateTime<Utc>> {
-    response["updated_at"].as_str().map(|text| {
-        DateTime::parse_from_rfc3339(text)
-            .expect("updated_at is RFC 3339")
-            .with_timezone(&Utc)
-    })
+fn token_of(response: &Value) -> Option<Timestamp> {
+    response["updated_at"]
+        .as_str()
+        .map(|text| Timestamp::parse_from_rfc3339(text).expect("updated_at is RFC 3339"))
 }
 
 /// A document whose destructive cap is away from the default.

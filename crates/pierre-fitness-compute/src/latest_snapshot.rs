@@ -22,10 +22,10 @@
 //! as `None`, in line with the Endurance deterministic-output rule
 //! that forbids virtual math.
 
-use chrono::{DateTime, Duration, Utc};
 use dravr_cageux::models::activity::Activity;
 use dravr_cageux::visitor::{DecouplingDetector, NormalizedPowerCalculator, TimeSeriesExt};
 use dravr_cageux::zones::HrZones;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::zones::{HrZonesUnavailable, ZoneDistribution};
 use serde::{Deserialize, Serialize};
 
@@ -62,7 +62,7 @@ pub struct LatestSnapshotActivityRow {
     /// Provider activity id.
     pub activity_id: String,
     /// Activity start time (UTC).
-    pub start_date: DateTime<Utc>,
+    pub start_date: Timestamp,
     /// Sport type label (`run`, `ride`, `swim`, …).
     pub sport: String,
     /// Total distance in metres.
@@ -97,9 +97,9 @@ pub struct LatestSnapshot {
     /// Window length in days that was analysed.
     pub window_days: u32,
     /// Inclusive start of the window (UTC).
-    pub window_start: DateTime<Utc>,
+    pub window_start: Timestamp,
     /// Inclusive end of the window (UTC).
-    pub window_end: DateTime<Utc>,
+    pub window_end: Timestamp,
     /// Number of activities considered.
     pub activity_count: usize,
     /// Sum of distances across the activities (metres).
@@ -150,13 +150,13 @@ pub fn build_latest_snapshot(
     hr_zones: Result<&HrZones, &HrZonesUnavailable>,
 ) -> LatestSnapshot {
     let window_days = window_days.clamp(1, MAX_WINDOW_DAYS);
-    let now = Utc::now();
+    let now = Timestamp::now();
     let anchor = activities
         .iter()
         .map(Activity::start_date)
         .max()
         .unwrap_or(now);
-    let window_start = anchor - Duration::days(i64::from(window_days));
+    let window_start = anchor - Elapsed::days(i64::from(window_days));
 
     let mut filtered: Vec<&Activity> = activities
         .iter()

@@ -10,12 +10,12 @@
 //! - Ingredient unit conversion
 //! - Recipe scaling and validation
 
-use chrono::Utc;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_cageux::recipes::{
     convert_to_grams, ConversionError, IngredientUnit, MacroTargets, MacroTargetsExt, MealTiming,
     Recipe, RecipeIngredient, ValidatedNutrition,
 };
+use dravr_tronc::dates::Timestamp;
 use uuid::Uuid;
 
 // ============================================================================
@@ -268,7 +268,7 @@ fn test_validated_nutrition_meets_targets() {
         fiber_g: Some(5.0),
         sodium_mg: None,
         sugar_g: None,
-        validated_at: Utc::now(),
+        validated_at: Timestamp::now(),
     };
 
     // Within 10% tolerance

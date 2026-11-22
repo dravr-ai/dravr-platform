@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use embacle::types::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider as EmbacleLlmProvider,
     RunnerError, TokenUsage,
@@ -274,7 +274,7 @@ async fn a_resumed_extraction_bills_the_usage_tenant_its_row_recorded() {
     let repos = db.repositories();
     let (provider, log) = copilot_sdk_head("[]");
     let user_id = Uuid::new_v4().to_string();
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let stale = |tenant_id: TenantId,
                  usage_tenant_id: Option<TenantId>,
                  turn: ConversationTurnId| MemoryExtractionJobRow {

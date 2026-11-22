@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::periodization::{
     Contraindication, EvidenceTier, Frames, ParamRange, PhaseFit, PhaseKind, Progression,
     ProgressionLever, ReadinessLevel, Regression, RpeRange, WorkoutParams, WorkoutPurpose,
@@ -98,7 +98,7 @@ fn sample_template(tenant_id: TenantId, user_id: Uuid, slug: &str) -> WorkoutTem
         constraints: Vec::new(),
         regression: Regression::default(),
         frame: Frames::default(),
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -186,7 +186,7 @@ async fn upsert_with_same_id_updates_in_place() {
 
     template.duration_minutes = 90;
     template.name = "Ramped intervals — v2".to_owned();
-    template.updated_at = Utc::now();
+    template.updated_at = Timestamp::now();
     repos
         .workout_templates
         .upsert_workout_template(&template)
@@ -274,7 +274,7 @@ async fn list_orders_newest_first() {
     let repos = db.repositories();
     for i in 0..3 {
         let mut template = sample_template(tenant_id, user_id, &format!("ordered_{i}"));
-        template.updated_at = Utc::now();
+        template.updated_at = Timestamp::now();
         repos
             .workout_templates
             .upsert_workout_template(&template)
@@ -537,7 +537,7 @@ async fn upsert_replaces_the_catalogue_fields_in_place() {
         .progression
         .order
         .push(ProgressionLever::RaiseIntensity);
-    template.updated_at = Utc::now();
+    template.updated_at = Timestamp::now();
     repos
         .workout_templates
         .upsert_workout_template(&template)

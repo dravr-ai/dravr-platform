@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, PlaceRef, TenantId};
 use serde_json::Value;
@@ -94,10 +94,10 @@ pub struct CaptureFreshness {
     pub provider: String,
     /// When this connection last served the athlete — live fetch or cache alike.
     /// `None` for a connection that has never served.
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<Timestamp>,
     /// When a fetch last actually reached the provider. `None` when no
     /// successful fetch has ever been recorded for this connection.
-    pub last_fetch_at: Option<DateTime<Utc>>,
+    pub last_fetch_at: Option<Timestamp>,
 }
 
 /// A cached activity with the provider key its row is stored under and what
@@ -130,7 +130,7 @@ pub struct CachedActivityRow {
     /// When the row was first written to the store (its `created_at`, which
     /// no later write of the same activity moves); `None` for a row built
     /// in memory, never read from the store.
-    pub stored_at: Option<DateTime<Utc>>,
+    pub stored_at: Option<Timestamp>,
     /// The place the row's start belongs to, as served; `None` when the row
     /// has none, its `place_id` names a place that no longer exists, or the
     /// row was built in memory.
@@ -155,7 +155,7 @@ pub struct StoredActivityRow {
     /// The activity the row's `data_json` holds.
     pub activity: Activity,
     /// The row's `synced_at`.
-    pub synced_at: DateTime<Utc>,
+    pub synced_at: Timestamp,
 }
 
 /// Persistence for activities fetched from any provider, enabling
@@ -185,7 +185,7 @@ pub trait ActivityCacheRepository: Send + Sync {
         provider: &str,
         activities: &[Activity],
     ) -> AppResult<u64> {
-        self.upsert_activities_synced_at(user_id, tenant_id, provider, activities, Utc::now())
+        self.upsert_activities_synced_at(user_id, tenant_id, provider, activities, Timestamp::now())
             .await
     }
 
@@ -208,7 +208,7 @@ pub trait ActivityCacheRepository: Send + Sync {
         tenant_id: &TenantId,
         provider: &str,
         activities: &[Activity],
-        synced_at: DateTime<Utc>,
+        synced_at: Timestamp,
     ) -> AppResult<u64>;
 
     /// Fill the tags and gear a provider's own list page carries into the
@@ -238,8 +238,8 @@ pub trait ActivityCacheRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: &TenantId,
         provider: Option<&str>,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
         limit: i64,
     ) -> AppResult<Vec<Activity>>;
 
@@ -285,7 +285,7 @@ pub trait ActivityCacheRepository: Send + Sync {
         provider: &str,
         activity_id: &str,
         detail: &ActivityDetail,
-        recheck_at: Option<DateTime<Utc>>,
+        recheck_at: Option<Timestamp>,
     ) -> AppResult<bool>;
 
     /// Delete one cached activity the athlete deleted on its provider.
@@ -327,7 +327,7 @@ pub trait ActivityCacheRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: &TenantId,
         provider: &str,
-    ) -> AppResult<Option<DateTime<Utc>>>;
+    ) -> AppResult<Option<Timestamp>>;
 
     /// Most recent successful activity fetch for a user across **every**
     /// provider — the later of the cached rows' `synced_at` and the fetch
@@ -344,7 +344,7 @@ pub trait ActivityCacheRepository: Send + Sync {
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
-    ) -> AppResult<Option<DateTime<Utc>>>;
+    ) -> AppResult<Option<Timestamp>>;
 
     /// When the user's most recent cached activity in `tenant_id` started,
     /// whatever its source; `None` with nothing cached. Reads the cache only,
@@ -353,7 +353,7 @@ pub trait ActivityCacheRepository: Send + Sync {
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
-    ) -> AppResult<Option<DateTime<Utc>>>;
+    ) -> AppResult<Option<Timestamp>>;
 
     /// The oldest start among the user's cached activities under `provider`
     /// in `tenant_id`, or `None` when the key holds none: how far back the
@@ -363,7 +363,7 @@ pub trait ActivityCacheRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: &TenantId,
         provider: &str,
-    ) -> AppResult<Option<DateTime<Utc>>>;
+    ) -> AppResult<Option<Timestamp>>;
 
     /// The user-provided keys (`USER_PROVIDED_PROVIDERS`: uploads, imported
     /// archives) under which the user holds at least one cached activity in
@@ -416,7 +416,7 @@ pub trait ActivityCacheRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: &TenantId,
         provider: &str,
-        fetched_at: DateTime<Utc>,
+        fetched_at: Timestamp,
     ) -> AppResult<()>;
 
     /// Record that a provider activity fetch did not count as a sync, as
@@ -552,7 +552,7 @@ macro_rules! impl_activity_cache_repository {
             user_id: &str,
             tenant_id: &str,
             provider: Option<&str>,
-        ) -> AppResult<Option<DateTime<Utc>>> {
+        ) -> AppResult<Option<Timestamp>> {
             // `fetched_at` is RFC3339 UTC text on SQLite, so its lexical DESC
             // order is also the chronological one — the same assumption the
             // `synced_at` reads make.
@@ -613,7 +613,7 @@ macro_rules! impl_activity_cache_repository {
                 tenant_id: &TenantId,
                 provider: &str,
                 activities: &[Activity],
-                synced_at: DateTime<Utc>,
+                synced_at: Timestamp,
             ) -> AppResult<u64> {
                 let user_id_str = user_id.to_string();
                 let tenant_str = tenant_id.to_string();
@@ -760,8 +760,8 @@ macro_rules! impl_activity_cache_repository {
                 user_id: Uuid,
                 tenant_id: &TenantId,
                 provider: Option<&str>,
-                start: DateTime<Utc>,
-                end: DateTime<Utc>,
+                start: Timestamp,
+                end: Timestamp,
                 limit: i64,
             ) -> AppResult<Vec<Activity>> {
                 let rows = sqlx::query(GET_CACHED_ACTIVITIES_SQL)
@@ -803,7 +803,7 @@ macro_rules! impl_activity_cache_repository {
                     .bind(query.start)
                     .bind(query.end)
                     .bind(query.limit)
-                    .bind(Utc::now());
+                    .bind(Timestamp::now());
                 if let Some(below) = &query.below {
                     read = read
                         .bind(below.start_date)
@@ -845,7 +845,7 @@ macro_rules! impl_activity_cache_repository {
                 user_id: Uuid,
                 tenant_id: &TenantId,
                 provider: &str,
-            ) -> AppResult<Option<DateTime<Utc>>> {
+            ) -> AppResult<Option<Timestamp>> {
                 let user_id_str = user_id.to_string();
                 let row = sqlx::query(LATEST_PROVIDER_SYNC_SQL)
                     .bind(&user_id_str)
@@ -867,7 +867,7 @@ macro_rules! impl_activity_cache_repository {
                 &self,
                 user_id: Uuid,
                 tenant_id: &TenantId,
-            ) -> AppResult<Option<DateTime<Utc>>> {
+            ) -> AppResult<Option<Timestamp>> {
                 let row = sqlx::query(LATEST_ACTIVITY_START_SQL)
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
@@ -884,7 +884,7 @@ macro_rules! impl_activity_cache_repository {
                 user_id: Uuid,
                 tenant_id: &TenantId,
                 provider: &str,
-            ) -> AppResult<Option<DateTime<Utc>>> {
+            ) -> AppResult<Option<Timestamp>> {
                 let row = sqlx::query(OLDEST_PROVIDER_START_SQL)
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
@@ -901,7 +901,7 @@ macro_rules! impl_activity_cache_repository {
                 &self,
                 user_id: Uuid,
                 tenant_id: &TenantId,
-            ) -> AppResult<Option<DateTime<Utc>>> {
+            ) -> AppResult<Option<Timestamp>> {
                 let user_id_str = user_id.to_string();
                 // `synced_at` is RFC3339 UTC text on SQLite, so the lexical DESC
                 // order is also the chronological one — the same assumption every
@@ -1001,7 +1001,7 @@ macro_rules! impl_activity_cache_repository {
                 user_id: Uuid,
                 tenant_id: &TenantId,
                 provider: &str,
-                fetched_at: DateTime<Utc>,
+                fetched_at: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(record_activity_fetch_sql!($uuid))
                     .bind(tenant_id.to_string())
@@ -1065,7 +1065,7 @@ macro_rules! impl_activity_cache_repository {
                 provider: &str,
                 activity_id: &str,
                 detail: &ActivityDetail,
-                recheck_at: Option<DateTime<Utc>>,
+                recheck_at: Option<Timestamp>,
             ) -> AppResult<bool> {
                 let detail_json = serde_json::to_string(detail).map_err(|e| {
                     AppError::database(format!("Failed to serialize activity detail: {e}"))
@@ -1138,7 +1138,7 @@ macro_rules! impl_activity_cache_repository {
                     .bind(provider)
                     .bind(coverage.oldest_reached_ts)
                     .bind(coverage.hit_feed_end)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(i64::from(coverage.capture_version))
                     .execute(self.pool())
                     .await

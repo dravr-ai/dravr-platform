@@ -27,8 +27,8 @@ use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
 use base64::{engine::general_purpose, Engine as _};
-use chrono::Utc;
 use common::{create_test_server_resources_with_config, create_test_tenant};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use jsonwebtoken::dangerous::insecure_decode;
 use jsonwebtoken::{encode, Algorithm, Header};
@@ -851,8 +851,8 @@ async fn a_grant_acts_in_the_tenant_it_was_authorized_in() {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -1106,7 +1106,7 @@ async fn validate_and_refresh(
 fn expired(resources: &Arc<ServerContext>, token: &str) -> String {
     let mut claims = insecure_decode::<Claims>(token).unwrap().claims;
     claims.iat -= 7200;
-    claims.exp = Utc::now().timestamp() - 3600;
+    claims.exp = Timestamp::now().epoch_seconds() - 3600;
     let key = resources.auth.jwks_manager.get_active_key().unwrap();
     let mut header = Header::new(Algorithm::RS256);
     header.kid = Some(key.kid.clone());

@@ -24,6 +24,7 @@ use pierre_auth::auth::AuthResult;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::usage::{
@@ -187,7 +188,7 @@ impl LlmConsumptionRoutes {
     /// Compute the ISO 8601 cutoff timestamp for the given number of days ago
     fn compute_since(days: u16) -> String {
         let clamped = days.clamp(MIN_DAYS, MAX_DAYS);
-        let since = chrono::Utc::now() - chrono::Duration::days(i64::from(clamped));
+        let since = Timestamp::now() - Elapsed::days(i64::from(clamped));
         since.to_rfc3339()
     }
 

@@ -6,7 +6,7 @@
 
 use crate::http::oauth_client;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::network_config::OAUTH_CODE_VERIFIER_LENGTH;
 use pierre_core::constants::time::DEFAULT_TOKEN_EXPIRY_SECONDS;
 use pierre_core::errors::{AppError, AppResult};
@@ -96,7 +96,7 @@ pub struct OAuth2Token {
     /// Token type (usually "Bearer")
     pub token_type: String,
     /// Expiration timestamp (UTC)
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Optional refresh token for getting new access tokens
     #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
     pub refresh_token: Option<SecretString>,
@@ -114,7 +114,7 @@ impl OAuth2Token {
     #[must_use]
     pub fn is_expired(&self) -> bool {
         self.expires_at
-            .is_some_and(|expires_at| expires_at <= Utc::now())
+            .is_some_and(|expires_at| expires_at <= Timestamp::now())
     }
 }
 
@@ -353,8 +353,8 @@ impl OAuth2Client {
     #[must_use]
     fn token_from_response(response: TokenResponse) -> OAuth2Token {
         let expires_at = response.expires_in.map(|seconds| {
-            Utc::now()
-                + Duration::seconds(i64::try_from(seconds).unwrap_or(DEFAULT_TOKEN_EXPIRY_SECONDS))
+            Timestamp::now()
+                + Elapsed::seconds(i64::try_from(seconds).unwrap_or(DEFAULT_TOKEN_EXPIRY_SECONDS))
         });
 
         // Capture the provider-side owner id when the response carries one:

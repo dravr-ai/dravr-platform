@@ -20,7 +20,7 @@
 //! contract (inject fresh data just before the ask; never inject over an empty
 //! window; inject conservatively when the window cannot be parsed).
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::stages::prefetch::{
     build_prefetch_params, get_startup_context_if_applicable, inject_activity_refresh,
     should_refresh_activity_context, startup_query_preview, turn_history_len, window_scope_note,
@@ -656,7 +656,7 @@ fn the_window_states_its_own_bounds() {
         analysis_type: "race_preparation".to_owned(),
     };
     // The turn's own clock: 2026-09-21 16:51 UTC, sixteen weeks after June 1.
-    let now = Utc.with_ymd_and_hms(2026, 9, 21, 16, 51, 36).unwrap();
+    let now = Timestamp::parse_from_rfc3339("2026-09-21T16:51:36Z").unwrap();
 
     let note = window_scope_note(&sixteen_weeks, now);
 
@@ -685,7 +685,7 @@ fn a_count_only_window_is_stated_as_a_count() {
         mode: "summary".to_owned(),
         analysis_type: "general_overview".to_owned(),
     };
-    let now = Utc.with_ymd_and_hms(2026, 9, 21, 16, 51, 36).unwrap();
+    let now = Timestamp::parse_from_rfc3339("2026-09-21T16:51:36Z").unwrap();
 
     let note = window_scope_note(&open_ended, now);
 

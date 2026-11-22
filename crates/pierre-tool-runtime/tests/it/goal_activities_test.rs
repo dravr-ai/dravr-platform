@@ -11,7 +11,7 @@
 //! riding read as 300% of a 100 km running goal. The goal now carries its
 //! sport and `track_progress` counts through `activities_toward_goal`.
 
-use chrono::{DateTime, Duration, FixedOffset, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_tool_runtime::implementations::goals_spec::activities_toward_goal;
 
@@ -20,7 +20,7 @@ fn activity(id: &str, sport: SportType, days_ago: i64) -> Activity {
         id.to_owned(),
         format!("session {id}"),
         sport,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3_600,
         "strava".to_owned(),
     )
@@ -32,8 +32,8 @@ fn ids(activities: &[&Activity]) -> Vec<String> {
     activities.iter().map(|a| a.id().to_owned()).collect()
 }
 
-fn set_days_ago(days: i64) -> DateTime<FixedOffset> {
-    (Utc::now() - Duration::days(days)).fixed_offset()
+fn set_days_ago(days: i64) -> Timestamp {
+    Timestamp::now() - Elapsed::days(days)
 }
 
 fn history() -> Vec<Activity> {

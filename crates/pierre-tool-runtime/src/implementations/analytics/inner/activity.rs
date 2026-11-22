@@ -41,6 +41,7 @@ use serde_json::{json, Value};
 use tracing::warn;
 use uuid::Uuid;
 
+use dravr_tronc::dates::Timestamp;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -169,7 +170,7 @@ fn create_intelligence_response(
     let analysis = ActivityIntelligenceResult {
         activity_id: activity_id.to_owned(),
         activity_type: format!("{:?}", activity.sport_type()),
-        timestamp: chrono::Utc::now().to_rfc3339(),
+        timestamp: Timestamp::now().to_rfc3339(),
         intelligence,
         performance_metrics: ActivityPerformanceMetrics {
             distance_km: activity.distance_meters().map(|d| d / METERS_PER_KM),
@@ -287,7 +288,7 @@ async fn fetch_and_analyze_activity(
                             .map(|a| {
                                 format!(
                                     "- {} (ID: {}): {} - {:?}",
-                                    a.start_date().format("%Y-%m-%d"),
+                                    a.start_date().utc_date(),
                                     a.id(),
                                     display_line(a.name(), ACTIVITY_NAME_MAX_CHARS),
                                     a.sport_type()
@@ -316,10 +317,7 @@ async fn fetch_and_analyze_activity(
                                 most_recent.name(),
                                 ACTIVITY_NAME_MAX_CHARS,
                             ),
-                            selected_activity_date: most_recent
-                                .start_date()
-                                .format("%Y-%m-%d")
-                                .to_string(),
+                            selected_activity_date: most_recent.start_date().utc_date().to_string(),
                             available_activities: activity_list,
                         });
 
@@ -654,7 +652,7 @@ mod tests {
     use std::error::Error;
 
     use async_trait::async_trait;
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_core::errors::{AppError, AppResult};
     use pierre_core::models::activity::ActivityBuilder;
     use pierre_core::models::{Athlete, SportType};
@@ -665,9 +663,16 @@ mod tests {
     use super::*;
 
     fn run_at(avg_hr: u32) -> Activity {
-        ActivityBuilder::new("run-1", "Run", SportType::Run, Utc::now(), 3600, "test")
-            .average_heart_rate(avg_hr)
-            .build()
+        ActivityBuilder::new(
+            "run-1",
+            "Run",
+            SportType::Run,
+            Timestamp::now(),
+            3600,
+            "test",
+        )
+        .average_heart_rate(avg_hr)
+        .build()
     }
 
     const HIGH_INTENSITY: &str = "High-intensity effort detected - monitor recovery";
@@ -751,7 +756,7 @@ mod tests {
             &self,
             _: &ActivityQueryParams,
         ) -> AppResult<Vec<Activity>> {
-            let start = Utc::now() - Duration::hours(3);
+            let start = Timestamp::now() - Elapsed::hours(3);
             let main = ActivityBuilder::new(
                 "main",
                 "Morning Run",
@@ -766,7 +771,7 @@ mod tests {
                 "warm-up",
                 "Morning Run",
                 SportType::Run,
-                start + Duration::seconds(3_482),
+                start + Elapsed::seconds(3_482),
                 120,
                 "garmin",
             )

@@ -32,7 +32,7 @@ use axum::{
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::google_oidc::{
     google_callback_url, GoogleIdentity, GoogleOidcClient, GOOGLE_PROVIDER, GOOGLE_SIGN_IN_TTL,
 };
@@ -145,7 +145,7 @@ impl GoogleSignIn {
         else {
             return OpenedTransaction::Refused;
         };
-        if transaction.expires_at <= Utc::now().timestamp() {
+        if transaction.expires_at <= Timestamp::now().epoch_seconds() {
             return OpenedTransaction::Expired;
         }
         if !state.is_some_and(|s| secrets_equal(s.as_bytes(), transaction.state.as_bytes())) {
@@ -197,7 +197,7 @@ impl OAuth2Routes {
             Ok(start) => start,
             Err(e) => return no_store(Self::google_refusal(&e, &text)),
         };
-        let expires_at = Utc::now().timestamp()
+        let expires_at = Timestamp::now().epoch_seconds()
             + i64::try_from(GOOGLE_SIGN_IN_TTL.as_secs()).unwrap_or(i64::MAX);
         let transaction = GoogleSignInTransaction {
             state: start.state,

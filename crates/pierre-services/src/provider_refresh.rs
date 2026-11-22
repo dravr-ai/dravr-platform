@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 #[cfg(feature = "health-sync")]
 use futures_util::future::join_all;
 use pierre_core::errors::AppError;
@@ -199,7 +199,7 @@ impl RefreshService {
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
-    ) -> Option<chrono::DateTime<Utc>> {
+    ) -> Option<Timestamp> {
         // Without the `health-sync` feature there is no orchestrator at all, so
         // every provider is on-demand and sources its freshness from the cache.
         #[cfg(feature = "health-sync")]
@@ -309,7 +309,7 @@ impl RefreshService {
             }
 
             let age = pf.last_sync_at.map_or(Duration::from_secs(u64::MAX), |ts| {
-                let delta = Utc::now().signed_duration_since(ts);
+                let delta = Timestamp::now().signed_duration_since(ts);
                 if delta.num_seconds() < 0 {
                     Duration::ZERO
                 } else {
@@ -372,7 +372,7 @@ impl RefreshService {
                     // Reflect the just-completed sync so build_agent_hint
                     // (which reads .freshness) treats it as Fresh and
                     // omits the stale-data warning.
-                    pf.last_sync_at = Some(Utc::now());
+                    pf.last_sync_at = Some(Timestamp::now());
                     pf.freshness = DataFreshness::Fresh;
                     fresh.push(pf.provider.clone());
                 } else {
@@ -487,7 +487,7 @@ impl RefreshService {
         for pf in &stale_providers {
             let age_str = pf.last_sync_at.map_or_else(
                 || "never synced".to_owned(),
-                |ts| format_age(Utc::now().signed_duration_since(ts)),
+                |ts| format_age(Timestamp::now().signed_duration_since(ts)),
             );
             let _ = writeln!(hint, "- {}: {} ({})", pf.provider, pf.freshness, age_str);
         }
@@ -680,7 +680,7 @@ impl RefreshService {
                         user_id,
                         tenant_id,
                         &sync_backend(provider),
-                        Utc::now(),
+                        Timestamp::now(),
                     )
                     .await
                 {
@@ -886,8 +886,8 @@ pub fn user_facing_providers(providers: &[String]) -> Vec<String> {
     named
 }
 
-/// Format a chrono Duration as a human-readable age string.
-fn format_age(duration: chrono::Duration) -> String {
+/// Format an [`Elapsed`] as a human-readable age string.
+fn format_age(duration: Elapsed) -> String {
     let total_secs = duration.num_seconds();
     if total_secs < 0 {
         return "just now".to_owned();
@@ -1028,10 +1028,10 @@ impl SyncMetrics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Duration as ChronoDuration;
+    use dravr_tronc::dates::Elapsed;
 
     fn row(provider: &str, days_ago: Option<i64>) -> ProviderFreshness {
-        let last_sync_at = days_ago.map(|days| Utc::now() - ChronoDuration::days(days));
+        let last_sync_at = days_ago.map(|days| Timestamp::now() - Elapsed::days(days));
         ProviderFreshness {
             provider: provider.to_owned(),
             last_sync_at,

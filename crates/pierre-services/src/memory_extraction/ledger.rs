@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
@@ -43,7 +43,7 @@ pub(super) async fn record_extraction_run(
         tenant_id,
         outcome,
         facts_persisted: facts,
-        finished_at_ms: Utc::now().timestamp_millis(),
+        finished_at_ms: Timestamp::now().epoch_millis(),
     };
     if let Err(e) = jobs.record_extraction_run(&record).await {
         warn!(error = %e, "extraction run could not be recorded");
@@ -66,7 +66,7 @@ pub(super) async fn record_extraction_job(
             return None;
         }
     };
-    let now = Utc::now().timestamp_millis();
+    let now = Timestamp::now().epoch_millis();
     let lease_ms = i64::try_from(EXTRACTION_JOB_LEASE.as_millis()).unwrap_or(i64::MAX);
     let row = MemoryExtractionJobRow {
         id: Uuid::new_v4().to_string(),
@@ -121,7 +121,7 @@ pub(crate) fn keep_extraction_lease(
         let lease_ms = i64::try_from(EXTRACTION_JOB_LEASE.as_millis()).unwrap_or(i64::MAX);
         loop {
             sleep(EXTRACTION_LEASE_RENEWAL).await;
-            let until = Utc::now().timestamp_millis().saturating_add(lease_ms);
+            let until = Timestamp::now().epoch_millis().saturating_add(lease_ms);
             match jobs.renew_extraction_job_lease(&lease, until).await {
                 Ok(true) => {}
                 Ok(false) => {

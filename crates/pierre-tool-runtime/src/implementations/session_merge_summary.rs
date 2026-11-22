@@ -10,7 +10,7 @@ use serde::Serialize;
 /// LLM-facing summary of the session merge that produced an activity slice.
 ///
 /// Counterpart of [`pierre_providers::deduplication::FragmentReport`] — the
-/// provider-side type carries `chrono::DateTime` values and the full sport
+/// provider-side type carries `Timestamp` values and the full sport
 /// enum, this serializes them to strings so the JSON shape stays portable
 /// across MCP / A2A / REST consumers and stable across cageux upgrades.
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]

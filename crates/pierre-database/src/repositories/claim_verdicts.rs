@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
 
@@ -97,7 +97,7 @@ pub struct SetVerdictDispositionParams<'a> {
     /// The admin's service name, as every other config write records it.
     pub disposed_by: &'a str,
     /// When the disposition was written.
-    pub disposed_at: DateTime<Utc>,
+    pub disposed_at: Timestamp,
 }
 
 // The triager's note is free text that can quote the claim: only its length
@@ -622,7 +622,7 @@ pub(crate) const HEALTH_BY_REASON_SQL: &str = r"
 /// Fold `(day, status, count)` rows into the calibration totals and series.
 pub(crate) fn calibration_from_counts(
     rows: impl Iterator<Item = (String, String, i64)>,
-    window_start: DateTime<Utc>,
+    window_start: Timestamp,
     window_days: i64,
 ) -> VerdictCalibrationStats {
     let mut totals = VerdictStatusBreakdown::default();
@@ -658,8 +658,8 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     f32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let col =
@@ -760,7 +760,7 @@ where
 /// `tenant_id` binds as text on both engines because the column is `TEXT` in
 /// both schemas — `TenantId`'s own Postgres encoding is a native `uuid`, which
 /// would not match it, so the stringified form is the portable one here.
-/// `created_at` and `disposed_at` bind and decode as a `DateTime<Utc>`: sqlx
+/// `created_at` and `disposed_at` bind and decode as a `Timestamp`: sqlx
 /// writes RFC3339 text on `SQLite`, byte-identical to the `to_rfc3339()` the
 /// rows were written with, and a native timestamp on Postgres.
 ///
@@ -775,7 +775,7 @@ macro_rules! impl_claim_verdict_repository {
                 params: &InsertClaimVerdictParams<'_>,
             ) -> AppResult<ClaimVerdict> {
                 let id = Uuid::new_v4().to_string();
-                let now: DateTime<Utc> = Utc::now();
+                let now: Timestamp = Timestamp::now();
 
                 sqlx::query(INSERT_CLAIM_VERDICT_SQL)
                     .bind(&id)
@@ -932,7 +932,7 @@ macro_rules! impl_claim_verdict_repository {
                 window_days: i64,
             ) -> AppResult<VerdictCalibrationStats> {
                 let days = window_days.clamp(1, 365);
-                let window_start = Utc::now() - Duration::days(days);
+                let window_start = Timestamp::now() - dravr_tronc::dates::Elapsed::days(days);
 
                 let rows = sqlx::query($daily_sql)
                     .bind(scope.tenant_filter().map(|t| t.to_string()))
@@ -957,7 +957,7 @@ macro_rules! impl_claim_verdict_repository {
                 window_days: i64,
             ) -> AppResult<VerdictHealthStats> {
                 let days = window_days.clamp(1, 365);
-                let window_start = Utc::now() - Duration::days(days);
+                let window_start = Timestamp::now() - dravr_tronc::dates::Elapsed::days(days);
                 let tenant = scope.tenant_filter().map(|t| t.to_string());
                 let fetch_failed =
                     |e| AppError::database(format!("Failed to aggregate verdict health: {e}"));

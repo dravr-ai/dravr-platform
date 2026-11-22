@@ -20,8 +20,8 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use chrono::Utc;
 use clap::Subcommand;
+use dravr_tronc::dates::Timestamp;
 use tracing::info;
 
 use pierre_core::errors::{AppError, AppResult};
@@ -382,7 +382,7 @@ pub(crate) async fn dispatch(
                 .grading_pool(parsed_tenant, window_days, GRADING_POOL_LIMIT)
                 .await?;
             // The clock's milliseconds are never negative after 1970.
-            let seed = seed.unwrap_or_else(|| Utc::now().timestamp_millis().unsigned_abs());
+            let seed = seed.unwrap_or_else(|| Timestamp::now().epoch_millis().unsigned_abs());
             let export = build_export(
                 pool,
                 &ExportSpec {

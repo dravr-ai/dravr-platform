@@ -12,7 +12,7 @@ use std::slice::from_ref;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 
 use pierre_core::config::CompactionConfig;
@@ -143,7 +143,7 @@ async fn seed_user_and_tenant(db: &Database) -> (String, TenantId) {
     db.repositories().users.create(&user).await.unwrap();
 
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let tenant = Tenant {
         id: tenant_id,
         name: format!("Test Tenant {tenant_id}"),

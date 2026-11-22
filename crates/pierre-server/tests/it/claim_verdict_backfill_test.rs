@@ -16,7 +16,7 @@ use pierre_core::transport::TransportPolicy;
 use std::time::Duration;
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{
     AddMessageParams, AgentCategory, CreateAgentRequest, Tenant, TenantId, User,
 };
@@ -47,7 +47,7 @@ async fn seed_assistant_message(db: &Database, content: &str) -> Result<(TenantI
     repos.users.create(&user).await?;
 
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .tenants
         .create(&Tenant {

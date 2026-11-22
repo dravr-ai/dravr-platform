@@ -28,7 +28,7 @@ use crate::common;
 
 use std::sync::Arc;
 
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::models::{
     ActivityBuilder, ConnectionType, DataSource, DeviceType, SportType, StoredSleepSession,
@@ -133,7 +133,13 @@ async fn coached_group(
     if wellness_to_coach {
         let member = repos
             .groups
-            .set_coach_consents(&group.to_string(), athlete.id, None, Some(true), Utc::now())
+            .set_coach_consents(
+                &group.to_string(),
+                athlete.id,
+                None,
+                Some(true),
+                Timestamp::now(),
+            )
             .await
             .unwrap();
         assert!(
@@ -166,7 +172,7 @@ async fn seed_activities(repos: &RepositoryRegistry, athlete: Person) {
             id.to_owned(),
             format!("{provider} session"),
             sport,
-            Utc::now() - Duration::days(days_ago),
+            Timestamp::now() - Elapsed::days(days_ago),
             3_600,
             provider.to_owned(),
         )
@@ -179,8 +185,8 @@ async fn seed_activities(repos: &RepositoryRegistry, athlete: Person) {
     }
 }
 
-fn today() -> NaiveDate {
-    Utc::now().date_naive()
+fn today() -> CivilDate {
+    Timestamp::now().utc_date()
 }
 
 /// Four weeks of WHOOP nights: five hours a night for the last seven, nine
@@ -206,18 +212,19 @@ async fn seed_short_nights(repos: &RepositoryRegistry, athlete: Person) {
         .unwrap();
     for days_ago in 0..28 {
         let hours = if days_ago < 7 { 5 } else { 9 };
-        let woke = today() - Duration::days(days_ago);
-        let start = (woke - Duration::days(1))
-            .and_hms_opt(23, 0, 0)
+        let woke = today() - Elapsed::days(days_ago);
+        let start = (woke - Elapsed::days(1))
+            .and_hms(23, 0, 0)
             .expect("a valid time")
-            .and_utc();
+            .and_utc()
+            .unwrap();
         let night = StoredSleepSession {
             id: format!("whoop-{}", Uuid::new_v4()),
             user_id: athlete.id.to_string(),
             data_source_id: data_source.clone(),
             is_nap: false,
             start_datetime: start,
-            end_datetime: start + Duration::hours(hours),
+            end_datetime: start + Elapsed::hours(hours),
             total_sleep_seconds: Some(u32::try_from(hours * HOUR).expect("a night fits")),
             deep_sleep_seconds: None,
             light_sleep_seconds: None,
@@ -234,7 +241,7 @@ async fn seed_short_nights(repos: &RepositoryRegistry, athlete: Person) {
         };
         repos
             .sleep
-            .upsert_sleep_session(&athlete.tenant, &night, Utc::now())
+            .upsert_sleep_session(&athlete.tenant, &night, Timestamp::now())
             .await
             .unwrap();
     }
@@ -253,7 +260,7 @@ fn request(tool: &str, params: Value, caller: Person) -> UniversalRequest {
 /// The athlete's season, saved by the athlete: a flavour for the ladder to
 /// read and one easy week.
 async fn save_athlete_plan(executor: &UniversalToolExecutor, athlete: Person) {
-    let week = (today() + Duration::days(7)).format("%Y-%m-%d").to_string();
+    let week = (today() + Elapsed::days(7)).to_string();
     let saved = executor
         .execute_tool(request(
             "save_training_plan",

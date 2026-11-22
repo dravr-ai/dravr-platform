@@ -8,7 +8,7 @@ use secrecy::{ExposeSecret, SecretString};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::marker::PhantomData;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use uuid::Uuid;
 
 use super::models::{AuthorizeResponse, OAuth2Error, TokenResponse};
@@ -32,7 +32,7 @@ pub struct Authorized {
     /// PKCE code verifier (required when `code_challenge` was used)
     pub code_verifier: Option<String>,
     /// When the authorization code expires
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
 }
 
 impl Debug for Authorized {
@@ -58,7 +58,7 @@ pub struct Authenticated {
     /// Token type (always "Bearer")
     pub token_type: String,
     /// When the access token expires
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// Granted scopes
     pub scope: Option<String>,
     /// Refresh token for obtaining new access tokens
@@ -264,7 +264,7 @@ impl OAuthFlow<Initial> {
     pub fn authorize(self, response: AuthorizeResponse) -> OAuthFlow<Authorized> {
         let code_verifier = self.pkce.as_ref().map(|p| p.code_verifier.clone());
         // Authorization codes are valid for 10 minutes per RFC 6749
-        let expires_at = Utc::now() + Duration::minutes(10);
+        let expires_at = Timestamp::now() + Elapsed::minutes(10);
 
         OAuthFlow {
             client_id: self.client_id,
@@ -293,7 +293,7 @@ impl OAuthFlow<Initial> {
         state: Option<String>,
     ) -> OAuthFlow<Authorized> {
         let code_verifier = self.pkce.as_ref().map(|p| p.code_verifier.clone());
-        let expires_at = Utc::now() + Duration::minutes(10);
+        let expires_at = Timestamp::now() + Elapsed::minutes(10);
 
         OAuthFlow {
             client_id: self.client_id,
@@ -338,7 +338,7 @@ impl OAuthFlow<Authorized> {
     /// Check if the authorization code has expired
     #[must_use]
     pub fn is_code_expired(&self) -> bool {
-        Utc::now() > self.state.expires_at
+        Timestamp::now() > self.state.expires_at
     }
 
     /// Set the user ID after authorization
@@ -369,7 +369,7 @@ impl OAuthFlow<Authorized> {
             return Err(OAuth2Error::invalid_grant("Authorization code has expired"));
         }
 
-        let expires_at = Utc::now() + Duration::seconds(response.expires_in);
+        let expires_at = Timestamp::now() + Elapsed::seconds(response.expires_in);
 
         Ok(OAuthFlow {
             client_id: self.client_id,
@@ -424,19 +424,19 @@ impl OAuthFlow<Authenticated> {
     /// Check if the access token has expired
     #[must_use]
     pub fn is_token_expired(&self) -> bool {
-        Utc::now() > self.state.expires_at
+        Timestamp::now() > self.state.expires_at
     }
 
     /// Get the expiration time of the access token
     #[must_use]
-    pub const fn expires_at(&self) -> DateTime<Utc> {
+    pub const fn expires_at(&self) -> Timestamp {
         self.state.expires_at
     }
 
     /// Get seconds until token expiration (negative if expired)
     #[must_use]
     pub fn expires_in_seconds(&self) -> i64 {
-        let remaining = self.state.expires_at - Utc::now();
+        let remaining = self.state.expires_at - Timestamp::now();
         remaining.num_seconds()
     }
 
@@ -531,7 +531,7 @@ impl OAuthFlow<Refreshable> {
     /// * `response` - The token response containing new access and refresh tokens
     #[must_use]
     pub fn refresh(self, response: TokenResponse) -> OAuthFlow<Authenticated> {
-        let expires_at = Utc::now() + Duration::seconds(response.expires_in);
+        let expires_at = Timestamp::now() + Elapsed::seconds(response.expires_in);
 
         OAuthFlow {
             client_id: self.client_id,

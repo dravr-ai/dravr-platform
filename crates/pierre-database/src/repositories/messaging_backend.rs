@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 
 /// The error a column that will not decode surfaces as, named after the
@@ -17,9 +17,8 @@ pub(crate) fn messaging_column_error(column: &str, e: &sqlx::Error) -> AppError 
 ///
 /// # Errors
 /// Returns an invalid-input error when the text is not an RFC 3339 instant.
-pub(crate) fn instant_from_rfc3339(text: &str) -> AppResult<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(text)
-        .map(|dt| dt.with_timezone(&Utc))
+pub(crate) fn instant_from_rfc3339(text: &str) -> AppResult<Timestamp> {
+    Timestamp::parse_from_rfc3339(text)
         .map_err(|e| AppError::invalid_input(format!("Invalid RFC 3339 instant '{text}': {e}")))
 }
 
@@ -34,7 +33,7 @@ pub(crate) fn instant_from_rfc3339(text: &str) -> AppResult<DateTime<Utc>> {
 /// the one thing in them that differs per driver; sqlx resolves the driver
 /// from `self.pool()` per expansion.
 ///
-/// Every timestamp column is read as `DateTime<Utc>` and rendered with
+/// Every timestamp column is read as `Timestamp` and rendered with
 /// `to_rfc3339()`: on Postgres that is the `TIMESTAMPTZ` value, on `SQLite`
 /// the RFC 3339 text these tables hold, rendered again as the same text.
 ///
@@ -56,7 +55,7 @@ macro_rules! impl_messaging_repository {
 
         /// A NOT NULL timestamp column, in the RFC 3339 text the wire carries.
         fn stamp_column(row: &$row, name: &str) -> AppResult<String> {
-            let at: DateTime<Utc> = row
+            let at: Timestamp = row
                 .try_get(name)
                 .map_err(|e| messaging_column_error(name, &e))?;
             Ok(at.to_rfc3339())
@@ -64,7 +63,7 @@ macro_rules! impl_messaging_repository {
 
         /// A nullable timestamp column, in the RFC 3339 text the wire carries.
         fn stamp_column_opt(row: &$row, name: &str) -> AppResult<Option<String>> {
-            let at: Option<DateTime<Utc>> = row
+            let at: Option<Timestamp> = row
                 .try_get(name)
                 .map_err(|e| messaging_column_error(name, &e))?;
             Ok(at.map(|at| at.to_rfc3339()))
@@ -237,7 +236,7 @@ macro_rules! impl_messaging_repository {
                     .bind(params.phone_number)
                     .bind(params.bot_token)
                     .bind(params.is_active)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -370,7 +369,7 @@ macro_rules! impl_messaging_repository {
                     .bind(params.channel_user_id)
                     .bind(params.channel_conversation_id)
                     .bind(params.pierre_conversation_id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -417,7 +416,7 @@ macro_rules! impl_messaging_repository {
 
             async fn touch_session(&self, session_id: &str) -> AppResult<()> {
                 sqlx::query(TOUCH_SESSION_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(session_id)
                     .execute(self.pool())
                     .await
@@ -458,7 +457,7 @@ macro_rules! impl_messaging_repository {
                     .bind(params.raw_payload)
                     .bind(params.chat_message_id)
                     .bind(params.proactive_purpose)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to insert message: {e}")))?;
@@ -572,7 +571,7 @@ macro_rules! impl_messaging_repository {
                     .bind($ids::bind_text_opt(params.user_id)?)
                     .bind(params.channel_type)
                     .bind(params.payload)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(params.expires_at)
                     .bind(params.reauth.as_ref().map(|guard| guard.tenant_id.to_string()))
                     .bind(params.reauth.as_ref().map(|guard| guard.provider))
@@ -585,14 +584,14 @@ macro_rules! impl_messaging_repository {
             }
 
             async fn claim_due_outbound(&self, limit: i64, lease_ms: i64) -> AppResult<Vec<Value>> {
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let token = uuid::Uuid::new_v4().to_string();
                 let rows = sqlx::query(CLAIM_DUE_OUTBOUND_SQL)
                     .bind(now)
                     .bind(limit)
                     .bind(&token)
-                    .bind(now.timestamp_millis().saturating_add(lease_ms))
-                    .bind(now.timestamp_millis())
+                    .bind(now.epoch_millis().saturating_add(lease_ms))
+                    .bind(now.epoch_millis())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -632,7 +631,7 @@ macro_rules! impl_messaging_repository {
                     .bind(status)
                     .bind(attempt_count)
                     .bind(next_retry)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(id)
                     .bind(lease_token)
                     .execute(self.pool())
@@ -678,7 +677,7 @@ macro_rules! impl_messaging_repository {
                     .bind(params.channel_type)
                     .bind(params.channel_user_id)
                     .bind(params.display_name)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -915,7 +914,7 @@ macro_rules! impl_messaging_repository {
             ) -> AppResult<()> {
                 let ids_json = serde_json::to_string(proposed_agent_ids)?;
                 sqlx::query(MARK_AGENT_PROPOSAL_SENT_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(ids_json)
                     .bind(tenant_id)
                     .bind(channel_type)
@@ -1010,7 +1009,7 @@ macro_rules! impl_messaging_repository {
                     .bind(tenant_id)
                     .bind(channel_type)
                     .bind(channel_user_id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| {

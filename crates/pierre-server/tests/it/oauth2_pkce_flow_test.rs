@@ -11,6 +11,7 @@ use crate::common;
 use secrecy::{ExposeSecret, SecretString};
 
 use base64::{engine::general_purpose, Engine as _};
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::config::OAuth2ServerConfig;
 use pierre_auth::{
     auth::AuthManager,
@@ -124,8 +125,8 @@ async fn create_test_user_with_tenant(database: &Database, email: &str) -> User 
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user.id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     repos.tenants.create(&tenant).await.unwrap();
 

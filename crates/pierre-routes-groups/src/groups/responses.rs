@@ -14,6 +14,7 @@ use pierre_core::models::groups::{
 use pierre_services::group_invite_card::InviteFunnel;
 
 use crate::group_response::GroupResponse;
+use dravr_tronc::dates::Timestamp;
 
 // ============================================================================
 // Response Types
@@ -131,7 +132,7 @@ impl From<GroupInvite> for InviteResponse {
             code: inv.code,
             kind: inv.kind.as_str().to_owned(),
             created_by: inv.created_by.to_string(),
-            expires_at: inv.expires_at.map(|dt| dt.to_rfc3339()),
+            expires_at: inv.expires_at.map(Timestamp::to_rfc3339),
             max_uses: inv.max_uses,
             use_count: inv.use_count,
             is_active: inv.is_active,

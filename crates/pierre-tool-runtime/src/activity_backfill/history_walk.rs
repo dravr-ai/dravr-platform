@@ -99,7 +99,7 @@
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -337,7 +337,7 @@ async fn reopen(
             backend,
             from,
             hand_off,
-            Utc::now().timestamp_millis(),
+            Timestamp::now().epoch_millis(),
         )
         .await
     {
@@ -425,11 +425,13 @@ async fn hand_off_below(
     };
     let before_ts = oldest_stored(runtime, user_id, tenant_id, &[backend])
         .await?
-        .map(|oldest| oldest.timestamp());
+        .map(Timestamp::epoch_seconds);
     Ok(Some(WalkHandOff {
         backend: grant.backend,
         before_ts,
-        units_done: before_ts.map_or(0, |before| months_between(Utc::now().timestamp(), before)),
+        units_done: before_ts.map_or(0, |before| {
+            months_between(Timestamp::now().epoch_seconds(), before)
+        }),
         rows_landed,
         fetch_limit: i64::try_from(API_WALK_PAGE).unwrap_or(i64::MAX),
     }))
@@ -442,9 +444,9 @@ async fn oldest_stored(
     user_id: Uuid,
     tenant_id: TenantId,
     keys: &[&str],
-) -> Result<Option<DateTime<Utc>>, ()> {
+) -> Result<Option<Timestamp>, ()> {
     let cache = &runtime.repos().activity_cache;
-    let mut oldest: Option<DateTime<Utc>> = None;
+    let mut oldest: Option<Timestamp> = None;
     for &key in keys {
         match cache.oldest_activity_start(user_id, &tenant_id, key).await {
             Ok(start) => oldest = oldest.into_iter().chain(start).min(),
@@ -519,7 +521,7 @@ pub(super) async fn run_history_walk(
         return AfterStep::Settled;
     };
     let renewal = keep_backfill_lease(job, &lease);
-    let attempt_started_at = Utc::now();
+    let attempt_started_at = Timestamp::now();
     let step = walk_step(job, &executor, &job.query_params, Some(&lease)).await;
     let kept = settle_step(job, &lease, attempts, step, attempt_started_at).await;
     drop(renewal);
@@ -572,7 +574,7 @@ async fn settle_step(
     lease: &JobLease,
     attempts: i64,
     step: Step,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) -> bool {
     let ledger = &job.resources.repos().activity_backfill_jobs;
     // A step that fell short on every attempt reached what its source gives.
@@ -835,7 +837,9 @@ async fn walk_step(
         .after
         .unwrap_or(WHOLE_ACCOUNT_AFTER)
         .max(WHOLE_ACCOUNT_AFTER);
-    let top = window.before.unwrap_or_else(|| Utc::now().timestamp());
+    let top = window
+        .before
+        .unwrap_or_else(|| Timestamp::now().epoch_seconds());
     if top <= floor {
         // A step resumed at the floor: the history is all in.
         return Step::Ended(no_step(top));
@@ -1065,11 +1069,11 @@ async fn account_floor(
         Ok(athlete) => {
             let created = athlete
                 .created_at
-                .map(|created| created.timestamp().max(WHOLE_ACCOUNT_AFTER));
+                .map(|created| created.epoch_seconds().max(WHOLE_ACCOUNT_AFTER));
             Ok(Some(JobFloor {
                 after_ts: created.unwrap_or(WHOLE_ACCOUNT_AFTER),
                 units_total: created
-                    .map(|after_ts| months_between(Utc::now().timestamp(), after_ts)),
+                    .map(|after_ts| months_between(Timestamp::now().epoch_seconds(), after_ts)),
             }))
         }
         Err(e) => paused_by(&e).map_or_else(
@@ -1121,8 +1125,6 @@ async fn record_walk_coverage(job: &ActivityBackfillJob, reached_ts: i64, hit_fe
 /// oldest year any of its history keys now holds and the `landed`
 /// activities the walk wrote. A walk that brought nothing in says nothing.
 async fn announce_walked(job: &ActivityBackfillJob, landed: i64) {
-    use chrono::Datelike;
-
     let Some(notifier) = job.resources.backfill_notifier() else {
         return;
     };
@@ -1144,7 +1146,7 @@ async fn announce_walked(job: &ActivityBackfillJob, landed: i64) {
     info!(
         user_id = %job.user_id,
         provider = %job.provider_name,
-        oldest_year = oldest.year(),
+        oldest_year = oldest.utc_date().year(),
         count,
         "History walk: reached the end of the history"
     );

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::CoachingPersona;
 
 use super::messaging_strings::DEFAULT_LOCALE;
@@ -43,7 +43,7 @@ pub struct PromptEntry {
     /// Where this prompt was loaded from
     pub source: PromptSource,
     /// When this entry was loaded or last updated
-    pub loaded_at: DateTime<Utc>,
+    pub loaded_at: Timestamp,
 }
 
 /// Statistics about the current state of the registry.
@@ -132,7 +132,7 @@ impl PromptRegistry {
     /// Create a new registry populated with all compiled-in system prompts.
     #[must_use]
     pub fn new() -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let mut system = HashMap::new();
 
         // One entry per system prompt the contremaitre manifest declares. A
@@ -416,7 +416,7 @@ impl PromptRegistry {
                 content,
                 sha256,
                 source: PromptSource::Contremaitre,
-                loaded_at: Utc::now(),
+                loaded_at: Timestamp::now(),
             },
         );
     }
@@ -430,7 +430,7 @@ impl PromptRegistry {
                 content,
                 sha256,
                 source: PromptSource::Contremaitre,
-                loaded_at: Utc::now(),
+                loaded_at: Timestamp::now(),
             },
         );
     }
@@ -446,7 +446,7 @@ impl PromptRegistry {
                 content,
                 sha256,
                 source: PromptSource::Contremaitre,
-                loaded_at: Utc::now(),
+                loaded_at: Timestamp::now(),
             },
         );
     }

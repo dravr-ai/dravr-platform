@@ -49,8 +49,7 @@ use std::fmt;
 use std::sync::{Arc, Weak};
 use std::time::Duration as StdDuration;
 
-use chrono::{DateTime, Duration, Timelike, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_contremaitre::messaging_strings::{
     KEY_PLATFORM_POST_CHECK_IN_DAILY_PROMPT, KEY_PLATFORM_POST_CHECK_IN_THREE_PER_WEEK_PROMPT,
     KEY_PLATFORM_POST_CHECK_IN_WEEKLY_PROMPT,
@@ -144,7 +143,7 @@ impl CheckInPoster {
     /// Returns the database error only when the tenant list cannot be read.
     /// Per-tenant and per-athlete failures are counted in
     /// [`CheckInTickOutcome::errors`] and do not stop the sweep.
-    pub async fn tick(&self, now: DateTime<Utc>) -> AppResult<CheckInTickOutcome> {
+    pub async fn tick(&self, now: Timestamp) -> AppResult<CheckInTickOutcome> {
         let Some(resources) = self.ctx.upgrade() else {
             return Ok(CheckInTickOutcome::default());
         };
@@ -166,7 +165,7 @@ impl CheckInPoster {
         &self,
         resources: &ServerContext,
         tenant_id: TenantId,
-        now: DateTime<Utc>,
+        now: Timestamp,
         outcome: &mut CheckInTickOutcome,
     ) {
         let subscribers = match resources
@@ -196,7 +195,7 @@ impl CheckInPoster {
         resources: &ServerContext,
         tenant_id: TenantId,
         subscriber: CheckInSubscriber,
-        now: DateTime<Utc>,
+        now: Timestamp,
         outcome: &mut CheckInTickOutcome,
     ) {
         let CheckInSubscriber { user_id, cadence } = subscriber;
@@ -211,7 +210,7 @@ impl CheckInPoster {
             );
             return;
         }
-        if coach_quiet_hours(resources, user_id, tenant_id, now, zone).await {
+        if coach_quiet_hours(resources, user_id, tenant_id, now, &zone).await {
             info!(
                 cadence = cadence.as_str(),
                 "Check-in held: the athlete's quiet hours"
@@ -221,8 +220,8 @@ impl CheckInPoster {
         }
         // The athlete's local midnight: a claim taken before it was an
         // earlier day's.
-        let since_midnight = now.with_timezone(&zone).time().num_seconds_from_midnight();
-        let since = now - Duration::seconds(i64::from(since_midnight));
+        let since_midnight = zone.civil_at(now).time().num_seconds_from_midnight();
+        let since = now - Elapsed::seconds(i64::from(since_midnight));
         let Some(lease) = claim_check_in(resources, user_id, tenant_id, since, now).await else {
             return;
         };
@@ -248,7 +247,7 @@ impl CheckInPoster {
         resources: &ServerContext,
         athlete: PostAthlete,
         cadence: CheckInCadence,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Option<(PostSurface, bool)> {
         let prompt = |locale: &str| check_in_prompt(resources, cadence, locale);
         let dms = linked_dms(resources, athlete, now).await;
@@ -271,9 +270,9 @@ impl CheckInPoster {
 async fn due_zone(
     resources: &ServerContext,
     subscriber: CheckInSubscriber,
-    now: DateTime<Utc>,
+    now: Timestamp,
     outcome: &mut CheckInTickOutcome,
-) -> Option<Tz> {
+) -> Option<Zone> {
     let user = match resources
         .common
         .repos
@@ -294,7 +293,7 @@ async fn due_zone(
     let zone = resolve_zone(user.timezone.as_deref());
     subscriber
         .cadence
-        .due_at(now.with_timezone(&zone).naive_local())
+        .due_at(zone.civil_at(now))
         .then_some(zone)
 }
 
@@ -307,7 +306,7 @@ async fn has_data(
     resources: &ServerContext,
     user_id: Uuid,
     tenant_id: TenantId,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> bool {
     match AthleteState::read(&resources.common.repos, tenant_id, user_id, now).await {
         Ok((state, _)) => {
@@ -328,7 +327,7 @@ async fn mark_check_in_posted(
     user_id: Uuid,
     tenant_id: TenantId,
     lease: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) {
     match resources
         .common
@@ -376,8 +375,8 @@ async fn claim_check_in(
     resources: &ServerContext,
     user_id: Uuid,
     tenant_id: TenantId,
-    since: DateTime<Utc>,
-    now: DateTime<Utc>,
+    since: Timestamp,
+    now: Timestamp,
 ) -> Option<String> {
     match resources
         .common
@@ -492,7 +491,7 @@ pub fn start_check_in_scheduler(resources: &Arc<ServerContext>, post: Arc<dyn Pl
         move || {
             let poster = Arc::clone(&poster);
             async move {
-                poster.tick(Utc::now()).await?;
+                poster.tick(Timestamp::now()).await?;
                 Ok(())
             }
         },

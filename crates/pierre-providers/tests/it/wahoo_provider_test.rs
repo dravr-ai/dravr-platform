@@ -14,7 +14,7 @@ use std::time::Duration as StdDuration;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
@@ -147,7 +147,7 @@ async fn provider(base_url: &str) -> WahooProvider {
             client_secret: SecretString::from("secret"),
             access_token: Some(SecretString::from(TOKEN.to_owned())),
             refresh_token: Some(SecretString::from("refresh")),
-            expires_at: Some(Utc::now() + Duration::hours(2)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(2)),
             scopes: vec![],
             kind: pierre_providers::CredentialKind::OAuthBearer,
             request_budget: None,
@@ -175,7 +175,7 @@ fn session() -> PlannedSession {
     PlannedSession {
         external_id: KEY.to_owned(),
         kind: PlannedSessionKind::Workout,
-        date: NaiveDate::from_ymd_opt(2026, 10, 8).unwrap(),
+        date: CivilDate::from_ymd(2026, 10, 8).unwrap(),
         sport: SportType::Ride,
         name: "Threshold for Julie, HRV is back up".to_owned(),
         duration_seconds: Some(3600),
@@ -345,8 +345,8 @@ async fn the_calendar_lists_only_dravrs_workouts_inside_the_window() {
     let events = provider(&base)
         .await
         .list_calendar_events(
-            NaiveDate::from_ymd_opt(2026, 10, 7).unwrap(),
-            NaiveDate::from_ymd_opt(2026, 10, 14).unwrap(),
+            CivilDate::from_ymd(2026, 10, 7).unwrap(),
+            CivilDate::from_ymd(2026, 10, 14).unwrap(),
         )
         .await
         .unwrap();
@@ -475,7 +475,7 @@ async fn a_dropped_refresh_still_writes_the_rotated_pair_back() {
             access_token: Some(SecretString::from(TOKEN.to_owned())),
             refresh_token: Some(SecretString::from("refresh")),
             // Inside the ten minutes before expiry: the call refreshes first.
-            expires_at: Some(Utc::now() + Duration::minutes(1)),
+            expires_at: Some(Timestamp::now() + Elapsed::minutes(1)),
             scopes: vec![],
             kind: pierre_providers::CredentialKind::OAuthBearer,
             request_budget: None,

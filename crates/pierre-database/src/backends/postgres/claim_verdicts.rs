@@ -11,7 +11,7 @@
 //! here, so a calendar day comes from formatting it in UTC rather than from
 //! slicing text.
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;

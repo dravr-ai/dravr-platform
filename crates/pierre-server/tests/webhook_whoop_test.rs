@@ -46,7 +46,6 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
-use chrono::Utc;
 use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::models::connection::ProviderCredentials;
 use dravr_enforme::models::cursor::{SyncBatch, SyncCursor};
@@ -55,6 +54,8 @@ use dravr_enforme::providers::whoop::verify_whoop_signature;
 use dravr_enforme::traits::sync_provider::{DataType, SyncProvider};
 use dravr_enforme::{SyncConfig, SyncDeps, SyncOrchestrator};
 use dravr_equilibre_sync::ContinuousMetricBatch;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use hmac::{Hmac, Mac};
 use http::HeaderMap;
 use pierre_config::environment::WebhookSecrets;
@@ -83,7 +84,7 @@ const WHOOP_USER_ID: u64 = 12_345;
 /// The `X-WHOOP-Signature-Timestamp` every test request carries: the time
 /// the test binary first signs, well inside the provider's replay window for
 /// the few seconds the tests run.
-static TIMESTAMP: LazyLock<String> = LazyLock::new(|| Utc::now().timestamp_millis().to_string());
+static TIMESTAMP: LazyLock<String> = LazyLock::new(|| Timestamp::now().epoch_millis().to_string());
 
 /// Environment set for the duration of one test and removed after it.
 struct EnvGuard {
@@ -171,7 +172,7 @@ impl SyncProvider for MockWhoop {
             .lock()
             .unwrap()
             .push(creds.user_id.clone());
-        let now = Utc::now();
+        let now = Timestamp::now();
         let mut cursor = SyncCursor::new(creds.user_id.clone(), "whoop", "sleep");
         cursor.complete("sleep-cursor-1", 1);
         Ok(SyncBatch {
@@ -180,7 +181,7 @@ impl SyncProvider for MockWhoop {
                 user_id: creds.user_id.clone(),
                 data_source_id: String::new(),
                 is_nap: false,
-                start_datetime: now - chrono::Duration::hours(8),
+                start_datetime: now - Elapsed::hours(8),
                 end_datetime: now,
                 total_sleep_seconds: Some(27_000),
                 deep_sleep_seconds: Some(5_400),
@@ -414,7 +415,7 @@ async fn seed_linked_user(
         common::create_test_user_with_plan(&resources.agent.database, email, "starter")
             .await
             .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -423,7 +424,7 @@ async fn seed_linked_user(
         access_token: SecretString::from("whoop_access_token"),
         refresh_token: Some(SecretString::from("whoop_refresh")),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(now + chrono::Duration::hours(1)),
+        expires_at: Some(now + Elapsed::hours(1)),
         scope: Some("read:sleep read:recovery".to_owned()),
         provider_user_id: whoop_user_id.map(|id| id.to_string()),
         oauth_app_client_id: None,
@@ -494,8 +495,8 @@ async fn sleep_rows(resources: &ServerContext, user_id: Uuid, tenant_id: &Tenant
         .get_sleep_sessions(
             user_id,
             tenant_id,
-            Utc::now() - chrono::Duration::days(2),
-            Utc::now() + chrono::Duration::hours(1),
+            Timestamp::now() - Elapsed::days(2),
+            Timestamp::now() + Elapsed::hours(1),
         )
         .await
         .unwrap()
@@ -572,8 +573,8 @@ async fn real_whoop_provider_returns_the_validated_event_and_refuses_a_forgery()
         .is_err());
 
     // A capture replayed ten minutes later is refused however well signed.
-    let stale = (Utc::now() - chrono::Duration::minutes(10))
-        .timestamp_millis()
+    let stale = (Timestamp::now() - Elapsed::minutes(10))
+        .epoch_millis()
         .to_string();
     let mut replay_mac = HmacSha256::new_from_slice(SECRET.as_bytes()).unwrap();
     replay_mac.update(stale.as_bytes());
@@ -672,7 +673,7 @@ async fn signed_event_syncs_the_owning_user() {
         .await
         .unwrap()
         .expect("last_sync is stamped after a sync that created records");
-    assert!(Utc::now() - last_sync < chrono::Duration::minutes(1));
+    assert!(Timestamp::now() - last_sync < Elapsed::minutes(1));
 
     let message = sse
         .try_recv()

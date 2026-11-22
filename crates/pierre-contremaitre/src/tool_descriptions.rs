@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use super::errors::ContremaitreError;
@@ -44,7 +44,7 @@ pub struct ToolDescriptionEntry {
     /// Where this entry was loaded from
     pub source: PromptSource,
     /// When this entry was loaded or last updated
-    pub loaded_at: DateTime<Utc>,
+    pub loaded_at: Timestamp,
 }
 
 /// One fetched overlay, ready for [`ToolDescriptionRegistry::update_all`].
@@ -94,7 +94,7 @@ impl ToolDescriptionRegistry {
         if overlays.is_empty() {
             return;
         }
-        let loaded_at = Utc::now();
+        let loaded_at = Timestamp::now();
         let mut entries = self.write();
         for FetchedOverlay {
             tool_name,

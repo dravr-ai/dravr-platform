@@ -89,7 +89,7 @@ macro_rules! impl_admin_standing_writes {
                     .map(|row| sqlx::Row::try_get(row, "id").map_err(failed))
                     .collect::<AppResult<Vec<String>>>()?;
                 let impersonations = sqlx::query(END_ALL_SESSIONS_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind($ids::bind(user_id))
                     .execute(&mut *conn)
                     .await
@@ -120,7 +120,7 @@ macro_rules! impl_admin_standing_writes {
                 user_id: Uuid,
             ) -> AppResult<()> {
                 let ended = sqlx::query(END_SESSIONS_OF_TARGET_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind($ids::bind(user_id))
                     .execute(conn)
                     .await

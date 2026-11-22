@@ -45,7 +45,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::firebase_identity::{FirebaseIdentityDeleter, FirebaseIdentityRemoval};
 use pierre_cache::Cache;
 use pierre_core::errors::{AppError, AppResult};
@@ -836,7 +836,7 @@ async fn delete_firebase_identity(
         firebase_uid,
         &removal,
         0,
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     {

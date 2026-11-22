@@ -16,7 +16,7 @@ use crate::common;
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use std::collections::HashMap;
 
 use pierre_chat_pipeline::language::resolve_turn_locale;
@@ -236,7 +236,7 @@ async fn seed_user_and_tenant(resources: &ServerContext) -> (Uuid, TenantId) {
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
 
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
@@ -249,8 +249,8 @@ async fn seed_user_and_tenant(resources: &ServerContext) -> (Uuid, TenantId) {
         domain: None,
         plan: "professional".to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common

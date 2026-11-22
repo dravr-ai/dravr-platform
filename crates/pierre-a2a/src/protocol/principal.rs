@@ -10,7 +10,7 @@
 //! acting [`AuthPrincipal`], and the access helpers confine that principal
 //! to the tasks keyed to clients it owns.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::rate_limiting::{a2a_client_window_start, calculate_a2a_client_rate_limit};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::a2a::{user_task_key, A2AClient};
@@ -311,7 +311,7 @@ impl A2AServer {
         resources: &A2AResources,
         request_id: &Value,
     ) -> Result<(), Box<A2AResponse>> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let budget = resources
             .ctx
             .repos()

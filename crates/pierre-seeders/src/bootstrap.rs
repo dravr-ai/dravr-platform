@@ -40,7 +40,7 @@
 //! ```
 
 use bcrypt::{hash, DEFAULT_COST};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::UserRole;
 use pierre_database::repositories::AuditSource;
@@ -137,7 +137,7 @@ async fn upsert_user_credentials(
 ) -> AppResult<()> {
     let password_hash =
         hash(password, DEFAULT_COST).map_err(|e| AppError::config(format!("bcrypt error: {e}")))?;
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     // The ON CONFLICT(email) DO UPDATE in seed_insert_demo_user handles the upsert.
     // We use a dummy UUID since the INSERT won't execute (user already exists),
@@ -246,7 +246,7 @@ async fn create_user(
     let user_id = Uuid::new_v4();
     let password_hash =
         hash(password, DEFAULT_COST).map_err(|e| AppError::config(format!("bcrypt error: {e}")))?;
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     // Insert user row
     let seed_user = SeedDemoUser {

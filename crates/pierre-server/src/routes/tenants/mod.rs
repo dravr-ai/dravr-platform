@@ -24,7 +24,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
@@ -205,7 +205,7 @@ impl TenantRoutes {
         // A reissued impersonation token expires when the one it replaces
         // does, which is never past its hour; a session lasts the default day
         let expires_in = impersonation.as_ref().map_or(86400, |grant| {
-            u64::try_from(grant.expires_at - Utc::now().timestamp()).unwrap_or(0)
+            u64::try_from(grant.expires_at - Timestamp::now().epoch_seconds()).unwrap_or(0)
         });
 
         info!(

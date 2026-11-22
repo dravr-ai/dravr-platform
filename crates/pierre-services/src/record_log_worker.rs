@@ -30,7 +30,6 @@ use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use chrono::Utc;
 use dravr_barrage::blob::backfill_keyed_names;
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::keyed::{KeyedDigest, Signer};
@@ -38,6 +37,7 @@ use dravr_barrage::record_log::checkpoint::{Anchor, Checkpoint};
 use dravr_barrage::record_log::{cut_checkpoint, standing_checkpoint, LOG_PAGE};
 use dravr_barrage::store::{ActivityRecordStore, BarrageStores, RecordPlace};
 use dravr_barrage::{BarrageError, UserId};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{
     subject_hash, AccountDeletionRepository, ImportTombstoneRepository, ReceiptAnchor,
@@ -286,7 +286,7 @@ impl RecordLogWorker {
             signer,
             anchor,
             CHECKPOINT_ORIGIN,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .map_err(|e| AppError::internal(format!("record_log checkpoint: {e}")))?
@@ -372,7 +372,7 @@ fn anchor_row(seq: i64, hash: String, checkpoint: Checkpoint) -> AppResult<Recei
         })?,
         tree_root: checkpoint.root.to_hex(),
         note: checkpoint.note,
-        anchored_at: Utc::now(),
+        anchored_at: Timestamp::now(),
     })
 }
 

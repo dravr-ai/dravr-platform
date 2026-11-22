@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::commitments::Commitment;
@@ -87,11 +87,11 @@ impl CommitmentRepository for PostgresDatabase {
             .bind(&commitment.statement)
             .bind(commitment.sport.as_deref().unwrap_or(""))
             .bind(i64::from(commitment.target_sessions))
-            .bind(commitment.window_start.timestamp())
-            .bind(commitment.window_end.timestamp())
+            .bind(commitment.window_start.epoch_seconds())
+            .bind(commitment.window_end.epoch_seconds())
             .bind(commitment.status.as_str())
-            .bind(commitment.created_at.timestamp())
-            .bind(commitment.updated_at.timestamp())
+            .bind(commitment.created_at.epoch_seconds())
+            .bind(commitment.updated_at.epoch_seconds())
             .bind(commitment.transport_policy.is_first_party_only())
             .execute(self.pool())
             .await
@@ -140,7 +140,7 @@ impl CommitmentRepository for PostgresDatabase {
         let result = sqlx::query(RECORD_VERDICT_SQL)
             .bind(verdict.outcome.as_str())
             .bind(i64::from(verdict.completed_sessions))
-            .bind(verdict.at.timestamp())
+            .bind(verdict.at.epoch_seconds())
             .bind(verdict.commitment_id)
             .bind(verdict.tenant_id)
             .bind(verdict.transport_policy.is_first_party_only())
@@ -154,10 +154,10 @@ impl CommitmentRepository for PostgresDatabase {
         &self,
         tenant_id: &str,
         commitment_id: &str,
-        at: DateTime<Utc>,
+        at: Timestamp,
     ) -> AppResult<bool> {
         let result = sqlx::query(MARK_REPORTED_SQL)
-            .bind(at.timestamp())
+            .bind(at.epoch_seconds())
             .bind(commitment_id)
             .bind(tenant_id)
             .execute(self.pool())
@@ -168,7 +168,7 @@ impl CommitmentRepository for PostgresDatabase {
 
     async fn expire_commitment(&self, tenant_id: &str, commitment_id: &str) -> AppResult<bool> {
         let result = sqlx::query(EXPIRE_COMMITMENT_SQL)
-            .bind(Utc::now().timestamp())
+            .bind(Timestamp::now().epoch_seconds())
             .bind(commitment_id)
             .bind(tenant_id)
             .execute(self.pool())
@@ -179,7 +179,7 @@ impl CommitmentRepository for PostgresDatabase {
 
     async fn cancel_commitment(&self, tenant_id: &str, commitment_id: &str) -> AppResult<bool> {
         let result = sqlx::query(CANCEL_COMMITMENT_SQL)
-            .bind(Utc::now().timestamp())
+            .bind(Timestamp::now().epoch_seconds())
             .bind(commitment_id)
             .bind(tenant_id)
             .execute(self.pool())
@@ -192,7 +192,7 @@ impl CommitmentRepository for PostgresDatabase {
         &self,
         tenant_id: &str,
         user_id: &str,
-    ) -> AppResult<Option<DateTime<Utc>>> {
+    ) -> AppResult<Option<Timestamp>> {
         let row = sqlx::query(LAST_REPORT_SQL)
             .bind(tenant_id)
             .bind(user_id)
@@ -205,6 +205,6 @@ impl CommitmentRepository for PostgresDatabase {
                 .map_err(|e| AppError::database(format!("commitment col last_reported: {e}")))?,
             None => None,
         };
-        Ok(epoch.and_then(|s| DateTime::from_timestamp(s, 0)))
+        Ok(epoch.and_then(|s| Timestamp::from_epoch_seconds(s).ok()))
     }
 }

@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_config::agent_recommendations::AgentRecommendationConfig;
 use pierre_core::models::agents::AgentPrerequisites;
 use pierre_core::models::{ActivityBuilder, SportProfile, SportType};
@@ -461,7 +461,7 @@ fn overlap_normalizes_titlecase_agent_activity_types() {
 #[test]
 fn from_activities_records_the_longest_session_in_minutes() {
     let session = |id: &str, seconds: u64| {
-        ActivityBuilder::new(id, id, SportType::Ride, Utc::now(), seconds, "strava").build()
+        ActivityBuilder::new(id, id, SportType::Ride, Timestamp::now(), seconds, "strava").build()
     };
     let profile = SportProfile::from_activities(
         &[session("a", 3_600), session("b", 11_000), session("c", 600)],

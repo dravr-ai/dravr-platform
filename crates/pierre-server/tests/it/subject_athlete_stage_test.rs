@@ -25,11 +25,11 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use axum::http::StatusCode;
-use chrono::{Datelike, Days, Duration, NaiveDate, Utc};
 use common::{
     create_test_server_resources_with_chat_provider, create_test_user_with_plan,
     generate_test_token,
 };
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use embacle::types::ToolCallRequest;
 use futures_util::stream;
@@ -259,21 +259,21 @@ async fn person(res: &Arc<ServerContext>, label: &str, name: &str) -> Person {
 }
 
 /// The Monday `weeks` weeks after this one's, in UTC.
-fn monday(weeks: u64) -> NaiveDate {
-    let today = Utc::now().date_naive();
-    let this = today - Days::new(u64::from(today.weekday().num_days_from_monday()));
-    this + Days::new(7 * weeks)
+fn monday(weeks: i64) -> CivilDate {
+    let today = Timestamp::now().utc_date();
+    let this = today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()));
+    this + Elapsed::days(7 * weeks)
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
-fn week(start: NaiveDate, focus: &str, workout: &str) -> Value {
+fn week(start: CivilDate, focus: &str, workout: &str) -> Value {
     let days: Vec<Value> = (0..7)
         .map(|offset| {
             json!({
-                "date": ymd(start + Days::new(offset)),
+                "date": ymd(start + Elapsed::days(offset)),
                 "sport": "run",
                 "workout": workout,
                 "duration_min": 40,
@@ -327,7 +327,7 @@ impl Fixture {
         let agent_id = create_group_agent(repos, owner.id, owner.tenant)
             .await
             .unwrap();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = repos
             .groups
             .create_group(
@@ -534,7 +534,7 @@ fn assert_refused_with(prompt: &str, why: &str) {
 }
 
 async fn join(repos: &RepositoryRegistry, group: &CoachingGroup, who: &Person) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .add_member(&GroupMember {
@@ -927,7 +927,7 @@ async fn a_coach_whose_access_is_off_is_refused_until_it_is_back() {
 async fn an_athlete_in_two_tenants_is_refused() {
     let fx = Fixture::new().await;
     fx.subject_season().await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let second = TenantId::generate();
     fx.repos()
         .tenants
@@ -1171,7 +1171,7 @@ async fn with_no_draft_the_card_is_the_live_season_and_draft_is_null() {
 async fn wellness_reaches_the_coach_only_under_the_links_wellness_read() {
     let fx = Fixture::new().await;
     let repos = fx.repos();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let proposed = repos
         .delegated_connections
         .propose(&DelegatedConnection::propose(
@@ -1229,7 +1229,7 @@ async fn wellness_reaches_the_coach_only_under_the_links_wellness_read() {
 
     let at = with.find(WELLNESS_HEADING).expect("the wellness section");
     let section = &with[at..];
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     for reading in [
         format!("HRV 68 ms ({today})"),
         format!("resting heart rate 48 bpm ({today})"),
@@ -1273,7 +1273,7 @@ impl Fixture {
     /// filed, and the subject's wellness grant to the coach.
     async fn wellness_shared_through_a_link(&self) {
         let repos = self.repos();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let proposed = repos
             .delegated_connections
             .propose(&DelegatedConnection::propose(
@@ -1347,7 +1347,7 @@ async fn a_turn_with_no_wellness_to_read_records_its_training_read_alone() {
             fx.subject.id,
             None,
             Some(true),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap()
@@ -1390,7 +1390,7 @@ async fn a_refused_turn_records_nothing() {
 
 /// The wellness a link files: under the member's tenant, as the platform's.
 /// Returns the day the seeded night ended.
-async fn seed_link_wellness(repos: &RepositoryRegistry, member: &Person) -> NaiveDate {
+async fn seed_link_wellness(repos: &RepositoryRegistry, member: &Person) -> CivilDate {
     let source = repos
         .data_sources
         .upsert_data_source(
@@ -1408,7 +1408,7 @@ async fn seed_link_wellness(repos: &RepositoryRegistry, member: &Person) -> Naiv
         )
         .await
         .unwrap();
-    let woke = Utc::now() - Duration::minutes(5);
+    let woke = Timestamp::now() - Elapsed::minutes(5);
     repos
         .sleep
         .upsert_sleep_session(
@@ -1418,7 +1418,7 @@ async fn seed_link_wellness(repos: &RepositoryRegistry, member: &Person) -> Naiv
                 user_id: member.id.to_string(),
                 data_source_id: source.clone(),
                 is_nap: false,
-                start_datetime: woke - Duration::hours(7),
+                start_datetime: woke - Elapsed::hours(7),
                 end_datetime: woke,
                 total_sleep_seconds: Some(25_200),
                 deep_sleep_seconds: None,
@@ -1434,11 +1434,11 @@ async fn seed_link_wellness(repos: &RepositoryRegistry, member: &Person) -> Naiv
                 stages: Vec::new(),
                 source_name: INTERVALS_ICU.to_owned(),
             },
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     repos
         .recovery
         .upsert_recovery_metrics(
@@ -1461,10 +1461,10 @@ async fn seed_link_wellness(repos: &RepositoryRegistry, member: &Person) -> Naiv
                 daily_strain: None,
                 athlete_note: None,
                 source_name: INTERVALS_ICU.to_owned(),
-                recorded_at: Utc::now(),
+                recorded_at: Timestamp::now(),
             },
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1488,14 +1488,14 @@ async fn seed_link_wellness(repos: &RepositoryRegistry, member: &Person) -> Naiv
                 blood_glucose: None,
                 vo2_max: None,
                 source_name: INTERVALS_ICU.to_owned(),
-                recorded_at: Utc::now(),
+                recorded_at: Timestamp::now(),
             },
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
-    woke.date_naive()
+    woke.utc_date()
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -1578,7 +1578,7 @@ async fn the_threads_activity_read_lists_the_athlete_and_the_reply_carries_no_ow
         SUBJECT_RUN.to_owned(),
         "Subject easy run".to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         2_400,
         "upload".to_owned(),
     )

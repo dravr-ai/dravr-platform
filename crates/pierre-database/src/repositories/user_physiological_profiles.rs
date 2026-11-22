@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::SportFamily;
@@ -296,10 +296,10 @@ pub(crate) struct ProfileBinds {
     pub(crate) resting_hr_stamp: AnchorStampBinds,
     pub(crate) vo2_max_stamp: AnchorStampBinds,
     pub(crate) weight_stamp: AnchorStampBinds,
-    pub(crate) ftp_watts_stated_on: Option<NaiveDate>,
-    pub(crate) threshold_hr_stated_on: Option<NaiveDate>,
-    pub(crate) max_hr_stated_on: Option<NaiveDate>,
-    pub(crate) threshold_pace_stated_on: Option<NaiveDate>,
+    pub(crate) ftp_watts_stated_on: Option<CivilDate>,
+    pub(crate) threshold_hr_stated_on: Option<CivilDate>,
+    pub(crate) max_hr_stated_on: Option<CivilDate>,
+    pub(crate) threshold_pace_stated_on: Option<CivilDate>,
 }
 
 /// The day an athlete-set threshold was stated, bound only beside a value
@@ -308,8 +308,8 @@ pub(crate) struct ProfileBinds {
 fn stated_on_bind(
     has_value: bool,
     import: Option<&MetricProvenance>,
-    stated_on: Option<NaiveDate>,
-) -> Option<NaiveDate> {
+    stated_on: Option<CivilDate>,
+) -> Option<CivilDate> {
     stated_on.filter(|_| has_value && import.is_none())
 }
 
@@ -317,7 +317,7 @@ fn stated_on_bind(
 /// an anchor with no value, or one whose origin was never recorded.
 pub(crate) struct AnchorStampBinds {
     pub(crate) origin: Option<&'static str>,
-    pub(crate) as_of: Option<NaiveDate>,
+    pub(crate) as_of: Option<CivilDate>,
 }
 
 /// The origin columns of an anchor: its stamp when the anchor has a value,
@@ -337,7 +337,7 @@ pub(crate) struct ProvenanceBinds<V> {
     pub(crate) value: Option<V>,
     pub(crate) kind: Option<&'static str>,
     pub(crate) origin: Option<String>,
-    pub(crate) as_of: Option<NaiveDate>,
+    pub(crate) as_of: Option<CivilDate>,
 }
 
 /// The three provenance columns of one scalar threshold, whose value is bound
@@ -345,7 +345,7 @@ pub(crate) struct ProvenanceBinds<V> {
 pub(crate) struct ThresholdProvenanceBinds {
     pub(crate) kind: Option<&'static str>,
     pub(crate) origin: Option<String>,
-    pub(crate) as_of: Option<NaiveDate>,
+    pub(crate) as_of: Option<CivilDate>,
 }
 
 /// The provenance columns of a scalar threshold: the provenance when the
@@ -520,7 +520,7 @@ where
     i32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     f64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Value: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let fitness_level_str: String = row
@@ -674,7 +674,7 @@ where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let read = |e: sqlx::Error, which: &str| AppError::database(format!("read {which}: {e}"));
     let kind_column = format!("{column}_kind");
@@ -689,7 +689,7 @@ where
     let origin: Option<String> = row
         .try_get(origin_column.as_str())
         .map_err(|e| read(e, &origin_column))?;
-    let as_of: Option<NaiveDate> = row
+    let as_of: Option<CivilDate> = row
         .try_get(as_of_column.as_str())
         .map_err(|e| read(e, &as_of_column))?;
     Ok(Some(MetricProvenance {
@@ -706,14 +706,14 @@ where
 ///
 /// # Errors
 /// Returns a database error when the column cannot be decoded.
-fn stated_on_from_row<R>(row: &R, column: &str, athlete_owned: bool) -> AppResult<Option<NaiveDate>>
+fn stated_on_from_row<R>(row: &R, column: &str, athlete_owned: bool) -> AppResult<Option<CivilDate>>
 where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let stated_column = format!("{column}_stated_on");
-    let stated: Option<NaiveDate> = row
+    let stated: Option<CivilDate> = row
         .try_get(stated_column.as_str())
         .map_err(|e| AppError::database(format!("read {stated_column}: {e}")))?;
     Ok(stated.filter(|_| athlete_owned))
@@ -737,7 +737,7 @@ where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let read = |e: sqlx::Error, which: &str| AppError::database(format!("read {which}: {e}"));
     let origin_column = format!("{column}_origin");
@@ -748,7 +748,7 @@ where
         return Ok(None);
     };
     let as_of_column = format!("{column}_as_of");
-    let as_of: Option<NaiveDate> = row
+    let as_of: Option<CivilDate> = row
         .try_get(as_of_column.as_str())
         .map_err(|e| read(e, &as_of_column))?;
     Ok(Some(AnchorStamp {
@@ -778,7 +778,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     V: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let read = |e: sqlx::Error, which: &str| AppError::database(format!("read {which}: {e}"));
     let kind_column = format!("{column}_kind");
@@ -797,7 +797,7 @@ where
             let origin: Option<String> = row
                 .try_get(origin_column.as_str())
                 .map_err(|e| read(e, &origin_column))?;
-            let as_of: Option<NaiveDate> = row
+            let as_of: Option<CivilDate> = row
                 .try_get(as_of_column.as_str())
                 .map_err(|e| read(e, &as_of_column))?;
             Ok(Some(ProvenancedValue::new(
@@ -1124,7 +1124,7 @@ macro_rules! impl_user_physiological_profile_repository {
                     }
                 }
                 facts.retain(|fact| admit(fact.transport_policy));
-                let buckets = group_facts(&facts, Utc::now());
+                let buckets = group_facts(&facts, Timestamp::now());
 
                 Ok(Dossier {
                     user_id,

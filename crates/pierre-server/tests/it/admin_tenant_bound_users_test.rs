@@ -36,8 +36,8 @@ use crate::helpers;
 use std::sync::Arc;
 
 use anyhow::Result;
-use chrono::{TimeDelta, Utc};
 use common::create_test_server_resources;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::admin::models::{AdminPermission, AdminPermissions, GeneratedAdminToken};
 use pierre_core::models::{ConnectionType, TenantId, User, UserStatus};
@@ -589,7 +589,7 @@ async fn account_aged(resources: &Arc<ServerContext>, label: &str, age_minutes: 
     let email = format!("{label}-{}@example.com", Uuid::new_v4());
     let mut user = User::new(email, "hash".to_owned(), Some(label.to_owned()));
     user.user_status = UserStatus::Active;
-    user.created_at = Utc::now() - TimeDelta::minutes(age_minutes);
+    user.created_at = Timestamp::now() - Elapsed::minutes(age_minutes);
     resources.common.repos.users.create(&user).await.unwrap();
     user.id
 }

@@ -41,7 +41,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use chrono::{Days, NaiveDate};
+use dravr_tronc::dates::CivilDate;
 use pierre_contremaitre::anchor_strings::AnchorReader;
 use pierre_contremaitre::messaging_strings::{envelope_purpose_key, MessagingStringsRegistry};
 use pierre_contremaitre::session_view;
@@ -431,7 +431,7 @@ struct BuiltDay {
 fn build_day(
     catalogue: &PackagedCatalogue<'_>,
     build: &SessionBuild,
-    date: NaiveDate,
+    date: CivilDate,
     sport_label: String,
     anchors: Option<&HeldAnchors>,
 ) -> AppResult<BuiltDay> {
@@ -478,7 +478,7 @@ fn build_day(
         })?;
     }
     let mut day = PlannedDay {
-        date: date.format("%Y-%m-%d").to_string(),
+        date: date.to_string(),
         sport: sport_label,
         workout: String::new(),
         duration_min: None,
@@ -599,7 +599,7 @@ fn finding_text(words: EditorWords<'_>, finding: &EnvelopeFinding) -> String {
 pub async fn preview_session(
     runtime: &Arc<dyn ToolRuntime>,
     thread: &EditorThread,
-    date: NaiveDate,
+    date: CivilDate,
     build: &SessionBuild,
     words: EditorWords<'_>,
 ) -> AppResult<SessionPreview> {
@@ -645,7 +645,7 @@ pub async fn preview_session(
 pub async fn save_draft_day(
     runtime: &Arc<dyn ToolRuntime>,
     thread: &EditorThread,
-    date: NaiveDate,
+    date: CivilDate,
     build: &SessionBuild,
 ) -> AppResult<DraftDayOutcome> {
     let repos = runtime.repos();
@@ -663,7 +663,7 @@ pub async fn save_draft_day(
         };
         let catalogue = writer_catalogue(runtime, &thread.writer).await?;
         let anchors = stored_athlete_anchors(repos, target.tenant(), target.athlete()).await?;
-        let dated = date.format("%Y-%m-%d").to_string();
+        let dated = date.to_string();
         let replaced = week.days.iter().find(|day| day.date == dated);
         let label = sport_label(replaced, build.sport);
         let made = build_day(&catalogue, build, date, label, anchors.as_ref())?;
@@ -710,12 +710,9 @@ pub async fn save_draft_day(
 }
 
 /// Whether `week` holds `date`: its first day or one of the six after it.
-fn holds(week: &PlanWeek, date: NaiveDate) -> bool {
+fn holds(week: &PlanWeek, date: CivilDate) -> bool {
     parse_plan_date(&week.week_start).is_some_and(|start| {
-        start <= date
-            && start
-                .checked_add_days(Days::new(7))
-                .is_some_and(|end| date < end)
+        start <= date && start.checked_add_days(7).is_some_and(|end| date < end)
     })
 }
 
@@ -740,12 +737,12 @@ fn with_day(mut days: Vec<PlannedDay>, day: PlannedDay) -> Vec<PlannedDay> {
 mod tests {
     use super::*;
     use crate::implementations::tests::{catalogue_with_family, FAMILY_SLUG};
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_contremaitre::TrainingCatalogueRegistry;
     use pierre_memory::training_plans::WeekStatus;
     use serde_json::Value;
 
-    fn date(text: &str) -> NaiveDate {
+    fn date(text: &str) -> CivilDate {
         parse_plan_date(text).unwrap()
     }
 
@@ -1002,8 +999,8 @@ mod tests {
             supersedes_id: None,
             adjustment_reason: String::new(),
             author_agent_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         assert!(
             holds(&week, date("2026-11-16")),

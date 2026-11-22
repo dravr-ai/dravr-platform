@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -176,7 +176,7 @@ pub struct RequestLog {
     /// Unique identifier for this log entry
     pub id: String,
     /// When the request was made
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     /// API key UUID used for the request
     pub api_key_id: String,
     /// Friendly name of the API key
@@ -216,7 +216,7 @@ pub struct JwtUsage {
     /// ID of the user who made the request
     pub user_id: Uuid,
     /// When the request was made
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     /// API endpoint that was accessed
     pub endpoint: String,
     /// HTTP method used (GET, POST, etc.)
@@ -282,7 +282,7 @@ pub struct WindowUsage {
     /// Calls recorded inside the window
     pub count: u32,
     /// The earliest of those calls; `None` when the window holds none
-    pub oldest: Option<DateTime<Utc>>,
+    pub oldest: Option<Timestamp>,
 }
 
 /// `call_type` sentinel that marks an `llm_usage` row as the

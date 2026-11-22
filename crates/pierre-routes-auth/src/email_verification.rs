@@ -40,6 +40,7 @@ use tracing::{error, info, warn};
 
 use crate::signup_guards::{client_address, meter_sign_up};
 use crate::AuthRoutesContext;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{User, UserStatus};
 use pierre_middleware::PeerAddress;
@@ -123,7 +124,7 @@ async fn within_send_budget(
     user_id: uuid::Uuid,
     max_per_hour: i64,
 ) -> bool {
-    let one_hour_ago = chrono::Utc::now() - chrono::Duration::hours(1);
+    let one_hour_ago = Timestamp::now() - Elapsed::hours(1);
     match resources
         .repos
         .email_verification

@@ -13,7 +13,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{EncryptedToken, User, UserTier};
 use pierre_database::database::generate_encryption_key;
 use secrecy::ExposeSecret;
@@ -48,7 +48,7 @@ async fn test_token_encryption_comprehensive() -> Result<()> {
     ];
 
     for (access_token, refresh_token, scope) in test_cases {
-        let expires_at = Utc::now() + Duration::hours(2);
+        let expires_at = Timestamp::now() + Elapsed::hours(2);
 
         // Create and encrypt token
         let encrypted_token = EncryptedToken::new(
@@ -82,7 +82,7 @@ async fn test_token_encryption_edge_cases() -> Result<()> {
     let token_no_scope = EncryptedToken::new(
         "access_token",
         "refresh_token",
-        Utc::now() + Duration::hours(1),
+        Timestamp::now() + Elapsed::hours(1),
         String::new(),
         &encryption_key,
     )?;
@@ -98,7 +98,7 @@ async fn test_token_encryption_edge_cases() -> Result<()> {
     let large_token = EncryptedToken::new(
         &max_access,
         &max_refresh,
-        Utc::now() + Duration::hours(1),
+        Timestamp::now() + Elapsed::hours(1),
         max_scope.clone(),
         &encryption_key,
     )?;
@@ -142,7 +142,7 @@ async fn test_encryption_with_different_keys() -> Result<()> {
 
     let access_token = "test_access_token";
     let refresh_token = "test_refresh_token";
-    let expires_at = Utc::now() + Duration::hours(1);
+    let expires_at = Timestamp::now() + Elapsed::hours(1);
     let scope = "read,write".to_owned();
 
     // Encrypt with key1
@@ -219,7 +219,7 @@ async fn test_user_model_comprehensive() -> Result<()> {
         assert_eq!(user.email, email);
         assert_eq!(user.tier, tier);
         assert_ne!(user.id, Uuid::nil());
-        assert!(user.created_at <= Utc::now());
+        assert!(user.created_at <= Timestamp::now());
         assert!(user.is_active);
 
         // Test password hashing (should not be plaintext)
@@ -272,7 +272,7 @@ async fn test_concurrent_token_operations() -> Result<()> {
         handles.push(tokio::spawn(async move {
             let access_token = format!("concurrent_access_{i}");
             let refresh_token = format!("concurrent_refresh_{i}");
-            let expires_at = Utc::now() + Duration::hours(1);
+            let expires_at = Timestamp::now() + Elapsed::hours(1);
             let scope = format!("scope_{i}");
 
             // Encrypt
@@ -311,10 +311,10 @@ async fn test_token_expiration_scenarios() -> Result<()> {
 
     // Test tokens with various expiration times
     let expiration_scenarios = vec![
-        ("past_token", Utc::now() - Duration::hours(1)), // Already expired
-        ("current_token", Utc::now()),                   // Expires now
-        ("future_token", Utc::now() + Duration::hours(1)), // Future expiration
-        ("far_future", Utc::now() + Duration::days(365)), // Long-lived token
+        ("past_token", Timestamp::now() - Elapsed::hours(1)), // Already expired
+        ("current_token", Timestamp::now()),                  // Expires now
+        ("future_token", Timestamp::now() + Elapsed::hours(1)), // Future expiration
+        ("far_future", Timestamp::now() + Elapsed::days(365)), // Long-lived token
     ];
 
     for (token_name, expires_at) in expiration_scenarios {
@@ -380,7 +380,7 @@ async fn test_security_integration_scenario() -> Result<()> {
         let encrypted = EncryptedToken::new(
             access,
             refresh,
-            Utc::now() + Duration::hours(2),
+            Timestamp::now() + Elapsed::hours(2),
             scope.to_owned(),
             &encryption_key,
         )?;
@@ -405,7 +405,7 @@ async fn test_security_integration_scenario() -> Result<()> {
     let old_token = EncryptedToken::new(
         "old_access",
         "old_refresh",
-        Utc::now() + Duration::hours(1),
+        Timestamp::now() + Elapsed::hours(1),
         "old_scope".to_owned(),
         &encryption_key,
     )?;
@@ -417,7 +417,7 @@ async fn test_security_integration_scenario() -> Result<()> {
     let new_token = EncryptedToken::new(
         "new_access",
         "new_refresh",
-        Utc::now() + Duration::hours(1),
+        Timestamp::now() + Elapsed::hours(1),
         "new_scope".to_owned(),
         &new_encryption_key,
     )?;

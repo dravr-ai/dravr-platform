@@ -65,7 +65,7 @@
 use std::collections::HashMap;
 use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde_json::Value;
 use tracing::{error, warn};
 
@@ -1963,7 +1963,7 @@ pub struct MessagingStringEntry {
     /// Where this entry was loaded from.
     pub source: PromptSource,
     /// When this entry was loaded or last updated.
-    pub loaded_at: DateTime<Utc>,
+    pub loaded_at: Timestamp,
 }
 
 /// Two-level storage: `key → locale → entry`. Nested so locale fallback is
@@ -1989,7 +1989,7 @@ impl MessagingStringsRegistry {
     /// Create a registry seeded from the embedded catalogue.
     #[must_use]
     pub fn new() -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let mut entries: LocaleMap = HashMap::new();
         for (locale, compressed) in CATALOGUE {
             let tree = match decode_catalogue(compressed) {
@@ -2045,7 +2045,7 @@ impl MessagingStringsRegistry {
         let tree: Value = serde_json::from_str(json)?;
         let mut leaves = Vec::new();
         flatten("", &tree, &mut leaves);
-        let now = Utc::now();
+        let now = Timestamp::now();
         let applied = leaves.len();
         {
             let mut guard = self.write();
@@ -2144,7 +2144,7 @@ impl MessagingStringsRegistry {
                 content,
                 sha256,
                 source: PromptSource::Contremaitre,
-                loaded_at: Utc::now(),
+                loaded_at: Timestamp::now(),
             },
         );
     }

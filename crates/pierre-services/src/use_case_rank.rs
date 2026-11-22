@@ -18,7 +18,7 @@
 //! `/help` is a command handler, and the command crate sits below the chat
 //! pipeline.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::use_case_catalogue::{
     Domains, Repeat, Stage, UseCase, UseCaseCatalogue, UseCaseRun,
@@ -331,7 +331,7 @@ pub async fn rank_for_athlete(
     category: AgentCategory,
     rotation: usize,
 ) -> AppResult<RankedStarters> {
-    let (state, policy) = AthleteState::read(repos, tenant, user, Utc::now()).await?;
+    let (state, policy) = AthleteState::read(repos, tenant, user, Timestamp::now()).await?;
     let exposures = repos
         .use_case_exposures
         .use_case_exposures(tenant, user)
@@ -454,7 +454,7 @@ mod tests {
             use_case_id: id.to_owned(),
             shown_count,
             last_shown_at: None,
-            tapped_at: tapped.then(Utc::now),
+            tapped_at: tapped.then(Timestamp::now),
         }
     }
 

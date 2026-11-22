@@ -17,7 +17,7 @@ use std::str::FromStr;
 
 use axum::http::StatusCode;
 #[cfg(feature = "postgresql")]
-use chrono::{DateTime, TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde_json::json;
 use sqlx::migrate::Migrator;
 #[cfg(feature = "postgresql")]
@@ -605,7 +605,7 @@ async fn backfill_on_postgres(url: &str) {
 
     let user_a = Uuid::from_u128(0xA);
     let user_b = Uuid::from_u128(0xB);
-    let planted_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+    let planted_at = Timestamp::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap();
 
     let mut applied_target = false;
     for migration in PG_MIGRATOR.iter() {
@@ -666,7 +666,7 @@ async fn backfill_on_postgres(url: &str) {
     assert_eq!(rows[0].get::<String, _>("tenant_id"), "tenant-a");
     assert_eq!(rows[0].get::<String, _>("role"), "owner");
     assert_eq!(rows[0].get::<Uuid, _>("added_by"), user_a);
-    assert_eq!(rows[0].get::<DateTime<Utc>, _>("added_at"), planted_at);
+    assert_eq!(rows[0].get::<Timestamp, _>("added_at"), planted_at);
     assert_eq!(rows[1].get::<Uuid, _>("user_id"), user_b);
     assert_eq!(rows[1].get::<String, _>("tenant_id"), "tenant-b");
 }

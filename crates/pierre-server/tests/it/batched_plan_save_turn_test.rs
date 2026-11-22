@@ -20,7 +20,7 @@ use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
 use axum::http::StatusCode;
-use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Weekday};
 use futures_util::stream;
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
@@ -48,29 +48,29 @@ const SAVE_RESULT: &str = "<tool_result name=\"save_training_plan\">";
 /// What the model answers once every batch is saved.
 const REPLY: &str = "Your four weeks are saved: easy and steady runs into the 10K.";
 
-fn iso(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn iso(date: CivilDate) -> String {
+    date.to_string()
 }
 
 /// The Monday a week or more ahead, so every saved day is in the future.
-fn next_monday() -> NaiveDate {
-    let mut day = Utc::now().date_naive() + Duration::days(7);
+fn next_monday() -> CivilDate {
+    let mut day = Timestamp::now().utc_date() + Elapsed::days(7);
     while day.weekday() != Weekday::Mon {
-        day += Duration::days(1);
+        day += Elapsed::days(1);
     }
     day
 }
 
 /// Batch `n` of the plan: week `n` of two runs, the first batch laying the
 /// season's outline with it.
-fn batch(monday: NaiveDate, n: usize) -> Value {
-    let start = monday + Duration::weeks(i64::try_from(n).unwrap());
+fn batch(monday: CivilDate, n: usize) -> Value {
+    let start = monday + Elapsed::weeks(i64::try_from(n).unwrap());
     let week = json!({
         "week_start": iso(start),
         "focus": "",
         "days": [
-            { "date": iso(start + Duration::days(1)), "sport": "run", "workout": "Easy 40", "duration_min": 40, "intensity": "Z1" },
-            { "date": iso(start + Duration::days(3)), "sport": "run", "workout": "Steady 50", "duration_min": 50, "intensity": "Z2" }
+            { "date": iso(start + Elapsed::days(1)), "sport": "run", "workout": "Easy 40", "duration_min": 40, "intensity": "Z1" },
+            { "date": iso(start + Elapsed::days(3)), "sport": "run", "workout": "Steady 50", "duration_min": 50, "intensity": "Z2" }
         ]
     });
     if n > 0 {
@@ -80,7 +80,7 @@ fn batch(monday: NaiveDate, n: usize) -> Value {
         "outline": {
             "goal_race": {
                 "name": "Spring 10K",
-                "date": iso(monday + Duration::weeks(5)),
+                "date": iso(monday + Elapsed::weeks(5)),
                 "discipline": "run",
                 "priority": "A"
             },
@@ -101,7 +101,7 @@ fn batch(monday: NaiveDate, n: usize) -> Value {
 /// memory extraction after it) read the reply text. Each round of the loop
 /// hands one save's result back in its own message.
 struct SavesInBatches {
-    monday: NaiveDate,
+    monday: CivilDate,
 }
 
 impl SavesInBatches {
@@ -182,7 +182,7 @@ struct Athlete {
 }
 
 impl Athlete {
-    async fn new(monday: NaiveDate, calendar: Option<&Stub>) -> Self {
+    async fn new(monday: CivilDate, calendar: Option<&Stub>) -> Self {
         let provider = Arc::new(SavesInBatches { monday });
         let resources = create_test_server_resources_with_chat_provider(provider)
             .await
@@ -284,9 +284,9 @@ impl Athlete {
 }
 
 /// The week starts of the four batches.
-fn four_weeks_from(monday: NaiveDate) -> Vec<String> {
+fn four_weeks_from(monday: CivilDate) -> Vec<String> {
     (0..SAVES)
-        .map(|n| iso(monday + Duration::weeks(i64::try_from(n).unwrap())))
+        .map(|n| iso(monday + Elapsed::weeks(i64::try_from(n).unwrap())))
         .collect()
 }
 

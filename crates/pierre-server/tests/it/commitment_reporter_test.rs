@@ -11,7 +11,7 @@
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
@@ -33,8 +33,8 @@ use messaging_fixtures::{
 
 #[test]
 fn free_form_channels_take_an_unsolicited_message_any_time() {
-    let now = Utc::now();
-    let ancient = Some(now - Duration::days(90));
+    let now = Timestamp::now();
+    let ancient = Some(now - Elapsed::days(90));
     for channel in [
         ChannelType::Telegram,
         ChannelType::Slack,
@@ -53,14 +53,14 @@ fn free_form_channels_take_an_unsolicited_message_any_time() {
 
 #[test]
 fn meta_channels_are_gated_on_the_reengagement_window() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     for channel in [ChannelType::WhatsApp, ChannelType::Messenger] {
         assert!(
-            channel_allows_proactive(channel, Some(now - Duration::hours(3)), now),
+            channel_allows_proactive(channel, Some(now - Elapsed::hours(3)), now),
             "{channel:?} is open inside the 24h window"
         );
         assert!(
-            !channel_allows_proactive(channel, Some(now - Duration::hours(25)), now),
+            !channel_allows_proactive(channel, Some(now - Elapsed::hours(25)), now),
             "{channel:?} rejects a plain send outside it, so we must not try"
         );
         assert!(
@@ -72,15 +72,15 @@ fn meta_channels_are_gated_on_the_reengagement_window() {
 
 #[test]
 fn the_window_boundary_is_exactly_24_hours() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     assert!(channel_allows_proactive(
         ChannelType::WhatsApp,
-        Some(now - Duration::hours(24) + Duration::seconds(1)),
+        Some(now - Elapsed::hours(24) + Elapsed::seconds(1)),
         now
     ));
     assert!(!channel_allows_proactive(
         ChannelType::WhatsApp,
-        Some(now - Duration::hours(24)),
+        Some(now - Elapsed::hours(24)),
         now
     ));
 }
@@ -97,7 +97,7 @@ fn labeled(
     completed: u32,
     target: u32,
 ) -> Commitment {
-    let now = Utc::now();
+    let now = Timestamp::now();
     Commitment {
         id: Uuid::new_v4().to_string(),
         tenant_id: tenant.to_string(),
@@ -107,14 +107,14 @@ fn labeled(
         statement: "three easy runs this week".to_owned(),
         sport: sport.map(str::to_owned),
         target_sessions: target,
-        window_start: now - Duration::days(7),
-        window_end: now - Duration::hours(1),
+        window_start: now - Elapsed::days(7),
+        window_end: now - Elapsed::hours(1),
         status: CommitmentStatus::Labeled,
         outcome: Some(outcome),
         completed_sessions: Some(completed),
         swept_at: Some(now),
         reported_at: None,
-        created_at: now - Duration::days(7),
+        created_at: now - Elapsed::days(7),
         updated_at: now,
         transport_policy: TransportPolicy::AnyTransport,
     }
@@ -124,7 +124,7 @@ fn labeled(
 /// exposes: `touch_session` only ever stamps "now", and the re-engagement
 /// window has to be tested as shut. Runs on whichever backend the database is;
 /// `SQLite` stores the column as RFC 3339 text, `PostgreSQL` as `TIMESTAMPTZ`.
-async fn backdate_session(db: &Database, session_id: &str, last_message_at: DateTime<Utc>) {
+async fn backdate_session(db: &Database, session_id: &str, last_message_at: Timestamp) {
     const SQL: &str = "UPDATE messaging_sessions SET last_message_at = $1 WHERE id = $2";
     match db.backend() {
         DatabaseBackend::SQLite(inner) => {
@@ -272,7 +272,7 @@ async fn a_shut_whatsapp_window_sends_nothing() {
     .await;
 
     // Push the session's last inbound well outside Meta's 24h window.
-    backdate_session(&db, &session_id, Utc::now() - Duration::hours(48)).await;
+    backdate_session(&db, &session_id, Timestamp::now() - Elapsed::hours(48)).await;
 
     let channel = Arc::new(CapturingChannel::for_channel(ChannelType::WhatsApp));
     let resolver = Arc::new(FakeResolver::new(channel.clone()));

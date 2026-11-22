@@ -42,8 +42,8 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use chrono::{DateTime, Utc};
 use dravr_riviere::{DataPoint, SeriesType};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     DataSource, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics,
@@ -97,7 +97,7 @@ impl IntradaySeries {
 
     /// HRV readings measured as SDNN, each `(instant, milliseconds)`.
     #[must_use]
-    pub fn hrv_sdnn(readings: impl IntoIterator<Item = (DateTime<Utc>, f64)>) -> Self {
+    pub fn hrv_sdnn(readings: impl IntoIterator<Item = (Timestamp, f64)>) -> Self {
         Self {
             series: SeriesType::HrvSdnn,
             points: readings
@@ -113,7 +113,7 @@ impl IntradaySeries {
     /// the continuous-series read never serves it and [`Self::try_from_id`]
     /// never rebuilds it; only the tier-gated health-records read does.
     #[must_use]
-    pub fn blood_glucose(readings: impl IntoIterator<Item = (DateTime<Utc>, f64)>) -> Self {
+    pub fn blood_glucose(readings: impl IntoIterator<Item = (Timestamp, f64)>) -> Self {
         Self {
             series: SeriesType::BloodGlucose,
             points: readings
@@ -298,7 +298,7 @@ impl WellnessWrites<'_> {
         &mut self,
         tenant_id: TenantId,
         session: &StoredSleepSession,
-        synced_at: DateTime<Utc>,
+        synced_at: Timestamp,
     ) -> AppResult<WellnessLanded> {
         if self
             .withholds(tenant_id, &session.user_id, &session.source_name)
@@ -331,7 +331,7 @@ impl WellnessWrites<'_> {
         tenant_id: TenantId,
         metrics: &StoredRecoveryMetrics,
         mode: WellnessWriteMode,
-        synced_at: DateTime<Utc>,
+        synced_at: Timestamp,
     ) -> AppResult<WellnessLanded> {
         if self
             .withholds(tenant_id, &metrics.user_id, &metrics.source_name)
@@ -359,7 +359,7 @@ impl WellnessWrites<'_> {
         tenant_id: TenantId,
         snapshot: &StoredHealthMetrics,
         mode: WellnessWriteMode,
-        synced_at: DateTime<Utc>,
+        synced_at: Timestamp,
     ) -> AppResult<WellnessLanded> {
         if self
             .withholds(tenant_id, &snapshot.user_id, &snapshot.source_name)
@@ -386,7 +386,7 @@ impl WellnessWrites<'_> {
         tenant_id: TenantId,
         day: &StoredDailyActivity,
         mode: WellnessWriteMode,
-        synced_at: DateTime<Utc>,
+        synced_at: Timestamp,
     ) -> AppResult<WellnessLanded> {
         if self
             .withholds(tenant_id, &day.user_id, &day.source_name)
@@ -491,6 +491,7 @@ fn user_uuid(user_id: &str) -> AppResult<Uuid> {
 #[cfg(test)]
 mod tests {
     use dravr_riviere::{DataPoint, SeriesType, ALL_SERIES_TYPES};
+    use dravr_tronc::dates::Timestamp;
 
     use super::{IntradaySeries, INTRADAY_SERIES};
 
@@ -500,7 +501,7 @@ mod tests {
     fn every_daily_kind_is_refused_as_a_series() {
         for series in ALL_SERIES_TYPES {
             let built =
-                IntradaySeries::try_new(*series, vec![DataPoint::new(chrono::Utc::now(), 1.0)]);
+                IntradaySeries::try_new(*series, vec![DataPoint::new(Timestamp::now(), 1.0)]);
             assert_eq!(
                 built.is_ok(),
                 INTRADAY_SERIES.contains(series),

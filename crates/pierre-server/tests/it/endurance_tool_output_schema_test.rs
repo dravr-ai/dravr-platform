@@ -15,7 +15,7 @@
 //! The tools live in `pierre-server` rather than `pierre-tool-runtime`, which
 //! is why they are pinned here and not in that crate's schema test.
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::models::coverage::{
     Completeness, Coverage, CoverageWindow, IncompleteReason, Pending,
@@ -36,8 +36,8 @@ use pierre_mcp_server::tools::implementations::endurance_intervals::{
 use pierre_tool_runtime::conversions::output_schema_for;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
-fn day(year: i32, month: u32, d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(year, month, d).expect("a valid day")
+fn day(year: i32, month: u32, d: u32) -> CivilDate {
+    CivilDate::from_ymd(year, month, d).expect("a valid day")
 }
 
 #[test]

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppError;
 use pierre_core::models::{Tenant, TenantId, TenantPlan, User, UserTier};
 use pierre_database::repositories::{UserRateLimitOverride, UserTierOverride, UserToolOverride};
@@ -40,7 +40,7 @@ pub async fn set_user_tier(
         .await
         .map_err(|e| AppError::internal(format!("Failed to set user tier: {e}")))?;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let override_row = UserTierOverride {
         user_id,
         tier,
@@ -185,7 +185,7 @@ pub async fn set_user_tool_override(
         .map_err(|e| AppError::internal(format!("Failed to read tool catalog: {e}")))?
         .ok_or_else(|| AppError::not_found(format!("Tool '{tool_name}'")))?;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let row = UserToolOverride {
         user_id,
         tool_name: tool_name.to_owned(),
@@ -281,7 +281,7 @@ pub async fn set_user_rate_limit_override(
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let row = UserRateLimitOverride {
         user_id: target_user_id,
         monthly_limit,

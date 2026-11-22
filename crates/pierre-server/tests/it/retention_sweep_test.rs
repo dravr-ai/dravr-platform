@@ -24,10 +24,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use chrono::{DateTime, Duration, SubsecRound, Utc};
 use dravr_barrage::store::sql::sqlite::{self, SqliteRecordStore};
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{ActivityId, LiveSource, Scope, SourceKey};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_config::activity_retention::{DEFAULT_DAYS_KEY, PROVIDER_DAYS_KEY};
 use pierre_config::admin_types::{ConfigScope, UpdateConfigRequest, ValidateConfigRequest};
 use pierre_core::admin::models::DEVICE_CLI_SERVICE_PREFIX;
@@ -62,7 +62,7 @@ struct World {
     live: BarrageLiveStore,
     user_id: Uuid,
     tenant_id: TenantId,
-    now: DateTime<Utc>,
+    now: Timestamp,
     /// The directory a SQLite record store's file lives in, held as long as
     /// the store is.
     _records_dir: Option<TempDir>,
@@ -107,7 +107,7 @@ impl World {
             user_id,
             tenant_id,
             // Microseconds, as both databases keep a timestamp.
-            now: Utc::now().trunc_subsecs(6),
+            now: Timestamp::from_epoch_micros(Timestamp::now().epoch_micros()).unwrap(),
             _records_dir: records_dir,
         }
     }
@@ -119,13 +119,13 @@ impl World {
     /// One `provider` run, read from the provider `age_days` ago, kept as a
     /// live read is.
     async fn read_run(&self, provider: &str, age_days: i64) -> String {
-        let read_at = self.now - Duration::days(age_days);
+        let read_at = self.now - Elapsed::days(age_days);
         let id = format!("{provider}{age_days}");
         let run = ActivityBuilder::new(
             id.clone(),
             format!("{provider} run"),
             SportType::Run,
-            read_at - Duration::hours(1),
+            read_at - Elapsed::hours(1),
             3_600,
             provider.to_owned(),
         )
@@ -150,7 +150,7 @@ impl World {
     /// One activity day under `provider`, last synced `age_days` ago, filed
     /// under a data source of that key.
     async fn sync_day(&self, provider: &str, age_days: i64) {
-        let synced_at = self.now - Duration::days(age_days);
+        let synced_at = self.now - Elapsed::days(age_days);
         let repos = self.repos();
         let source_id = repos
             .data_sources
@@ -177,7 +177,7 @@ impl World {
                     id: String::new(),
                     user_id: self.user_id.to_string(),
                     data_source_id: source_id,
-                    date: synced_at.date_naive(),
+                    date: synced_at.utc_date(),
                     steps: Some(9_000),
                     active_kcal: None,
                     total_kcal: None,
@@ -201,7 +201,7 @@ impl World {
                 self.user_id,
                 &self.tenant_id,
                 Some(provider),
-                self.now - Duration::days(60),
+                self.now - Elapsed::days(60),
                 self.now,
                 10,
             )
@@ -235,7 +235,7 @@ impl World {
             .get_daily_activity(
                 self.user_id,
                 &self.tenant_id,
-                self.now - Duration::days(60),
+                self.now - Elapsed::days(60),
                 self.now,
             )
             .await
@@ -281,7 +281,7 @@ impl World {
                 &self.tenant_id,
                 provider,
                 BackfillCoverage {
-                    oldest_reached_ts: (self.now - Duration::days(365)).timestamp(),
+                    oldest_reached_ts: (self.now - Elapsed::days(365)).epoch_seconds(),
                     hit_feed_end: true,
                     capture_version: 1,
                 },
@@ -308,7 +308,7 @@ impl World {
 
     /// When `provider`'s activities were last fetched, as the freshness read
     /// answers.
-    async fn last_sync(&self, provider: &str) -> Option<DateTime<Utc>> {
+    async fn last_sync(&self, provider: &str) -> Option<Timestamp> {
         self.repos()
             .activity_cache
             .latest_activity_sync(self.user_id, &self.tenant_id, provider)
@@ -382,7 +382,7 @@ impl World {
     ) {
         assert_eq!(
             self.last_sync("strava").await,
-            Some(self.now - Duration::days(1)),
+            Some(self.now - Elapsed::days(1)),
             "only the kept row's sync is left to vouch for Strava"
         );
         assert!(!self.covered("strava").await, "Strava's coverage was reset");
@@ -478,8 +478,8 @@ async fn seed_athlete(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();

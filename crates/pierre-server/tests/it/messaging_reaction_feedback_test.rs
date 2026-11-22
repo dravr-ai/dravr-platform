@@ -16,13 +16,13 @@ use crate::helpers::notify_capture::{capture_notify, named, only};
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user};
 use dravr_canot::channel::MessagingChannel;
 use dravr_canot::channels::descriptor_for;
 use dravr_canot::channels::discord::DiscordChannel;
 use dravr_canot::channels::messenger::MessengerChannel;
 use dravr_canot::channels::whatsapp::WhatsAppChannel;
+use dravr_tronc::dates::Timestamp;
 use http::HeaderMap;
 use pierre_core::models::messaging::{ChannelType, InboundReaction, ReactionAction};
 use pierre_core::models::{AddMessageParams, TenantId};
@@ -171,7 +171,7 @@ fn reaction(
         emoji: emoji.to_owned(),
         action,
         conversation_id: Some(delivered.channel_conversation_id.clone()),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
         raw_payload: json!({}),
     }
 }

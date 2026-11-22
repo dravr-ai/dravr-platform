@@ -497,7 +497,7 @@ pub(super) async fn hydrate_analytics_consent(resources: &ServerContext, user_id
 mod tests {
     use std::time::Duration as StdDuration;
 
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_core::models::{Tenant, User};
     use pierre_database::backends::{CreateLinkStateParams, TenantRepository};
     use pierre_database::RepositoryRegistry;
@@ -528,8 +528,8 @@ mod tests {
                 domain: None,
                 plan: "starter".to_owned(),
                 owner_user_id: user_id,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
             })
             .await
             .expect("tenant row");
@@ -546,7 +546,7 @@ mod tests {
     ) -> String {
         let code = Uuid::new_v4().simple().to_string();
         let user = user_id.to_string();
-        let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+        let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
         db.create_link_state(&CreateLinkStateParams {
             id: &Uuid::new_v4().to_string(),
             tenant_id,
@@ -569,11 +569,11 @@ mod tests {
         db: &dyn MessagingRepository,
         tenant_id: TenantId,
         user_id: Uuid,
-        ttl: Duration,
+        ttl: Elapsed,
     ) -> String {
         let code = Uuid::new_v4().simple().to_string();
         let user = user_id.to_string();
-        let expires_at = (Utc::now() + ttl).to_rfc3339();
+        let expires_at = (Timestamp::now() + ttl).to_rfc3339();
         db.create_link_state(&CreateLinkStateParams {
             id: &Uuid::new_v4().to_string(),
             tenant_id,
@@ -868,7 +868,7 @@ mod tests {
         let repos = database.repositories();
         let db: &dyn MessagingRepository = repos.messaging.as_ref();
         let (user_id, tenant_id) = account(repos).await;
-        let code = started_for(db, tenant_id, user_id, Duration::seconds(1)).await;
+        let code = started_for(db, tenant_id, user_id, Elapsed::seconds(1)).await;
         hold_pairing_code(db, tenant_id, "telegram", SENDER, &code, LOCALE)
             .await
             .ok()
@@ -894,7 +894,7 @@ mod tests {
         let repos = database.repositories();
         let db: &dyn MessagingRepository = repos.messaging.as_ref();
         let (user_id, tenant_id) = account(repos).await;
-        let code = started_for(db, tenant_id, user_id, Duration::seconds(-1)).await;
+        let code = started_for(db, tenant_id, user_id, Elapsed::seconds(-1)).await;
 
         let refused = hold_pairing_code(db, tenant_id, "telegram", SENDER, &code, LOCALE).await;
 

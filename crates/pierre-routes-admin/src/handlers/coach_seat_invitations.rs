@@ -36,6 +36,7 @@ use serde_json::{json, to_value, Value};
 use tracing::info;
 
 use pierre_core::admin::models::ValidatedAdminToken;
+use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{normalize_email, InvitationKind};
 use pierre_middleware::redaction::mask_email;
@@ -158,12 +159,12 @@ pub(crate) async fn handle_issue_coach_seat_invitation(
             let message = if report.invite_url().is_some() {
                 format!(
                     "Coach-seat invitation link issued, not mailed: it works once, until {}",
-                    expires_at.format("%Y-%m-%d %H:%M UTC")
+                    expires_at.format_with(&UTC_MINUTE)
                 )
             } else {
                 format!(
                     "Coach-seat invitation sent to {email}: its link works once, until {}",
-                    expires_at.format("%Y-%m-%d %H:%M UTC")
+                    expires_at.format_with(&UTC_MINUTE)
                 )
             };
             // The address is in the body, which the audit recorder never reads.

@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_providers::core::{
     ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
     ProviderFactory,
@@ -125,7 +125,7 @@ impl FitnessProvider for CoachHub {
             format!("{athlete}:1"),
             "Easy run",
             SportType::Run,
-            Utc::now() - Duration::days(1),
+            Timestamp::now() - Elapsed::days(1),
             1_800,
             COACHHUB,
         )

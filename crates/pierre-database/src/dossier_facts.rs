@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{DossierFact, Pillar};
 use pierre_memory::{FactKind, UserFact};
 
@@ -34,7 +34,7 @@ const FALLBACK_PILLAR: Pillar = Pillar::TrainingAndMovement;
 
 /// Project a single `UserFact` into a `DossierFact`, computing staleness
 /// against `now`.
-fn project(fact: &UserFact, now: DateTime<Utc>) -> DossierFact {
+fn project(fact: &UserFact, now: Timestamp) -> DossierFact {
     DossierFact {
         kind: fact.kind.as_str().to_owned(),
         predicate_code: fact.predicate_code.as_str().to_owned(),
@@ -54,7 +54,7 @@ fn project(fact: &UserFact, now: DateTime<Utc>) -> DossierFact {
 /// Facts are de-duplicated by id, so callers may safely concatenate several
 /// fact reads (e.g. a recency-bounded general fetch unioned with by-kind
 /// fetches that guarantee safety-critical kinds reach the renderer).
-pub(crate) fn group_facts(facts: &[UserFact], now: DateTime<Utc>) -> DossierFactBuckets {
+pub(crate) fn group_facts(facts: &[UserFact], now: Timestamp) -> DossierFactBuckets {
     let mut buckets = DossierFactBuckets {
         pillars: BTreeMap::new(),
         north_star: Vec::new(),

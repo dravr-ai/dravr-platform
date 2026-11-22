@@ -12,7 +12,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg(feature = "postgresql")]
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::rate_limiting::a2a_client_window_start;
 use pierre_core::models::recipes::{IngredientUnit, Recipe, RecipeIngredient};
 use pierre_core::models::CoachingPersona;
@@ -576,8 +576,8 @@ async fn test_parity_chat_list_conversations() {
 /// Truncate to microseconds so timestamps survive the `PostgreSQL` TIMESTAMPTZ
 /// round-trip (micro precision) unchanged; `SQLite` stores full-precision
 /// RFC 3339 TEXT.
-fn micros(ts: DateTime<Utc>) -> DateTime<Utc> {
-    DateTime::from_timestamp_micros(ts.timestamp_micros()).expect("in-range timestamp")
+fn micros(ts: Timestamp) -> Timestamp {
+    Timestamp::from_epoch_micros(ts.epoch_micros()).expect("in-range timestamp")
 }
 
 /// Regression: `sync_state.retry_count` is INTEGER (INT4) on `PostgreSQL` while
@@ -596,8 +596,8 @@ async fn test_parity_sync_cursor_roundtrip() {
         let repos = db.repositories();
         let (user_id, tenant_id) = create_test_user(repos).await;
 
-        let last_sync_at = micros(Utc::now());
-        let next_retry_at = micros(Utc::now() + Duration::minutes(15));
+        let last_sync_at = micros(Timestamp::now());
+        let next_retry_at = micros(Timestamp::now() + Elapsed::minutes(15));
         let cursor = SyncCursorRow {
             id: format!("{user_id}:{tenant_id}:whoop:recovery"),
             user_id: user_id.to_string(),
@@ -769,7 +769,7 @@ async fn test_parity_user_onboarding() {
             .updated_at
             .unwrap_or_else(|| panic!("{backend}: updated_at reads as an instant"));
         assert!(
-            (Utc::now() - written).num_minutes().abs() < 5,
+            (Timestamp::now() - written).num_minutes().abs() < 5,
             "{backend}: updated_at is the engine clock at the write, in UTC: {written}"
         );
 
@@ -860,13 +860,13 @@ async fn test_parity_data_source_upsert_stable_id() {
 
         // The returned id must satisfy the sleep_sessions.data_source_id FK —
         // this is the exact write that failed 100% of WHOOP health syncs.
-        let now = Utc::now();
+        let now = Timestamp::now();
         let session = StoredSleepSession {
             id: format!("sleep-fk-{user_id}"),
             user_id: user_id.to_string(),
             data_source_id: first.clone(),
             is_nap: false,
-            start_datetime: now - Duration::hours(8),
+            start_datetime: now - Elapsed::hours(8),
             end_datetime: now,
             total_sleep_seconds: Some(25_200),
             deep_sleep_seconds: Some(5_000),
@@ -884,7 +884,7 @@ async fn test_parity_data_source_upsert_stable_id() {
         };
         repos
             .sleep
-            .upsert_sleep_session(&tenant_id, &session, Utc::now())
+            .upsert_sleep_session(&tenant_id, &session, Timestamp::now())
             .await
             .expect("sleep upsert with the returned data_source_id must satisfy the FK");
     }
@@ -907,7 +907,7 @@ async fn test_parity_recovery_metrics_roundtrip() {
             id: String::new(),
             user_id: user_id.to_string(),
             data_source_id,
-            date: Utc::now().date_naive(),
+            date: Timestamp::now().utc_date(),
             recovery_score: Some(85),
             readiness_score: Some(72),
             hrv_ms: None,
@@ -921,11 +921,16 @@ async fn test_parity_recovery_metrics_roundtrip() {
             daily_strain: None,
             athlete_note: None,
             source_name: "whoop".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         };
         repos
             .recovery
-            .upsert_recovery_metrics(&tenant_id, &metrics, WellnessWriteMode::FullDay, Utc::now())
+            .upsert_recovery_metrics(
+                &tenant_id,
+                &metrics,
+                WellnessWriteMode::FullDay,
+                Timestamp::now(),
+            )
             .await
             .unwrap_or_else(|e| panic!("{backend}: recovery upsert must succeed: {e}"));
 
@@ -934,8 +939,8 @@ async fn test_parity_recovery_metrics_roundtrip() {
             .get_recovery_metrics(
                 user_id,
                 &tenant_id,
-                Utc::now() - Duration::days(3),
-                Utc::now() + Duration::days(1),
+                Timestamp::now() - Elapsed::days(3),
+                Timestamp::now() + Elapsed::days(1),
             )
             .await
             .unwrap_or_else(|e| panic!("{backend}: get_recovery_metrics must not error: {e}"))
@@ -991,8 +996,8 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
 
         // Captured once so a midnight rollover mid-test cannot make the two
         // upserts share a date and silently stop testing the collision.
-        let today = Utc::now().date_naive();
-        let yesterday = today - Duration::days(1);
+        let today = Timestamp::now().utc_date();
+        let yesterday = today - Elapsed::days(1);
         let provider_id = format!("whoop-body-{user_id}");
 
         let make = |date, weight| StoredHealthMetrics {
@@ -1011,7 +1016,7 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
             blood_glucose: None,
             vo2_max: None,
             source_name: "whoop".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         };
 
         let first = repos
@@ -1020,7 +1025,7 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
                 &tenant_id,
                 &make(yesterday, 70.0),
                 WellnessWriteMode::FullDay,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap_or_else(|e| panic!("{backend}: first upsert must succeed: {e}"));
@@ -1033,7 +1038,7 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
                 &tenant_id,
                 &make(today, 71.0),
                 WellnessWriteMode::FullDay,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap_or_else(|e| {
@@ -1053,7 +1058,7 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
                 &tenant_id,
                 &make(today, 72.0),
                 WellnessWriteMode::FullDay,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap_or_else(|e| panic!("{backend}: same-date re-sync must succeed: {e}"));
@@ -1067,8 +1072,8 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
             .get_health_snapshots(
                 user_id,
                 &tenant_id,
-                Utc::now() - Duration::days(3),
-                Utc::now() + Duration::days(1),
+                Timestamp::now() - Elapsed::days(3),
+                Timestamp::now() + Elapsed::days(1),
             )
             .await
             .unwrap_or_else(|e| panic!("{backend}: get_health_snapshots must not error: {e}"))
@@ -1098,7 +1103,7 @@ async fn test_parity_health_snapshot_roundtrip() {
             id: String::new(),
             user_id: user_id.to_string(),
             data_source_id,
-            date: Utc::now().date_naive(),
+            date: Timestamp::now().utc_date(),
             weight_kg: Some(70.5),
             body_fat_pct: Some(12.5),
             muscle_mass_kg: None,
@@ -1110,7 +1115,7 @@ async fn test_parity_health_snapshot_roundtrip() {
             blood_glucose: Some(5.2),
             vo2_max: Some(52.0),
             source_name: "whoop".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         };
         repos
             .health_snapshots
@@ -1118,7 +1123,7 @@ async fn test_parity_health_snapshot_roundtrip() {
                 &tenant_id,
                 &snapshot,
                 WellnessWriteMode::FullDay,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap_or_else(|e| panic!("{backend}: snapshot upsert must succeed: {e}"));
@@ -1128,8 +1133,8 @@ async fn test_parity_health_snapshot_roundtrip() {
             .get_health_snapshots(
                 user_id,
                 &tenant_id,
-                Utc::now() - Duration::days(3),
-                Utc::now() + Duration::days(1),
+                Timestamp::now() - Elapsed::days(3),
+                Timestamp::now() + Elapsed::days(1),
             )
             .await
             .unwrap_or_else(|e| panic!("{backend}: get_health_snapshots must not error: {e}"))
@@ -1227,7 +1232,7 @@ async fn test_parity_api_key_top_tools_analysis() {
             is_active: true,
             last_used_at: None,
             expires_at: None,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
         repos
             .api_keys
@@ -1239,7 +1244,7 @@ async fn test_parity_api_key_top_tools_analysis() {
             let usage = ApiKeyUsage {
                 id: None,
                 api_key_id: api_key.id.clone(),
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
                 tool_name: "get_activities".to_owned(),
                 response_time_ms: Some(response_time_ms),
                 status_code,
@@ -1260,8 +1265,8 @@ async fn test_parity_api_key_top_tools_analysis() {
             .usage
             .get_top_tools_analysis(
                 user_id,
-                Utc::now() - Duration::hours(1),
-                Utc::now() + Duration::hours(1),
+                Timestamp::now() - Elapsed::hours(1),
+                Timestamp::now() + Elapsed::hours(1),
             )
             .await
             .unwrap_or_else(|e| panic!("{backend}: top tools analysis must not error: {e}"));
@@ -1309,7 +1314,7 @@ async fn test_parity_api_key_stats() {
             is_active: true,
             last_used_at: None,
             expires_at: None,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
         repos
             .api_keys
@@ -1321,7 +1326,7 @@ async fn test_parity_api_key_stats() {
             let usage = ApiKeyUsage {
                 id: None,
                 api_key_id: api_key.id.clone(),
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
                 tool_name: "get_activities".to_owned(),
                 response_time_ms: Some(response_time_ms),
                 status_code,
@@ -1342,8 +1347,8 @@ async fn test_parity_api_key_stats() {
             .usage
             .get_api_key_stats(
                 &api_key.id,
-                Utc::now() - Duration::hours(1),
-                Utc::now() + Duration::hours(1),
+                Timestamp::now() - Elapsed::hours(1),
+                Timestamp::now() + Elapsed::hours(1),
             )
             .await
             .unwrap_or_else(|e| panic!("{backend}: api key stats must not error: {e}"));
@@ -1389,7 +1394,7 @@ async fn test_parity_a2a_usage_stats() {
                 repos,
                 backend,
                 &client,
-                Utc::now(),
+                Timestamp::now(),
                 response_time_ms,
                 status_code,
             )
@@ -1400,8 +1405,8 @@ async fn test_parity_a2a_usage_stats() {
             .a2a
             .get_usage_stats(
                 &client.id,
-                Utc::now() - Duration::hours(1),
-                Utc::now() + Duration::hours(1),
+                Timestamp::now() - Elapsed::hours(1),
+                Timestamp::now() + Elapsed::hours(1),
             )
             .await
             .unwrap_or_else(|e| panic!("{backend}: a2a usage stats must not error: {e}"));
@@ -1430,7 +1435,7 @@ async fn test_parity_a2a_client_window_usage() {
     for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
         let repos = db.repositories();
         let client = create_parity_a2a_client(repos, backend, 60).await;
-        let now = Utc::now();
+        let now = Timestamp::now();
         let window_start = a2a_client_window_start(&client, now);
 
         let empty = repos
@@ -1447,11 +1452,11 @@ async fn test_parity_a2a_client_window_usage() {
             "{backend}: a client with no calls has an empty window"
         );
 
-        let earliest_inside = now - Duration::seconds(30);
+        let earliest_inside = now - Elapsed::seconds(30);
         for at in [
-            now - Duration::minutes(5),
+            now - Elapsed::minutes(5),
             earliest_inside,
-            now - Duration::seconds(5),
+            now - Elapsed::seconds(5),
         ] {
             record_parity_a2a_call(repos, backend, &client, at, 10, 200).await;
         }
@@ -1499,8 +1504,8 @@ async fn create_parity_a2a_client(
         rate_limit_requests: 1000,
         rate_limit_window_seconds,
         is_active: true,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     repos
         .a2a
@@ -1515,7 +1520,7 @@ async fn record_parity_a2a_call(
     repos: &RepositoryRegistry,
     backend: &str,
     client: &A2AClient,
-    at: DateTime<Utc>,
+    at: Timestamp,
     response_time_ms: u32,
     status_code: u16,
 ) {
@@ -1577,9 +1582,9 @@ async fn create_test_user(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
@@ -1606,8 +1611,8 @@ async fn create_test_user(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     repos

@@ -109,7 +109,7 @@ pub async fn judging<F: Future>(fut: F) -> (F::Output, BTreeSet<SourceClass>) {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::{ActivityBuilder, SportType};
     use uuid::Uuid;
 
@@ -230,7 +230,7 @@ mod tests {
 
         let strava = Provenance::new();
         tracking(strava.clone(), async {
-            let start = Utc.with_ymd_and_hms(2026, 9, 30, 6, 0, 0).unwrap();
+            let start = Timestamp::parse_from_rfc3339("2026-09-30T06:00:00Z").unwrap();
             let served = filter_activities(
                 &NolioOnly,
                 vec![

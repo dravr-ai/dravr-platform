@@ -194,7 +194,7 @@ pub(super) async fn write_details(
                 continue;
             }
         };
-        let start = activity.start_date().timestamp();
+        let start = activity.start_date().epoch_seconds();
         let duration = i64::try_from(activity.duration_seconds()).unwrap_or(i64::MAX);
         let streams = streams_from_samples(start, &record.samples);
         let activity = match &streams {

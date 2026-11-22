@@ -22,7 +22,7 @@
 use crate::common;
 use crate::helpers;
 
-use chrono::{Timelike, Utc};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestResponse;
 use helpers::first_party_sign_in::{SignIn, SignInOutcome};
 use pierre_config::environment::{
@@ -132,7 +132,7 @@ impl LoginAlgorithmTestSetup {
         // Set approval fields for Active users
         if status == UserStatus::Active {
             user.approved_by = Some(user.id);
-            user.approved_at = Some(Utc::now());
+            user.approved_at = Some(Timestamp::now());
         }
 
         self.database.repositories().users.create(&user).await?;
@@ -365,7 +365,7 @@ async fn test_login_updates_last_active_timestamp() {
 
     // Record time before login, truncated to seconds since SQLite stores
     // timestamps with second-level precision
-    let before_login = Utc::now().with_nanosecond(0).expect("valid timestamp");
+    let before_login = Timestamp::from_epoch_seconds(Timestamp::now().epoch_seconds()).unwrap();
 
     // Delay to ensure timestamp difference across second boundary
     sleep(Duration::from_millis(1100)).await;

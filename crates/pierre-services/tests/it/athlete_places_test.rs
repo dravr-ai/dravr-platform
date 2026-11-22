@@ -12,7 +12,7 @@
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, ActivityBuilder, SegmentEffort, SportType, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
@@ -130,15 +130,15 @@ impl World {
 
     /// A start on a day no other ride of this world uses, so no two rides
     /// look like copies of one workout.
-    pub(crate) fn next_start(&self) -> DateTime<Utc> {
+    pub(crate) fn next_start(&self) -> Timestamp {
         let day = self.day.fetch_add(1, Ordering::Relaxed);
-        Utc.with_ymd_and_hms(2025, 1, 1, 8, 0, 0).unwrap() + Duration::days(day)
+        Timestamp::parse_from_rfc3339("2025-01-01T08:00:00Z").unwrap() + Elapsed::days(day)
     }
 
     pub(crate) async fn store(&self, tenant: &TenantId, provider: &str, activity: Activity) {
         self.repos()
             .activity_cache
-            .upsert_activities_synced_at(self.user, tenant, provider, &[activity], Utc::now())
+            .upsert_activities_synced_at(self.user, tenant, provider, &[activity], Timestamp::now())
             .await
             .unwrap();
     }
@@ -197,10 +197,10 @@ impl World {
     }
 
     pub(crate) async fn pass(&self) -> PlacesPassReport {
-        self.pass_at(Utc::now()).await
+        self.pass_at(Timestamp::now()).await
     }
 
-    async fn pass_at(&self, now: DateTime<Utc>) -> PlacesPassReport {
+    async fn pass_at(&self, now: Timestamp) -> PlacesPassReport {
         let report = places_pass(self.repos(), now, 20).await.unwrap();
         assert_eq!(report.failed, 0, "bug: a recompute failed: {report:?}");
         report
@@ -235,7 +235,7 @@ impl World {
     }
 
     async fn rows(&self) -> Vec<CachedActivityRow> {
-        let query = CachedRowsQuery::window(DateTime::UNIX_EPOCH, Utc::now(), 1_000);
+        let query = CachedRowsQuery::window(Timestamp::UNIX_EPOCH, Timestamp::now(), 1_000);
         self.repos()
             .activity_cache
             .get_cached_activity_rows(self.user, &self.tenant, &query)
@@ -309,7 +309,7 @@ fn effort(name: &str) -> SegmentEffort {
         name: name.to_owned(),
         elapsed_time: 300,
         moving_time: None,
-        start_date: Utc::now(),
+        start_date: Timestamp::now(),
         distance: 1_000.0,
         average_heart_rate: None,
         max_heart_rate: None,
@@ -861,7 +861,10 @@ async fn an_athlete_is_recomputed_after_an_ingest_an_erasure_or_a_day_and_not_ot
     );
 
     assert_eq!(
-        world.pass_at(Utc::now() + Duration::hours(25)).await.users,
+        world
+            .pass_at(Timestamp::now() + Elapsed::hours(25))
+            .await
+            .users,
         1,
         "bug: a day-old clustering is due"
     );
@@ -967,7 +970,7 @@ async fn an_athlete_whose_recompute_keeps_failing_never_holds_the_slot_another_i
         world.ride(SUTTON, 0).await;
         other.ride(BROMONT, 0).await;
     }
-    let clustered = Utc::now();
+    let clustered = Timestamp::now();
     assert_eq!(
         world.pass_at(clustered).await.users,
         2,
@@ -987,7 +990,9 @@ async fn an_athlete_whose_recompute_keeps_failing_never_holds_the_slot_another_i
     world.ride(SUTTON, 0).await;
     let later = other.ride(BROMONT, 0).await;
 
-    let first = places_pass(world.repos(), Utc::now(), 1).await.unwrap();
+    let first = places_pass(world.repos(), Timestamp::now(), 1)
+        .await
+        .unwrap();
     assert_eq!(
         first,
         PlacesPassReport {
@@ -997,7 +1002,9 @@ async fn an_athlete_whose_recompute_keeps_failing_never_holds_the_slot_another_i
         },
         "bug: the failing athlete heads the scan and its failure is counted"
     );
-    let second = places_pass(world.repos(), Utc::now(), 1).await.unwrap();
+    let second = places_pass(world.repos(), Timestamp::now(), 1)
+        .await
+        .unwrap();
     assert_eq!(
         (second.users, second.failed),
         (1, 0),
@@ -1008,7 +1015,9 @@ async fn an_athlete_whose_recompute_keeps_failing_never_holds_the_slot_another_i
         vec![Some(other.place_at(BROMONT).await.id)],
         "bug: the other athlete's new ride was not placed"
     );
-    let third = places_pass(world.repos(), Utc::now(), 1).await.unwrap();
+    let third = places_pass(world.repos(), Timestamp::now(), 1)
+        .await
+        .unwrap();
     assert_eq!(
         third.failed, 1,
         "bug: the failing athlete with a new row is no longer retried"

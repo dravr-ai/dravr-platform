@@ -31,29 +31,25 @@ use pierre_core::civil_time::{clock_date, is_date_only, local_date, parse_zone, 
 
 /// Everything in this file that names the date engine.
 mod engine {
-    use chrono::offset::LocalResult;
-    use chrono::{
-        DateTime, Datelike, Days, Duration, Months, NaiveDate, NaiveDateTime, TimeZone, Utc,
-        Weekday,
-    };
-    use chrono_tz::Tz;
+    use std::borrow::Borrow;
 
-    pub(super) type Instant = DateTime<Utc>;
-    pub(super) type CivilDate = NaiveDate;
-    pub(super) type Zone = Tz;
+    use dravr_tronc::dates::{CivilDateTime, Elapsed, LocalResolution, Weekday};
+
+    pub(super) use dravr_tronc::dates::{CivilDate, Timestamp as Instant};
 
     const STAMP: &str = "%Y-%m-%dT%H:%M:%S%.3f";
 
     /// A UTC instant from `2025-03-08T12:00:00.000`, always with milliseconds.
     pub(super) fn instant(text: &str) -> Instant {
-        NaiveDateTime::parse_from_str(text, STAMP)
+        CivilDateTime::parse_from_str(text, STAMP)
             .unwrap()
             .and_utc()
+            .unwrap()
     }
 
     /// The same shape back, so a table reads the way it was written.
     pub(super) fn show(value: Instant) -> String {
-        value.format(STAMP).to_string()
+        value.format(STAMP).unwrap()
     }
 
     /// A calendar date as `2025-03-08`.
@@ -63,53 +59,56 @@ mod engine {
 
     /// A calendar date from `2025-03-08`.
     pub(super) fn date(text: &str) -> CivilDate {
-        NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap()
+        CivilDate::parse_from_str(text, "%Y-%m-%d").unwrap()
     }
 
-    /// A zone from its IANA name.
-    pub(super) fn zone(name: &str) -> Zone {
-        name.parse().unwrap()
+    pub(super) use dravr_tronc::dates::Zone;
+
+    /// A zone from its IANA name, held for the whole run so the tables can
+    /// pass it on by copy as they passed the zone type it replaced.
+    pub(super) fn zone(name: &str) -> &'static Zone {
+        Box::leak(Box::new(name.parse().unwrap()))
     }
 
     /// Whether a zone name is known, and the name the zone answers to.
     pub(super) fn zone_verdict(name: &str) -> String {
-        name.parse::<Tz>()
+        name.parse::<Zone>()
             .map_or_else(|_| "rejected".to_owned(), |zone| zone.name().to_owned())
     }
 
     /// Seconds from the epoch.
     pub(super) fn epoch_seconds(value: Instant) -> i64 {
-        value.timestamp()
+        value.epoch_seconds()
     }
 
     /// Milliseconds from the epoch.
     pub(super) fn epoch_millis(value: Instant) -> i64 {
-        value.timestamp_millis()
+        value.epoch_millis()
     }
 
     /// The instant at that many seconds and nanoseconds from the epoch.
     pub(super) fn from_epoch(seconds: i64, nanos: u32) -> Option<Instant> {
-        DateTime::from_timestamp(seconds, nanos)
+        Instant::from_epoch_seconds_and_nanos(seconds, nanos).ok()
     }
 
     /// The instant at that many milliseconds from the epoch.
     pub(super) fn from_epoch_millis(millis: i64) -> Option<Instant> {
-        DateTime::from_timestamp_millis(millis)
+        Instant::from_epoch_millis(millis).ok()
     }
 
     /// The instant plus a whole number of days, negative to go back.
     pub(super) fn plus_days(value: Instant, days: i64) -> Instant {
-        value + Duration::days(days)
+        value + Elapsed::days(days)
     }
 
     /// The instant plus a whole number of weeks.
     pub(super) fn plus_weeks(value: Instant, weeks: i64) -> Instant {
-        value + Duration::weeks(weeks)
+        value + Elapsed::weeks(weeks)
     }
 
     /// The instant plus a whole number of hours.
     pub(super) fn plus_hours(value: Instant, hours: i64) -> Instant {
-        value + Duration::hours(hours)
+        value + Elapsed::hours(hours)
     }
 
     /// `later - earlier` in whole days, hours, minutes, seconds and milliseconds.
@@ -131,39 +130,35 @@ mod engine {
 
     /// The UTC calendar date of an instant.
     pub(super) fn utc_date(value: Instant) -> String {
-        value.date_naive().to_string()
+        value.utc_date().to_string()
     }
 
     /// The wall clock and offset an instant shows in a zone.
-    pub(super) fn wall_clock(value: Instant, zone: Zone) -> String {
-        value
-            .with_timezone(&zone)
-            .format("%Y-%m-%d %H:%M:%S %:z %Z")
-            .to_string()
+    pub(super) fn wall_clock(value: Instant, zone: impl Borrow<Zone>) -> String {
+        zone.borrow()
+            .format(value, "%Y-%m-%d %H:%M:%S %:z %Z")
+            .unwrap()
     }
 
-    fn naive(text: &str) -> NaiveDateTime {
-        NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S").unwrap()
+    fn naive(text: &str) -> CivilDateTime {
+        CivilDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S").unwrap()
     }
 
     /// The instants a wall-clock time means in a zone: none, one, or two.
-    pub(super) fn resolve_wall_clock(text: &str, zone: Zone) -> String {
-        let utc = |local: DateTime<Tz>| show(local.with_timezone(&Utc));
-        match zone.from_local_datetime(&naive(text)) {
-            LocalResult::None => "none".to_owned(),
-            LocalResult::Single(only) => format!("one:{}", utc(only)),
-            LocalResult::Ambiguous(first, second) => {
-                format!("two:{}|{}", utc(first), utc(second))
+    pub(super) fn resolve_wall_clock(text: &str, zone: impl Borrow<Zone>) -> String {
+        match zone.borrow().resolve(naive(text)) {
+            LocalResolution::None => "none".to_owned(),
+            LocalResolution::Single(only) => format!("one:{}", show(only)),
+            LocalResolution::Ambiguous(first, second) => {
+                format!("two:{}|{}", show(first), show(second))
             }
         }
     }
 
     /// The three ways call sites pick one instant: earliest, latest, single.
-    pub(super) fn pick_wall_clock(text: &str, zone: Zone) -> [String; 3] {
-        let resolved = zone.from_local_datetime(&naive(text));
-        let utc = |local: Option<DateTime<Tz>>| {
-            local.map_or_else(|| "none".to_owned(), |at| show(at.with_timezone(&Utc)))
-        };
+    pub(super) fn pick_wall_clock(text: &str, zone: impl Borrow<Zone>) -> [String; 3] {
+        let resolved = zone.borrow().resolve(naive(text));
+        let utc = |local: Option<Instant>| local.map_or_else(|| "none".to_owned(), show);
         [
             utc(resolved.earliest()),
             utc(resolved.latest()),
@@ -173,7 +168,7 @@ mod engine {
 
     /// A date moved by whole months, negative to go back.
     pub(super) fn date_plus_months(value: CivilDate, months: i32) -> String {
-        let step = Months::new(months.unsigned_abs());
+        let step = months.unsigned_abs();
         let moved = if months >= 0 {
             value.checked_add_months(step)
         } else {
@@ -182,31 +177,36 @@ mod engine {
         moved.map_or_else(|| "none".to_owned(), |date| date.to_string())
     }
 
-    /// An instant moved by whole months, negative to go back.
+    /// An instant moved by whole months, negative to go back: its UTC date
+    /// moves and its time of day stays.
     pub(super) fn instant_plus_months(value: Instant, months: i32) -> String {
-        let step = Months::new(months.unsigned_abs());
+        let step = months.unsigned_abs();
+        let civil = value.utc_datetime();
         let moved = if months >= 0 {
-            value.checked_add_months(step)
+            civil.date().checked_add_months(step)
         } else {
-            value.checked_sub_months(step)
+            civil.date().checked_sub_months(step)
         };
-        moved.map_or_else(|| "none".to_owned(), show)
+        moved
+            .and_then(|date| date.and_time(civil.time()).and_utc().ok())
+            .map_or_else(|| "none".to_owned(), show)
     }
 
     /// A date moved by whole days, negative to go back.
     pub(super) fn date_plus_days(value: CivilDate, days: i64) -> String {
-        let step = Days::new(days.unsigned_abs());
-        let moved = if days >= 0 {
-            value.checked_add_days(step)
-        } else {
-            value.checked_sub_days(step)
-        };
+        let moved = i64::try_from(days.unsigned_abs()).ok().and_then(|step| {
+            if days >= 0 {
+                value.checked_add_days(step)
+            } else {
+                value.checked_sub_days(step)
+            }
+        });
         moved.map_or_else(|| "none".to_owned(), |date| date.to_string())
     }
 
     /// The same move written the way most call sites write it.
     pub(super) fn date_plus_elapsed_days(value: CivilDate, days: i64) -> String {
-        (value + Duration::days(days)).to_string()
+        (value + Elapsed::days(days)).to_string()
     }
 
     /// `later - earlier` in days between two calendar dates.
@@ -226,20 +226,19 @@ mod engine {
     /// The Monday that starts the date's week, by both spellings in use.
     pub(super) fn week_start(value: CivilDate) -> (String, String) {
         let by_subtraction =
-            value - Duration::days(i64::from(value.weekday().num_days_from_monday()));
-        let by_week = value.week(Weekday::Mon).first_day();
+            value - Elapsed::days(i64::from(value.weekday().num_days_from_monday()));
+        let by_week = value.start_of_week(Weekday::Mon);
         (by_subtraction.to_string(), by_week.to_string())
     }
 
     /// The ISO year and week number.
     pub(super) fn iso_week(value: CivilDate) -> (i32, u32) {
-        let week = value.iso_week();
-        (week.year(), week.week())
+        value.iso_week()
     }
 
     /// Midnight UTC at the start of the date.
     pub(super) fn start_of_day(value: CivilDate) -> Instant {
-        value.and_hms_opt(0, 0, 0).unwrap().and_utc()
+        value.at_midnight().and_utc().unwrap()
     }
 }
 

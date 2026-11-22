@@ -39,7 +39,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{Days, NaiveDate};
+use dravr_tronc::dates::CivilDate;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
@@ -168,7 +168,7 @@ struct IntervalsIcuPlannedEvent {
 #[derive(Debug)]
 pub(crate) struct PlannedEvent {
     id: i64,
-    date: NaiveDate,
+    date: CivilDate,
     entry: Entry,
     /// The coach keeps it hidden from the athlete; kept only on the coach's
     /// read.
@@ -289,16 +289,16 @@ fn hidden_title(title: &str) -> String {
 
 /// The civil date `start_date_local` begins with (`YYYY-MM-DD`, for a race;
 /// a full local date-time for a session).
-fn civil_date(start_date_local: Option<&str>) -> Option<NaiveDate> {
-    NaiveDate::parse_from_str(start_date_local?.get(..10)?, "%Y-%m-%d").ok()
+fn civil_date(start_date_local: Option<&str>) -> Option<CivilDate> {
+    CivilDate::parse_from_str(start_date_local?.get(..10)?, "%Y-%m-%d").ok()
 }
 
 /// Whether a window starting `after` can hold a workout already done, as of
 /// `today` in UTC: a day of slack covers an athlete whose own calendar runs
 /// ahead of UTC. A window wholly in the future spends no pairing request.
-pub(crate) fn may_hold_done_workouts(after: NaiveDate, today: NaiveDate) -> bool {
+pub(crate) fn may_hold_done_workouts(after: CivilDate, today: CivilDate) -> bool {
     today
-        .checked_add_days(Days::new(1))
+        .checked_add_days(1)
         .is_none_or(|tomorrow| after <= tomorrow)
 }
 
@@ -334,8 +334,8 @@ mod tests {
     use crate::models::SportType;
     use serde_json::json;
 
-    fn day(d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 10, d).expect("a calendar date")
+    fn day(d: u32) -> CivilDate {
+        CivilDate::from_ymd(2026, 10, d).expect("a calendar date")
     }
 
     fn read_by(

@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 use common::create_test_server_resources;
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{
     AddMessageParams, MessageRecord, Tenant, TenantId, User, UserStatus, COMMAND_FINISH_REASON,
@@ -38,7 +39,7 @@ async fn seed_athlete(resources: &Arc<ServerContext>, email: &str) -> (Uuid, Ten
     let mut user = User::new(email.to_owned(), password_hash, Some("Windows".to_owned()));
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
 
@@ -50,8 +51,8 @@ async fn seed_athlete(resources: &Arc<ServerContext>, email: &str) -> (Uuid, Ten
         domain: None,
         plan: "professional".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common

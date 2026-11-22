@@ -120,8 +120,8 @@ pub(super) async fn echo_tapped_button(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use dravr_canot::turn::ConversationTurnId;
+    use dravr_tronc::dates::Timestamp;
     use serde_json::json;
 
     /// A Telegram update as canot hands it on: the `callback_query` of a tap
@@ -150,7 +150,7 @@ mod tests {
             conversation_id: Some("77".to_owned()),
             chat_title: None,
             channel_message_id: "4382bf0d".to_owned(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             raw_payload: update,
             turn_id: ConversationTurnId::new(),
             is_direct_message: true,

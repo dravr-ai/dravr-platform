@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{PreApprovedEmail, SessionRefreshToken};
 use uuid::Uuid;
@@ -30,16 +30,16 @@ pub trait SessionRefreshTokenRepository: Send + Sync {
     async fn consume_token(
         &self,
         token: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<SessionRefreshToken>>;
     /// Revoke every live member of the family this token belongs to, and
     /// return how many were revoked. Zero means the token was unknown or its
     /// family was already dead; more than zero after a failed exchange means a
     /// rotated-out token was replayed and its successor is now dead too.
-    async fn revoke_token_family(&self, token: &str, now: DateTime<Utc>) -> AppResult<u64>;
+    async fn revoke_token_family(&self, token: &str, now: Timestamp) -> AppResult<u64>;
     /// Revoke every live token the user holds, on any device — the password
     /// changed, so every session minted under the old one ends.
-    async fn revoke_user_tokens(&self, user_id: Uuid, now: DateTime<Utc>) -> AppResult<u64>;
+    async fn revoke_user_tokens(&self, user_id: Uuid, now: Timestamp) -> AppResult<u64>;
 }
 
 /// Standing per-email pre-approvals — an admin "allow" recorded before the

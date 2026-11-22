@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_auth::rate_limiting::{a2a_client_window_resets_at, calculate_a2a_client_rate_limit};
 use pierre_core::models::a2a::A2AClient;
 use pierre_core::models::WindowUsage;
@@ -51,7 +51,7 @@ pub struct ClientUsageStats {
     /// Every call the client has made
     pub total_requests: u64,
     /// Timestamp of the most recent call
-    pub last_request_at: Option<DateTime<Utc>>,
+    pub last_request_at: Option<Timestamp>,
     /// One row per UTC calendar day that saw a call, newest first
     pub daily_usage: Vec<DailyUsage>,
 }
@@ -60,7 +60,7 @@ pub struct ClientUsageStats {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DailyUsage {
     /// The UTC calendar day
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// Calls answered below 400
     pub success_count: u32,
     /// Calls answered 400 or above
@@ -86,14 +86,14 @@ pub struct A2ARateLimitStatus {
     /// Calls the window still admits
     pub remaining: u32,
     /// When the window frees its first slot
-    pub reset_at: DateTime<Utc>,
+    pub reset_at: Timestamp,
 }
 
 impl A2ARateLimitStatus {
     /// The status of `client`'s budget, given the calls `usage` counted
     /// inside its window at `now`.
     #[must_use]
-    pub fn from_window(client: &A2AClient, usage: &WindowUsage, now: DateTime<Utc>) -> Self {
+    pub fn from_window(client: &A2AClient, usage: &WindowUsage, now: Timestamp) -> Self {
         Self {
             client_id: client.id.clone(),
             is_rate_limited: calculate_a2a_client_rate_limit(client, usage, now).is_exceeded(),

@@ -36,7 +36,7 @@ use axum::http::StatusCode as HttpStatus;
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::future::join_all;
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserOAuthToken,
@@ -99,8 +99,8 @@ async fn second_tenant(resources: &Arc<ServerContext>, athlete: &Athlete) -> (Te
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: athlete.user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -196,7 +196,7 @@ fn run_with_overview(id: &str, provider: &str, track: &[(f64, f64)]) -> Activity
         id,
         "Hill loop",
         SportType::Run,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3_000,
         provider,
     )
@@ -212,7 +212,7 @@ fn run_without_overview(id: &str) -> Activity {
         id,
         "Long ride",
         SportType::Ride,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         9_000,
         "strava",
     )
@@ -228,7 +228,7 @@ fn ride_without_position(id: &str) -> Activity {
         id,
         "Long ride",
         SportType::Ride,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         9_000,
         "strava",
     )
@@ -274,7 +274,7 @@ async fn stored(
 async fn expire_route_reads(resources: &ServerContext, user_id: Uuid) {
     const SQL: &str = "UPDATE activity_route_tracks SET expires_at = $1 \
                        WHERE user_id = $2 AND expires_at IS NOT NULL";
-    let past = Utc::now() - Duration::minutes(1);
+    let past = Timestamp::now() - Elapsed::minutes(1);
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(SQL)
@@ -297,7 +297,7 @@ async fn expire_route_reads(resources: &ServerContext, user_id: Uuid) {
 }
 
 /// Run `sql` against the test backend, binding `at` then the user's id.
-async fn exec_for_user(resources: &ServerContext, sql: &str, at: DateTime<Utc>, user_id: Uuid) {
+async fn exec_for_user(resources: &ServerContext, sql: &str, at: Timestamp, user_id: Uuid) {
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(sql)
@@ -326,7 +326,7 @@ async fn pass_detail_rechecks(resources: &ServerContext, user_id: Uuid) {
         resources,
         "UPDATE cached_activities SET detail_recheck_at = $1 \
          WHERE user_id = $2 AND detail_recheck_at IS NOT NULL",
-        Utc::now() - Duration::minutes(1),
+        Timestamp::now() - Elapsed::minutes(1),
         user_id,
     )
     .await;
@@ -338,7 +338,7 @@ async fn detail_recheck_at(
     resources: &ServerContext,
     user_id: Uuid,
     activity_id: &str,
-) -> Option<DateTime<Utc>> {
+) -> Option<Timestamp> {
     const SQL: &str = "SELECT detail_recheck_at FROM cached_activities \
                        WHERE user_id = $1 AND activity_id = $2";
     match resources.agent.database.backend() {
@@ -365,9 +365,9 @@ async fn assert_stored_unavailable(
     athlete: &Athlete,
     provider: &str,
     activity_id: &str,
-    before: DateTime<Utc>,
+    before: Timestamp,
 ) {
-    let recheck = Duration::minutes(UNREAD_ROUTE_RECHECK_MINUTES);
+    let recheck = Elapsed::minutes(UNREAD_ROUTE_RECHECK_MINUTES);
     let Some(StoredRouteTrack::Unavailable {
         source,
         reason,
@@ -381,7 +381,7 @@ async fn assert_stored_unavailable(
         ("streams", "unavailable")
     );
     assert!(
-        before + recheck <= expires_at && expires_at <= Utc::now() + recheck,
+        before + recheck <= expires_at && expires_at <= Timestamp::now() + recheck,
         "{activity_id} expires {expires_at}, a recheck period after the read"
     );
 }
@@ -452,7 +452,7 @@ fn ride_detail() -> Value {
         "name": "Long ride",
         "type": "Ride",
         "sport_type": "Ride",
-        "start_date": (Utc::now() - Duration::days(2)).to_rfc3339(),
+        "start_date": (Timestamp::now() - Elapsed::days(2)).to_rfc3339(),
         "elapsed_time": 9_000,
         "distance": 60_000.0
     })
@@ -521,7 +521,7 @@ async fn mock_strava_manual_entry() -> (String, Arc<Hits>) {
                         "name": "Spin class",
                         "type": "Ride",
                         "sport_type": "Ride",
-                        "start_date": (Utc::now() - Duration::days(2)).to_rfc3339(),
+                        "start_date": (Timestamp::now() - Elapsed::days(2)).to_rfc3339(),
                         "elapsed_time": 3_600,
                         "distance": 30_000.0,
                         "manual": true
@@ -617,7 +617,7 @@ async fn link_oauth(resources: &Arc<ServerContext>, athlete: &Athlete, provider:
         )
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .oauth_tokens
         .upsert_token(&UserOAuthToken {
@@ -629,7 +629,7 @@ async fn link_oauth(resources: &Arc<ServerContext>, athlete: &Athlete, provider:
             access_token: SecretString::from("strava_access_token_0123456789abcdef0123456789"),
             refresh_token: Some(SecretString::from("strava_refresh")),
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now + Duration::hours(6)),
+            expires_at: Some(now + Elapsed::hours(6)),
             scope: Some("activity:read_all".to_owned()),
             provider_user_id: Some("4242".to_owned()),
             oauth_app_client_id: None,
@@ -673,7 +673,7 @@ async fn mock_scraper_missing_the_route_first(
                         "id": id,
                         "name": "Sortie du matin",
                         "sport_type": "ride",
-                        "start_date": (Utc::now() - Duration::days(2)).to_rfc3339(),
+                        "start_date": (Timestamp::now() - Elapsed::days(2)).to_rfc3339(),
                         "duration_seconds": 9_000,
                         "distance_meters": 60_000.0,
                         "provider": "strava"
@@ -1055,7 +1055,7 @@ async fn a_detail_read_with_no_splits_or_laps_is_read_again_after_its_recheck() 
     .await;
     let view = "/api/me/activities/strava/55001";
 
-    let before = Utc::now();
+    let before = Timestamp::now();
     for open in 0..3 {
         let (status, body) = get_json(&resources, &athlete.token, view).await;
         assert_eq!(status, StatusCode::OK, "{body}");
@@ -1066,9 +1066,9 @@ async fn a_detail_read_with_no_splits_or_laps_is_read_again_after_its_recheck() 
     let recheck = detail_recheck_at(&resources, athlete.user_id, "55001")
         .await
         .expect("an empty detail is stored with its recheck instant");
-    let interval = Duration::minutes(EMPTY_DETAIL_RECHECK_MINUTES);
+    let interval = Elapsed::minutes(EMPTY_DETAIL_RECHECK_MINUTES);
     assert!(
-        recheck >= before + interval && recheck <= Utc::now() + interval,
+        recheck >= before + interval && recheck <= Timestamp::now() + interval,
         "{recheck} is {EMPTY_DETAIL_RECHECK_MINUTES} minutes after the read"
     );
 
@@ -1192,7 +1192,7 @@ async fn a_provider_with_no_stream_source_answers_no_gps_without_a_read() {
         "whoop-7",
         "Functional fitness",
         SportType::Workout,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         2_700,
         "whoop",
     )
@@ -1250,7 +1250,7 @@ async fn a_mirror_detail_read_with_no_route_is_unavailable_and_read_again_once_i
     )
     .await;
 
-    let before = Utc::now();
+    let before = Timestamp::now();
     let (status, body) = route_of(&resources, &athlete.token, "strava", "m2").await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body, json!({ "route": null, "reason": "unavailable" }));
@@ -1308,7 +1308,7 @@ async fn a_streams_request_that_failed_answers_unavailable_until_it_expires() {
     )
     .await;
 
-    let before = Utc::now();
+    let before = Timestamp::now();
     let (status, body) = route_of(&resources, &athlete.token, "strava", "55011").await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body, json!({ "route": null, "reason": "unavailable" }));

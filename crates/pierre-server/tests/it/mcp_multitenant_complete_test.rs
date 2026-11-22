@@ -12,6 +12,7 @@ use crate::common;
 use crate::helpers;
 
 use anyhow::Result;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::testkit::McpTestClient;
 use helpers::first_party_sign_in::{
     authorize_uri, callback_param, fresh_state, FirstPartyClient, Pkce,
@@ -203,9 +204,9 @@ impl MultiTenantMcpClient {
             user_status: UserStatus::Active, // Already active
             role: UserRole::User,
             approved_by: Some(user_id), // Self-approved for test
-            approved_at: Some(chrono::Utc::now()),
-            created_at: chrono::Utc::now(),
-            last_active: chrono::Utc::now(),
+            approved_at: Some(Timestamp::now()),
+            created_at: Timestamp::now(),
+            last_active: Timestamp::now(),
             firebase_uid: None,
             auth_provider: String::new(),
             analytics_consent: false,
@@ -227,8 +228,8 @@ impl MultiTenantMcpClient {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id, // Test user is the owner
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         repos.tenants.create(&test_tenant).await?;
 

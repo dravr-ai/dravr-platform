@@ -26,7 +26,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tasks::TASKS_EXTENSION_ID;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType, TenantId};
@@ -53,7 +53,7 @@ async fn scraper_head_flag() -> (Arc<AtomicBool>, String) {
     let head_complete = Arc::new(AtomicBool::new(true));
     // Two days old: inside every window the three paths read, and inside the
     // retention prune the write-through applies.
-    let ride_start = (Utc::now() - Duration::days(2)).to_rfc3339();
+    let ride_start = (Timestamp::now() - Elapsed::days(2)).to_rfc3339();
     let url = spawn_mock_scraper_serving(Arc::clone(&head_complete), ride_start).await;
     (head_complete, url)
 }
@@ -99,8 +99,8 @@ async fn cached_rows(
             user_id,
             &tenant,
             None,
-            Utc::now() - Duration::days(400),
-            Utc::now() + Duration::days(1),
+            Timestamp::now() - Elapsed::days(400),
+            Timestamp::now() + Elapsed::days(1),
             100,
         )
         .await
@@ -250,7 +250,7 @@ async fn historical_backfill_declines_a_headless_capture_and_persists_a_complete
         .with_tenant(tenant.to_string())
         .with_auth_method("jwt_bearer")
         .with_client_capabilities(json!({ "extensions": { TASKS_EXTENSION_ID: {} } }));
-    let after = (Utc::now() - Duration::days(200)).timestamp();
+    let after = (Timestamp::now() - Elapsed::days(200)).epoch_seconds();
     let args = json!({ "provider": "sciotte", "after": after, "limit": 10, "mode": "summary" });
 
     head_complete.store(false, Ordering::SeqCst);
@@ -310,7 +310,7 @@ fn old_run(id: &str, provider: &str, age_days: i64) -> Activity {
         id.to_owned(),
         format!("run {id}"),
         SportType::Run,
-        Utc::now() - Duration::days(age_days),
+        Timestamp::now() - Elapsed::days(age_days),
         3_600,
         provider,
     )
@@ -355,7 +355,7 @@ async fn a_strava_write_through_prunes_no_old_row() {
         limit: Some(10),
         offset: None,
         before: None,
-        after: Some((Utc::now() - Duration::days(7)).timestamp()),
+        after: Some((Timestamp::now() - Elapsed::days(7)).epoch_seconds()),
     };
     fetch_provider_head(&runtime, "sciotte", user_id, &tenant.to_string(), &params)
         .await

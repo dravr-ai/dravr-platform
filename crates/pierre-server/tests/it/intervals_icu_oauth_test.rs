@@ -34,7 +34,8 @@ use axum::routing::{delete, get, post};
 use axum::{Form, Json, Router};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::environment::{OAuthProviderConfig, ProviderEndpointOverride, ServerConfig};
 use pierre_core::errors::ErrorCode;
@@ -216,8 +217,8 @@ async fn complete_oauth_link(resources: &ServerContext, user_id: Uuid, tenant_id
             scope: None,
             pkce_code_verifier: None,
             oauth_app_client_id: None,
-            created_at: Utc::now(),
-            expires_at: Utc::now() + chrono::Duration::minutes(10),
+            created_at: Timestamp::now(),
+            expires_at: Timestamp::now() + Elapsed::minutes(10),
             used: false,
         })
         .await
@@ -237,7 +238,7 @@ async fn complete_oauth_link(resources: &ServerContext, user_id: Uuid, tenant_id
 
 /// Seed a link made by pasting an athlete id + API key.
 async fn seed_api_key_link(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos
@@ -504,7 +505,7 @@ async fn the_authorize_url_asks_for_the_comma_joined_scopes_without_pkce() {
         .common
         .repos
         .oauth_client_state
-        .consume_oauth_client_state(&authorization.state, PROVIDER, Utc::now())
+        .consume_oauth_client_state(&authorization.state, PROVIDER, Timestamp::now())
         .await
         .unwrap()
         .expect("the state is stored for the callback");
@@ -575,7 +576,7 @@ async fn spend(resources: &ServerContext, key: &str, window: Duration, value: i6
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             key,
-            &budget_period(Utc::now(), window),
+            &budget_period(Timestamp::now(), window),
             value,
         )
         .await
@@ -592,7 +593,7 @@ async fn spent(resources: &ServerContext, key: &str, window: Duration) -> i64 {
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             key,
-            &budget_period(Utc::now(), window),
+            &budget_period(Timestamp::now(), window),
         )
         .await
         .unwrap()

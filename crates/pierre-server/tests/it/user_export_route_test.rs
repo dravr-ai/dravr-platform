@@ -13,7 +13,7 @@
 #![allow(missing_docs)]
 
 use axum::Router;
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use uuid::Uuid;
@@ -123,8 +123,8 @@ async fn seed_athlete(repos: &RepositoryRegistry, label: &str) -> (User, TenantI
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -134,8 +134,8 @@ async fn seed_athlete(repos: &RepositoryRegistry, label: &str) -> (User, TenantI
             tenant_id,
             user.id,
             &format!("flow-{label}"),
-            NaiveDate::from_ymd_opt(2026, 10, 1).unwrap(),
-            Utc::now(),
+            CivilDate::from_ymd(2026, 10, 1).unwrap(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -158,12 +158,12 @@ async fn connect_strava(repos: &RepositoryRegistry, user: &User, tenant_id: Tena
             access_token: SecretString::from(ACCESS_SECRET),
             refresh_token: None,
             token_type: "Bearer".to_owned(),
-            expires_at: Some(Utc::now() + Duration::hours(6)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(6)),
             scope: Some("read".to_owned()),
             provider_user_id: None,
             oauth_app_client_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -387,7 +387,7 @@ fn barrage_record(
     id: &str,
     original: Option<&[u8]>,
 ) -> ActivityRecord {
-    let start = Utc::now() - Duration::days(3);
+    let start = Timestamp::now() - Elapsed::days(3);
     let activity = ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3600, source.as_str())
         .distance_meters(30_000.0)
         .build();
@@ -397,7 +397,7 @@ fn barrage_record(
         import_id: None,
         source_activity_id: id.to_owned(),
         source_athlete_id: None,
-        ingested_at: Utc::now(),
+        ingested_at: Timestamp::now(),
         original: sha.map(|sha| BlobKey::original(scope, sha)),
         original_sha256: sha,
         session_index: sha.map(|_| 0),
@@ -429,8 +429,8 @@ async fn second_tenant(repos: &RepositoryRegistry, user: &User, label: &str) -> 
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();

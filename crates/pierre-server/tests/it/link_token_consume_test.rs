@@ -18,8 +18,8 @@ use crate::common;
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
 use common::{create_test_database, create_test_user_with_email};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::future::join_all;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{InvitationKind, UserInvitation};
@@ -106,7 +106,7 @@ impl Fixture {
                         Some(self.user_id),
                         &selector,
                         hash,
-                        Utc::now() + Duration::days(7),
+                        Timestamp::now() + Elapsed::days(7),
                         InvitationKind::Account,
                     )
                     .await
@@ -241,7 +241,11 @@ async fn an_invitation_past_the_cap_leaves_the_live_list() {
     let live =
         |list: Vec<UserInvitation>| list.iter().any(|invitation| invitation.email == invitee);
     assert!(live(
-        repos.user_invitations.list_live(Utc::now()).await.unwrap()
+        repos
+            .user_invitations
+            .list_live(Timestamp::now())
+            .await
+            .unwrap()
     ));
 
     for n in 0..=CAP {
@@ -251,7 +255,13 @@ async fn an_invitation_past_the_cap_leaves_the_live_list() {
             .is_err());
     }
     assert!(
-        !live(repos.user_invitations.list_live(Utc::now()).await.unwrap()),
+        !live(
+            repos
+                .user_invitations
+                .list_live(Timestamp::now())
+                .await
+                .unwrap()
+        ),
         "a locked-out invitation is revoked, not left listed as live"
     );
 }

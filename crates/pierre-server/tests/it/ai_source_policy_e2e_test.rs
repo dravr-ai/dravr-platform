@@ -11,7 +11,7 @@ use crate::common::offline_provider_registry;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
@@ -88,7 +88,7 @@ fn session(id: &str, name: &str, source: &str, days_ago: i64) -> Activity {
         id,
         name,
         SportType::Ride,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3_600,
         RELAY,
     )
@@ -189,7 +189,7 @@ async fn connect_relay(resources: &ServerContext) -> (Uuid, TenantId) {
         RELAY.to_owned(),
         "relay-access".to_owned(),
         Some("relay-refresh".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         None,
     );
     repos.oauth_tokens.upsert_token(&token).await.unwrap();
@@ -248,8 +248,8 @@ async fn the_model_sees_what_the_relays_terms_permit_and_the_cache_keeps_every_r
             user_id,
             &tenant,
             Some(RELAY),
-            Utc::now() - Duration::days(30),
-            Utc::now(),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now(),
             50,
         )
         .await

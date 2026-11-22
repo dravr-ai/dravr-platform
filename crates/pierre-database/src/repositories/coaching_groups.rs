@@ -15,7 +15,7 @@
 //!
 //! Booleans bind as `bool` and are spelled `TRUE`/`FALSE` in the statements:
 //! Postgres has the type, `SQLite` stores 1/0 for both and reads them back as
-//! `bool`. Timestamps bind as [`DateTime<Utc>`] on both; sqlx-sqlite encodes
+//! `bool`. Timestamps bind as [`Timestamp`] on both; sqlx-sqlite encodes
 //! one as `to_rfc3339_opts(AutoSi, false)`, the bytes `to_rfc3339()` writes,
 //! so the `SQLite` TEXT columns hold what they always held.
 //!
@@ -32,7 +32,7 @@ pub(crate) use sql::{
     RELEASE_GROUP_MEMBERS_SQL, SET_GROUP_COACH_USER_SQL, UPDATE_GROUP_SQL,
 };
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 
 /// The name a person reads for the user joined in as `u`: their display name
@@ -68,11 +68,11 @@ where
 }
 
 /// Read a timestamp column.
-pub(crate) fn instant<'r, R>(row: &'r R, name: &str) -> AppResult<DateTime<Utc>>
+pub(crate) fn instant<'r, R>(row: &'r R, name: &str) -> AppResult<Timestamp>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    DateTime<Utc>: sqlx::Decode<'r, R::Database> + sqlx::Type<R::Database>,
+    Timestamp: sqlx::Decode<'r, R::Database> + sqlx::Type<R::Database>,
 {
     column(row, name)
 }
@@ -125,7 +125,7 @@ macro_rules! impl_coaching_group_repository {
         /// serving tenant are both set. A row the chat created leaves both
         /// NULL and reads as `None`.
         fn chat_connection(r: &$row) -> AppResult<Option<GroupChatConnection>> {
-            let connected_at: Option<DateTime<Utc>> = column(r, "channel_connected_at")?;
+            let connected_at: Option<Timestamp> = column(r, "channel_connected_at")?;
             let serving: Option<String> = column(r, "channel_tenant_id")?;
             let (Some(connected_at), Some(serving)) = (connected_at, serving) else {
                 return Ok(None);
@@ -303,7 +303,7 @@ macro_rules! impl_coaching_group_repository {
                     .bind(&group.channel_chat_id)
                     .bind(group.respond_mode.as_str())
                     .bind(group.digest_mode.as_str())
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind($ids::bind_opt(group.coach_user_id))
                     .execute(self.pool())
                     .await
@@ -432,7 +432,7 @@ macro_rules! impl_coaching_group_repository {
                     .bind(request.respond_mode.map(|m| m.as_str()))
                     .bind(request.digest_mode.map(|m| m.as_str()))
                     .bind(request.is_active)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind($ids::bind_text(group_id)?)
                     .bind(tenant_id.to_string())
                     .execute(self.pool())
@@ -447,7 +447,7 @@ macro_rules! impl_coaching_group_repository {
             }
 
             async fn delete_group(&self, group_id: &str, tenant_id: TenantId) -> AppResult<bool> {
-                let now = Utc::now();
+                let now = Timestamp::now();
                 // Archiving the group is the authoritative, tenant-scoped step, so it
                 // runs first: a caller whose tenant does not own the group affects no
                 // rows and leaves the invites alone. Once it lands, `join_group` and
@@ -494,7 +494,7 @@ macro_rules! impl_coaching_group_repository {
             ) -> AppResult<bool> {
                 let result = sqlx::query(SET_GROUP_COACH_USER_SQL)
                     .bind($ids::bind_opt(coach_user_id))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind($ids::bind_text(group_id)?)
                     .bind(tenant_id.to_string())
                     .execute(self.pool())
@@ -514,7 +514,7 @@ macro_rules! impl_coaching_group_repository {
                     .bind(&member.tenant_id)
                     .bind(member.role.as_str())
                     .bind(member.peer_sharing_consent)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(member.coach_sharing_consent)
                     .bind(member.coach_consents.calendar_write)
                     .bind(member.coach_consents.calendar_write_at)
@@ -531,7 +531,7 @@ macro_rules! impl_coaching_group_repository {
 
             async fn remove_member(&self, group_id: &str, user_id: Uuid) -> AppResult<bool> {
                 let result = sqlx::query(REMOVE_MEMBER_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind($ids::bind_text(group_id)?)
                     .bind($ids::bind(user_id))
                     .execute(self.pool())
@@ -593,7 +593,7 @@ macro_rules! impl_coaching_group_repository {
             ) -> AppResult<bool> {
                 let result = sqlx::query(UPDATE_PEER_SHARING_CONSENT_SQL)
                     .bind(consent)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind($ids::bind_text(group_id)?)
                     .bind($ids::bind(user_id))
                     .execute(self.pool())
@@ -613,7 +613,7 @@ macro_rules! impl_coaching_group_repository {
             ) -> AppResult<bool> {
                 let result = sqlx::query(UPDATE_COACH_SHARING_CONSENT_SQL)
                     .bind(consent)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind($ids::bind_text(group_id)?)
                     .bind($ids::bind(user_id))
                     .execute(self.pool())
@@ -631,8 +631,8 @@ macro_rules! impl_coaching_group_repository {
                 user_id: Uuid,
                 calendar_write: Option<bool>,
                 wellness_read: Option<bool>,
-                t2_read: Option<(bool, Option<DateTime<Utc>>)>,
-                now: DateTime<Utc>,
+                t2_read: Option<(bool, Option<Timestamp>)>,
+                now: Timestamp,
             ) -> AppResult<Option<GroupMember>> {
                 let result = sqlx::query(SET_COACH_CONSENTS_SQL)
                     .bind(calendar_write)
@@ -699,7 +699,7 @@ macro_rules! impl_coaching_group_repository {
                     .bind(invite.expires_at)
                     .bind(invite.max_uses)
                     .bind(invite.approves_signup)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to create invite: {e}")))?;
@@ -755,7 +755,7 @@ macro_rules! impl_coaching_group_repository {
             async fn claim_signup_invite(
                 &self,
                 code: &str,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<GroupInvite>> {
                 let row = sqlx::query(CLAIM_SIGNUP_INVITE_SQL)
                     .bind(code)
@@ -851,7 +851,7 @@ macro_rules! impl_coaching_group_repository {
                     .bind(entry.content)
                     .bind(entry.source_conversation_id)
                     .bind(entry.source_message_id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(entry.transport_policy.is_first_party_only())
                     .execute(self.pool())
                     .await

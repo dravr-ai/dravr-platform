@@ -23,7 +23,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde::Deserialize;
 use serde_json::{json, to_value};
 use tracing::error;
@@ -143,7 +143,7 @@ async fn record_clear(
         .record_token_usage(&AdminTokenUsage {
             id: None,
             admin_token_id: admin_token.token_id.clone(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             action: AdminAction::ClearImportTombstone,
             target_resource: Some(format!("import_tombstone:{tombstone_id}")),
             ip_address: None,

@@ -18,7 +18,7 @@ use crate::constants::{
 };
 use crate::errors::AppError;
 use crate::models::{ToolUsage, UserTier};
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -145,11 +145,11 @@ pub struct ApiKey {
     /// Whether the key is currently active
     pub is_active: bool,
     /// When the key was last used
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<Timestamp>,
     /// When the key expires (if set)
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// When the key was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// API Key creation request with rate limit
@@ -196,9 +196,9 @@ pub struct ApiKeyResponse {
     /// Visible prefix for identification
     pub key_prefix: String,
     /// When the key was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When the key expires (if set)
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// The actual API key (only included on creation, never shown again)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(serialize_with = "crate::secret::serialize_exposed_option")]
@@ -213,7 +213,7 @@ pub struct ApiKeyUsage {
     /// ID of the API key that was used
     pub api_key_id: String,
     /// When the request was made
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     /// Name of the tool/endpoint that was called
     pub tool_name: String,
     /// Response time in milliseconds
@@ -238,9 +238,9 @@ pub struct ApiKeyUsageStats {
     /// ID of the API key
     pub api_key_id: String,
     /// Start of the statistics period
-    pub period_start: DateTime<Utc>,
+    pub period_start: Timestamp,
     /// End of the statistics period
-    pub period_end: DateTime<Utc>,
+    pub period_end: Timestamp,
     /// Total number of requests made
     pub total_requests: u32,
     /// Number of successful requests (2xx status)

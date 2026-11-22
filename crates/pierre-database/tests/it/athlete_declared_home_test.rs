@@ -7,7 +7,7 @@
 //! carnet#1593. `create_test_db` opens whichever `DATABASE_URL` names, so
 //! these run on `SQLite` and `PostgreSQL` alike.
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{HomeDeclaration, StoredHome, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::RepositoryRegistry;
@@ -73,7 +73,7 @@ async fn a_declared_home_round_trips_and_stays_with_its_user_and_tenant() {
         "bug: a user who never declared reads a declaration"
     );
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let seed = HomeDeclaration::At {
         lat: 46.812_345,
         lon: -71.208_765,
@@ -105,7 +105,7 @@ async fn a_declared_home_round_trips_and_stays_with_its_user_and_tenant() {
             &tenant,
             who,
             HomeDeclaration::Elsewhere,
-            now + Duration::seconds(1),
+            now + Elapsed::seconds(1),
         )
         .await
         .unwrap();
@@ -120,7 +120,7 @@ async fn a_declared_home_round_trips_and_stays_with_its_user_and_tenant() {
             &tenant,
             who,
             HomeDeclaration::Inferred,
-            now + Duration::seconds(2),
+            now + Elapsed::seconds(2),
         )
         .await
         .unwrap();

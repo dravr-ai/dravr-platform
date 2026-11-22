@@ -38,7 +38,7 @@
 //! another type, or no usable threshold (zero or negative), so one odd entry
 //! never costs the athlete the rest of their settings.
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use tracing::warn;
@@ -104,7 +104,7 @@ where
 /// changed.
 struct SportSettings {
     sports: Vec<SportType>,
-    as_of: Option<NaiveDate>,
+    as_of: Option<CivilDate>,
     settings: IntervalsIcuSportSettings,
 }
 
@@ -120,7 +120,7 @@ impl SportSettings {
             .updated
             .as_deref()
             .and_then(|updated| updated.get(..10))
-            .and_then(|day| NaiveDate::parse_from_str(day, "%Y-%m-%d").ok());
+            .and_then(|day| CivilDate::parse_from_str(day, "%Y-%m-%d").ok());
         Self {
             sports,
             as_of,
@@ -232,8 +232,8 @@ mod tests {
 
     use super::*;
 
-    fn day(y: i32, m: u32, d: u32) -> Option<NaiveDate> {
-        NaiveDate::from_ymd_opt(y, m, d)
+    fn day(y: i32, m: u32, d: u32) -> Option<CivilDate> {
+        CivilDate::from_ymd(y, m, d).ok()
     }
 
     /// An athlete who rides and runs, each sport with its own settings.

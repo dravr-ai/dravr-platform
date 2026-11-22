@@ -55,7 +55,7 @@ pub(super) fn withhold_daily_notes(rows: &mut [StoredRecoveryMetrics]) {
 mod tests {
     use std::collections::BTreeSet;
 
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::constants::oauth_providers::SENSITIVE_T3;
     use pierre_core::transport::Transport;
     use pierre_providers::ai_scope::{ai_read, serve_over, with_ai_consent};
@@ -67,7 +67,7 @@ mod tests {
             id: "day".to_owned(),
             user_id: "athlete".to_owned(),
             data_source_id: "ds".to_owned(),
-            date: Utc::now().date_naive(),
+            date: Timestamp::now().utc_date(),
             recovery_score: None,
             readiness_score: Some(70),
             hrv_ms: None,
@@ -81,7 +81,7 @@ mod tests {
             daily_strain: None,
             athlete_note: note.map(str::to_owned),
             source_name: "intervals_icu".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         }
     }
 

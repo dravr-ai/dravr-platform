@@ -87,7 +87,7 @@
 //!
 //! [`ClaimStatus::Unverifiable`]: pierre_memory::ClaimStatus::Unverifiable
 
-use chrono::{Datelike, Days, Months, NaiveDate};
+use dravr_tronc::dates::CivilDate;
 use pierre_core::civil_time::monday_of;
 
 use super::{describe, unverifiable, word_spans, AssertedFigure, AthleteRecord};
@@ -194,12 +194,12 @@ enum Shape {
 #[derive(Debug, Clone, Copy)]
 struct Window {
     reading: &'static str,
-    start: NaiveDate,
-    end: NaiveDate,
+    start: CivilDate,
+    end: CivilDate,
 }
 
 impl Window {
-    fn contains(&self, date: NaiveDate) -> bool {
+    fn contains(&self, date: CivilDate) -> bool {
         (self.start..=self.end).contains(&date)
     }
 
@@ -367,10 +367,10 @@ fn beside_other_metric(tokens: &[&str], a: usize, b: usize) -> bool {
 /// calendar — a block with no plan phase covering today.
 fn windows(
     period: Period,
-    today: NaiveDate,
-    block_start: Option<NaiveDate>,
+    today: CivilDate,
+    block_start: Option<CivilDate>,
 ) -> Option<Vec<Window>> {
-    let back = |days: u64| today.checked_sub_days(Days::new(days));
+    let back = |days: i64| today.checked_sub_days(days);
     let window = |reading, start, end| Window {
         reading,
         start,
@@ -386,15 +386,15 @@ fn windows(
             vec![
                 window(
                     "the previous calendar week",
-                    monday.checked_sub_days(Days::new(7))?,
-                    monday.pred_opt()?,
+                    monday.checked_sub_days(7)?,
+                    monday.pred()?,
                 ),
                 window("the 7 days before the last 7", back(13)?, back(7)?),
             ]
         }
         Period::LastDays(days) => vec![window(
             "the rolling window",
-            back(u64::from(days.saturating_sub(1)))?,
+            back(i64::from(days.saturating_sub(1)))?,
             today,
         )],
         Period::ThisMonth => vec![window("the calendar month", today.with_day(1)?, today)],
@@ -403,12 +403,12 @@ fn windows(
             vec![
                 window(
                     "the previous calendar month",
-                    first.checked_sub_months(Months::new(1))?,
-                    first.pred_opt()?,
+                    first.checked_sub_months(1)?,
+                    first.pred()?,
                 ),
                 window(
                     "the month ending today",
-                    today.checked_sub_months(Months::new(1))?,
+                    today.checked_sub_months(1)?,
                     today,
                 ),
             ]
@@ -427,16 +427,16 @@ mod tests {
     use super::*;
     use crate::athlete_data::check as layer_check;
     use crate::claim_extractor::{ClaimSource, ExtractedClaim};
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
     use pierre_core::models::SportType;
     use pierre_memory::{ClaimCategory, ClaimStatus};
 
-    fn day(y: i32, m: u32, d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    fn day(y: i32, m: u32, d: u32) -> CivilDate {
+        CivilDate::from_ymd(y, m, d).unwrap()
     }
 
-    fn session(date: NaiveDate, sport: SportType, km: f64, minutes: f64) -> RecordedActivity {
+    fn session(date: CivilDate, sport: SportType, km: f64, minutes: f64) -> RecordedActivity {
         RecordedActivity {
             date,
             sport,
@@ -450,12 +450,12 @@ mod tests {
 
     /// Wednesday 2026-09-09. The calendar week began Monday 09-07; the last 7
     /// days began Thursday 09-03.
-    fn wednesday() -> NaiveDate {
+    fn wednesday() -> CivilDate {
         day(2026, 9, 9)
     }
 
     /// A record whose history is complete from August and synced today.
-    fn record(today: NaiveDate, sessions: Vec<RecordedActivity>) -> AthleteRecord {
+    fn record(today: CivilDate, sessions: Vec<RecordedActivity>) -> AthleteRecord {
         AthleteRecord {
             has_provider: true,
             today,
@@ -558,8 +558,8 @@ mod tests {
     #[test]
     fn the_calendar_week_is_the_athletes_own() {
         let toronto = resolve_zone(Some("America/Toronto"));
-        let run_start = Utc.with_ymd_and_hms(2026, 9, 7, 2, 30, 0).unwrap();
-        let now = Utc.with_ymd_and_hms(2026, 9, 9, 15, 0, 0).unwrap();
+        let run_start = Timestamp::parse_from_rfc3339("2026-09-07T02:30:00Z").unwrap();
+        let now = Timestamp::parse_from_rfc3339("2026-09-09T15:00:00Z").unwrap();
         let claim = "You ran 15 km last week.";
 
         let in_zone = |zone| {
@@ -569,9 +569,9 @@ mod tests {
         };
 
         // Toronto: Sunday 09-06, inside the previous calendar week.
-        assert_eq!(in_zone(toronto), ClaimStatus::Supported);
+        assert_eq!(in_zone(&toronto), ClaimStatus::Supported);
         // UTC: Monday 09-07, inside this week — last week held nothing.
-        assert_eq!(in_zone(resolve_zone(None)), ClaimStatus::Contradicted);
+        assert_eq!(in_zone(&resolve_zone(None)), ClaimStatus::Contradicted);
     }
 
     #[test]

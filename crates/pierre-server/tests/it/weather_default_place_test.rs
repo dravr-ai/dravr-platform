@@ -20,11 +20,11 @@ use crate::common;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use chrono::Utc;
 use dravr_meteo::{
     GeocodeError, Geocoded, Geocoder, PlaceQuery, WeatherError, WeatherProvider, WeatherQuery,
     WeatherSample,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{AthletePlace, PlaceRun};
 use pierre_database::RepositoryRegistry;
@@ -37,6 +37,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::messaging_fixtures::seed_user;
+use dravr_tronc::dates::Zone;
 
 /// A weather vendor that records the coordinates it was asked for.
 struct RecordingProvider {
@@ -78,7 +79,7 @@ impl Geocoder for NoGeocoder {
 
 /// An unnamed place of `count` workouts centred at (`lat`, `lon`).
 fn place(lat: f64, lon: f64, count: u32) -> AthletePlace {
-    let now = Utc::now();
+    let now = Timestamp::now();
     AthletePlace {
         id: Uuid::new_v4().to_string(),
         centroid_lat: lat,
@@ -110,7 +111,7 @@ async fn give_places(
                 rows_seen: 0,
                 newest_synced_at: None,
                 version: PLACES_VERSION,
-                computed_at: Utc::now(),
+                computed_at: Timestamp::now(),
                 home_declared_at_seen: None,
                 newest_track_at_seen: None,
             },
@@ -153,7 +154,7 @@ async fn no_location_reads_the_top_place_rounded_and_its_daylight_there() {
         asked: Mutex::new(Vec::new()),
     };
     let args = json!({ "timestamp": "2026-11-21T14:00:00Z" });
-    let answer = forecast_at_place(&provider, &args, chrono_tz::UTC, chosen)
+    let answer = forecast_at_place(&provider, &args, &Zone::utc(), chosen)
         .await
         .unwrap();
     assert!(
@@ -201,7 +202,7 @@ async fn coordinates_the_caller_gives_are_sent_as_given() {
         "longitude": -73.572_51,
         "timestamp": "2026-11-21T14:00:00Z",
     });
-    let answer = forecast(&provider, &NoGeocoder, &args, chrono_tz::UTC)
+    let answer = forecast(&provider, &NoGeocoder, &args, &Zone::utc())
         .await
         .unwrap();
     assert!(
@@ -239,7 +240,7 @@ async fn an_athlete_with_no_places_has_no_default_and_is_refused() {
         &provider,
         &NoGeocoder,
         &json!({ "timestamp": "2026-11-21T14:00:00Z" }),
-        chrono_tz::UTC,
+        &Zone::utc(),
     )
     .await
     .unwrap();

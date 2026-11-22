@@ -22,7 +22,7 @@
 
 use std::sync::Arc;
 
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::ai_policy::first_party_only;
 use pierre_core::civil_time::day_start_utc;
 use pierre_core::constants::oauth::providers::is_user_provided;
@@ -67,8 +67,8 @@ pub(crate) async fn display_coverage(
             incomplete(span, IncompleteReason::NoStoredActivities, None, None)
         });
     };
-    let opens = day_start_utc(from, window.zone);
-    let since = Utc::now() - Duration::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
+    let opens = day_start_utc(from, &window.zone);
+    let since = Timestamp::now() - Elapsed::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
     let older = runtime
         .repos()
         .activity_cache
@@ -90,7 +90,7 @@ pub(crate) async fn display_coverage(
 const fn incomplete(
     window: CoverageWindow,
     reason: IncompleteReason,
-    trustworthy_from: Option<NaiveDate>,
+    trustworthy_from: Option<CivilDate>,
     pending: Option<Pending>,
 ) -> Coverage {
     Coverage {
@@ -133,7 +133,7 @@ async fn judge(
 ) -> AppResult<Judged> {
     let keys = history_store_keys(&backend.slug);
     let read = reach_of(reach, &keys);
-    let oldest = oldest_stored(runtime, athlete, KeySet::Only(&keys), window.zone).await?;
+    let oldest = oldest_stored(runtime, athlete, KeySet::Only(&keys), &window.zone).await?;
     let span = CoverageWindow {
         scope: WindowScope::Asked,
         asked_from: window.from,
@@ -148,7 +148,7 @@ async fn judge(
         Coverage::complete(span)
     } else {
         let floor_ts = window.from.map_or(i64::MIN, |from| {
-            day_start_utc(from, window.zone).timestamp()
+            day_start_utc(from, &window.zone).epoch_seconds()
         });
         let withheld_here = ai_scope::serving_external()
             && first_party_only(runtime.provider_registry().as_ref(), &backend.slug, None);
@@ -207,7 +207,7 @@ pub(crate) async fn model_coverage(
 ) -> AppResult<(Coverage, Vec<SourceReach>)> {
     let mut judged = Vec::with_capacity(sources.len());
     for backend in sources {
-        judged.push(judge(runtime, athlete, backend, window, reach).await?);
+        judged.push(judge(runtime, athlete, backend, window.clone(), reach).await?);
     }
     let named: Vec<&str> = sources
         .iter()
@@ -223,7 +223,7 @@ pub(crate) async fn model_coverage(
             requires_reauth: false,
             capturable: false,
         };
-        judged.push(judge(runtime, athlete, &held, window, reach).await?);
+        judged.push(judge(runtime, athlete, &held, window.clone(), reach).await?);
     }
     let coverage = top_level(&judged, span);
     Ok((coverage, judged.into_iter().map(|j| j.reach).collect()))

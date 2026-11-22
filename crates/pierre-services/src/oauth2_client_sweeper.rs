@@ -25,7 +25,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::config::ClientRetentionConfig;
 use pierre_auth::oauth2_server::ClientRegistrationManager;
 use pierre_core::models::OAuth2ClientSweep;
@@ -51,7 +51,9 @@ pub fn start_oauth2_client_sweeper(
     spawn_periodic("oauth2 client sweeper", period, ledger, move || {
         let clients = ClientRegistrationManager::new(Arc::clone(&oauth2));
         async move {
-            let sweep = clients.sweep_stale_clients(&retention, Utc::now()).await?;
+            let sweep = clients
+                .sweep_stale_clients(&retention, Timestamp::now())
+                .await?;
             if sweep != OAuth2ClientSweep::default() {
                 info!(
                     expired = sweep.expired,

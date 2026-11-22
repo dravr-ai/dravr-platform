@@ -495,13 +495,13 @@ impl Assessment<'_> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
 
     use super::*;
 
     fn group(age_days: i64) -> CoachingGroup {
-        let created_at = Utc::now() - Duration::days(age_days);
+        let created_at = Timestamp::now() - Elapsed::days(age_days);
         CoachingGroup {
             id: Uuid::new_v4(),
             tenant_id: Uuid::new_v4().to_string(),

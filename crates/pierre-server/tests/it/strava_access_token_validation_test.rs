@@ -22,7 +22,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use axum::{routing::get, Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::ErrorCode;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::strava_provider::StravaProvider;
@@ -81,7 +82,7 @@ async fn provider_with_token(api_base_url: String, access_token: &str) -> Strava
             client_secret: SecretString::from("test_secret"),
             access_token: Some(SecretString::from(access_token.to_owned())),
             refresh_token: Some(SecretString::from("test_refresh_token")),
-            expires_at: Some(Utc::now() + chrono::Duration::days(30)),
+            expires_at: Some(Timestamp::now() + Elapsed::days(30)),
             scopes: vec!["read".to_owned()],
             kind: CredentialKind::OAuthBearer,
             request_budget: None,

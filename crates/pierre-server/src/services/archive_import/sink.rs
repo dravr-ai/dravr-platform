@@ -45,12 +45,12 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
 use dravr_barrage::cageux::models::TimeSeriesData;
 use dravr_barrage::{
     ActivityId, ActivityRecord, BarrageError, ProjectionSink, RetractReason, Scope, SourceKey,
     WellnessRecords,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, DataSource, DeviceType, TenantId};
 use pierre_database::repositories::{
     ActivityStreamsWrite, PurgeReason, RecordFiling, StreamOrigin,
@@ -144,7 +144,7 @@ impl ProjectionSink for CachedActivitiesSink {
         }
         let (tenant_id, user_id) = scope_ids(scope);
         let repos = &self.repos;
-        let synced_at = Utc::now();
+        let synced_at = Timestamp::now();
         for (row, samples) in rows.iter().zip(series) {
             let Some(samples) = samples else {
                 continue;
@@ -230,7 +230,7 @@ impl ProjectionSink for CachedActivitiesSink {
             data_source_id: &source_id,
             key,
         };
-        let synced_at = Utc::now();
+        let synced_at = Timestamp::now();
         let mut writes = store.writes("archive import");
         for night in &wellness.sleep {
             let mut night = night.clone();

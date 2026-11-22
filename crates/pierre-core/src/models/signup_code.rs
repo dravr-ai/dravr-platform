@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -24,21 +24,21 @@ pub struct SignupCode {
     /// The admin who minted it, when attributable (`None` for a service token)
     pub created_by: Option<Uuid>,
     /// When it stops working; `None` never expires
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// How many accounts it may approve; `None` is unlimited
     pub max_uses: Option<i32>,
     /// How many accounts it has approved
     pub use_count: i32,
     /// When the admin withdrew it
-    pub revoked_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<Timestamp>,
     /// When it was minted
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 impl SignupCode {
     /// Whether one more account can redeem the code at `now`.
     #[must_use]
-    pub fn is_live(&self, now: DateTime<Utc>) -> bool {
+    pub fn is_live(&self, now: Timestamp) -> bool {
         self.revoked_at.is_none()
             && self.expires_at.is_none_or(|at| at > now)
             && self.max_uses.is_none_or(|max| self.use_count < max)
@@ -71,9 +71,9 @@ pub struct SignupCodeRedemption {
     /// The admin or coach who minted the code
     pub granted_by: Option<Uuid>,
     /// When the code was entered
-    pub redeemed_at: DateTime<Utc>,
+    pub redeemed_at: Timestamp,
     /// When the redemption activated the account
-    pub activated_at: Option<DateTime<Utc>>,
+    pub activated_at: Option<Timestamp>,
 }
 
 /// A group invite an account opened before it could join, held until the
@@ -90,10 +90,10 @@ pub struct GroupInviteHold {
     /// The group invite it opened, a member's or the group's coach seat
     pub invite_id: Uuid,
     /// When the server took it
-    pub held_at: DateTime<Utc>,
+    pub held_at: Timestamp,
     /// When a join was refused because the group was full: the hold is kept
     /// for a retry once a seat opens (carnet#1650); `None` until then
-    pub refused_full_at: Option<DateTime<Utc>>,
+    pub refused_full_at: Option<Timestamp>,
 }
 
 /// How far one group invite got, read from the invite's open counter and the
@@ -107,12 +107,12 @@ pub struct GroupInviteFunnelRow {
     /// the group
     pub open_count: i64,
     /// When the card was last opened
-    pub last_opened_at: Option<DateTime<Utc>>,
+    pub last_opened_at: Option<Timestamp>,
     /// Live holds naming the invite: accounts that came from the link and
     /// have not joined
     pub held_count: i64,
     /// When the latest of those holds was taken
-    pub last_held_at: Option<DateTime<Utc>>,
+    pub last_held_at: Option<Timestamp>,
     /// Of those holds, how many a full group refused
     pub full_count: i64,
 }

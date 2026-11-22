@@ -25,7 +25,7 @@
 
 use std::cmp::Ordering;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -216,15 +216,15 @@ pub struct AthleteGear {
     /// What the athlete declared about it.
     pub declaration: GearDeclaration,
     /// When the athlete declared it; it takes no activity that started before.
-    pub added_at: DateTime<Utc>,
+    pub added_at: Timestamp,
     /// When the athlete retired it, `None` while it is in use.
-    pub retired_at: Option<DateTime<Utc>>,
+    pub retired_at: Option<Timestamp>,
     /// Distance of the activities attributed to it, in metres.
     pub attributed_distance_meters: f64,
     /// How many activities are attributed to it.
     pub activity_count: u64,
     /// When the latest activity attributed to it started.
-    pub last_used_at: Option<DateTime<Utc>>,
+    pub last_used_at: Option<Timestamp>,
 }
 
 impl AthleteGear {
@@ -250,7 +250,7 @@ impl AthleteGear {
     /// Whether an activity of `sport` that started at `start` can take this
     /// pair as its default: the pair is in use, was declared by then, and is
     /// worn for that sport or the family it heads.
-    fn takes(&self, sport: &SportType, start: DateTime<Utc>) -> bool {
+    fn takes(&self, sport: &SportType, start: Timestamp) -> bool {
         !self.is_retired()
             && self.added_at <= start
             && sport_matches_family(sport, &self.declaration.sport)
@@ -270,7 +270,7 @@ impl AthleteGear {
 pub fn default_pair<'a>(
     ledger: &'a [AthleteGear],
     sport: &SportType,
-    start: DateTime<Utc>,
+    start: Timestamp,
 ) -> Option<&'a AthleteGear> {
     ledger
         .iter()
@@ -310,7 +310,7 @@ pub struct GearAttribution {
     /// Whether the athlete chose it or the ledger gave the default.
     pub source: AttributionSource,
     /// When the activity started.
-    pub start_date: DateTime<Utc>,
+    pub start_date: Timestamp,
     /// The activity's distance, in metres, as it stood when attributed, so a
     /// pair keeps its distance after the activity cache lets the activity go.
     pub distance_meters: f64,
@@ -318,15 +318,18 @@ pub struct GearAttribution {
 
 #[cfg(test)]
 mod tests {
+    use dravr_tronc::dates::{CivilDate, CivilDateTime};
     use std::slice;
 
-    use chrono::TimeZone;
     use serde_json::Value;
 
     use super::*;
 
-    fn at(day: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 9, day, 7, 0, 0).unwrap()
+    fn at(day: u32) -> Timestamp {
+        CivilDate::from_ymd(2026, 9, day)
+            .and_then(|date| date.and_hms(7, 0, 0))
+            .and_then(CivilDateTime::and_utc)
+            .unwrap_or_default()
     }
 
     fn pair(sport: SportType, added: u32) -> AthleteGear {

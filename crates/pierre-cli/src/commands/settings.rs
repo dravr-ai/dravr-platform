@@ -14,8 +14,8 @@
 
 use std::io::{self, Read};
 
-use chrono::Utc;
 use clap::Subcommand;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use serde_json::Value;
 
@@ -102,7 +102,7 @@ pub(crate) enum HarnessAction {
 }
 
 pub(super) fn client() -> AppResult<RemoteClient> {
-    let creds = CachedCredentials::require(Utc::now().timestamp())?;
+    let creds = CachedCredentials::require(Timestamp::now().epoch_seconds())?;
     RemoteClient::from_cached(&creds)
 }
 

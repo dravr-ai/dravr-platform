@@ -14,11 +14,11 @@
 //! health domain live in [`super::sync_cursors`] and [`super::time_series`],
 //! which reuse this module's [`column`] reader.
 //!
-//! Timestamps bind as [`DateTime<Utc>`] on both: sqlx-sqlite encodes one as
+//! Timestamps bind as [`Timestamp`] on both: sqlx-sqlite encodes one as
 //! `to_rfc3339_opts(AutoSi, false)`, which is byte-for-byte what `to_rfc3339()`
 //! produces, so the `TEXT` columns keep the bytes they always held and the
 //! `start_time >= $3` string comparisons order as before, while Postgres gets
-//! its native `TIMESTAMPTZ`. Calendar dates bind and decode as a [`NaiveDate`],
+//! its native `TIMESTAMPTZ`. Calendar dates bind and decode as a [`CivilDate`],
 //! which sqlx writes as `YYYY-MM-DD` text on `SQLite` and a native `DATE` on
 //! Postgres. Decoding goes through sqlx on both drivers, which accepts the
 //! RFC 3339 text this module writes as well as the `datetime('now')` shape the
@@ -570,7 +570,7 @@ macro_rules! impl_health_persistence_repositories {
                 } else {
                     source.id.clone()
                 };
-                let now = Utc::now();
+                let now = Timestamp::now();
 
                 let row = sqlx::query(UPSERT_DATA_SOURCE_SQL)
                     .bind(&id)
@@ -615,11 +615,11 @@ macro_rules! impl_health_persistence_repositories {
                 tenant_id: &TenantId,
                 provider: &str,
                 source: &str,
-            ) -> AppResult<Option<NaiveDate>> {
+            ) -> AppResult<Option<CivilDate>> {
                 let failed = |e: sqlx::Error| {
                     AppError::database(format!("Failed to read a source's earliest day: {e}"))
                 };
-                let night: Option<DateTime<Utc>> = sqlx::query_scalar(EARLIEST_SOURCE_SLEEP_SQL)
+                let night: Option<Timestamp> = sqlx::query_scalar(EARLIEST_SOURCE_SLEEP_SQL)
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
                     .bind(provider)
@@ -627,9 +627,9 @@ macro_rules! impl_health_persistence_repositories {
                     .fetch_optional(self.pool())
                     .await
                     .map_err(failed)?;
-                let mut earliest = night.map(|end| end.date_naive());
+                let mut earliest = night.map(|end| end.utc_date());
                 for statement in EARLIEST_SOURCE_DATED_SQL {
-                    let day: Option<NaiveDate> = sqlx::query_scalar(statement)
+                    let day: Option<CivilDate> = sqlx::query_scalar(statement)
                         .bind(user_id.to_string())
                         .bind(tenant_id.to_string())
                         .bind(provider)
@@ -652,14 +652,14 @@ macro_rules! impl_health_persistence_repositories {
                 &self,
                 tenant_id: &TenantId,
                 session: &StoredSleepSession,
-                synced_at: DateTime<Utc>,
+                synced_at: Timestamp,
             ) -> AppResult<Option<String>> {
                 let id = if session.id.is_empty() {
                     Uuid::new_v4().to_string()
                 } else {
                     session.id.clone()
                 };
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let stages_json = serde_json::to_string(&session.stages).map_err(|e| {
                     AppError::database(format!("Failed to serialize sleep stages: {e}"))
                 })?;
@@ -730,8 +730,8 @@ macro_rules! impl_health_persistence_repositories {
                 &self,
                 user_id: Uuid,
                 tenant_id: &TenantId,
-                start: DateTime<Utc>,
-                end: DateTime<Utc>,
+                start: Timestamp,
+                end: Timestamp,
             ) -> AppResult<Vec<StoredSleepSession>> {
                 let rows = sqlx::query(GET_SLEEP_SESSIONS_SQL)
                     .bind(user_id.to_string())
@@ -751,8 +751,8 @@ macro_rules! impl_health_persistence_repositories {
                 &self,
                 user_id: Uuid,
                 tenant_id: &TenantId,
-                start: DateTime<Utc>,
-                end: DateTime<Utc>,
+                start: Timestamp,
+                end: Timestamp,
             ) -> AppResult<Vec<WellnessRowOrigin>> {
                 let rows = sqlx::query(GET_SLEEP_ORIGINS_SQL)
                     .bind(user_id.to_string())
@@ -774,7 +774,7 @@ macro_rules! impl_health_persistence_repositories {
             ) -> AppResult<bool> {
                 let result = if soft {
                     sqlx::query(SOFT_DELETE_SLEEP_SESSION_SQL)
-                        .bind(Utc::now())
+                        .bind(Timestamp::now())
                         .bind(id)
                         .bind(tenant_id.to_string())
                         .execute(self.pool())
@@ -813,14 +813,14 @@ macro_rules! impl_health_persistence_repositories {
                 tenant_id: &TenantId,
                 metrics: &StoredRecoveryMetrics,
                 mode: WellnessWriteMode,
-                synced_at: DateTime<Utc>,
+                synced_at: Timestamp,
             ) -> AppResult<String> {
                 let id = if metrics.id.is_empty() {
                     Uuid::new_v4().to_string()
                 } else {
                     metrics.id.clone()
                 };
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let recovery_score = metrics.recovery_score.map(f64::from);
                 let readiness_score = metrics.readiness_score.map(f64::from);
                 let stress_level = metrics.stress_score.map(f64::from);
@@ -883,14 +883,14 @@ macro_rules! impl_health_persistence_repositories {
                 &self,
                 user_id: Uuid,
                 tenant_id: &TenantId,
-                start: DateTime<Utc>,
-                end: DateTime<Utc>,
+                start: Timestamp,
+                end: Timestamp,
             ) -> AppResult<Vec<StoredRecoveryMetrics>> {
                 let rows = sqlx::query(GET_RECOVERY_METRICS_SQL)
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
-                    .bind(start.date_naive())
-                    .bind(end.date_naive())
+                    .bind(start.utc_date())
+                    .bind(end.utc_date())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -921,14 +921,14 @@ macro_rules! impl_health_persistence_repositories {
                 &self,
                 user_id: Uuid,
                 tenant_id: &TenantId,
-                start: DateTime<Utc>,
-                end: DateTime<Utc>,
+                start: Timestamp,
+                end: Timestamp,
             ) -> AppResult<Vec<WellnessRowOrigin>> {
                 let rows = sqlx::query(GET_RECOVERY_ORIGINS_SQL)
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
-                    .bind(start.date_naive())
-                    .bind(end.date_naive())
+                    .bind(start.utc_date())
+                    .bind(end.utc_date())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -946,7 +946,7 @@ macro_rules! impl_health_persistence_repositories {
             ) -> AppResult<bool> {
                 let result = if soft {
                     sqlx::query(SOFT_DELETE_RECOVERY_METRIC_SQL)
-                        .bind(Utc::now())
+                        .bind(Timestamp::now())
                         .bind(id)
                         .bind(tenant_id.to_string())
                         .execute(self.pool())
@@ -985,7 +985,7 @@ macro_rules! impl_health_persistence_repositories {
                 tenant_id: &TenantId,
                 snapshot: &StoredHealthMetrics,
                 mode: WellnessWriteMode,
-                synced_at: DateTime<Utc>,
+                synced_at: Timestamp,
             ) -> AppResult<String> {
                 // Surrogate id, deliberately ignoring `snapshot.id`. A row's identity is the
                 // natural key (user, tenant, provider, date) carried by the ON CONFLICT
@@ -1002,7 +1002,7 @@ macro_rules! impl_health_persistence_repositories {
                 // provider id through find_*_tenant / delete_*_by_id — a contract
                 // health snapshots do not have.
                 let id = Uuid::new_v4().to_string();
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let bp_systolic = snapshot.systolic_bp.map(i64::from);
                 let bp_diastolic = snapshot.diastolic_bp.map(i64::from);
                 let statement = match mode {
@@ -1043,14 +1043,14 @@ macro_rules! impl_health_persistence_repositories {
                 &self,
                 user_id: Uuid,
                 tenant_id: &TenantId,
-                start: DateTime<Utc>,
-                end: DateTime<Utc>,
+                start: Timestamp,
+                end: Timestamp,
             ) -> AppResult<Vec<StoredHealthMetrics>> {
                 let rows = sqlx::query(GET_HEALTH_SNAPSHOTS_SQL)
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
-                    .bind(start.date_naive())
-                    .bind(end.date_naive())
+                    .bind(start.utc_date())
+                    .bind(end.utc_date())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -1088,7 +1088,7 @@ macro_rules! impl_health_persistence_repositories {
             ) -> AppResult<bool> {
                 let result = if soft {
                     sqlx::query(SOFT_DELETE_HEALTH_SNAPSHOT_SQL)
-                        .bind(Utc::now())
+                        .bind(Timestamp::now())
                         .bind(id)
                         .bind(tenant_id.to_string())
                         .execute(self.pool())
@@ -1127,7 +1127,7 @@ macro_rules! impl_health_persistence_repositories {
                 tenant_id: &TenantId,
                 day: &StoredDailyActivity,
                 mode: WellnessWriteMode,
-                synced_at: DateTime<Utc>,
+                synced_at: Timestamp,
             ) -> AppResult<String> {
                 // Surrogate id, as for a body day: the row's identity is its
                 // natural key, carried by the conflict arbiter.
@@ -1150,7 +1150,7 @@ macro_rules! impl_health_persistence_repositories {
                     .bind(day.active_kcal)
                     .bind(day.total_kcal)
                     .bind(count(day.intensity_minutes))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| {
@@ -1165,14 +1165,14 @@ macro_rules! impl_health_persistence_repositories {
                 &self,
                 user_id: Uuid,
                 tenant_id: &TenantId,
-                start: DateTime<Utc>,
-                end: DateTime<Utc>,
+                start: Timestamp,
+                end: Timestamp,
             ) -> AppResult<Vec<StoredDailyActivity>> {
                 let rows = sqlx::query(GET_DAILY_ACTIVITY_SQL)
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
-                    .bind(start.date_naive())
-                    .bind(end.date_naive())
+                    .bind(start.utc_date())
+                    .bind(end.utc_date())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {

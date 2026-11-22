@@ -18,7 +18,7 @@ async-trait = "0.1"
 tokio = { version = "1.54", features = ["rt", "time", "sync"] }
 tracing = "0.1"
 futures-util = "0.3"
-chrono = { version = "0.4", features = ["serde"] }
+dravr-tronc = { workspace = true }
 # quota-redis: the quota router shares its readings and penalties across
 # instances through the deployment's Redis (see router_store.rs).
 embacle = { version = "0.47.2", features = ["copilot-headless", "copilot-sdk", "http-api", "quota-http", "quota-redis"] }

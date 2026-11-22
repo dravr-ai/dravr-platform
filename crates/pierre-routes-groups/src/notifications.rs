@@ -21,7 +21,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::Serialize;
 use tracing::info;
 use uuid::Uuid;
@@ -695,18 +695,16 @@ impl NotificationRoutes {
         let since = query
             .since
             .as_deref()
-            .map(DateTime::parse_from_rfc3339)
+            .map(Timestamp::parse_from_rfc3339)
             .transpose()
-            .map_err(|e| AppError::invalid_input(format!("Invalid 'since' date: {e}")))?
-            .map(|dt| dt.with_timezone(&Utc));
+            .map_err(|e| AppError::invalid_input(format!("Invalid 'since' date: {e}")))?;
 
         let until = query
             .until
             .as_deref()
-            .map(DateTime::parse_from_rfc3339)
+            .map(Timestamp::parse_from_rfc3339)
             .transpose()
-            .map_err(|e| AppError::invalid_input(format!("Invalid 'until' date: {e}")))?
-            .map(|dt| dt.with_timezone(&Utc));
+            .map_err(|e| AppError::invalid_input(format!("Invalid 'until' date: {e}")))?;
 
         let service = Self::get_service(&resources)?;
         let analytics = notif(

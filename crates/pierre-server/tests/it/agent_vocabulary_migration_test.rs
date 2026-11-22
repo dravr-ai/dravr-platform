@@ -24,7 +24,7 @@
 use std::str::FromStr;
 
 #[cfg(feature = "postgresql")]
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_test_support::db::create_test_db_url;
 use sqlx::migrate::Migrator;
 #[cfg(feature = "postgresql")]
@@ -349,7 +349,7 @@ async fn catalogue_on_postgres(url: &str) {
 #[cfg(feature = "postgresql")]
 async fn prompts_on_postgres(url: &str) {
     let pool = postgres_pool(url).await;
-    let planted_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+    let planted_at = Timestamp::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap();
     let tenant = Uuid::new_v4();
     let user = Uuid::new_v4();
     let mut applied = None;

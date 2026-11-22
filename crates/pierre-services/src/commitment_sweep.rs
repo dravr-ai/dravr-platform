@@ -47,7 +47,7 @@ use std::time::Duration;
 use crate::periodic::spawn_periodic;
 use crate::provider_notice::under_ai_consent;
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, SportType, TenantId};
 use pierre_database::repositories::SweptVerdict;
@@ -135,7 +135,7 @@ fn count_sessions(activities: Vec<Activity>, want: Option<&SportType>) -> u32 {
 /// fetch that predates the window's close means the athlete may well have done
 /// the work and we simply have not fetched it.
 #[must_use]
-pub fn data_covers_window(last_sync: Option<DateTime<Utc>>, window_end: DateTime<Utc>) -> bool {
+pub fn data_covers_window(last_sync: Option<Timestamp>, window_end: Timestamp) -> bool {
     last_sync.is_some_and(|synced| synced >= window_end)
 }
 
@@ -195,13 +195,13 @@ pub trait ActivityRefresher: Send + Sync {
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
-        window_start: DateTime<Utc>,
+        window_start: Timestamp,
     ) -> bool;
 }
 
 /// Run one sweep + report pass.
 ///
-/// `now` is a parameter rather than a `Utc::now()` call so a test can place a
+/// `now` is a parameter rather than a `Timestamp::now()` call so a test can place a
 /// window in the past without sleeping.
 ///
 /// # Errors
@@ -211,7 +211,7 @@ pub async fn tick(
     repos: &RepositoryRegistry,
     reporter: Option<&dyn CommitmentReporter>,
     refresher: Option<&dyn ActivityRefresher>,
-    now: DateTime<Utc>,
+    now: Timestamp,
     batch_size: i64,
 ) -> AppResult<SweepOutcome> {
     let mut outcome = SweepOutcome::default();
@@ -224,13 +224,13 @@ pub async fn tick(
 async fn sweep_due(
     repos: &RepositoryRegistry,
     refresher: Option<&dyn ActivityRefresher>,
-    now: DateTime<Utc>,
+    now: Timestamp,
     batch_size: i64,
     outcome: &mut SweepOutcome,
 ) -> AppResult<()> {
     let due = repos
         .commitments
-        .due_commitments(now.timestamp(), batch_size)
+        .due_commitments(now.epoch_seconds(), batch_size)
         .await?;
     outcome.scanned = due.len();
 
@@ -312,7 +312,7 @@ async fn classify_shortfall(
     commitment: &Commitment,
     user_id: Uuid,
     tenant_id: &TenantId,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Shortfall {
     let last_sync = match repos
         .activity_cache
@@ -327,7 +327,7 @@ async fn classify_shortfall(
     };
     if data_covers_window(last_sync, commitment.window_end) {
         Shortfall::Believable
-    } else if now.timestamp() - commitment.window_end.timestamp() > SWEEP_STALENESS_SECS {
+    } else if now.epoch_seconds() - commitment.window_end.epoch_seconds() > SWEEP_STALENESS_SECS {
         Shortfall::GiveUp
     } else {
         Shortfall::Defer
@@ -339,7 +339,7 @@ async fn write_verdict(
     repos: &RepositoryRegistry,
     commitment: &Commitment,
     completed: u32,
-    now: DateTime<Utc>,
+    now: Timestamp,
     outcome: &mut SweepOutcome,
 ) {
     let verdict = commitment_outcome(completed, commitment.target_sessions);
@@ -386,7 +386,7 @@ async fn sweep_one(
     commitment: &Commitment,
     user_id: Uuid,
     tenant_id: &TenantId,
-    now: DateTime<Utc>,
+    now: Timestamp,
     outcome: &mut SweepOutcome,
 ) {
     let Some(completed) = count_matching_sessions(repos, commitment, user_id, tenant_id).await
@@ -434,7 +434,7 @@ async fn sweep_one(
 async fn report_labeled(
     repos: &RepositoryRegistry,
     reporter: Option<&dyn CommitmentReporter>,
-    now: DateTime<Utc>,
+    now: Timestamp,
     batch_size: i64,
     outcome: &mut SweepOutcome,
 ) -> AppResult<()> {
@@ -481,7 +481,7 @@ async fn report_labeled(
 async fn age_out_or_hold(
     repos: &RepositoryRegistry,
     commitment: &Commitment,
-    now: DateTime<Utc>,
+    now: Timestamp,
     outcome: &mut SweepOutcome,
 ) {
     if is_verdict_stale(commitment, now) {
@@ -496,7 +496,7 @@ async fn deliver_one(
     repos: &RepositoryRegistry,
     reporter: &dyn CommitmentReporter,
     commitment: &Commitment,
-    now: DateTime<Utc>,
+    now: Timestamp,
     outcome: &mut SweepOutcome,
 ) -> bool {
     match cadence_allows(repos, commitment, now).await {
@@ -533,7 +533,7 @@ async fn mark_and_announce(
     repos: &RepositoryRegistry,
     commitment: &Commitment,
     route: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
     outcome: &mut SweepOutcome,
 ) {
     match repos
@@ -565,20 +565,20 @@ async fn mark_and_announce(
 async fn cadence_allows(
     repos: &RepositoryRegistry,
     commitment: &Commitment,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<bool> {
     let last = repos
         .commitments
         .last_commitment_report(&commitment.tenant_id, &commitment.user_id)
         .await?;
-    Ok(last.is_none_or(|at| now.timestamp() - at.timestamp() >= REPORT_CADENCE_SECS))
+    Ok(last.is_none_or(|at| now.epoch_seconds() - at.epoch_seconds() >= REPORT_CADENCE_SECS))
 }
 
 /// Whether a labeled verdict has aged past the point of being worth saying.
-fn is_verdict_stale(commitment: &Commitment, now: DateTime<Utc>) -> bool {
+fn is_verdict_stale(commitment: &Commitment, now: Timestamp) -> bool {
     commitment
         .swept_at
-        .is_some_and(|at| now.timestamp() - at.timestamp() > REPORT_STALENESS_SECS)
+        .is_some_and(|at| now.epoch_seconds() - at.epoch_seconds() > REPORT_STALENESS_SECS)
 }
 
 /// Close a commitment out without a verdict reaching the athlete.
@@ -646,7 +646,7 @@ pub fn spawn_commitment_sweep(
                     &repos,
                     reporter.as_deref(),
                     refresher.as_deref(),
-                    Utc::now(),
+                    Timestamp::now(),
                     DEFAULT_BATCH_SIZE,
                 )
                 .await?;
@@ -671,23 +671,17 @@ pub fn spawn_commitment_sweep(
 
 #[cfg(test)]
 mod tests {
-    use chrono::{Duration, TimeZone};
+    use dravr_tronc::dates::Elapsed;
     use pierre_core::constants::oauth_providers::{GARMIN, SCIOTTE, STRAVA, STRAVA_ARCHIVE};
     use pierre_core::models::ActivityBuilder;
 
     use super::*;
 
-    fn morning() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 8, 10, 7, 0, 0).unwrap()
+    fn morning() -> Timestamp {
+        Timestamp::parse_from_rfc3339("2026-08-10T07:00:00Z").unwrap()
     }
 
-    fn row(
-        id: &str,
-        sport: SportType,
-        start: DateTime<Utc>,
-        provider: &str,
-        source: &str,
-    ) -> Activity {
+    fn row(id: &str, sport: SportType, start: Timestamp, provider: &str, source: &str) -> Activity {
         ActivityBuilder::new(id, "Session", sport, start, 2_700, provider)
             .source(source)
             .distance_meters(10_000.0)
@@ -701,14 +695,14 @@ mod tests {
             row(
                 "2",
                 SportType::Run,
-                morning() + Duration::days(2),
+                morning() + Elapsed::days(2),
                 STRAVA,
                 STRAVA,
             ),
             row(
                 "3",
                 SportType::Run,
-                morning() + Duration::days(4),
+                morning() + Elapsed::days(4),
                 STRAVA,
                 STRAVA,
             ),
@@ -728,7 +722,7 @@ mod tests {
             row(
                 "g1",
                 SportType::Run,
-                morning() + Duration::seconds(45),
+                morning() + Elapsed::seconds(45),
                 GARMIN,
                 GARMIN,
             ),
@@ -743,7 +737,7 @@ mod tests {
             row(
                 "2",
                 SportType::Run,
-                morning() + Duration::hours(11),
+                morning() + Elapsed::hours(11),
                 STRAVA,
                 STRAVA,
             ),
@@ -757,13 +751,13 @@ mod tests {
     /// the export (which stands for it) names.
     #[test]
     fn a_date_only_capture_and_its_export_are_one_session() {
-        let day = Utc.with_ymd_and_hms(2026, 8, 10, 0, 0, 0).unwrap();
+        let day = Timestamp::parse_from_rfc3339("2026-08-10T00:00:00Z").unwrap();
         let rows = vec![
             row("16012345678", SportType::VirtualRide, day, SCIOTTE, STRAVA),
             row(
                 "16012345678",
                 SportType::Ride,
-                day + Duration::hours(25) + Duration::minutes(30),
+                day + Elapsed::hours(25) + Elapsed::minutes(30),
                 STRAVA_ARCHIVE,
                 STRAVA,
             ),

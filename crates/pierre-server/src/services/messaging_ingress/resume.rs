@@ -48,8 +48,8 @@ use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
-use chrono::Utc;
 use dravr_canot::channel::MessagingChannel;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{ConversationTurnId, TenantId};
@@ -148,7 +148,7 @@ pub(super) enum DrainHandOff {
 }
 
 fn now_ms() -> i64 {
-    Utc::now().timestamp_millis()
+    Timestamp::now().epoch_millis()
 }
 
 /// The lease this process takes on a turn it is about to run.

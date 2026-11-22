@@ -11,7 +11,7 @@ use std::env;
 use std::fs;
 use std::process::Command;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::key_management::KeyManager;
 #[cfg(feature = "postgresql")]
 use pierre_core::config::database::PostgresPoolConfig;
@@ -83,7 +83,7 @@ async fn create_key(database: &Database, user_id: Uuid, name: &str) -> ApiKey {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     database.repositories().api_keys.create(&key).await.unwrap();
     key
@@ -96,7 +96,7 @@ async fn record_call(database: &Database, key: &ApiKey, tool_name: &str, status_
         .record_api_key(&ApiKeyUsage {
             id: None,
             api_key_id: key.id.clone(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             tool_name: tool_name.to_owned(),
             response_time_ms: Some(20),
             status_code,

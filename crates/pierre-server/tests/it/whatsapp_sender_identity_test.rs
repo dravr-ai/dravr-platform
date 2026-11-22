@@ -25,7 +25,7 @@ mod whatsapp_sender_identity_tests {
     use crate::helpers::axum_test::AxumTestRequest;
     use crate::messaging_fixtures::seed_channel_link;
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use hmac::{Hmac, Mac};
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::TenantId;
@@ -272,7 +272,7 @@ mod whatsapp_sender_identity_tests {
                 .bind(Uuid::new_v4().to_string())
                 .bind(tenant_id.to_string())
                 .bind(user.to_string())
-                .bind(Utc::now().to_rfc3339())
+                .bind(Timestamp::now().to_rfc3339())
                 .execute(backend.pool())
                 .await
                 .unwrap();
@@ -287,7 +287,7 @@ mod whatsapp_sender_identity_tests {
                 .bind(Uuid::new_v4().to_string())
                 .bind(tenant_id.as_uuid())
                 .bind(user)
-                .bind(Utc::now())
+                .bind(Timestamp::now())
                 .execute(backend.pool())
                 .await
                 .unwrap();

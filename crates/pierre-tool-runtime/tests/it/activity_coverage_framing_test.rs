@@ -10,7 +10,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::models::coverage::{Completeness, IncompleteReason, WindowTotals};
 use pierre_tool_runtime::implementations::data_helpers::{
     activity_coverage, historical_backfill_fetch_limit, pagination_has_more, window_fetch_limit,
@@ -18,8 +18,8 @@ use pierre_tool_runtime::implementations::data_helpers::{
 };
 use serde_json::Value;
 
-fn day(year: i32, month: u32, d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(year, month, d).unwrap()
+fn day(year: i32, month: u32, d: u32) -> CivilDate {
+    CivilDate::from_ymd(year, month, d).unwrap()
 }
 
 /// The `coverage` sidecar as the model reads it, totals left unsummed, for
@@ -27,7 +27,7 @@ fn day(year: i32, month: u32, d: u32) -> NaiveDate {
 fn coverage_json(
     window_total: Option<usize>,
     returned: usize,
-    span: Option<(NaiveDate, NaiveDate)>,
+    span: Option<(CivilDate, CivilDate)>,
     asked: AskedWindow,
     completeness: Completeness,
 ) -> Option<Value> {

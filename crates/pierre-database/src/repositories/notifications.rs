@@ -12,12 +12,12 @@
 //! [`uuid_columns`](super::uuid_columns) codec and the wire DTO's text form
 //! is read through it. `success` binds and reads as `bool` (`BOOLEAN` on
 //! Postgres, `INTEGER` 0/1 on `SQLite`); `created_at` binds as
-//! [`DateTime<Utc>`](chrono::DateTime) and `read_at` is stamped by
+//! [`Timestamp`] and `read_at` is stamped by
 //! `CURRENT_TIMESTAMP`, which sqlx decodes on both drivers. `expires_at` is
 //! the caller's text on both.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use std::fmt::Write;
 
@@ -107,8 +107,8 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column = |col: &str, e: sqlx::Error| {
         AppError::database(format!("Failed to get oauth_notifications.{col}: {e}"))
@@ -157,7 +157,7 @@ macro_rules! impl_notification_repository {
                     .bind(success)
                     .bind(message)
                     .bind(expires_at)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

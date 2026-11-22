@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::stages::capability_recovery::peer_repair_prompt;
 use pierre_chat_pipeline::stages::capability_subject::{
     resolve_ask_subject, subject_reask_instruction, AskSubject, OwnActivities,
@@ -54,7 +54,7 @@ fn member(name: &str) -> MemberFitnessSnapshot {
         served_stale: false,
         timezone: None,
         deep_fatigue_mornings: Vec::new(),
-        computed_at: Utc::now(),
+        computed_at: Timestamp::now(),
     }
 }
 

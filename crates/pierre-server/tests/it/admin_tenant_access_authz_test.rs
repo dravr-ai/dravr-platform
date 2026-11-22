@@ -18,6 +18,7 @@ use crate::helpers;
 
 use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{ConversationTurnId, InsertLlmUsage, Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
@@ -50,7 +51,7 @@ async fn create_user_with_role(
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
 
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
@@ -63,8 +64,8 @@ async fn create_user_with_role(
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common
@@ -203,7 +204,7 @@ async fn test_billing_export_holds_only_the_requested_month() -> Result<()> {
         "bug: a month with no call must export no row"
     );
     assert_eq!(
-        export(chrono::Utc::now().format("%Y-%m").to_string()).await,
+        export(Timestamp::now().format("%Y-%m").unwrap()).await,
         3,
         "the current month must export the calls made in it"
     );

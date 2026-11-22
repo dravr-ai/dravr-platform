@@ -33,9 +33,9 @@ use secrecy::SecretString;
 use std::env;
 use std::sync::{Arc, Mutex};
 
-use chrono::{NaiveDate, TimeZone, Utc};
 use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_providers::backend_resolver;
 use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
@@ -260,15 +260,15 @@ fn spawn_scraper_stub(listener: TcpListener, seen: Arc<Mutex<Vec<String>>>) {
     });
 }
 
-fn day(y: i32, m: u32, d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(y, m, d).expect("valid date literal") // Safe: literal calendar date
+fn day(y: i32, m: u32, d: u32) -> CivilDate {
+    CivilDate::from_ymd(y, m, d).expect("valid date literal") // Safe: literal calendar date
 }
 
 fn credentials(session_id: &str) -> OAuth2Credentials {
     let session = AuthSession {
         session_id: session_id.to_owned(),
         cookies: vec![],
-        created_at: Utc.with_ymd_and_hms(2026, 9, 23, 8, 0, 0).unwrap(), // Safe: literal instant
+        created_at: Timestamp::parse_from_rfc3339("2026-09-23T08:00:00Z").unwrap(), // Safe: literal instant
         expires_at: None,
     };
     OAuth2Credentials {

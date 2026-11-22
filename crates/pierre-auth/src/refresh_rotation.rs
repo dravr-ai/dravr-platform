@@ -33,7 +33,7 @@ use std::future::Future;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use ring::rand::{SecureRandom, SystemRandom};
 use tracing::warn;
@@ -72,8 +72,8 @@ where
 /// How long a freshly issued refresh token stays exchangeable, from the
 /// configured number of days.
 #[must_use]
-pub fn refresh_token_lifetime(expiry_days: i64) -> Duration {
-    Duration::days(expiry_days)
+pub fn refresh_token_lifetime(expiry_days: i64) -> Elapsed {
+    Elapsed::days(expiry_days)
 }
 
 /// The absolute lifetime of an `OAuth2` refresh-token family, in days, counted
@@ -87,15 +87,15 @@ pub const REFRESH_FAMILY_MAX_DAYS: i64 = 180;
 /// deadline. `family_created_at` of `None` is a legacy family: no cap.
 #[must_use]
 pub(crate) fn successor_expiry(
-    now: DateTime<Utc>,
-    lifetime: Duration,
-    family_created_at: Option<DateTime<Utc>>,
-) -> Option<DateTime<Utc>> {
+    now: Timestamp,
+    lifetime: Elapsed,
+    family_created_at: Option<Timestamp>,
+) -> Option<Timestamp> {
     let sliding = now + lifetime;
     let Some(started) = family_created_at else {
         return Some(sliding);
     };
-    let deadline = started + Duration::days(REFRESH_FAMILY_MAX_DAYS);
+    let deadline = started + Elapsed::days(REFRESH_FAMILY_MAX_DAYS);
     (deadline > now).then_some(sliding.min(deadline))
 }
 
@@ -107,8 +107,8 @@ pub const ADMIN_FAMILY_MAX_HOURS: i64 = 24;
 /// When the first refresh token of a family holding `admin`, issued at `now`,
 /// stops exchanging: the usual `lifetime`, cut at [`ADMIN_FAMILY_MAX_HOURS`].
 #[must_use]
-pub fn admin_family_first_expiry(now: DateTime<Utc>, lifetime: Duration) -> DateTime<Utc> {
-    (now + lifetime).min(now + Duration::hours(ADMIN_FAMILY_MAX_HOURS))
+pub fn admin_family_first_expiry(now: Timestamp, lifetime: Elapsed) -> Timestamp {
+    (now + lifetime).min(now + Elapsed::hours(ADMIN_FAMILY_MAX_HOURS))
 }
 
 /// [`successor_expiry`] for a family whose grant holds `admin`: capped at
@@ -117,11 +117,11 @@ pub fn admin_family_first_expiry(now: DateTime<Utc>, lifetime: Duration) -> Date
 /// continued.
 #[must_use]
 pub(crate) fn admin_successor_expiry(
-    now: DateTime<Utc>,
-    lifetime: Duration,
-    family_created_at: Option<DateTime<Utc>>,
-) -> Option<DateTime<Utc>> {
-    let deadline = family_created_at? + Duration::hours(ADMIN_FAMILY_MAX_HOURS);
+    now: Timestamp,
+    lifetime: Elapsed,
+    family_created_at: Option<Timestamp>,
+) -> Option<Timestamp> {
+    let deadline = family_created_at? + Elapsed::hours(ADMIN_FAMILY_MAX_HOURS);
     (deadline > now).then_some((now + lifetime).min(deadline))
 }
 
@@ -144,55 +144,55 @@ mod tests {
 
     #[test]
     fn a_legacy_family_slides_without_limit() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         assert_eq!(
-            successor_expiry(now, Duration::days(30), None),
-            Some(now + Duration::days(30))
+            successor_expiry(now, Elapsed::days(30), None),
+            Some(now + Elapsed::days(30))
         );
     }
 
     #[test]
     fn a_young_family_slides_by_the_usual_window() {
-        let now = Utc::now();
-        let started = now - Duration::days(10);
+        let now = Timestamp::now();
+        let started = now - Elapsed::days(10);
         assert_eq!(
-            successor_expiry(now, Duration::days(30), Some(started)),
-            Some(now + Duration::days(30))
+            successor_expiry(now, Elapsed::days(30), Some(started)),
+            Some(now + Elapsed::days(30))
         );
     }
 
     #[test]
     fn the_window_is_cut_at_the_family_deadline() {
-        let now = Utc::now();
-        let started = now - Duration::days(REFRESH_FAMILY_MAX_DAYS - 5);
+        let now = Timestamp::now();
+        let started = now - Elapsed::days(REFRESH_FAMILY_MAX_DAYS - 5);
         assert_eq!(
-            successor_expiry(now, Duration::days(30), Some(started)),
-            Some(started + Duration::days(REFRESH_FAMILY_MAX_DAYS))
+            successor_expiry(now, Elapsed::days(30), Some(started)),
+            Some(started + Elapsed::days(REFRESH_FAMILY_MAX_DAYS))
         );
     }
 
     #[test]
     fn a_family_past_its_deadline_is_not_continued() {
-        let now = Utc::now();
-        let started = now - Duration::days(REFRESH_FAMILY_MAX_DAYS + 1);
+        let now = Timestamp::now();
+        let started = now - Elapsed::days(REFRESH_FAMILY_MAX_DAYS + 1);
         assert_eq!(
-            successor_expiry(now, Duration::days(30), Some(started)),
+            successor_expiry(now, Elapsed::days(30), Some(started)),
             None
         );
     }
 
     #[test]
     fn an_admin_family_stops_a_day_after_its_first_token_whatever_its_rotations() {
-        let now = Utc::now();
-        let started = now - Duration::hours(ADMIN_FAMILY_MAX_HOURS - 1);
+        let now = Timestamp::now();
+        let started = now - Elapsed::hours(ADMIN_FAMILY_MAX_HOURS - 1);
         assert_eq!(
-            admin_successor_expiry(now, Duration::days(30), Some(started)),
-            Some(started + Duration::hours(ADMIN_FAMILY_MAX_HOURS)),
+            admin_successor_expiry(now, Elapsed::days(30), Some(started)),
+            Some(started + Elapsed::hours(ADMIN_FAMILY_MAX_HOURS)),
             "bug: a rotation renewed an admin family past its day"
         );
-        let expired = now - Duration::hours(ADMIN_FAMILY_MAX_HOURS + 1);
+        let expired = now - Elapsed::hours(ADMIN_FAMILY_MAX_HOURS + 1);
         assert_eq!(
-            admin_successor_expiry(now, Duration::days(30), Some(expired)),
+            admin_successor_expiry(now, Elapsed::days(30), Some(expired)),
             None,
             "bug: an admin family past its day was continued"
         );
@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn an_admin_family_with_no_recorded_start_is_not_continued() {
         assert_eq!(
-            admin_successor_expiry(Utc::now(), Duration::days(30), None),
+            admin_successor_expiry(Timestamp::now(), Elapsed::days(30), None),
             None,
             "bug: an admin family with no start was given the legacy family's open end"
         );
@@ -209,15 +209,15 @@ mod tests {
 
     #[test]
     fn an_admin_familys_first_token_lives_a_day_at_most() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         assert_eq!(
-            admin_family_first_expiry(now, Duration::days(30)),
-            now + Duration::hours(ADMIN_FAMILY_MAX_HOURS),
+            admin_family_first_expiry(now, Elapsed::days(30)),
+            now + Elapsed::hours(ADMIN_FAMILY_MAX_HOURS),
             "bug: an admin family's first token outlived its day"
         );
         assert_eq!(
-            admin_family_first_expiry(now, Duration::hours(2)),
-            now + Duration::hours(2),
+            admin_family_first_expiry(now, Elapsed::hours(2)),
+            now + Elapsed::hours(2),
             "a shorter configured lifetime still applies"
         );
     }

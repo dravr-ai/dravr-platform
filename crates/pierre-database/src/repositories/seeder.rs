@@ -25,7 +25,7 @@
 //!   `TEXT[]` on Postgres. The seed carries the list as JSON; the seed codec
 //!   binds the checked text on one and the parsed list on the other.
 //!
-//! Timestamps bind as [`DateTime<Utc>`] on both: sqlx-sqlite encodes one as
+//! Timestamps bind as [`Timestamp`] on both: sqlx-sqlite encodes one as
 //! `to_rfc3339_opts(AutoSi, false)`, the bytes `to_rfc3339()` produces, so the
 //! `SQLite` TEXT columns hold what they always held. `TRUE`/`FALSE` are the
 //! boolean spellings both engines accept (`SQLite` reads them as 1/0), and
@@ -33,7 +33,7 @@
 //! `OR IGNORE`, which only `SQLite` spelled.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::mobility::{ActivityMuscleMapping, StretchingExercise, YogaPose};
 use pierre_core::models::User;
@@ -167,7 +167,7 @@ pub trait SeederRepository: Send + Sync {
         id: Uuid,
         tenant_id: Uuid,
         user_id: Uuid,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<()>;
 
     /// Update the `tenant_id` column on a user row
@@ -182,7 +182,7 @@ pub trait SeederRepository: Send + Sync {
         tenant_id: &str,
         group_id: Uuid,
         user_id: Uuid,
-        joined_at: DateTime<Utc>,
+        joined_at: Timestamp,
     ) -> AppResult<()>;
 
     /// Check if an API key exists by name, returning its ID if found

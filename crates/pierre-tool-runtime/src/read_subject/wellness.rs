@@ -502,7 +502,7 @@ mod tests {
 
     #[cfg(feature = "tools-config")]
     mod physiology {
-        use chrono::NaiveDate;
+        use dravr_tronc::dates::CivilDate;
         use pierre_core::models::{
             AnchorOrigin, AnchorProvenance, AnchorStamp, PhysiologicalSex, SportType,
         };
@@ -513,7 +513,7 @@ mod tests {
         fn stamp() -> AnchorStamp {
             AnchorStamp {
                 origin: AnchorOrigin::Promoted,
-                as_of: NaiveDate::from_ymd_opt(2026, 11, 1),
+                as_of: CivilDate::from_ymd(2026, 11, 1).ok(),
             }
         }
 

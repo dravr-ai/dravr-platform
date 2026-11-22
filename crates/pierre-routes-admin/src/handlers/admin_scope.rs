@@ -21,7 +21,7 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use serde::Serialize;
 use serde_json::Value;
 use tracing::warn;
@@ -110,7 +110,7 @@ const CROSS_TENANT_SENTENCES_READ: &str = "claim_sentences.read_cross_tenant";
 /// How long one recorded cross-tenant read stands for its repeats. The console
 /// refetches these screens every two minutes; a row per refetch buried every
 /// other action on the trail without saying anything the first row had not.
-const CROSS_TENANT_READ_WINDOW: Duration = Duration::hours(1);
+const CROSS_TENANT_READ_WINDOW: Elapsed = Elapsed::hours(1);
 
 /// Record a read of reply sentences that reached past the caller's own tenant.
 /// A verdict quotes what an athlete was told, so another tenant's are on the
@@ -139,7 +139,7 @@ pub(crate) async fn audit_cross_tenant_sentences(
             action: CROSS_TENANT_SENTENCES_READ,
             route,
             summary: &summary,
-            since: Utc::now() - CROSS_TENANT_READ_WINDOW,
+            since: Timestamp::now() - CROSS_TENANT_READ_WINDOW,
         };
         match audit.has_recent_read(&key).await {
             Ok(true) => return,

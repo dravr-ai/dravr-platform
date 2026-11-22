@@ -25,7 +25,7 @@ use std::slice;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::constants::oauth::providers::STRAVA_ARCHIVE;
 use pierre_core::models::{ActivityBuilder, Athlete, DailyTrainingState, SegmentEffort, SportType};
@@ -78,8 +78,8 @@ fn probes(goal: &str) -> BTreeMap<&'static str, Probe> {
         (
             "get_training_history",
             json!({
-                "from": (Utc::now() - Duration::days(3)).date_naive().to_string(),
-                "to": Utc::now().date_naive().to_string(),
+                "from": (Timestamp::now() - Elapsed::days(3)).utc_date().to_string(),
+                "to": Timestamp::now().utc_date().to_string(),
             }),
         ),
         ("analyze_training_load", json!({ "provider": UPLOAD })),
@@ -165,16 +165,15 @@ async fn world() -> (Fixture, String) {
     let (f, goal) = training_world().await;
     file_wellness(&f, f.athlete, ATHLETE_WELLNESS).await;
     let repos = f.repos();
-    let mut day = DailyTrainingState::zero(Utc::now().date_naive() - Duration::days(1));
+    let mut day = DailyTrainingState::zero(Timestamp::now().utc_date() - Elapsed::days(1));
     day.daily_load = 111.0;
     repos
         .training_history
         .upsert_training_history_batch(f.athlete.tenant, f.athlete.id, &[day])
         .await
         .unwrap();
-    let start = Utc
-        .timestamp_opt(Utc::now().timestamp() - 5 * 86_400, 0)
-        .unwrap();
+    let start =
+        Timestamp::from_epoch_seconds(Timestamp::now().epoch_seconds() - 5 * 86_400).unwrap();
     let ridden = ActivityBuilder::new(
         "athlete-segment-ride",
         "Hill repeats",
@@ -190,7 +189,7 @@ async fn world() -> (Fixture, String) {
         name: "Mont Royal".to_owned(),
         elapsed_time: 412,
         moving_time: Some(412),
-        start_date: start + Duration::minutes(10),
+        start_date: start + Elapsed::minutes(10),
         distance: 1_820.5,
         average_heart_rate: Some(161),
         max_heart_rate: None,

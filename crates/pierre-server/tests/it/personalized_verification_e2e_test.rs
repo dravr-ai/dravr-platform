@@ -12,9 +12,9 @@ use crate::common;
 use std::collections::BTreeSet;
 
 use anyhow::Result;
-use chrono::{Duration, NaiveDate, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::config::intelligence::TrainingZonesConfig;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::ai_policy::Withheld;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::activity::ActivityBuilder;
@@ -45,7 +45,7 @@ fn synthetic_run(id: &str, days_ago: i64) -> Activity {
         id.to_owned(),
         format!("synthetic {id}"),
         SportType::Run,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3600,
         "synthetic".to_owned(),
     )
@@ -213,20 +213,21 @@ async fn missing_physiology_yields_unusable_snapshot() -> Result<()> {
 fn whoop_night(
     user_id: Uuid,
     data_source_id: &str,
-    day: NaiveDate,
+    day: CivilDate,
     hours: u32,
 ) -> StoredSleepSession {
-    let start = (day - Duration::days(1))
-        .and_hms_opt(23, 0, 0)
+    let start = (day - Elapsed::days(1))
+        .and_hms(23, 0, 0)
         .unwrap()
-        .and_utc();
+        .and_utc()
+        .unwrap();
     StoredSleepSession {
         id: Uuid::new_v4().to_string(),
         user_id: user_id.to_string(),
         data_source_id: data_source_id.to_owned(),
         is_nap: false,
         start_datetime: start,
-        end_datetime: start + Duration::hours(i64::from(hours)),
+        end_datetime: start + Elapsed::hours(i64::from(hours)),
         total_sleep_seconds: Some(hours * 3600),
         deep_sleep_seconds: None,
         light_sleep_seconds: None,
@@ -247,7 +248,7 @@ fn whoop_night(
 fn whoop_morning(
     user_id: Uuid,
     data_source_id: &str,
-    day: NaiveDate,
+    day: CivilDate,
     hrv: f64,
 ) -> StoredRecoveryMetrics {
     StoredRecoveryMetrics {
@@ -268,7 +269,7 @@ fn whoop_morning(
         daily_strain: None,
         athlete_note: None,
         source_name: "whoop".to_owned(),
-        recorded_at: day.and_hms_opt(8, 0, 0).unwrap().and_utc(),
+        recorded_at: day.and_hms(8, 0, 0).unwrap().and_utc().unwrap(),
     }
 }
 
@@ -295,16 +296,16 @@ async fn seed_whoop_week(
             },
         )
         .await?;
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     for back in 0..7 {
-        let day = today - Duration::days(back);
+        let day = today - Elapsed::days(back);
         let (hours, hrv) = if back == 0 { (5, 51.0) } else { (8, 60.0) };
         repos
             .sleep
             .upsert_sleep_session(
                 &tenant_id,
                 &whoop_night(user_id, &data_source_id, day, hours),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await?;
         repos
@@ -313,7 +314,7 @@ async fn seed_whoop_week(
                 &tenant_id,
                 &whoop_morning(user_id, &data_source_id, day, hrv),
                 WellnessWriteMode::FullDay,
-                Utc::now(),
+                Timestamp::now(),
             )
             .await?;
     }

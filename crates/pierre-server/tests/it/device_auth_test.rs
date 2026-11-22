@@ -17,7 +17,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::Response;
 use axum::{Extension, Json};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -201,7 +201,7 @@ async fn unknown_device_code_is_rejected() {
 async fn an_expired_login_swept_by_the_next_one_is_answered_as_unknown_or_expired() {
     let context = build_context().await;
     let lapsed = "LAPS-ED00";
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     context
         .repos
         .oauth2_server

@@ -11,7 +11,7 @@
 //! app here is how an admin restores Strava OAuth capacity when the env app
 //! hits Strava's athlete cap.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use serde_json::{json, Value};
 
@@ -21,7 +21,7 @@ const APPS_PATH: &str = "/admin/strava-pool/apps";
 const SEATS_PATH: &str = "/admin/strava-pool/seats";
 
 fn client() -> AppResult<RemoteClient> {
-    let creds = CachedCredentials::require(Utc::now().timestamp())?;
+    let creds = CachedCredentials::require(Timestamp::now().epoch_seconds())?;
     RemoteClient::from_cached(&creds)
 }
 

@@ -430,7 +430,7 @@ async fn finish_upload(
     let source = ops::offered_source(&source)?;
     Ok(
         match upload::finish_upload(&resources, &scope, source, id).await? {
-            FinishedUpload::Started(view) => (StatusCode::ACCEPTED, Json(view)).into_response(),
+            FinishedUpload::Started(view) => (StatusCode::ACCEPTED, Json(*view)).into_response(),
             FinishedUpload::TooLarge => too_large(),
         },
     )

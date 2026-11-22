@@ -26,7 +26,7 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -204,16 +204,16 @@ pub struct CoverageWindow {
     pub scope: WindowScope,
     /// First day asked for, `YYYY-MM-DD`; absent when the ask had no start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub asked_from: Option<NaiveDate>,
+    pub asked_from: Option<CivilDate>,
     /// Last day asked for, `YYYY-MM-DD`; absent when the ask ran to now.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub asked_to: Option<NaiveDate>,
+    pub asked_to: Option<CivilDate>,
     /// The oldest day the window holds an activity on, `YYYY-MM-DD`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oldest: Option<NaiveDate>,
+    pub oldest: Option<CivilDate>,
     /// The newest day the window holds an activity on, `YYYY-MM-DD`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub newest: Option<NaiveDate>,
+    pub newest: Option<CivilDate>,
     /// Activities the window holds, before any display limit; absent when
     /// the reader does not count them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -338,7 +338,7 @@ pub struct Coverage {
     pub window: CoverageWindow,
     /// The first day the stored history stands behind, when it starts later
     /// than the window asked.
-    pub trustworthy_from: Option<NaiveDate>,
+    pub trustworthy_from: Option<CivilDate>,
     /// The walk still owed for the window, when one is.
     pub pending: Option<Pending>,
 }
@@ -569,7 +569,7 @@ struct CoverageWire {
     /// The first day the stored history stands behind, `YYYY-MM-DD`, when it
     /// starts later than the window asked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    trustworthy_from: Option<NaiveDate>,
+    trustworthy_from: Option<CivilDate>,
     /// The history walk still owed for the window, when one is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pending: Option<Pending>,
@@ -640,11 +640,11 @@ mod tests {
 
     type TestResult = Result<(), Box<dyn Error>>;
 
-    fn day(y: i32, m: u32, d: u32) -> Result<NaiveDate, &'static str> {
-        NaiveDate::from_ymd_opt(y, m, d).ok_or("not a day")
+    fn day(y: i32, m: u32, d: u32) -> Result<CivilDate, &'static str> {
+        CivilDate::from_ymd(y, m, d).ok().ok_or("not a day")
     }
 
-    fn history(from: NaiveDate, to: NaiveDate) -> CoverageWindow {
+    fn history(from: CivilDate, to: CivilDate) -> CoverageWindow {
         CoverageWindow {
             asked_from: Some(from),
             asked_to: Some(to),

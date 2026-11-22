@@ -38,9 +38,9 @@ mod live_incident_eval {
         ATHLETE_LIVE_CONNECTION, CORPUS, PEER_DISPLAY, PEER_RUN_METRES, PEER_RUN_PACE,
         PEER_RUN_SECONDS, PHIL_ALIAS_DISPLAY,
     };
-    use chrono::{Duration as ChronoDuration, Utc};
     use dravr_canot::channels::slack::transport::SlackTransport;
     use dravr_canot::transport::TransportAdapter;
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use http::HeaderMap;
     use pierre_chat_pipeline::stages::viz_blocks::granted_visuals;
     use pierre_config::timeouts::ServerTimeouts;
@@ -102,7 +102,7 @@ mod live_incident_eval {
             ("Peer Philippe Tremblay", peer_runs()),
         ] {
             for run in runs {
-                let date = run.start.format("%Y-%m-%d, started %H:%M UTC").to_string();
+                let date = run.start.format("%Y-%m-%d, started %H:%M UTC").unwrap();
                 let km = run.metres / 1_000.0;
                 assert!(
                     evidence.lines().any(|line| line.starts_with(who)
@@ -124,9 +124,9 @@ mod live_incident_eval {
     /// one start time was every row's (carnet#1038).
     #[test]
     fn every_seeded_activity_starts_at_its_own_time_of_day() {
-        let mut starts = BTreeSet::from([sunday_ride_start().format("%H:%M").to_string()]);
+        let mut starts = BTreeSet::from([sunday_ride_start().format("%H:%M").unwrap()]);
         for run in athlete_runs().into_iter().chain(peer_runs()) {
-            let time = run.start.format("%H:%M").to_string();
+            let time = run.start.format("%H:%M").unwrap();
             assert!(
                 starts.insert(time.clone()),
                 "{} starts at {time} UTC, the time of day another seeded activity starts",
@@ -140,7 +140,7 @@ mod live_incident_eval {
     ///
     /// Read back from the activity cache, the store the agent's tools serve,
     /// so this holds only while the seed and the ledger measure from one
-    /// clock. When each read `Utc::now()` on its own, the ledger could carry
+    /// clock. When each read `Timestamp::now()` on its own, the ledger could carry
     /// no start at all, and the agent quoting a run's real 09:52 start was
     /// graded as inventing it.
     #[tokio::test]
@@ -157,8 +157,8 @@ mod live_incident_eval {
                 fixture.athlete,
                 &fixture.athlete_tenant,
                 None,
-                Utc::now() - ChronoDuration::days(60),
-                Utc::now(),
+                Timestamp::now() - Elapsed::days(60),
+                Timestamp::now(),
                 500,
             )
             .await
@@ -172,7 +172,7 @@ mod live_incident_eval {
             let start = activity
                 .start_date()
                 .format("%Y-%m-%d, started %H:%M UTC")
-                .to_string();
+                .unwrap();
             assert!(
                 evidence
                     .lines()

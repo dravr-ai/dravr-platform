@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
@@ -149,7 +149,7 @@ fn long_run() -> Activity {
         "o-long",
         "Riverside Loop",
         SportType::Run,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         6_300,
         OPEN,
     )
@@ -164,7 +164,7 @@ fn relay_ride() -> Activity {
         "n-ride",
         "Col Climb",
         SportType::Ride,
-        Utc::now() - Duration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         9_000,
         RELAY,
     )
@@ -289,7 +289,7 @@ async fn connect(resources: &ServerContext, athlete: &Rider, provider: &str) {
         provider.to_owned(),
         format!("{provider}-access"),
         Some(format!("{provider}-refresh")),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         None,
     );
     repos.oauth_tokens.upsert_token(&token).await.unwrap();
@@ -713,7 +713,7 @@ fn training_days() -> Vec<Activity> {
                 format!("o-day-{days_ago}"),
                 format!("Endurance {days_ago}"),
                 SportType::Ride,
-                Utc::now() - Duration::days(days_ago),
+                Timestamp::now() - Elapsed::days(days_ago),
                 3_600,
                 OPEN,
             )

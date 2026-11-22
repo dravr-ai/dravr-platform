@@ -7,11 +7,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, NaiveDate, Utc};
 use dravr_cageux::config::intelligence::{IntelligenceConfig, SleepRecoveryConfig};
 use dravr_cageux::sleep_analysis::{
     HrvRecoveryStatus, HrvTrend, NightlyHrv, SleepAnalyzer, SleepData, SleepQualityCategory,
 };
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 
 /// Helper to get default test config
 fn test_config() -> SleepRecoveryConfig {
@@ -36,7 +36,7 @@ fn test_short_sleep_duration_score() {
 fn test_sleep_quality_calculation() {
     let config = test_config();
     let sleep = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 8.0,
         deep_sleep_hours: Some(1.6),  // 20%
         rem_sleep_hours: Some(2.0),   // 25%
@@ -140,7 +140,7 @@ fn test_duration_score_extreme_long_sleep() {
 fn test_stage_scoring_all_missing() {
     let config = test_config();
     let sleep = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 8.0,
         deep_sleep_hours: None,
         rem_sleep_hours: None,
@@ -163,7 +163,7 @@ fn test_stage_scoring_all_missing() {
 fn test_stage_scoring_optimal_percentages() {
     let config = test_config();
     let sleep = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 8.0,
         deep_sleep_hours: Some(1.6),  // 20% (optimal range: 15-25%)
         rem_sleep_hours: Some(2.0),   // 25% (optimal range: 20-30%)
@@ -189,7 +189,7 @@ fn test_stage_scoring_optimal_percentages() {
 fn test_stage_scoring_low_deep_sleep() {
     let config = test_config();
     let sleep = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 8.0,
         deep_sleep_hours: Some(0.4),  // 5% (below optimal 15-25%)
         rem_sleep_hours: Some(2.0),   // 25%
@@ -215,7 +215,7 @@ fn test_stage_scoring_low_deep_sleep() {
 fn test_stage_scoring_low_rem_sleep() {
     let config = test_config();
     let sleep = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 8.0,
         deep_sleep_hours: Some(1.6),  // 20%
         rem_sleep_hours: Some(0.8),   // 10% (below optimal 20-30%)
@@ -240,7 +240,7 @@ fn test_stage_scoring_low_rem_sleep() {
 fn test_stage_scoring_excessive_awake_time() {
     let config = test_config();
     let sleep = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 8.0,
         deep_sleep_hours: Some(1.2),  // 15%
         rem_sleep_hours: Some(1.6),   // 20%
@@ -265,7 +265,7 @@ fn test_stage_scoring_excessive_awake_time() {
 fn test_stage_scoring_invalid_percentages_sum() {
     let config = test_config();
     let sleep = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 8.0,
         deep_sleep_hours: Some(2.0),  // 25%
         rem_sleep_hours: Some(2.0),   // 25%
@@ -285,7 +285,7 @@ fn test_stage_scoring_invalid_percentages_sum() {
 fn test_stage_scoring_negative_values() {
     let config = test_config();
     let sleep = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 8.0,
         deep_sleep_hours: Some(-1.0), // Invalid negative
         rem_sleep_hours: Some(2.0),
@@ -380,7 +380,7 @@ fn test_efficiency_score_negative() {
 fn test_sleep_quality_poor_overall() {
     let config = test_config();
     let sleep = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 4.5,            // Poor
         deep_sleep_hours: Some(0.3),    // 6.7% - poor
         rem_sleep_hours: Some(0.5),     // 11% - poor
@@ -404,7 +404,7 @@ fn test_sleep_quality_category_boundaries() {
     let config = test_config();
     // Test Excellent boundary (85-100)
     let sleep_excellent = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 8.0,
         deep_sleep_hours: Some(1.6),
         rem_sleep_hours: Some(2.0),
@@ -424,7 +424,7 @@ fn test_sleep_quality_category_boundaries() {
 
     // Test Good boundary (70-84)
     let sleep_good = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 7.5,
         deep_sleep_hours: Some(1.2),
         rem_sleep_hours: Some(1.8),
@@ -445,7 +445,7 @@ fn test_sleep_quality_category_boundaries() {
 fn test_sleep_quality_with_provider_score() {
     let config = test_config();
     let sleep = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 8.0,
         deep_sleep_hours: Some(1.6),
         rem_sleep_hours: Some(2.0),
@@ -472,8 +472,8 @@ fn test_sleep_quality_with_provider_score() {
 // band; its reference tests pin the method. These check the platform's view
 // of it: the statuses the sleep tools report.
 
-fn as_of() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 11, 30).unwrap()
+fn as_of() -> CivilDate {
+    CivilDate::from_ymd(2026, 11, 30).unwrap()
 }
 
 /// 28 baseline nights around 60 ms, then `week`, one night a day up to `as_of`.
@@ -485,12 +485,12 @@ fn nights(week: &[f64]) -> Vec<NightlyHrv> {
         .take(28)
         .collect();
     values.extend_from_slice(week);
-    let first = as_of() - Duration::days(i64::try_from(values.len()).unwrap() - 1);
+    let first = as_of() - Elapsed::days(i64::try_from(values.len()).unwrap() - 1);
     values
         .iter()
         .enumerate()
         .map(|(i, &rmssd_ms)| NightlyHrv {
-            date: first + Duration::days(i64::try_from(i).unwrap()),
+            date: first + Elapsed::days(i64::try_from(i).unwrap()),
             rmssd_ms,
         })
         .collect()

@@ -24,7 +24,7 @@
 //! carry something named, so the merged record's id, source and time never
 //! belong to a source that recorded only what the grant leaves out.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{
     StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
 };
@@ -60,8 +60,12 @@ fn not_named(health_records: bool) -> String {
 /// (T2): their `coach_sensitive_t2_read` stands and has not lapsed. Their own
 /// consent to AI use of those records is applied apart, by the tier gate.
 pub(crate) fn health_records_named() -> bool {
-    scoped_read_subject()
-        .is_some_and(|subject| subject.access.consents.sensitive_t2_standing(Utc::now()))
+    scoped_read_subject().is_some_and(|subject| {
+        subject
+            .access
+            .consents
+            .sensitive_t2_standing(Timestamp::now())
+    })
 }
 
 /// `value`, a metric the grant names as `_entry`: kept on a coach's read.
@@ -304,7 +308,7 @@ pub(crate) fn unnamed_refusal(
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDate;
+    use dravr_tronc::dates::CivilDate;
 
     use super::*;
 
@@ -330,7 +334,7 @@ mod tests {
             id: "day".to_owned(),
             user_id: "athlete".to_owned(),
             data_source_id: "ds".to_owned(),
-            date: NaiveDate::from_ymd_opt(2026, 11, 6).unwrap(),
+            date: CivilDate::from_ymd(2026, 11, 6).unwrap(),
             weight_kg: Some(61.5),
             body_fat_pct: Some(17.0),
             muscle_mass_kg: Some(48.0),
@@ -342,7 +346,7 @@ mod tests {
             blood_glucose: Some(92.0),
             vo2_max: Some(55.0),
             source_name: "withings".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         }
     }
 
@@ -420,7 +424,7 @@ mod tests {
             id: "day".to_owned(),
             user_id: "athlete".to_owned(),
             data_source_id: "ds".to_owned(),
-            date: NaiveDate::from_ymd_opt(2026, 11, 6).unwrap(),
+            date: CivilDate::from_ymd(2026, 11, 6).unwrap(),
             recovery_score: Some(71),
             readiness_score: Some(68),
             hrv_ms: None,
@@ -434,7 +438,7 @@ mod tests {
             daily_strain: Some(12.0),
             athlete_note: Some("legs heavy".to_owned()),
             source_name: "garmin".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         };
         let shown = serde_json::to_value(day.clone().granted_only(false).unwrap()).unwrap();
         for named in [
@@ -480,8 +484,8 @@ mod tests {
             user_id: "athlete".to_owned(),
             data_source_id: "ds".to_owned(),
             is_nap: false,
-            start_datetime: Utc::now(),
-            end_datetime: Utc::now(),
+            start_datetime: Timestamp::now(),
+            end_datetime: Timestamp::now(),
             total_sleep_seconds: Some(25_200),
             deep_sleep_seconds: Some(5_400),
             light_sleep_seconds: Some(12_600),
@@ -512,13 +516,13 @@ mod tests {
             id: "day".to_owned(),
             user_id: "athlete".to_owned(),
             data_source_id: "ds".to_owned(),
-            date: NaiveDate::from_ymd_opt(2026, 11, 6).unwrap(),
+            date: CivilDate::from_ymd(2026, 11, 6).unwrap(),
             steps: Some(12_000),
             active_kcal: Some(640.0),
             total_kcal: Some(2_300.0),
             intensity_minutes: Some(55),
             source_name: "garmin".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         };
         assert!(
             day.granted_only(false).is_none(),

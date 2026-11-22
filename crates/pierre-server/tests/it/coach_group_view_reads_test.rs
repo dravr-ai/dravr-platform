@@ -19,7 +19,7 @@
 //! puts a wellness row beside its training row; without the grant it reads
 //! none and records none.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 #[cfg(feature = "tools-groups")]
 use pierre_chat_pipeline::stages::prompt_builder::resolve_group_context;
 use pierre_core::models::groups::{CoachConsents, GroupMember, GroupRole};
@@ -35,7 +35,7 @@ impl Fixture {
     /// The athlete belongs to a second tenant too: the coach-read gate's
     /// home-tenant check refuses them, though they still share with the coach.
     async fn athlete_joins_a_second_tenant(&self) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let second = TenantId::generate();
         self.repos()
             .tenants
@@ -56,7 +56,7 @@ impl Fixture {
     /// The coach also manages the group, as its owner: the analytics answer
     /// a manager only.
     async fn coach_manages_the_group(&self) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.repos()
             .groups
             .add_member(&GroupMember {

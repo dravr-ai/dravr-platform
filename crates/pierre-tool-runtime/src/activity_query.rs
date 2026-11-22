@@ -30,7 +30,7 @@ use std::iter;
 use std::mem;
 use std::sync::Arc;
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::constants::oauth::providers::{companion_keys, is_user_provided, STRAVA};
 use pierre_core::constants::oauth_providers::{garmin_contribution, GarminContribution};
@@ -101,9 +101,9 @@ pub enum ReadGate {
 #[derive(Debug, Clone)]
 pub struct ActivityQuery {
     /// The first civil day, included; `None` reads the whole stored history.
-    pub from: Option<NaiveDate>,
+    pub from: Option<CivilDate>,
     /// The last civil day, included.
-    pub to: NaiveDate,
+    pub to: CivilDate,
     /// What the count filters on.
     pub filter: ActivityPredicate,
     /// What it is broken down by: none, one key, or two for a cross-tab.
@@ -121,7 +121,7 @@ impl ActivityQuery {
     fn totals_only() -> Self {
         Self {
             from: None,
-            to: NaiveDate::MAX,
+            to: CivilDate::MAX,
             filter: ActivityPredicate::default(),
             group_by: Vec::new(),
             metrics: DEFAULT_METRICS.to_vec(),
@@ -240,15 +240,22 @@ pub async fn query_activities(
     let window = CivilWindow {
         from: query.from,
         to: query.to,
-        zone,
+        zone: zone.clone(),
     };
 
-    let mut accumulator = Accumulator::new(query, zone);
-    let reach = visit_stored_workouts(runtime, athlete, window, keys, gate, &mut |workouts| {
-        for workout in workouts {
-            accumulator.add(workout);
-        }
-    })
+    let mut accumulator = Accumulator::new(query, &zone);
+    let reach = visit_stored_workouts(
+        runtime,
+        athlete,
+        window.clone(),
+        keys,
+        gate,
+        &mut |workouts| {
+            for workout in workouts {
+                accumulator.add(workout);
+            }
+        },
+    )
     .await?;
     if reach.segment_rows_withheld || ai_scope::serving_external() {
         accumulator.segments_withheld();
@@ -373,8 +380,8 @@ fn labelled(mut groups: Vec<QueryGroup>, folded: &Folded, gate: ReadGate) -> Vec
 
 #[cfg(test)]
 mod tests {
-    use chrono::{DateTime, NaiveDate, TimeZone, Utc};
-    use chrono_tz::Tz;
+    use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
+    use dravr_tronc::dates::{CivilDateTime, Elapsed};
     use pierre_core::civil_time::resolve_zone;
     use pierre_core::models::{
         Activity, ActivityBuilder, GearRef, PlaceRef, SegmentEffort, SportFamily, SportType,
@@ -385,21 +392,25 @@ mod tests {
 
     use super::*;
 
-    fn at(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(year, month, day, hour, minute, 0)
-            .single()
+    fn at(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> Timestamp {
+        CivilDate::from_ymd(year, month, day)
+            .and_then(|date| date.and_hms(hour, minute, 0))
+            .and_then(CivilDateTime::and_utc)
+            .ok()
             .unwrap_or_default()
     }
 
-    fn ymd(year: i32, month: u32, day: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(year, month, day).unwrap_or(NaiveDate::MIN)
+    fn ymd(year: i32, month: u32, day: u32) -> CivilDate {
+        CivilDate::from_ymd(year, month, day)
+            .ok()
+            .unwrap_or(CivilDate::MIN)
     }
 
-    fn montreal() -> Tz {
+    fn montreal() -> Zone {
         resolve_zone(Some("America/Montreal"))
     }
 
-    fn session(id: &str, sport: SportType, start: DateTime<Utc>) -> ActivityBuilder {
+    fn session(id: &str, sport: SportType, start: Timestamp) -> ActivityBuilder {
         ActivityBuilder::new(id, format!("Session {id}"), sport, start, 3_600, "strava")
             .distance_meters(10_000.0)
     }
@@ -429,7 +440,7 @@ mod tests {
 
     fn fold(rows: &[CachedActivityRow], query: &ActivityQuery) -> Folded {
         let merged = workouts(rows);
-        let mut accumulator = Accumulator::new(query, montreal());
+        let mut accumulator = Accumulator::new(query, &montreal());
         for workout in &merged {
             accumulator.add(workout);
         }
@@ -708,8 +719,10 @@ mod tests {
     fn groups_past_the_cap_are_cut_and_counted() {
         let rows: Vec<CachedActivityRow> = (0..(MAX_GROUPS + 5))
             .map(|n| {
-                let day = ymd(2020, 1, 1) + chrono::Days::new(u64::try_from(n * 7).unwrap_or(0));
-                let start = Utc.from_utc_datetime(&day.and_hms_opt(12, 0, 0).unwrap_or_default());
+                let day = ymd(2020, 1, 1) + Elapsed::days(i64::try_from(n * 7).unwrap_or(0));
+                let start = (day.and_hms(12, 0, 0).ok().unwrap_or_default())
+                    .and_utc()
+                    .unwrap();
                 row(session(&format!("w{n}"), SportType::Run, start).build())
             })
             .collect();

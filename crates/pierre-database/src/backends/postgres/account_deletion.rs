@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::models::{
     DELETED_ACCOUNT_ADMIN, DELETED_ACCOUNT_LABEL, DEVICE_CLI_DELETED_ACCOUNT_SERVICE,
 };

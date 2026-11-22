@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::Activity;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
@@ -116,7 +116,7 @@ pub(super) async fn training_load_of(
     let calculator = TrainingLoadCalculator::as_of_today(
         executor.cageux_config().algorithms.clone(),
         athlete_zone(executor.resources.repos(), user_uuid).await,
-        Utc::now(),
+        Timestamp::now(),
     );
     physio.training_load(calculator, activities).map_err(|e| {
         ProtocolError::InternalError(format!(

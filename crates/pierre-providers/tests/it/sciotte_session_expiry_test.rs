@@ -13,8 +13,8 @@
 //! reports NOT authenticated (so a caller never treats a dead session as live),
 //! while a future or unknown expiry reports authenticated.
 
-use chrono::{DateTime, Duration, Utc};
 use dravr_sciotte::models::AuthSession;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
@@ -39,17 +39,17 @@ fn sciotte_provider() -> Box<dyn FitnessProvider> {
 
 /// Serialize an `AuthSession` with the given expiry into the JSON blob
 /// `set_credentials` expects in `access_token`.
-fn session_json(expires_at: Option<DateTime<Utc>>) -> String {
+fn session_json(expires_at: Option<Timestamp>) -> String {
     let session = AuthSession {
         session_id: "test-session".to_owned(),
         cookies: vec![],
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         expires_at,
     };
     serde_json::to_string(&session).expect("AuthSession serializes")
 }
 
-async fn set_session(provider: &dyn FitnessProvider, expires_at: Option<DateTime<Utc>>) {
+async fn set_session(provider: &dyn FitnessProvider, expires_at: Option<Timestamp>) {
     let creds = OAuth2Credentials {
         client_id: String::new(),
         client_secret: SecretString::default(),
@@ -69,7 +69,11 @@ async fn set_session(provider: &dyn FitnessProvider, expires_at: Option<DateTime
 #[tokio::test]
 async fn expired_session_reports_not_authenticated() {
     let provider = sciotte_provider();
-    set_session(provider.as_ref(), Some(Utc::now() - Duration::hours(1))).await;
+    set_session(
+        provider.as_ref(),
+        Some(Timestamp::now() - Elapsed::hours(1)),
+    )
+    .await;
     assert!(
         !provider.is_authenticated().await,
         "a session whose expires_at is in the past must report NOT authenticated"
@@ -79,7 +83,11 @@ async fn expired_session_reports_not_authenticated() {
 #[tokio::test]
 async fn future_session_reports_authenticated() {
     let provider = sciotte_provider();
-    set_session(provider.as_ref(), Some(Utc::now() + Duration::hours(1))).await;
+    set_session(
+        provider.as_ref(),
+        Some(Timestamp::now() + Elapsed::hours(1)),
+    )
+    .await;
     assert!(
         provider.is_authenticated().await,
         "a session whose expires_at is in the future must report authenticated"

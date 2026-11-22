@@ -36,10 +36,11 @@
 //! no session can arrive from it until they do, and what any tool reads of it
 //! meanwhile is the cache itself.
 
-use chrono::{DateTime, NaiveDate, TimeDelta, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 
 use super::super::RecordedActivity;
 use super::Window;
+use dravr_tronc::dates::Zone;
 
 /// How old the latest head read may be for today to count as held.
 ///
@@ -47,7 +48,7 @@ use super::Window;
 /// is checked, so a read that recent is this turn's. An older one left the
 /// rest of the day open: whatever the athlete finished since may be on the
 /// provider, and in the reply, without being in the cache.
-const TODAY_SYNC_RECENCY: TimeDelta = TimeDelta::minutes(10);
+const TODAY_SYNC_RECENCY: Elapsed = Elapsed::minutes(10);
 
 /// How deep a source's history is vouched for, as the historical gate reads
 /// its backfill coverage.
@@ -58,7 +59,7 @@ pub enum BackfillDepth {
     /// window.
     Unrecorded,
     /// A backfill of the current capture reached back to this instant.
-    Reached(DateTime<Utc>),
+    Reached(Timestamp),
     /// The provider reported its feed exhausted: nothing older exists.
     FeedEnd,
 }
@@ -68,7 +69,7 @@ pub enum BackfillDepth {
 pub struct SourceCoverage {
     /// When the source's list head was last read successfully; `None` when
     /// it never was.
-    pub last_sync: Option<DateTime<Utc>>,
+    pub last_sync: Option<Timestamp>,
     /// How far back its history is held.
     pub depth: BackfillDepth,
 }
@@ -81,16 +82,16 @@ pub struct SourceCoverage {
 /// An agent discussing "last month" or "the past few weeks" is the common case;
 /// a quarter covers those without pulling a whole history into a per-reply
 /// check.
-pub const ATHLETE_RECORD_WINDOW: TimeDelta = TimeDelta::days(90);
+pub const ATHLETE_RECORD_WINDOW: Elapsed = Elapsed::days(90);
 
 /// What the activity-cache read behind the record reached.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CacheRead {
     /// The earliest instant the read asked for.
-    pub from: DateTime<Utc>,
+    pub from: Timestamp,
     /// When the read filled its row cap, the civil day of its oldest row: the
     /// cap fell inside that day, so only the days after it are whole.
-    pub cut_day: Option<NaiveDate>,
+    pub cut_day: Option<CivilDate>,
 }
 
 /// One source's own sessions, merged within that source only.
@@ -109,7 +110,7 @@ pub struct SourceSessions {
 
 /// Everything [`PeriodHistory::vouched`] builds a history from.
 #[derive(Debug, Clone)]
-pub struct HistoryInputs<Z: TimeZone> {
+pub struct HistoryInputs {
     /// One entry per workout, across every source: the copies several
     /// providers hold of one session merged, so a total counts it once.
     pub sessions: Vec<RecordedActivity>,
@@ -122,12 +123,12 @@ pub struct HistoryInputs<Z: TimeZone> {
     pub sources: Vec<SourceCoverage>,
     /// When the record was read. The record's `today` is this instant's day
     /// on the athlete's clock.
-    pub now: DateTime<Utc>,
+    pub now: Timestamp,
     /// The athlete's zone.
-    pub zone: Z,
+    pub zone: Zone,
     /// The first day of the training block the athlete is in, the phase of
     /// their active plan covering today, when they have one.
-    pub block_start: Option<NaiveDate>,
+    pub block_start: Option<CivilDate>,
 }
 
 /// What the record vouches for when a claim sums or averages over a period.
@@ -144,11 +145,11 @@ pub struct PeriodHistory {
     /// Each source's own sessions, when more than one source holds any.
     pub(super) by_source: Vec<SourceSessions>,
     /// The first civil day every live source holds in full.
-    pub(super) covered_from: NaiveDate,
+    pub(super) covered_from: CivilDate,
     /// The last civil day every live source holds in full.
-    pub(super) synced_through: NaiveDate,
+    pub(super) synced_through: CivilDate,
     /// The first day of the current training block, when there is one.
-    pub(super) block_start: Option<NaiveDate>,
+    pub(super) block_start: Option<CivilDate>,
 }
 
 impl PeriodHistory {
@@ -156,7 +157,7 @@ impl PeriodHistory {
     /// day: no live source, a live source never fetched, or one whose current
     /// capture has no backfill on record.
     #[must_use]
-    pub fn vouched<Z: TimeZone>(inputs: HistoryInputs<Z>) -> Option<Self> {
+    pub fn vouched(inputs: HistoryInputs) -> Option<Self> {
         let HistoryInputs {
             sessions,
             by_source,
@@ -168,7 +169,7 @@ impl PeriodHistory {
         } = inputs;
         // The athlete's clock, as `civil_time::clock_date` reads it: every
         // instant here is a real moment, never a date-only row.
-        let day = |instant: DateTime<Utc>| instant.with_timezone(&zone).date_naive();
+        let day = |instant: Timestamp| zone.date_at(instant);
 
         let oldest_sync = sources
             .iter()
@@ -179,20 +180,20 @@ impl PeriodHistory {
         let synced_through = if now.signed_duration_since(oldest_sync) <= TODAY_SYNC_RECENCY {
             day(now)
         } else {
-            day(oldest_sync).pred_opt()?
+            day(oldest_sync).pred()?
         };
 
         // The read's first instant, and a backfill's floor, can fall inside a
         // day; only the day after is whole.
-        let mut covered_from = day(read.from).succ_opt()?;
+        let mut covered_from = day(read.from).succ()?;
         if let Some(cut) = read.cut_day {
-            covered_from = covered_from.max(cut.succ_opt()?);
+            covered_from = covered_from.max(cut.succ()?);
         }
         for source in &sources {
             match source.depth {
                 BackfillDepth::Unrecorded => return None,
                 BackfillDepth::Reached(floor) => {
-                    covered_from = covered_from.max(day(floor).succ_opt()?);
+                    covered_from = covered_from.max(day(floor).succ()?);
                 }
                 BackfillDepth::FeedEnd => {}
             }
@@ -218,19 +219,23 @@ mod tests {
     use super::*;
     use crate::athlete_data::{check, AthleteRecord};
     use crate::claim_extractor::{ClaimSource, ExtractedClaim};
+    use dravr_tronc::dates::CivilDateTime;
     use pierre_core::civil_time::resolve_zone;
     use pierre_core::models::SportType;
     use pierre_memory::{ClaimCategory, ClaimStatus};
 
-    fn at(d: u32, h: u32, m: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 9, d, h, m, 0).unwrap()
+    fn at(d: u32, h: u32, m: u32) -> Timestamp {
+        CivilDate::from_ymd(2026, 9, d)
+            .and_then(|date| date.and_hms(h, m, 0))
+            .and_then(CivilDateTime::and_utc)
+            .unwrap()
     }
 
-    fn day(d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 9, d).unwrap()
+    fn day(d: u32) -> CivilDate {
+        CivilDate::from_ymd(2026, 9, d).unwrap()
     }
 
-    fn run(date: NaiveDate, km: f64) -> RecordedActivity {
+    fn run(date: CivilDate, km: f64) -> RecordedActivity {
         RecordedActivity {
             date,
             sport: SportType::Run,
@@ -242,29 +247,29 @@ mod tests {
         }
     }
 
-    fn source(last_sync: Option<DateTime<Utc>>, depth: BackfillDepth) -> SourceCoverage {
+    fn source(last_sync: Option<Timestamp>, depth: BackfillDepth) -> SourceCoverage {
         SourceCoverage { last_sync, depth }
     }
 
     /// Wednesday 2026-09-09 at 19:00 UTC, read back 90 days, block-less.
-    fn inputs(sources: Vec<SourceCoverage>) -> HistoryInputs<Utc> {
+    fn inputs(sources: Vec<SourceCoverage>) -> HistoryInputs {
         let now = at(9, 19, 0);
         HistoryInputs {
             sessions: vec![run(day(7), 10.0), run(day(8), 12.0)],
             by_source: Vec::new(),
             read: CacheRead {
-                from: now - TimeDelta::days(90),
+                from: now - Elapsed::days(90),
                 cut_day: None,
             },
             sources,
             now,
-            zone: Utc,
+            zone: Zone::utc(),
             block_start: None,
         }
     }
 
     fn deep() -> BackfillDepth {
-        BackfillDepth::Reached(at(1, 0, 0) - TimeDelta::days(200))
+        BackfillDepth::Reached(at(1, 0, 0) - Elapsed::days(200))
     }
 
     #[test]
@@ -290,7 +295,7 @@ mod tests {
     /// sums 22 km; the reply's 32 km is right, so it must not be contradicted.
     #[test]
     fn an_evening_session_after_a_morning_sync_is_not_contradicted() {
-        let outcome_when_synced_at = |sync: DateTime<Utc>| {
+        let outcome_when_synced_at = |sync: Timestamp| {
             let record = AthleteRecord {
                 has_provider: true,
                 today: day(9),
@@ -368,12 +373,13 @@ mod tests {
         .unwrap();
         assert_eq!(
             read_bound.covered_from,
-            NaiveDate::from_ymd_opt(2026, 6, 12).unwrap()
+            CivilDate::from_ymd(2026, 6, 12).unwrap()
         );
 
         // A backfill that reached 08-20 10:00 holds from 08-21; the deeper
         // source does not lend the shallower one its depth.
-        let shallow = BackfillDepth::Reached(Utc.with_ymd_and_hms(2026, 8, 20, 10, 0, 0).unwrap());
+        let shallow =
+            BackfillDepth::Reached(Timestamp::parse_from_rfc3339("2026-08-20T10:00:00Z").unwrap());
         let backfill_bound = PeriodHistory::vouched(inputs(vec![
             source(Some(at(9, 18, 58)), deep()),
             source(Some(at(9, 18, 58)), shallow),
@@ -381,7 +387,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             backfill_bound.covered_from,
-            NaiveDate::from_ymd_opt(2026, 8, 21).unwrap()
+            CivilDate::from_ymd(2026, 8, 21).unwrap()
         );
     }
 
@@ -403,7 +409,7 @@ mod tests {
             sessions: Vec::new(),
             by_source: Vec::new(),
             read: CacheRead {
-                from: now - TimeDelta::days(90),
+                from: now - Elapsed::days(90),
                 cut_day: None,
             },
             sources: vec![source(Some(at(9, 3, 30)), deep())],

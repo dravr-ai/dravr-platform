@@ -17,8 +17,8 @@
 //! the agent too, because the claim path routes on the parked action's kind.
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use dravr_canot::commands::{CommandAction, CommandResponse};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::{
     KEY_AGENT_CREATE_CARD_TITLE, KEY_AGENT_CREATE_CONFIRM_LABEL, KEY_AGENT_CREATE_DISCARD_LABEL,
     KEY_AGENT_CREATE_DONE, KEY_AGENT_CREATE_DONE_UNBOUND, KEY_AGENT_CREATE_EMPTY,
@@ -202,7 +202,7 @@ async fn park(ctx: &PlatformCommandContext, proposal: AgentProposal) -> Result<S
         .agent_drafts
         .create_pending_action(
             &action,
-            Utc::now() + Duration::minutes(PROPOSAL_TTL_MINUTES),
+            Timestamp::now() + Elapsed::minutes(PROPOSAL_TTL_MINUTES),
         )
         .await?;
     info!(

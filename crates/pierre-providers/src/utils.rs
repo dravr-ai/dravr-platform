@@ -9,7 +9,7 @@ use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::http_client::SharedHttpClient;
 use crate::request_budget::{self, RequestBudget};
 use bytes::Bytes;
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use reqwest::StatusCode;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -21,6 +21,7 @@ use tracing::{debug, error, info, warn};
 use super::core::{CredentialKind, OAuth2Credentials};
 use super::errors::provider::ProviderError;
 use super::spi::OAuthRefresh;
+use dravr_tronc::dates::Elapsed;
 
 /// Configuration for retry behavior
 #[derive(Debug, Clone)]
@@ -549,11 +550,11 @@ pub async fn refresh_oauth_token(
     // Calculate expiry time
     let expires_at = token_response
         .expires_at
-        .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
+        .and_then(|ts| Timestamp::from_epoch_seconds(ts).ok())
         .or_else(|| {
             token_response
                 .expires_in
-                .map(|secs| Utc::now() + chrono::Duration::seconds(secs))
+                .map(|secs| Timestamp::now() + Elapsed::seconds(secs))
         });
 
     Ok(OAuth2Credentials {
@@ -575,6 +576,6 @@ pub fn is_authenticated(credentials: &Option<OAuth2Credentials>) -> bool {
         creds.access_token.is_some()
             && creds
                 .expires_at
-                .is_none_or(|expires_at| Utc::now() < expires_at)
+                .is_none_or(|expires_at| Timestamp::now() < expires_at)
     })
 }

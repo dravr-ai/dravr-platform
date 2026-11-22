@@ -23,6 +23,7 @@
 
 use std::sync::Arc;
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{MemberFitnessSnapshot, TenantId};
 use pierre_llm::ChatMessage;
 use pierre_tool_runtime::context::{DispatchOrigin, DISPATCH_ORIGIN};
@@ -198,7 +199,7 @@ pub async fn fetch_peer_activities_outcome(
     display_name: &str,
     group_id: Option<&str>,
 ) -> PeerFetchOutcome {
-    let now = chrono::Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let mut parameters = json!({
         "member": display_name,
         "limit": PEER_FETCH_LIMIT,

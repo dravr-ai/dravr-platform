@@ -6,8 +6,8 @@
 
 use crate::notifications::NotificationStream;
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use dashmap::DashMap;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_config::constants::network_config::SSE_BROADCAST_CHANNEL_SIZE;
 use pierre_core::errors::AppError;
 use pierre_core::models::OAuthNotification;
@@ -37,9 +37,9 @@ pub struct ConnectionMetadata {
     /// Type of SSE connection
     pub connection_type: ConnectionType,
     /// When the connection was established
-    pub created_at: chrono::DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Timestamp of last activity on this connection
-    pub last_activity: chrono::DateTime<Utc>,
+    pub last_activity: Timestamp,
 }
 
 /// SSE manager for OAuth notification streams.
@@ -85,8 +85,8 @@ impl SseManager {
         let connection_id = format!("notification_{user_id}");
         let metadata = ConnectionMetadata {
             connection_type: ConnectionType::Notification { user_id },
-            created_at: Utc::now(),
-            last_activity: Utc::now(),
+            created_at: Timestamp::now(),
+            last_activity: Timestamp::now(),
         };
         self.connection_metadata.insert(connection_id, metadata);
 
@@ -112,7 +112,7 @@ impl SseManager {
             // Update last activity
             let connection_id = format!("notification_{user_id}");
             if let Some(mut metadata) = self.connection_metadata.get_mut(&connection_id) {
-                metadata.last_activity = Utc::now();
+                metadata.last_activity = Timestamp::now();
             }
 
             Ok(())
@@ -151,7 +151,7 @@ impl SseManager {
     /// Clean up inactive connections based on timeout
     pub fn cleanup_inactive_connections(&self, timeout_seconds: u64) {
         let timeout_seconds = i64::try_from(timeout_seconds).unwrap_or(i64::MAX);
-        let cutoff = Utc::now() - Duration::seconds(timeout_seconds);
+        let cutoff = Timestamp::now() - Elapsed::seconds(timeout_seconds);
         let mut to_remove = Vec::new();
 
         for entry in self.connection_metadata.iter() {

@@ -31,12 +31,12 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::from_fn;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
 use common::{
     create_test_server_resources_with_sciotte, create_test_user_with_plan, generate_test_token,
 };
 use dravr_barrage::record_log::entry::EntryKind;
 use dravr_barrage::{LiveSource, Scope, SourceKey};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier};
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -273,7 +273,7 @@ async fn world(roster_reads: Calls, dropped: Dropped, url: &str) -> World {
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -372,7 +372,7 @@ async fn world(roster_reads: Calls, dropped: Dropped, url: &str) -> World {
 }
 
 fn session_token(user: Uuid, tenant: TenantId, session_id: &str) -> UserOAuthToken {
-    let now = Utc::now();
+    let now = Timestamp::now();
     UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id: user,
@@ -1059,7 +1059,7 @@ async fn api_key(res: &Arc<ServerContext>, user_id: Uuid) -> String {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     res.common.repos.api_keys.create(&key).await.unwrap();
     data.full_key

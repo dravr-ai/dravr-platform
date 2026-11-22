@@ -12,7 +12,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::{admin::jwks::JwksManager, auth::AuthManager};
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::backends::factory::Database;
@@ -51,8 +51,8 @@ async fn create_authenticated_user(
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     repos.tenants.create(&tenant).await?;
 
@@ -91,8 +91,8 @@ async fn create_authenticated_user_with_different_tenant(
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     repos.tenants.create(&tenant).await?;
 

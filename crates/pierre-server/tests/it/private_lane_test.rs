@@ -24,11 +24,12 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
-use chrono::{Datelike, Days, NaiveDate, Utc};
 use common::{
     create_test_server_resources_with_chat_provider, create_test_user_with_plan,
     generate_test_token,
 };
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use futures_util::stream;
 use helpers::axum_test::AxumTestRequest;
@@ -228,21 +229,21 @@ async fn person(res: &Arc<ServerContext>, label: &str, name: &str) -> Person {
 }
 
 /// The Monday `weeks` weeks after this one's, in UTC.
-fn monday(weeks: u64) -> NaiveDate {
-    let today = Utc::now().date_naive();
-    let this = today - Days::new(u64::from(today.weekday().num_days_from_monday()));
-    this + Days::new(7 * weeks)
+fn monday(weeks: i64) -> CivilDate {
+    let today = Timestamp::now().utc_date();
+    let this = today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()));
+    this + Elapsed::days(7 * weeks)
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
-fn week(start: NaiveDate, workout: &str) -> Value {
+fn week(start: CivilDate, workout: &str) -> Value {
     let days: Vec<Value> = (0..7)
         .map(|offset| {
             json!({
-                "date": ymd(start + Days::new(offset)),
+                "date": ymd(start + Elapsed::days(offset)),
                 "sport": "run",
                 "workout": workout,
                 "duration_min": 40,
@@ -261,8 +262,8 @@ fn outline(race: &str) -> Value {
 }
 
 /// How the room post names a day to an English reader: `Mon Oct 27`.
-fn day_label(date: NaiveDate) -> String {
-    date.format("%a %b %-d").to_string()
+fn day_label(date: CivilDate) -> String {
+    date.format("%a %b %-d").unwrap()
 }
 
 async fn create_group(
@@ -271,7 +272,7 @@ async fn create_group(
     agent_id: &str,
     channel: Option<(&str, &str)>,
 ) -> CoachingGroup {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .create_group(
@@ -320,7 +321,7 @@ async fn join(
     role: GroupRole,
     shares_with_coach: bool,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .add_member(&GroupMember {
@@ -1399,7 +1400,7 @@ async fn a_publish_says_the_changed_days_in_the_room_once() {
     let entry = &room[0];
     assert_eq!(entry.speaker, TranscriptSpeaker::Coach, "the agent's voice");
     let days: Vec<String> = (0..4)
-        .map(|d| day_label(monday(0) + Days::new(d)))
+        .map(|d| day_label(monday(0) + Elapsed::days(d)))
         .collect();
     let expected = format!(
         "{COACH_NAME} published an update to your plan: {}, +3 more.",

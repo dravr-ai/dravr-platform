@@ -580,7 +580,7 @@ fn extract_action(payload: &Value) -> AppResult<SlackAction> {
 #[cfg(test)]
 mod tests {
     use axum::http::{HeaderMap, HeaderValue};
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
 
@@ -628,7 +628,7 @@ mod tests {
 
     /// Headers carrying Slack's v0 signature of [`BODY`], made now under `key`.
     fn headers_signed_with(key: &str) -> HeaderMap {
-        let timestamp = Utc::now().timestamp().to_string();
+        let timestamp = Timestamp::now().epoch_seconds().to_string();
         let mut mac = Hmac::<Sha256>::new_from_slice(key.as_bytes())
             .unwrap_or_else(|e| panic!("an HMAC takes a key of any length: {e}"));
         mac.update(format!("v0:{timestamp}:").as_bytes());

@@ -19,6 +19,7 @@
 #[cfg(feature = "client-notifications")]
 mod dispatch_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
@@ -149,18 +150,14 @@ mod dispatch_tests {
     ///
     /// The timezone is returned WITH the window rather than written separately at
     /// the call site, because the evaluator resolves "now" in the preference's own
-    /// timezone (`dispatch.rs:260`, `Utc::now().with_timezone(&tz)`). A window
+    /// timezone (`dispatch.rs:260`, `Timestamp::now().with_timezone(&tz)`). A window
     /// computed in one zone and stored beside another is wrong by that offset —
     /// whole hours, which the one-hour margin cannot absorb. Returning the three
     /// together makes that desync unrepresentable instead of merely discouraged.
     fn quiet_window_around_now() -> (String, String, String) {
-        let now = chrono::Utc::now();
-        let start = (now - chrono::Duration::hours(1))
-            .format("%H:%M")
-            .to_string();
-        let end = (now + chrono::Duration::hours(1))
-            .format("%H:%M")
-            .to_string();
+        let now = Timestamp::now();
+        let start = (now - Elapsed::hours(1)).format("%H:%M").unwrap();
+        let end = (now + Elapsed::hours(1)).format("%H:%M").unwrap();
         (start, end, "UTC".to_owned())
     }
 
@@ -503,7 +500,7 @@ mod dispatch_tests {
             .await
             .unwrap();
 
-        let since = chrono::Utc::now() - chrono::Duration::hours(1);
+        let since = Timestamp::now() - Elapsed::hours(1);
 
         // Count training notifications
         let training_count = service
@@ -520,7 +517,7 @@ mod dispatch_tests {
         assert_eq!(recovery_count, 1, "Should count 1 recovery notification");
 
         // Count with a future timestamp (should be 0)
-        let future_since = chrono::Utc::now() + chrono::Duration::hours(1);
+        let future_since = Timestamp::now() + Elapsed::hours(1);
         let future_count = service
             .count_notifications_since(user.id, tenant_id, "training", future_since)
             .await

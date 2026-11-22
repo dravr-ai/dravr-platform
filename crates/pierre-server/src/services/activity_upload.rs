@@ -42,8 +42,8 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use chrono::{Duration, Utc};
 use dravr_barrage::parse::fit::FitActivityFile;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_cache::CacheKey;
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::errors::{AppError, AppResult};
@@ -164,7 +164,7 @@ pub async fn upload_activity_file(
         .filter(|(index, _)| kept.contains(&upload_activity_id(&sha, *index)))
         .collect();
     let repos = runtime.repos();
-    let synced_at = Utc::now();
+    let synced_at = Timestamp::now();
     runtime
         .originals()
         .put_upload(&tenant_id, user_id, &sha, bytes.clone())
@@ -306,9 +306,9 @@ async fn held_copy(
             id: session.id().to_owned(),
         }));
     }
-    let window = Duration::hours(DUPLICATE_WINDOW_HOURS);
+    let window = Elapsed::hours(DUPLICATE_WINDOW_HOURS);
     let end = session.start_date()
-        + Duration::seconds(i64::try_from(session.duration_seconds()).unwrap_or(i64::MAX));
+        + Elapsed::seconds(i64::try_from(session.duration_seconds()).unwrap_or(i64::MAX));
     let rows = cache
         .get_cached_activity_rows(
             user_id,
@@ -379,15 +379,13 @@ async fn forget_cached_lists(runtime: &Arc<dyn ToolRuntime>, tenant_id: TenantId
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
     use pierre_core::models::{ActivityBuilder, SportType};
 
     fn ride(id: &str, provider: &str, minutes_later: i64, distance: f64) -> Activity {
-        let start = Utc
-            .with_ymd_and_hms(2026, 10, 1, 7, 0, 0)
-            .single()
+        let start = Timestamp::parse_from_rfc3339("2026-10-01T07:00:00Z")
+            .ok()
             .unwrap_or_else(|| panic!("a valid instant"))
-            + Duration::minutes(minutes_later);
+            + Elapsed::minutes(minutes_later);
         ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3_600, provider)
             .distance_meters(distance)
             .build()

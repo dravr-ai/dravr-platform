@@ -31,11 +31,12 @@ use axum::body::{Body, Bytes};
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::Router;
-use chrono::{Duration as ChronoDuration, NaiveTime, Utc};
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{ActivityId, LiveSource, Scope, SourceKey};
 use dravr_cageux::visitor::NormalizedPowerCalculator;
 use dravr_riviere::{SeriesType, TimeRange};
+use dravr_tronc::dates::CivilDate;
+use dravr_tronc::dates::{CivilTime, Elapsed, Timestamp};
 use futures_util::stream::poll_fn;
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::models::{
@@ -75,7 +76,7 @@ const GARMIN_USER: &str = "garmin-user-a1b2c3";
 
 /// A start inside the activity cache's retention window.
 fn recent_start() -> i64 {
-    (Utc::now() - ChronoDuration::days(2)).timestamp()
+    (Timestamp::now() - Elapsed::days(2)).epoch_seconds()
 }
 
 /// A server context with the Garmin push path token and client configured,
@@ -191,7 +192,7 @@ async fn store_token(
     provider: &str,
     provider_user_id: Option<&str>,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -200,7 +201,7 @@ async fn store_token(
         access_token: SecretString::from(format!("{provider}_access_token_0123456789")),
         refresh_token: Some(SecretString::from(format!("{provider}_refresh"))),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(now + ChronoDuration::hours(2)),
+        expires_at: Some(now + Elapsed::hours(2)),
         scope: None,
         provider_user_id: provider_user_id.map(str::to_owned),
         oauth_app_client_id: None,
@@ -292,8 +293,8 @@ async fn cached_garmin(
             user_id,
             tenant_id,
             Some("garmin"),
-            Utc::now() - ChronoDuration::days(30),
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
             100,
         )
         .await
@@ -312,8 +313,8 @@ async fn garmin_recovery(
         .get_recovery_metrics(
             user_id,
             tenant_id,
-            Utc::now() - ChronoDuration::days(30),
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap()
@@ -508,7 +509,7 @@ async fn a_pushed_new_activity_lands_once() {
         "910000",
         "Last week's ride",
         SportType::Ride,
-        Utc::now() - ChronoDuration::days(5),
+        Timestamp::now() - Elapsed::days(5),
         3_600,
         "garmin",
     )
@@ -521,13 +522,13 @@ async fn a_pushed_new_activity_lands_once() {
             tenant_id,
             "garmin",
             &[held],
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Import,
         )
         .await
         .unwrap();
 
-    let start = (Utc::now() - ChronoDuration::hours(2)).timestamp();
+    let start = (Timestamp::now() - Elapsed::hours(2)).epoch_seconds();
     let ride = json!([activity("920002", "Lunch ride", start, 3_600)]);
     let asked_once = |count: usize| {
         let post = Arc::clone(&post);
@@ -582,7 +583,7 @@ async fn a_pushed_activity_is_kept_in_the_activity_store() {
             tenant_id,
             "garmin",
             &cached[0],
-            Utc::now() - ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(1),
         )
         .await
         .unwrap()
@@ -817,8 +818,8 @@ async fn a_tentative_sleep_is_replaced_by_its_final_record() {
         .get_sleep_sessions(
             user_id,
             &tenant_id,
-            Utc::now() - ChronoDuration::days(30),
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap();
@@ -840,9 +841,9 @@ async fn a_tentative_sleep_is_replaced_by_its_final_record() {
 async fn dailies_hrv_and_body_pushes_merge_on_their_days_rows() {
     let resources = context(None).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
-    let date = (Utc::now() - ChronoDuration::days(1)).date_naive();
-    let calendar = date.format("%Y-%m-%d").to_string();
-    let day_start = date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
+    let date = (Timestamp::now() - Elapsed::days(1)).utc_date();
+    let calendar = date.to_string();
+    let day_start = date.at_midnight().and_utc().unwrap().epoch_seconds();
 
     push(
         &resources,
@@ -929,8 +930,8 @@ async fn dailies_hrv_and_body_pushes_merge_on_their_days_rows() {
         .get_health_snapshots(
             user_id,
             &tenant_id,
-            Utc::now() - ChronoDuration::days(30),
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap();
@@ -945,14 +946,14 @@ async fn dailies_hrv_and_body_pushes_merge_on_their_days_rows() {
 async fn a_dailies_push_lands_the_days_activity_totals() {
     let resources = context(None).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
-    let date = (Utc::now() - ChronoDuration::days(1)).date_naive();
-    let day_start = date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
+    let date = (Timestamp::now() - Elapsed::days(1)).utc_date();
+    let day_start = date.at_midnight().and_utc().unwrap().epoch_seconds();
     push(
         &resources,
         "dailies",
         json!([{
             "userId": GARMIN_USER,
-            "calendarDate": date.format("%Y-%m-%d").to_string(),
+            "calendarDate": date.to_string(),
             "startTimeInSeconds": day_start,
             "steps": 11_284,
             "activeKilocalories": 520,
@@ -970,8 +971,8 @@ async fn a_dailies_push_lands_the_days_activity_totals() {
         .get_daily_activity(
             user_id,
             &tenant_id,
-            Utc::now() - ChronoDuration::days(30),
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap();
@@ -1010,14 +1011,14 @@ async fn the_same_garmin_day_by_push_and_by_export_is_one_record() {
 
     let resources = context(None).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
-    let date = (Utc::now() - ChronoDuration::days(1)).date_naive();
-    let day_start = date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
+    let date = (Timestamp::now() - Elapsed::days(1)).utc_date();
+    let day_start = date.at_midnight().and_utc().unwrap().epoch_seconds();
     push(
         &resources,
         "dailies",
         json!([{
             "userId": GARMIN_USER,
-            "calendarDate": date.format("%Y-%m-%d").to_string(),
+            "calendarDate": date.to_string(),
             "startTimeInSeconds": day_start,
             "restingHeartRateInBeatsPerMinute": 47,
             "averageStressLevel": 28,
@@ -1046,7 +1047,7 @@ async fn the_same_garmin_day_by_push_and_by_export_is_one_record() {
             daily_strain: None,
             athlete_note: None,
             source_name: "garmin_archive".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         }],
         daily_activity: vec![StoredDailyActivity {
             id: String::new(),
@@ -1058,7 +1059,7 @@ async fn the_same_garmin_day_by_push_and_by_export_is_one_record() {
             total_kcal: Some(2_410.0),
             intensity_minutes: None,
             source_name: "garmin_archive".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         }],
         ..WellnessRecords::default()
     };
@@ -1072,8 +1073,8 @@ async fn the_same_garmin_day_by_push_and_by_export_is_one_record() {
     let context = resources.data();
     let terms = context.provider_registry();
     let window = (
-        Utc::now() - ChronoDuration::days(7),
-        Utc::now() + ChronoDuration::days(1),
+        Timestamp::now() - Elapsed::days(7),
+        Timestamp::now() + Elapsed::days(1),
     );
     let read = stored_health::merged_recovery(
         repos,
@@ -1175,7 +1176,7 @@ async fn the_same_garmin_day_by_capture_and_by_export_is_one_record() {
 
     let resources = context(None).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
-    let date = (Utc::now() - ChronoDuration::days(1)).date_naive();
+    let date = (Timestamp::now() - Elapsed::days(1)).utc_date();
     let user = user_id.to_string();
     let repos = &resources.common.repos;
 
@@ -1220,10 +1221,10 @@ async fn the_same_garmin_day_by_capture_and_by_export_is_one_record() {
                 daily_strain: None,
                 athlete_note: None,
                 source_name: "garmin".to_owned(),
-                recorded_at: Utc::now(),
+                recorded_at: Timestamp::now(),
             },
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1240,10 +1241,10 @@ async fn the_same_garmin_day_by_capture_and_by_export_is_one_record() {
                 total_kcal: None,
                 intensity_minutes: Some(30),
                 source_name: "garmin".to_owned(),
-                recorded_at: Utc::now(),
+                recorded_at: Timestamp::now(),
             },
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1267,7 +1268,7 @@ async fn the_same_garmin_day_by_capture_and_by_export_is_one_record() {
             daily_strain: None,
             athlete_note: None,
             source_name: "garmin_archive".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         }],
         daily_activity: vec![StoredDailyActivity {
             id: String::new(),
@@ -1279,7 +1280,7 @@ async fn the_same_garmin_day_by_capture_and_by_export_is_one_record() {
             total_kcal: Some(2_410.0),
             intensity_minutes: None,
             source_name: "garmin_archive".to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         }],
         ..WellnessRecords::default()
     };
@@ -1292,8 +1293,8 @@ async fn the_same_garmin_day_by_capture_and_by_export_is_one_record() {
     let context = resources.data();
     let terms = context.provider_registry();
     let window = (
-        Utc::now() - ChronoDuration::days(7),
-        Utc::now() + ChronoDuration::days(1),
+        Timestamp::now() - Elapsed::days(7),
+        Timestamp::now() + Elapsed::days(1),
     );
     let read = stored_health::merged_recovery(
         repos,
@@ -1367,10 +1368,7 @@ async fn the_same_garmin_day_by_capture_and_by_export_is_one_record() {
 async fn a_cycling_vo2max_alone_is_not_the_days_vo2max() {
     let resources = context(None).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
-    let calendar = (Utc::now() - ChronoDuration::days(1))
-        .date_naive()
-        .format("%Y-%m-%d")
-        .to_string();
+    let calendar = (Timestamp::now() - Elapsed::days(1)).utc_date().to_string();
     push(
         &resources,
         "userMetrics",
@@ -1385,8 +1383,8 @@ async fn a_cycling_vo2max_alone_is_not_the_days_vo2max() {
         .get_health_snapshots(
             user_id,
             &tenant_id,
-            Utc::now() - ChronoDuration::days(30),
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap();
@@ -1513,7 +1511,7 @@ async fn a_deregistration_tells_a_grant_only_athlete_once_and_spares_a_session()
                 "880001",
                 "Captured ride",
                 SportType::Ride,
-                Utc::now() - ChronoDuration::days(1),
+                Timestamp::now() - Elapsed::days(1),
                 3_600,
                 "sciotte",
             )
@@ -1557,8 +1555,8 @@ async fn a_deregistration_tells_a_grant_only_athlete_once_and_spares_a_session()
             beside,
             &beside_tenant,
             Some("sciotte_garmin"),
-            Utc::now() - ChronoDuration::days(30),
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
             100,
         )
         .await
@@ -1574,8 +1572,8 @@ async fn a_deregistration_tells_a_grant_only_athlete_once_and_spares_a_session()
 async fn a_withdrawn_permission_purges_that_data_and_refuses_later_pushes_of_it() {
     let resources = context(None).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
-    let date = (Utc::now() - ChronoDuration::days(1)).date_naive();
-    let calendar = date.format("%Y-%m-%d").to_string();
+    let date = (Timestamp::now() - Elapsed::days(1)).utc_date();
+    let calendar = date.to_string();
     let daily = json!([{
         "userId": GARMIN_USER,
         "calendarDate": calendar,
@@ -1723,7 +1721,7 @@ async fn a_withdrawn_activity_permission_flags_the_garmin_grant() {
             tenant_id,
             "garmin",
             Some("invalid_grant"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1751,7 +1749,7 @@ async fn a_withdrawal_never_overwrites_a_refused_grants_flag() {
             tenant_id,
             "garmin",
             Some("grant_refused"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1779,7 +1777,7 @@ async fn a_withdrawal_never_overwrites_a_refused_grants_flag() {
 async fn a_batch_stored_before_its_instance_died_is_run_by_the_sweep() {
     let resources = context(None).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     let row = GarminPushInboxRow {
         id: Uuid::new_v4().to_string(),
         summary_type: "activities".to_owned(),
@@ -1864,7 +1862,7 @@ async fn stored_stream_source(
 
 #[tokio::test]
 async fn a_long_activitys_file_waits_for_its_summary_then_is_fetched_once() {
-    let start = Utc::now() - ChronoDuration::days(3);
+    let start = Timestamp::now() - Elapsed::days(3);
     let file = FitWorkout::ride(start, 120).encode();
     let (base, hits) = mock_garmin_files(file.clone()).await;
     let resources = context(Some(&base)).await;
@@ -1886,7 +1884,7 @@ async fn a_long_activitys_file_waits_for_its_summary_then_is_fetched_once() {
     let inbox = &resources.common.repos.garmin_push_inbox;
     let claimed = inbox
         .claim_due_pushes(InboxClaim {
-            now_ms: Utc::now().timestamp_millis() + 3_600_000,
+            now_ms: Timestamp::now().epoch_millis() + 3_600_000,
             lease_ms: 60_000,
             max_attempts: 8,
             limit: 10,
@@ -1902,7 +1900,12 @@ async fn a_long_activitys_file_waits_for_its_summary_then_is_fetched_once() {
     push(
         &resources,
         "activities",
-        json!([activity("990001", "Ultra", start.timestamp(), 26 * 3_600)]),
+        json!([activity(
+            "990001",
+            "Ultra",
+            start.epoch_seconds(),
+            26 * 3_600
+        )]),
     )
     .await;
     let lease = JobLease {
@@ -1910,7 +1913,7 @@ async fn a_long_activitys_file_waits_for_its_summary_then_is_fetched_once() {
         token: claimed[0].lease_token.clone().unwrap(),
     };
     assert!(inbox
-        .retry_push(&lease, "due now", Utc::now().timestamp_millis() - 1)
+        .retry_push(&lease, "due now", Timestamp::now().epoch_millis() - 1)
         .await
         .unwrap());
     assert_eq!(process_garmin_inbox(&resources).await.unwrap(), 1);
@@ -1950,7 +1953,7 @@ async fn a_long_activitys_file_waits_for_its_summary_then_is_fetched_once() {
 
 #[tokio::test]
 async fn a_long_rides_power_comes_from_its_file() {
-    let start = Utc::now() - ChronoDuration::days(3);
+    let start = Timestamp::now() - Elapsed::days(3);
     let file = FitWorkout::ride(start, 120).with_power().encode();
     let (base, _hits) = mock_garmin_files(file).await;
     let records: Arc<dyn ActivityRecordStore> = Arc::new(memory_records());
@@ -1959,7 +1962,12 @@ async fn a_long_rides_power_comes_from_its_file() {
     push(
         &resources,
         "activities",
-        json!([activity("991001", "Ultra", start.timestamp(), 26 * 3_600)]),
+        json!([activity(
+            "991001",
+            "Ultra",
+            start.epoch_seconds(),
+            26 * 3_600
+        )]),
     )
     .await;
     let callback = format!("{base}/wellness-api/rest/activityFile?id=1&token=one-shot");
@@ -2079,7 +2087,7 @@ async fn a_file_whose_summary_never_lands_is_settled_not_failed_after_its_last_r
     for _ in 0..6 {
         let claimed = inbox
             .claim_due_pushes(InboxClaim {
-                now_ms: Utc::now().timestamp_millis() + 86_400_000,
+                now_ms: Timestamp::now().epoch_millis() + 86_400_000,
                 lease_ms: 60_000,
                 max_attempts: 8,
                 limit: 10,
@@ -2093,7 +2101,7 @@ async fn a_file_whose_summary_never_lands_is_settled_not_failed_after_its_last_r
             token: claimed[0].lease_token.clone().unwrap(),
         };
         assert!(inbox
-            .retry_push(&lease, "due now", Utc::now().timestamp_millis() - 1)
+            .retry_push(&lease, "due now", Timestamp::now().epoch_millis() - 1)
             .await
             .unwrap());
     }
@@ -2148,7 +2156,7 @@ async fn seed_usr_pwd_wellness(
     resources: &ServerContext,
     user_id: Uuid,
     tenant_id: &TenantId,
-    date: chrono::NaiveDate,
+    date: CivilDate,
 ) {
     let repos = &resources.common.repos;
     let source_id = repos
@@ -2186,11 +2194,16 @@ async fn seed_usr_pwd_wellness(
         daily_strain: None,
         athlete_note: None,
         source_name: "garmin".to_owned(),
-        recorded_at: date.and_time(NaiveTime::MIN).and_utc(),
+        recorded_at: date.and_time(CivilTime::MIDNIGHT).and_utc().unwrap(),
     };
     repos
         .recovery
-        .upsert_recovery_metrics(tenant_id, &row, WellnessWriteMode::FullDay, Utc::now())
+        .upsert_recovery_metrics(
+            tenant_id,
+            &row,
+            WellnessWriteMode::FullDay,
+            Timestamp::now(),
+        )
         .await
         .unwrap();
 }
@@ -2200,12 +2213,12 @@ async fn withdrawing_the_api_leaves_the_usr_pwd_connections_wellness_history() {
     let resources = context(None).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
     store_token(&resources, user_id, tenant_id, "sciotte_garmin", None).await;
-    let history_day = (Utc::now() - ChronoDuration::days(20)).date_naive();
+    let history_day = (Timestamp::now() - Elapsed::days(20)).utc_date();
     seed_usr_pwd_wellness(&resources, user_id, &tenant_id, history_day).await;
-    let api_day = (Utc::now() - ChronoDuration::days(1)).date_naive();
+    let api_day = (Timestamp::now() - Elapsed::days(1)).utc_date();
     let daily = json!([{
         "userId": GARMIN_USER,
-        "calendarDate": api_day.format("%Y-%m-%d").to_string(),
+        "calendarDate": api_day.to_string(),
         "restingHeartRateInBeatsPerMinute": 47,
     }]);
     push(&resources, "dailies", daily.clone()).await;
@@ -2290,7 +2303,7 @@ async fn store_lapsed_push(
         attempts: 1,
         last_error: None,
         processed_at_ms: None,
-        leased_until_ms: Utc::now().timestamp_millis() - 1,
+        leased_until_ms: Timestamp::now().epoch_millis() - 1,
         lease_token: Some(Uuid::new_v4().to_string()),
     };
     resources
@@ -2329,7 +2342,7 @@ async fn an_older_push_retried_after_a_newer_one_leaves_the_newer_values() {
         json!([activity("991001", "Renamed ride", start, 3_600)]),
     )
     .await;
-    let a_minute_ago = Utc::now().timestamp_millis() - 60_000;
+    let a_minute_ago = Timestamp::now().epoch_millis() - 60_000;
     store_lapsed_push(
         &resources,
         "sleeps",
@@ -2353,8 +2366,8 @@ async fn an_older_push_retried_after_a_newer_one_leaves_the_newer_values() {
         .get_sleep_sessions(
             user_id,
             &tenant_id,
-            Utc::now() - ChronoDuration::days(30),
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now() + Elapsed::days(1),
         )
         .await
         .unwrap();
@@ -2391,7 +2404,7 @@ async fn a_details_batch_retried_after_a_newer_summary_still_gives_the_ride_its_
             "summary": activity("992001", "First name", start, 600),
             "samples": powered_samples(start, 600),
         }]),
-        Utc::now().timestamp_millis() - 60_000,
+        Timestamp::now().epoch_millis() - 60_000,
     )
     .await;
     assert_eq!(process_garmin_inbox(&resources).await.unwrap(), 1);
@@ -2446,8 +2459,8 @@ async fn a_details_batch_retried_after_a_newer_summary_still_gives_the_ride_its_
 async fn pushes_for_one_day_running_at_once_keep_every_reading() {
     let resources = context(None).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
-    let date = (Utc::now() - ChronoDuration::days(1)).date_naive();
-    let calendar = date.format("%Y-%m-%d").to_string();
+    let date = (Timestamp::now() - Elapsed::days(1)).utc_date();
+    let calendar = date.to_string();
     let daily = json!({ "dailies": [{
         "userId": GARMIN_USER,
         "calendarDate": calendar,
@@ -2482,7 +2495,7 @@ async fn pushes_for_one_day_running_at_once_keep_every_reading() {
 
 #[tokio::test]
 async fn a_kept_file_is_stored_on_retry_without_asking_garmin_again() {
-    let start = Utc::now() - ChronoDuration::days(3);
+    let start = Timestamp::now() - Elapsed::days(3);
     let file = FitWorkout::ride(start, 120).encode();
     // Garmin has already served this file once: every fetch now answers 410.
     let (base, hits) = mock_garmin_files(Vec::new()).await;
@@ -2492,14 +2505,26 @@ async fn a_kept_file_is_stored_on_retry_without_asking_garmin_again() {
     push(
         &resources,
         "activities",
-        json!([activity("992001", "Ultra", start.timestamp(), 26 * 3_600)]),
+        json!([activity(
+            "992001",
+            "Ultra",
+            start.epoch_seconds(),
+            26 * 3_600
+        )]),
     )
     .await;
     // An earlier run downloaded the file and kept it, then failed before
     // its samples landed.
     let pushed = &resources.common.repos.pushed_data;
     pushed
-        .keep_file(&tenant_id, user_id, "garmin", "992001", &file, Utc::now())
+        .keep_file(
+            &tenant_id,
+            user_id,
+            "garmin",
+            "992001",
+            &file,
+            Timestamp::now(),
+        )
         .await
         .unwrap();
 
@@ -2544,7 +2569,7 @@ async fn a_kept_file_is_stored_on_retry_without_asking_garmin_again() {
 /// asked again for a file it serves once.
 #[tokio::test]
 async fn an_oversized_activity_file_is_refused_and_nothing_is_kept() {
-    let start = Utc::now() - ChronoDuration::days(3);
+    let start = Timestamp::now() - Elapsed::days(3);
     let oversized = vec![0_u8; MAX_UPLOAD_BYTES + 1];
     let (base, hits) = mock_garmin_files(oversized).await;
     let resources = context(Some(&base)).await;
@@ -2552,7 +2577,12 @@ async fn an_oversized_activity_file_is_refused_and_nothing_is_kept() {
     push(
         &resources,
         "activities",
-        json!([activity("993001", "Ultra", start.timestamp(), 26 * 3_600)]),
+        json!([activity(
+            "993001",
+            "Ultra",
+            start.epoch_seconds(),
+            26 * 3_600
+        )]),
     )
     .await;
 
@@ -2592,7 +2622,7 @@ async fn an_oversized_activity_file_is_refused_and_nothing_is_kept() {
     assert!(
         inbox
             .claim_due_pushes(InboxClaim {
-                now_ms: Utc::now().timestamp_millis() + 86_400_000,
+                now_ms: Timestamp::now().epoch_millis() + 86_400_000,
                 lease_ms: 60_000,
                 max_attempts: 8,
                 limit: 10,
@@ -2612,9 +2642,9 @@ async fn an_oversized_activity_file_is_refused_and_nothing_is_kept() {
 async fn intraday_spo2_breathing_and_stress_are_not_stored() {
     let resources = context(None).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
-    let date = (Utc::now() - ChronoDuration::days(1)).date_naive();
-    let calendar = date.format("%Y-%m-%d").to_string();
-    let day_start = date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
+    let date = (Timestamp::now() - Elapsed::days(1)).utc_date();
+    let calendar = date.to_string();
+    let day_start = date.at_midnight().and_utc().unwrap().epoch_seconds();
 
     push(
         &resources,
@@ -2664,8 +2694,8 @@ async fn intraday_spo2_breathing_and_stress_are_not_stored() {
     assert_eq!(sources.len(), 1, "the Garmin API's data source");
     let points = &resources.common.repos.time_series_points;
     let range = TimeRange::new(
-        Utc::now() - ChronoDuration::days(3),
-        Utc::now() + ChronoDuration::days(1),
+        Timestamp::now() - Elapsed::days(3),
+        Timestamp::now() + Elapsed::days(1),
     );
     let latest = |series: SeriesType| {
         let range = range.clone();
@@ -2721,7 +2751,7 @@ async fn intraday_spo2_breathing_and_stress_are_not_stored() {
 /// and claims no second notice.
 #[tokio::test]
 async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
-    let start = Utc::now() - ChronoDuration::days(3);
+    let start = Timestamp::now() - Elapsed::days(3);
     let (base, hits) = mock_garmin_files(FitWorkout::ride(start, 120).encode()).await;
     let (resources, service) = context_with_notices(Some(&base)).await;
     let (user_id, user, tenant_id) = common::create_test_user_with_plan(
@@ -2731,7 +2761,7 @@ async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
     )
     .await
     .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let dead = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -2740,7 +2770,7 @@ async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
         access_token: SecretString::from("garmin_access_token_expired".to_owned()),
         refresh_token: None,
         token_type: "Bearer".to_owned(),
-        expires_at: Some(now - ChronoDuration::hours(1)),
+        expires_at: Some(now - Elapsed::hours(1)),
         scope: None,
         provider_user_id: Some(GARMIN_USER.to_owned()),
         oauth_app_client_id: None,
@@ -2764,7 +2794,12 @@ async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
     push(
         &resources,
         "activities",
-        json!([activity("992001", "Ultra", start.timestamp(), 26 * 3_600)]),
+        json!([activity(
+            "992001",
+            "Ultra",
+            start.epoch_seconds(),
+            26 * 3_600
+        )]),
     )
     .await;
     let file_push = |id: u64| {

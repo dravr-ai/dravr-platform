@@ -26,7 +26,7 @@
 use std::sync::Arc;
 
 use arc_swap::{ArcSwap, Guard};
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_database::backends::factory::Database;
 use serde_json::from_str;
 use tracing::{error, info, warn};
@@ -70,7 +70,7 @@ pub struct HarnessConfigSnapshot {
     /// Where the snapshot was sourced from.
     pub source: HarnessConfigSource,
     /// When the snapshot was installed.
-    pub loaded_at: DateTime<Utc>,
+    pub loaded_at: Timestamp,
     /// Why this snapshot does not reflect the stored row, when it cannot: the
     /// row could not be read or parsed.
     pub load_failure: Option<String>,
@@ -328,7 +328,7 @@ fn build_snapshot(
         guardrails,
         verification,
         source,
-        loaded_at: Utc::now(),
+        loaded_at: Timestamp::now(),
         load_failure: None,
     }
 }

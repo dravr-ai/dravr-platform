@@ -30,7 +30,7 @@ use crate::refresh_rotation::{
     admin_family_first_expiry, generate_refresh_token, refresh_token_lifetime,
 };
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::redaction;
@@ -104,7 +104,7 @@ pub struct OAuth2AuthorizationServer {
     /// User repository for token validation user lookups
     users: Arc<dyn UserRepository>,
     /// How long each issued refresh token stays exchangeable
-    refresh_token_lifetime: Duration,
+    refresh_token_lifetime: Elapsed,
     /// Identifiers of the MCP resource server this authorization server mints
     /// audience-bound tokens for (RFC 8707): each origin that serves `/mcp`,
     /// the one its protected-resource metadata publishes to a client first
@@ -694,7 +694,7 @@ impl OAuth2AuthorizationServer {
             error!("Failed to generate secure refresh token: {:#}", e);
             OAuth2Error::server_error("Failed to generate secure refresh token")
         })?;
-        let now = Utc::now();
+        let now = Timestamp::now();
         // A family holding `admin` lives a day from this first token (Q20).
         let expires_at = if granted.contains(&OAuthScope::Admin) {
             admin_family_first_expiry(now, self.refresh_token_lifetime)
@@ -868,7 +868,7 @@ impl OAuth2AuthorizationServer {
     /// Generate authorization code
     async fn generate_authorization_code(&self, params: AuthCodeParams<'_>) -> AppResult<String> {
         let code = Self::generate_random_string(32)?;
-        let expires_at = Utc::now() + Duration::minutes(10); // 10 minute expiry
+        let expires_at = Timestamp::now() + Elapsed::minutes(10); // 10 minute expiry
 
         let auth_code = OAuth2AuthCode {
             code: code.clone(), // Safe: String ownership for OAuth2AuthCode struct
@@ -915,7 +915,7 @@ impl OAuth2AuthorizationServer {
                 scope: params.scope.map(str::to_owned),
                 code_challenge: params.code_challenge.map(str::to_owned),
                 code_challenge_method: params.code_challenge_method.map(str::to_owned),
-                created_at: Utc::now(),
+                created_at: Timestamp::now(),
                 expires_at,
                 used: false,
             };
@@ -963,7 +963,7 @@ impl OAuth2AuthorizationServer {
         // This validates client_id, redirect_uri, expiration, and used status in a single atomic operation
         let auth_code = self
             .oauth2_server
-            .consume_auth_code(code, client_id, redirect_uri, Utc::now())
+            .consume_auth_code(code, client_id, redirect_uri, Timestamp::now())
             .await
             .map_err(|e| {
                 error!(
@@ -1010,7 +1010,7 @@ impl OAuth2AuthorizationServer {
         if let Some(state_value) = &auth_code.state {
             let consumed_state = self
                 .oauth2_server
-                .consume_state(state_value, client_id, Utc::now())
+                .consume_state(state_value, client_id, Timestamp::now())
                 .await
                 .map_err(|e| {
                     error!(

@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::{NaiveDate, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_providers::core::{
     ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials,
 };
@@ -248,14 +248,14 @@ fn recent() -> ActivityQueryParams {
         limit: Some(10),
         offset: None,
         before: Some(
-            Utc.with_ymd_and_hms(2026, 9, 30, 0, 0, 0)
+            Timestamp::parse_from_rfc3339("2026-09-30T00:00:00Z")
                 .unwrap()
-                .timestamp(),
+                .epoch_seconds(),
         ),
         after: Some(
-            Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0)
+            Timestamp::parse_from_rfc3339("2026-09-01T00:00:00Z")
                 .unwrap()
-                .timestamp(),
+                .epoch_seconds(),
         ),
     }
 }
@@ -303,8 +303,8 @@ async fn a_linked_athletes_planned_calendar_is_read_at_their_path_with_the_coach
     let seen = Seen::default();
     let registry = registry(spawn_api(Arc::clone(&seen)).await);
     let provider = delegated(&registry, ALEX, COACH_KEY).await;
-    let from = NaiveDate::from_ymd_opt(2026, 9, 14).expect("valid date");
-    let to = NaiveDate::from_ymd_opt(2026, 9, 27).expect("valid date");
+    let from = CivilDate::from_ymd(2026, 9, 14).expect("valid date");
+    let to = CivilDate::from_ymd(2026, 9, 27).expect("valid date");
 
     let planned = provider
         .list_planned_workouts(from, to)
@@ -340,8 +340,8 @@ async fn a_linked_athletes_planned_calendar_is_read_at_their_path_with_the_coach
 async fn a_planned_read_of_an_athlete_who_stopped_sharing_is_off_roster() {
     let registry = registry(spawn_api(Seen::default()).await);
     let provider = delegated(&registry, STRANGER, COACH_KEY).await;
-    let from = NaiveDate::from_ymd_opt(2026, 9, 14).expect("valid date");
-    let to = NaiveDate::from_ymd_opt(2026, 9, 27).expect("valid date");
+    let from = CivilDate::from_ymd(2026, 9, 14).expect("valid date");
+    let to = CivilDate::from_ymd(2026, 9, 27).expect("valid date");
 
     let error = provider
         .list_planned_workouts(from, to)
@@ -548,7 +548,7 @@ fn sample_session() -> PlannedSession {
     PlannedSession {
         external_id: "dravr:rx:delegated".to_owned(),
         kind: PlannedSessionKind::Workout,
-        date: NaiveDate::from_ymd_opt(2026, 10, 1).expect("valid date"),
+        date: CivilDate::from_ymd(2026, 10, 1).expect("valid date"),
         sport: SportType::Run,
         name: "Easy run".to_owned(),
         duration_seconds: Some(1800),

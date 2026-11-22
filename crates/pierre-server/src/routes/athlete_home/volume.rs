@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use axum::extract::State;
 use axum::Json;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_middleware::extractors::AuthenticatedUser;
@@ -41,7 +41,7 @@ pub(super) async fn get_training_volume(
     let tenant_id = active_tenant(&auth)?;
     let user = resources.repos().users.get_global(user_id).await?;
     let zone = resolve_zone(user.as_ref().and_then(|u| u.timezone.as_deref()));
-    let today = clock_date(Utc::now(), zone);
+    let today = clock_date(Timestamp::now(), &zone);
     let query = ActivityQuery {
         from: Some(window_start(today)),
         to: today,

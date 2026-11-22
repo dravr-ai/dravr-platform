@@ -7,7 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::time_constants::SECONDS_PER_DAY;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -128,18 +128,16 @@ impl Athlete<'_> {
         limit: i64,
         below: Option<CachedRowCursor>,
     ) -> AppResult<Vec<CachedActivityRow>> {
-        use chrono::TimeZone;
-
         let (Some(start), Some(end)) = (
-            Utc.timestamp_opt(floor, 0).single(),
-            Utc.timestamp_opt(top, 0).single(),
+            Timestamp::from_epoch_seconds(floor).ok(),
+            Timestamp::from_epoch_seconds(top).ok(),
         ) else {
             return Err(AppError::invalid_input(format!(
                 "a detail walk window [{floor}, {top}) is out of range"
             )));
         };
         // `top` is excluded: the read's end is inclusive.
-        let end: DateTime<Utc> = end - Duration::nanoseconds(1);
+        let end: Timestamp = end - Elapsed::nanoseconds(1);
         if end < start {
             return Ok(Vec::new());
         }
@@ -260,7 +258,7 @@ pub(super) struct UnreadActivity {
 
 /// When `row` was first written to the store (unix ms).
 fn stored_ms(row: &CachedActivityRow) -> Option<i64> {
-    row.stored_at.map(|at| at.timestamp_millis())
+    row.stored_at.map(Timestamp::epoch_millis)
 }
 
 /// The earlier of two instants, either of which may be unknown.
@@ -295,7 +293,7 @@ pub(super) fn tried_by(tried: &WalkTried, start: i64, first_stored_ms: Option<i6
 fn rows_by_second(rows: Vec<CachedActivityRow>, sport: Option<&str>) -> Vec<SecondRows> {
     let mut seconds: Vec<SecondRows> = Vec::new();
     for row in rows {
-        let at = row.activity.start_date().timestamp();
+        let at = row.activity.start_date().epoch_seconds();
         if !matches!(seconds.last(), Some((last, _)) if *last == at) {
             seconds.push((at, Vec::new()));
         }
@@ -467,7 +465,7 @@ async fn drop_read_twins(
 mod tests {
     use std::collections::HashMap;
 
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::{ActivityBuilder, SportType};
     use pierre_database::repositories::{CachedActivityRow, StoredRouteOutcome};
 
@@ -498,7 +496,7 @@ mod tests {
         sport: SportType,
         segment_read: bool,
     ) -> CachedActivityRow {
-        let started = Utc.timestamp_opt(start, 0).single().expect("a start");
+        let started = Timestamp::from_epoch_seconds(start).expect("a start");
         let activity = ActivityBuilder::new(id, "Ride", sport, started, 3_600, key);
         let activity = if key == "sciotte" {
             activity.source("strava")

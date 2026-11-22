@@ -17,15 +17,15 @@
 //!
 //! Every assertion here is about what travels *with* the number.
 
-use chrono::NaiveDate;
 use dravr_cageux::algorithms::training_load::DailyTrainingLoad;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::models::{FormBand, FormReading};
 
 /// A reading on a day whose CTL did not move overnight, so the CTL form is a
 /// share of (yesterday's) is the one printed.
 fn steady(ctl: f64, atl: f64, tsb: f64) -> FormReading {
     FormReading::from_daily_load(&DailyTrainingLoad {
-        date: NaiveDate::from_ymd_opt(2026, 9, 2).unwrap(),
+        date: CivilDate::from_ymd(2026, 9, 2).unwrap(),
         ctl,
         atl,
         tsb,
@@ -137,7 +137,7 @@ fn the_reading_carries_the_band_and_the_percentage() {
 #[test]
 fn the_reading_divides_form_by_the_ctl_it_was_read_from() {
     let reading = FormReading::from_daily_load(&DailyTrainingLoad {
-        date: NaiveDate::from_ymd_opt(2026, 9, 27).unwrap(),
+        date: CivilDate::from_ymd(2026, 9, 27).unwrap(),
         ctl: 99.19,
         atl: 100.0,
         tsb: -0.85,

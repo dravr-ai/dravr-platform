@@ -21,7 +21,7 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, ProviderConnection, TenantId};
 use pierre_providers::core::ActivityQueryParams;
@@ -135,7 +135,7 @@ pub(super) async fn pushed_window(
             backend_resolver::user_facing_name(provider_slug)
         ))
     })?;
-    let (start, end) = cached_window_bounds(params, Utc::now());
+    let (start, end) = cached_window_bounds(params, Timestamp::now());
     let skip = params.offset.unwrap_or(0);
     let limit = params
         .limit

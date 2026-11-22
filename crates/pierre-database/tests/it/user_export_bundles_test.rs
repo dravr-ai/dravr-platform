@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Tenant, TenantId, User};
 use pierre_database::repositories::{BundleContents, BundleStatus, ExportBundle};
 use pierre_database::RepositoryRegistry;
@@ -31,7 +31,7 @@ async fn athlete(repos: &RepositoryRegistry, label: &str) -> (Uuid, TenantId) {
     (user.id, tenant.id)
 }
 
-fn building(user_id: Uuid, tenant_id: TenantId, at: DateTime<Utc>, sealed: bool) -> ExportBundle {
+fn building(user_id: Uuid, tenant_id: TenantId, at: Timestamp, sealed: bool) -> ExportBundle {
     ExportBundle {
         id: Uuid::new_v4(),
         tenant_id,
@@ -47,7 +47,7 @@ fn building(user_id: Uuid, tenant_id: TenantId, at: DateTime<Utc>, sealed: bool)
         created_at: at,
         heartbeat_at: at,
         finished_at: None,
-        expires_at: at + Duration::days(7),
+        expires_at: at + Elapsed::days(7),
     }
 }
 
@@ -69,7 +69,7 @@ async fn a_bundle_is_the_athletes_own_in_their_tenant() {
     let (ben, ben_tenant) = athlete(repos, "ben").await;
     let bundle = repos
         .user_export_bundles
-        .insert_building(&building(ana, ana_tenant, Utc::now(), true))
+        .insert_building(&building(ana, ana_tenant, Timestamp::now(), true))
         .await
         .unwrap();
     assert_eq!(
@@ -114,7 +114,7 @@ async fn a_bundle_is_the_athletes_own_in_their_tenant() {
     );
     assert!(
         !bundles
-            .finish_ready(ben_tenant, ben, bundle.id, &contents(), Utc::now())
+            .finish_ready(ben_tenant, ben, bundle.id, &contents(), Timestamp::now())
             .await
             .unwrap(),
         "bug: another athlete finishes Ana's bundle"
@@ -128,11 +128,11 @@ async fn a_second_build_while_one_runs_reads_back_the_one_building() {
     let (ana, tenant) = athlete(repos, "ana").await;
     let bundles = &repos.user_export_bundles;
     let first = bundles
-        .insert_building(&building(ana, tenant, Utc::now(), false))
+        .insert_building(&building(ana, tenant, Timestamp::now(), false))
         .await
         .unwrap();
     let second = bundles
-        .insert_building(&building(ana, tenant, Utc::now(), false))
+        .insert_building(&building(ana, tenant, Timestamp::now(), false))
         .await
         .unwrap();
     assert_eq!(
@@ -140,7 +140,7 @@ async fn a_second_build_while_one_runs_reads_back_the_one_building() {
         "bug: a second building row was written for one athlete"
     );
 
-    let expires = Utc::now() + Duration::days(7);
+    let expires = Timestamp::now() + Elapsed::days(7);
     assert!(
         bundles
             .finish_ready(tenant, ana, first.id, &contents(), expires)
@@ -178,7 +178,7 @@ async fn a_second_build_while_one_runs_reads_back_the_one_building() {
         .insert_building(&building(
             ana,
             tenant,
-            Utc::now() + Duration::seconds(1),
+            Timestamp::now() + Elapsed::seconds(1),
             false,
         ))
         .await
@@ -198,16 +198,16 @@ async fn the_sweep_reads_stale_builds_and_expired_bundles() {
     let (ana, ana_tenant) = athlete(repos, "ana").await;
     let (ben, ben_tenant) = athlete(repos, "ben").await;
     let bundles = &repos.user_export_bundles;
-    let long_ago = Utc::now() - Duration::hours(2);
+    let long_ago = Timestamp::now() - Elapsed::hours(2);
     let stale = bundles
         .insert_building(&building(ana, ana_tenant, long_ago, false))
         .await
         .unwrap();
     let live = bundles
-        .insert_building(&building(ben, ben_tenant, Utc::now(), false))
+        .insert_building(&building(ben, ben_tenant, Timestamp::now(), false))
         .await
         .unwrap();
-    let cutoff = Utc::now() - Duration::minutes(10);
+    let cutoff = Timestamp::now() - Elapsed::minutes(10);
     let found: Vec<Uuid> = bundles
         .stale_building(cutoff)
         .await
@@ -220,7 +220,7 @@ async fn the_sweep_reads_stale_builds_and_expired_bundles() {
 
     assert!(
         bundles
-            .heartbeat(ana_tenant, ana, stale.id, Utc::now())
+            .heartbeat(ana_tenant, ana, stale.id, Timestamp::now())
             .await
             .unwrap(),
         "bug: a building bundle's heartbeat did not move"
@@ -242,7 +242,7 @@ async fn the_sweep_reads_stale_builds_and_expired_bundles() {
             .unwrap(),
         "bug: a building bundle could not be failed"
     );
-    let in_a_week = Utc::now() + Duration::days(8);
+    let in_a_week = Timestamp::now() + Elapsed::days(8);
     let expired: Vec<Uuid> = bundles
         .expired(in_a_week)
         .await
@@ -255,7 +255,7 @@ async fn the_sweep_reads_stale_builds_and_expired_bundles() {
         "bug: the sweep misses a bundle past its expiry: {expired:?}"
     );
     assert!(
-        bundles.expired(Utc::now()).await.unwrap().is_empty(),
+        bundles.expired(Timestamp::now()).await.unwrap().is_empty(),
         "bug: nothing expires before its time"
     );
     assert!(

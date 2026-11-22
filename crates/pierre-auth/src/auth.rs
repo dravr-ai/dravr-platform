@@ -19,7 +19,8 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::iter;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::date_pattern;
+use dravr_tronc::dates::{Elapsed, Pattern, Timestamp};
 use jsonwebtoken::{
     decode, encode,
     errors::{Error as JwtError, ErrorKind},
@@ -41,6 +42,9 @@ use pierre_core::permissions::impersonation::SESSION_MINUTES;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::backends::UserRepository;
+
+/// `2026-11-17 10:00:05 UTC`: when a token expired.
+const EXPIRED_AT: Pattern<Timestamp> = date_pattern!(Timestamp, "%Y-%m-%d %H:%M:%S UTC");
 
 mod delegated_token;
 mod method;
@@ -64,7 +68,7 @@ pub struct SetupStatusResponse {
 }
 
 /// Convert a duration to a human-readable format
-fn humanize_duration(duration: Duration) -> String {
+fn humanize_duration(duration: Elapsed) -> String {
     let total_secs = duration.num_seconds().abs();
     let hours = total_secs / i64::from(SECONDS_PER_HOUR);
     let minutes = (total_secs % i64::from(SECONDS_PER_HOUR)) / 60;
@@ -111,9 +115,9 @@ pub enum JwtValidationError {
     /// Token has expired
     TokenExpired {
         /// When the token expired
-        expired_at: DateTime<Utc>,
+        expired_at: Timestamp,
         /// Current time for reference
-        current_time: DateTime<Utc>,
+        current_time: Timestamp,
     },
     /// Token signature is invalid
     TokenInvalid {
@@ -140,21 +144,21 @@ impl Display for JwtValidationError {
                         f,
                         "JWT token expired {} minutes ago at {}",
                         duration_expired.num_minutes(),
-                        expired_at.format("%Y-%m-%d %H:%M:%S UTC")
+                        expired_at.format_with(&EXPIRED_AT)
                     )
                 } else if duration_expired.num_days() < 1 {
                     write!(
                         f,
                         "JWT token expired {} hours ago at {}",
                         duration_expired.num_hours(),
-                        expired_at.format("%Y-%m-%d %H:%M:%S UTC")
+                        expired_at.format_with(&EXPIRED_AT)
                     )
                 } else {
                     write!(
                         f,
                         "JWT token expired {} days ago at {}",
                         duration_expired.num_days(),
-                        expired_at.format("%Y-%m-%d %H:%M:%S UTC")
+                        expired_at.format_with(&EXPIRED_AT)
                     )
                 }
             }
@@ -458,14 +462,14 @@ impl AuthManager {
             ));
         }
 
-        let now = Utc::now();
-        let expiry = now + Duration::hours(self.token_expiry_hours);
+        let now = Timestamp::now();
+        let expiry = now + Elapsed::hours(self.token_expiry_hours);
 
         let claims = Claims {
             sub: user.id.to_string(),
             email: user.email.clone(),
-            iat: now.timestamp(),
-            exp: expiry.timestamp(),
+            iat: now.epoch_seconds(),
+            exp: expiry.epoch_seconds(),
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: Uuid::new_v4().to_string(),
             providers: user.available_providers(),
@@ -509,7 +513,7 @@ impl AuthManager {
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
         // Impersonation tokens have shorter expiry (1 hour)
-        let expiry = (Utc::now() + Duration::minutes(SESSION_MINUTES)).timestamp();
+        let expiry = (Timestamp::now() + Elapsed::minutes(SESSION_MINUTES)).epoch_seconds();
         Self::impersonation_token(
             target_user,
             impersonator_id,
@@ -535,8 +539,8 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
-        let expiry = (Utc::now() + Duration::minutes(SESSION_MINUTES))
-            .timestamp()
+        let expiry = (Timestamp::now() + Elapsed::minutes(SESSION_MINUTES))
+            .epoch_seconds()
             .min(grant.expires_at);
         Self::impersonation_token(
             target_user,
@@ -558,11 +562,11 @@ impl AuthManager {
         jwks_manager: &JwksManager,
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let claims = Claims {
             sub: target_user.id.to_string(),
             email: target_user.email.clone(),
-            iat: now.timestamp(),
+            iat: now.epoch_seconds(),
             exp: expiry,
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: Uuid::new_v4().to_string(),
@@ -704,10 +708,10 @@ impl AuthManager {
     /// Check if token is expired and return error if so
     fn check_token_expiry(
         claims: &Claims,
-        current_time: DateTime<Utc>,
-        expired_at: DateTime<Utc>,
+        current_time: Timestamp,
+        expired_at: Timestamp,
     ) -> Result<(), JwtValidationError> {
-        if current_time.timestamp() > claims.exp {
+        if current_time.epoch_seconds() > claims.exp {
             let time_since_expiry = current_time.signed_duration_since(expired_at);
             warn!(
                 "JWT token expired for user: {} - Expired {} ago at {}",
@@ -857,14 +861,17 @@ impl AuthManager {
 
     /// Validate claims expiration with detailed logging
     fn validate_claims_expiry(claims: &Claims) -> Result<(), JwtValidationError> {
-        let current_time = Utc::now();
-        let expired_at = DateTime::from_timestamp(claims.exp, 0).unwrap_or_else(Utc::now);
+        let current_time = Timestamp::now();
+        let expired_at = Timestamp::from_epoch_seconds(claims.exp)
+            .ok()
+            .unwrap_or_else(Timestamp::now);
 
         debug!(
             "Token validation details - User: {}, Issued: {}, Expires: {}, Current: {}",
             claims.sub,
-            DateTime::from_timestamp(claims.iat, 0)
-                .map_or_else(|| "unknown".into(), |d| d.to_rfc3339()),
+            Timestamp::from_epoch_seconds(claims.iat)
+                .ok()
+                .map_or_else(|| "unknown".into(), Timestamp::to_rfc3339),
             expired_at.to_rfc3339(),
             current_time.to_rfc3339()
         );
@@ -887,7 +894,7 @@ impl AuthManager {
         jwks_manager: &JwksManager,
     ) -> AppResult<UserSession> {
         let jwt_token = self.generate_token(user, jwks_manager)?;
-        let expires_at = Utc::now() + Duration::hours(self.token_expiry_hours);
+        let expires_at = Timestamp::now() + Elapsed::hours(self.token_expiry_hours);
 
         Ok(UserSession {
             user_id: user.id,
@@ -1035,14 +1042,14 @@ impl AuthManager {
         active_tenant_id: Option<String>,
         audience: Option<&str>,
     ) -> AppResult<String> {
-        let now = Utc::now();
-        let expiry = now + Duration::hours(1); // 1 hour for client credentials
+        let now = Timestamp::now();
+        let expiry = now + Elapsed::hours(1); // 1 hour for client credentials
 
         let claims = Claims {
             sub: client_id.to_owned(),
             email: "client_credentials".to_owned(),
-            iat: now.timestamp(),
-            exp: expiry.timestamp(),
+            iat: now.epoch_seconds(),
+            exp: expiry.epoch_seconds(),
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: Uuid::new_v4().to_string(),
             // Empty because a client-credentials token belongs to a machine

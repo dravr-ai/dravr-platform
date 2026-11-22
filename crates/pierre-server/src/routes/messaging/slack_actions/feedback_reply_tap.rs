@@ -27,7 +27,7 @@
 
 use axum::http::StatusCode;
 use axum::Json;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::notifications::SlackResult;
 use pierre_contremaitre::notify_routing::NOTIFY_ROUTING_PROVIDER;
 use pierre_core::errors::{AppError, AppResult};
@@ -260,7 +260,7 @@ async fn store_team_reply(
             locale: None,
             about: given.rated_reply.as_ref(),
             image: None,
-            at: Utc::now(),
+            at: Timestamp::now(),
         })
         .await
 }
@@ -639,7 +639,7 @@ pub(super) async fn answer_reply_submission(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::{AddMessageParams, TenantId, UpsertMessageFeedbackParams};
     use pierre_core::transport::TransportPolicy;
@@ -1051,7 +1051,7 @@ mod tests {
                 locale: None,
                 about: None,
                 image: None,
-                at: Utc::now(),
+                at: Timestamp::now(),
             })
             .await
             .expect("thread message");

@@ -10,10 +10,10 @@
 //! object answers it, and the registry needs no second field. `group_id` and
 //! `created_by` are uuid columns (native on Postgres, `TEXT` on `SQLite`) and
 //! bind through the backend's uuid codec; every tenant id is `TEXT` on both.
-//! Timestamps bind as `DateTime<Utc>`.
+//! Timestamps bind as `Timestamp`.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{
     ConnectGroupChat, GroupChatConnectCode, GroupChatConnectOutcome, ReleasedGroupChat,
@@ -28,7 +28,7 @@ pub trait GroupChatConnectRepository: Send + Sync {
     async fn create_chat_connect_code(
         &self,
         code: &GroupChatConnectCode,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<()>;
 
     /// The connect code `code` when the bot of `channel_tenant_id` may still
@@ -39,7 +39,7 @@ pub trait GroupChatConnectRepository: Send + Sync {
         code: &str,
         channel_type: &str,
         channel_tenant_id: TenantId,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<GroupChatConnectCode>>;
 
     /// Spend the code and bind the group to the chat, in one transaction.
@@ -62,7 +62,7 @@ pub trait GroupChatConnectRepository: Send + Sync {
         &self,
         group_id: Uuid,
         tenant_id: TenantId,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<ReleasedGroupChat>>;
 
     /// Whether the chat was released by a disconnect and not connected since.
@@ -80,7 +80,7 @@ pub trait GroupChatConnectRepository: Send + Sync {
         group_id: Uuid,
         channel_type: &str,
         channel_user_id: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<bool>;
 }
 
@@ -172,7 +172,7 @@ macro_rules! impl_group_chat_connect_repository {
             async fn create_chat_connect_code(
                 &self,
                 code: &GroupChatConnectCode,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(INSERT_CHAT_CONNECT_CODE_SQL)
                     .bind(Uuid::new_v4().to_string())
@@ -196,7 +196,7 @@ macro_rules! impl_group_chat_connect_repository {
                 code: &str,
                 channel_type: &str,
                 channel_tenant_id: TenantId,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<GroupChatConnectCode>> {
                 let row = sqlx::query(LIVE_CHAT_CONNECT_CODE_SQL)
                     .bind(code)
@@ -296,7 +296,7 @@ macro_rules! impl_group_chat_connect_repository {
                 &self,
                 group_id: Uuid,
                 tenant_id: TenantId,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<ReleasedGroupChat>> {
                 let failed = |e: sqlx::Error| {
                     AppError::database(format!("Failed to disconnect group chat: {e}"))
@@ -366,7 +366,7 @@ macro_rules! impl_group_chat_connect_repository {
                 group_id: Uuid,
                 channel_type: &str,
                 channel_user_id: &str,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<bool> {
                 let done = sqlx::query(RECORD_CHAT_INVITE_PROMPT_SQL)
                     .bind($ids::bind(group_id))

@@ -22,8 +22,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use dravr_cageux::config::intelligence::{AlgorithmConfig, TrainingZonesConfig};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::provider_capture::current_capture_version;
@@ -183,8 +183,8 @@ pub async fn build_athlete_record(
         str::to_owned,
     );
     let zone = resolve_zone(user_timezone.as_deref());
-    let end = Utc::now();
-    let today = clock_date(end, zone);
+    let end = Timestamp::now();
+    let today = clock_date(end, &zone);
 
     // Without a provider there is nothing to fetch, and the window query would
     // be a guaranteed-empty round trip on every verified reply.
@@ -194,7 +194,7 @@ pub async fn build_athlete_record(
 
     let start = end - ATHLETE_RECORD_WINDOW;
     let (read, cache_read) =
-        read_record_window(sources, start, end, |instant| local_date(instant, zone)).await;
+        read_record_window(sources, start, end, |instant| local_date(instant, &zone)).await;
     // A claim is checked against what the model could have seen (carnet#723),
     // and over an external transport against what that transport may carry
     // (carnet#724).
@@ -204,7 +204,7 @@ pub async fn build_athlete_record(
         #[allow(clippy::cast_precision_loss)]
         let duration_min = (a.duration_seconds() as f64) / 60.0;
         RecordedActivity {
-            date: local_date(a.start_date(), zone),
+            date: local_date(a.start_date(), &zone),
             sport: a.sport_type().clone(),
             name: a.name().to_owned(),
             distance_km: a.distance_meters().map(|m| m / 1000.0),
@@ -239,7 +239,7 @@ pub async fn build_athlete_record(
         read,
         sources: coverage,
         now: end,
-        zone,
+        zone: zone.clone(),
         block_start,
     });
 
@@ -301,9 +301,9 @@ fn folded_names(names: impl IntoIterator<Item = String>) -> Vec<String> {
 /// connected athlete, and [`period_history`] has no read to vouch from.
 async fn read_record_window(
     sources: &AthleteSources<'_>,
-    from: DateTime<Utc>,
-    to: DateTime<Utc>,
-    day: impl Fn(DateTime<Utc>) -> NaiveDate,
+    from: Timestamp,
+    to: Timestamp,
+    day: impl Fn(Timestamp) -> CivilDate,
 ) -> (Vec<Activity>, Option<CacheRead>) {
     let user_id = sources.user_id;
     let rows = match sources
@@ -350,10 +350,10 @@ async fn read_record_window(
 /// read returned are then taken as every session of those days. A failed read
 /// taken as an empty one would vouch for a week of rest, and contradict every
 /// correct total stated over it.
-fn period_history<Z: TimeZone>(
+fn period_history(
     read: Option<CacheRead>,
     sources: Option<Vec<SourceCoverage>>,
-    inputs: impl FnOnce(CacheRead, Vec<SourceCoverage>) -> HistoryInputs<Z>,
+    inputs: impl FnOnce(CacheRead, Vec<SourceCoverage>) -> HistoryInputs,
 ) -> Option<PeriodHistory> {
     let (read, sources) = read.zip(sources)?;
     PeriodHistory::vouched(inputs(read, sources))
@@ -472,14 +472,14 @@ fn backfill_depth(coverage: Option<BackfillCoverage>, slug: &str) -> BackfillDep
     if !historical_depth_covered(coverage, record.oldest_reached_ts, version) {
         return BackfillDepth::Unrecorded;
     }
-    Utc.timestamp_opt(record.oldest_reached_ts, 0)
-        .single()
+    Timestamp::from_epoch_seconds(record.oldest_reached_ts)
+        .ok()
         .map_or(BackfillDepth::Unrecorded, BackfillDepth::Reached)
 }
 
 /// The first day of the training block the athlete is in: the phase of their
 /// active plan that covers `today`, when the plan may be read here.
-async fn current_block_start(sources: &AthleteSources<'_>, today: NaiveDate) -> Option<NaiveDate> {
+async fn current_block_start(sources: &AthleteSources<'_>, today: CivilDate) -> Option<CivilDate> {
     let user_id = sources.user_id;
     let plan = sources
         .repos
@@ -505,11 +505,12 @@ async fn current_block_start(sources: &AthleteSources<'_>, today: NaiveDate) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeDelta;
+    use dravr_tronc::dates::Elapsed;
+    use dravr_tronc::dates::Zone;
 
     /// Wednesday 2026-09-09 at 19:00 UTC.
-    fn now() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 9, 9, 19, 0, 0).unwrap()
+    fn now() -> Timestamp {
+        Timestamp::parse_from_rfc3339("2026-09-09T19:00:00Z").unwrap()
     }
 
     fn read() -> CacheRead {
@@ -523,21 +524,21 @@ mod tests {
     /// read is vouched for.
     fn synced() -> Vec<SourceCoverage> {
         vec![SourceCoverage {
-            last_sync: Some(now() - TimeDelta::minutes(1)),
+            last_sync: Some(now() - Elapsed::minutes(1)),
             depth: BackfillDepth::FeedEnd,
         }]
     }
 
     /// A read that returned no rows; the inputs of one that failed are never
     /// built.
-    fn no_sessions(read: CacheRead, sources: Vec<SourceCoverage>) -> HistoryInputs<Utc> {
+    fn no_sessions(read: CacheRead, sources: Vec<SourceCoverage>) -> HistoryInputs {
         HistoryInputs {
             sessions: Vec::new(),
             by_source: Vec::new(),
             read,
             sources,
             now: now(),
-            zone: Utc,
+            zone: Zone::utc(),
             block_start: None,
         }
     }
@@ -586,7 +587,7 @@ mod tests {
         let whoop =
             ActivityBuilder::new("w1", "Run", SportType::Run, now(), 1_800, "whoop").build();
         let recorded = |a: &Activity| RecordedActivity {
-            date: a.start_date().date_naive(),
+            date: a.start_date().utc_date(),
             sport: a.sport_type().clone(),
             name: a.name().to_owned(),
             distance_km: None,

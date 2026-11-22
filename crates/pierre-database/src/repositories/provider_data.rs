@@ -83,7 +83,7 @@
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, PERMISSION_WITHDRAWN};
 use serde::{Deserialize, Serialize};
@@ -222,7 +222,7 @@ pub struct ProviderDataPurgeRecord {
     /// Rows deleted across every table.
     pub rows_removed: i64,
     /// When the purge committed.
-    pub purged_at: DateTime<Utc>,
+    pub purged_at: Timestamp,
 }
 
 /// What one retention pass over a provider's wellness expired.
@@ -353,7 +353,7 @@ pub trait ProviderDataRepository: Send + Sync {
     async fn expire_provider_wellness(
         &self,
         provider: &str,
-        cutoff: DateTime<Utc>,
+        cutoff: Timestamp,
     ) -> AppResult<ProviderWellnessExpiry>;
 
     /// Settle the retention expiry of `activity_ids`, the user's `provider`
@@ -399,7 +399,7 @@ pub trait ProviderDataRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: &TenantId,
         provider: &str,
-        since: DateTime<Utc>,
+        since: Timestamp,
     ) -> AppResult<Vec<String>>;
 }
 
@@ -413,7 +413,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column = |name: &str, e: sqlx::Error| {
         AppError::database(format!("provider_data_purges col {name}: {e}"))
@@ -438,7 +438,7 @@ where
 /// Write one attestation row on `$tx`, mapping a failure to a database error.
 ///
 /// The invoking shell must `use` [`INSERT_PURGE_RECORD_SQL`], `AppError`,
-/// `Utc` and `Uuid`.
+/// `Timestamp` and `Uuid`.
 macro_rules! insert_purge_record {
     ($tx:expr, $tenant:expr, $user:expr, $provider:expr, $reason:expr, $removed:expr) => {
         sqlx::query(INSERT_PURGE_RECORD_SQL)
@@ -448,7 +448,7 @@ macro_rules! insert_purge_record {
             .bind($provider)
             .bind($reason.as_str())
             .bind(i64::try_from($removed).unwrap_or(i64::MAX))
-            .bind(Utc::now())
+            .bind(Timestamp::now())
             .execute(&mut *$tx)
             .await
             .map_err(|e| {
@@ -701,7 +701,7 @@ macro_rules! impl_provider_data_repository {
             async fn expire_provider_wellness(
                 &self,
                 provider: &str,
-                cutoff: DateTime<Utc>,
+                cutoff: Timestamp,
             ) -> AppResult<ProviderWellnessExpiry> {
                 let scopes = sqlx::query(EXPIRED_WELLNESS_SCOPES_SQL)
                     .bind(provider)
@@ -857,7 +857,7 @@ macro_rules! impl_provider_data_repository {
                 user_id: Uuid,
                 tenant_id: &TenantId,
                 provider: &str,
-                since: DateTime<Utc>,
+                since: Timestamp,
             ) -> AppResult<Vec<String>> {
                 sqlx::query_scalar($crate::repositories::provider_data::PURGE_REASONS_SINCE_SQL)
                     .bind(provider)

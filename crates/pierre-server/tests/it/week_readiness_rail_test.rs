@@ -34,6 +34,7 @@ use uuid::Uuid;
 use crate::common;
 use crate::helpers;
 
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use helpers::agent_fixtures::publish_catalogue_agent_tagged;
 
 /// The rendered value of `name` on `event`, or an empty string when the event
@@ -92,16 +93,12 @@ fn request(tool: &str, params: Value, user_id: Uuid, tenant_id: &str) -> Univers
 
 /// A week far enough ahead that every day in it can still be changed.
 fn week_start() -> String {
-    (chrono::Utc::now().date_naive() + chrono::Duration::days(7))
-        .format("%Y-%m-%d")
-        .to_string()
+    (Timestamp::now().utc_date() + Elapsed::days(7)).to_string()
 }
 
 fn day_in(week: &str, offset: i64) -> String {
-    let start = chrono::NaiveDate::parse_from_str(week, "%Y-%m-%d").expect("a week start");
-    (start + chrono::Duration::days(offset))
-        .format("%Y-%m-%d")
-        .to_string()
+    let start = CivilDate::parse_from_str(week, "%Y-%m-%d").expect("a week start");
+    (start + Elapsed::days(offset)).to_string()
 }
 
 /// The catalogue's threshold template — purpose `threshold`.
@@ -277,9 +274,7 @@ async fn a_week_already_run_is_not_read_at_all() -> Result<()> {
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     // A week that ended before today: every day in it is history, and
     // substituting a session the athlete already completed helps nobody.
-    let past = (chrono::Utc::now().date_naive() - chrono::Duration::days(30))
-        .format("%Y-%m-%d")
-        .to_string();
+    let past = (Timestamp::now().utc_date() - Elapsed::days(30)).to_string();
 
     let (events, guard) = log_capture::capture_events();
     save(
@@ -395,9 +390,7 @@ async fn a_plan_that_stops_covering_the_athlete_says_so() -> Result<()> {
 
     // A phase that claims to be running today, with its only week long past:
     // the plan asserted it should be prescribing now, and it is not.
-    let past = (chrono::Utc::now().date_naive() - chrono::Duration::days(30))
-        .format("%Y-%m-%d")
-        .to_string();
+    let past = (Timestamp::now().utc_date() - Elapsed::days(30)).to_string();
     let mut payload = plan_with(&past, &[easy_day(&day_in(&past, 1))]);
     payload["outline"]["phases"][0]["start"] = json!(past);
     payload["outline"]["phases"][0]["weeks"] = json!(12);

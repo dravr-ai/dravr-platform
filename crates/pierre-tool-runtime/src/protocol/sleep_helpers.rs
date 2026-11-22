@@ -23,11 +23,10 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use chrono::{Duration, NaiveDate, NaiveTime, Utc};
-use chrono_tz::Tz;
 use dravr_cageux::config::intelligence::SleepRecoveryConfig;
 use dravr_cageux::error::IntelligenceError;
 use dravr_cageux::sleep_analysis::{HrvTrendAnalysis, NightlyHrv, SleepAnalyzer, SleepData};
+use dravr_tronc::dates::{CivilDate, CivilTime, Elapsed, Timestamp, Zone};
 use pierre_core::models::{
     Merged, StoredRecoveryMetrics, StoredSleepSession, StoredSleepStageType, TenantId,
 };
@@ -78,8 +77,8 @@ pub async fn stored_sleep_nights(
     days: u32,
 ) -> Result<Vec<Merged<StoredSleepSession>>, Box<UniversalResponse>> {
     let tenant = tenant_of(tenant_id).ok_or_else(|| Box::new(missing_tenant()))?;
-    let end = Utc::now();
-    let start = end - Duration::days(i64::from(days) + WINDOW_MARGIN_DAYS);
+    let end = Timestamp::now();
+    let start = end - Elapsed::days(i64::from(days) + WINDOW_MARGIN_DAYS);
     let filter = source.map_or(SourceFilter::All, SourceFilter::Service);
     let sessions = stored_health::merged_sleep(
         executor.resources.repos(),
@@ -139,12 +138,12 @@ pub async fn hrv_trend(
         Some(user_uuid) => {
             let zone = athlete_zone(executor.resources.repos(), user_uuid).await;
             let stored =
-                stored_hrv_by_night(executor, user_uuid, tenant_id, source, days, zone).await;
+                stored_hrv_by_night(executor, user_uuid, tenant_id, source, days, &zone).await;
             (zone, stored)
         }
-        None => (Tz::UTC, BTreeMap::new()),
+        None => (Zone::utc(), BTreeMap::new()),
     };
-    let as_of = analysed_night_date(sleep_data, zone);
+    let as_of = analysed_night_date(sleep_data, &zone);
     by_night.entry(as_of).or_insert(rmssd);
     let nights: Vec<NightlyHrv> = by_night
         .into_iter()
@@ -164,8 +163,8 @@ async fn stored_hrv_by_night(
     tenant_id: Option<&str>,
     source: Option<&str>,
     days: u32,
-    zone: Tz,
-) -> BTreeMap<NaiveDate, f64> {
+    zone: &Zone,
+) -> BTreeMap<CivilDate, f64> {
     let nights = match stored_sleep_nights(executor, user_uuid, tenant_id, source, days).await {
         Ok(nights) => nights,
         Err(unread) => {
@@ -180,7 +179,7 @@ async fn stored_hrv_by_night(
     let mut by_night = BTreeMap::new();
     // Newest first: a night two sessions share keeps the later one's reading.
     for night in nights {
-        let day = night.record.night_date(&zone);
+        let day = night.record.night_date(zone);
         let hrv = night.record.avg_hrv.or_else(|| {
             recovery
                 .get(&day)
@@ -197,17 +196,15 @@ async fn stored_hrv_by_night(
 /// anchored at midnight UTC (a day summary, or a `sleep_data` dated by hand
 /// with a bare `YYYY-MM-DD`) is that date; otherwise the day its end falls on
 /// in `zone`, the end being its start plus the time asleep and awake.
-fn analysed_night_date(sleep_data: &SleepData, zone: Tz) -> NaiveDate {
-    if sleep_data.date.time() == NaiveTime::MIN {
-        return sleep_data.date.date_naive();
+fn analysed_night_date(sleep_data: &SleepData, zone: &Zone) -> CivilDate {
+    if sleep_data.date.utc_time() == CivilTime::MIDNIGHT {
+        return sleep_data.date.utc_date();
     }
     let hours_in_bed = sleep_data.duration_hours + sleep_data.awake_hours.unwrap_or(0.0);
     // Bounded: a night in bed is under a day of seconds.
     #[allow(clippy::cast_possible_truncation)]
     let seconds_in_bed = (hours_in_bed.clamp(0.0, 24.0) * 3600.0).round() as i64;
-    (sleep_data.date + Duration::seconds(seconds_in_bed))
-        .with_timezone(&zone)
-        .date_naive()
+    zone.date_at(sleep_data.date + Elapsed::seconds(seconds_in_bed))
 }
 
 /// Synced nights over the last `days` days as `SleepData`, newest first.
@@ -284,12 +281,12 @@ async fn recovery_by_date(
     tenant_id: Option<&str>,
     source: Option<&str>,
     days: u32,
-) -> HashMap<NaiveDate, StoredRecoveryMetrics> {
+) -> HashMap<CivilDate, StoredRecoveryMetrics> {
     let Some(tenant) = tenant_of(tenant_id) else {
         return HashMap::new();
     };
-    let end = Utc::now();
-    let start = end - Duration::days(i64::from(days) + WINDOW_MARGIN_DAYS);
+    let end = Timestamp::now();
+    let start = end - Elapsed::days(i64::from(days) + WINDOW_MARGIN_DAYS);
     match stored_health::merged_recovery(
         executor.resources.repos(),
         executor.resources.provider_registry().as_ref(),

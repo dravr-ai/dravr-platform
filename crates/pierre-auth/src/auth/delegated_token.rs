@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use jsonwebtoken::{encode, Algorithm, Header};
 use pierre_core::constants::{
     limits::OAUTH_ACCESS_TOKEN_EXPIRY_HOURS,
@@ -85,14 +85,14 @@ impl AuthManager {
         providers: &[String],
         active_tenant_id: Option<String>,
     ) -> AppResult<String> {
-        let now = Utc::now();
-        let expiry = now + Duration::hours(OAUTH_ACCESS_TOKEN_EXPIRY_HOURS);
+        let now = Timestamp::now();
+        let expiry = now + Elapsed::hours(OAUTH_ACCESS_TOKEN_EXPIRY_HOURS);
 
         let claims = Claims {
             sub: user_id.to_string(),
             email: format!("oauth_{user_id}@system.local"),
-            iat: now.timestamp(),
-            exp: expiry.timestamp(),
+            iat: now.epoch_seconds(),
+            exp: expiry.epoch_seconds(),
             iss: PIERRE_MCP_SERVER.to_owned(),
             jti: Uuid::new_v4().to_string(),
             // The athlete's connected fitness providers — what this field

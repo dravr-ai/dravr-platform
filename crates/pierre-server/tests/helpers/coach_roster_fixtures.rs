@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::Router;
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     NewGroupTranscriptEntry, TranscriptSpeaker,
@@ -110,7 +110,7 @@ pub(crate) async fn coached_group(
     agent_id: &str,
     name: &str,
 ) -> Uuid {
-    let now = Utc::now();
+    let now = Timestamp::now();
     res.common
         .repos
         .groups
@@ -149,7 +149,7 @@ pub(crate) async fn join(
     tenant: TenantId,
     shares: bool,
 ) {
-    join_at(res, group, user, tenant, shares, Utc::now()).await;
+    join_at(res, group, user, tenant, shares, Timestamp::now()).await;
 }
 
 /// Date a membership back to when the case says it began.
@@ -165,7 +165,7 @@ pub(crate) async fn join_at(
     user: Uuid,
     tenant: TenantId,
     shares: bool,
-    joined_at: DateTime<Utc>,
+    joined_at: Timestamp,
 ) {
     res.common
         .repos
@@ -219,11 +219,11 @@ pub(crate) fn ride(id: &str, days_ago: i64) -> Activity {
 
 /// A ride `days_ago` lasting `seconds`, at 30 km/h.
 pub(crate) fn ride_lasting(id: &str, days_ago: i64, seconds: u64) -> Activity {
-    ride_started(id, Utc::now() - Duration::days(days_ago), seconds)
+    ride_started(id, Timestamp::now() - Elapsed::days(days_ago), seconds)
 }
 
 /// A ride started at `start` lasting `seconds`, at 30 km/h.
-pub(crate) fn ride_started(id: &str, start: DateTime<Utc>, seconds: u64) -> Activity {
+pub(crate) fn ride_started(id: &str, start: Timestamp, seconds: u64) -> Activity {
     #[allow(clippy::cast_precision_loss)]
     let metres = seconds as f64 * 30_000.0 / 3_600.0;
     ActivityBuilder::new(
@@ -350,12 +350,12 @@ pub(crate) async fn agent_reply(
     }
 }
 
-pub(crate) fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+pub(crate) fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
 /// A phase of `kind` opening `start`, `weeks` long.
-pub(crate) fn phase(kind: PhaseKind, start: NaiveDate, weeks: u8) -> PlanPhase {
+pub(crate) fn phase(kind: PhaseKind, start: CivilDate, weeks: u8) -> PlanPhase {
     PlanPhase {
         kind,
         start: ymd(start),

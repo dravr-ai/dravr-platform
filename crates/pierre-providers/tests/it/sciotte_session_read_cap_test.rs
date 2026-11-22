@@ -15,12 +15,12 @@
 
 use std::sync::{Arc, Mutex};
 
-use chrono::Utc;
 use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::wire::{
     PATH_ACTIVITIES, PATH_IMPORT_SESSION, PATH_SESSIONS, SESSION_EXPORT_SEGMENT, SESSION_ROTATED,
     SESSION_ROTATED_HEADER,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{SessionReadCaps, UserTier};
 use pierre_providers::core::{
@@ -189,7 +189,7 @@ async fn a_spent_session_read_window_sends_nothing_and_an_open_one_reads() {
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &key,
-            &budget_period(Utc::now(), ONE_DAY),
+            &budget_period(Timestamp::now(), ONE_DAY),
         )
         .await
         .unwrap();
@@ -207,7 +207,7 @@ async fn a_spent_session_read_window_sends_nothing_and_an_open_one_reads() {
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &key,
-            &budget_period(Utc::now(), FIFTEEN_MINUTES),
+            &budget_period(Timestamp::now(), FIFTEEN_MINUTES),
             i64::from(burst),
         )
         .await
@@ -301,7 +301,7 @@ async fn an_admitted_read_still_stores_the_session_it_rotated() {
                 PLATFORM_SCOPE,
                 PLATFORM_SCOPE,
                 &session_read_counter_key(BACKEND, "asked", athlete),
-                &budget_period(Utc::now(), ONE_DAY),
+                &budget_period(Timestamp::now(), ONE_DAY),
             )
             .await
             .unwrap()

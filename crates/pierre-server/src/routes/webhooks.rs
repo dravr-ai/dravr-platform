@@ -15,10 +15,10 @@ use axum::routing::get;
 #[cfg(feature = "provider-wahoo")]
 use axum::routing::post;
 use axum::{Json, Router};
-use chrono::Utc;
 use dravr_enforme::error::EnformeError;
 use dravr_enforme::models::webhook::WebhookEvent;
 use dravr_enforme::SyncOrchestrator;
+use dravr_tronc::dates::Timestamp;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 use tracing::{debug, error, info, warn};
@@ -429,7 +429,7 @@ pub(super) async fn stamp_last_sync(
         .common
         .repos
         .oauth_tokens
-        .update_provider_last_sync(user_id, tenant, provider, Utc::now())
+        .update_provider_last_sync(user_id, tenant, provider, Timestamp::now())
         .await
     {
         warn!(user_id = %user_id, provider = %provider, error = %e, "failed to stamp last_sync after webhook sync");
@@ -471,7 +471,7 @@ pub(super) async fn notify_owner(
         success: true,
         message,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         read_at: None,
     };
     // A user with no open SSE stream simply has nothing to notify.
@@ -862,7 +862,8 @@ impl StravaWebhookEvent {
     /// activity uploaded late is still inside the window. An event time the
     /// clock cannot represent falls back to now.
     fn fetch_window_start(&self) -> i64 {
-        let event_time = i64::try_from(self.event_time).unwrap_or_else(|_| Utc::now().timestamp());
+        let event_time =
+            i64::try_from(self.event_time).unwrap_or_else(|_| Timestamp::now().epoch_seconds());
         event_time - STRAVA_WEBHOOK_LOOKBACK_DAYS * 86_400
     }
 }

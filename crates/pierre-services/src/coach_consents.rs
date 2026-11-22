@@ -43,7 +43,7 @@
 //!
 //! `wellness_read` once covered only the wellness a link syncs through the
 //! coach's account. A grant given before it widened
-//! ([`WELLNESS_READ_WIDENED_AT`]) stands, and the apps tell the member it now
+//! ([`wellness_read_widened_at`]) stands, and the apps tell the member it now
 //! covers every app they connect ([`wellness_notice_due`]) until they keep it
 //! (a fresh grant, which stamps it again) or revoke it.
 //!
@@ -65,7 +65,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{CoachConsents, CoachingGroup, GroupMember};
 use pierre_core::models::{DelegatedConnection, DelegationStatus};
@@ -97,8 +97,13 @@ const GRANT_NEEDS_APP: &str = "consent_grant_needs_app";
 /// the coach connects to Dravr as readers too (carnet#1452). A grant
 /// stamped before it was given to a narrower consent, so the member is told
 /// of the widening ([`wellness_notice_due`]).
-const WELLNESS_READ_WIDENED_AT: DateTime<Utc> =
-    DateTime::from_timestamp_nanos(1_794_501_000_000_000_000);
+const WELLNESS_READ_WIDENED_AT_SECS: i64 = 1_794_501_000;
+
+/// [`WELLNESS_READ_WIDENED_AT_SECS`] as an instant; it lies inside the range
+/// the date types hold.
+fn wellness_read_widened_at() -> Timestamp {
+    Timestamp::UNIX_EPOCH + Elapsed::seconds(WELLNESS_READ_WIDENED_AT_SECS)
+}
 
 /// Which coach consents are offered: by a member's coach relationship right
 /// now ([`consent_offer`]), or by one link's platform ([`link_offer`]).
@@ -185,7 +190,7 @@ fn assistant_read_offered(group: &CoachingGroup, member: Uuid) -> bool {
 /// They say it now covers every app the member connects, and ask whether to
 /// keep it, while the relationship offers wellness reads (`offer`) and the
 /// grant stands, stamped before the consent widened
-/// ([`WELLNESS_READ_WIDENED_AT`]) or never stamped at all. Keeping it is a
+/// ([`wellness_read_widened_at`]) or never stamped at all. Keeping it is a
 /// fresh grant, which stamps it again and clears the notice.
 #[must_use]
 pub fn wellness_notice_due(offer: ConsentOffer, consents: CoachConsents) -> bool {
@@ -193,7 +198,7 @@ pub fn wellness_notice_due(offer: ConsentOffer, consents: CoachConsents) -> bool
         && consents.wellness_read
         && consents
             .wellness_read_at
-            .is_none_or(|at| at < WELLNESS_READ_WIDENED_AT)
+            .is_none_or(|at| at < wellness_read_widened_at())
 }
 
 /// Whether the apps tell `member` that `group`'s human coach's AI tools read
@@ -211,7 +216,7 @@ pub fn wellness_notice_due(offer: ConsentOffer, consents: CoachConsents) -> bool
 pub fn assistant_notice_due(
     group: &CoachingGroup,
     member: &GroupMember,
-    answered_at: Option<DateTime<Utc>>,
+    answered_at: Option<Timestamp>,
 ) -> bool {
     group
         .coach_user_id
@@ -359,10 +364,10 @@ impl SensitiveWindow {
 
     /// When a grant made at `now` lapses; `None` until revoked.
     #[must_use]
-    pub fn until(self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    pub fn until(self, now: Timestamp) -> Option<Timestamp> {
         match self {
             Self::UntilRevoked => None,
-            Self::ThirtyDays => Some(now + Duration::days(i64::from(Self::DAYS))),
+            Self::ThirtyDays => Some(now + Elapsed::days(i64::from(Self::DAYS))),
         }
     }
 }
@@ -456,7 +461,7 @@ pub async fn set_coach_consents(
 ) -> AppResult<GroupMember> {
     require_app_for_grant(change.grants_any())?;
     let change = change.within(consent_offer(registry, group, member));
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group_key = group.id.to_string();
     let consents = match change.sensitive_t2_read {
         Some(t2_read) => {
@@ -718,7 +723,7 @@ mod tests {
             "bug: a group with no human coach offers no health-records grant"
         );
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         assert_eq!(
             SensitiveWindow::try_from_days(None).unwrap().until(now),
             None,
@@ -726,7 +731,7 @@ mod tests {
         );
         assert_eq!(
             SensitiveWindow::try_from_days(Some(30)).unwrap().until(now),
-            Some(now + Duration::days(30)),
+            Some(now + Elapsed::days(30)),
             "bug: a 30-day window lapses 30 days after the grant"
         );
         for refused in [0, 7, 31, 365] {
@@ -750,12 +755,12 @@ mod tests {
             wellness_read: true,
             assistant_read: true,
         };
-        let granted_at = |at: Option<DateTime<Utc>>| CoachConsents {
+        let granted_at = |at: Option<Timestamp>| CoachConsents {
             wellness_read: true,
             wellness_read_at: at,
             ..CoachConsents::default()
         };
-        let before = WELLNESS_READ_WIDENED_AT - Duration::seconds(1);
+        let before = wellness_read_widened_at() - Elapsed::seconds(1);
         assert!(
             wellness_notice_due(offered, granted_at(Some(before))),
             "a grant a second before the widening was given to the narrower consent"
@@ -765,7 +770,7 @@ mod tests {
             "a grant with no instant cannot be shown to postdate the widening"
         );
         assert!(
-            !wellness_notice_due(offered, granted_at(Some(WELLNESS_READ_WIDENED_AT))),
+            !wellness_notice_due(offered, granted_at(Some(wellness_read_widened_at()))),
             "a grant at the widening was given to the consent as it reads now"
         );
         let revoked = CoachConsents {
@@ -794,7 +799,7 @@ mod tests {
     fn only_a_sharing_member_who_never_answered_is_told_of_the_coachs_tools() {
         use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode, GroupRole};
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         let coach = Uuid::new_v4();
         let group = |coach_user_id: Option<Uuid>| CoachingGroup {
             id: Uuid::new_v4(),

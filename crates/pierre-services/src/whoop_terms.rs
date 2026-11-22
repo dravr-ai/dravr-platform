@@ -39,7 +39,7 @@
 
 use std::borrow::Cow;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{StoredRecoveryMetrics, StoredSleepSession};
@@ -77,8 +77,8 @@ pub(crate) fn scores_withheld(source_name: &str) -> bool {
 /// session, since none of those yields a figure worth storing.
 #[must_use]
 pub fn in_house_sleep_efficiency(
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
+    start: Timestamp,
+    end: Timestamp,
     awake_seconds: Option<u32>,
 ) -> Option<f64> {
     let awake = awake_seconds?;

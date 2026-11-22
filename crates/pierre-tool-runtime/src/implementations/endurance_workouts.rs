@@ -12,7 +12,7 @@ use std::slice;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::periodization::{
     EvidenceTier, Frames, InstanceRequest, PhaseFit, PhaseKind, Progression, Regression,
@@ -223,7 +223,7 @@ async fn authored_template(
         constraints: Vec::new(),
         regression: Regression::default(),
         frame: Frames::default(),
-        updated_at: Utc::now(),
+        updated_at: Timestamp::now(),
     })
 }
 
@@ -727,7 +727,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 .get("date")
                 .and_then(Value::as_str)
                 .ok_or_else(|| AppError::invalid_input("date is required"))?;
-            let date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+            let date = CivilDate::parse_from_str(date_str, "%Y-%m-%d")
                 .map_err(|e| AppError::invalid_input(format!("date must be YYYY-MM-DD: {e}")))?;
             let arg_agent = args
                 .get("agent_id")
@@ -878,7 +878,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     }
                     _ => Ok(()),
                 };
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let prescribed = PrescribedWorkout {
                     id: prescription_id,
                     tenant_id: tenant_id.as_uuid(),
@@ -944,7 +944,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                         template_slug: prescribed_slug,
                         name: template.name.clone(),
                         duration_minutes: template.duration_minutes,
-                        scheduled_for: date.format("%Y-%m-%d").to_string(),
+                        scheduled_for: date.to_string(),
                         status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
                         calendar_note,
                         envelope,
@@ -1094,7 +1094,7 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
                         provider: row.provider.clone(),
                         provider_event_id: event_id,
                         name: row.template_slug.clone(),
-                        scheduled_for: row.prescribed_for_date.format("%Y-%m-%d").to_string(),
+                        scheduled_for: row.prescribed_for_date.to_string(),
                         status: PrescribedWorkout::STATUS_WITHDRAWN.to_owned(),
                     },
                 )

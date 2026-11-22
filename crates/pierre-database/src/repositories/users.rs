@@ -18,10 +18,10 @@
 //! through [`user_from_row`], so no listing can silently return a user with
 //! the persona, roster flag or timezone it never selected — two Postgres
 //! listings and the `SQLite` cursor page did exactly that. `$n` placeholders
-//! throughout; timestamps bind as [`DateTime<Utc>`]; booleans as `bool`.
+//! throughout; timestamps bind as [`Timestamp`]; booleans as `bool`.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::models::DELETED_ACCOUNT_ADMIN;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::UserRole;
@@ -111,7 +111,7 @@ pub trait UserRepository: Send + Sync {
     async fn count(&self) -> AppResult<i64>;
     /// How many accounts were created at or after `since`, whatever created
     /// them: the count the sign-up ceiling is measured against
-    async fn count_created_since(&self, since: DateTime<Utc>) -> AppResult<i64>;
+    async fn count_created_since(&self, since: Timestamp) -> AppResult<i64>;
     /// Get users by status (pending, active, suspended), optionally scoped to a tenant
     async fn get_by_status(
         &self,
@@ -430,8 +430,8 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column =
         |col: &str, e: sqlx::Error| AppError::database(format!("Failed to get users.{col}: {e}"));
@@ -569,7 +569,7 @@ macro_rules! impl_user_repository {
                 let activating = new_status == UserStatus::Active;
                 // The approver and the moment are recorded on activation only.
                 let (approved_by, approved_at) = if activating {
-                    (approved_by, Some(Utc::now()))
+                    (approved_by, Some(Timestamp::now()))
                 } else {
                     Self::refuse_removing_the_last_active_admin(&mut *tx, user_id, "suspend")
                         .await?;
@@ -819,7 +819,7 @@ macro_rules! impl_user_repository {
                     .map_err(|e| AppError::database(format!("Failed to get count: {e}")))
             }
 
-            async fn count_created_since(&self, since: DateTime<Utc>) -> AppResult<i64> {
+            async fn count_created_since(&self, since: Timestamp) -> AppResult<i64> {
                 let row = sqlx::query(COUNT_USERS_CREATED_SINCE_SQL)
                     .bind(since)
                     .fetch_one(self.pool())
@@ -1005,7 +1005,7 @@ macro_rules! impl_user_repository {
                     .bind($ids::bind(Uuid::new_v4()))
                     .bind(tenant_id)
                     .bind($ids::bind(user_id))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

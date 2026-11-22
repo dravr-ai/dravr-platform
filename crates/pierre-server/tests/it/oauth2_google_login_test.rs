@@ -30,8 +30,8 @@ use axum::extract::connect_info::MockConnectInfo;
 use axum::http::header::COOKIE;
 use axum::http::HeaderMap;
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{Duration, Utc};
 use common::{create_test_server_resources_with_config, create_test_user_with_email};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use helpers::google_oidc::{
     GoogleIdClaims, GoogleStub, GOOGLE_CHOOSER, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
@@ -977,7 +977,7 @@ async fn an_expired_or_foreign_transaction_is_refused_before_google() {
     let expired = sealed_transaction(
         &f,
         "expired-state",
-        (Utc::now() - Duration::seconds(5)).timestamp(),
+        (Timestamp::now() - Elapsed::seconds(5)).epoch_seconds(),
         "oauth2:google-sign-in:v1",
     );
     let callback = f
@@ -997,7 +997,7 @@ async fn an_expired_or_foreign_transaction_is_refused_before_google() {
     let foreign = sealed_transaction(
         &f,
         "foreign-state",
-        (Utc::now() + Duration::seconds(300)).timestamp(),
+        (Timestamp::now() + Elapsed::seconds(300)).epoch_seconds(),
         "another:purpose",
     );
     let callback = f
@@ -1442,8 +1442,8 @@ async fn proving_an_unverified_accounts_email_retires_every_credential_it_held()
             user_id: squatted.id,
             tenant_id,
             scope: None,
-            expires_at: Utc::now() + Duration::days(30),
-            created_at: Utc::now(),
+            expires_at: Timestamp::now() + Elapsed::days(30),
+            created_at: Timestamp::now(),
             revoked: false,
             family_id: Uuid::new_v4().to_string(),
             family_created_at: None,
@@ -1476,7 +1476,7 @@ async fn proving_an_unverified_accounts_email_retires_every_credential_it_held()
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     repos.api_keys.create(&api_key).await.unwrap();
 
@@ -1960,7 +1960,7 @@ async fn a_reached_ceiling_refuses_a_first_google_sign_in_before_any_row() {
         .common
         .repos
         .users
-        .count_created_since(Utc::now() - Duration::hours(24))
+        .count_created_since(Timestamp::now() - Elapsed::hours(24))
         .await
         .unwrap();
     assert!(counted > 0);

@@ -28,7 +28,7 @@ use std::time::Duration;
 use super::offline_channel::{name_fixture_bot, OfflineSendAdapters};
 use async_trait::async_trait;
 use axum::http::StatusCode;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
@@ -287,7 +287,7 @@ async fn create_user_with_own_tenant(resources: &ServerContext, email: &str) -> 
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
 
@@ -299,8 +299,8 @@ async fn create_user_with_own_tenant(resources: &ServerContext, email: &str) -> 
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common
@@ -944,7 +944,7 @@ impl RoomE2e {
             .await;
 
         let group_id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = CoachingGroup {
             id: group_id,
             tenant_id: base.bot_tenant.to_string(),
@@ -982,7 +982,7 @@ impl RoomE2e {
     }
 
     pub(crate) async fn add_member(&self, m: &Member, role: GroupRole) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.base
             .resources
             .common

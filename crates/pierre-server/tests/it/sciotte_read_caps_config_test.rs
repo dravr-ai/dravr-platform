@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use axum::http::StatusCode;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_config::admin_types::{ConfigDataType, ConfigScope, UpdateConfigRequest};
 use pierre_core::admin::models::DEVICE_CLI_SERVICE_PREFIX;
 use pierre_core::errors::ErrorCode;
@@ -269,7 +269,7 @@ async fn a_cap_set_through_the_admin_config_is_what_the_limiter_refuses_at() -> 
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &session_read_counter_key("sciotte", "asked", athlete_id),
-            &budget_period(Utc::now(), ONE_DAY),
+            &budget_period(Timestamp::now(), ONE_DAY),
         )
         .await?;
     assert_eq!(counted.value, 2, "the refused read took no slot");
@@ -306,7 +306,7 @@ async fn the_running_server_counts_session_reads_by_the_athletes_tier() -> Resul
             PLATFORM_SCOPE,
             PLATFORM_SCOPE,
             &key,
-            &budget_period(Utc::now(), ONE_DAY),
+            &budget_period(Timestamp::now(), ONE_DAY),
             i64::from(SessionReadCaps::for_tier(&UserTier::Starter).asked_daily),
         )
         .await?;

@@ -12,7 +12,7 @@
 //! the cached prefix from that point on. It now travels with the turn clock,
 //! which the pipeline already keeps after the cache breakpoints (carnet#895).
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_chat_pipeline::stages::turn_clock::{
     inject_turn_clock, with_freshness, TURN_CLOCK_LEAD,
 };
@@ -21,7 +21,7 @@ use pierre_llm::{ChatMessage, MessageRole};
 use pierre_services::provider_refresh::{RefreshService, UNREAD_PROVIDER_DIRECTIVE};
 
 fn stale_hint(hours_ago: i64) -> String {
-    let last_sync = Utc::now() - Duration::hours(hours_ago);
+    let last_sync = Timestamp::now() - Elapsed::hours(hours_ago);
     RefreshService::build_agent_hint(&[ProviderFreshness {
         provider: "strava".to_owned(),
         last_sync_at: Some(last_sync),

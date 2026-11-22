@@ -67,7 +67,7 @@
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
-use chrono::{DateTime, SecondsFormat, Utc};
+use dravr_tronc::dates::{SecondsFormat, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use serde::{Deserialize, Serialize};
@@ -210,7 +210,7 @@ impl DeletionReceipt {
     /// The time a receipt records for a deletion committing at `at`:
     /// RFC 3339, microseconds, `Z`.
     #[must_use]
-    pub fn timestamp(at: DateTime<Utc>) -> String {
+    pub fn timestamp(at: Timestamp) -> String {
         at.to_rfc3339_opts(SecondsFormat::Micros, true)
     }
 }
@@ -387,7 +387,7 @@ pub struct ReceiptAnchor {
     /// The C2SP signed note.
     pub note: String,
     /// When it was anchored.
-    pub anchored_at: DateTime<Utc>,
+    pub anchored_at: Timestamp,
 }
 
 /// Record one anchor; a checkpoint is anchored once.
@@ -657,7 +657,7 @@ macro_rules! impl_account_deletion_repository {
                     plan.firebase_project.as_deref()
                 );
 
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let subject = subject_hash(user_id);
                 let mut tombstone_ids = Vec::with_capacity(identities.len() + 1);
                 for (provider, identity_hash) in &identities {
@@ -917,9 +917,7 @@ mod tests {
 
     #[test]
     fn a_receipt_timestamp_keeps_microseconds_in_utc() {
-        let at = DateTime::parse_from_rfc3339("2026-10-20T12:34:56.123456789+02:00")
-            .unwrap()
-            .with_timezone(&Utc);
+        let at = Timestamp::parse_from_rfc3339("2026-10-20T12:34:56.123456789+02:00").unwrap();
         assert_eq!(
             DeletionReceipt::timestamp(at),
             "2026-10-20T10:34:56.123456Z"

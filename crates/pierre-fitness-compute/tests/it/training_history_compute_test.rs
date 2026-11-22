@@ -7,11 +7,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, NaiveDate, TimeZone, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::models::activity::{Activity, ActivityBuilder};
 use dravr_cageux::models::sport::SportType;
 use dravr_cageux::training_load::TrainingLoadCalculator;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::models::{DailyTrainingState, FormBand};
 use pierre_fitness_compute::training_history_compute::{
     compute_training_history, AthleteInputs, MAX_BACKFILL_DAYS,
@@ -23,15 +23,16 @@ fn algos() -> AlgorithmConfig {
     AlgorithmConfig::default()
 }
 
-fn day(d: i64) -> NaiveDate {
-    Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0)
+fn day(d: i64) -> CivilDate {
+    Timestamp::parse_from_rfc3339("2026-01-01T00:00:00Z")
         .unwrap()
-        .date_naive()
-        + Duration::days(d)
+        .utc_date()
+        + Elapsed::days(d)
 }
 
 fn run_at(date_idx: i64, duration_seconds: u64, avg_hr: u32) -> Activity {
-    let start = Utc.with_ymd_and_hms(2026, 1, 1, 12, 0, 0).unwrap() + Duration::days(date_idx);
+    let start =
+        Timestamp::parse_from_rfc3339("2026-01-01T12:00:00Z").unwrap() + Elapsed::days(date_idx);
     ActivityBuilder::new(
         format!("a{date_idx}"),
         format!("synthetic {date_idx}"),
@@ -89,7 +90,7 @@ fn inverted_window_returns_no_rows() {
 #[test]
 fn oversize_window_returns_no_rows() {
     let from = day(0);
-    let to = from + Duration::days(MAX_BACKFILL_DAYS + 1);
+    let to = from + Elapsed::days(MAX_BACKFILL_DAYS + 1);
     let rows = compute_training_history(&[], AthleteInputs::default(), from, to, &algos(), None)
         .expect("training-load series");
     assert_eq!(rows, []);
@@ -294,7 +295,7 @@ fn ramp_rate_positive_under_progressive_load() {
 ///
 /// The rollup buckets each activity on the athlete's own date, and then drops
 /// anything past `to`. So a caller that bounds the window with
-/// `Utc::now().date_naive()` silently loses the current day for every athlete
+/// `Timestamp::now().utc_date()` silently loses the current day for every athlete
 /// ahead of UTC — the session they just finished never reaches CTL, ATL, TSB,
 /// or any answer built on them (registre#260).
 ///
@@ -303,7 +304,7 @@ fn ramp_rate_positive_under_progressive_load() {
 #[test]
 fn a_utc_window_end_drops_the_athletes_current_civil_day() {
     // 23:00 UTC on the 3rd is 09:00 on the 4th in Sydney.
-    let start = Utc.with_ymd_and_hms(2026, 9, 3, 23, 0, 0).unwrap();
+    let start = Timestamp::parse_from_rfc3339("2026-09-03T23:00:00Z").unwrap();
     let morning_ride = ActivityBuilder::new(
         "syd-1".to_owned(),
         "this morning".to_owned(),
@@ -316,9 +317,9 @@ fn a_utc_window_end_drops_the_athletes_current_civil_day() {
     .average_heart_rate(165)
     .build();
 
-    let from = NaiveDate::from_ymd_opt(2026, 8, 25).unwrap();
-    let server_today = NaiveDate::from_ymd_opt(2026, 9, 3).unwrap();
-    let athlete_today = NaiveDate::from_ymd_opt(2026, 9, 4).unwrap();
+    let from = CivilDate::from_ymd(2026, 8, 25).unwrap();
+    let server_today = CivilDate::from_ymd(2026, 9, 3).unwrap();
+    let athlete_today = CivilDate::from_ymd(2026, 9, 4).unwrap();
     let zone = Some("Australia/Sydney");
 
     let bounded_by_the_server = compute_training_history(
@@ -455,7 +456,8 @@ fn history_honours_the_configured_training_load_algorithm() {
 /// A ride worth exactly `tss` at 06:00 UTC on `date_idx`. The explicit score
 /// is what cageux sums, so the worked example's numbers are exact.
 fn ride_worth(date_idx: i64, tss: f32) -> Activity {
-    let start = Utc.with_ymd_and_hms(2026, 1, 1, 6, 0, 0).unwrap() + Duration::days(date_idx);
+    let start =
+        Timestamp::parse_from_rfc3339("2026-01-01T06:00:00Z").unwrap() + Elapsed::days(date_idx);
     ActivityBuilder::new(
         format!("ride{date_idx}"),
         format!("daily ride {date_idx}"),
@@ -615,7 +617,8 @@ fn the_worked_example_bands_balanced_as_trainingpeaks_does() {
 /// A ride worth `tss` at 02:30 UTC on the day after `date_idx`: 21:30 on
 /// `date_idx` in Toronto.
 fn toronto_evening_ride(date_idx: i64, tss: f32) -> Activity {
-    let start = Utc.with_ymd_and_hms(2026, 1, 2, 2, 30, 0).unwrap() + Duration::days(date_idx);
+    let start =
+        Timestamp::parse_from_rfc3339("2026-01-02T02:30:00Z").unwrap() + Elapsed::days(date_idx);
     ActivityBuilder::new(
         format!("evening{date_idx}"),
         format!("evening ride {date_idx}"),
@@ -634,7 +637,7 @@ fn the_history_and_the_current_load_agree_on_the_athletes_day_near_midnight() {
     // day 60. It is 22:00 in Toronto on day 60 (03:00 UTC on day 61).
     let mut rides: Vec<Activity> = (0..60).map(|d| toronto_evening_ride(d, 80.0)).collect();
     rides.push(toronto_evening_ride(60, 150.0));
-    let now = Utc.with_ymd_and_hms(2026, 1, 1, 3, 0, 0).unwrap() + Duration::days(61);
+    let now = Timestamp::parse_from_rfc3339("2026-01-01T03:00:00Z").unwrap() + Elapsed::days(61);
     let toronto = "America/Toronto";
 
     let rows = compute_training_history(

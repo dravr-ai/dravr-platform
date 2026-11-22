@@ -25,7 +25,7 @@ pierre-logging = { version = "0.3.0", path = "../pierre-logging" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 axum = { version = "0.8", features = ["macros", "ws"] }
 bitflags = "2"
-chrono = { version = "0.4", features = ["serde"] }
+dravr-tronc = { workspace = true }
 futures-util = "0.3"
 http = "1"
 jsonwebtoken = { version = "10.4", features = ["rust_crypto", "use_pem"], default-features = false }

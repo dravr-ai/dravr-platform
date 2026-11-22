@@ -17,7 +17,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_services::athlete_places::{places_pass, PlacesPassReport};
 use pierre_services::periodic::spawn_periodic;
 use tracing::{info, warn};
@@ -46,7 +46,7 @@ pub fn start_places_worker(resources: &Arc<ServerContext>) {
     spawn_periodic(WORKER_NAME, TICK_INTERVAL, ledger, move || {
         let repos = Arc::clone(&repos);
         async move {
-            let report = places_pass(&repos, Utc::now(), USERS_PER_PASS).await?;
+            let report = places_pass(&repos, Timestamp::now(), USERS_PER_PASS).await?;
             log_pass(report);
             Ok(())
         }

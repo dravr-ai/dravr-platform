@@ -14,7 +14,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
 use pierre_core::models::workout_template::{CalendarEventSource, PrescribedWorkout};
 use pierre_core::models::{
@@ -149,7 +149,7 @@ async fn group_bound_to(
     tenant: TenantId,
     agent: &str,
 ) -> Uuid {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .create_group(
@@ -521,7 +521,7 @@ async fn workout_pushed_by(
             agent_id: Some(slug.to_owned()),
             template_slug: Some("tempo-45".to_owned()),
             sport: SportType::Run,
-            prescribed_for_date: Utc::now().date_naive(),
+            prescribed_for_date: Timestamp::now().utc_date(),
             provider: "intervals_icu".to_owned(),
             provider_event_id: Some("evt-1".to_owned()),
             external_id: Some("dravr-1".to_owned()),
@@ -531,8 +531,8 @@ async fn workout_pushed_by(
             payload_hash: Some("hash-1".to_owned()),
             payload_json: "{}".to_owned(),
             status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
         })
         .await

@@ -22,7 +22,7 @@ use std::sync::Arc;
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::check_in::CHECK_IN_HOUR;
 use pierre_core::models::CheckInCadence;
@@ -85,7 +85,7 @@ async fn put_check_in(
         .common
         .repos
         .check_in_preferences
-        .set_check_in_cadence(tenant_id, auth.user_id, update.cadence, Utc::now())
+        .set_check_in_cadence(tenant_id, auth.user_id, update.cadence, Timestamp::now())
         .await?;
     info!(
         target: "notify",

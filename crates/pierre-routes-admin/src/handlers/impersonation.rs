@@ -16,7 +16,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::User;
@@ -41,7 +41,7 @@ struct ListSessionsQuery {
     /// At most this many sessions, capped at [`MAX_SESSIONS_PAGE`].
     limit: Option<u32>,
     /// Resume after this start: the previous page's `next_before`.
-    before: Option<DateTime<Utc>>,
+    before: Option<Timestamp>,
     /// The id of the session the previous page ended on: its `next_before_id`.
     before_id: Option<String>,
 }
@@ -391,7 +391,7 @@ impl ImpersonationRoutes {
                 target_user_email: target_email,
                 reason: session.reason.clone(),
                 started_at: session.started_at.to_rfc3339(),
-                ended_at: session.ended_at.map(|dt| dt.to_rfc3339()),
+                ended_at: session.ended_at.map(Timestamp::to_rfc3339),
                 is_active: session.is_active,
                 duration_seconds: session.duration_seconds(),
             });
@@ -455,7 +455,7 @@ impl ImpersonationRoutes {
             target_user_email: target_email,
             reason: session.reason.clone(),
             started_at: session.started_at.to_rfc3339(),
-            ended_at: session.ended_at.map(|dt| dt.to_rfc3339()),
+            ended_at: session.ended_at.map(Timestamp::to_rfc3339),
             is_active: session.is_active,
             duration_seconds: session.duration_seconds(),
         };

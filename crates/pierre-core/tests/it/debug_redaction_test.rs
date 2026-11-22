@@ -9,7 +9,7 @@
 
 use std::fmt::Debug;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::models::{AdminPermissions, AdminToken};
 use pierre_core::models::agents::AgentCategory;
 use pierre_core::models::groups::GroupInviteKind;
@@ -104,7 +104,7 @@ fn a_group_invite_never_prints_its_code() {
         use_count: 0,
         is_active: true,
         approves_signup: false,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     let printed = printed_without(&invite, &["sentinel-invite-7f3a"]);
     assert!(printed.contains("GroupInvite"), "{printed}");
@@ -134,7 +134,7 @@ fn an_auth_code_never_prints_its_code_or_state() {
         tenant_id: "tenant-1".to_owned(),
         redirect_uri: "https://example.test/cb".to_owned(),
         scope: None,
-        expires_at: Utc::now(),
+        expires_at: Timestamp::now(),
         used: false,
         state: Some("sentinel-authstate-7f3a".to_owned()),
         code_challenge: None,
@@ -160,8 +160,8 @@ fn an_oauth2_state_never_prints_its_state() {
         scope: None,
         code_challenge: None,
         code_challenge_method: None,
-        created_at: Utc::now(),
-        expires_at: Utc::now(),
+        created_at: Timestamp::now(),
+        expires_at: Timestamp::now(),
         used: false,
     };
     let printed = printed_without(&state, &["sentinel-csrf-7f3a"]);
@@ -179,8 +179,8 @@ fn an_oauth_client_state_never_prints_its_state_or_pkce_verifier() {
         scope: None,
         pkce_code_verifier: Some("sentinel-verifier-7f3a".to_owned()),
         oauth_app_client_id: None,
-        created_at: Utc::now(),
-        expires_at: Utc::now(),
+        created_at: Timestamp::now(),
+        expires_at: Timestamp::now(),
         used: false,
     };
     let printed = printed_without(
@@ -408,7 +408,7 @@ fn admin_token_with_sentinel_hashes() -> AdminToken {
         tenant_id: None,
         operator_user_id: None,
         rotated_to_token_id: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         expires_at: None,
         last_used_at: None,
         last_used_ip: None,
@@ -471,7 +471,7 @@ fn a_user_never_prints_its_password_hash_or_its_provider_tokens() {
     user.strava_token = Some(EncryptedToken {
         access_token: SecretString::from("sentinel-access-7f3a"),
         refresh_token: SecretString::from("sentinel-refresh-7f3a"),
-        expires_at: Utc::now(),
+        expires_at: Timestamp::now(),
         scope: "activity:read".to_owned(),
     });
     let printed = printed_without(

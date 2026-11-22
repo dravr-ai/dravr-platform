@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::transport::TransportPolicy;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -452,7 +452,7 @@ pub struct ClaimVerdict {
     /// Comma-separated DOIs / PMIDs that backed a `Supported` verdict.
     pub evidence_refs: Option<String>,
     /// When the verdict was emitted.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Support's judgement of the verdict, once someone has read it.
     pub disposition: Option<VerdictDisposition>,
     /// Which pipeline input the triager blamed, when they named one.
@@ -463,7 +463,7 @@ pub struct ClaimVerdict {
     /// auth, the token's service under bearer auth).
     pub disposed_by: Option<String>,
     /// When the disposition was last written.
-    pub disposed_at: Option<DateTime<Utc>>,
+    pub disposed_at: Option<Timestamp>,
     /// Where this verdict may be served (carnet#769): first-party-only when the
     /// reply it judged was. Verdicts written before the stamp read as unstamped.
     #[serde(default, skip_serializing)]
@@ -500,7 +500,7 @@ pub struct GradingWithheld {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GradingPool {
     /// Window lower bound (inclusive).
-    pub window_start: DateTime<Utc>,
+    pub window_start: Timestamp,
     /// Number of days scanned.
     pub window_days: i64,
     /// Every verdict the tenant recorded in the window.

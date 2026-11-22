@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::WorkoutStep;
@@ -981,7 +982,7 @@ async fn a_weeks_only_save_waiting_on_an_outline_supersede_lands_on_the_new_outl
                   SELECT $1, tenant_id, user_id, author_agent_id, goal_race_json, races_json, \
                   'the re-laid season', phases_json, 'active', id, created_at, updated_at \
                   FROM training_plans WHERE id = $2";
-    let now = chrono::Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let days = week_days("2026-07-13");
     let week = [week_input(
         "2026-07-13",

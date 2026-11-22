@@ -19,8 +19,6 @@
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them.
 
-/// Record the consent decision and the moment it was taken.
-/// `CURRENT_TIMESTAMP` is the spelling both engines accept.
 pub(crate) const SET_ANALYTICS_CONSENT_SQL: &str = r"
         UPDATE users SET
             analytics_consent = $1,
@@ -343,7 +341,7 @@ macro_rules! impl_user_preferences {
             manages_roster: bool,
             admin: Option<Uuid>,
         ) -> AppResult<()> {
-            let granted_at = manages_roster.then(Utc::now);
+            let granted_at = manages_roster.then(Timestamp::now);
             let granted_by = admin.filter(|_| manages_roster);
             let result = sqlx::query(SET_ROSTER_BY_ADMIN_SQL)
                 .bind(manages_roster)
@@ -397,7 +395,7 @@ macro_rules! impl_user_preferences {
                 .await
                 .map_err(|e| AppError::database(format!("Failed to read the roster grant: {e}")))?
                 .ok_or_else(|| AppError::not_found(format!("User with ID: {user_id}")))?;
-            let granted_at: Option<DateTime<Utc>> =
+            let granted_at: Option<Timestamp> =
                 row.try_get("manages_roster_granted_at").map_err(|e| {
                     AppError::database(format!("Failed to read manages_roster_granted_at: {e}"))
                 })?;

@@ -24,7 +24,7 @@
 //! tombstone ([`refuse_provider_account`]), and it stands for
 //! [`CLAIM_VALIDITY_HOURS`].
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::dto::auth::EmailTombstoneInfo;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{User, UserStatus};
@@ -57,7 +57,7 @@ fn tombstone_provider(provider: &str) -> &str {
 /// its provider and when the data was deleted, for a client to render.
 #[must_use]
 pub fn refusal(tombstone: &ImportTombstone) -> AppError {
-    let deleted_on = tombstone.created_at.format("%Y-%m-%d");
+    let deleted_on = tombstone.created_at.utc_date();
     let what = match tombstone.kind {
         TombstoneKind::ProviderAccount => "The data of this provider account",
         TombstoneKind::Email => "The account registered with this email",
@@ -139,7 +139,7 @@ pub async fn refuse_provider_account(
         "Refused a provider connect: the provider account belonged to a deleted account"
     );
     if let Err(e) = tombstones
-        .record_claim(&tombstone.id, &athlete_marker(user_id), Utc::now())
+        .record_claim(&tombstone.id, &athlete_marker(user_id), Timestamp::now())
         .await
     {
         warn!(
@@ -212,14 +212,14 @@ pub(crate) async fn pending_email_tombstone(
 /// Whether `user` holds the identity `tombstone` names at `now`: its own
 /// email, or a provider account it proved it holds within
 /// [`CLAIM_VALIDITY_HOURS`].
-fn holds_identity(user: &User, tombstone: &ImportTombstone, now: DateTime<Utc>) -> bool {
+fn holds_identity(user: &User, tombstone: &ImportTombstone, now: Timestamp) -> bool {
     match tombstone.kind {
         TombstoneKind::Email => tombstone.identity_hash == email_identity_hash(&user.email),
         TombstoneKind::ProviderAccount => {
             tombstone.claimed_by.as_deref() == Some(athlete_marker(user.id).as_str())
                 && tombstone
                     .claimed_at
-                    .is_some_and(|at| now - at <= Duration::hours(CLAIM_VALIDITY_HOURS))
+                    .is_some_and(|at| now - at <= Elapsed::hours(CLAIM_VALIDITY_HOURS))
         }
     }
 }
@@ -241,7 +241,7 @@ pub async fn clear_for_account(
     user: &User,
     tombstone_id: Option<&str>,
 ) -> AppResult<Vec<ImportTombstone>> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let target = match tombstone_id {
         Some(id) => {
             let not_found = || AppError::not_found(format!("No tombstone {id} for this account"));
@@ -290,7 +290,7 @@ pub async fn clear_by_admin(
         tombstones,
         tombstone_id,
         &format!("admin:{admin}"),
-        Utc::now(),
+        Timestamp::now(),
     )
     .await?;
     info!(
@@ -306,7 +306,7 @@ async fn clear(
     tombstones: &dyn ImportTombstoneRepository,
     id: &str,
     by: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<ImportTombstone> {
     tombstones
         .clear(id, by, now)
@@ -327,9 +327,7 @@ mod tests {
             kind,
             provider: (kind == TombstoneKind::ProviderAccount).then(|| "strava".to_owned()),
             identity_hash,
-            created_at: DateTime::parse_from_rfc3339("2026-10-20T08:00:00Z")
-                .unwrap()
-                .with_timezone(&Utc),
+            created_at: Timestamp::parse_from_rfc3339("2026-10-20T08:00:00Z").unwrap(),
             cleared_at: None,
             cleared_by: None,
             claimed_by: None,
@@ -374,7 +372,7 @@ mod tests {
     #[test]
     fn an_email_tombstone_is_held_by_its_own_address_only() {
         let held = tombstone(TombstoneKind::Email, email_identity_hash("ana@example.com"));
-        let now = Utc::now();
+        let now = Timestamp::now();
         assert!(holds_identity(&user("Ana@Example.com"), &held, now));
         assert!(!holds_identity(&user("bob@example.com"), &held, now));
     }
@@ -383,16 +381,16 @@ mod tests {
     fn a_provider_tombstone_is_held_by_a_fresh_claim_of_this_account_only() {
         let claimant = user("ana@example.com");
         let other = user("bob@example.com");
-        let now = Utc::now();
+        let now = Timestamp::now();
         let mut claimed = tombstone(TombstoneKind::ProviderAccount, provider_identity_hash("42"));
         assert!(!holds_identity(&claimant, &claimed, now));
 
         claimed.claimed_by = Some(athlete_marker(claimant.id));
-        claimed.claimed_at = Some(now - Duration::hours(CLAIM_VALIDITY_HOURS));
+        claimed.claimed_at = Some(now - Elapsed::hours(CLAIM_VALIDITY_HOURS));
         assert!(holds_identity(&claimant, &claimed, now));
         assert!(!holds_identity(&other, &claimed, now));
 
-        claimed.claimed_at = Some(now - Duration::hours(CLAIM_VALIDITY_HOURS + 1));
+        claimed.claimed_at = Some(now - Elapsed::hours(CLAIM_VALIDITY_HOURS + 1));
         assert!(!holds_identity(&claimant, &claimed, now));
     }
 }

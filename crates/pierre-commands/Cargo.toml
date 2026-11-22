@@ -31,8 +31,7 @@ pierre-services = { version = "0.3.0", path = "../pierre-services" }
 pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }
 
 async-trait = "0.1"
-chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.10"
+dravr-tronc = { workspace = true, features = ["zones"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde-saphyr = "1.3"

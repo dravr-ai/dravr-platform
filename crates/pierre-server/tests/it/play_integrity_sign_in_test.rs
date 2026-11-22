@@ -24,8 +24,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_email};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use helpers::first_party_sign_in::{FirstPartyClient, IssuedCode, SignIn};
 use helpers::notify_capture::{capture_logs_and_spans, named};
@@ -87,7 +87,7 @@ fn genuine_verdict(code: &str) -> Value {
         "requestDetails": {
             "requestPackageName": MOBILE_PLAY_PACKAGE_NAME,
             "requestHash": request_hash(code),
-            "timestampMillis": Utc::now().timestamp_millis().to_string()
+            "timestampMillis": Timestamp::now().epoch_millis().to_string()
         },
         "appIntegrity": {
             "appRecognitionVerdict": "PLAY_RECOGNIZED",

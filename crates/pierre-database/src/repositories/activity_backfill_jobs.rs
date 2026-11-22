@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -406,7 +406,7 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         &self,
         lease: &JobLease,
         tenant_id: TenantId,
-    ) -> AppResult<Option<NaiveDate>>;
+    ) -> AppResult<Option<CivilDate>>;
 
     /// Pause the walk's wellness copy at `resume_day` until `pause_until_ms`
     /// (unix ms): the row is released with its attempt returned, so a cap
@@ -416,7 +416,7 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         &self,
         lease: &JobLease,
         tenant_id: TenantId,
-        resume_day: NaiveDate,
+        resume_day: CivilDate,
         pause_until_ms: i64,
     ) -> AppResult<bool>;
 

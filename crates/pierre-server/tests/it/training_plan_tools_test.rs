@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::{Datelike, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::llm::tool_simulation::generate_tool_catalog;
 use pierre_core::models::{
@@ -19,6 +19,9 @@ use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_llm::FunctionDeclaration;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_services::agent_package::PackagedCatalogue;
+use pierre_services::plan_fueling::FuelingDisclosure;
+use pierre_services::training_plan_render::render_training_plan_block;
 use pierre_test_support::log_capture::{self, CapturedEvent};
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
@@ -33,6 +36,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use dravr_tronc::dates::{CivilDate, Elapsed};
 
 async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
@@ -165,13 +169,13 @@ async fn assert_no_plan(
 
 /// `weeks` consecutive weeks from the Monday of this week, one rest day each.
 fn season_from_this_week(weeks: i64) -> Value {
-    let monday = Utc::now().date_naive()
-        - chrono::Duration::days(i64::from(
-            Utc::now().date_naive().weekday().num_days_from_monday(),
+    let monday = Timestamp::now().utc_date()
+        - Elapsed::days(i64::from(
+            Timestamp::now().utc_date().weekday().num_days_from_monday(),
         ));
     let weeks: Vec<Value> = (0..weeks)
         .map(|n| {
-            let start = (monday + chrono::Duration::weeks(n)).to_string();
+            let start = (monday + Elapsed::weeks(n)).to_string();
             json!({
                 "week_start": start,
                 "focus": format!("week {n}"),
@@ -184,7 +188,7 @@ fn season_from_this_week(weeks: i64) -> Value {
         "outline": {
             "goal_race": {
                 "name": "Season opener",
-                "date": (monday + chrono::Duration::weeks(6)).to_string(),
+                "date": (monday + Elapsed::weeks(6)).to_string(),
                 "discipline": "gravel",
                 "priority": "A"
             },
@@ -508,7 +512,7 @@ async fn a_structured_day_shows_its_steps_in_the_prompt() -> Result<()> {
         .await?;
     assert!(save.success, "save failed: {:?}", save.error);
 
-    let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 14).expect("valid date");
+    let today = CivilDate::from_ymd(2026, 7, 14).expect("valid date");
     let prompt = inject_training_plan(
         PlanPromptSources {
             repos: executor.resources.repos(),
@@ -780,7 +784,7 @@ async fn saved_plan_is_injected_into_the_system_prompt() -> Result<()> {
         ))
         .await?;
 
-    let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 14).expect("valid date");
+    let today = CivilDate::from_ymd(2026, 7, 14).expect("valid date");
     let prompt = inject_training_plan(
         PlanPromptSources {
             repos: executor.resources.repos(),
@@ -1587,7 +1591,7 @@ async fn seed_one_hour_per_week_baseline(
                 format!("baseline-{i}"),
                 format!("baseline ride {i}"),
                 SportType::Ride,
-                Utc::now() - chrono::Duration::days(2 + i * 7),
+                Timestamp::now() - Elapsed::days(2 + i * 7),
                 3_600,
                 "strava",
             )
@@ -1769,11 +1773,10 @@ async fn a_week_only_adjustment_is_not_graded_as_an_opening_week() -> Result<()>
 
 #[tokio::test]
 async fn a_date_outside_the_calendar_domain_is_rejected_with_no_write() -> Result<()> {
-    // F17: `%Y` accepts a signed, unlimited-digit year and NaiveDate's Display
-    // re-emits it, so "+262142-12-31" round-trips through the format check.
-    // Stored, it panics the renderers on every later turn — a plan is
-    // re-rendered into the system prompt for the rest of the athlete's chat
-    // history. Every date the payload carries is bounded at save time.
+    // F17: a plan is re-rendered into the system prompt for the rest of the
+    // athlete's chat history, so every date the payload carries is bounded at
+    // save time. "+262142-12-31" lies past the years the date types hold and
+    // must still be refused for its year, as "0999-08-08" is.
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
@@ -1783,6 +1786,8 @@ async fn a_date_outside_the_calendar_domain_is_rejected_with_no_write() -> Resul
         ("/weeks/0/week_start", "+262142-07-13"),
         ("/weeks/0/days/0/date", "+262142-07-13"),
         ("/outline/goal_race/date", "0999-08-08"),
+        // Year 9999 holds weeks that cannot be closed inside the calendar.
+        ("/weeks/0/week_start", "9999-12-27"),
     ] {
         let mut payload = full_plan_payload();
         *payload
@@ -1794,7 +1799,7 @@ async fn a_date_outside_the_calendar_domain_is_rejected_with_no_write() -> Resul
         )
         .await;
         assert!(
-            message.contains("is outside 1000-9999"),
+            message.contains("is outside 1000-9998"),
             "the rejection of {pointer} must name the calendar bound it broke, \
              not a shape it satisfies: {message}"
         );
@@ -1819,6 +1824,79 @@ async fn a_date_outside_the_calendar_domain_is_rejected_with_no_write() -> Resul
     Ok(())
 }
 
+/// The latest week the save path accepts reaches the prompt. Its start,
+/// `9998-12-31`, is the last day of the last plan year, and the week closes on
+/// `9999-01-06`, inside the calendar. Were year 9999 accepted, a week starting
+/// after `9999-12-25` would save and then be silently skipped by every render.
+#[tokio::test]
+async fn the_latest_accepted_week_is_saved_and_rendered() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let payload = json!({
+        "agent_id": "endurance-coach",
+        "outline": {
+            "goal_race": {
+                "name": "Last Light",
+                "date": "9998-12-31",
+                "discipline": "gravel",
+                "priority": "A"
+            },
+            "strategy": "one week at the far edge of the plan calendar",
+            "phases": [
+                {"kind": "taper", "start": "9998-12-31", "weeks": 1, "intent": "edge of the plan years"}
+            ]
+        },
+        "weeks": [{
+            "week_start": "9998-12-31",
+            "focus": "the last plan week",
+            "days": [
+                {"date": "9998-12-31", "sport": "gravel", "workout": "edge-of-calendar ride", "duration_min": 60, "intensity": "Z2"}
+            ]
+        }]
+    });
+    let saved = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            payload,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(
+        saved.success,
+        "the latest week must save: {:?}",
+        saved.error
+    );
+
+    // Read back as the chat pipeline reads it, and render as it renders.
+    let plans = executor.resources.repos().training_plans.clone();
+    let plan = plans
+        .get_active_plan(&tenant_id, &user_id.to_string())
+        .await?
+        .expect("an active plan");
+    let weeks = plans
+        .list_plan_weeks(&tenant_id, &user_id.to_string(), &plan.id, false)
+        .await?;
+    assert_eq!(weeks.len(), 1, "the week is stored");
+    let block = render_training_plan_block(
+        &plan,
+        &weeks,
+        CivilDate::from_ymd(9998, 12, 31)?,
+        &PackagedCatalogue::catalogue_only(&TrainingCatalogueRegistry::new()),
+        &FuelingDisclosure::Shown,
+    )
+    .expect("an active plan renders a block");
+    assert!(
+        block.contains("This week (starting 9998-12-31) — focus: the last plan week"),
+        "the latest accepted week must render, not be skipped: {block}"
+    );
+    assert!(
+        block.contains("9998-12-31") && block.contains("edge-of-calendar ride"),
+        "its day must render: {block}"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_hallucinated_week_count_is_rejected_with_no_write() -> Result<()> {
     // F25: every other collection in the payload is capped. An unbounded weeks
@@ -1828,21 +1906,21 @@ async fn a_hallucinated_week_count_is_rejected_with_no_write() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
 
-    let mut week_start = chrono::NaiveDate::from_ymd_opt(2026, 7, 13).expect("valid date");
+    let mut week_start = CivilDate::from_ymd(2026, 7, 13).expect("valid date");
     let mut weeks = Vec::new();
     for _ in 0..105 {
         weeks.push(json!({
-            "week_start": week_start.format("%Y-%m-%d").to_string(),
+            "week_start": week_start.to_string(),
             "focus": "endurance",
             "days": [{
-                "date": week_start.format("%Y-%m-%d").to_string(),
+                "date": week_start.to_string(),
                 "sport": "gravel",
                 "workout": "endurance",
                 "duration_min": 90,
                 "intensity": "Z2"
             }]
         }));
-        week_start += chrono::Duration::days(7);
+        week_start += Elapsed::days(7);
     }
     let mut payload = full_plan_payload();
     payload["weeks"] = Value::Array(weeks);
@@ -1939,8 +2017,8 @@ async fn save_refuses_mid_walk_even_with_no_conversation_in_scope() -> Result<()
         .set_conversation_onboarding_state(
             &conversation.id,
             Some(
-                &OnboardingState::start(Utc::now().to_rfc3339(), GuidedFlow::Pillars)
-                    .completed(Utc::now().to_rfc3339())
+                &OnboardingState::start(Timestamp::now().to_rfc3339(), GuidedFlow::Pillars)
+                    .completed(Timestamp::now().to_rfc3339())
                     .to_column()?,
             ),
             tenant,
@@ -2102,13 +2180,13 @@ async fn rendered_tool_catalog_exposes_the_nested_field_names() {
 
 /// `YYYY-MM-DD`, `offset` days from today.
 fn day_offset(offset: i64) -> String {
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     let d = if offset >= 0 {
-        today + chrono::Days::new(offset.unsigned_abs())
+        today + Elapsed::days(offset.abs())
     } else {
-        today - chrono::Days::new(offset.unsigned_abs())
+        today - Elapsed::days(offset.abs())
     };
-    d.format("%Y-%m-%d").to_string()
+    d.to_string()
 }
 
 /// One week of two real sessions starting `offset` days from today.

@@ -33,7 +33,8 @@ use std::sync::{Arc, Mutex};
 use axum::http::HeaderMap;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{OAuthClientState, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::oauth_flow::OAuthService;
@@ -178,8 +179,8 @@ async fn token_exchange_captures_the_whoop_user_id() {
             scope: None,
             pkce_code_verifier: None,
             oauth_app_client_id: None,
-            created_at: Utc::now(),
-            expires_at: Utc::now() + chrono::Duration::minutes(10),
+            created_at: Timestamp::now(),
+            expires_at: Timestamp::now() + Elapsed::minutes(10),
             used: false,
         })
         .await
@@ -237,7 +238,7 @@ async fn seed_expired_whoop_token(
     tenant_id: TenantId,
     provider_user_id: Option<&str>,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let token = UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,
@@ -246,7 +247,7 @@ async fn seed_expired_whoop_token(
         access_token: SecretString::from("whoop_expired_access"),
         refresh_token: Some(SecretString::from("whoop_old_refresh")),
         token_type: "Bearer".to_owned(),
-        expires_at: Some(now - chrono::Duration::hours(1)),
+        expires_at: Some(now - Elapsed::hours(1)),
         scope: Some("read:sleep".to_owned()),
         provider_user_id: provider_user_id.map(str::to_owned),
         oauth_app_client_id: None,
@@ -311,7 +312,7 @@ async fn refresh_fills_a_missing_whoop_user_id() {
         Some("12345"),
         "the id is persisted with the refreshed tokens"
     );
-    assert!(stored.expires_at.unwrap() > Utc::now());
+    assert!(stored.expires_at.unwrap() > Timestamp::now());
 }
 
 /// The owner id is written after the refreshed pair, with a profile read in
@@ -348,7 +349,7 @@ async fn a_refresh_landing_during_the_profile_read_keeps_its_pair() {
                     &row,
                     "access-of-the-later-refresh",
                     Some("refresh-of-the-later-refresh"),
-                    Some(Utc::now() + chrono::Duration::hours(2)),
+                    Some(Timestamp::now() + Elapsed::hours(2)),
                 )
                 .await
                 .unwrap();

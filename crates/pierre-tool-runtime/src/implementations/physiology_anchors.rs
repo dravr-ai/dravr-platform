@@ -18,8 +18,8 @@
 
 use std::collections::BTreeSet;
 
-use chrono::{NaiveDate, Utc};
 use dravr_cageux::physiological_constants::configuration_validation;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::{
@@ -109,7 +109,7 @@ struct AnchorStatement {
     high: Option<f64>,
     kind: MeasurementKind,
     origin: String,
-    measured_on: Option<NaiveDate>,
+    measured_on: Option<CivilDate>,
     method: Option<String>,
     confidence: AnchorConfidence,
 }
@@ -161,7 +161,7 @@ impl SportAnchorUpdate {
 
     /// The stated anchors as stored, each dated `today` when the call named
     /// no day.
-    pub(crate) fn anchors(&self, today: NaiveDate) -> Vec<SportAnchor> {
+    pub(crate) fn anchors(&self, today: CivilDate) -> Vec<SportAnchor> {
         self.statements
             .iter()
             .map(|s| {
@@ -279,12 +279,12 @@ impl AnchorStatement {
             bounded("source")?.unwrap_or_else(|| AnchorOrigin::Athlete.as_str().to_owned());
         let measured_on = text("measured_on")
             .map(|raw| {
-                NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+                CivilDate::parse_from_str(raw, "%Y-%m-%d")
                     .map_err(|_| format!("measured_on must be a date as YYYY-MM-DD; got '{raw}'"))
             })
             .transpose()?;
         if let Some(day) = measured_on {
-            if day > Utc::now().date_naive() {
+            if day > Timestamp::now().utc_date() {
                 return Err(format!("measured_on cannot be in the future; got {day}"));
             }
         }
@@ -543,8 +543,10 @@ mod tests {
         }
     }
 
-    fn date(year: i32, month: u32, day: u32) -> Result<NaiveDate, Box<dyn Error>> {
-        NaiveDate::from_ymd_opt(year, month, day).ok_or_else(|| "fixture date".into())
+    fn date(year: i32, month: u32, day: u32) -> Result<CivilDate, Box<dyn Error>> {
+        CivilDate::from_ymd(year, month, day)
+            .ok()
+            .ok_or_else(|| "fixture date".into())
     }
 
     #[test]
@@ -570,7 +572,7 @@ mod tests {
         let update = parse(&json!({
             "sport": "run", "anchor": "critical_speed", "value": 4.4, "kind": "estimated"
         }))?;
-        let anchors = update.anchors(NaiveDate::MIN);
+        let anchors = update.anchors(CivilDate::MIN);
         let anchor = anchors.first().ok_or("one anchor")?;
         assert_eq!(anchor.value.confidence, AnchorConfidence::Low);
         assert_eq!(anchor.value.origin.as_deref(), Some("athlete"));

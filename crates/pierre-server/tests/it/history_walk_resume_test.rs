@@ -35,7 +35,7 @@ use crate::history_walk_test::{
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::{Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::DatabaseBackend;
@@ -140,7 +140,7 @@ async fn oldest_stored(resources: &Arc<ServerContext>, user_id: Uuid, tenant: Te
         .await
         .unwrap()
         .expect("a row is stored")
-        .timestamp()
+        .epoch_seconds()
 }
 
 /// The session's month walk fails a day below the run eight years old: the
@@ -152,7 +152,7 @@ async fn oldest_stored(resources: &Arc<ServerContext>, user_id: Uuid, tenant: Te
 #[tokio::test]
 async fn a_bounded_step_short_of_its_window_lands_and_reads_below_its_oldest_row() {
     let switch = ScraperSwitch::default();
-    let cut = (Utc::now() - ChronoDuration::days(8 * 365 + 1)).timestamp();
+    let cut = (Timestamp::now() - Elapsed::days(8 * 365 + 1)).epoch_seconds();
     *switch.short_below.lock().unwrap() = Some(cut);
     let (scraper, calls) = spawn_switchable_scraper(switch).await;
     let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
@@ -200,7 +200,7 @@ async fn a_bounded_step_short_of_its_window_lands_and_reads_below_its_oldest_row
 #[tokio::test]
 async fn the_first_step_refuses_a_short_capture_and_a_re_ask_waits_out_the_day() {
     let switch = ScraperSwitch::default();
-    let cut = (Utc::now() - ChronoDuration::days(10)).timestamp();
+    let cut = (Timestamp::now() - Elapsed::days(10)).epoch_seconds();
     *switch.short_below.lock().unwrap() = Some(cut);
     let (scraper, calls) = spawn_switchable_scraper(switch).await;
     let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
@@ -243,7 +243,7 @@ async fn the_first_step_refuses_a_short_capture_and_a_re_ask_waits_out_the_day()
         &resources,
         user_id,
         "UPDATE activity_backfill_jobs SET ended_at_ms = $2 WHERE user_id = $1",
-        &[Utc::now().timestamp_millis() - PAST_THE_BACK_OFF_MS],
+        &[Timestamp::now().epoch_millis() - PAST_THE_BACK_OFF_MS],
     )
     .await;
     assert!(
@@ -263,7 +263,7 @@ async fn the_first_step_refuses_a_short_capture_and_a_re_ask_waits_out_the_day()
 #[tokio::test]
 async fn an_empty_first_step_short_of_its_head_never_ends_the_walk() {
     let switch = ScraperSwitch::default();
-    let cut = (Utc::now() - ChronoDuration::hours(1)).timestamp();
+    let cut = (Timestamp::now() - Elapsed::hours(1)).epoch_seconds();
     *switch.short_below.lock().unwrap() = Some(cut);
     let (scraper, _calls) = spawn_switchable_scraper(switch).await;
     let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
@@ -300,14 +300,17 @@ async fn a_re_asked_incomplete_walk_resumes_from_its_cursor_with_its_counters() 
             .unwrap(),
         "bug: the ledger records the walk"
     );
-    let cursor = (Utc::now() - ChronoDuration::days(6 * 365)).timestamp();
+    let cursor = (Timestamp::now() - Elapsed::days(6 * 365)).epoch_seconds();
     update_walk_row(
         &resources,
         user_id,
         "UPDATE activity_backfill_jobs SET outcome = 'incomplete', before_ts = $2, \
          months_done = 60, rows_landed = 7, ended_at_ms = $3, leased_until_ms = 0, \
          lease_token = NULL WHERE user_id = $1",
-        &[cursor, Utc::now().timestamp_millis() - PAST_THE_BACK_OFF_MS],
+        &[
+            cursor,
+            Timestamp::now().epoch_millis() - PAST_THE_BACK_OFF_MS,
+        ],
     )
     .await;
 

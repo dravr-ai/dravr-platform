@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::CoachingPersona;
 use serde::{Deserialize, Serialize};
 
@@ -248,7 +248,7 @@ pub struct PersonaContractsSnapshot {
     /// SHA-256 of the source YAML at install time.
     pub source_sha256: Option<String>,
     /// When this snapshot was installed.
-    pub loaded_at: Option<DateTime<Utc>>,
+    pub loaded_at: Option<Timestamp>,
 }
 
 impl PersonaContractsSnapshot {
@@ -355,7 +355,7 @@ impl PersonaContractRegistry {
             glossary,
             version,
             source_sha256: Some(super::manifest::compute_sha256(yaml.as_bytes())),
-            loaded_at: Some(Utc::now()),
+            loaded_at: Some(Timestamp::now()),
         };
         self.snapshot.store(Arc::new(snapshot));
         Ok(())

@@ -18,7 +18,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 use pierre_chat_pipeline::{
     InputSource, PipelineHooks, QuotaState, SurfaceId, SurfaceProfile, SurfaceRequest, TurnInput,
@@ -118,7 +118,7 @@ async fn athlete_tenant(resources: &ServerContext, user: Uuid) -> TenantId {
 /// The channel owner's tenant, which the room's conversation row sits under.
 async fn channel_tenant(resources: &ServerContext, owner: Uuid) -> TenantId {
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos

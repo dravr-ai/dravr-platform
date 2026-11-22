@@ -16,6 +16,7 @@
 use crate::common;
 use crate::helpers;
 
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
@@ -250,8 +251,8 @@ async fn test_create_tenant_duplicate_slug() {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: setup.user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     setup
@@ -299,8 +300,8 @@ async fn test_list_tenants_success() {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: setup.user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     setup
@@ -436,8 +437,8 @@ async fn test_tenant_ownership() {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: setup.user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     setup
@@ -480,8 +481,8 @@ async fn test_switch_tenant_success() {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: setup.user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     setup
@@ -600,8 +601,8 @@ async fn test_switch_tenant_non_member() {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: other_user.id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     setup
@@ -660,8 +661,8 @@ async fn test_switch_between_multiple_tenants() {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: setup.user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     let tenant2 = Tenant {
@@ -671,8 +672,8 @@ async fn test_switch_between_multiple_tenants() {
         domain: None,
         plan: "professional".to_owned(),
         owner_user_id: setup.user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     setup

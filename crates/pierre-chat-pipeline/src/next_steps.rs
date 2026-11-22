@@ -31,7 +31,7 @@
 //! rides a reply while a guided walk owns the thread, and none is offered in
 //! a shared room, where one athlete's state would be read back to everyone.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::use_case_catalogue::{Repeat, UseCase, UseCaseCatalogue, UseCaseRun};
 use pierre_core::models::{Pillar, TenantId};
@@ -241,8 +241,13 @@ impl NextSteps {
         after: StepsAfter,
         target: &StepsFor<'_>,
     ) -> Self {
-        let state = match AthleteState::read(repos, target.tenant_id, target.user_id, Utc::now())
-            .await
+        let state = match AthleteState::read(
+            repos,
+            target.tenant_id,
+            target.user_id,
+            Timestamp::now(),
+        )
+        .await
         {
             Ok((state, _)) => state,
             Err(e) => {
@@ -500,7 +505,11 @@ async fn catalogue_steps(
     if !input.is_direct_message {
         return NextSteps::default();
     }
-    let laid_out = season_laid_out(conv.onboarding_state.as_deref(), Utc::now(), plan_was_saved);
+    let laid_out = season_laid_out(
+        conv.onboarding_state.as_deref(),
+        Timestamp::now(),
+        plan_was_saved,
+    );
     let Some(after) = input
         .steps_after
         .or_else(|| laid_out.then_some(StepsAfter::SeasonWalk))
@@ -526,7 +535,7 @@ async fn catalogue_steps(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_contremaitre::use_case_catalogue::Stage;
     use pierre_core::models::{PersistedAction, PersistedReplyBlock};
     use pierre_services::athlete_state::{ActivityHistory, DossierCoverage};
@@ -610,7 +619,7 @@ mod tests {
             use_case_id: id.to_owned(),
             shown_count: 0,
             last_shown_at: None,
-            tapped_at: Some(Utc::now()),
+            tapped_at: Some(Timestamp::now()),
         }
     }
 

@@ -39,7 +39,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::INTERVALS_ICU;
@@ -221,7 +221,7 @@ async fn athlete(res: &Arc<ServerContext>, label: &str) -> (Uuid, TenantId) {
 
 /// Link the athlete's own Intervals.icu API key, as the link route does.
 async fn connect_intervals(res: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId, id: &str) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     res.common
         .repos
         .oauth_tokens

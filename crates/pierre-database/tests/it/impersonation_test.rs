@@ -15,7 +15,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::User;
 use pierre_core::permissions::impersonation::ImpersonationSession;
 use pierre_database::repositories::SessionCursor;
@@ -55,8 +55,8 @@ async fn a_session_reads_back_by_id_and_by_either_party() {
     assert!(by_id.is_active);
     assert_eq!(by_id.ended_at, None);
     assert_eq!(
-        by_id.started_at.timestamp_millis(),
-        session.started_at.timestamp_millis(),
+        by_id.started_at.epoch_millis(),
+        session.started_at.epoch_millis(),
         "started_at survives the round-trip to the millisecond"
     );
 
@@ -172,14 +172,14 @@ async fn the_session_log_pages_through_every_session_with_no_gap_at_a_tied_start
     let admin = fresh_user(repos).await;
     let target = fresh_user(repos).await;
 
-    let tied_at = Utc.with_ymd_and_hms(2026, 9, 27, 9, 0, 0).unwrap();
+    let tied_at = Timestamp::parse_from_rfc3339("2026-09-27T09:00:00Z").unwrap();
     let mut written = Vec::new();
     for (n, started_at) in [
-        tied_at - Duration::minutes(5),
+        tied_at - Elapsed::minutes(5),
         tied_at,
         tied_at,
         tied_at,
-        tied_at + Duration::minutes(5),
+        tied_at + Elapsed::minutes(5),
     ]
     .into_iter()
     .enumerate()

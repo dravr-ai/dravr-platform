@@ -43,7 +43,7 @@ use std::sync::Arc;
 
 use axum::extract::{Query, State};
 use axum::Json;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_contremaitre::anchor_strings::{
     anchor_range_text, anchor_source_text, anchor_value_text, AnchorReader,
 };
@@ -182,7 +182,7 @@ struct PhysiologyAnchor {
     /// Who set it, as stored: `athlete`, a provider, a test.
     origin: Option<String>,
     /// The day it was measured, stated or imported, when known.
-    as_of: Option<NaiveDate>,
+    as_of: Option<CivilDate>,
     /// How it was measured, as stored; for MAP, its definition.
     method: Option<String>,
     /// How far to trust it, as stored.
@@ -302,7 +302,7 @@ mod tests {
             low: range.map(|(low, _)| low),
             high: range.map(|(_, high)| high),
             origin: Some("intervals.icu".to_owned()),
-            as_of: NaiveDate::from_ymd_opt(2026, 10, 1),
+            as_of: CivilDate::from_ymd(2026, 10, 1).ok(),
             method: None,
             confidence,
         }

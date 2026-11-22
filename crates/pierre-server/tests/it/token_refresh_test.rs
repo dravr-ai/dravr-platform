@@ -9,7 +9,7 @@
 
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
-use chrono::DateTime;
+use dravr_tronc::dates::Timestamp;
 
 use crate::common;
 
@@ -47,14 +47,14 @@ async fn test_jwt_token_parsing() -> Result<()> {
     assert!(claims.exp > 0, "Expiration should be set");
 
     // Verify expiry is in the future
-    let now = chrono::Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     assert!(claims.exp > now, "Token should not be expired");
 
     println!(" JWT token parsing successful");
     println!("   User ID: {}", claims.sub);
     println!(
         "   Expires at: {}",
-        DateTime::from_timestamp(claims.exp, 0).unwrap()
+        Timestamp::from_epoch_seconds(claims.exp).unwrap()
     );
 
     Ok(())

@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Method, Request, StatusCode};
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{
     Activity, ActivityBuilder, GearDeclaration, GearKind, SportType, TenantId,
     DEFAULT_SHOE_WARN_DISTANCE_METERS,
@@ -112,16 +112,17 @@ fn meters(pair: &Value) -> f64 {
 }
 
 /// `days` days before a fixed hour today.
-fn days_ago(days: i64) -> DateTime<Utc> {
-    Utc::now()
-        .date_naive()
-        .and_hms_opt(6, 0, 0)
+fn days_ago(days: i64) -> Timestamp {
+    Timestamp::now()
+        .utc_date()
+        .and_hms(6, 0, 0)
         .unwrap()
         .and_utc()
-        - Duration::days(days)
+        .unwrap()
+        - Elapsed::days(days)
 }
 
-fn run(id: &str, provider: &str, started: DateTime<Utc>, meters: f64) -> Activity {
+fn run(id: &str, provider: &str, started: Timestamp, meters: f64) -> Activity {
     ActivityBuilder::new(
         id,
         format!("Run {id}"),
@@ -197,7 +198,7 @@ async fn cache_one_run_twice(resources: &Arc<ServerContext>, athlete: &Athlete, 
         &[run(
             "i1",
             "intervals_icu",
-            start + Duration::seconds(30),
+            start + Elapsed::seconds(30),
             meters,
         )],
     )
@@ -234,7 +235,7 @@ async fn home(
 }
 
 /// A ten-minute run's FIT file, recorded from `start`.
-fn fit_run(start: DateTime<Utc>) -> FitWorkout {
+fn fit_run(start: Timestamp) -> FitWorkout {
     FitWorkout {
         start,
         seconds: 600,
@@ -642,7 +643,7 @@ async fn a_choice_on_a_deleted_upload_stays_with_the_workouts_strava_copy() {
         "s9",
         "Morning Run",
         SportType::Run,
-        start + Duration::seconds(20),
+        start + Elapsed::seconds(20),
         600,
         "strava",
     )
@@ -808,7 +809,7 @@ async fn an_attributed_distance_follows_the_copy_standing_for_the_workout() {
         &resources,
         &athlete,
         "garmin",
-        &[run("g1", "garmin", start + Duration::seconds(2), 10_150.0)],
+        &[run("g1", "garmin", start + Elapsed::seconds(2), 10_150.0)],
     )
     .await;
     let daily = pair(&resources, &athlete, id).await;

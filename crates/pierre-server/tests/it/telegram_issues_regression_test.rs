@@ -10,6 +10,7 @@
 use std::env;
 
 use dravr_cageux::metrics_extractor::MetricType;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{ActivityBuilder, SportType};
 use pierre_llm::prompts::{
     get_messaging_context_prompt, get_pierre_system_prompt, get_tool_discipline_prompt,
@@ -42,7 +43,7 @@ fn assembled_base_prompt() -> String {
 #[test]
 fn test_elevation_metric_type_supported() {
     // MetricType::Elevation must exist and extract elevation_gain from activities
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     let activity = ActivityBuilder::new(
         "test_elev",
         "Trail Run with Elevation",
@@ -266,7 +267,7 @@ fn test_activity_fetch_limit_default() {
 
 #[test]
 fn test_activity_with_zero_elevation_flagged() {
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
 
     // Trail run with 8.9km but 0 elevation — suspicious for trail running
     let activity = ActivityBuilder::new(

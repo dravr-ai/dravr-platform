@@ -34,7 +34,7 @@
 
 use std::collections::HashMap;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::{
@@ -112,7 +112,7 @@ pub async fn request_access(
         None => None,
     };
 
-    let request = CoachAccessRequest::pending(user_id, group.clone(), Utc::now());
+    let request = CoachAccessRequest::pending(user_id, group.clone(), Timestamp::now());
     if repos.coach_access_requests.open(&request).await? {
         supersede_earlier_declines(repos, &request).await;
         announce_opened(repos, &user, &request, origin).await;
@@ -498,7 +498,7 @@ pub async fn grant(
     let had_coach_access = requester.as_ref().is_some_and(|user| user.manages_roster);
     let tenant = grant_tenant(repos, &request).await;
 
-    let decided_at = Utc::now();
+    let decided_at = Timestamp::now();
     if !repos
         .coach_access_requests
         .decide(
@@ -717,7 +717,7 @@ pub async fn decline(
     notices: Option<&CoachAccessNotices>,
 ) -> AppResult<CoachAccessRequest> {
     let request = pending_request(repos, request_id).await?;
-    let decided_at = Utc::now();
+    let decided_at = Timestamp::now();
     let reason = normalize_decline_reason(reason);
     if !repos
         .coach_access_requests
@@ -846,7 +846,7 @@ mod tests {
 
     #[test]
     fn a_request_without_a_group_locates_none() {
-        let request = CoachAccessRequest::pending(Uuid::new_v4(), None, Utc::now());
+        let request = CoachAccessRequest::pending(Uuid::new_v4(), None, Timestamp::now());
         assert_eq!(located_group(&request), None);
     }
 
@@ -857,7 +857,7 @@ mod tests {
         let request = CoachAccessRequest::pending(
             Uuid::new_v4(),
             Some((group, tenant.to_string())),
-            Utc::now(),
+            Timestamp::now(),
         );
         assert_eq!(
             located_group(&request),
@@ -870,7 +870,7 @@ mod tests {
         let request = CoachAccessRequest::pending(
             Uuid::new_v4(),
             Some((Uuid::new_v4(), "not-a-uuid".to_owned())),
-            Utc::now(),
+            Timestamp::now(),
         );
         assert_eq!(located_group(&request), None);
     }

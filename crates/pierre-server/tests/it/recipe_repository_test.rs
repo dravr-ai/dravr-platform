@@ -11,7 +11,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::recipes::{
     IngredientUnit, MealTiming, Recipe, RecipeIngredient, ValidatedNutrition,
 };
@@ -59,7 +59,7 @@ fn sample_nutrition() -> ValidatedNutrition {
         fiber_g: Some(8.1),
         sodium_mg: None,
         sugar_g: Some(19.4),
-        validated_at: Utc::now() - Duration::hours(1),
+        validated_at: Timestamp::now() - Elapsed::hours(1),
     }
 }
 
@@ -114,12 +114,12 @@ async fn create_then_get_round_trips_every_column() {
     assert_eq!(nutrition.sodium_mg, None);
     assert_eq!(nutrition.sugar_g, Some(19.4));
     assert_eq!(
-        nutrition.validated_at.timestamp_millis(),
-        expected.validated_at.timestamp_millis()
+        nutrition.validated_at.epoch_millis(),
+        expected.validated_at.epoch_millis()
     );
 
-    let age = Utc::now() - stored.created_at;
-    assert!(age < Duration::minutes(1), "created_at is the call time");
+    let age = Timestamp::now() - stored.created_at;
+    assert!(age < Elapsed::minutes(1), "created_at is the call time");
     assert_eq!(stored.created_at, stored.updated_at);
 }
 

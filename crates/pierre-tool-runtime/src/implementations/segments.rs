@@ -38,8 +38,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Months, NaiveDate, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use pierre_core::civil_time::{self, clock_date, resolve_zone};
 use pierre_core::constants::oauth::providers::STRAVA;
 use pierre_core::errors::{AppError, AppResult};
@@ -95,9 +94,9 @@ const DEFAULT_YEARS: u32 = 10;
 struct SegmentAsk {
     segment: SegmentMatch,
     /// The first day of the window, the athlete's.
-    from: NaiveDate,
+    from: CivilDate,
     /// The last day of the window, the athlete's, included.
-    to: NaiveDate,
+    to: CivilDate,
     /// The sport asked, as the caller spelled it.
     sport: Option<String>,
 }
@@ -110,10 +109,10 @@ fn text_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|text| !text.is_empty())
 }
 
-fn date_arg(args: &Value, key: &str) -> AppResult<Option<NaiveDate>> {
+fn date_arg(args: &Value, key: &str) -> AppResult<Option<CivilDate>> {
     text_arg(args, key)
         .map(|raw| {
-            NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+            CivilDate::parse_from_str(raw, "%Y-%m-%d")
                 .map_err(|e| AppError::invalid_input(format!("{key} must be YYYY-MM-DD: {e}")))
         })
         .transpose()
@@ -122,7 +121,7 @@ fn date_arg(args: &Value, key: &str) -> AppResult<Option<NaiveDate>> {
 /// Parse the call: exactly one of `segment_id` and `segment_name`, the
 /// window (`to` defaults to the athlete's `today`, `from` to
 /// [`DEFAULT_YEARS`] before it), and the sport.
-fn parse_ask(args: &Value, today: NaiveDate) -> AppResult<SegmentAsk> {
+fn parse_ask(args: &Value, today: CivilDate) -> AppResult<SegmentAsk> {
     // A model may pass the id as the number `segment_efforts` showed it.
     let numeric_id = args
         .get("segment_id")
@@ -150,8 +149,8 @@ fn parse_ask(args: &Value, today: NaiveDate) -> AppResult<SegmentAsk> {
     };
     let to = date_arg(args, "to")?.unwrap_or(today);
     let from = date_arg(args, "from")?.unwrap_or_else(|| {
-        to.checked_sub_months(Months::new(DEFAULT_YEARS * 12))
-            .unwrap_or(NaiveDate::MIN)
+        to.checked_sub_months(DEFAULT_YEARS * 12)
+            .unwrap_or(CivilDate::MIN)
     });
     if to < from {
         return Err(AppError::invalid_input("from must not be after to"));
@@ -166,9 +165,9 @@ fn parse_ask(args: &Value, today: NaiveDate) -> AppResult<SegmentAsk> {
 
 /// The window `[from 00:00, to + 1 00:00)` on the athlete's clock, as UTC
 /// instants.
-fn window_instants(ask: &SegmentAsk, zone: Tz) -> (DateTime<Utc>, DateTime<Utc>) {
-    let midnight = |day: NaiveDate| civil_time::day_start_utc(day, zone);
-    let end = ask.to.succ_opt().map_or_else(Utc::now, midnight);
+fn window_instants(ask: &SegmentAsk, zone: &Zone) -> (Timestamp, Timestamp) {
+    let midnight = |day: CivilDate| civil_time::day_start_utc(day, zone);
+    let end = ask.to.succ().map_or_else(Timestamp::now, midnight);
     (midnight(ask.from), end)
 }
 
@@ -183,13 +182,13 @@ async fn stored_details(
     runtime: &Arc<dyn ToolRuntime>,
     athlete: Athlete,
     ask: &SegmentAsk,
-    zone: Tz,
+    zone: &Zone,
 ) -> AppResult<SegmentHistoryResult> {
     let keys = segment_keys();
     let window = CivilWindow {
         from: Some(ask.from),
         to: ask.to,
-        zone,
+        zone: zone.clone(),
     };
     let mut counts = SegmentCounts::default();
     let mut seen: HashSet<String> = HashSet::new();
@@ -238,8 +237,8 @@ async fn stored_details(
     let (completeness, pending) = segment_completeness(
         runtime,
         athlete,
-        start.timestamp(),
-        end.timestamp(),
+        start.epoch_seconds(),
+        end.epoch_seconds(),
         ask.sport.as_deref(),
         counts,
     )
@@ -590,8 +589,8 @@ impl McpTool<dyn ToolRuntime> for GetSegmentHistoryTool {
                     .await?
                     .as_deref(),
             );
-            let ask = parse_ask(&args, clock_date(Utc::now(), zone))?;
-            ok_typed(TOOL, stored_details(runtime, athlete, &ask, zone).await?)
+            let ask = parse_ask(&args, clock_date(Timestamp::now(), &zone))?;
+            ok_typed(TOOL, stored_details(runtime, athlete, &ask, &zone).await?)
         }
         .await;
         tool_result_to_response(result)
@@ -606,8 +605,10 @@ mod tests {
 
     use super::*;
 
-    fn today() -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 11, 14).unwrap_or(NaiveDate::MIN)
+    fn today() -> CivilDate {
+        CivilDate::from_ymd(2026, 11, 14)
+            .ok()
+            .unwrap_or(CivilDate::MIN)
     }
 
     #[test]
@@ -617,7 +618,9 @@ mod tests {
         assert_eq!(ask.to, today(), "bug: the window ends today");
         assert_eq!(
             ask.from,
-            NaiveDate::from_ymd_opt(2016, 11, 14).unwrap_or(NaiveDate::MIN),
+            CivilDate::from_ymd(2016, 11, 14)
+                .ok()
+                .unwrap_or(CivilDate::MIN),
             "bug: the window starts ten years back"
         );
         assert_eq!(

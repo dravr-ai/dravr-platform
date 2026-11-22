@@ -29,9 +29,9 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::routing::{get, post};
 use axum::{Form, Json, Router};
-use chrono::{Duration, Utc};
 use dravr_canot::channel::MessagingChannel;
 use dravr_canot::error::MessagingResult;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{TenantId, User};
@@ -218,7 +218,7 @@ impl Fixture {
     async fn pending_link(&self, channel: &str) -> String {
         let db: &dyn MessagingRepository = &*self.resources.common.repos.messaging;
         let code = Uuid::new_v4().to_string();
-        let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+        let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
         db.create_link_state(&CreateLinkStateParams {
             id: &Uuid::new_v4().to_string(),
             tenant_id: self.tenant_id,

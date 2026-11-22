@@ -14,6 +14,7 @@ use secrecy::ExposeSecret;
 use axum::http::StatusCode;
 use axum::Router;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use pierre_core::admin::models::{CreateAdminTokenRequest, DEVICE_CLI_SERVICE_PREFIX};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
@@ -61,7 +62,7 @@ pub(crate) async fn user_with_role(resources: &Arc<ServerContext>, role: UserRol
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     resources.common.repos.users.create(&user).await.unwrap();
 
     let tenant_id = TenantId::generate();
@@ -72,8 +73,8 @@ pub(crate) async fn user_with_role(resources: &Arc<ServerContext>, role: UserRol
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user.id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common

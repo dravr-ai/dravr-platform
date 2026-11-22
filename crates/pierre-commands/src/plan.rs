@@ -5,9 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{NaiveDate, Utc};
 use dravr_canot::commands::CommandResponse;
 use dravr_canot::rich_text::escape_markdown;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_contremaitre::evidence_strings::{self, KEY_PLAN_SESSION_NOTES};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PLAN_ATHLETE_AMBIGUOUS, KEY_PLAN_ATHLETE_EMPTY,
@@ -38,6 +38,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::{CallerGroupStanding, CommandHandler, PlatformCommandContext};
+use dravr_tronc::dates::Elapsed;
 
 /// What the athlete asked to see.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,7 +165,7 @@ enum DayStatus<'a> {
 /// Looks for a prescribed day first, then falls back to asking whether any
 /// selected week merely *spans* the date — a week can cover a date without
 /// listing it, which is a real rest day rather than a gap.
-fn day_status<'a>(weeks: &'a [SelectedWeek<'a>], date: NaiveDate) -> DayStatus<'a> {
+fn day_status<'a>(weeks: &'a [SelectedWeek<'a>], date: CivilDate) -> DayStatus<'a> {
     weeks.iter().find_map(|w| w.day_on(date)).map_or_else(
         || {
             if weeks.iter().any(|w| (w.start..=w.end).contains(&date)) {
@@ -179,9 +180,9 @@ fn day_status<'a>(weeks: &'a [SelectedWeek<'a>], date: NaiveDate) -> DayStatus<'
 
 /// The outline phase whose span contains `date`, when the outline has one.
 ///
-/// A phase whose span runs past `NaiveDate::MAX` holds no calendar date, so it
+/// A phase whose span runs past `CivilDate::MAX` holds no calendar date, so it
 /// is passed over the same way an unparseable start is.
-fn phase_on(plan: &TrainingPlan, date: NaiveDate) -> Option<&PlanPhase> {
+fn phase_on(plan: &TrainingPlan, date: CivilDate) -> Option<&PlanPhase> {
     plan.phases.iter().find(|p| p.covers(date))
 }
 
@@ -189,7 +190,7 @@ fn phase_on(plan: &TrainingPlan, date: NaiveDate) -> Option<&PlanPhase> {
 /// up again when today itself is not covered.
 fn resume_week<'a>(
     weeks: &'a [SelectedWeek<'a>],
-    today: NaiveDate,
+    today: CivilDate,
 ) -> Option<&'a SelectedWeek<'a>> {
     weeks.iter().find(|w| w.start > today)
 }
@@ -252,7 +253,7 @@ fn render_header(
     locale: &str,
     plan: &TrainingPlan,
     weeks: &[SelectedWeek<'_>],
-    today: NaiveDate,
+    today: CivilDate,
 ) -> String {
     let mut out = String::with_capacity(256);
     let days_out = parse_plan_date(&plan.goal_race.date)
@@ -293,12 +294,12 @@ fn render_view(
     locale: &str,
     view: PlanView,
     weeks: &[SelectedWeek<'_>],
-    today: NaiveDate,
+    today: CivilDate,
 ) -> String {
     let mut out = String::with_capacity(512);
     // Today and tomorrow can straddle a week boundary, so look them up across
     // the whole selection rather than only the current week.
-    let day_across = |date: NaiveDate| day_status(weeks, date);
+    let day_across = |date: CivilDate| day_status(weeks, date);
     // Naming the date the plan picks up again is what turns "not covered" from
     // a dead end into an answer. Only worth saying when today itself is the
     // uncovered date — a plan that already has today in hand needs no pointer.
@@ -326,7 +327,7 @@ fn render_view(
         PlanView::Compact => {
             let today_label = reg.render(KEY_PLAN_TODAY, locale, &[]);
             let tomorrow_label = reg.render(KEY_PLAN_TOMORROW, locale, &[]);
-            let tomorrow = today + chrono::Days::new(1);
+            let tomorrow = today + Elapsed::days(1);
             let _ = writeln!(
                 out,
                 "{}",
@@ -405,10 +406,10 @@ async fn caller_record(ctx: &PlatformCommandContext) -> Option<User> {
 /// one — a 23:30 EDT `/plan` must show today's session, not tomorrow's. A
 /// missing or unparseable timezone reads as UTC, the same resolution every
 /// other surface that shows the plan applies.
-fn caller_today(user: Option<&User>) -> NaiveDate {
+fn caller_today(user: Option<&User>) -> CivilDate {
     clock_date(
-        Utc::now(),
-        resolve_zone(user.and_then(|u| u.timezone.as_deref())),
+        Timestamp::now(),
+        &resolve_zone(user.and_then(|u| u.timezone.as_deref())),
     )
 }
 
@@ -437,7 +438,7 @@ async fn render_plan_reply(
     ctx: &PlatformCommandContext,
     owner: PlanOwner,
     view: PlanView,
-    today: NaiveDate,
+    today: CivilDate,
 ) -> Result<Option<String>, AppError> {
     let reg = ctx.ctx.messaging_strings_registry();
     let repos = ctx.ctx.repos();
@@ -500,7 +501,7 @@ fn empty_plan_notice(ctx: &PlatformCommandContext) -> String {
 async fn plan_body(
     ctx: &PlatformCommandContext,
     view: PlanView,
-    today: NaiveDate,
+    today: CivilDate,
 ) -> Result<String, AppError> {
     let rendered = render_plan_reply(ctx, PlanOwner::caller(ctx), view, today).await?;
     Ok(rendered.unwrap_or_else(|| empty_plan_notice(ctx)))

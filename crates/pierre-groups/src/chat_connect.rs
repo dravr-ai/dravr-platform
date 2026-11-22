@@ -28,7 +28,7 @@
 
 use std::fmt;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{
     CoachingGroup, ConnectGroupChat, GroupChatConnectCode, GroupChatConnectOutcome,
@@ -155,14 +155,14 @@ impl GroupService {
                 "This group is already connected to a chat; disconnect it first",
             ));
         }
-        let now = Utc::now();
+        let now = Timestamp::now();
         let code = GroupChatConnectCode {
             code: unambiguous_code(CHAT_CONNECT_CODE_LEN),
             group_id: group.id,
             channel_type: channel_type.to_owned(),
             channel_tenant_id,
             created_by: caller,
-            expires_at: now + Duration::minutes(CHAT_CONNECT_CODE_TTL_MINUTES),
+            expires_at: now + Elapsed::minutes(CHAT_CONNECT_CODE_TTL_MINUTES),
         };
         self.repo().create_chat_connect_code(&code, now).await?;
         info!(
@@ -181,7 +181,7 @@ impl GroupService {
     /// The database error when a lookup or the connect transaction fails.
     /// Every business refusal is an `Ok(ChatConnectResult::Refused)`.
     pub async fn connect_chat(&self, chat: &ChatToConnect<'_>) -> AppResult<ChatConnectResult> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let repo = self.repo();
         let Some(code) = repo
             .live_chat_connect_code(chat.code, chat.channel_type, chat.channel_tenant_id, now)
@@ -299,7 +299,7 @@ impl GroupService {
         }
         let released = self
             .repo()
-            .disconnect_group_chat(group.id, owning_tenant(group)?, Utc::now())
+            .disconnect_group_chat(group.id, owning_tenant(group)?, Timestamp::now())
             .await?;
         if let Some(chat) = released.as_ref() {
             info!(

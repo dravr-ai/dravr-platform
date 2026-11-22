@@ -26,7 +26,7 @@ use crate::common;
 use crate::helpers::sciotte_mock::seed_scrape_session;
 use crate::history_walk_api_test::{mock_strava, server, strava_athlete};
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::ConnectionType;
 use pierre_providers::backend_resolver::{read_plan, ReadPlan};
@@ -101,7 +101,7 @@ async fn a_walk_reads_a_live_session_before_the_grant_and_never_the_push() {
             tenant,
             oauth_providers::SCIOTTE,
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek};
@@ -72,7 +72,7 @@ pub(super) async fn calendar_block(
     context: &ToolExecutionContext,
     scope: &PlanScope,
     active_weeks: &[PlanWeek],
-    today: NaiveDate,
+    today: CivilDate,
 ) -> AppResult<CalendarBlock> {
     let repos = context.resources.repos();
     let (tenant, user_id) = (scope.tenant, scope.user_id);
@@ -115,7 +115,7 @@ pub(super) async fn calendar_block(
                 .or_else(|| row.template_slug.clone());
             CalendarEntry {
                 prescription_id: row.id,
-                date: row.prescribed_for_date.format("%Y-%m-%d").to_string(),
+                date: row.prescribed_for_date.to_string(),
                 source: row.source,
                 name,
                 provider_event_id: row.provider_event_id.clone(),
@@ -166,7 +166,7 @@ pub(super) async fn calendar_preview_after_save(
     context: &ToolExecutionContext,
     scope: &PlanScope,
     plan_id: &str,
-    today: NaiveDate,
+    today: CivilDate,
 ) -> Option<CalendarPreview> {
     let repos = context.resources.repos();
     let (tenant, user_id) = (scope.tenant, scope.user_id);
@@ -239,7 +239,7 @@ pub(super) async fn calendar_after_own_save(
     context: &ToolExecutionContext,
     scope: &PlanScope,
     plan_id: &str,
-    today: NaiveDate,
+    today: CivilDate,
 ) -> (Option<CalendarPushOutcome>, Option<CalendarPreview>) {
     let turn_end = TurnEnd::here();
     let step = if turn_end.is_some() {

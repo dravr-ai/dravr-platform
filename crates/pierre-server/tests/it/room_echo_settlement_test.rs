@@ -22,10 +22,10 @@ mod room_echo_tests {
     use crate::common::create_test_server_resources;
     use crate::messaging_fixtures::CapturingChannel;
     use async_trait::async_trait;
-    use chrono::Utc;
     use dravr_canot::channel::MessagingChannel;
     use dravr_canot::error::MessagingResult;
     use dravr_canot::turn::ConversationTurnId;
+    use dravr_tronc::dates::Timestamp;
     use http::HeaderMap;
     use pierre_contremaitre::messaging_strings::KEY_SLASH_ANSWERED_PRIVATELY;
     use pierre_core::models::messaging::{
@@ -83,7 +83,7 @@ mod room_echo_tests {
                 message_id: "deleting-channel".to_owned(),
                 channel_message_id: None,
                 status: DeliveryStatus::Sent,
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
                 turn_id: msg.turn_id,
             })
         }
@@ -98,7 +98,7 @@ mod room_echo_tests {
                 message_id: "deleting-channel".to_owned(),
                 channel_message_id: None,
                 status: DeliveryStatus::Sent,
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
                 turn_id,
             })
         }

@@ -9,8 +9,8 @@
 #[cfg(all(feature = "client-notifications", feature = "health-sync"))]
 mod sync_failure_notice_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
-    use chrono::Utc;
     use dravr_enforme::EnformeError;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::{ConnectionType, TenantId};
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
@@ -156,7 +156,7 @@ mod sync_failure_notice_tests {
                 f.tenant,
                 "whoop",
                 Some("invalid_grant"),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -180,7 +180,7 @@ mod sync_failure_notice_tests {
                 f.tenant,
                 "whoop",
                 Some("invalid_grant"),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();

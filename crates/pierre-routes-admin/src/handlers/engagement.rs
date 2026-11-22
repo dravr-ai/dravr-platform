@@ -17,7 +17,7 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use pierre_core::admin::models::ValidatedAdminToken;
@@ -82,7 +82,7 @@ pub struct EngagementResponse {
 }
 
 /// Bucket last-activity instants into cumulative tiers as of `now`.
-fn activity_tiers(last_active: &[Option<DateTime<Utc>>], now: DateTime<Utc>) -> ActivityTiers {
+fn activity_tiers(last_active: &[Option<Timestamp>], now: Timestamp) -> ActivityTiers {
     let mut tiers = ActivityTiers::default();
     for at in last_active {
         tiers.total += 1;
@@ -91,13 +91,13 @@ fn activity_tiers(last_active: &[Option<DateTime<Utc>>], now: DateTime<Utc>) -> 
             continue;
         };
         let since = now - *at;
-        if since <= Duration::days(1) {
+        if since <= Elapsed::days(1) {
             tiers.daily += 1;
         }
-        if since <= Duration::days(7) {
+        if since <= Elapsed::days(7) {
             tiers.weekly += 1;
         }
-        if since <= Duration::days(30) {
+        if since <= Elapsed::days(30) {
             tiers.monthly += 1;
         } else {
             tiers.dormant += 1;
@@ -151,7 +151,7 @@ pub async fn handle_get_engagement(
         StatusCode::OK,
         Json(EngagementResponse {
             scope,
-            users: activity_tiers(&last_active, Utc::now()),
+            users: activity_tiers(&last_active, Timestamp::now()),
             total_agents,
             published_agents,
             leaderboard,
@@ -165,13 +165,13 @@ mod tests {
 
     #[test]
     fn the_tiers_are_cumulative_and_a_user_never_seen_is_dormant() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let tiers = activity_tiers(
             &[
-                Some(now - Duration::hours(2)),
-                Some(now - Duration::days(3)),
-                Some(now - Duration::days(20)),
-                Some(now - Duration::days(45)),
+                Some(now - Elapsed::hours(2)),
+                Some(now - Elapsed::days(3)),
+                Some(now - Elapsed::days(20)),
+                Some(now - Elapsed::days(45)),
                 None,
             ],
             now,

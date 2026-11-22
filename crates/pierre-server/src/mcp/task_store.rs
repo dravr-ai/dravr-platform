@@ -19,7 +19,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::tasks::{
     DetailedTask, Task, TaskError, TaskId, TaskOwner, TaskPayload, TaskStatus, TaskStore,
     TaskUpdate,
@@ -109,11 +109,8 @@ fn owner_ids(owner: &TaskOwner) -> Result<(&str, &str), TaskError> {
 /// Precompute the unix-millisecond expiry from the task's creation time + TTL.
 fn expires_at_ms(task: &Task) -> Option<i64> {
     let ttl_ms = i64::try_from(task.ttl_ms?).ok()?;
-    let created = DateTime::parse_from_rfc3339(&task.created_at).ok()?;
-    created
-        .with_timezone(&Utc)
-        .timestamp_millis()
-        .checked_add(ttl_ms)
+    let created = Timestamp::parse_from_rfc3339(&task.created_at).ok()?;
+    created.epoch_millis().checked_add(ttl_ms)
 }
 
 /// Map a [`DetailedTask`] onto its `mcp_tasks` row.
@@ -225,7 +222,7 @@ impl TaskStore for PierreTaskStore {
                 tenant_id,
                 user_id,
                 id.as_str(),
-                Utc::now().timestamp_millis(),
+                Timestamp::now().epoch_millis(),
             )
             .await
             .map_err(|e| TaskError::Store(e.to_string()))?;
@@ -248,7 +245,7 @@ impl TaskStore for PierreTaskStore {
                     tenant_id,
                     user_id,
                     id.as_str(),
-                    Utc::now().timestamp_millis(),
+                    Timestamp::now().epoch_millis(),
                 )
                 .await
                 .map_err(|e| TaskError::Store(e.to_string()))?
@@ -275,7 +272,7 @@ impl TaskStore for PierreTaskStore {
     async fn sweep_expired(&self) -> Result<Vec<TaskId>, TaskError> {
         let removed = self
             .repo
-            .delete_expired_tasks(Utc::now().timestamp_millis())
+            .delete_expired_tasks(Timestamp::now().epoch_millis())
             .await
             .map_err(|e| TaskError::Store(e.to_string()))?;
         Ok(removed.into_iter().map(TaskId::new).collect())

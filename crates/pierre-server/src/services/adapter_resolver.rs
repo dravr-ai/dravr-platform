@@ -103,7 +103,7 @@ impl AdapterResolver for ConfigAdapterResolver {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::{Tenant, User};
     use pierre_database::backends::{TenantRepository, UpsertChannelConfigParams};
     use pierre_services::channel_adapters::ConfigChannelAdapters;
@@ -136,8 +136,8 @@ mod tests {
                 domain: None,
                 plan: "starter".to_owned(),
                 owner_user_id,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
             })
             .await
             .expect("tenant row");

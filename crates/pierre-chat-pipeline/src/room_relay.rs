@@ -236,7 +236,7 @@ pub(crate) async fn relay_reply(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::groups::{
         CoachConsents, GroupDigestMode, GroupRespondMode, GroupRole,
     };
@@ -260,8 +260,8 @@ mod tests {
             channel_type: Some("telegram".to_owned()),
             channel_chat_id: Some("-100".to_owned()),
             chat_connection: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         }
     }
 
@@ -276,8 +276,8 @@ mod tests {
             coach_sharing_consent: true,
             coach_sharing_consent_at: None,
             coach_consents: CoachConsents::default(),
-            consent_given_at: Utc::now(),
-            joined_at: Utc::now(),
+            consent_given_at: Timestamp::now(),
+            joined_at: Timestamp::now(),
             left_at: None,
             display_name: None,
         }

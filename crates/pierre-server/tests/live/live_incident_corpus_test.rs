@@ -133,7 +133,8 @@ use crate::live_incident_corpus::{
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
+use dravr_tronc::dates::SecondsFormat;
+use dravr_tronc::dates::Timestamp;
 use hmac::{Hmac, Mac};
 use pierre_chat_pipeline::stages::introduction::reply_names_agent;
 use pierre_config::environment::{ChatToolSettings, ServerConfig};
@@ -281,7 +282,7 @@ fn slack_sig(secret: &str, timestamp: &str, body: &str) -> String {
 /// anything other than what the fixture seeds gives the agent two
 /// disagreeing accounts of one athlete and then grades it for noticing.
 async fn spawn_eval_scraper() -> String {
-    let sunday = sunday_ride_start().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let sunday = sunday_ride_start().to_rfc3339_opts(SecondsFormat::Secs, true);
     let mut activities = vec![json!({
         "id": "eval-sunday-strava",
         "name": "Sortie longue",
@@ -297,7 +298,7 @@ async fn spawn_eval_scraper() -> String {
             "name": SEEDED_RUN_NAME,
             "sport_type": "run",
             "start_date": run.start
-                .format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                .to_rfc3339_opts(SecondsFormat::Secs, true),
             "duration_seconds": run.seconds,
             "provider": "strava",
             "distance_meters": run.metres,
@@ -481,7 +482,7 @@ async fn drive_turn(
     assistant_baseline: i64,
 ) -> Result<Answered, String> {
     let body = fixture.slack_message_event(channel, text).to_string();
-    let timestamp = Utc::now().timestamp().to_string();
+    let timestamp = Timestamp::now().epoch_seconds().to_string();
     let sig = slack_sig(SIGNING_SECRET, &timestamp, &body);
 
     let router = MessagingRoutes::routes(Arc::clone(resources));

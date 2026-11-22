@@ -27,8 +27,8 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use chrono::{DateTime, Days, NaiveDate, TimeZone, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use pierre_core::civil_time::monday_of;
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{Activity, ActivityBuilder, SportType, Tenant, TenantId};
@@ -100,8 +100,8 @@ async fn calendar_json(
 async fn calendar(
     resources: &Arc<ServerContext>,
     token: &str,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> Value {
     let (status, body) = calendar_json(
         resources,
@@ -113,28 +113,25 @@ async fn calendar(
     body
 }
 
-fn ymd(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn ymd(date: CivilDate) -> String {
+    date.to_string()
 }
 
-fn toronto_today() -> NaiveDate {
-    Utc::now()
-        .with_timezone(&TORONTO.parse::<Tz>().unwrap())
-        .date_naive()
+fn toronto_today() -> CivilDate {
+    TORONTO.parse::<Zone>().unwrap().date_at(Timestamp::now())
 }
 
 /// `hour:00` on `date` in Toronto, as the instant a provider stores.
-fn toronto_at(date: NaiveDate, hour: u32) -> DateTime<Utc> {
+fn toronto_at(date: CivilDate, hour: u32) -> Timestamp {
     TORONTO
-        .parse::<Tz>()
+        .parse::<Zone>()
         .unwrap()
-        .from_local_datetime(&date.and_hms_opt(hour, 0, 0).unwrap())
+        .resolve(date.and_hms(hour, 0, 0).unwrap())
         .earliest()
         .unwrap()
-        .with_timezone(&Utc)
 }
 
-fn run(id: &str, provider: &str, started: DateTime<Utc>) -> Activity {
+fn run(id: &str, provider: &str, started: Timestamp) -> Activity {
     ActivityBuilder::new(
         id,
         format!("Run {id}"),
@@ -179,10 +176,10 @@ fn placed(body: &Value) -> Vec<(String, String)> {
 }
 
 /// A session on every day of the week from `start`, named after its date.
-fn week_days(start: NaiveDate) -> Vec<PlannedDay> {
+fn week_days(start: CivilDate) -> Vec<PlannedDay> {
     (0..7)
         .map(|i| {
-            let date = start + Days::new(i);
+            let date = start + Elapsed::days(i);
             PlannedDay {
                 date: ymd(date),
                 sport: "run".to_owned(),
@@ -203,7 +200,7 @@ fn week_days(start: NaiveDate) -> Vec<PlannedDay> {
 
 /// A plan whose weeks run from three weeks before this week's Monday to
 /// three weeks after it — seven weeks, where the card shows two.
-async fn seed_plan(resources: &Arc<ServerContext>, athlete: &Athlete, monday: NaiveDate) {
+async fn seed_plan(resources: &Arc<ServerContext>, athlete: &Athlete, monday: CivilDate) {
     seed_plan_with(resources, athlete, monday, |_| {}).await;
 }
 
@@ -212,13 +209,13 @@ async fn seed_plan(resources: &Arc<ServerContext>, athlete: &Athlete, monday: Na
 async fn seed_plan_with(
     resources: &Arc<ServerContext>,
     athlete: &Athlete,
-    monday: NaiveDate,
+    monday: CivilDate,
     edit: impl FnOnce(&mut Vec<(String, Vec<PlannedDay>)>),
 ) {
-    let first = monday - Days::new(21);
+    let first = monday - Elapsed::days(21);
     let goal = GoalRace {
         name: "Harricana 65".to_owned(),
-        date: ymd(monday + Days::new(60)),
+        date: ymd(monday + Elapsed::days(60)),
         discipline: "trail".to_owned(),
         priority: RacePriority::A,
     };
@@ -239,7 +236,7 @@ async fn seed_plan_with(
     }];
     let mut starts: Vec<(String, Vec<PlannedDay>)> = (0..7)
         .map(|w| {
-            let start = first + Days::new(7 * w);
+            let start = first + Elapsed::days(7 * w);
             (ymd(start), week_days(start))
         })
         .collect();
@@ -286,26 +283,44 @@ async fn workouts_land_on_the_athletes_own_day_oldest_first() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = seed_athlete(&resources, "calendar-days").await;
     let today = toronto_today();
-    let monday = monday_of(today) - Days::new(7);
+    let monday = monday_of(today) - Elapsed::days(7);
     // 21:00 Toronto is the next UTC day: a UTC bucket puts it a day late.
     let rows = [
-        run("evening", "strava", toronto_at(monday + Days::new(1), 21)),
-        run("morning", "strava", toronto_at(monday + Days::new(3), 7)),
-        run("next-week", "strava", toronto_at(monday + Days::new(7), 7)),
+        run(
+            "evening",
+            "strava",
+            toronto_at(monday + Elapsed::days(1), 21),
+        ),
+        run(
+            "morning",
+            "strava",
+            toronto_at(monday + Elapsed::days(3), 7),
+        ),
+        run(
+            "next-week",
+            "strava",
+            toronto_at(monday + Elapsed::days(7), 7),
+        ),
     ];
     cache(&resources, athlete.user_id, athlete.tenant, "strava", &rows).await;
 
-    let body = calendar(&resources, &athlete.token, monday, monday + Days::new(6)).await;
+    let body = calendar(
+        &resources,
+        &athlete.token,
+        monday,
+        monday + Elapsed::days(6),
+    )
+    .await;
     assert_eq!(
         placed(&body),
         [
-            (ymd(monday + Days::new(1)), "evening".to_owned()),
-            (ymd(monday + Days::new(3)), "morning".to_owned()),
+            (ymd(monday + Elapsed::days(1)), "evening".to_owned()),
+            (ymd(monday + Elapsed::days(3)), "morning".to_owned()),
         ]
     );
     assert_eq!(body["today"], ymd(today));
     assert_eq!(body["from"], ymd(monday));
-    assert_eq!(body["to"], ymd(monday + Days::new(6)));
+    assert_eq!(body["to"], ymd(monday + Elapsed::days(6)));
     let row = &body["activities"][0]["activity"];
     assert_eq!(row["provider"], "strava");
     assert_eq!(row["name"], "Run evening");
@@ -316,7 +331,7 @@ async fn workouts_land_on_the_athletes_own_day_oldest_first() {
 async fn one_workout_synced_to_two_providers_is_one_entry() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = seed_athlete(&resources, "calendar-merge").await;
-    let day = toronto_today() - Days::new(2);
+    let day = toronto_today() - Elapsed::days(2);
     let start = toronto_at(day, 8);
     cache(
         &resources,
@@ -357,12 +372,12 @@ async fn another_tenants_and_another_users_workouts_are_invisible() {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: athlete.user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
-    let day = toronto_today() - Days::new(1);
+    let day = toronto_today() - Elapsed::days(1);
     cache(
         &resources,
         athlete.user_id,
@@ -397,8 +412,8 @@ async fn no_active_plan_is_null_and_a_plan_answers_its_past_and_future_weeks() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = seed_athlete(&resources, "calendar-plan").await;
     let monday = monday_of(toronto_today());
-    let from = monday - Days::new(14);
-    let to = monday + Days::new(20);
+    let from = monday - Elapsed::days(14);
+    let to = monday + Elapsed::days(20);
 
     let before = calendar(&resources, &athlete.token, from, to).await;
     assert!(before.as_object().unwrap().contains_key("plan_weeks"));
@@ -414,11 +429,11 @@ async fn no_active_plan_is_null_and_a_plan_answers_its_past_and_future_weeks() {
     assert_eq!(
         starts,
         [
-            ymd(monday - Days::new(14)),
-            ymd(monday - Days::new(7)),
+            ymd(monday - Elapsed::days(14)),
+            ymd(monday - Elapsed::days(7)),
             ymd(monday),
-            ymd(monday + Days::new(7)),
-            ymd(monday + Days::new(14)),
+            ymd(monday + Elapsed::days(7)),
+            ymd(monday + Elapsed::days(14)),
         ]
     );
     let current: Vec<bool> = weeks
@@ -460,7 +475,7 @@ async fn a_plan_days_evidence_chip_and_relabel_read_in_the_locale_asked_for() {
         &format!(
             "?from={}&to={}&locale=fr",
             ymd(monday),
-            ymd(monday + Days::new(6))
+            ymd(monday + Elapsed::days(6))
         ),
     )
     .await;
@@ -495,12 +510,12 @@ async fn nothing_is_answered_before_history_starts() {
     let athlete = seed_athlete(&resources, "calendar-edge").await;
     let body = calendar(&resources, &athlete.token, toronto_today(), toronto_today()).await;
     let history_start =
-        NaiveDate::parse_from_str(body["history_start"].as_str().unwrap(), "%Y-%m-%d").unwrap();
+        CivilDate::parse_from_str(body["history_start"].as_str().unwrap(), "%Y-%m-%d").unwrap();
     assert!(history_start < toronto_today());
 
     // A row the prune has not reached yet, on the day the cutoff falls in, is
     // part of a day the cache no longer holds in full.
-    let partial = history_start - Days::new(1);
+    let partial = history_start - Elapsed::days(1);
     let rows = [
         run("partial", "strava", toronto_at(partial, 23)),
         run("kept", "strava", toronto_at(history_start, 12)),
@@ -517,7 +532,7 @@ async fn nothing_is_answered_before_history_starts() {
 async fn a_garmin_copy_attributes_its_workout_and_the_span_says_garmins_share() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = seed_athlete(&resources, "calendar-garmin").await;
-    let day = toronto_today() - Days::new(3);
+    let day = toronto_today() - Elapsed::days(3);
     let start = toronto_at(day, 8);
     // The Strava copy is the longer one, so the merger keeps it.
     let strava = ActivityBuilder::new("s-run", "Run", SportType::Run, start, 2_460, "strava")
@@ -552,7 +567,7 @@ async fn a_garmin_copy_attributes_its_workout_and_the_span_says_garmins_share() 
     );
     assert_eq!(body["garmin_contribution"], "sole", "{body}");
 
-    let other_day = day + Days::new(1);
+    let other_day = day + Elapsed::days(1);
     cache(
         &resources,
         athlete.user_id,
@@ -575,14 +590,14 @@ async fn a_span_longer_than_six_weeks_or_reversed_is_refused() {
     let (status, _) = calendar_json(
         &resources,
         &athlete.token,
-        &format!("?from={}&to={}", ymd(from), ymd(from + Days::new(42))),
+        &format!("?from={}&to={}", ymd(from), ymd(from + Elapsed::days(42))),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, _) = calendar_json(
         &resources,
         &athlete.token,
-        &format!("?from={}&to={}", ymd(from), ymd(from - Days::new(1))),
+        &format!("?from={}&to={}", ymd(from), ymd(from - Elapsed::days(1))),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);

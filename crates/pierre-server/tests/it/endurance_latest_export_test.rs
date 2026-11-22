@@ -11,8 +11,8 @@ use crate::common;
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
 use dravr_cageux::zones::HrZones;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::constants::oauth::providers::{GARMIN, STRAVA};
 use pierre_core::models::activity::ActivityBuilder;
@@ -55,7 +55,7 @@ fn synthetic_run(id: &str, days_ago: i64, np: u32, avg_hr: u32) -> Activity {
         id.to_owned(),
         format!("synthetic {id}"),
         SportType::Run,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3600,
         "synthetic".to_owned(),
     )
@@ -248,7 +248,7 @@ async fn snapshot_with_zero_activities_does_not_panic_when_zones_supplied() {
 }
 
 /// One run of `id` recorded by `provider`, started at `start`.
-fn stored_run(id: &str, start: DateTime<Utc>, provider: &str) -> Activity {
+fn stored_run(id: &str, start: Timestamp, provider: &str) -> Activity {
     ActivityBuilder::new(
         id.to_owned(),
         format!("Run {id}"),
@@ -284,14 +284,15 @@ async fn the_snapshot_counts_the_stored_workouts_a_count_over_its_days_counts() 
     // Three runs in the week, each recorded by Strava and by Garmin, and one
     // a month back. The seeded athlete has no timezone, so their calendar is
     // UTC's; noon keeps every run well inside its day.
-    let noon = Utc::now()
-        .date_naive()
-        .and_hms_opt(12, 0, 0)
+    let noon = Timestamp::now()
+        .utc_date()
+        .and_hms(12, 0, 0)
         .unwrap()
-        .and_utc();
+        .and_utc()
+        .unwrap();
     let cache = &resources.repos().activity_cache;
     for (index, days) in [1, 3, 5, 30].into_iter().enumerate() {
-        let start = noon - Duration::days(days);
+        let start = noon - Elapsed::days(days);
         cache
             .upsert_activities(
                 user_id,
@@ -335,9 +336,9 @@ async fn the_snapshot_counts_the_stored_workouts_a_count_over_its_days_counts() 
     );
     let snapshot = response.result.unwrap();
 
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     let query = ActivityQuery {
-        from: Some(today - Duration::days(6)),
+        from: Some(today - Elapsed::days(6)),
         to: today,
         filter: ActivityPredicate::default(),
         group_by: Vec::new(),

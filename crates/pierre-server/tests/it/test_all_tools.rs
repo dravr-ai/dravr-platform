@@ -34,6 +34,7 @@ use pierre_test_support::db::create_test_db_with_key;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 
 use crate::common;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 
 #[tokio::test]
 #[serial]
@@ -257,11 +258,11 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         password_hash: "fake_hash_for_ci".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         user_status: UserStatus::Active,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
+        approved_at: Some(Timestamp::now()),
         is_active: true,
         role: UserRole::User,
         firebase_uid: None,
@@ -286,8 +287,8 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     executor.resources.repos().tenants.create(&tenant).await?;
@@ -305,15 +306,15 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
     }
 
     // Generate realistic fake Strava tokens for testing
-    let now = chrono::Utc::now();
-    let timestamp = now.timestamp();
+    let now = Timestamp::now();
+    let timestamp = now.epoch_seconds();
     let token_id = rand::rng().random::<u64>();
     let refresh_token_id = rand::rng().random::<u64>();
 
     let mock_token = DecryptedToken {
         access_token: SecretString::from(format!("at_{token_id:016x}_{timestamp}")),
         refresh_token: SecretString::from(format!("rt_{refresh_token_id:016x}_{timestamp}")),
-        expires_at: now + chrono::Duration::hours(6),
+        expires_at: now + Elapsed::hours(6),
         scope: "read,activity:read_all,activity:write".to_owned(),
     };
 

@@ -25,7 +25,7 @@ use axum::http::{header::ACCEPT, HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{ConversationTurnId, RoomQuote, COMMAND_FINISH_REASON};
 use pierre_services::locale::resolve_user_locale;
 use serde_json::Value;
@@ -490,7 +490,7 @@ impl TurnEgress {
                     rows.conversation.updated_at,
                 )
             } else {
-                let now = Utc::now().to_rfc3339();
+                let now = Timestamp::now().to_rfc3339();
                 // A suggestion's postback that no longer resolves means nothing
                 // to the athlete: the line is echoed empty, and the client keeps
                 // the label it showed for the tap (carnet#828).

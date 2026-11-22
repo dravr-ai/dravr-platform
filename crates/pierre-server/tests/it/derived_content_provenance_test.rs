@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio::time::sleep;
 
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
     AddMessageParams, CalendarEventSource, MessageRecord, PrescribedWorkout, SportType, TenantId,
@@ -250,7 +250,7 @@ async fn advice_and_playbooks_keep_their_stamp_and_stay_out_of_the_priors() {
     let db = create_test_db().await;
     let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (trigger, intervention, metric) = (trigger(), intervention(), metric());
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     repos
         .playbooks
@@ -264,19 +264,19 @@ async fn advice_and_playbooks_keep_their_stamp_and_stay_out_of_the_priors() {
             intervention: intervention.clone(),
             outcome_metric: metric.clone(),
             baseline: MetricBaseline { captured_at: now },
-            due_by: now - Duration::days(1),
+            due_by: now - Elapsed::days(1),
             status: AdviceStatus::Pending,
             label: None,
             label_source: None,
             source_msg_id: Some("msg-1".to_owned()),
-            created_at: now - Duration::days(3),
+            created_at: now - Elapsed::days(3),
             transport_policy: FirstPartyOnly,
         })
         .await
         .unwrap();
     let due = repos
         .playbooks
-        .due_pending_advice(now.timestamp(), 10)
+        .due_pending_advice(now.epoch_seconds(), 10)
         .await
         .unwrap();
     assert_eq!(due.len(), 1);
@@ -290,7 +290,7 @@ async fn advice_and_playbooks_keep_their_stamp_and_stay_out_of_the_priors() {
         intervention: &intervention,
         outcome_metric: &metric,
         label: OutcomeLabel::Success,
-        at: Utc::now(),
+        at: Timestamp::now(),
         transport_policy: policy,
     };
     let label = |user: &'static str, policy| {
@@ -427,7 +427,7 @@ async fn verdicts_profiles_and_prescriptions_keep_their_stamp() {
         .unwrap();
     assert_eq!(served.physiology.and_then(|p| p.ftp_watts), Some(280));
 
-    let date = NaiveDate::from_ymd_opt(2026, 11, 2).unwrap();
+    let date = CivilDate::from_ymd(2026, 11, 2).unwrap();
     let row = |policy| PrescribedWorkout {
         id: Uuid::nil(),
         tenant_id: tenant.as_uuid(),
@@ -445,8 +445,8 @@ async fn verdicts_profiles_and_prescriptions_keep_their_stamp() {
         payload_hash: Some("h1".to_owned()),
         payload_json: "{}".to_owned(),
         status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         transport_policy: policy,
     };
     repos

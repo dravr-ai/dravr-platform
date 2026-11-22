@@ -38,7 +38,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{connection_needs_reauth, TenantId};
 use pierre_providers::backend_resolver::{is_mirror_backend, resolve_backend};
 use tracing::{debug, warn};
@@ -134,7 +134,7 @@ pub async fn claim_scrape_session_retry(
     if !retries_flagged_session(provider) {
         return false;
     }
-    let due_before = Utc::now() - Duration::hours(SCRAPE_SESSION_RETRY_INTERVAL_HOURS);
+    let due_before = Timestamp::now() - Elapsed::hours(SCRAPE_SESSION_RETRY_INTERVAL_HOURS);
     match runtime
         .repos()
         .provider_connections

@@ -206,7 +206,7 @@ pub(crate) async fn ask_linked_chats_after_approval(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::Tenant;
     use pierre_database::backends::{CreateChannelLinkParams, TenantRepository};
     use pierre_test_support::db::create_test_db;
@@ -225,7 +225,7 @@ mod tests {
             None,
         );
         account.user_status = status;
-        account.analytics_consent_at = answered.then(Utc::now);
+        account.analytics_consent_at = answered.then(Timestamp::now);
         let user_id = repos.users.create(&account).await.expect("user row");
         let tenant_id = TenantId::generate();
         let tenants: &dyn TenantRepository = repos.tenants.as_ref();
@@ -237,8 +237,8 @@ mod tests {
                 domain: None,
                 plan: "starter".to_owned(),
                 owner_user_id: user_id,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
             })
             .await
             .expect("tenant row");
@@ -318,7 +318,7 @@ mod tests {
     fn user(status: UserStatus, answered: bool) -> User {
         let mut user = User::new("athlete@example.com".to_owned(), String::new(), None);
         user.user_status = status;
-        user.analytics_consent_at = answered.then(Utc::now);
+        user.analytics_consent_at = answered.then(Timestamp::now);
         user
     }
 

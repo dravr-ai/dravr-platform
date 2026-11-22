@@ -957,14 +957,18 @@ CANOT_MANIFEST="$(cargo metadata --format-version 1 --offline 2>/dev/null \
 if [ -n "$CANOT_MANIFEST" ] && [ -f "$CANOT_MANIFEST" ]; then
     CANOT_SRC="$(dirname "$CANOT_MANIFEST")/src"
 else
-    CANOT_TAG="$(rg -o 'dravr-canot = \{ git = "[^"]+", tag = "([^"]+)"' -r '$1' \
+    # The pin is a release tag or, while a satellite is held on a branch
+    # commit (satellites.toml `source = "git-rev"`), a full commit SHA.
+    CANOT_REF="$(rg -o 'dravr-canot = \{ git = "[^"]+", (tag|rev) = "([^"]+)"' -r '$2' \
         Cargo.toml 2>/dev/null | head -1)"
-    if [ -n "$CANOT_TAG" ]; then
-        CANOT_CACHE="${TMPDIR:-/tmp}/dravr-canot-$CANOT_TAG"
+    if [ -n "$CANOT_REF" ]; then
+        CANOT_CACHE="${TMPDIR:-/tmp}/dravr-canot-$CANOT_REF"
         if [ ! -d "$CANOT_CACHE/src" ]; then
             rm -rf "$CANOT_CACHE"
-            git clone --depth 1 --branch "$CANOT_TAG" -q \
-                https://github.com/dravr-ai/dravr-canot.git "$CANOT_CACHE" 2>/dev/null || true
+            git init -q "$CANOT_CACHE" 2>/dev/null \
+                && git -C "$CANOT_CACHE" fetch --depth 1 -q \
+                    https://github.com/dravr-ai/dravr-canot.git "$CANOT_REF" 2>/dev/null \
+                && git -C "$CANOT_CACHE" checkout -q FETCH_HEAD 2>/dev/null || true
         fi
         [ -d "$CANOT_CACHE/src" ] && CANOT_SRC="$CANOT_CACHE/src"
     fi

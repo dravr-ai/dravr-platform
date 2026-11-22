@@ -13,7 +13,7 @@
 //! itself, passes an `is_ok()` check and fails a human.
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use helpers::agent_fixtures::publish_catalogue_agent;
 use pierre_chat_pipeline::stages::onboarding::just_completed_interview;
 use pierre_commands::fortnight::FortnightHandler;
@@ -29,6 +29,7 @@ use uuid::Uuid;
 
 use crate::common;
 use crate::helpers;
+use dravr_tronc::dates::{CivilDate, Elapsed};
 
 /// An athlete, the agent they talk to, and a conversation between them.
 ///
@@ -131,19 +132,14 @@ async fn save_plan(
 /// Anchored on a Monday rather than on today, because a stored week is seven
 /// days long and every day it holds must fall inside it — a week starting on
 /// a Wednesday is a shape the save tool would take and no agent would write.
-fn week_start(offset_weeks: i64) -> chrono::NaiveDate {
-    let today = Utc::now().date_naive();
-    let monday = today
-        - chrono::Duration::days(i64::from(
-            chrono::Datelike::weekday(&today).num_days_from_monday(),
-        ));
-    monday + chrono::Duration::weeks(offset_weeks)
+fn week_start(offset_weeks: i64) -> CivilDate {
+    let today = Timestamp::now().utc_date();
+    let monday = today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()));
+    monday + Elapsed::weeks(offset_weeks)
 }
 
-fn day_of(week: chrono::NaiveDate) -> String {
-    (week + chrono::Duration::days(1))
-        .format("%Y-%m-%d")
-        .to_string()
+fn day_of(week: CivilDate) -> String {
+    (week + Elapsed::days(1)).to_string()
 }
 
 /// A week with a real session in it. `save_training_plan` refuses an empty
@@ -151,7 +147,7 @@ fn day_of(week: chrono::NaiveDate) -> String {
 fn week(offset_weeks: i64, focus: &str, phase_index: Option<usize>) -> Value {
     let start = week_start(offset_weeks);
     let mut w = json!({
-        "week_start": start.format("%Y-%m-%d").to_string(),
+        "week_start": start.to_string(),
         "focus": focus,
         "days": [{
             "date": day_of(start),
@@ -170,7 +166,7 @@ fn week(offset_weeks: i64, focus: &str, phase_index: Option<usize>) -> Value {
 fn phase(offset_weeks: i64, weeks: u32) -> Value {
     json!({
         "kind": "build",
-        "start": week_start(offset_weeks).format("%Y-%m-%d").to_string(),
+        "start": week_start(offset_weeks).to_string(),
         "weeks": weeks,
         "intent": "two hard days",
     })
@@ -368,7 +364,7 @@ async fn the_go_ahead_opens_the_rail_that_keeps_its_promise() -> Result<()> {
         "and it has spent none of its budget yet: {stored:?}"
     );
     assert!(
-        !just_completed_interview(stored.as_deref(), Utc::now()),
+        !just_completed_interview(stored.as_deref(), Timestamp::now()),
         "an OPEN rail is not a finished interview — routing it to the release \
          directive would revoke a rule the athlete never met"
     );
@@ -501,8 +497,8 @@ async fn the_newest_thing_asked_for_owns_the_next_turn() -> Result<()> {
         ),
     )
     .await?;
-    let retired_season = OnboardingState::start(Utc::now().to_rfc3339(), GuidedFlow::Season)
-        .completed(Utc::now().to_rfc3339())
+    let retired_season = OnboardingState::start(Timestamp::now().to_rfc3339(), GuidedFlow::Season)
+        .completed(Timestamp::now().to_rfc3339())
         .to_column()?;
     resources
         .common
@@ -534,7 +530,7 @@ async fn the_newest_thing_asked_for_owns_the_next_turn() -> Result<()> {
         "the fortnight rail replaced the season release: {stored:?}"
     );
     assert!(
-        !just_completed_interview(stored.as_deref(), Utc::now()),
+        !just_completed_interview(stored.as_deref(), Timestamp::now()),
         "and the turn belongs to the rail, not to an offer the athlete walked \
          away from"
     );

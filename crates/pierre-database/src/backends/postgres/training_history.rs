@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{DailyTrainingState, TenantId};
 use sqlx::Row;

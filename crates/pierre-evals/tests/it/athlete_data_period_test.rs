@@ -16,7 +16,8 @@
 //! A period check that nothing routes a claim to is a phantom, so these tests
 //! start from the reply text, not from a hand-built claim.
 
-use chrono::{DateTime, NaiveDate, TimeDelta, TimeZone, Utc};
+use dravr_tronc::dates::Zone;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::models::SportType;
 use pierre_core::text_fold::fold_for_match;
 use pierre_evals::athlete_data::{
@@ -26,11 +27,11 @@ use pierre_evals::athlete_data::{
 use pierre_evals::claim_extractor::{extract_heuristic, ExtractedClaim};
 use pierre_memory::{ClaimCategory, ClaimStatus};
 
-fn day(d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 9, d).expect("valid date")
+fn day(d: u32) -> CivilDate {
+    CivilDate::from_ymd(2026, 9, d).expect("valid date")
 }
 
-fn run(date: NaiveDate, km: f64) -> RecordedActivity {
+fn run(date: CivilDate, km: f64) -> RecordedActivity {
     RecordedActivity {
         date,
         sport: SportType::Run,
@@ -43,11 +44,11 @@ fn run(date: NaiveDate, km: f64) -> RecordedActivity {
 }
 
 /// Wednesday 2026-09-09 at noon UTC.
-fn now() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 9, 9, 12, 0, 0).unwrap()
+fn now() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-09-09T12:00:00Z").unwrap()
 }
 
-fn ride(date: NaiveDate, km: f64) -> RecordedActivity {
+fn ride(date: CivilDate, km: f64) -> RecordedActivity {
     RecordedActivity {
         date,
         sport: SportType::GravelRide,
@@ -62,13 +63,13 @@ fn ride(date: NaiveDate, km: f64) -> RecordedActivity {
 /// A calendar week of 10 km Monday and 12 km Tuesday, from one source whose
 /// backfill reached back to January and whose head was last read at
 /// `last_sync`.
-fn connected_week(last_sync: DateTime<Utc>) -> AthleteRecord {
+fn connected_week(last_sync: Timestamp) -> AthleteRecord {
     connected(vec![run(day(7), 10.0), run(day(8), 12.0)], last_sync)
 }
 
 /// `sessions` from one source whose backfill reached back to January and
 /// whose head was last read at `last_sync`.
-fn connected(sessions: Vec<RecordedActivity>, last_sync: DateTime<Utc>) -> AthleteRecord {
+fn connected(sessions: Vec<RecordedActivity>, last_sync: Timestamp) -> AthleteRecord {
     AthleteRecord {
         has_provider: true,
         today: day(9),
@@ -79,23 +80,25 @@ fn connected(sessions: Vec<RecordedActivity>, last_sync: DateTime<Utc>) -> Athle
             sessions,
             by_source: Vec::new(),
             read: CacheRead {
-                from: now() - TimeDelta::days(90),
+                from: now() - Elapsed::days(90),
                 cut_day: None,
             },
             sources: vec![SourceCoverage {
                 last_sync: Some(last_sync),
-                depth: BackfillDepth::Reached(Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()),
+                depth: BackfillDepth::Reached(
+                    Timestamp::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap(),
+                ),
             }],
             now: now(),
-            zone: Utc,
+            zone: Zone::utc(),
             block_start: None,
         }),
     }
 }
 
 /// Read this turn.
-fn synced_this_turn() -> DateTime<Utc> {
-    now() - TimeDelta::minutes(2)
+fn synced_this_turn() -> Timestamp {
+    now() - Elapsed::minutes(2)
 }
 
 /// The one athlete-data claim a sentence must yield.
@@ -218,7 +221,7 @@ fn a_providerless_weekly_total_is_contradicted() {
 /// may hold the difference.
 #[test]
 fn a_week_the_sync_has_not_reached_is_unverifiable() {
-    let record = connected_week(Utc.with_ymd_and_hms(2026, 9, 8, 21, 0, 0).unwrap());
+    let record = connected_week(Timestamp::parse_from_rfc3339("2026-09-08T21:00:00Z").unwrap());
     let outcome = check(&athlete_claim("You ran 35 km this week."), &record).expect("adjudicated");
     assert_eq!(
         outcome.status,

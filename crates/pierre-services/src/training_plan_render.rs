@@ -16,7 +16,7 @@
 //! current and next microcycle in day-by-day detail. Remaining weeks are
 //! summarized as a count with a pointer to `get_training_plan`.
 
-use chrono::{Days, NaiveDate};
+use dravr_tronc::dates::CivilDate;
 use pierre_core::constants::time_constants::{DAYS_PER_WEEK, SECONDS_PER_MINUTE};
 use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::errors::AppResult;
@@ -33,6 +33,7 @@ use std::fmt::Write as _;
 
 use crate::agent_package::PackagedCatalogue;
 use crate::plan_fueling::FuelingDisclosure;
+use dravr_tronc::dates::Timestamp;
 
 /// Weeks [`select_active_weeks`] may return: the current one and the next —
 /// the fortnight the athlete acts on, and the unit `save_training_plan`
@@ -50,9 +51,9 @@ pub struct SelectedWeek<'a> {
     /// The stored week row.
     pub week: &'a PlanWeek,
     /// Civil date of the week's first day.
-    pub start: NaiveDate,
+    pub start: CivilDate,
     /// Civil date of the week's last day (`start + 6`).
-    pub end: NaiveDate,
+    pub end: CivilDate,
     /// True when `today` falls inside `start..=end`.
     pub is_current: bool,
     /// 0-based position within the selection.
@@ -78,8 +79,8 @@ impl SelectedWeek<'_> {
 
     /// The week's days that fall on `date`.
     #[must_use]
-    pub fn day_on(&self, date: NaiveDate) -> Option<&PlannedDay> {
-        let wanted = date.format("%Y-%m-%d").to_string();
+    pub fn day_on(&self, date: CivilDate) -> Option<&PlannedDay> {
+        let wanted = date.to_string();
         self.week.days.iter().find(|d| d.date == wanted)
     }
 }
@@ -91,7 +92,7 @@ impl SelectedWeek<'_> {
 /// against their own copy of N. Two spellings of one question is how "already
 /// covered" stops agreeing with the fortnight the card shows.
 #[must_use]
-pub fn fortnight_is_covered(weeks: &[PlanWeek], today: NaiveDate) -> bool {
+pub fn fortnight_is_covered(weeks: &[PlanWeek], today: CivilDate) -> bool {
     select_active_weeks(weeks, today, ACTIVE_WEEKS).weeks.len() >= ACTIVE_WEEKS
 }
 
@@ -114,13 +115,13 @@ pub struct WeekSelection<'a> {
 /// second caller would have grown a parallel derivation.
 ///
 /// A week whose `week_start` does not parse is skipped rather than guessed at,
-/// and so is one whose start sits close enough to `NaiveDate::MAX` that the
+/// and so is one whose start sits close enough to `CivilDate::MAX` that the
 /// week cannot be closed — `parse_plan_date` is a format check, so a stored
-/// `+262142-12-31` reaches here intact and `+ 6 days` would leave the calendar.
+/// `9999-12-31` reaches here intact and `+ 6 days` would leave the calendar.
 #[must_use]
 pub fn select_active_weeks<'a>(
     weeks: &'a [PlanWeek],
-    today: NaiveDate,
+    today: CivilDate,
     limit: usize,
 ) -> WeekSelection<'a> {
     let mut selected: Vec<SelectedWeek<'a>> = Vec::new();
@@ -129,7 +130,7 @@ pub fn select_active_weeks<'a>(
         let Some(start) = parse_plan_date(&week.week_start) else {
             continue;
         };
-        let Some(end) = start.checked_add_days(Days::new(6)) else {
+        let Some(end) = start.checked_add_days(6) else {
             continue;
         };
         if end < today {
@@ -248,7 +249,7 @@ fn step_extent(step: &WorkoutStep) -> String {
 pub fn render_training_plan_block(
     plan: &TrainingPlan,
     weeks: &[PlanWeek],
-    today: NaiveDate,
+    today: CivilDate,
     catalogue: &PackagedCatalogue<'_>,
     fueling: &FuelingDisclosure,
 ) -> Option<String> {
@@ -475,7 +476,7 @@ pub fn render_training_plan_block(
 /// A phase that holds no start date carries no marker, and neither does one
 /// whose span leaves the calendar: without an end there is nothing to place
 /// today against.
-fn phase_marker(phase: &PlanPhase, today: NaiveDate) -> &'static str {
+fn phase_marker(phase: &PlanPhase, today: CivilDate) -> &'static str {
     let (Some(start), Some(end)) = (phase.start_date(), phase.end_exclusive()) else {
         return "";
     };
@@ -501,7 +502,7 @@ fn phase_marker(phase: &PlanPhase, today: NaiveDate) -> &'static str {
 fn phase_touches_rendered_weeks(
     phase: &PlanPhase,
     selection: &WeekSelection<'_>,
-    today: NaiveDate,
+    today: CivilDate,
 ) -> bool {
     let mut any_week_parsed = false;
     for selected in &selection.weeks {
@@ -509,9 +510,9 @@ fn phase_touches_rendered_weeks(
             continue;
         };
         any_week_parsed = true;
-        if (0..u64::from(DAYS_PER_WEEK)).any(|offset| {
+        if (0..i64::from(DAYS_PER_WEEK)).any(|offset| {
             start
-                .checked_add_days(Days::new(offset))
+                .checked_add_days(offset)
                 .is_some_and(|day| phase.covers(day))
         }) {
             return true;
@@ -529,7 +530,7 @@ fn render_phase_header(
     plan: &TrainingPlan,
     index: usize,
     phase: &PlanPhase,
-    today: NaiveDate,
+    today: CivilDate,
     catalogue: &PackagedCatalogue<'_>,
 ) -> String {
     let mut out = String::with_capacity(512);
@@ -674,7 +675,7 @@ pub async fn plan_goal_is_stale(
             TransportPolicy::FirstPartyOnly,
         )
         .await?;
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     Ok(facts
         .iter()
         .find(|f| f.id == goal_fact_id)

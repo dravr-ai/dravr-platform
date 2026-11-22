@@ -5,12 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::annotations::{annotations, Effect, Reach};
+use pierre_core::civil_time::zoned_rfc3339;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{Timestamp, Zone};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::{info, warn};
@@ -295,9 +295,9 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
             let weather = state.weather();
             let zone = athlete_zone(state.repos(), context.user_id).await;
             if let Some(place) = default_for(&context, &args).await? {
-                return forecast_at_place(weather.forecast()?, &args, zone, place).await;
+                return forecast_at_place(weather.forecast()?, &args, &zone, place).await;
             }
-            forecast(weather.forecast()?, weather.geocoder()?, &args, zone).await
+            forecast(weather.forecast()?, weather.geocoder()?, &args, &zone).await
         };
         tool_result_to_response(result.await)
     }
@@ -398,7 +398,7 @@ fn round2(degrees: f64) -> f64 {
 pub async fn forecast_at_place(
     provider: &dyn WeatherProvider,
     args: &Value,
-    zone: Tz,
+    zone: &Zone,
     place: TrainingPlace,
 ) -> AppResult<ToolResult> {
     let timestamp = match parse_timestamp(args) {
@@ -439,7 +439,7 @@ pub async fn forecast(
     provider: &dyn WeatherProvider,
     geocoder: &dyn Geocoder,
     args: &Value,
-    zone: Tz,
+    zone: &Zone,
 ) -> AppResult<ToolResult> {
     let location = match parse_location(args) {
         Ok(location) => location,
@@ -548,7 +548,7 @@ async fn fetch(
     provider: &dyn WeatherProvider,
     query: WeatherQuery,
     found: Found,
-    zone: Tz,
+    zone: &Zone,
 ) -> AppResult<ToolResult> {
     info!(
         latitude = query.latitude,
@@ -584,9 +584,9 @@ async fn fetch(
 
 /// Sunrise and sunset of the place's solar day at the instant `query` reads,
 /// computed at the coordinates it reads, printed on `zone`.
-fn forecast_daylight(query: &WeatherQuery, zone: Tz) -> ForecastDaylight {
+fn forecast_daylight(query: &WeatherQuery, zone: &Zone) -> ForecastDaylight {
     let day = solar_date(query.timestamp, query.longitude);
-    let on_clock = |instant: DateTime<Utc>| Some(instant.with_timezone(&zone).to_rfc3339());
+    let on_clock = |instant: Timestamp| Some(zoned_rfc3339(instant, zone));
     match daylight(query.latitude, query.longitude, day) {
         Daylight::Day { sunrise, sunset } => ForecastDaylight {
             sunrise: on_clock(sunrise),
@@ -709,14 +709,13 @@ fn parse_coordinates(args: &Value) -> Result<(f64, f64), String> {
 }
 
 /// Parse the RFC 3339 `timestamp`.
-fn parse_timestamp(args: &Value) -> Result<DateTime<Utc>, String> {
+fn parse_timestamp(args: &Value) -> Result<Timestamp, String> {
     let raw = args
         .get("timestamp")
         .and_then(Value::as_str)
         .ok_or_else(|| "missing required parameter: timestamp (RFC 3339)".to_owned())?;
-    Ok(DateTime::parse_from_rfc3339(raw)
-        .map_err(|e| format!("timestamp must be RFC 3339, e.g. 2026-09-22T14:00:00Z: {e}"))?
-        .with_timezone(&Utc))
+    Timestamp::parse_from_rfc3339(raw)
+        .map_err(|e| format!("timestamp must be RFC 3339, e.g. 2026-09-22T14:00:00Z: {e}"))
 }
 
 /// Create weather-forecast tools for registration.
@@ -732,7 +731,6 @@ crate::declare_security!(GetWeatherForecastTool => empty);
 
 #[cfg(test)]
 mod tests {
-    use chrono_tz::America::Montreal;
 
     use super::*;
 
@@ -773,11 +771,9 @@ mod tests {
         let query = WeatherQuery {
             latitude: 45.50,
             longitude: -73.57,
-            timestamp: DateTime::parse_from_rfc3339("2026-06-21T16:00:00Z")
-                .unwrap()
-                .with_timezone(&Utc),
+            timestamp: Timestamp::parse_from_rfc3339("2026-06-21T16:00:00Z").unwrap(),
         };
-        let shown = forecast_daylight(&query, Montreal);
+        let shown = forecast_daylight(&query, &Zone::from_name("America/Montreal").unwrap());
         let sunset = shown.sunset.expect("bug: Montréal has a sunset in June");
         assert!(
             sunset.starts_with("2026-06-21T20:4") && sunset.ends_with("-04:00"),

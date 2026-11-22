@@ -27,10 +27,10 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, TimeDelta, Utc};
 use dravr_barrage::blob::BlobStore;
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{ProjectionSink, RetentionSweep, SourceKey};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{
     ProviderDataRepository, ProviderWellnessExpiry, WorkerRunRepository,
@@ -109,7 +109,7 @@ impl RetentionSweeper {
     ///
     /// The first configuration, store or database error; what expired
     /// before it stays expired, and the next pass resumes.
-    pub async fn run(&self, now: DateTime<Utc>) -> AppResult<RetentionPass> {
+    pub async fn run(&self, now: Timestamp) -> AppResult<RetentionPass> {
         let policy = ProviderRetention::resolve(self.config.as_ref()).await?;
         self.run_with(&policy, now).await
     }
@@ -122,7 +122,7 @@ impl RetentionSweeper {
     pub async fn run_with(
         &self,
         policy: &ProviderRetention,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<RetentionPass> {
         if !policy.expires_anything() {
             return Ok(RetentionPass::default());
@@ -148,7 +148,7 @@ impl RetentionSweeper {
     async fn expire_wellness(
         &self,
         policy: &ProviderRetention,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Vec<(String, ProviderWellnessExpiry)>> {
         let mut providers: Vec<&str> = self
             .wellness_providers
@@ -164,8 +164,8 @@ impl RetentionSweeper {
             // any copy could have been written: nothing of it is expired.
             let Some(cutoff) = policy
                 .ttl_for_provider(provider)
-                .and_then(|ttl| TimeDelta::from_std(ttl).ok())
-                .and_then(|ttl| now.checked_sub_signed(ttl))
+                .and_then(|ttl| Elapsed::from_std(ttl).ok())
+                .and_then(|ttl| now.checked_sub(ttl))
             else {
                 continue;
             };
@@ -195,7 +195,7 @@ pub fn start_retention_sweeper(
 ) -> AbortHandle {
     let handle = spawn_periodic(WORKER_NAME, SWEEP_INTERVAL, ledger, move || {
         let sweeper = Arc::clone(&sweeper);
-        async move { sweeper.run(Utc::now()).await.map(|_| ()) }
+        async move { sweeper.run(Timestamp::now()).await.map(|_| ()) }
     });
     info!("Provider data retention sweep started (hourly, policy from activity_retention.*)");
     handle

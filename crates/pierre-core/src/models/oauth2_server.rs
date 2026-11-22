@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
 use uuid::Uuid;
 
@@ -32,9 +32,9 @@ pub struct OAuth2Client {
     /// Space-separated list of allowed scopes
     pub scope: Option<String>,
     /// When this client was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Optional expiration time for the client registration
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
 }
 
 /// What one retention sweep of the RFC 7591 client registrations deleted.
@@ -112,7 +112,7 @@ pub struct OAuth2AuthCode {
     /// Space-separated list of granted scopes
     pub scope: Option<String>,
     /// When this authorization code expires
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// Whether this code has been exchanged for a token
     pub used: bool,
     /// Client-generated state for CSRF protection (RFC 6749 Section 10.12)
@@ -159,9 +159,9 @@ pub struct OAuth2RefreshToken {
     /// Optional space-separated list of granted scopes
     pub scope: Option<String>,
     /// Timestamp when this refresh token expires
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// Timestamp when this refresh token was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Whether this refresh token has been revoked
     pub revoked: bool,
     /// The rotation chain this token belongs to. Every token a refresh
@@ -175,7 +175,7 @@ pub struct OAuth2RefreshToken {
     /// predecessor's value, so the exchange can refuse a family older than
     /// the absolute family lifetime. `None` is a legacy family issued before
     /// the column existed: no absolute limit.
-    pub family_created_at: Option<DateTime<Utc>>,
+    pub family_created_at: Option<Timestamp>,
 }
 
 /// OAuth 2.0 State for CSRF Protection
@@ -201,9 +201,9 @@ pub struct OAuth2State {
     /// Method used for PKCE code challenge (S256 or plain)
     pub code_challenge_method: Option<String>,
     /// Timestamp when this state was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Timestamp when this state expires
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// Whether this state has been consumed
     pub used: bool,
 }

@@ -22,7 +22,7 @@
 //! record carries the id, source and time of a source that recorded
 //! something named.
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers::SENSITIVE_T2;
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::{
@@ -74,13 +74,13 @@ async fn file_unnamed_health(f: &Fixture) {
         .upsert_data_source(&athlete.tenant, &data_source("garmin"))
         .await
         .unwrap();
-    let now = Utc::now();
-    let today = now.date_naive();
+    let now = Timestamp::now();
+    let today = now.utc_date();
     let body = |source: &str, source_name: &str, days_ago: i64| StoredHealthMetrics {
         id: String::new(),
         user_id: athlete.id.to_string(),
         data_source_id: source.to_owned(),
-        date: today - Duration::days(days_ago),
+        date: today - Elapsed::days(days_ago),
         weight_kg: None,
         body_fat_pct: None,
         muscle_mass_kg: None,
@@ -165,7 +165,7 @@ async fn file_unnamed_health(f: &Fixture) {
                 id: format!("icu-day-{}", Uuid::new_v4()),
                 user_id: athlete.id.to_string(),
                 data_source_id: icu.clone(),
-                date: today - Duration::days(1),
+                date: today - Elapsed::days(1),
                 recovery_score: None,
                 readiness_score: Some(68),
                 hrv_ms: None,
@@ -186,7 +186,7 @@ async fn file_unnamed_health(f: &Fixture) {
         )
         .await
         .unwrap();
-    let woke = now - Duration::days(NIGHTS) - Duration::minutes(5);
+    let woke = now - Elapsed::days(NIGHTS) - Elapsed::minutes(5);
     repos
         .sleep
         .upsert_sleep_session(
@@ -196,7 +196,7 @@ async fn file_unnamed_health(f: &Fixture) {
                 user_id: athlete.id.to_string(),
                 data_source_id: icu,
                 is_nap: false,
-                start_datetime: woke - Duration::hours(7),
+                start_datetime: woke - Elapsed::hours(7),
                 end_datetime: woke,
                 total_sleep_seconds: Some(25_100),
                 deep_sleep_seconds: Some(5_400),
@@ -240,7 +240,7 @@ fn rows<'payload>(payload: &'payload Value, key: &str) -> &'payload Vec<Value> {
 
 /// The row of `payload[key]` whose `date` (or night) is `days_ago` days back.
 fn row_on<'payload>(payload: &'payload Value, key: &str, days_ago: i64) -> &'payload Value {
-    let date = (Utc::now().date_naive() - Duration::days(days_ago)).to_string();
+    let date = (Timestamp::now().utc_date() - Elapsed::days(days_ago)).to_string();
     rows(payload, key)
         .iter()
         .find(|row| row["date"] == date.as_str())
@@ -433,20 +433,20 @@ async fn file_probe_days(f: &Fixture) -> Probe {
             .unwrap();
         source_ids.push((provider, id));
     }
-    let now = Utc::now();
-    let today = now.date_naive();
+    let now = Timestamp::now();
+    let today = now.utc_date();
     let synced = |provider: &str| {
         if provider == "garmin" {
-            now - Duration::hours(2)
+            now - Elapsed::hours(2)
         } else {
-            now - Duration::hours(6)
+            now - Elapsed::hours(6)
         }
     };
     let body = |(provider, id): &(&str, String), days_ago: i64| StoredHealthMetrics {
         id: String::new(),
         user_id: athlete.id.to_string(),
         data_source_id: id.clone(),
-        date: today - Duration::days(days_ago),
+        date: today - Elapsed::days(days_ago),
         weight_kg: None,
         body_fat_pct: None,
         muscle_mass_kg: None,
@@ -464,7 +464,7 @@ async fn file_probe_days(f: &Fixture) -> Probe {
         id: format!("{provider}-probe-{days_ago}"),
         user_id: athlete.id.to_string(),
         data_source_id: id.clone(),
-        date: today - Duration::days(days_ago),
+        date: today - Elapsed::days(days_ago),
         recovery_score: None,
         readiness_score: None,
         hrv_ms: None,
@@ -536,7 +536,7 @@ async fn file_probe_days(f: &Fixture) -> Probe {
             .unwrap();
     }
 
-    let window = (now - Duration::days(30), now + Duration::days(1));
+    let window = (now - Elapsed::days(30), now + Elapsed::days(1));
     let stored_body = repos
         .health_snapshots
         .get_health_snapshots(athlete.id, &athlete.tenant, window.0, window.1)
@@ -547,7 +547,7 @@ async fn file_probe_days(f: &Fixture) -> Probe {
         .get_recovery_metrics(athlete.id, &athlete.tenant, window.0, window.1)
         .await
         .unwrap();
-    let probe_date = today - Duration::days(PROBE_DAY);
+    let probe_date = today - Elapsed::days(PROBE_DAY);
     let body_of = |provider: &str| {
         stored_body
             .iter()
@@ -578,7 +578,7 @@ async fn file_probe_days(f: &Fixture) -> Probe {
 
 /// Whether no row of `payload[key]` is dated `days_ago` days back.
 fn no_row_on(payload: &Value, key: &str, days_ago: i64) -> bool {
-    let date = (Utc::now().date_naive() - Duration::days(days_ago)).to_string();
+    let date = (Timestamp::now().utc_date() - Elapsed::days(days_ago)).to_string();
     rows(payload, key)
         .iter()
         .all(|row| row["date"] != date.as_str())

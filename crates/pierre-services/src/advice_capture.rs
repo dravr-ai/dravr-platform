@@ -24,7 +24,8 @@ use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::errors::AppError;
 use pierre_database::repositories::PlaybookRepository;
@@ -201,7 +202,7 @@ pub fn looks_like_recommendation(reply: &str) -> bool {
 pub fn raw_to_pending(
     raw: &RawAdvicePublic,
     turn: &CapturedTurn,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> Option<PendingAdvice> {
     let window_days = raw.window_days.clamp(MIN_WINDOW_DAYS, MAX_WINDOW_DAYS);
     let trigger = TriggerPattern {
@@ -218,7 +219,7 @@ pub fn raw_to_pending(
         window_days,
         sanitize_sport_slug(raw.outcome_sport.as_deref()),
     );
-    let due_by = now + chrono::Duration::days(i64::from(window_days));
+    let due_by = now + Elapsed::days(i64::from(window_days));
     Some(PendingAdvice {
         id: Uuid::new_v4().to_string(),
         tenant_id: turn.tenant_id.clone(),
@@ -312,7 +313,7 @@ impl AdviceCaptureStrategy for HeuristicGatedLlmExtraction {
                     return Vec::new();
                 }
             };
-        let now = Utc::now();
+        let now = Timestamp::now();
         raw.into_iter()
             .filter_map(|r| raw_to_pending(&RawAdvicePublic::from(r), turn, now))
             .collect()

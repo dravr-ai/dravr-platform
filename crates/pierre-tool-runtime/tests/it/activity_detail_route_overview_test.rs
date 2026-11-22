@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TimeSeriesData};
 use pierre_tool_runtime::implementations::activity_summary::detail_json;
 use serde_json::Value;
@@ -20,7 +20,7 @@ fn outdoor_run() -> Activity {
         "s77",
         "Hill loop",
         SportType::Run,
-        Utc.with_ymd_and_hms(2026, 9, 20, 7, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-20T07:00:00Z").unwrap(),
         3_000,
         "strava",
     )
@@ -84,7 +84,7 @@ fn detail_mode_names_the_service_a_scraped_row_was_read_from() {
         "g1",
         "Hill loop",
         SportType::Run,
-        Utc.with_ymd_and_hms(2026, 9, 20, 7, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-20T07:00:00Z").unwrap(),
         3_000,
         "sciotte",
     )
@@ -107,7 +107,7 @@ fn run_with_track() -> Activity {
         "g42",
         "Hill loop",
         SportType::Run,
-        Utc.with_ymd_and_hms(2026, 9, 20, 7, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-20T07:00:00Z").unwrap(),
         3_000,
         "strava",
     )

@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_config::tool_selection::ToolSelectionConfig;
 use pierre_core::models::{TenantPlan, ToolEnablementSource, UserTier};
 use pierre_database::backends::factory::Database;
@@ -58,7 +58,7 @@ async fn test_repo_crud_roundtrip() {
     let (user_id, _user) = common::create_test_user(&db).await.unwrap();
 
     // Upsert an explicit disable with audit fields.
-    let now = Utc::now();
+    let now = Timestamp::now();
     let row = UserToolOverride {
         user_id,
         tool_name: STARTER_TOOL.to_owned(),
@@ -112,8 +112,8 @@ async fn test_repo_crud_roundtrip() {
     assert!(refetched.is_enabled, "upsert should flip is_enabled");
     assert_eq!(refetched.reason.as_deref(), Some("flipped"));
     assert_eq!(
-        refetched.created_at.timestamp(),
-        original_created_at.timestamp(),
+        refetched.created_at.epoch_seconds(),
+        original_created_at.epoch_seconds(),
         "created_at must be preserved across upserts"
     );
 

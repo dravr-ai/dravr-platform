@@ -67,7 +67,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::errors::ErrorCode;
     use pierre_database::RepositoryRegistry;
     use pierre_test_support::db::create_test_db;
@@ -102,7 +102,7 @@ mod tests {
                 PLATFORM_SCOPE,
                 PLATFORM_SCOPE,
                 key,
-                &budget_period(Utc::now(), window),
+                &budget_period(Timestamp::now(), window),
             )
             .await
             .map_or(0, |counter| counter.value)
@@ -175,7 +175,7 @@ mod tests {
                 PLATFORM_SCOPE,
                 PLATFORM_SCOPE,
                 &key,
-                &budget_period(Utc::now(), ONE_DAY),
+                &budget_period(Timestamp::now(), ONE_DAY),
                 i64::from(CONTEXT_READ_DAILY_CALLS),
             )
             .await

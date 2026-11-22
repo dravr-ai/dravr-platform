@@ -35,6 +35,7 @@ use super::types::{
 };
 use super::user_removal::{account_in_reach, parse_user_id};
 use crate::context::AdminApiContext;
+use dravr_tronc::dates::Timestamp;
 
 /// User list response
 #[derive(Debug, Clone, Serialize)]
@@ -92,7 +93,7 @@ impl From<&User> for UserSummary {
             user_status: user_status_str(user.user_status),
             role: user.role.as_str(),
             is_admin: user.role.is_admin(),
-            approved_at: user.approved_at.map(|t| t.to_rfc3339()),
+            approved_at: user.approved_at.map(Timestamp::to_rfc3339),
             approved_by: user.approved_by.map(|id| id.to_string()),
         }
     }
@@ -573,7 +574,7 @@ pub(crate) async fn handle_approve_user(
                     "email": updated_user.email,
                     "user_status": user_status_str(updated_user.user_status),
                     "approved_by": updated_user.approved_by,
-                    "approved_at": updated_user.approved_at.map(|t| t.to_rfc3339()),
+                    "approved_at": updated_user.approved_at.map(Timestamp::to_rfc3339),
                 },
                 "reason": reason
             }))

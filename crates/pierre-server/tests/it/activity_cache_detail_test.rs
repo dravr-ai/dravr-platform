@@ -18,7 +18,7 @@ use crate::common;
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{
     Activity, ActivityBuilder, ActivityTag, GearRef, Lap, Split, SportType, TagSource, TaggedBy,
     TenantId,
@@ -27,8 +27,8 @@ use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{ActivityDetail, AmendedReads, CachedRowsQuery};
 use uuid::Uuid;
 
-fn started() -> DateTime<Utc> {
-    Utc::now() - Duration::days(1)
+fn started() -> Timestamp {
+    Timestamp::now() - Elapsed::days(1)
 }
 
 /// A run as a list read caches it: no splits, no laps.
@@ -137,7 +137,7 @@ async fn a_stored_detail_survives_every_later_list_sync_on_every_read() {
     assert_eq!(one.laps(), Some(&vec![lap()]));
 
     let cache = &fx.database.repositories().activity_cache;
-    let window = (started() - Duration::hours(1), Utc::now());
+    let window = (started() - Elapsed::hours(1), Timestamp::now());
     let listed = cache
         .get_cached_activities(fx.user_id, &fx.tenant, None, window.0, window.1, 10)
         .await
@@ -270,10 +270,10 @@ async fn a_detail_read_that_found_nothing_answers_its_row_only_until_its_recheck
     assert!(found_nothing.is_empty());
     assert!(!detail().is_empty());
     let cache = &fx.database.repositories().activity_cache;
-    let now = Utc::now();
+    let now = Timestamp::now();
     for (id, detail, recheck_at) in [
-        ("r8", &found_nothing, Some(now + Duration::minutes(30))),
-        ("r10", &found_nothing, Some(now - Duration::minutes(1))),
+        ("r8", &found_nothing, Some(now + Elapsed::minutes(30))),
+        ("r10", &found_nothing, Some(now - Elapsed::minutes(1))),
         ("r11", &detail(), None),
     ] {
         assert!(cache
@@ -289,8 +289,8 @@ async fn a_detail_read_that_found_nothing_answers_its_row_only_until_its_recheck
             fx.user_id,
             &fx.tenant,
             &CachedRowsQuery::window(
-                started() - Duration::hours(1),
-                started() + Duration::hours(1),
+                started() - Elapsed::hours(1),
+                started() + Elapsed::hours(1),
                 10,
             ),
         )
@@ -575,7 +575,7 @@ impl Fixture {
 async fn an_amend_fills_tags_and_gear_and_nothing_else() {
     let fx = fixture().await;
     let cache = &fx.database.repositories().activity_cache;
-    let synced_at = Utc::now() - Duration::hours(5);
+    let synced_at = Timestamp::now() - Elapsed::hours(5);
     cache
         .upsert_activities_synced_at(
             fx.user_id,

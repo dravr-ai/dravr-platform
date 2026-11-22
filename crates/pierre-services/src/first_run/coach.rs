@@ -26,7 +26,7 @@
 //! [`CoachFacts::read`] gathers what the steps are decided on; [`coach_setup`]
 //! decides them, so the rule is a pure function its tests drive directly.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth_providers::{INTERVALS_ICU, SCIOTTE_TRAININGPEAKS};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{CoachingGroup, ConnectionType, TenantId};
@@ -61,7 +61,7 @@ pub struct JoinedAthlete {
     /// The group they joined.
     pub group_id: Uuid,
     /// When they joined it.
-    pub joined_at: DateTime<Utc>,
+    pub joined_at: Timestamp,
 }
 
 /// What the coach's steps are decided on.
@@ -218,16 +218,12 @@ impl CoachFacts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
 
     fn joined() -> JoinedAthlete {
         JoinedAthlete {
             name: Some("Léa Gagnon".to_owned()),
             group_id: Uuid::nil(),
-            joined_at: Utc
-                .with_ymd_and_hms(2026, 11, 10, 9, 0, 0)
-                .single()
-                .expect("instant"),
+            joined_at: Timestamp::parse_from_rfc3339("2026-11-10T09:00:00Z").expect("instant"),
         }
     }
 

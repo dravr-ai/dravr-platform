@@ -11,7 +11,7 @@
 //! Both refuse an inactive, expired or used-up invite, and a group that has
 //! been archived since the invite was handed out.
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupInvite, GroupInviteKind, GroupMember, GroupRole,
@@ -85,7 +85,7 @@ impl GroupService {
             return Err(AppError::invalid_input("This invite has been deactivated"));
         }
         if let Some(expires) = invite.expires_at {
-            if expires < Utc::now() {
+            if expires < Timestamp::now() {
                 return Err(AppError::invalid_input("This invite has expired"));
             }
         }
@@ -215,7 +215,7 @@ impl GroupService {
                     "A signup code needs max_uses between 1 and {SIGNUP_INVITE_MAX_USES}"
                 ))
             })?;
-        let now = Utc::now();
+        let now = Timestamp::now();
         let invite = GroupInvite {
             id: Uuid::new_v4(),
             group_id,
@@ -223,7 +223,7 @@ impl GroupService {
             code: unambiguous_code(SIGNUP_CODE_LEN),
             kind: GroupInviteKind::Member,
             created_by,
-            expires_at: Some(now + Duration::days(days)),
+            expires_at: Some(now + Elapsed::days(days)),
             max_uses: Some(uses),
             use_count: 0,
             is_active: true,
@@ -376,7 +376,7 @@ impl GroupService {
             ));
         }
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         let member = GroupMember {
             id: Uuid::new_v4(),
             group_id: invite.group_id,
@@ -439,7 +439,7 @@ mod tests {
             use_count: 0,
             is_active: true,
             approves_signup: false,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         }
     }
 
@@ -460,7 +460,7 @@ mod tests {
         );
 
         let mut expired = live_invite(GroupInviteKind::Member);
-        expired.expires_at = Some(Utc::now() - Duration::minutes(1));
+        expired.expires_at = Some(Timestamp::now() - Elapsed::minutes(1));
         assert!(
             GroupService::check_invite_usable(&expired).is_err(),
             "bug: an expired invite passed"

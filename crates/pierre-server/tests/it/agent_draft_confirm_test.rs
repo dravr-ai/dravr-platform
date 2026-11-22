@@ -19,8 +19,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use common::{create_test_server_resources_with_llm_and_tools, create_test_user};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::schema::{Tool as McpToolDefinition, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_commands::pending_confirm::{ConfirmHandler, DenyHandler};
@@ -109,7 +109,7 @@ async fn park(resources: &Arc<ServerContext>, row: &PendingAgentDraft, minutes: 
         .common
         .repos
         .agent_drafts
-        .create_pending_action(row, Utc::now() + Duration::minutes(minutes))
+        .create_pending_action(row, Timestamp::now() + Elapsed::minutes(minutes))
         .await
         .expect("park row");
 }

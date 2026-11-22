@@ -4,11 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, NaiveDate, Utc};
 use dravr_riviere::aggregation::aggregate_windows;
 use dravr_riviere::{
     AggregatedPoint, Aggregation, DataPoint, QueryResult, RiviereError, TimeRange, TimeSeriesStore,
 };
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     DataSource, StoredDailyActivity, StoredHealthMetrics, StoredRecoveryMetrics,

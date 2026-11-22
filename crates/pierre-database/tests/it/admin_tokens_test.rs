@@ -32,7 +32,7 @@
 use std::thread;
 use std::time::Duration;
 
-use chrono::{TimeDelta, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::admin::jwt::JwtSigner;
 use pierre_core::admin::models::{
     AdminAction, AdminPermission, AdminPermissions, AdminToken, AdminTokenUsage,
@@ -398,7 +398,7 @@ async fn log_a_purge(repos: &RepositoryRegistry, token_id: &str) {
         .record_token_usage(&AdminTokenUsage {
             id: None,
             admin_token_id: token_id.to_owned(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             action: AdminAction::PurgeProviderData,
             target_resource: Some("provider:whoop".to_owned()),
             ip_address: None,
@@ -425,7 +425,7 @@ pub(crate) async fn log_a_request_with_its_caller(repos: &RepositoryRegistry, to
         .record_token_usage(&AdminTokenUsage {
             id: None,
             admin_token_id: token_id.to_owned(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             action: AdminAction::PurgeProviderData,
             target_resource: Some("provider:whoop".to_owned()),
             ip_address: Some(LAST_USED_FROM.to_owned()),
@@ -451,8 +451,8 @@ pub(crate) async fn requests_of(
         .admin
         .get_token_usage_history(
             token_id,
-            Utc::now() - TimeDelta::hours(1),
-            Utc::now() + TimeDelta::hours(1),
+            Timestamp::now() - Elapsed::hours(1),
+            Timestamp::now() + Elapsed::hours(1),
         )
         .await
         .unwrap()
@@ -500,7 +500,7 @@ async fn only_a_deleted_admins_login_records_no_caller_for_a_request_in_flight()
         log_a_request_with_its_caller(repos, token_id).await;
         repos
             .admin
-            .record_token_use(token_id, Utc::now(), Some(LAST_USED_FROM))
+            .record_token_use(token_id, Timestamp::now(), Some(LAST_USED_FROM))
             .await
             .unwrap();
     }
@@ -632,7 +632,7 @@ async fn device_login_waiting(
     user_code: &str,
     approver: Option<Uuid>,
 ) -> String {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let da = DeviceAuthorization {
         device_code_hash: format!("hash-{}", Uuid::new_v4()),
         user_code: user_code.to_owned(),
@@ -764,7 +764,7 @@ async fn deleting_an_account_leaves_no_token_row_that_names_it() {
         // The address the admin last used the login from, on its row.
         repos
             .admin
-            .record_token_use(token_id, Utc::now(), Some(LAST_USED_FROM))
+            .record_token_use(token_id, Timestamp::now(), Some(LAST_USED_FROM))
             .await
             .unwrap();
         let row = token(repos, token_id).await.expect("the row");
@@ -905,7 +905,7 @@ async fn no_account_is_given_the_id_that_stands_for_a_deleted_one() {
             status: "active".to_owned(),
             role: UserRole::Admin,
             locale: "en".to_owned(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         })
         .await
         .expect_err("the seeder must refuse the nil id");
@@ -1117,7 +1117,7 @@ async fn a_rotation_retires_the_token_and_mints_one_replacement() {
     );
     assert!(!row.is_super_admin);
     assert_eq!(row.operator_user_id, None);
-    let lifetime = row.expires_at.expect("it expires") - Utc::now();
+    let lifetime = row.expires_at.expect("it expires") - Timestamp::now();
     assert!(
         (6..=7).contains(&lifetime.num_days()),
         "the lifetime asked for, not the old token's: {lifetime}"

@@ -27,7 +27,6 @@ telemetry = [
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 
-chrono = { version = "0.4", features = ["serde"] }
 dravr-tronc = { workspace = true, features = ["notifications"] }
 gethostname = "1"
 serde_json = "1.0"

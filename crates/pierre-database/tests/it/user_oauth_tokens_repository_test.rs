@@ -18,7 +18,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{TenantId, User, UserOAuthToken};
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
@@ -37,15 +37,15 @@ async fn fresh_user(repos: &RepositoryRegistry) -> Uuid {
 
 /// A whole-second instant, so the value survives both drivers' timestamp
 /// precision unchanged and compares exactly.
-fn seconds_ago(seconds: i64) -> DateTime<Utc> {
-    DateTime::from_timestamp(Utc::now().timestamp() - seconds, 0).unwrap()
+fn seconds_ago(seconds: i64) -> Timestamp {
+    Timestamp::from_epoch_seconds(Timestamp::now().epoch_seconds() - seconds).unwrap()
 }
 
 fn token(
     user_id: Uuid,
     tenant_id: &TenantId,
     provider: &str,
-    created_at: DateTime<Utc>,
+    created_at: Timestamp,
 ) -> UserOAuthToken {
     UserOAuthToken {
         id: Uuid::new_v4().to_string(),

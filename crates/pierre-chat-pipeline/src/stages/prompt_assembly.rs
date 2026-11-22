@@ -9,7 +9,7 @@ use pierre_providers::ai_scope;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use tracing::{debug, field, info, trace, warn, Span};
 
 use crate::ChatPipelineContext;
@@ -341,7 +341,7 @@ pub(crate) async fn resolve_user_persona(
 pub(crate) async fn resolve_user_persona_and_created_at(
     users: &dyn UserRepository,
     user_id: &str,
-) -> (CoachingPersona, Option<DateTime<Utc>>) {
+) -> (CoachingPersona, Option<Timestamp>) {
     read_asker(users, user_id).await.map_or_else(
         || (CoachingPersona::default(), None),
         |user| (user.coaching_persona, Some(user.created_at)),
@@ -775,7 +775,8 @@ pub(crate) async fn assemble_prompt_and_messages(
     let plan_withheld = interview_owns_turn || !input.is_direct_message;
     let base_prompt = match subject_turn.as_ref() {
         None => {
-            let athlete_today = clock_date(Utc::now(), resolve_zone(user_timezone.as_deref()));
+            let athlete_today =
+                clock_date(Timestamp::now(), &resolve_zone(user_timezone.as_deref()));
             inject_training_plan(
                 ctx.plan_prompt_sources(),
                 &input.tool_tenant_id.to_string(),
@@ -944,7 +945,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         Some(turn) => format!("{raw_system_prompt}{}", super::onboarding::directive(turn)),
         None if super::onboarding::just_completed_interview(
             conv.onboarding_state.as_deref(),
-            Utc::now(),
+            Timestamp::now(),
         ) =>
         {
             format!(

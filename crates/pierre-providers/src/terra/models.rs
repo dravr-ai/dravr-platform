@@ -9,8 +9,72 @@
 //! These structures represent the JSON payloads received from Terra webhooks.
 //! Terra normalizes data from 150+ providers into consistent schemas.
 
-use chrono::{DateTime, FixedOffset, Utc};
-use serde::{Deserialize, Serialize};
+use std::fmt;
+
+use dravr_tronc::date_pattern;
+use dravr_tronc::dates::{CivilDate, Offset, Pattern, Timestamp, Zone};
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+/// RFC 3339 on a zero offset, written `Z`.
+const AT_UTC: Pattern<Timestamp> = date_pattern!(Timestamp, "%Y-%m-%dT%H:%M:%S%.fZ");
+
+/// RFC 3339 on the offset's clock, written `±HH:MM`.
+const AT_OFFSET: Pattern<Timestamp> = date_pattern!(Timestamp, "%Y-%m-%dT%H:%M:%S%.f%:z");
+
+/// An instant with the UTC offset Terra wrote it in: the athlete's local
+/// offset, which dates a day or a night.
+///
+/// Read from RFC 3339 text with an offset ([`Timestamp::parse_with_offset`])
+/// and written back on that offset's clock, with `Z` for a zero offset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerraTime {
+    /// The instant.
+    pub at: Timestamp,
+    /// The offset Terra's text carried.
+    pub offset: Offset,
+}
+
+impl TerraTime {
+    /// The calendar date on the clock the offset names.
+    #[must_use]
+    pub fn local_date(self) -> CivilDate {
+        Zone::from(self.offset).date_at(self.at)
+    }
+}
+
+impl Serialize for TerraTime {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let pattern = if self.offset == Offset::UTC {
+            &AT_UTC
+        } else {
+            &AT_OFFSET
+        };
+        serializer.serialize_str(&Zone::from(self.offset).format_with(self.at, pattern))
+    }
+}
+
+impl<'de> Deserialize<'de> for TerraTime {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct TerraTimeVisitor;
+
+        impl Visitor<'_> for TerraTimeVisitor {
+            type Value = TerraTime;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("an RFC 3339 date and time with an offset")
+            }
+
+            fn visit_str<E: de::Error>(self, text: &str) -> Result<TerraTime, E> {
+                Timestamp::parse_with_offset(text)
+                    .map(|(at, offset)| TerraTime { at, offset })
+                    .map_err(E::custom)
+            }
+        }
+
+        deserializer.deserialize_str(TerraTimeVisitor)
+    }
+}
 
 /// Terra webhook payload wrapper
 ///
@@ -113,10 +177,10 @@ pub struct TerraActivity {
 pub struct TerraMetadata {
     /// Start time of the activity/session, with the offset Terra sent it in:
     /// the athlete's local offset, which dates a day or a night.
-    pub start_time: Option<DateTime<FixedOffset>>,
+    pub start_time: Option<TerraTime>,
 
     /// End time of the activity/session, with the offset Terra sent it in.
-    pub end_time: Option<DateTime<FixedOffset>>,
+    pub end_time: Option<TerraTime>,
 
     /// Activity type (e.g., "RUNNING", "CYCLING", "SWIMMING")
     #[serde(rename = "type")]
@@ -249,13 +313,13 @@ pub struct TerraHeartRateData {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TerraSample {
     /// Timestamp of sample
-    pub timestamp: Option<DateTime<Utc>>,
+    pub timestamp: Option<Timestamp>,
 
     /// Sample value
     pub value: Option<f64>,
 
     /// Timer start time (for lap/interval data)
-    pub timer_start_time: Option<DateTime<Utc>>,
+    pub timer_start_time: Option<Timestamp>,
 
     /// Timer duration seconds
     pub timer_duration_seconds: Option<f64>,
@@ -322,7 +386,7 @@ pub struct TerraPositionData {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TerraPositionSample {
     /// Timestamp
-    pub timestamp: Option<DateTime<Utc>>,
+    pub timestamp: Option<Timestamp>,
 
     /// Latitude
     pub lat: Option<f64>,
@@ -353,7 +417,7 @@ pub struct TerraDeviceData {
     pub hardware_version: Option<String>,
 
     /// Activation timestamp
-    pub activation_timestamp: Option<DateTime<Utc>>,
+    pub activation_timestamp: Option<Timestamp>,
 }
 
 /// Oxygen saturation data
@@ -424,10 +488,10 @@ pub struct TerraLapData {
     pub lap_index: Option<i32>,
 
     /// Start time
-    pub start_time: Option<DateTime<Utc>>,
+    pub start_time: Option<Timestamp>,
 
     /// End time
-    pub end_time: Option<DateTime<Utc>>,
+    pub end_time: Option<Timestamp>,
 
     /// Lap distance in meters
     pub distance_metres: Option<f64>,
@@ -505,10 +569,10 @@ pub struct TerraSleepDurations {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TerraSleepStage {
     /// Start time of stage
-    pub start_time: Option<DateTime<Utc>>,
+    pub start_time: Option<Timestamp>,
 
     /// End time of stage
-    pub end_time: Option<DateTime<Utc>>,
+    pub end_time: Option<Timestamp>,
 
     /// Stage type: 0=unknown, 1=awake, 2=light, 3=deep, 4=rem
     pub stage: Option<i32>,
@@ -750,7 +814,7 @@ pub struct TerraMeal {
     pub name: Option<String>,
 
     /// Meal timestamp
-    pub timestamp: Option<DateTime<Utc>>,
+    pub timestamp: Option<Timestamp>,
 
     /// Meal ID
     pub id: Option<String>,

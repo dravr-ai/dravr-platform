@@ -31,7 +31,7 @@ use std::time::Instant;
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
-use chrono::{Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::admin::jwks::load_or_store_first_keypair;
 use pierre_auth::key_management::{
     DatabaseEncryptionKey, KekProvider, KeyManager, LocalKekProvider, MasterEncryptionKey,
@@ -176,7 +176,7 @@ async fn user_with_tenant(database: &Database) -> (Uuid, TenantId) {
     let user = create_test_user(&format!("km-{}@example.com", Uuid::new_v4()), None);
     let user_id = database.repositories().users.create(&user).await.unwrap();
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     database
         .repositories()
         .tenants
@@ -210,7 +210,7 @@ async fn store_oauth_token(database: &Database) -> (Uuid, TenantId) {
         "strava".to_owned(),
         ACCESS_TOKEN.to_owned(),
         Some(format!("refresh-{ACCESS_TOKEN}")),
-        Some(Utc::now() + ChronoDuration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     );
     database
@@ -428,7 +428,7 @@ async fn rsa_private_key_decrypt_failure_pages_and_refuses_the_keypair() {
             "kid-703",
             "sealed-signing-key-703",
             "public-half",
-            Utc::now(),
+            Timestamp::now(),
             true,
             2048,
         )

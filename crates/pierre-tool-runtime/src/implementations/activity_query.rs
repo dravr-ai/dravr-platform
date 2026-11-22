@@ -16,8 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{NaiveDate, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::civil_time::{clock_date, day_start_utc, resolve_zone};
@@ -50,13 +49,13 @@ use crate::runtime::ToolRuntime;
 pub(super) async fn athlete_today(
     runtime: &Arc<dyn ToolRuntime>,
     athlete: Athlete,
-) -> AppResult<(NaiveDate, Tz)> {
+) -> AppResult<(CivilDate, Zone)> {
     let zone = resolve_zone(
         user_timezone(runtime.repos(), athlete.user_id)
             .await?
             .as_deref(),
     );
-    Ok((clock_date(Utc::now(), zone), zone))
+    Ok((clock_date(Timestamp::now(), &zone), zone))
 }
 
 /// Settle a segment count's coverage: the history half the aggregator
@@ -70,7 +69,7 @@ async fn settle_segments(
     runtime: &Arc<dyn ToolRuntime>,
     athlete: Athlete,
     query: &ActivityQuery,
-    zone: Tz,
+    zone: &Zone,
     answer: &mut QueryAnswer,
 ) {
     let Some(counts) = answer.segments else {
@@ -85,7 +84,7 @@ async fn settle_segments(
         .from
         .or(answer.coverage.window.oldest)
         .unwrap_or(query.to);
-    let top_day = query.to.succ_opt().unwrap_or(query.to);
+    let top_day = query.to.succ().unwrap_or(query.to);
     let sport = match (
         query.filter.sport_types.as_slice(),
         query.filter.sport_families.is_empty(),
@@ -98,8 +97,8 @@ async fn settle_segments(
     let (completeness, pending) = segment_completeness(
         runtime,
         athlete,
-        day_start_utc(floor_day, zone).timestamp(),
-        day_start_utc(top_day, zone).timestamp(),
+        day_start_utc(floor_day, zone).epoch_seconds(),
+        day_start_utc(top_day, zone).epoch_seconds(),
         sport.as_deref(),
         counts,
     )
@@ -223,7 +222,7 @@ impl McpTool<dyn ToolRuntime> for QueryActivitiesTool {
                 ReadGate::Model,
             )
             .await?;
-            settle_segments(runtime, athlete, &query, zone, &mut answer).await;
+            settle_segments(runtime, athlete, &query, &zone, &mut answer).await;
             let response = formatted_response(
                 &answer,
                 parse_output_format(&args),

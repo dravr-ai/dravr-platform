@@ -32,7 +32,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{InvitationKind, TenantId, UserInvitation};
 use pierre_database::RepositoryRegistry;
@@ -78,7 +78,7 @@ pub struct IssuedInvitation {
     /// The `<selector>.<verifier>` token the link carries. Never stored whole.
     pub token: String,
     /// When the link stops working.
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// What redeeming it gives besides the account.
     pub kind: InvitationKind,
 }
@@ -157,7 +157,7 @@ pub async fn issue(
 
     let sent = repos
         .user_invitations
-        .count_recent(&email, Utc::now() - Duration::hours(1))
+        .count_recent(&email, Timestamp::now() - Elapsed::hours(1))
         .await?;
     if sent >= INVITATIONS_PER_ADDRESS_PER_HOUR {
         warn!(
@@ -175,7 +175,7 @@ pub async fn issue(
             invited_by,
             &generated.selector,
             &generated.verifier_hash,
-            Utc::now() + Duration::days(INVITATION_TTL_DAYS),
+            Timestamp::now() + Elapsed::days(INVITATION_TTL_DAYS),
             kind,
         )
         .await?;
@@ -235,9 +235,9 @@ pub struct CoachSeatInvitationView {
     /// That admin's address, while their account exists.
     pub invited_by_email: Option<String>,
     /// When it was sent.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When its link stops (or stopped) working.
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// Its link no longer works: the admin sends it again.
     pub expired: bool,
 }
@@ -251,7 +251,7 @@ pub struct CoachSeatInvitationView {
 pub async fn list_coach_seat_invitations(
     repos: &RepositoryRegistry,
 ) -> AppResult<Vec<CoachSeatInvitationView>> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut views = Vec::new();
     for invitation in repos
         .user_invitations
@@ -341,7 +341,7 @@ pub(crate) async fn live_by_email(
 ) -> AppResult<HashMap<String, UserInvitation>> {
     Ok(repos
         .user_invitations
-        .list_live(Utc::now())
+        .list_live(Timestamp::now())
         .await?
         .into_iter()
         .map(|invitation| (invitation.email.clone(), invitation))
@@ -428,7 +428,7 @@ mod tests {
         let issued = IssuedInvitation {
             email: "coach@example.com".to_owned(),
             token: "Sel1.Ver2".to_owned(),
-            expires_at: Utc::now(),
+            expires_at: Timestamp::now(),
             kind: InvitationKind::Account,
         };
         assert_eq!(
@@ -442,7 +442,7 @@ mod tests {
         let issued = IssuedInvitation {
             email: "coach@example.com".to_owned(),
             token: "Sel1.Ver2".to_owned(),
-            expires_at: Utc::now(),
+            expires_at: Timestamp::now(),
             kind: InvitationKind::CoachSeat,
         };
         assert_eq!(

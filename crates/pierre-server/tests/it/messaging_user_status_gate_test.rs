@@ -12,7 +12,7 @@ mod messaging_user_status_gate_tests {
     use crate::common::create_test_server_resources;
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use hmac::{Hmac, Mac};
     use pierre_auth::rate_limiting::{calculate_jwt_rate_limit, RequestBudget};
     use pierre_auth::user_status::enforce_user_status;
@@ -76,7 +76,7 @@ mod messaging_user_status_gate_tests {
         user.user_status = status;
         if status == UserStatus::Active {
             user.approved_by = Some(user.id);
-            user.approved_at = Some(Utc::now());
+            user.approved_at = Some(Timestamp::now());
         }
 
         let user_id = user.id;
@@ -90,8 +90,8 @@ mod messaging_user_status_gate_tests {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common
@@ -308,7 +308,7 @@ mod messaging_user_status_gate_tests {
             .await
             .unwrap();
         assert_eq!(usage.monthly_override, MonthlyLimitOverride::NotSet);
-        let now = Utc::now();
+        let now = Timestamp::now();
         let budget = calculate_jwt_rate_limit(&user, usage, now);
         assert_eq!(
             budget,
@@ -426,7 +426,7 @@ mod messaging_user_status_gate_tests {
             .record_jwt_usage(&JwtUsage {
                 id: None,
                 user_id,
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
                 endpoint: "messaging:whatsapp".to_owned(),
                 method: "AUTH".to_owned(),
                 status_code: 200,
@@ -605,7 +605,7 @@ mod messaging_user_status_gate_tests {
             .last_active;
 
         // `users.last_active` is stored via SQL `CURRENT_TIMESTAMP` (second
-        // precision) while `User::new` records `Utc::now()` (microsecond
+        // precision) while `User::new` records `Timestamp::now()` (microsecond
         // precision). Sleep past the next-second boundary so the truncated
         // post-update timestamp can be strictly greater than the
         // creation-time timestamp.

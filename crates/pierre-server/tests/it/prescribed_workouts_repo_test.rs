@@ -17,7 +17,8 @@
 use pierre_core::transport::TransportPolicy;
 use std::time::Duration;
 
-use chrono::{NaiveDate, Utc};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::models::{CalendarEventSource, PrescribedWorkout, SportType, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_database::DatabaseProvider;
@@ -34,8 +35,8 @@ async fn make_test_db() -> Database {
     db
 }
 
-fn anchor_date() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 5, 1).unwrap()
+fn anchor_date() -> CivilDate {
+    CivilDate::from_ymd(2026, 5, 1).unwrap()
 }
 
 /// A prescription as the tool writes one: the push landed, so the row carries
@@ -44,10 +45,10 @@ fn make_prescribed(
     tenant_id: TenantId,
     user_id: Uuid,
     template_slug: &str,
-    date: NaiveDate,
+    date: CivilDate,
 ) -> PrescribedWorkout {
     let id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = Timestamp::now();
     PrescribedWorkout {
         id,
         tenant_id: tenant_id.as_uuid(),
@@ -280,12 +281,12 @@ async fn get_by_id_is_scoped_to_the_tenant_and_the_athlete() {
     );
     assert_eq!(found.prescribed_for_date, prescribed.prescribed_for_date);
     assert_eq!(
-        found.created_at.timestamp_micros(),
-        prescribed.created_at.timestamp_micros()
+        found.created_at.epoch_micros(),
+        prescribed.created_at.epoch_micros()
     );
     assert_eq!(
-        found.updated_at.timestamp_micros(),
-        prescribed.updated_at.timestamp_micros()
+        found.updated_at.epoch_micros(),
+        prescribed.updated_at.epoch_micros()
     );
 
     // Another athlete of the same tenant, and the same athlete in another
@@ -312,9 +313,9 @@ async fn live_calendar_events_are_the_pushed_rows_of_one_provider_from_a_date() 
     let user_id = Uuid::new_v4();
     let repos = db.repositories();
     let d0 = anchor_date();
-    let d1 = d0 + chrono::Duration::days(1);
-    let d2 = d0 + chrono::Duration::days(2);
-    let d3 = d0 + chrono::Duration::days(3);
+    let d1 = d0 + Elapsed::days(1);
+    let d2 = d0 + Elapsed::days(2);
+    let d3 = d0 + Elapsed::days(3);
 
     // Live on intervals.icu at d0 and d2; refused at d1; withdrawn at d3; and
     // a live row on another provider at d1 that must never leak across.

@@ -13,11 +13,11 @@
 //! (see [`AppAttestKey`]).
 //!
 //! `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
-//! Postgres. Timestamps bind as [`DateTime<Utc>`] on both: `TIMESTAMPTZ` on
+//! Postgres. Timestamps bind as [`Timestamp`] on both: `TIMESTAMPTZ` on
 //! Postgres, RFC 3339 text on `SQLite`.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{AppAttestEnvironment, AppAttestKey};
 
@@ -37,7 +37,7 @@ pub trait AppAttestKeyRepository: Send + Sync {
         &self,
         key_id: &str,
         sign_count: u32,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<bool>;
 }
 
@@ -76,7 +76,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Vec<u8>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let sign_count: i64 = row
         .try_get("sign_count")
@@ -143,7 +143,7 @@ macro_rules! impl_app_attest_key_repository {
                 &self,
                 key_id: &str,
                 sign_count: u32,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<bool> {
                 let result = sqlx::query(ADVANCE_COUNTER_SQL)
                     .bind(key_id)

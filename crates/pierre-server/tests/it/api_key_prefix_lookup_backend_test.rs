@@ -19,7 +19,7 @@
 //! test exercises `PostgreSQL` wherever one is configured and `SQLite`
 //! otherwise — the same contract on both.
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_core::models::{ApiKey, User, UserStatus, UserTier};
 use pierre_database::backends::factory::Database;
@@ -208,7 +208,7 @@ async fn created_at_round_trips_on_the_configured_backend() {
     api_key.id = format!("key_{}", Uuid::new_v4().simple());
     api_key.key_prefix = format!("pk_live_{}", Uuid::new_v4().simple());
     api_key.key_hash = format!("hash_{}", Uuid::new_v4().simple());
-    api_key.created_at = Utc::now() - Duration::days(1);
+    api_key.created_at = Timestamp::now() - Elapsed::days(1);
     repos.api_keys.create(&api_key).await.expect("key stored");
 
     let found = repos
@@ -307,7 +307,7 @@ async fn a_key_expired_minutes_ago_is_cleaned_up_on_the_configured_backend() {
     api_key.id = format!("key_{}", Uuid::new_v4().simple());
     api_key.key_prefix = format!("pk_live_{}", Uuid::new_v4().simple());
     api_key.key_hash = format!("hash_{}", Uuid::new_v4().simple());
-    api_key.expires_at = Some(Utc::now() - Duration::minutes(5));
+    api_key.expires_at = Some(Timestamp::now() - Elapsed::minutes(5));
     repos.api_keys.create(&api_key).await.expect("key stored");
 
     assert_eq!(

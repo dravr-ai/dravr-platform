@@ -21,14 +21,14 @@
 //! stringified on the other. That conversion is the macro's single argument.
 //! `tenant_id` binds as a `TenantId`, whose own sqlx encoding is already
 //! text on `SQLite` and a native uuid on Postgres; `date` binds and decodes as
-//! a [`NaiveDate`], which sqlx writes as ISO `YYYY-MM-DD` text on `SQLite` and
+//! a [`CivilDate`], which sqlx writes as ISO `YYYY-MM-DD` text on `SQLite` and
 //! a native `DATE` on Postgres, so `BETWEEN` and `ORDER BY` agree on both.
 //!
 //! `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them. `CURRENT_TIMESTAMP` is the spelling both engines accept.
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::DailyTrainingState;
 
@@ -107,11 +107,11 @@ pub(crate) fn training_state_from_row<R>(row: &R) -> AppResult<DailyTrainingStat
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     f64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
-    let date: NaiveDate = row
+    let date: CivilDate = row
         .try_get("date")
         .map_err(|e| AppError::database(format!("read date: {e}")))?;
     let optional = |col: &str| -> AppResult<Option<f64>> {
@@ -190,8 +190,8 @@ macro_rules! impl_training_history_repository {
                 &self,
                 tenant_id: TenantId,
                 user_id: Uuid,
-                from: NaiveDate,
-                to: NaiveDate,
+                from: CivilDate,
+                to: CivilDate,
             ) -> AppResult<Vec<DailyTrainingState>> {
                 let rows = sqlx::query(GET_TRAINING_HISTORY_SQL)
                     .bind(tenant_id)
@@ -209,8 +209,8 @@ macro_rules! impl_training_history_repository {
                 &self,
                 tenant_id: TenantId,
                 user_id: Uuid,
-                from: NaiveDate,
-                to: NaiveDate,
+                from: CivilDate,
+                to: CivilDate,
             ) -> AppResult<u64> {
                 let result = sqlx::query(DELETE_TRAINING_HISTORY_RANGE_SQL)
                     .bind(tenant_id)

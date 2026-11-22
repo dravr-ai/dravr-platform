@@ -305,7 +305,7 @@ pub(crate) fn export_only(workout: &Workout<'_>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::{ActivityBuilder, TagSource, TaggedBy};
 
     use super::*;
@@ -315,7 +315,7 @@ mod tests {
             "a1",
             "Run",
             SportType::Run,
-            Utc.with_ymd_and_hms(2026, 11, 1, 8, 0, 0).unwrap(),
+            Timestamp::parse_from_rfc3339("2026-11-01T08:00:00Z").unwrap(),
             1800,
             "sciotte",
         )

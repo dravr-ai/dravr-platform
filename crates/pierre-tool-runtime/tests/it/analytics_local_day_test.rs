@@ -19,10 +19,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{DateTime, Days, Timelike, Utc};
-use chrono_tz::Tz;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::training_load::TrainingLoadCalculator;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_fitness_compute::AthleteInputs;
 use pierre_tool_runtime::implementations::analytics::output::{
@@ -40,19 +40,15 @@ fn providers() -> ProvidersUsed {
 }
 
 /// A zone whose civil day is not UTC's at `now`.
-fn zone_off_the_utc_day(now: DateTime<Utc>) -> Tz {
-    let zone: Tz = if now.hour() >= 11 {
+fn zone_off_the_utc_day(now: Timestamp) -> Zone {
+    let zone: Zone = if now.utc_time().hour() >= 11 {
         "Pacific/Kiritimati"
     } else {
         "Etc/GMT+12"
     }
     .parse()
     .unwrap();
-    assert_ne!(
-        now.with_timezone(&zone).date_naive(),
-        now.date_naive(),
-        "{zone} at {now}"
-    );
+    assert_ne!(zone.date_at(now), now.utc_date(), "{zone} at {now}");
     zone
 }
 
@@ -60,22 +56,23 @@ fn zone_off_the_utc_day(now: DateTime<Utc>) -> Tz {
 /// hour of the UTC day that falls on the same date in `zone`. The two
 /// readings then count the same sessions on the same days and differ only in
 /// the day they are read as of: a day's decay more or fewer.
-fn building_block(now: DateTime<Utc>, zone: Tz) -> Vec<Activity> {
-    let hour = if zone == Tz::Pacific__Kiritimati {
+fn building_block(now: Timestamp, zone: &Zone) -> Vec<Activity> {
+    let hour = if *zone == Zone::from_name("Pacific/Kiritimati").unwrap() {
         5
     } else {
         18
     };
-    (1..=90_u64)
+    (1..=90_i64)
         .map(|days_ago| {
             let tss = 130.0 - f32::from(u8::try_from(days_ago).unwrap());
-            let start = (now.date_naive() - Days::new(days_ago))
-                .and_hms_opt(hour, 0, 0)
+            let start = (now.utc_date() - Elapsed::days(days_ago))
+                .and_hms(hour, 0, 0)
                 .unwrap()
-                .and_utc();
+                .and_utc()
+                .unwrap();
             assert_eq!(
-                start.with_timezone(&zone).date_naive(),
-                start.date_naive(),
+                zone.date_at(start),
+                start.utc_date(),
                 "fixture bug: {start} falls on another date in {zone}"
             );
             ActivityBuilder::new(
@@ -93,8 +90,8 @@ fn building_block(now: DateTime<Utc>, zone: Tz) -> Vec<Activity> {
 }
 
 /// CTL by cageux's own reading on the athlete's today in `zone`.
-fn reading(activities: &[Activity], zone: Tz, now: DateTime<Utc>) -> f64 {
-    TrainingLoadCalculator::as_of_today(AlgorithmConfig::default(), zone, now)
+fn reading(activities: &[Activity], zone: &Zone, now: Timestamp) -> f64 {
+    TrainingLoadCalculator::as_of_today(AlgorithmConfig::default(), zone.clone(), now)
         .calculate_training_load(activities, None, None, None, None, None)
         .unwrap()
         .ctl
@@ -102,20 +99,20 @@ fn reading(activities: &[Activity], zone: Tz, now: DateTime<Utc>) -> f64 {
 
 #[test]
 fn analyze_training_load_reads_the_athletes_today() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let zone = zone_off_the_utc_day(now);
-    let activities = building_block(now, zone);
+    let activities = building_block(now, &zone);
     let TrainingLoadResult::Analyzed(detail) = analyze_detailed_training_load(
         &activities,
         &AthleteInputs::default(),
         &AlgorithmConfig::default(),
-        zone,
+        &zone,
         providers(),
     ) else {
         panic!("ninety rides are analysed");
     };
-    let local = reading(&activities, zone, now);
-    let utc = reading(&activities, Tz::UTC, now);
+    let local = reading(&activities, &zone, now);
+    let utc = reading(&activities, &Zone::utc(), now);
     // The payload rounds CTL to a whole number.
     assert_eq!(detail.load_metrics.ctl, local.round(), "{local}");
     assert!(
@@ -126,20 +123,20 @@ fn analyze_training_load_reads_the_athletes_today() {
 
 #[test]
 fn calculate_fitness_score_reads_the_athletes_today() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let zone = zone_off_the_utc_day(now);
-    let activities = building_block(now, zone);
+    let activities = building_block(now, &zone);
     let FitnessScoreResult::Scored(detail) = calculate_fitness_metrics(
         &activities,
         "all_time",
         &AthleteInputs::default(),
         &AlgorithmConfig::default(),
-        zone,
+        &zone,
         providers(),
     ) else {
         panic!("ninety rides score");
     };
-    let local = reading(&activities, zone, now);
+    let local = reading(&activities, &zone, now);
     // The payload rounds CTL to a whole number.
     assert_eq!(detail.metrics.ctl, local.round(), "{local}");
 }

@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use axum::http::StatusCode;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth_providers::STRAVA_ARCHIVE;
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -243,7 +243,11 @@ async fn connect_provider_expired_and_other_source_tokens_are_refused() {
         secret,
     )
     .expect("a provider token");
-    let expired = import_token_from(&resources, &connect, Some(Utc::now().timestamp() - 3600));
+    let expired = import_token_from(
+        &resources,
+        &connect,
+        Some(Timestamp::now().epoch_seconds() - 3600),
+    );
     let claims = verify_link_token(&connect, secret, CONNECT_PROVIDER).expect("verify");
     let other_source = mint_import_link_token(&claims, "garmin_archive", secret).expect("mint");
 

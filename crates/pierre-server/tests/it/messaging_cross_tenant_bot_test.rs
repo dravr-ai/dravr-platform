@@ -23,7 +23,8 @@
 mod cross_tenant_bot_tests {
     use crate::common::create_test_server_resources_with_chat_provider;
     use crate::helpers::command_e2e::{CommandE2e, RouterLlm};
-    use chrono::Utc;
+    use dravr_tronc::dates::Elapsed;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::groups::{
         CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     };
@@ -213,7 +214,7 @@ mod cross_tenant_bot_tests {
             .seed_coach_agent(user.user_id, user.home_tenant, "Decoy Coach")
             .await;
         let decoy_group_id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         e2e.resources
             .common
             .repos
@@ -237,7 +238,7 @@ mod cross_tenant_bot_tests {
                     channel_chat_id: None,
                     chat_connection: None,
                     created_at: now,
-                    updated_at: now + chrono::Duration::seconds(600),
+                    updated_at: now + Elapsed::seconds(600),
                 },
             )
             .await

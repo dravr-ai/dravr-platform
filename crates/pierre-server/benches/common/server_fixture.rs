@@ -27,7 +27,7 @@ use std::env;
 use std::path::Path;
 use std::sync::{Arc, Once};
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
@@ -162,7 +162,7 @@ pub(crate) async fn seed_user(resources: &ServerContext, email: &str) -> (User, 
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     user.tier = UserTier::Enterprise;
 
     let repos = resources.agent.database.repositories();
@@ -176,8 +176,8 @@ pub(crate) async fn seed_user(resources: &ServerContext, email: &str) -> (User, 
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user.id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     repos.tenants.create(&tenant).await.unwrap();
     repos

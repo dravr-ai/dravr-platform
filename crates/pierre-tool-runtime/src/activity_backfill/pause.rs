@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_providers::request_budget::{refused_before_send, session_read_disabled};
 
@@ -27,7 +27,7 @@ pub(super) fn retry_at_after(retry_after_secs: Option<u64>) -> i64 {
             .unwrap_or(i64::MAX)
             .saturating_mul(1_000)
     });
-    Utc::now().timestamp_millis().saturating_add(wait_ms)
+    Timestamp::now().epoch_millis().saturating_add(wait_ms)
 }
 
 /// When a walk whose read `error` refused may try again (unix ms), when it
@@ -51,7 +51,7 @@ pub(super) fn waits_out(error: &AppError) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::errors::{AppError, ErrorCode};
     use pierre_providers::request_budget::refused_before_send;
 
@@ -64,7 +64,7 @@ mod tests {
             "Garmin has been read as often as Dravr allows for now",
         )
         .with_retry_after(900);
-        let before = Utc::now().timestamp_millis();
+        let before = Timestamp::now().epoch_millis();
         let until = paused_by(&refusal)
             .unwrap_or_else(|| panic!("bug: a rate-limited walk read fails instead of pausing"));
         assert!(
@@ -126,9 +126,9 @@ mod tests {
 
     #[test]
     fn a_refusal_naming_no_wait_pauses_a_lease_not_a_sweep() {
-        let before = Utc::now().timestamp_millis();
+        let before = Timestamp::now().epoch_millis();
         let until = retry_at_ms(&AppError::new(ErrorCode::ExternalRateLimited, "throttled"));
-        let after = Utc::now().timestamp_millis();
+        let after = Timestamp::now().epoch_millis();
         assert!(
             (before + lease_ms()..=after + lease_ms()).contains(&until),
             "bug: a refusal naming no wait leaves the walk due at the next sweep, a call a pass: {until}"
@@ -137,11 +137,11 @@ mod tests {
 
     #[test]
     fn a_refusal_naming_its_wait_pauses_until_it_ends() {
-        let before = Utc::now().timestamp_millis();
+        let before = Timestamp::now().epoch_millis();
         let until = retry_at_ms(
             &AppError::new(ErrorCode::ExternalRateLimited, "budget spent").with_retry_after(120),
         );
-        let after = Utc::now().timestamp_millis();
+        let after = Timestamp::now().epoch_millis();
         assert!(
             (before + 120_000..=after + 120_000).contains(&until),
             "bug: a refusal's named wait is not the pause: {until}"

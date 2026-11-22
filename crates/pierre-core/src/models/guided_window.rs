@@ -19,7 +19,7 @@
 //! the other flow's. A walk that never completed keeps an open end and is
 //! superseded up to the re-run, which is the pre-existing behaviour.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde_json::{json, Value};
 
 use super::onboarding::GuidedFlow;
@@ -34,9 +34,9 @@ const LAST_COMPLETED_AT: &str = "last_completed_at";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GuidedWindow {
     /// When the walk started.
-    pub started_at: DateTime<Utc>,
+    pub started_at: Timestamp,
     /// When it completed; `None` for a walk still running or abandoned.
-    pub completed_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<Timestamp>,
 }
 
 impl GuidedFlow {
@@ -56,12 +56,11 @@ impl GuidedFlow {
     }
 }
 
-fn read_stamp(block: &Value, key: &str) -> Option<DateTime<Utc>> {
+fn read_stamp(block: &Value, key: &str) -> Option<Timestamp> {
     block
         .get(key)?
         .as_str()
-        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map(|d| d.with_timezone(&Utc))
+        .and_then(|s| Timestamp::parse_from_rfc3339(s).ok())
 }
 
 impl GuidedWindow {

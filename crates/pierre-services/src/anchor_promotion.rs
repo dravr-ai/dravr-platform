@@ -29,7 +29,7 @@
 //! The rule decides which number fills the profile; the training science that
 //! scores against it stays in dravr-cageux and pierre-fitness-compute.
 
-use chrono::{Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::clock_date;
 use pierre_core::errors::AppResult;
@@ -57,7 +57,7 @@ pub struct Measured<T> {
     /// The value the anchor would take.
     pub value: T,
     /// The day it stands for.
-    pub as_of: NaiveDate,
+    pub as_of: CivilDate,
     /// What the rows read for this anchor alone allow (carnet#769): a profile
     /// is stamped with it only when this anchor is the one that moves.
     pub policy: TransportPolicy,
@@ -221,10 +221,10 @@ async fn week_median_resting_hr(
     terms: &dyn ProviderTerms,
     tenant: TenantId,
     user_id: Uuid,
-) -> AppResult<Option<(u16, NaiveDate)>> {
-    let now = Utc::now();
-    let today = clock_date(now, athlete_zone(repos, user_id).await);
-    let first_day = today - Duration::days(RESTING_HR_WINDOW_DAYS - 1);
+) -> AppResult<Option<(u16, CivilDate)>> {
+    let now = Timestamp::now();
+    let today = clock_date(now, &athlete_zone(repos, user_id).await);
+    let first_day = today - Elapsed::days(RESTING_HR_WINDOW_DAYS - 1);
     // The read bounds on the UTC date; a day of margin keeps every local
     // morning of the window inside it, and the dates are narrowed below.
     let mornings = stored_health::merged_recovery(
@@ -232,13 +232,13 @@ async fn week_median_resting_hr(
         terms,
         user_id,
         &tenant,
-        (now - Duration::days(RESTING_HR_WINDOW_DAYS + 1), now),
+        (now - Elapsed::days(RESTING_HR_WINDOW_DAYS + 1), now),
         SourceFilter::All,
         stored_health::as_stored,
     )
     .await?
     .records;
-    let in_window: Vec<(u32, NaiveDate)> = mornings
+    let in_window: Vec<(u32, CivilDate)> = mornings
         .iter()
         .filter(|morning| (first_day..=today).contains(&morning.record.date))
         .filter_map(|morning| {
@@ -319,8 +319,8 @@ mod tests {
 
     use super::*;
 
-    fn day(d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 10, d).unwrap_or_default()
+    fn day(d: u32) -> CivilDate {
+        CivilDate::from_ymd(2026, 10, d).ok().unwrap_or_default()
     }
 
     fn profile() -> UserPhysiologicalProfile {
@@ -388,7 +388,7 @@ mod tests {
         );
     }
 
-    const fn measured<T>(value: T, as_of: NaiveDate) -> Measured<T> {
+    const fn measured<T>(value: T, as_of: CivilDate) -> Measured<T> {
         Measured {
             value,
             as_of,

@@ -7,7 +7,7 @@
 use std::fmt::{self, Display, Formatter};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// Opaque pagination cursor containing encoded position information
@@ -21,12 +21,12 @@ impl Cursor {
     /// * `timestamp` - The timestamp of the item (for consistent ordering)
     /// * `id` - The unique identifier of the item
     #[must_use]
-    pub fn new(timestamp: DateTime<Utc>, id: &str) -> Self {
+    pub fn new(timestamp: Timestamp, id: &str) -> Self {
         // Microsecond precision: the boundary value must round-trip at (at
         // least) the precision the database compares at, or keyset pages
         // duplicate/skip rows whose timestamps differ only below the cursor's
         // resolution (dravr-carnet#31).
-        let cursor_data = format!("{}:{}", timestamp.timestamp_micros(), id);
+        let cursor_data = format!("{}:{}", timestamp.epoch_micros(), id);
         let encoded = base64::Engine::encode(&URL_SAFE_NO_PAD, cursor_data.as_bytes());
         Self(encoded)
     }
@@ -35,7 +35,7 @@ impl Cursor {
     ///
     /// Returns `None` if cursor is invalid or malformed
     #[must_use]
-    pub fn decode(&self) -> Option<(DateTime<Utc>, String)> {
+    pub fn decode(&self) -> Option<(Timestamp, String)> {
         let decoded = base64::Engine::decode(&URL_SAFE_NO_PAD, &self.0).ok()?;
         let decoded_str = String::from_utf8(decoded).ok()?;
 
@@ -43,7 +43,7 @@ impl Cursor {
         let (timestamp_str, id) = decoded_str.split_once(':')?;
 
         let timestamp_micros = timestamp_str.parse::<i64>().ok()?;
-        let datetime = DateTime::from_timestamp_micros(timestamp_micros)?;
+        let datetime = Timestamp::from_epoch_micros(timestamp_micros).ok()?;
 
         Some((datetime, id.to_owned()))
     }
@@ -213,7 +213,7 @@ pub struct StoreCursor {
     /// The ID of the last item
     pub id: String,
     /// The timestamp (for Newest and Popular sorts)
-    pub published_at: Option<DateTime<Utc>>,
+    pub published_at: Option<Timestamp>,
     /// The install count (for Popular sort)
     pub install_count: Option<u32>,
     /// The title (for Title sort)
@@ -242,14 +242,14 @@ impl StoreCursor {
             StoreSortOrder::Newest => {
                 let ts = self
                     .published_at
-                    .map_or_else(String::new, |dt| dt.to_rfc3339());
+                    .map_or_else(String::new, Timestamp::to_rfc3339);
                 format!("newest|{}|{}", ts, self.id)
             }
             StoreSortOrder::Popular => {
                 let count = self.install_count.unwrap_or(0);
                 let ts = self
                     .published_at
-                    .map_or_else(String::new, |dt| dt.to_rfc3339());
+                    .map_or_else(String::new, Timestamp::to_rfc3339);
                 format!("popular|{}|{}|{}", count, ts, self.id)
             }
             StoreSortOrder::Title => {
@@ -285,11 +285,7 @@ impl StoreCursor {
                 let published_at = if ts_str.is_empty() {
                     None
                 } else {
-                    Some(
-                        DateTime::parse_from_rfc3339(ts_str)
-                            .ok()?
-                            .with_timezone(&Utc),
-                    )
+                    Some(Timestamp::parse_from_rfc3339(ts_str).ok()?)
                 };
                 Some(Self {
                     sort_by: StoreSortOrder::Newest,
@@ -310,11 +306,7 @@ impl StoreCursor {
                 let published_at = if ts_str.is_empty() {
                     None
                 } else {
-                    Some(
-                        DateTime::parse_from_rfc3339(ts_str)
-                            .ok()?
-                            .with_timezone(&Utc),
-                    )
+                    Some(Timestamp::parse_from_rfc3339(ts_str).ok()?)
                 };
                 Some(Self {
                     sort_by: StoreSortOrder::Popular,
@@ -343,7 +335,7 @@ impl StoreCursor {
 
     /// Create a cursor for Newest sort order
     #[must_use]
-    pub const fn newest(id: String, published_at: Option<DateTime<Utc>>) -> Self {
+    pub const fn newest(id: String, published_at: Option<Timestamp>) -> Self {
         Self {
             sort_by: StoreSortOrder::Newest,
             id,
@@ -355,11 +347,7 @@ impl StoreCursor {
 
     /// Create a cursor for Popular sort order
     #[must_use]
-    pub const fn popular(
-        id: String,
-        install_count: u32,
-        published_at: Option<DateTime<Utc>>,
-    ) -> Self {
+    pub const fn popular(id: String, install_count: u32, published_at: Option<Timestamp>) -> Self {
         Self {
             sort_by: StoreSortOrder::Popular,
             id,

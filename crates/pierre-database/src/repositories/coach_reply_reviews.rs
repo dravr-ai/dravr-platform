@@ -36,7 +36,7 @@
 //! throughout: sqlx accepts them on `SQLite` as well as Postgres.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
     CoachReply, CoachReplyCorrection, CoachReplyFilter, CoachReplyFlag, CoachReplyReview,
@@ -84,8 +84,8 @@ pub trait CoachReplyReviewRepository: Send + Sync {
     async fn list_reviews_for_window(
         &self,
         coach_user_id: Uuid,
-        oldest: DateTime<Utc>,
-        newest: DateTime<Utc>,
+        oldest: Timestamp,
+        newest: Timestamp,
     ) -> AppResult<Vec<CoachReplyReview>>;
 
     /// When each flag and correction the coach made since `since` was made,
@@ -94,7 +94,7 @@ pub trait CoachReplyReviewRepository: Send + Sync {
     async fn list_review_stamps(
         &self,
         coach_user_id: Uuid,
-        since: DateTime<Utc>,
+        since: Timestamp,
     ) -> AppResult<Vec<ReplyReviewStamp>>;
 }
 
@@ -363,7 +363,7 @@ macro_rules! impl_coach_reply_review_repository {
 
             async fn record_flag(&self, flag: &NewReplyFlag<'_>) -> AppResult<CoachReplyFlag> {
                 let id = Uuid::new_v4();
-                let created_at = Utc::now();
+                let created_at = Timestamp::now();
                 sqlx::query(INSERT_FLAG_SQL)
                     .bind($ids::bind(id))
                     .bind(flag.tenant_id.to_string())
@@ -392,7 +392,7 @@ macro_rules! impl_coach_reply_review_repository {
             ) -> AppResult<CoachReplyCorrection> {
                 let id = Uuid::new_v4();
                 let correction_entry_id = Uuid::new_v4();
-                let created_at = Utc::now();
+                let created_at = Timestamp::now();
                 let mut tx = self.pool().begin().await.map_err(|e| {
                     AppError::database(format!("Failed to begin a reply correction: {e}"))
                 })?;
@@ -439,8 +439,8 @@ macro_rules! impl_coach_reply_review_repository {
             async fn list_reviews_for_window(
                 &self,
                 coach_user_id: Uuid,
-                oldest: DateTime<Utc>,
-                newest: DateTime<Utc>,
+                oldest: Timestamp,
+                newest: Timestamp,
             ) -> AppResult<Vec<CoachReplyReview>> {
                 let rows = sqlx::query(LIST_REVIEWS_FOR_WINDOW_SQL)
                     .bind($ids::bind(coach_user_id))
@@ -457,7 +457,7 @@ macro_rules! impl_coach_reply_review_repository {
             async fn list_review_stamps(
                 &self,
                 coach_user_id: Uuid,
-                since: DateTime<Utc>,
+                since: Timestamp,
             ) -> AppResult<Vec<ReplyReviewStamp>> {
                 let rows = sqlx::query(LIST_REVIEW_STAMPS_SQL)
                     .bind($ids::bind(coach_user_id))

@@ -27,12 +27,12 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use dravr_barrage::cageux::models::TimeSeriesData;
 use dravr_barrage::{
     ActivityId, ActivityRecord, BarrageError, LiveSource, ProjectionSink, RetractReason, Scope,
     SourceKey, WellnessRecords,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppError;
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::RepositoryRegistry;
@@ -66,7 +66,7 @@ pub async fn project_cached_activities(
     user_id: Uuid,
     source: SourceKey,
     activities: &[Activity],
-    synced_at: DateTime<Utc>,
+    synced_at: Timestamp,
 ) -> Result<(), BarrageError> {
     repos
         .activity_cache
@@ -190,7 +190,7 @@ impl ProjectionSink for LiveCacheSink {
             .iter()
             .map(|row| row.provenance.ingested_at)
             .max()
-            .unwrap_or_else(Utc::now);
+            .unwrap_or_else(Timestamp::now);
         let activities: Vec<Activity> = rows.iter().map(|row| row.activity.clone()).collect();
         project_cached_activities(
             &self.repos,

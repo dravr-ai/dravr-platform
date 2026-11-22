@@ -16,7 +16,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{activity::ActivityBuilder, Activity, SportType};
 use pierre_tool_runtime::implementations::activity_summary::ActivitySummary;
 use pierre_tool_runtime::implementations::fitness_support::{
@@ -28,7 +28,7 @@ fn build_sensor_rich_activity() -> Activity {
         "strava-1",
         "Morning Run",
         SportType::Run,
-        Utc::now(),
+        Timestamp::now(),
         2_394, // 39:54 — the screenshot run duration
         "strava",
     )
@@ -50,7 +50,7 @@ fn build_hrm_less_activity() -> Activity {
         "strava-2",
         "Zwift Intervals",
         SportType::Ride,
-        Utc::now(),
+        Timestamp::now(),
         3_600,
         "strava",
     )

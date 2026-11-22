@@ -22,7 +22,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::coverage::WindowTotals;
@@ -44,9 +44,9 @@ pub struct ServedList<'a> {
     pub served: &'a [Activity],
     /// The instant its window opens at, when the ask set one; else its
     /// oldest row opens it.
-    pub after: Option<DateTime<Utc>>,
+    pub after: Option<Timestamp>,
     /// The instant its window closes at, when the ask set one; else now.
-    pub before: Option<DateTime<Utc>>,
+    pub before: Option<Timestamp>,
     /// The one source it was pinned to, by its backend: that source's keys
     /// ([`source_keys`]) are read, as a count pinned to it reads them. `None`
     /// reads every key the athlete holds.
@@ -73,7 +73,7 @@ pub struct ServedCount {
     /// The window's count, distance, duration and climbing.
     pub totals: WindowTotals,
     /// The oldest and newest civil day a counted workout started on.
-    pub span: Option<(NaiveDate, NaiveDate)>,
+    pub span: Option<(CivilDate, CivilDate)>,
     /// Served rows the store does not hold, left out of the count.
     pub unstored: u64,
 }
@@ -113,12 +113,12 @@ pub async fn count_served_list(
             unstored: 0,
         });
     };
-    let closes = list.before.unwrap_or_else(Utc::now);
+    let closes = list.before.unwrap_or_else(Timestamp::now);
     let zone = resolve_zone(user_timezone(runtime.repos(), user_id).await?.as_deref());
     let window = CivilWindow {
-        from: Some(local_date(opens, zone)),
-        to: local_date(closes, zone),
-        zone,
+        from: Some(local_date(opens, &zone)),
+        to: local_date(closes, &zone),
+        zone: zone.clone(),
     };
     let pinned_keys: Vec<&str> = list.pinned.map_or_default(source_keys);
     let keys = if list.pinned.is_some() {
@@ -127,7 +127,7 @@ pub async fn count_served_list(
         KeySet::All
     };
 
-    let mut accumulator = Accumulator::new(&ActivityQuery::totals_only(), zone);
+    let mut accumulator = Accumulator::new(&ActivityQuery::totals_only(), &zone);
     let mut held: HashSet<(String, String)> = HashSet::new();
     let athlete = Athlete { user_id, tenant_id };
     let (read, _withheld) = ai_scope::tallied(visit_stored_workouts(

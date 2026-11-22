@@ -9,6 +9,8 @@
 //! This module provides health, readiness, and liveness endpoints
 //! for monitoring and load balancer health checks.
 
+use dravr_tronc::dates::Timestamp;
+
 /// Health routes implementation
 #[derive(Debug)]
 pub struct HealthRoutes;
@@ -21,14 +23,14 @@ impl HealthRoutes {
         async fn health_handler() -> Json<serde_json::Value> {
             Json(serde_json::json!({
                 "status": "healthy",
-                "timestamp": chrono::Utc::now().to_rfc3339()
+                "timestamp": Timestamp::now().to_rfc3339()
             }))
         }
 
         async fn ready_handler() -> Json<serde_json::Value> {
             Json(serde_json::json!({
                 "status": "ready",
-                "timestamp": chrono::Utc::now().to_rfc3339()
+                "timestamp": Timestamp::now().to_rfc3339()
             }))
         }
 

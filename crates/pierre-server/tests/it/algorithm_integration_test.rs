@@ -7,8 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
 use dravr_cageux::algorithms::{TssAlgorithm, Vo2maxAlgorithm};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 
 // === TSS Algorithm Integration Tests ===
@@ -19,7 +19,7 @@ fn create_test_activity_with_power(avg_power: u32, duration_seconds: u64) -> Act
         "test_tss_1",
         "Test Ride",
         SportType::Ride,
-        Utc::now(),
+        Timestamp::now(),
         duration_seconds,
         "test",
     )
@@ -43,7 +43,7 @@ fn create_test_activity_without_power(duration_seconds: u64) -> Activity {
         "test_no_power",
         "Test Ride No Power",
         SportType::Ride,
-        Utc::now(),
+        Timestamp::now(),
         duration_seconds,
         "test",
     )

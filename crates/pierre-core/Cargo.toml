@@ -30,15 +30,16 @@ http-response = ["dep:axum", "dep:http"]
 database-errors = ["dep:sqlx"]
 
 # sqlx Type/Encode/Decode derives for domain types (TenantId, etc.)
-# `uuid` and `chrono` features bring in the Type/Encode/Decode impls that
-# TenantId uses to delegate to <Uuid as Encode<Postgres>> / <Decode<Postgres>>.
-sqlx-types = ["dep:sqlx", "sqlx/derive", "sqlx/uuid", "sqlx/chrono"]
+# `uuid` brings in the Type/Encode/Decode impls that TenantId uses to delegate
+# to <Uuid as Encode<Postgres>> / <Decode<Postgres>>. The date types carry
+# their own, switched on per backend below.
+sqlx-types = ["dep:sqlx", "sqlx/derive", "sqlx/uuid"]
 
 # SQLite-specific Encode/Type for domain types (TenantId as TEXT, not BLOB)
-sqlx-sqlite = ["sqlx-types", "sqlx/sqlite"]
+sqlx-sqlite = ["sqlx-types", "sqlx/sqlite", "dravr-tronc/sqlx08-sqlite"]
 
 # PostgreSQL-specific Encode/Type for domain types (TenantId as UUID)
-sqlx-postgres = ["sqlx-types", "sqlx/postgres"]
+sqlx-postgres = ["sqlx-types", "sqlx/postgres", "dravr-tronc/sqlx08-postgres"]
 
 # Provider error types (ProviderError with reqwest::Error)
 provider-errors = ["dep:reqwest"]
@@ -83,8 +84,9 @@ subtle = "2.6"
 # SecretString fields: redacting Debug, explicit expose_secret().
 secrecy = { workspace = true }
 # Derives the JSON Schemas the MCP tools declare as their outputSchema.
-# chrono04 + uuid1: these types carry DateTime<Utc> and Uuid.
-schemars = { version = "1.2", features = ["chrono04", "uuid1"] }
+# uuid1: these types carry Uuid; the date types bring their own schemas
+# through dravr-tronc's schemars1.
+schemars = { version = "1.2", features = ["uuid1"] }
 serde = { version = "1.0", features = ["derive"] }
 # float_roundtrip: json_value::to_value_as_written reaches a Value by writing
 # JSON text and parsing it back. Without this feature that parse is best-effort
@@ -92,8 +94,9 @@ serde = { version = "1.0", features = ["derive"] }
 # every JSON float the platform parses is correctly rounded. Declared here, the
 # crate every other one depends on, so feature unification covers the build.
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
-chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.10"
+# The Dravr date types (Timestamp, CivilDate, Zone...): serde, schemas and
+# the IANA zone database compiled in (carnet#1620).
+dravr-tronc = { workspace = true, features = ["zones", "schemars1"] }
 uuid = { version = "1.29", features = ["v4", "serde"] }
 base64 = "0.22"
 tracing = "0.1"

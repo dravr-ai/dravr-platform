@@ -87,8 +87,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
 
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{
     CoachingGroup, FlagEvidence, GroupAggregateStats, GroupDigestMode, GroupHealthFlag,
@@ -192,7 +191,7 @@ struct Sweep<'a, C> {
     /// The chat poster; `None` in a build without messaging.
     poster: Option<&'a dyn GroupChatPoster>,
     /// The instant the sweep started; every group's slot is read at it.
-    now: DateTime<Utc>,
+    now: Timestamp,
     /// Monotonic start of the sweep, so a claim late in a long sweep leases
     /// from when it was taken rather than from when the sweep began.
     started: Instant,
@@ -202,8 +201,8 @@ impl<C> Sweep<'_, C> {
     /// The current instant on the sweep's clock: its start plus the time the
     /// sweep has run. A lease written from it lasts its full length however
     /// late in the sweep the group is reached.
-    fn clock(&self) -> DateTime<Utc> {
-        self.now + ChronoDuration::from_std(self.started.elapsed()).unwrap_or_default()
+    fn clock(&self) -> Timestamp {
+        self.now + Elapsed::from_std(self.started.elapsed()).unwrap_or_default()
     }
 }
 
@@ -219,7 +218,7 @@ struct Audience {
 
 impl Audience {
     /// The zone the group's slot is read in (see [`group_zone`]).
-    fn zone(&self, group: &CoachingGroup) -> Option<Tz> {
+    fn zone(&self, group: &CoachingGroup) -> Option<Zone> {
         let zone_of = |id: Uuid| self.users.get(&id).and_then(|u| u.timezone.as_deref());
         group_zone(
             zone_of(group.owner_id),
@@ -248,7 +247,7 @@ pub async fn tick<C>(
     runtime: &Arc<dyn ToolRuntime>,
     #[cfg(feature = "client-notifications")] notification_service: Option<&NotificationService>,
     poster: Option<&dyn GroupChatPoster>,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<DigestTickOutcome>
 where
     C: ToolRuntime + GroupsCtx + MiddlewareCtx,
@@ -370,7 +369,8 @@ async fn process_group<C>(
     let Some(audience) = load_audience(repos, group, outcome).await else {
         return;
     };
-    let Some(week_key) = due_week(sweep.now, audience.zone(group), group.created_at) else {
+    let Some(week_key) = due_week(sweep.now, audience.zone(group).as_ref(), group.created_at)
+    else {
         return;
     };
     if !claim_week(repos, tenant_id, group, &week_key, sweep.clock(), outcome).await {
@@ -535,12 +535,12 @@ async fn close_week(
     tenant_id: TenantId,
     group: &CoachingGroup,
     week_key: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
     outcome: &mut DigestTickOutcome,
 ) {
     if let Err(e) = repos
         .groups
-        .finish_group_digest(tenant_id, group.id, week_key, now.timestamp_millis())
+        .finish_group_digest(tenant_id, group.id, week_key, now.epoch_millis())
         .await
     {
         error!(
@@ -594,19 +594,13 @@ async fn claim_week(
     tenant_id: TenantId,
     group: &CoachingGroup,
     week_key: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
     outcome: &mut DigestTickOutcome,
 ) -> bool {
     let lease_ms = i64::try_from(DIGEST_CLAIM_LEASE.as_millis()).unwrap_or(i64::MAX);
     match repos
         .groups
-        .claim_group_digest(
-            tenant_id,
-            group.id,
-            week_key,
-            now.timestamp_millis(),
-            lease_ms,
-        )
+        .claim_group_digest(tenant_id, group.id, week_key, now.epoch_millis(), lease_ms)
         .await
     {
         Ok(true) => true,
@@ -1050,7 +1044,7 @@ pub fn start_digest_scheduler<C>(
                 #[cfg(feature = "client-notifications")]
                 notification_service.as_deref(),
                 poster.as_deref(),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await?;
             Ok(())
@@ -1065,7 +1059,7 @@ mod tests {
     use super::*;
 
     fn member(group: &CoachingGroup, role: GroupRole, peer: bool, coach: bool) -> GroupMember {
-        let now = Utc::now();
+        let now = Timestamp::now();
         GroupMember {
             id: Uuid::new_v4(),
             group_id: group.id,
@@ -1086,7 +1080,7 @@ mod tests {
     /// An admin who is not the coach, an athlete sharing with their peers
     /// only, one sharing with the coach only, and one sharing with nobody.
     fn group_and_members() -> (CoachingGroup, Vec<GroupMember>) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = CoachingGroup {
             id: Uuid::new_v4(),
             tenant_id: Uuid::new_v4().to_string(),

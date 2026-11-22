@@ -7,7 +7,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::agents::{
     Agent, AgentCategory, AgentHandle, AgentWithListing, PublishStatus, StoreAdminStats,
@@ -210,7 +210,7 @@ pub trait StoreListingsRepository: Send + Sync {
 // for exactly that split, so it binds as itself. `store_listings.tenant_id`,
 // `store_listings.id`, `store_listings.agent_id` and `agents.id` are `TEXT`
 // on both schemas and bind as their strings. Timestamps bind as
-// `DateTime<Utc>` on both: sqlx-sqlite writes the same RFC 3339 text
+// `Timestamp` on both: sqlx-sqlite writes the same RFC 3339 text
 // (`to_rfc3339_opts(AutoSi, false)`, which is what `to_rfc3339()` renders)
 // the column already holds, so the cursor pages' text comparison stays exact
 // on `SQLite`; Postgres writes its native `TIMESTAMPTZ`.
@@ -650,7 +650,7 @@ const JOINED_LISTING_COLUMNS: ListingColumnNames = ListingColumnNames {
 };
 
 /// The listing in a row, its agent and tenant handed in by the caller that
-/// knows which columns carry them. Timestamps decode as `DateTime<Utc>` and
+/// knows which columns carry them. Timestamps decode as `Timestamp` and
 /// `install_count` as `i32` on both drivers.
 fn listing_from_row<'r, R>(
     row: &'r R,
@@ -663,7 +663,7 @@ where
     for<'a> &'a str: ColumnIndex<R>,
     String: Decode<'r, R::Database> + Type<R::Database>,
     i32: Decode<'r, R::Database> + Type<R::Database>,
-    DateTime<Utc>: Decode<'r, R::Database> + Type<R::Database>,
+    Timestamp: Decode<'r, R::Database> + Type<R::Database>,
 {
     let id: String = column(row, names.id)?;
     let publish_status: String = column(row, "publish_status")?;
@@ -697,7 +697,7 @@ where
     for<'a> &'a str: ColumnIndex<R>,
     String: Decode<'r, R::Database> + Type<R::Database>,
     i32: Decode<'r, R::Database> + Type<R::Database>,
-    DateTime<Utc>: Decode<'r, R::Database> + Type<R::Database>,
+    Timestamp: Decode<'r, R::Database> + Type<R::Database>,
 {
     let agent_id: String = column(row, "agent_id")?;
     let agent_id = Uuid::parse_str(&agent_id).map_err(|e| listing_column_error("agent_id", e))?;
@@ -721,7 +721,7 @@ where
     for<'a> &'a str: ColumnIndex<R>,
     String: Decode<'r, R::Database> + Type<R::Database>,
     i32: Decode<'r, R::Database> + Type<R::Database>,
-    DateTime<Utc>: Decode<'r, R::Database> + Type<R::Database>,
+    Timestamp: Decode<'r, R::Database> + Type<R::Database>,
 {
     let agent = agent_row(row)?;
     let listing = listing_from_row(

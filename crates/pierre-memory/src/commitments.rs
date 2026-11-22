@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::transport::TransportPolicy;
 use serde::{Deserialize, Serialize};
 
@@ -164,12 +164,12 @@ pub struct Commitment {
     /// How many matching sessions were promised.
     pub target_sessions: u32,
     /// Start of the observation window.
-    pub window_start: DateTime<Utc>,
+    pub window_start: Timestamp,
     /// End of the observation window — the athlete's local end-of-day for the
     /// due date, resolved to a UTC instant once at creation. "This week" is a
     /// civil-calendar claim, so it is settled in the athlete's timezone rather
     /// than re-derived in UTC at sweep time.
-    pub window_end: DateTime<Utc>,
+    pub window_end: Timestamp,
     /// Current lifecycle state.
     pub status: CommitmentStatus,
     /// What the sweep concluded, once it has run.
@@ -177,13 +177,13 @@ pub struct Commitment {
     /// How many matching sessions were actually counted, once swept.
     pub completed_sessions: Option<u32>,
     /// When the sweep counted this commitment.
-    pub swept_at: Option<DateTime<Utc>>,
+    pub swept_at: Option<Timestamp>,
     /// When the verdict reached the athlete.
-    pub reported_at: Option<DateTime<Utc>>,
+    pub reported_at: Option<Timestamp>,
     /// When the commitment was recorded.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When the row was last touched.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// Where this commitment may be served (carnet#769): first-party-only when
     /// the turn that recorded it, or the sessions its verdict counted, were.
     /// Rows written before the stamp read as unstamped.

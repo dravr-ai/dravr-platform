@@ -10,7 +10,7 @@
 //! endpoints and hands it to [`map_activity`]; [`parse_local_dt`] reads the
 //! timestamps back in the same dialect the provider's queries send.
 
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDateTime, Timestamp};
 use pierre_core::civil_time;
 use serde::Deserialize;
 
@@ -198,7 +198,7 @@ pub(super) fn map_activity(
 /// two sessions in training load. The wall clock is read only for a payload
 /// without `start_date`: in the athlete's `timezone` when it names one, as
 /// UTC when it names none.
-fn start_instant(raw: &IntervalsIcuActivity) -> Option<DateTime<Utc>> {
+fn start_instant(raw: &IntervalsIcuActivity) -> Option<Timestamp> {
     raw.start_date
         .as_deref()
         .and_then(parse_local_dt)
@@ -209,23 +209,18 @@ fn start_instant(raw: &IntervalsIcuActivity) -> Option<DateTime<Utc>> {
 /// An offset-less wall clock placed in a named IANA zone; `None` when the
 /// zone is absent or unknown, the clock does not parse, or the clock falls in
 /// the zone's spring-forward gap.
-fn wall_clock_in_zone(wall_clock: &str, zone: Option<&str>) -> Option<DateTime<Utc>> {
+fn wall_clock_in_zone(wall_clock: &str, zone: Option<&str>) -> Option<Timestamp> {
     let zone = civil_time::parse_zone(zone)?;
-    let naive = NaiveDateTime::parse_from_str(wall_clock, QUERY_DATETIME_FORMAT).ok()?;
-    zone.from_local_datetime(&naive)
-        .earliest()
-        .map(|local| local.with_timezone(&Utc))
+    let naive = CivilDateTime::parse_from_str(wall_clock, QUERY_DATETIME_FORMAT).ok()?;
+    zone.resolve(naive).earliest()
 }
 
-pub(crate) fn parse_local_dt(value: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(value)
-        .map(|dt| dt.with_timezone(&Utc))
-        .ok()
-        .or_else(|| {
-            NaiveDateTime::parse_from_str(value, QUERY_DATETIME_FORMAT)
-                .map(|naive| DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
-                .ok()
-        })
+pub(crate) fn parse_local_dt(value: &str) -> Option<Timestamp> {
+    Timestamp::parse_from_rfc3339(value).ok().or_else(|| {
+        CivilDateTime::parse_from_str(value, QUERY_DATETIME_FORMAT)
+            .ok()
+            .and_then(|naive| naive.and_utc().ok())
+    })
 }
 
 fn sport_for(label: Option<&str>) -> SportType {
@@ -243,7 +238,7 @@ fn sport_for(label: Option<&str>) -> SportType {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{DateTime, TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use serde_json::{json, Value};
 
     use super::{map_activity, IntervalsIcuActivity};
@@ -251,8 +246,8 @@ mod tests {
     use crate::models::{Activity, ActivityBuilder, SportType};
 
     /// A 17:00 ride in Québec on 2026-09-20 (EDT, UTC−4) is 21:00 UTC.
-    fn ride_at_21_utc() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 9, 20, 21, 0, 0).unwrap()
+    fn ride_at_21_utc() -> Timestamp {
+        Timestamp::parse_from_rfc3339("2026-09-20T21:00:00Z").unwrap()
     }
 
     fn mapped(payload: Value) -> Activity {
@@ -323,7 +318,7 @@ mod tests {
         }));
         assert_eq!(
             activity.start_date(),
-            Utc.with_ymd_and_hms(2026, 9, 20, 17, 0, 0).unwrap(),
+            Timestamp::parse_from_rfc3339("2026-09-20T17:00:00Z").unwrap(),
             "bug: a wall clock in a zone that does not parse must still map, read as UTC"
         );
     }

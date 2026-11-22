@@ -691,7 +691,7 @@ mod tests {
     //! replacement reads no words at all: it asks whether the reply the athlete is
     //! answering asserted concrete numbers about their training.
 
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
     use pierre_core::models::{Dossier, DossierFact};
     use pierre_services::memory_facts::SentenceRenderer;
@@ -1058,7 +1058,7 @@ mod tests {
             object: goal.to_owned(),
             confidence: 0.9,
             source: "onboarding".to_owned(),
-            updated_at: Utc::now(),
+            updated_at: Timestamp::now(),
             valid_until: None,
             stale: false,
         });

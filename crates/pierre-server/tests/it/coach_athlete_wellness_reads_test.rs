@@ -24,8 +24,8 @@
 //! the coach's ride, the coached group and the coach's thread) and files a
 //! week of wellness for each of them, told apart by its numbers.
 
-use chrono::{Duration, Utc};
 use dravr_riviere::{DataPoint, SeriesType};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::{
@@ -162,9 +162,9 @@ pub(crate) async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) 
         )
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     for night in 0..NIGHTS {
-        let woke = now - Duration::days(night) - Duration::minutes(5);
+        let woke = now - Elapsed::days(night) - Elapsed::minutes(5);
         repos
             .sleep
             .upsert_sleep_session(
@@ -174,7 +174,7 @@ pub(crate) async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) 
                     user_id: who.id.to_string(),
                     data_source_id: source.clone(),
                     is_nap: false,
-                    start_datetime: woke - Duration::seconds(i64::from(wellness.sleep_seconds)),
+                    start_datetime: woke - Elapsed::seconds(i64::from(wellness.sleep_seconds)),
                     end_datetime: woke,
                     total_sleep_seconds: Some(wellness.sleep_seconds),
                     deep_sleep_seconds: None,
@@ -195,7 +195,7 @@ pub(crate) async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) 
             .await
             .unwrap();
     }
-    let today = now.date_naive();
+    let today = now.utc_date();
     repos
         .recovery
         .upsert_recovery_metrics(
@@ -260,8 +260,8 @@ pub(crate) async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) 
             &source,
             SeriesType::HrvRmssd.id(),
             vec![
-                DataPoint::new(now - Duration::hours(2), rmssd_first),
-                DataPoint::new(now - Duration::hours(1), rmssd_second),
+                DataPoint::new(now - Elapsed::hours(2), rmssd_first),
+                DataPoint::new(now - Elapsed::hours(1), rmssd_second),
             ],
         )
         .await
@@ -272,8 +272,8 @@ pub(crate) async fn file_wellness(f: &Fixture, who: Person, wellness: Wellness) 
             &source,
             SeriesType::HeartRate.id(),
             vec![
-                DataPoint::new(now - Duration::hours(2), first),
-                DataPoint::new(now - Duration::hours(1), second),
+                DataPoint::new(now - Elapsed::hours(2), first),
+                DataPoint::new(now - Elapsed::hours(1), second),
             ],
         )
         .await
@@ -315,7 +315,7 @@ impl Fixture {
                 self.athlete.id,
                 None,
                 Some(shared),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap()
@@ -497,7 +497,7 @@ fn low_recovery() -> Value {
     json!({
         "activity_provider": UPLOAD,
         "sleep_data": {
-            "date": Utc::now().date_naive().to_string(),
+            "date": Timestamp::now().utc_date().to_string(),
             "duration_hours": 0.5,
             "deep_sleep_hours": 0.0,
             "rem_sleep_hours": 0.0,
@@ -787,9 +787,9 @@ async fn file_whoop_nights(f: &Fixture) {
         )
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     for night in NIGHTS + 2..NIGHTS + 5 {
-        let woke = now - Duration::days(night);
+        let woke = now - Elapsed::days(night);
         repos
             .sleep
             .upsert_sleep_session(
@@ -799,7 +799,7 @@ async fn file_whoop_nights(f: &Fixture) {
                     user_id: athlete.id.to_string(),
                     data_source_id: source.clone(),
                     is_nap: false,
-                    start_datetime: woke - Duration::seconds(i64::from(WHOOP_NIGHT_SECONDS)),
+                    start_datetime: woke - Elapsed::seconds(i64::from(WHOOP_NIGHT_SECONDS)),
                     end_datetime: woke,
                     total_sleep_seconds: Some(WHOOP_NIGHT_SECONDS),
                     deep_sleep_seconds: None,

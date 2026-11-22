@@ -13,7 +13,7 @@ use crate::common;
 use common::placeholder_llm_chain;
 use secrecy::ExposeSecret;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::api_keys::{ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult};
 use pierre_config::environment::{
@@ -354,7 +354,7 @@ async fn test_deactivate_api_key() {
         .unwrap();
 
     assert!(deactivate_response.message.contains("deactivated"));
-    assert!(deactivate_response.deactivated_at <= Utc::now());
+    assert!(deactivate_response.deactivated_at <= Timestamp::now());
 
     // Verify key is no longer active in the list
     let list_response = api_key_routes.list_api_keys(&auth).await.unwrap();
@@ -400,8 +400,8 @@ async fn test_get_api_key_usage_stats() {
     let key_id = &create_response.key_info.id;
 
     // Get usage stats (should be empty for new key)
-    let start_date = Utc::now() - Duration::days(30);
-    let end_date = Utc::now();
+    let start_date = Timestamp::now() - Elapsed::days(30);
+    let end_date = Timestamp::now();
 
     let usage_response = api_key_routes
         .get_api_key_usage(&auth, key_id, start_date, end_date)
@@ -423,8 +423,8 @@ async fn test_get_usage_stats_unauthorized_key() {
     // Auth is already AuthResult, no need for Bearer token
     let fake_key_id = "some_other_users_key";
 
-    let start_date = Utc::now() - Duration::days(30);
-    let end_date = Utc::now();
+    let start_date = Timestamp::now() - Elapsed::days(30);
+    let end_date = Timestamp::now();
 
     let result = api_key_routes
         .get_api_key_usage(&auth, fake_key_id, start_date, end_date)
@@ -484,7 +484,7 @@ async fn test_api_key_expiration() {
     // Verify expiration is set correctly
     assert!(response.key_info.expires_at.is_some());
     let expires_at = response.key_info.expires_at.unwrap();
-    let expected_expiry = Utc::now() + Duration::days(7);
+    let expected_expiry = Timestamp::now() + Elapsed::days(7);
 
     // Should be within 1 minute of expected (to account for test execution time)
     let diff = (expires_at - expected_expiry).num_seconds().abs();

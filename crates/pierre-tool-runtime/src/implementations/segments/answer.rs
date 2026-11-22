@@ -9,8 +9,8 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use chrono::{DateTime, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::date_pattern;
+use dravr_tronc::dates::{CivilDate, Pattern, Timestamp, Zone};
 use pierre_core::civil_time::local_date;
 use pierre_core::models::coverage::Coverage;
 use pierre_core::models::SegmentEffort;
@@ -18,6 +18,9 @@ use pierre_core::untrusted::display_line;
 use serde::Serialize;
 
 use crate::implementations::activity_summary::SEGMENT_NAME_MAX_CHARS;
+
+/// `2026`: the key a segment's efforts are counted under, by year.
+const YEAR_KEY: Pattern<CivilDate> = date_pattern!(CivilDate, "%Y");
 
 /// Most efforts one answer lists.
 ///
@@ -159,7 +162,7 @@ pub(super) fn effort_row(
 pub(super) fn answer(
     mut efforts: Vec<SegmentHistoryEffort>,
     coverage: Coverage,
-    zone: Tz,
+    zone: &Zone,
 ) -> SegmentHistoryResult {
     efforts.sort_by(|a, b| b.start_date.cmp(&a.start_date));
     let mut groups: BTreeMap<(String, String), Vec<&SegmentHistoryEffort>> = BTreeMap::new();
@@ -241,14 +244,11 @@ fn listed_efforts(
 }
 
 /// One segment's efforts on one service, summed.
-fn summarize(provider: &str, group: &[&SegmentHistoryEffort], zone: Tz) -> SegmentSummary {
+fn summarize(provider: &str, group: &[&SegmentHistoryEffort], zone: &Zone) -> SegmentSummary {
     let mut by_year: BTreeMap<String, usize> = BTreeMap::new();
     for effort in group {
-        let year = DateTime::parse_from_rfc3339(&effort.start_date).map_or_default(|at| {
-            local_date(at.with_timezone(&Utc), zone)
-                .format("%Y")
-                .to_string()
-        });
+        let year = Timestamp::parse_from_rfc3339(&effort.start_date)
+            .map_or_default(|at| local_date(at, zone).format_with(&YEAR_KEY));
         *by_year.entry(year).or_default() += 1;
     }
     let best = group
@@ -268,7 +268,7 @@ fn summarize(provider: &str, group: &[&SegmentHistoryEffort], zone: Tz) -> Segme
 
 #[cfg(test)]
 mod tests {
-    use chrono::{NaiveDate, TimeZone};
+    use dravr_tronc::dates::CivilDate;
     use pierre_core::constants::oauth::providers::STRAVA;
     use pierre_core::models::coverage::Completeness;
 
@@ -278,13 +278,13 @@ mod tests {
     /// The effort ridden `days` after 2016-01-01 on La Bête, in `elapsed`
     /// seconds.
     fn ridden(days: i64, elapsed: u64, pr_rank: Option<u32>) -> SegmentHistoryEffort {
-        let at = Utc.timestamp_opt(1_451_606_400 + days * 86_400, 0).single();
+        let at = Timestamp::from_epoch_seconds(1_451_606_400 + days * 86_400).ok();
         SegmentHistoryEffort {
             provider: STRAVA.to_owned(),
             source: STRAVA.to_owned(),
             activity_id: days.to_string(),
             activity_name: format!("Ride {days}"),
-            start_date: at.map_or_default(|at| at.to_rfc3339()),
+            start_date: at.map_or_default(Timestamp::to_rfc3339),
             elapsed_time: elapsed,
             moving_time: None,
             distance: 1_820.5,
@@ -302,7 +302,7 @@ mod tests {
         let complete = segments_read_coverage(
             0,
             0,
-            (NaiveDate::MIN, NaiveDate::MIN),
+            (CivilDate::MIN, CivilDate::MIN),
             Completeness::Complete,
             None,
         );
@@ -310,7 +310,7 @@ mod tests {
         let mut efforts: Vec<_> = (0..120).map(|day| ridden(day, 400, None)).collect();
         efforts[0].elapsed_time = 300;
         efforts[60].pr_rank = Some(1);
-        let answered = answer(efforts, complete, Tz::UTC);
+        let answered = answer(efforts, complete, &Zone::utc());
 
         assert_eq!(
             answered.efforts.len(),
@@ -366,11 +366,11 @@ mod tests {
             segments_read_coverage(
                 0,
                 0,
-                (NaiveDate::MIN, NaiveDate::MIN),
+                (CivilDate::MIN, CivilDate::MIN),
                 Completeness::Complete,
                 None,
             ),
-            Tz::UTC,
+            &Zone::utc(),
         );
         let newest = crowded.efforts.first().map(|e| e.activity_id.as_str());
         assert_eq!(
@@ -393,11 +393,11 @@ mod tests {
             segments_read_coverage(
                 0,
                 0,
-                (NaiveDate::MIN, NaiveDate::MIN),
+                (CivilDate::MIN, CivilDate::MIN),
                 Completeness::Complete,
                 None,
             ),
-            Tz::UTC,
+            &Zone::utc(),
         );
         assert_eq!(
             short.efforts.len(),

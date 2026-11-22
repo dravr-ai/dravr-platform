@@ -36,6 +36,7 @@ use async_trait::async_trait;
 use axum::extract::connect_info::MockConnectInfo;
 use axum::http::StatusCode;
 use axum::Router;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::dto::auth::{LoginRequest, RegisterRequest};
 use pierre_auth::human_check::{HumanCheck, HumanCheckVerdict};
@@ -297,7 +298,7 @@ async fn the_ceiling_admits_up_to_its_limit_then_refuses() {
         .common
         .repos
         .users
-        .count_created_since(chrono::Utc::now() - chrono::Duration::hours(24))
+        .count_created_since(Timestamp::now() - Elapsed::hours(24))
         .await
         .unwrap();
     // Room for exactly one more account in the window.
@@ -334,19 +335,19 @@ async fn the_ceiling_counts_only_the_last_24_hours() {
     let resources = context().await;
     let users = &resources.common.repos.users;
     let before = users
-        .count_created_since(chrono::Utc::now() - chrono::Duration::hours(24))
+        .count_created_since(Timestamp::now() - Elapsed::hours(24))
         .await
         .unwrap();
     let (status, _) = register(auth_routes(&resources), "counted@example.com", None).await;
     assert_eq!(status, 201);
 
     let window = users
-        .count_created_since(chrono::Utc::now() - chrono::Duration::hours(24))
+        .count_created_since(Timestamp::now() - Elapsed::hours(24))
         .await
         .unwrap();
     assert_eq!(window, before + 1, "a new account falls in the window");
     let future = users
-        .count_created_since(chrono::Utc::now() + chrono::Duration::hours(1))
+        .count_created_since(Timestamp::now() + Elapsed::hours(1))
         .await
         .unwrap();
     assert_eq!(future, 0, "nothing was created after now");
@@ -689,7 +690,7 @@ async fn links_minted(resources: &ServerContext, user_id: Uuid) -> i64 {
         .common
         .repos
         .email_verification
-        .count_recent_tokens(user_id, chrono::Utc::now() - chrono::Duration::hours(1))
+        .count_recent_tokens(user_id, Timestamp::now() - Elapsed::hours(1))
         .await
         .unwrap()
 }

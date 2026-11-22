@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::slice;
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SegmentEffort, SportType};
 use pierre_core::untrusted::ACTIVITY_NAME_MAX_CHARS;
 use pierre_tool_runtime::implementations::activity_list_render::format_activities_as_list;
@@ -35,7 +35,7 @@ fn workout(name: &str) -> Activity {
         "900001:5001",
         name,
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 9, 20, 17, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-20T17:00:00Z").unwrap(),
         3_600,
         "trainingpeaks",
     )
@@ -51,7 +51,7 @@ fn the_prose_list_carries_the_title_on_its_own_row() {
         None,
         "en",
         Some("UTC"),
-        Utc.with_ymd_and_hms(2026, 9, 25, 12, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-25T12:00:00Z").unwrap(),
     );
     assert!(text.contains(NEUTRALIZED), "{text}");
     assert!(
@@ -91,7 +91,7 @@ fn the_detail_serialization_neutralizes_a_segments_name() {
         "16101",
         "Tour",
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 11, 7, 13, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-11-07T13:00:00Z").unwrap(),
         3_600,
         "strava",
     )
@@ -101,7 +101,7 @@ fn the_detail_serialization_neutralizes_a_segments_name() {
         name: INJECTED.to_owned(),
         elapsed_time: 412,
         moving_time: None,
-        start_date: Utc.with_ymd_and_hms(2026, 11, 7, 13, 10, 0).unwrap(),
+        start_date: Timestamp::parse_from_rfc3339("2026-11-07T13:10:00Z").unwrap(),
         distance: 1_820.5,
         average_heart_rate: None,
         max_heart_rate: None,

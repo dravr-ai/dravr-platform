@@ -19,6 +19,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use uuid::Uuid;
 
 use crate::common::create_test_user_with_email;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 
 /// A live support session on `target`, opened by a fresh admin, as a chat
 /// turn typed in it carries it ([`pierre_tool_runtime::context::SUPPORT_SESSION`]).
@@ -38,7 +39,7 @@ pub(crate) async fn support_grant(
     ImpersonationGrant {
         session_id: session.id,
         impersonator_id: admin_id,
-        expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp(),
+        expires_at: (Timestamp::now() + Elapsed::hours(1)).epoch_seconds(),
     }
 }
 

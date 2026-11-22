@@ -12,7 +12,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{
     ActivityBuilder, AddMessageParams, ConnectionType, SportType, Tenant, TenantId, User,
     UserStatus,
@@ -31,7 +31,7 @@ async fn seed_account(repos: &RepositoryRegistry, label: &str, days_ago: i64) ->
     let email = format!("{label}-{}@example.com", Uuid::new_v4());
     let mut user = User::new(email, "hash".to_owned(), Some(label.to_owned()));
     user.user_status = UserStatus::Active;
-    user.created_at = Utc::now() - Duration::days(days_ago);
+    user.created_at = Timestamp::now() - Elapsed::days(days_ago);
     let user_id = user.id;
     repos.users.create(&user).await.unwrap();
     let tenant_id = TenantId::generate();
@@ -44,8 +44,8 @@ async fn seed_account(repos: &RepositoryRegistry, label: &str, days_ago: i64) ->
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -106,7 +106,7 @@ async fn a_tenant_reader_never_sees_another_tenants_account_or_milestone() {
         "alice-ride-1".to_owned(),
         "Morning ride".to_owned(),
         SportType::Ride,
-        Utc::now() - Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         3_600,
         "strava".to_owned(),
     )
@@ -125,7 +125,7 @@ async fn a_tenant_reader_never_sees_another_tenants_account_or_milestone() {
             provider: "whoop".to_owned(),
             data_type: "recovery".to_owned(),
             cursor_value: None,
-            last_sync_at: Some(Utc::now() - Duration::hours(12)),
+            last_sync_at: Some(Timestamp::now() - Elapsed::hours(12)),
             last_sync_status: "completed".to_owned(),
             records_synced: 1,
             error_message: None,
@@ -135,7 +135,7 @@ async fn a_tenant_reader_never_sees_another_tenants_account_or_milestone() {
         .await
         .unwrap();
     seed_messages(repos, alice, bob_tenant, &["user"]).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
 
     let in_alices = fetch_new_user_cohort(repos, 30, Some(alice_tenant), now)
         .await
@@ -209,7 +209,7 @@ async fn milestones_and_first_week_turns_are_read_from_the_accounts_rows() {
         .unwrap();
     seed_messages(repos, athlete, tenant, &["user", "assistant", "user"]).await;
 
-    let cohort = fetch_new_user_cohort(repos, 30, Some(tenant), Utc::now())
+    let cohort = fetch_new_user_cohort(repos, 30, Some(tenant), Timestamp::now())
         .await
         .unwrap();
 
@@ -230,7 +230,7 @@ async fn milestones_and_first_week_turns_are_read_from_the_accounts_rows() {
     assert_eq!(cohort.funnel.first_turn, 1);
     assert_eq!(cohort.funnel.day_7_eligible, 0, "two days old");
 
-    let platform = fetch_new_user_cohort(repos, 30, None, Utc::now())
+    let platform = fetch_new_user_cohort(repos, 30, None, Timestamp::now())
         .await
         .unwrap();
     assert!(listed(&platform, quiet));

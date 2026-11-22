@@ -35,7 +35,7 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
 use serde::{Deserialize, Serialize};
@@ -140,7 +140,7 @@ pub struct GuardianConfigSnapshot {
     /// Effective guard: defaults with the document over them, pre-built per snapshot.
     pub guardian: Arc<Guardian>,
     /// When the snapshot was installed.
-    pub loaded_at: DateTime<Utc>,
+    pub loaded_at: Timestamp,
     /// Why this snapshot does not reflect the stored row: the row could not be
     /// read or parsed, so the policy in force is the one held before that, or
     /// the defaults at boot.
@@ -369,7 +369,7 @@ fn build_snapshot(document: GuardianConfigDocument) -> GuardianConfigSnapshot {
     GuardianConfigSnapshot {
         document: Arc::new(document),
         guardian: Arc::new(Guardian::new(policy)),
-        loaded_at: Utc::now(),
+        loaded_at: Timestamp::now(),
         load_failure: None,
         refused_fields,
     }

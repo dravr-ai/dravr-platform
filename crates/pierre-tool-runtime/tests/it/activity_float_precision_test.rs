@@ -13,7 +13,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_tool_runtime::implementations::activity_summary::{
     detail_json, summary_json, ActivitySummary,
@@ -24,7 +24,7 @@ fn ride() -> Activity {
         "a1",
         "Tempo ride",
         SportType::Ride,
-        Utc.with_ymd_and_hms(2026, 9, 20, 17, 0, 0).unwrap(),
+        Timestamp::parse_from_rfc3339("2026-09-20T17:00:00Z").unwrap(),
         3_600,
         "strava",
     )

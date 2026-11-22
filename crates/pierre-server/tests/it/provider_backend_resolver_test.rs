@@ -27,8 +27,8 @@ use crate::common::offline_provider_registry;
 
 use std::sync::Arc;
 
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user};
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::connect_order::{set_connect_order, ConnectOrder};
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -63,6 +63,7 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use dravr_tronc::dates::Elapsed;
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 
@@ -84,7 +85,7 @@ async fn seed_token(
         Some("test_refresh_token".to_owned()),
         // Sciotte rows have no expiry in production; tokens we insert here
         // are wall-clock valid so the resolver sees them as present.
-        Some(Utc::now() + chrono::Duration::hours(1)),
+        Some(Timestamp::now() + Elapsed::hours(1)),
         Some("read".to_owned()),
     );
     resources
@@ -884,7 +885,7 @@ async fn single_provider_status_reports_needs_reauth_after_refresh_failure() {
         tenant_id,
         oauth_providers::WHOOP,
         Some("invalid_request"),
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -930,7 +931,7 @@ async fn multi_provider_status_reports_needs_reauth() {
         tenant_id,
         oauth_providers::WHOOP,
         Some("invalid_request"),
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -1055,7 +1056,7 @@ async fn connect_provider_follows_the_strava_order_and_reconnects_by_sign_in() {
             tenant_id,
             oauth_providers::STRAVA,
             Some("refresh_refused"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1230,7 +1231,7 @@ async fn create_authenticated_provider_signals_reauth_for_dead_connection() {
         tenant_id,
         oauth_providers::WHOOP,
         Some("invalid_request"),
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -1879,7 +1880,7 @@ async fn status_reports_needs_reauth_for_a_dead_mirror_session() {
             tenant_id,
             mirror,
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1943,7 +1944,7 @@ async fn a_dead_session_beside_a_working_strava_grant_is_the_reconnect() {
         tenant_id,
         oauth_providers::SCIOTTE,
         Some("session_expired"),
-        Utc::now(),
+        Timestamp::now(),
     )
     .await
     .unwrap();
@@ -2148,7 +2149,7 @@ async fn push_garmin_activity(resources: &Arc<ServerContext>, user_id: Uuid, ten
         "20111111111",
         "Pushed Run",
         SportType::Run,
-        Utc::now() - chrono::Duration::days(1),
+        Timestamp::now() - Elapsed::days(1),
         1_800,
         oauth_providers::GARMIN,
     )
@@ -2163,7 +2164,7 @@ async fn push_garmin_activity(resources: &Arc<ServerContext>, user_id: Uuid, ten
             &tenant_id,
             oauth_providers::GARMIN,
             &[pushed],
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .expect("store the pushed activity");
@@ -2181,7 +2182,7 @@ async fn flag(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId
             tenant_id,
             provider,
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .expect("flag the connection");
@@ -2636,7 +2637,7 @@ async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
             both_tenant,
             oauth_providers::GARMIN,
             Some("refresh_refused"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -2833,7 +2834,7 @@ async fn a_strava_session_read_still_serves_the_rows_the_api_stored() {
         "15000000001",
         "API Ride",
         SportType::Ride,
-        Utc::now() - chrono::Duration::days(3),
+        Timestamp::now() - Elapsed::days(3),
         3_600,
         oauth_providers::STRAVA,
     )
@@ -2847,13 +2848,13 @@ async fn a_strava_session_read_still_serves_the_rows_the_api_stored() {
             &tenant_id,
             oauth_providers::STRAVA,
             &[api_ride],
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .expect("store the API's row");
 
     let params = ActivityQueryParams {
-        after: Some((Utc::now() - chrono::Duration::days(14)).timestamp()),
+        after: Some((Timestamp::now() - Elapsed::days(14)).epoch_seconds()),
         before: None,
         limit: Some(10),
         offset: None,

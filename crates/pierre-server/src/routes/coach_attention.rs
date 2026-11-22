@@ -31,7 +31,7 @@ use axum::{
     routing::post,
     Json, Router,
 };
-use chrono::{DateTime, SubsecRound, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::MemberFitnessSnapshot;
@@ -56,11 +56,11 @@ const MAX_KEY_LEN: usize = 200;
 
 /// The reasons the coach dismissed, per athlete: reason id to the
 /// fingerprint and instant of the dismissal.
-pub(crate) type PageDismissals = HashMap<Uuid, BTreeMap<String, (String, DateTime<Utc>)>>;
+pub(crate) type PageDismissals = HashMap<Uuid, BTreeMap<String, (String, Timestamp)>>;
 
 /// The instant each source last delivered a session, in name order.
 #[must_use]
-pub(crate) fn sources_of(snapshot: &MemberFitnessSnapshot) -> BTreeMap<String, DateTime<Utc>> {
+pub(crate) fn sources_of(snapshot: &MemberFitnessSnapshot) -> BTreeMap<String, Timestamp> {
     snapshot
         .last_activity_per_provider
         .iter()
@@ -79,7 +79,7 @@ pub(crate) async fn refused_since(
     repos: &RepositoryRegistry,
     athlete: Uuid,
     reading: Option<&RosterReading>,
-) -> AppResult<BTreeMap<String, DateTime<Utc>>> {
+) -> AppResult<BTreeMap<String, Timestamp>> {
     let mut since = BTreeMap::new();
     if reading.is_none_or(|r| r.needs_reconnect.is_empty()) {
         return Ok(since);
@@ -109,8 +109,8 @@ pub(crate) async fn refused_since(
 pub(crate) fn training_signals<'a>(
     snapshot: &'a MemberFitnessSnapshot,
     reading: &'a RosterReading,
-    sources: &'a BTreeMap<String, DateTime<Utc>>,
-    refused_since: &'a BTreeMap<String, DateTime<Utc>>,
+    sources: &'a BTreeMap<String, Timestamp>,
+    refused_since: &'a BTreeMap<String, Timestamp>,
 ) -> TrainingSignals<'a> {
     TrainingSignals {
         computed_at: snapshot.computed_at,
@@ -192,7 +192,7 @@ pub struct DismissResponse {
     /// The signal it was dismissed on.
     pub fingerprint: String,
     /// When.
-    pub dismissed_at: DateTime<Utc>,
+    pub dismissed_at: Timestamp,
 }
 
 /// Answer to a restore.
@@ -274,7 +274,7 @@ pub async fn handle_dismiss(
     // PostgreSQL keeps six fractional digits and SQLite the text whole, so the
     // instant is truncated to what both store: the answer then matches the row
     // every later roster read returns (as `llm_usage::recorded_at` does).
-    let dismissed_at = Utc::now().trunc_subsecs(6);
+    let dismissed_at = Timestamp::now().trunc_subsecs(6);
     repos
         .coach_attention_dismissals
         .dismiss_attention(

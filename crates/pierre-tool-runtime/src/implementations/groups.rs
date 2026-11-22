@@ -912,14 +912,14 @@ crate::declare_security!(GetGroupMemberActivitiesTool => empty; coach);
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::{ActivityBuilder, SportType};
 
     use super::*;
 
     #[test]
     fn a_peer_activity_carries_its_exact_duration() {
-        let start = Utc.with_ymd_and_hms(2026, 10, 13, 17, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-10-13T17:00:00Z").unwrap();
         let run = ActivityBuilder::new("r1", "Course", SportType::Run, start, 3_239, "strava")
             .distance_meters(6_100.0)
             .build();
@@ -928,7 +928,7 @@ mod tests {
 
     #[test]
     fn a_scraped_peer_activity_names_the_service_not_the_backend() {
-        let start = Utc.with_ymd_and_hms(2026, 10, 13, 17, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-10-13T17:00:00Z").unwrap();
         for origin in ["garmin", "strava", "coros", "trainingpeaks"] {
             let ride =
                 ActivityBuilder::new("g1", "Sortie", SportType::Ride, start, 3_600, "sciotte")

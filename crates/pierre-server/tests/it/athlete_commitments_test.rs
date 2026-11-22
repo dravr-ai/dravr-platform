@@ -12,7 +12,7 @@
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_database::repositories::SweptVerdict;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::commitments::{Commitment, CommitmentOutcome, CommitmentStatus};
@@ -28,7 +28,7 @@ fn commitment(
     target: u32,
     days_out: i64,
 ) -> Commitment {
-    let now = Utc::now();
+    let now = Timestamp::now();
     Commitment {
         id: uuid::Uuid::new_v4().to_string(),
         tenant_id: tenant.to_owned(),
@@ -39,7 +39,7 @@ fn commitment(
         sport: sport.map(str::to_owned),
         target_sessions: target,
         window_start: now,
-        window_end: now + Duration::days(days_out),
+        window_end: now + Elapsed::days(days_out),
         status: CommitmentStatus::Open,
         outcome: None,
         completed_sessions: None,
@@ -76,8 +76,8 @@ async fn insert_round_trips_every_field() {
     assert_eq!(got.outcome, None);
     assert_eq!(got.completed_sessions, None);
     assert_eq!(
-        got.window_end.timestamp(),
-        c.window_end.timestamp(),
+        got.window_end.epoch_seconds(),
+        c.window_end.epoch_seconds(),
         "the window survives the epoch-second round trip"
     );
 }
@@ -173,7 +173,7 @@ async fn due_scan_returns_only_closed_windows_oldest_first() {
 
     let due = repos
         .commitments
-        .due_commitments(Utc::now().timestamp(), 50)
+        .due_commitments(Timestamp::now().epoch_seconds(), 50)
         .await
         .unwrap();
     assert_eq!(due.len(), 2, "a future window is not due");
@@ -189,7 +189,7 @@ async fn recording_a_verdict_moves_it_out_of_the_due_scan() {
     let c = commitment("t1", "u1", Some("run"), 3, -1);
     repos.commitments.insert_commitment(&c).await.unwrap();
 
-    let at = Utc::now();
+    let at = Timestamp::now();
     let verdict = SweptVerdict {
         tenant_id: "t1",
         commitment_id: &c.id,
@@ -207,7 +207,7 @@ async fn recording_a_verdict_moves_it_out_of_the_due_scan() {
     assert_eq!(
         repos
             .commitments
-            .due_commitments(Utc::now().timestamp(), 50)
+            .due_commitments(Timestamp::now().epoch_seconds(), 50)
             .await
             .unwrap(),
         []
@@ -219,8 +219,8 @@ async fn recording_a_verdict_moves_it_out_of_the_due_scan() {
     assert_eq!(pending[0].completed_sessions, Some(2));
     assert_eq!(pending[0].status, CommitmentStatus::Labeled);
     assert_eq!(
-        pending[0].swept_at.map(|t| t.timestamp()),
-        Some(at.timestamp())
+        pending[0].swept_at.map(Timestamp::epoch_seconds),
+        Some(at.epoch_seconds())
     );
 }
 
@@ -237,7 +237,7 @@ async fn a_racing_second_sweep_writes_nothing() {
         commitment_id: &c.id,
         outcome: CommitmentOutcome::Met,
         completed_sessions: 3,
-        at: Utc::now(),
+        at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
     };
     let missed = SweptVerdict {
@@ -278,7 +278,7 @@ async fn reporting_is_single_shot_and_recorded() {
             commitment_id: &c.id,
             outcome: CommitmentOutcome::Met,
             completed_sessions: 3,
-            at: Utc::now(),
+            at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
         })
         .await
@@ -291,7 +291,7 @@ async fn reporting_is_single_shot_and_recorded() {
         .unwrap()
         .is_none());
 
-    let at = Utc::now();
+    let at = Timestamp::now();
     assert!(repos
         .commitments
         .mark_commitment_reported("t1", &c.id, at)
@@ -316,8 +316,8 @@ async fn reporting_is_single_shot_and_recorded() {
             .last_commitment_report("t1", "u1")
             .await
             .unwrap()
-            .map(|t| t.timestamp()),
-        Some(at.timestamp()),
+            .map(Timestamp::epoch_seconds),
+        Some(at.epoch_seconds()),
         "the cadence cap can see when this athlete last heard from us"
     );
 }
@@ -347,7 +347,7 @@ async fn cancelling_removes_it_from_every_scan() {
     assert_eq!(
         repos
             .commitments
-            .due_commitments(Utc::now().timestamp(), 50)
+            .due_commitments(Timestamp::now().epoch_seconds(), 50)
             .await
             .unwrap(),
         []
@@ -376,7 +376,7 @@ async fn expiring_closes_a_verdict_that_never_landed() {
             commitment_id: &c.id,
             outcome: CommitmentOutcome::Missed,
             completed_sessions: 0,
-            at: Utc::now(),
+            at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
         })
         .await
@@ -428,7 +428,7 @@ async fn every_write_is_tenant_scoped() {
             commitment_id: &mine.id,
             outcome: CommitmentOutcome::Missed,
             completed_sessions: 0,
-            at: Utc::now(),
+            at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
         })
         .await

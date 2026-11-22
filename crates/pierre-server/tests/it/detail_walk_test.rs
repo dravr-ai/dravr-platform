@@ -45,7 +45,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::coverage::Pending;
 use pierre_core::models::{
@@ -140,7 +140,7 @@ async fn activity_detail(
     if mock.failing.lock().unwrap().contains(&id) {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
-    let start = Utc.timestamp_opt(id, 0).unwrap();
+    let start = Timestamp::from_epoch_seconds(id).unwrap();
     Ok(Json(json!({
         "id": id,
         "name": "Morning ride",
@@ -156,7 +156,7 @@ async fn activity_detail(
             "elapsed_time": 412,
             "moving_time": 410,
             "distance": 1_820.5,
-            "start_date": (start + chrono::Duration::minutes(10)).to_rfc3339(),
+            "start_date": (start + Elapsed::minutes(10)).to_rfc3339(),
             "pr_rank": 2,
             "segment": { "id": 611_413, "name": "Camillien-Houde", "distance": 1_820.5 }
         }]
@@ -189,7 +189,7 @@ pub(crate) fn ride_listed_at(key: &str, id: i64, start: i64) -> Activity {
         id.to_string(),
         "Morning ride",
         SportType::Ride,
-        Utc.timestamp_opt(start, 0).unwrap(),
+        Timestamp::from_epoch_seconds(start).unwrap(),
         3_600,
         key,
     );
@@ -212,7 +212,14 @@ pub(crate) async fn store_rides(
     let rides: Vec<Activity> = starts.iter().map(|start| ride(key, *start)).collect();
     runtime
         .live_activities()
-        .ingest(user_id, tenant, key, &rides, Utc::now(), WriteOrigin::Walk)
+        .ingest(
+            user_id,
+            tenant,
+            key,
+            &rides,
+            Timestamp::now(),
+            WriteOrigin::Walk,
+        )
         .await
         .unwrap();
 }
@@ -232,8 +239,12 @@ pub(crate) async fn rows_under(
         .get_cached_activity_rows(
             user_id,
             &tenant,
-            &CachedRowsQuery::window(Utc.timestamp_opt(0, 0).unwrap(), Utc::now(), 500)
-                .under_keys(&keys),
+            &CachedRowsQuery::window(
+                Timestamp::from_epoch_seconds(0).unwrap(),
+                Timestamp::now(),
+                500,
+            )
+            .under_keys(&keys),
         )
         .await
         .unwrap()
@@ -343,7 +354,7 @@ pub(crate) async fn walk_ended_under(
 pub(crate) fn since(after: i64) -> DetailWalkAsk<'static> {
     DetailWalkAsk {
         after_ts: after,
-        before_ts: Utc::now().timestamp(),
+        before_ts: Timestamp::now().epoch_seconds(),
         sport: None,
     }
 }
@@ -370,7 +381,7 @@ async fn a_walk_goes_through_the_session_first_and_the_grant_without_one() {
         "bug: an athlete with no Strava connection has no walk backend"
     );
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let repos = &resources.common.repos;
     repos
         .oauth_tokens
@@ -382,7 +393,7 @@ async fn a_walk_goes_through_the_session_first_and_the_grant_without_one() {
             access_token: SecretString::from(format!("sciotte_session_{:0>30}", 7)),
             refresh_token: None,
             token_type: "session".to_owned(),
-            expires_at: Some(now + ChronoDuration::days(30)),
+            expires_at: Some(now + Elapsed::days(30)),
             scope: None,
             provider_user_id: Some("4242".to_owned()),
             oauth_app_client_id: None,
@@ -417,7 +428,7 @@ async fn a_walk_goes_through_the_session_first_and_the_grant_without_one() {
             tenant,
             SESSION,
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -449,7 +460,7 @@ async fn scraper_detail(
     Path(id): Path<String>,
 ) -> Json<Value> {
     mock.details.lock().unwrap().push(id.clone());
-    let start = Utc.timestamp_opt(id.parse().unwrap(), 0).unwrap();
+    let start = Timestamp::from_epoch_seconds(id.parse().unwrap()).unwrap();
     let mut detail = json!({
         "id": id,
         "name": "Morning ride",
@@ -468,7 +479,7 @@ async fn scraper_detail(
             "elapsed_time": 412,
             "distance": 1_820.5,
             "segment_id": "611413",
-            "start_date": (start + ChronoDuration::minutes(10)).to_rfc3339()
+            "start_date": (start + Elapsed::minutes(10)).to_rfc3339()
         }]);
     }
     Json(detail)
@@ -531,7 +542,7 @@ async fn session_athlete(scraper_url: &str) -> (Arc<ServerContext>, Uuid, Tenant
 async fn a_session_walk_keeps_its_answers_under_the_session() {
     let (scraper_url, scraper) = mock_scraper().await;
     let (resources, user_id, tenant) = session_athlete(&scraper_url).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     // Even ids carry an effort, the odd one is a no-GPS ride.
     let base = (now - 20 * DAY) / 2 * 2;
     let (listed_by_session, no_gps, grant_only) = (base, base + 3 * DAY + 1, base + 6 * DAY);
@@ -621,7 +632,7 @@ async fn a_session_walk_keeps_its_answers_under_the_session() {
                     PLATFORM_SCOPE,
                     PLATFORM_SCOPE,
                     &key,
-                    &budget_period(Utc::now(), ONE_DAY),
+                    &budget_period(Timestamp::now(), ONE_DAY),
                 )
                 .await
                 .map_or(0, |counter| counter.value)
@@ -663,7 +674,7 @@ async fn a_session_walk_keeps_its_answers_under_the_session() {
 async fn a_live_session_answer_on_a_grant_row_keeps_its_detail_but_not_its_efforts() {
     let (scraper_url, scraper) = mock_scraper().await;
     let (resources, user_id, tenant) = session_athlete(&scraper_url).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let at = (now - 10 * DAY) / 2 * 2;
     store_rides(&resources, user_id, tenant, oauth_providers::STRAVA, &[at]).await;
     open_window(&resources).await;
@@ -676,14 +687,14 @@ async fn a_live_session_answer_on_a_grant_row_keeps_its_detail_but_not_its_effor
         "elapsed_time": 412,
         "distance": 1_820.5,
         "segment_id": "611413",
-        "start_date": (Utc.timestamp_opt(at + 600, 0).unwrap()).to_rfc3339()
+        "start_date": (Timestamp::from_epoch_seconds(at + 600).unwrap()).to_rfc3339()
     }))
     .unwrap();
     let detailed = ActivityBuilder::new(
         at.to_string(),
         "Morning ride",
         SportType::Ride,
-        Utc.timestamp_opt(at, 0).unwrap(),
+        Timestamp::from_epoch_seconds(at).unwrap(),
         3_600,
         SESSION,
     )
@@ -754,7 +765,7 @@ async fn a_live_session_answer_on_a_grant_row_keeps_its_detail_but_not_its_effor
 async fn a_session_walk_never_loads_more_than_ten_pages_at_once() {
     let (scraper_url, scraper) = mock_scraper().await;
     let (resources, user_id, tenant) = session_athlete(&scraper_url).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let base = (now - 25 * DAY) / 2 * 2;
     let starts: Vec<i64> = (0..25).map(|day| base + day * DAY).collect();
     store_rides(&resources, user_id, tenant, SESSION, &starts).await;
@@ -811,7 +822,7 @@ async fn a_walk_stores_efforts_under_the_grant_and_copies_a_session_only_ride() 
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (session_only, both) = (now - 10 * DAY, now - 20 * DAY);
     store_rides(&resources, user_id, tenant, SESSION, &[session_only, both]).await;
     store_rides(
@@ -889,7 +900,7 @@ async fn an_unreadable_ride_is_walked_past_and_kept() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let starts = [now - 5 * DAY, now - 6 * DAY, now - 7 * DAY];
     mock.missing.lock().unwrap().insert(starts[1]);
     store_rides(&resources, user_id, tenant, SESSION, &starts).await;
@@ -945,7 +956,7 @@ async fn a_ride_strava_fails_on_is_read_again_not_walked_past() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let starts = [now - 5 * DAY, now - 6 * DAY, now - 7 * DAY];
     mock.failing.lock().unwrap().insert(starts[1]);
     store_rides(&resources, user_id, tenant, SESSION, &starts).await;
@@ -1027,7 +1038,7 @@ async fn a_walk_strava_keeps_failing_ends_incomplete_untold() {
     let told = Arc::new(Told::default());
     let resources = telling(&server(&api_base, 400).await, &told);
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let starts = [now - 5 * DAY, now - 6 * DAY];
     mock.failing.lock().unwrap().insert(starts[1]);
     store_rides(&resources, user_id, tenant, SESSION, &starts).await;
@@ -1105,7 +1116,7 @@ async fn a_spent_walk_day_pauses_the_walk_until_the_day_ends() {
     // 40 a day: a background share of 10, half of it, 5, for the walk.
     let resources = server(&api_base, 40).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let starts: Vec<i64> = (1..=7).map(|day| now - day * DAY).collect();
     store_rides(&resources, user_id, tenant, SESSION, &starts).await;
     open_window(&resources).await;
@@ -1158,7 +1169,7 @@ async fn a_spent_walk_day_pauses_the_walk_until_the_day_ends() {
         );
     };
     let day_ms = DAY * 1_000;
-    let window_end = (Utc::now().timestamp_millis() / day_ms + 1) * day_ms;
+    let window_end = (Timestamp::now().epoch_millis() / day_ms + 1) * day_ms;
     assert!(
         (window_end - 2_000..=window_end + 5_000).contains(&paused),
         "bug: a spent day's walk waits for the window's end ({window_end}), not a lease: {paused}"
@@ -1185,7 +1196,7 @@ async fn an_ask_while_owed_widens_the_walk_and_it_walks_the_new_floor() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let starts = [now - 10 * DAY, now - 20 * DAY, now - 40 * DAY];
     store_rides(&resources, user_id, tenant, SESSION, &starts).await;
     open_window(&resources).await;
@@ -1272,7 +1283,7 @@ async fn a_window_read_already_records_no_walk() {
     let (api_base, _mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let asked = ask_detail_walk(
         &runtime,
@@ -1359,7 +1370,7 @@ async fn a_walk_that_stored_efforts_tells_its_end_once() {
     let told = Arc::new(Told::default());
     let resources = telling(&server(&api_base, 400).await, &told);
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     // Twelve rides: two steps of the walk.
     let starts: Vec<i64> = (1..=12).map(|day| now - day * DAY).collect();
     store_rides(&resources, user_id, tenant, SESSION, &starts).await;
@@ -1428,7 +1439,7 @@ async fn a_walk_that_walked_past_a_ride_tells_only_what_it_stored() {
     let told = Arc::new(Told::default());
     let resources = telling(&server(&api_base, 400).await, &told);
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let starts = [now - 2 * DAY, now - 3 * DAY, now - 4 * DAY];
     mock.missing.lock().unwrap().insert(starts[1]);
     store_rides(&resources, user_id, tenant, SESSION, &starts).await;
@@ -1473,7 +1484,7 @@ async fn copies_of_one_ride_listed_at_different_starts_are_read_once() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let real_start = now - 10 * DAY;
     let day_start = real_start - real_start.rem_euclid(DAY);
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
@@ -1484,7 +1495,7 @@ async fn copies_of_one_ride_listed_at_different_starts_are_read_once() {
             tenant,
             SESSION,
             &[ride_listed_at(SESSION, real_start, day_start)],
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Walk,
         )
         .await
@@ -1565,7 +1576,7 @@ async fn walked_once_telling(
         resources = Arc::new(context);
     }
     let (user_id, tenant) = strava_athlete(&resources).await;
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let starts = [now - 5 * DAY, now - 6 * DAY, now - 7 * DAY];
     mock.missing.lock().unwrap().insert(starts[1]);
     store_rides(&resources, user_id, tenant, SESSION, &starts).await;

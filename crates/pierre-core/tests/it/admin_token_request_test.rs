@@ -7,7 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::models::{
     AdminPermission, AdminPermissions, AdminToken, CreateAdminTokenRequest, DELETED_ACCOUNT_ADMIN,
     DELETED_ACCOUNT_LABEL, DEVICE_CLI_DELETED_ACCOUNT_SERVICE, DEVICE_CLI_SERVICE_PREFIX,
@@ -29,7 +30,7 @@ fn device_token(admin: Uuid) -> AdminToken {
         tenant_id: None,
         operator_user_id: Some(admin),
         rotated_to_token_id: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         expires_at: None,
         last_used_at: None,
         last_used_ip: None,
@@ -145,7 +146,7 @@ fn a_super_admin_rotation_takes_the_full_set_of_the_day() {
 /// date can hold is refused rather than left to overflow at the mint.
 #[test]
 fn a_lifetime_is_days_from_now_and_one_past_any_date_is_refused() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut request = CreateAdminTokenRequest::new("lifetime".to_owned());
 
     request.expires_in_days = None;
@@ -155,7 +156,7 @@ fn a_lifetime_is_days_from_now_and_one_past_any_date_is_refused() {
     request.expires_in_days = Some(30);
     assert_eq!(
         request.expires_at(now).unwrap(),
-        Some(now + chrono::Duration::days(30))
+        Some(now + Elapsed::days(30))
     );
 
     for too_many in [200_000_000_u64, u64::MAX] {

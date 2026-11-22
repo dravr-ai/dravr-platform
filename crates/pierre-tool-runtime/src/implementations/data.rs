@@ -29,7 +29,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::coverage::{Completeness, IncompleteReason};
 use pierre_core::models::{Activity, RefreshConfig, TenantId};
 use serde_json::{json, Value};
@@ -359,7 +359,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             } else {
                 EXPENSIVE_DETAIL_PROMOTION_BUDGET
             };
-            let detail_window_start = DetailPlan::window_start(Utc::now());
+            let detail_window_start = DetailPlan::window_start(Timestamp::now());
             let explicit_detail_cap = (mode == "detailed").then_some(detail_read_budget);
 
             // The temperature backfill, built once per request — both cache
@@ -720,7 +720,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 // recorded as a failed sync and answered from the provider's own
                 // cached window with a caveat, never as "no activities".
                 let executor = UniversalExecutor::new(context.resources.clone());
-                let attempt_started_at = Utc::now();
+                let attempt_started_at = Timestamp::now();
                 let authenticated = executor
                     .auth_service
                     .create_authenticated_provider(
@@ -973,8 +973,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 tenant_id,
                 ServedList {
                     served: &filtered_activities,
-                    after: after.and_then(|at| DateTime::from_timestamp(at, 0)),
-                    before: before.and_then(|at| DateTime::from_timestamp(at, 0)),
+                    after: after.and_then(|at| Timestamp::from_epoch_seconds(at).ok()),
+                    before: before.and_then(|at| Timestamp::from_epoch_seconds(at).ok()),
                     pinned: provider_pinned.then_some(provider_name.as_str()),
                     keep: &keep,
                 },

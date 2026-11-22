@@ -11,7 +11,7 @@
 //! The repository had no direct test on either backend. The one the catalog
 //! timestamp needed most: `SQLite` used to parse `created_at` as RFC 3339
 //! and, when the row had been stamped by the database's own clock in its
-//! `YYYY-MM-DD HH:MM:SS` form, substitute `Utc::now()` — so every read of a
+//! `YYYY-MM-DD HH:MM:SS` form, substitute `Timestamp::now()` — so every read of a
 //! catalog entry reported it created just now. These run on `SQLite` and on
 //! `PostgreSQL`: `create_test_db` opens whichever `DATABASE_URL` names.
 
@@ -19,7 +19,7 @@
 
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Tenant, TenantId, TenantPlan, ToolCatalogEntry, ToolCategory, User};
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
@@ -57,8 +57,8 @@ fn entry(category: ToolCategory, min_plan: TenantPlan, enabled: bool) -> ToolCat
         is_enabled_by_default: enabled,
         requires_provider: None,
         min_plan,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     }
 }
 
@@ -68,7 +68,7 @@ async fn a_catalog_entry_reads_back_with_the_moment_it_was_stored() {
     let repos = db.repositories();
     let repo = &repos.tool_selection;
 
-    let before = Utc::now();
+    let before = Timestamp::now();
     let entry = entry(ToolCategory::Analysis, TenantPlan::Professional, true);
     repo.upsert_tool_catalog_entry(&entry).await.unwrap();
 
@@ -82,7 +82,7 @@ async fn a_catalog_entry_reads_back_with_the_moment_it_was_stored() {
     assert_eq!(first.min_plan, TenantPlan::Professional);
     assert!(first.is_enabled_by_default);
     assert!(
-        first.created_at >= before - chrono::Duration::seconds(1) && first.created_at <= Utc::now(),
+        first.created_at >= before - Elapsed::seconds(1) && first.created_at <= Timestamp::now(),
         "created_at is the database's clock at the write: {}",
         first.created_at
     );

@@ -12,6 +12,7 @@ use crate::helpers;
 
 use axum::http::StatusCode;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::agent_fixtures::{
     publish_catalogue_agent, publish_catalogue_agent_in, select_own_agent,
 };
@@ -93,8 +94,8 @@ async fn seed_user_tenant(
         domain: None,
         plan: plan.to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     // tenants.create() files the owner in tenant_users with the owner role.
     resources
@@ -135,7 +136,7 @@ async fn seed_tenant_member(
     // Membership rows are written by the invitation flows in production; the
     // repository exposes no direct writer, so the fixture files the row the
     // way those flows do.
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => {
             sqlx::query(INSERT_MEMBER)
@@ -178,7 +179,7 @@ async fn active_user(email: &str, manages_roster: bool) -> User {
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     user.manages_roster = manages_roster;
     user
 }
@@ -1378,7 +1379,7 @@ async fn group_create_by_a_coach_awaiting_access_names_it_on_their_request() {
         .open(&CoachAccessRequest::pending(
             user_id,
             None,
-            chrono::Utc::now()
+            Timestamp::now()
         ))
         .await
         .unwrap());

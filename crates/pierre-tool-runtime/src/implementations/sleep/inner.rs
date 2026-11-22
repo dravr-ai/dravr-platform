@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use tracing::{debug, warn};
 
 use super::activity_source::{training_load_activities, training_load_of};
@@ -145,7 +145,7 @@ pub(crate) fn handle_analyze_sleep_quality(
                 let mut map = HashMap::new();
                 map.insert(
                     "analysis_timestamp".into(),
-                    serde_json::Value::String(Utc::now().to_rfc3339()),
+                    serde_json::Value::String(Timestamp::now().to_rfc3339()),
                 );
                 map.insert(
                     "scientific_references".into(),
@@ -355,7 +355,7 @@ pub(crate) fn handle_calculate_recovery_score(
                 let mut map = HashMap::new();
                 map.insert(
                     "calculation_timestamp".into(),
-                    serde_json::Value::String(Utc::now().to_rfc3339()),
+                    serde_json::Value::String(Timestamp::now().to_rfc3339()),
                 );
                 map.insert(
                     "components_used".into(),
@@ -575,7 +575,7 @@ pub(crate) fn handle_suggest_rest_day(
                 let mut map = HashMap::new();
                 map.insert(
                     "recommendation_timestamp".into(),
-                    serde_json::Value::String(Utc::now().to_rfc3339()),
+                    serde_json::Value::String(Timestamp::now().to_rfc3339()),
                 );
                 // Only include confidence if it's a valid f64 value
                 if let Some(confidence_number) =
@@ -797,7 +797,7 @@ pub(crate) fn handle_track_sleep_trends(
                 let mut map = HashMap::new();
                 map.insert(
                     "analysis_timestamp".into(),
-                    serde_json::Value::String(Utc::now().to_rfc3339()),
+                    serde_json::Value::String(Timestamp::now().to_rfc3339()),
                 );
                 map.insert(
                     "days_analyzed".into(),
@@ -965,7 +965,7 @@ pub(crate) fn handle_optimize_sleep_schedule(
                 let mut map = HashMap::new();
                 map.insert(
                     "calculation_timestamp".into(),
-                    serde_json::Value::String(Utc::now().to_rfc3339()),
+                    serde_json::Value::String(Timestamp::now().to_rfc3339()),
                 );
                 map
             }),

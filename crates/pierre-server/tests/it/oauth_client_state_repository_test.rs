@@ -16,13 +16,13 @@
 //! pinned app — so a decode that differs between the two backends fails
 //! here rather than at a provider callback.
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::OAuthClientState;
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
-fn minted(name: &str, user_id: Option<Uuid>, ttl: Duration) -> OAuthClientState {
-    let now = Utc::now();
+fn minted(name: &str, user_id: Option<Uuid>, ttl: Elapsed) -> OAuthClientState {
+    let now = Timestamp::now();
     OAuthClientState {
         state: name.to_owned(),
         provider: "strava".to_owned(),
@@ -32,14 +32,14 @@ fn minted(name: &str, user_id: Option<Uuid>, ttl: Duration) -> OAuthClientState 
         scope: Some("activity:read_all".to_owned()),
         pkce_code_verifier: Some("verifier-123".to_owned()),
         oauth_app_client_id: Some("app-7".to_owned()),
-        created_at: now - Duration::minutes(1),
+        created_at: now - Elapsed::minutes(1),
         expires_at: now + ttl,
         used: false,
     }
 }
 
-fn same_instant(a: DateTime<Utc>, b: DateTime<Utc>) -> bool {
-    a.timestamp_micros() == b.timestamp_micros()
+fn same_instant(a: Timestamp, b: Timestamp) -> bool {
+    a.epoch_micros() == b.epoch_micros()
 }
 
 #[tokio::test]
@@ -47,11 +47,11 @@ async fn consume_returns_every_column_and_marks_the_state_used() {
     let db = create_test_db().await.unwrap();
     let repo = &db.repositories().oauth_client_state;
     let user = Uuid::new_v4();
-    let wanted = minted("state-1", Some(user), Duration::minutes(10));
+    let wanted = minted("state-1", Some(user), Elapsed::minutes(10));
     repo.store_oauth_client_state(&wanted).await.unwrap();
 
     let consumed = repo
-        .consume_oauth_client_state("state-1", "strava", Utc::now())
+        .consume_oauth_client_state("state-1", "strava", Timestamp::now())
         .await
         .unwrap()
         .expect("a live state consumes");
@@ -68,7 +68,7 @@ async fn consume_returns_every_column_and_marks_the_state_used() {
     assert!(consumed.used, "the row comes back already marked used");
 
     let again = repo
-        .consume_oauth_client_state("state-1", "strava", Utc::now())
+        .consume_oauth_client_state("state-1", "strava", Timestamp::now())
         .await
         .unwrap();
     assert!(again.is_none(), "a state consumes exactly once");
@@ -78,7 +78,7 @@ async fn consume_returns_every_column_and_marks_the_state_used() {
 async fn a_state_without_a_user_or_tenant_reads_back_as_none() {
     let db = create_test_db().await.unwrap();
     let repo = &db.repositories().oauth_client_state;
-    let mut anonymous = minted("state-anon", None, Duration::minutes(10));
+    let mut anonymous = minted("state-anon", None, Elapsed::minutes(10));
     anonymous.tenant_id = None;
     anonymous.scope = None;
     anonymous.pkce_code_verifier = None;
@@ -86,7 +86,7 @@ async fn a_state_without_a_user_or_tenant_reads_back_as_none() {
     repo.store_oauth_client_state(&anonymous).await.unwrap();
 
     let consumed = repo
-        .consume_oauth_client_state("state-anon", "strava", Utc::now())
+        .consume_oauth_client_state("state-anon", "strava", Timestamp::now())
         .await
         .unwrap()
         .expect("a live state consumes");
@@ -101,18 +101,14 @@ async fn a_state_without_a_user_or_tenant_reads_back_as_none() {
 async fn the_wrong_provider_an_expired_state_and_an_unknown_state_do_not_consume() {
     let db = create_test_db().await.unwrap();
     let repo = &db.repositories().oauth_client_state;
-    repo.store_oauth_client_state(&minted("live", Some(Uuid::new_v4()), Duration::minutes(10)))
+    repo.store_oauth_client_state(&minted("live", Some(Uuid::new_v4()), Elapsed::minutes(10)))
         .await
         .unwrap();
-    repo.store_oauth_client_state(&minted(
-        "stale",
-        Some(Uuid::new_v4()),
-        Duration::minutes(-1),
-    ))
-    .await
-    .unwrap();
+    repo.store_oauth_client_state(&minted("stale", Some(Uuid::new_v4()), Elapsed::minutes(-1)))
+        .await
+        .unwrap();
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     assert!(repo
         .consume_oauth_client_state("live", "whoop", now)
         .await

@@ -31,7 +31,7 @@
 //! which compares in the same order. `$n` placeholders throughout.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Days, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -172,21 +172,21 @@ pub struct DataAccessRequest {
     /// Where it stands.
     pub status: DataAccessStatus,
     /// The day the athlete sent it.
-    pub sent_on: Option<NaiveDate>,
+    pub sent_on: Option<CivilDate>,
     /// The day the company must answer by, once sent.
-    pub due_on: Option<NaiveDate>,
+    pub due_on: Option<CivilDate>,
     /// The later date a GDPR controller notified it would answer by.
-    pub extended_until: Option<NaiveDate>,
+    pub extended_until: Option<CivilDate>,
     /// The day the company answered.
-    pub answered_on: Option<NaiveDate>,
+    pub answered_on: Option<CivilDate>,
     /// When the due-soon reminder was claimed.
-    pub due_soon_notified_at: Option<DateTime<Utc>>,
+    pub due_soon_notified_at: Option<Timestamp>,
     /// When the overdue reminder was claimed.
-    pub overdue_notified_at: Option<DateTime<Utc>>,
+    pub overdue_notified_at: Option<Timestamp>,
     /// When it was written.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When it last changed.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// The athlete's data access requests, and the sweep's claims on them.
@@ -242,7 +242,7 @@ pub trait DataAccessRequestRepository: Send + Sync {
     async fn due_for_reminder(
         &self,
         stage: ReminderStage,
-        today: NaiveDate,
+        today: CivilDate,
         limit: i64,
     ) -> AppResult<Vec<DataAccessRequest>>;
 
@@ -257,13 +257,13 @@ pub trait DataAccessRequestRepository: Send + Sync {
         &self,
         stage: ReminderStage,
         request: &DataAccessRequest,
-        due_on: NaiveDate,
-        at: DateTime<Utc>,
+        due_on: CivilDate,
+        at: Timestamp,
     ) -> AppResult<bool>;
 }
 
 /// How many days before its due date a request is due soon.
-pub const DUE_SOON_DAYS: u64 = 3;
+pub const DUE_SOON_DAYS: i64 = 3;
 
 /// The columns every read decodes.
 macro_rules! data_access_request_columns {
@@ -335,10 +335,10 @@ pub(crate) const CLAIM_OVERDUE_SQL: &str = "UPDATE data_access_requests \
      AND status = 'sent' AND overdue_notified_at IS NULL";
 
 /// The last day of the due-soon window that opens on `today`.
-pub(crate) fn due_soon_horizon(today: NaiveDate) -> NaiveDate {
+pub(crate) fn due_soon_horizon(today: CivilDate) -> CivilDate {
     today
-        .checked_add_days(Days::new(DUE_SOON_DAYS))
-        .unwrap_or(NaiveDate::MAX)
+        .checked_add_days(DUE_SOON_DAYS)
+        .unwrap_or(CivilDate::MAX)
 }
 
 /// Decode the backend-neutral columns of a request row; the user uuid arrives
@@ -353,14 +353,14 @@ where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<NaiveDate>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<CivilDate>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column =
         |col: &str, e: sqlx::Error| AppError::database(format!("data_access_requests {col}: {e}"));
     let text = |col: &str| -> AppResult<String> { row.try_get(col).map_err(|e| column(col, e)) };
-    let date = |col: &str| -> AppResult<Option<NaiveDate>> {
+    let date = |col: &str| -> AppResult<Option<CivilDate>> {
         row.try_get(col).map_err(|e| column(col, e))
     };
     let id = text("id")?;
@@ -517,7 +517,7 @@ macro_rules! impl_data_access_request_repository {
             async fn due_for_reminder(
                 &self,
                 stage: ReminderStage,
-                today: NaiveDate,
+                today: CivilDate,
                 limit: i64,
             ) -> AppResult<Vec<DataAccessRequest>> {
                 let query = match stage {
@@ -537,8 +537,8 @@ macro_rules! impl_data_access_request_repository {
                 &self,
                 stage: ReminderStage,
                 request: &DataAccessRequest,
-                due_on: NaiveDate,
-                at: DateTime<Utc>,
+                due_on: CivilDate,
+                at: Timestamp,
             ) -> AppResult<bool> {
                 let statement = match stage {
                     ReminderStage::DueSoon => CLAIM_DUE_SOON_SQL,

@@ -46,7 +46,7 @@
 //!   (`pierre_database::repositories::support_binding`); a grant that ran
 //!   out is ended here at the next lookup.
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::auth::ImpersonationGrant;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{TenantId, User};
@@ -107,7 +107,7 @@ impl LiveSupport {
         ImpersonationGrant {
             session_id: self.session.id.clone(),
             impersonator_id: self.session.impersonator_id,
-            expires_at: expires_at(&self.session).timestamp(),
+            expires_at: expires_at(&self.session).epoch_seconds(),
         }
     }
 
@@ -119,8 +119,8 @@ impl LiveSupport {
 }
 
 /// When `session` stops serving.
-fn expires_at(session: &ImpersonationSession) -> DateTime<Utc> {
-    session.started_at + Duration::minutes(SESSION_MINUTES)
+fn expires_at(session: &ImpersonationSession) -> Timestamp {
+    session.started_at + Elapsed::minutes(SESSION_MINUTES)
 }
 
 /// The grant the user is served under: the admin's connection's, without
@@ -170,7 +170,7 @@ pub async fn live_support(
     else {
         return Ok(None);
     };
-    let now = Utc::now();
+    let now = Timestamp::now();
     if now >= expires_at(&session) {
         close(repos, &session, EXPIRED_ACTION, transport, credential).await?;
         return Ok(None);
@@ -229,7 +229,7 @@ pub struct StartedSupport {
     /// The user it acts as.
     pub target: User,
     /// When it stops serving.
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
 }
 
 /// Start a support session for `admin` bound to the credential `credential`
@@ -297,7 +297,7 @@ pub async fn start(
         // hour: such a token never starts a session it would be bound to.
         if !repos
             .impersonation
-            .grant_live(admin, grant_id, Utc::now())
+            .grant_live(admin, grant_id, Timestamp::now())
             .await?
         {
             return Err(AppError::new(

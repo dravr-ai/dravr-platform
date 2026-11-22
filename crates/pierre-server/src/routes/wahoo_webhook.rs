@@ -25,7 +25,7 @@
 use std::sync::{Arc, LazyLock};
 
 use axum::http::StatusCode;
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 use serde_json::Value;
@@ -114,7 +114,7 @@ impl WahooWebhookEvent {
     }
 
     /// The workout's start, when the event names a readable one.
-    fn workout_start(&self) -> Option<DateTime<Utc>> {
+    fn workout_start(&self) -> Option<Timestamp> {
         let starts = self
             .workout_summary
             .as_ref()?
@@ -122,9 +122,7 @@ impl WahooWebhookEvent {
             .as_ref()?
             .starts
             .as_deref()?;
-        DateTime::parse_from_rfc3339(starts)
-            .ok()
-            .map(|at| at.with_timezone(&Utc))
+        Timestamp::parse_from_rfc3339(starts).ok()
     }
 
     /// The workout id, for the log line.
@@ -133,13 +131,13 @@ impl WahooWebhookEvent {
     }
 
     /// Unix timestamp where the fetch window opens.
-    fn fetch_window_start(&self, now: DateTime<Utc>) -> i64 {
+    fn fetch_window_start(&self, now: Timestamp) -> i64 {
         self.workout_start()
             .map_or_else(
-                || now - Duration::days(WAHOO_WEBHOOK_FALLBACK_DAYS),
-                |start| start - Duration::hours(WAHOO_WEBHOOK_LOOKBACK_HOURS),
+                || now - Elapsed::days(WAHOO_WEBHOOK_FALLBACK_DAYS),
+                |start| start - Elapsed::hours(WAHOO_WEBHOOK_LOOKBACK_HOURS),
             )
-            .timestamp()
+            .epoch_seconds()
     }
 }
 
@@ -208,7 +206,7 @@ pub(crate) fn wahoo_event(resources: &Arc<ServerContext>, body: &[u8]) -> Status
         workout_id = ?event.workout_id(),
         "Received Wahoo workout summary"
     );
-    let after = event.fetch_window_start(Utc::now());
+    let after = event.fetch_window_start(Timestamp::now());
     let resources = Arc::clone(resources);
     resources.common.turns.clone().spawn(Box::pin(async move {
         sync_wahoo_owner(&resources, &owner_id, after).await;
@@ -307,18 +305,18 @@ mod tests {
     #[test]
     fn the_window_opens_a_day_before_the_workout_started() {
         let sample = event(SAMPLE);
-        let start = DateTime::parse_from_rfc3339("2015-08-12T09:00:00.000Z")
-            .map_or_default(|at| at.timestamp());
-        assert_eq!(sample.fetch_window_start(Utc::now()), start - 86_400);
+        let start = Timestamp::parse_from_rfc3339("2015-08-12T09:00:00.000Z")
+            .map_or_default(Timestamp::epoch_seconds);
+        assert_eq!(sample.fetch_window_start(Timestamp::now()), start - 86_400);
     }
 
     #[test]
     fn an_event_without_a_start_falls_back_to_a_week() {
         let bare = event(r#"{"event_type": "workout_summary", "user": {"id": 1}}"#);
-        let now = Utc::now();
+        let now = Timestamp::now();
         assert_eq!(
             bare.fetch_window_start(now),
-            (now - Duration::days(WAHOO_WEBHOOK_FALLBACK_DAYS)).timestamp()
+            (now - Elapsed::days(WAHOO_WEBHOOK_FALLBACK_DAYS)).epoch_seconds()
         );
         assert_eq!(bare.presented_token(), "", "no token presents nothing");
     }

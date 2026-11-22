@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 use std::iter;
 
-use chrono::{DateTime, TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::ai_policy::{AiUse, ProviderTerms, SourcePolicy};
 use pierre_core::constants::oauth_providers::garmin_recorded;
 use pierre_core::models::{Activity, ActivityBuilder, PlaceRef, SportType};
@@ -49,9 +49,9 @@ impl ProviderTerms for Terms {
     }
 }
 
-fn start() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 10, 4, 13, 0, 0)
-        .single()
+fn start() -> Timestamp {
+    Timestamp::parse_from_rfc3339("2026-10-04T13:00:00Z")
+        .ok()
         .unwrap_or_default()
 }
 

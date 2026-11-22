@@ -17,7 +17,7 @@
 //! a parameter here, so each lane keeps exactly the fixture it had. Shared
 //! across test binaries; a binary that includes the helpers may use none of it.
 
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
@@ -76,7 +76,7 @@ pub(crate) async fn create_athlete(
     user.tier = UserTier::Enterprise;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
 
@@ -88,8 +88,8 @@ pub(crate) async fn create_athlete(
         domain: None,
         plan: "professional".to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common
@@ -230,7 +230,7 @@ pub(crate) struct NewGroup<'a> {
 /// silent BY DESIGN and would read as a lost turn.
 pub(crate) async fn create_group(resources: &Arc<ServerContext>, group: &NewGroup<'_>) -> Uuid {
     let group_id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let tenant = group.tenant;
     resources
         .common
@@ -291,17 +291,14 @@ pub(crate) async fn create_group(resources: &Arc<ServerContext>, group: &NewGrou
 // -----------------------------------------------------------------------
 
 /// `hour:minute` UTC on the calendar day `days_ago` before `anchor`.
-pub(crate) fn day_at(
-    anchor: DateTime<Utc>,
-    days_ago: i64,
-    hour: u32,
-    minute: u32,
-) -> DateTime<Utc> {
-    (anchor - ChronoDuration::days(days_ago))
-        .date_naive()
-        .and_hms_opt(hour, minute, 0)
+pub(crate) fn day_at(anchor: Timestamp, days_ago: i64, hour: u32, minute: u32) -> Timestamp {
+    (anchor - Elapsed::days(days_ago))
+        .utc_date()
+        .and_hms(hour, minute, 0)
+        .ok()
         .unwrap_or_else(|| panic!("{hour:02}:{minute:02} is not a time of day"))
         .and_utc()
+        .unwrap()
 }
 
 /// One slot of a weekly schedule: which week and weekday offset, how many days
@@ -310,7 +307,7 @@ pub(crate) struct WeekSlot {
     pub week: i64,
     pub day: i64,
     pub days_ago: i64,
-    pub start: DateTime<Utc>,
+    pub start: Timestamp,
 }
 
 /// A schedule of `weeks` weeks back from `anchor`, one slot per `(day, hour,
@@ -322,7 +319,7 @@ pub(crate) struct WeekSlot {
 /// `days_ago` `skip` holds is left out (the incident corpus keeps Sunday to its
 /// twin ride; the injection eval keeps yesterday for the planted run).
 pub(crate) fn weekly_slots(
-    anchor: DateTime<Utc>,
+    anchor: Timestamp,
     weeks: i64,
     days: &[(i64, u32, u32)],
     shift_minutes_per_week: u32,

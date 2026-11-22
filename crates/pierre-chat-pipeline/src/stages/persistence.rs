@@ -49,7 +49,7 @@ use pierre_providers::ai_scope;
 
 use crate::turn::{TurnInput, UserMessageResult};
 use crate::turn_stop::question_blocks;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{NewGroupTranscriptEntry, TranscriptSpeaker};
 use pierre_core::models::{TenantId, TurnOrigin};
@@ -322,7 +322,7 @@ pub async fn resolve_platform_turn(
         finish_reason: None,
         content_blocks: None,
         transport_policy: TransportPolicy::AnyTransport,
-        created_at: Utc::now().to_rfc3339(),
+        created_at: Timestamp::now().to_rfc3339(),
         channel_type: None,
         about_user_id: None,
         turn_attempted_write: None,

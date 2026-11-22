@@ -20,7 +20,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::evidence_registry::parse_evidence_markdown;
@@ -98,7 +98,7 @@ impl Default for Seed<'_> {
 
 /// A tenant row and its owner, so the agents table's foreign keys hold.
 async fn seed_tenant_owner(repos: &RepositoryRegistry, tenant_id: TenantId) -> Uuid {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap();
     let mut user = User::new(
         format!("owner+{tenant_id}@example.com"),
@@ -197,7 +197,7 @@ fn dispose<'a>(
         reason,
         note,
         disposed_by: "support@example.com",
-        disposed_at: Utc.with_ymd_and_hms(2026, 9, 21, 12, 30, 0).unwrap(),
+        disposed_at: Timestamp::parse_from_rfc3339("2026-09-21T12:30:00Z").unwrap(),
     }
 }
 
@@ -274,7 +274,7 @@ async fn set_disposition_lands_all_five_fields_and_a_second_set_overwrites() -> 
     assert_eq!(first.disposed_by.as_deref(), Some("support@example.com"));
     assert_eq!(
         first.disposed_at,
-        Some(Utc.with_ymd_and_hms(2026, 9, 21, 12, 30, 0).unwrap())
+        Some(Timestamp::parse_from_rfc3339("2026-09-21T12:30:00Z").unwrap())
     );
     // The pipeline's own columns are untouched by the write.
     assert_eq!(first.status, ClaimStatus::Unsupported);
@@ -867,7 +867,7 @@ async fn put_disposition_writes_the_row_and_answers_with_the_knob() {
     assert_eq!(json["verdict"]["disposed_by"], "admin@example.com");
     assert!(json["verdict"]["disposed_at"]
         .as_str()
-        .is_some_and(|t| chrono::DateTime::parse_from_rfc3339(t).is_ok()));
+        .is_some_and(|t| Timestamp::parse_from_rfc3339(t).is_ok()));
     assert_eq!(json["knob"]["layer"], "deterministic");
     assert_eq!(json["knob"]["kind"], "deterministic_bounds");
     assert_eq!(
@@ -1410,7 +1410,7 @@ fn every_layer_has_a_knob_whose_location_is_a_path() {
             layer_fired: layer,
             explanation: None,
             evidence_refs: None,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             disposition: None,
             disposition_reason: None,
             disposition_note: None,
@@ -1448,7 +1448,7 @@ async fn bearer_for_role(resources: &Arc<ServerContext>, email: &str, role: User
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
 
@@ -1460,8 +1460,8 @@ async fn bearer_for_role(resources: &Arc<ServerContext>, email: &str, role: User
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common

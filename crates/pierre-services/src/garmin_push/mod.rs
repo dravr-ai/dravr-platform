@@ -79,7 +79,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{DataSource, DeviceType, TenantId};
@@ -127,7 +127,7 @@ pub async fn first_pushed_wellness_day(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: TenantId,
-) -> AppResult<Option<NaiveDate>> {
+) -> AppResult<Option<CivilDate>> {
     repos
         .data_sources
         .earliest_source_day(user_id, &tenant_id, GARMIN, API_SOURCE_MARKER)
@@ -398,7 +398,7 @@ pub(crate) struct OwnerBatch<'a> {
     pub purge: &'a dyn ProviderPurge,
     pub host: &'a dyn GarminPushHost,
     pub owner: GarminOwner,
-    pub received_at: DateTime<Utc>,
+    pub received_at: Timestamp,
 }
 
 impl OwnerBatch<'_> {
@@ -452,7 +452,7 @@ pub async fn ingest_batch(
     host: &dyn GarminPushHost,
     kind: SummaryType,
     records: Vec<Value>,
-    received_at: DateTime<Utc>,
+    received_at: Timestamp,
 ) -> AppResult<BatchOutcome> {
     let mut outcome = BatchOutcome::default();
     for (garmin_user, records) in group_by_user(records, &mut outcome) {

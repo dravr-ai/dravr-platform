@@ -26,8 +26,9 @@
 use crate::common;
 use pierre_providers::ai_scope;
 
-use chrono::Utc;
 use common::{create_test_server_resources, in_web_turn};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_commands::plan::PlanShowHandler;
@@ -85,7 +86,7 @@ async fn seed_user(resources: &ServerContext, label: &str, display_name: Option<
 /// which is the row `list_for_user` and the selected agent read.
 async fn create_tenant_owned_by(resources: &ServerContext, owner_id: Uuid) -> TenantId {
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let tenant = Tenant {
         id: tenant_id,
         name: "Scope Tenant".to_owned(),
@@ -148,7 +149,7 @@ async fn create_group(
     name: &str,
 ) -> Uuid {
     let id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = CoachingGroup {
         id,
         tenant_id: tenant_id.to_string(),
@@ -198,7 +199,7 @@ async fn add_member(
     role: GroupRole,
     consent: bool,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos
@@ -315,13 +316,9 @@ fn error_text(payload: &Value) -> &str {
 /// The week the agent saves: starts two days ago so today falls on the
 /// agent-written session and the athlete's compact `/plan` shows it.
 fn coach_week() -> Value {
-    let today = Utc::now().date_naive();
-    let start = today - chrono::Days::new(2);
-    let date = |offset: u64| {
-        (start + chrono::Days::new(offset))
-            .format("%Y-%m-%d")
-            .to_string()
-    };
+    let today = Timestamp::now().utc_date();
+    let start = today - Elapsed::days(2);
+    let date = |offset: i64| (start + Elapsed::days(offset)).to_string();
     json!({
         "week_start": date(0),
         "focus": "coach-written week",
@@ -1185,7 +1182,7 @@ async fn an_athlete_in_two_tenants_is_refused() {
 #[tokio::test]
 async fn a_disabled_tool_in_the_athletes_tenant_refuses_the_cross_tenant_write() {
     let fx = coached_athlete(Some("Phil Tremblay"), true).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     fx.resources
         .common
         .repos

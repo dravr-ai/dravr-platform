@@ -13,7 +13,7 @@
 //! hands the body its [`uuid_columns`](super::uuid_columns) codec. A
 //! [`TenantId`] binds and reads natively on both. Booleans bind and read as
 //! `bool` (`BOOLEAN` on Postgres, `INTEGER` 0/1 on `SQLite`); timestamps
-//! bind as [`DateTime<Utc>`](chrono::DateTime) and are stamped by
+//! bind as [`Timestamp`] and are stamped by
 //! `CURRENT_TIMESTAMP` where the row's own moment is not the caller's, which
 //! sqlx decodes on both drivers.
 //!
@@ -22,7 +22,7 @@
 //! one driver and a placeholder list on the other.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 
 use pierre_core::models::TenantId;
@@ -186,7 +186,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column = |col: &str, e: sqlx::Error| {
         AppError::database(format!("Failed to get tool_catalog.{col}: {e}"))
@@ -241,7 +241,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let column = |col: &str, e: sqlx::Error| {
         AppError::database(format!("Failed to get tenant_tool_overrides.{col}: {e}"))
@@ -381,7 +381,7 @@ macro_rules! impl_tool_selection_repository {
                     .bind(is_enabled)
                     .bind($ids::bind_opt(enabled_by_user_id))
                     .bind(&reason)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

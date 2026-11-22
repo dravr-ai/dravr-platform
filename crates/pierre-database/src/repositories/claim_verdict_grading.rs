@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_memory::claims::{GradingCandidate, GradingPool, GradingWithheld};
@@ -100,8 +100,8 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     f32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     Ok(GradingCandidate {
@@ -164,7 +164,7 @@ pub(crate) struct GradingWindow {
     /// Days scanned, clamped to `1..=365`.
     pub days: i64,
     /// Window lower bound (inclusive).
-    pub start: DateTime<Utc>,
+    pub start: Timestamp,
 }
 
 impl GradingWindow {
@@ -174,7 +174,7 @@ impl GradingWindow {
         Self {
             tenant: tenant.to_string(),
             days,
-            start: Utc::now() - Duration::days(days),
+            start: Timestamp::now() - Elapsed::days(days),
         }
     }
 
@@ -188,8 +188,8 @@ impl GradingWindow {
         Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
         f32: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
         i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-        DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-        Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+        Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+        Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
         bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     {
         let counts = counts

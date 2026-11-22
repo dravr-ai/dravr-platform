@@ -22,7 +22,7 @@ use crate::helpers::live_seed::{
     AthleteProfile, NewGroup, SavedRecipe,
 };
 use crate::helpers::sciotte_mock::seed_sciotte_session;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::stages::viz_blocks::DEFAULT_VISUALS;
 use pierre_core::models::groups::GroupRole;
 use pierre_core::models::recipes::MealTiming;
@@ -159,18 +159,18 @@ pub(crate) const SAVED_RECIPES: &[SavedRecipe] = &[
 ///
 /// One per process, so the activity cache, the scraper stand-in and the
 /// judge's ledger give every activity the same start, to the second. Each
-/// read `Utc::now()` on its own, so the ledger could only give dates: the
+/// read `Timestamp::now()` on its own, so the ledger could only give dates: the
 /// agent quoted a run's real 09:52 start and the judge, shown no times,
 /// graded it invented. Per process rather than per pass because the lane
 /// builds the scraper's payload once, before its first pass, and every
 /// later pass's cache seed has to match it.
-fn fixture_clock() -> DateTime<Utc> {
-    static ANCHOR: OnceLock<DateTime<Utc>> = OnceLock::new();
-    *ANCHOR.get_or_init(Utc::now)
+fn fixture_clock() -> Timestamp {
+    static ANCHOR: OnceLock<Timestamp> = OnceLock::new();
+    *ANCHOR.get_or_init(Timestamp::now)
 }
 
 /// When the Sunday ride twin started, on both providers that recorded it.
-pub(crate) fn sunday_ride_start() -> DateTime<Utc> {
+pub(crate) fn sunday_ride_start() -> Timestamp {
     day_at(fixture_clock(), days_since_sunday(), 7, 30)
 }
 
@@ -189,7 +189,7 @@ const WEEKLY_START_SHIFT_MINUTES: u32 = 11;
 pub(crate) struct SeededRun {
     pub id: String,
     pub days_ago: i64,
-    pub start: DateTime<Utc>,
+    pub start: Timestamp,
     pub seconds: u64,
     pub metres: f64,
 }
@@ -959,7 +959,7 @@ impl Fixture {
                 "text": text,
                 "channel": channel,
                 "channel_type": channel_type,
-                "ts": format!("{}.000001", Utc::now().timestamp()),
+                "ts": format!("{}.000001", Timestamp::now().epoch_seconds()),
             }
         })
     }
@@ -1150,7 +1150,7 @@ pub(crate) async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
 /// no prompt registry, so the base prompt falls back to `system_prompt`.
 async fn seed_agent(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) -> Uuid {
     let id = Uuid::new_v4();
-    let now = Utc::now();
+    let now = Timestamp::now();
     resources
         .common
         .repos
@@ -1285,8 +1285,7 @@ fn seeded_run_activity(run: &SeededRun) -> Activity {
 /// Days back to the most recent Sunday, so "dimanche" always names a day
 /// the fixture actually holds regardless of when the lane runs.
 pub(crate) fn days_since_sunday() -> i64 {
-    use chrono::Datelike;
-    let weekday = fixture_clock().weekday().num_days_from_sunday();
+    let weekday = fixture_clock().utc_date().weekday().num_days_from_sunday();
     if weekday == 0 {
         7
     } else {
@@ -1317,7 +1316,7 @@ pub(crate) fn ground_truth() -> String {
          {SUNDAY_RIDE_KM} km ride «Sortie longue» over {SUNDAY_RIDE_HOURS} hours; \
          WHOOP recorded the same start and duration as «Activity» with NO distance and \
          misidentified the sport as a run. They are the same session, not two.\n",
-        today = fixture_clock().format("%A %Y-%m-%d"),
+        today = fixture_clock().format("%A %Y-%m-%d").unwrap(),
     );
     for run in athlete_runs() {
         truth.push_str(&ledger_line("Athlete JF", &run));
@@ -1428,8 +1427,8 @@ fn ledger_line(who: &str, run: &SeededRun) -> String {
 
 /// A start `days_ago` as the judge reads a date and time: «yesterday,
 /// Tuesday 2026-10-13, started 19:10 UTC».
-fn start_label(days_ago: i64, start: DateTime<Utc>) -> String {
-    let date = start.format("%A %Y-%m-%d, started %H:%M UTC");
+fn start_label(days_ago: i64, start: Timestamp) -> String {
+    let date = start.format("%A %Y-%m-%d, started %H:%M UTC").unwrap();
     match days_ago {
         1 => format!("yesterday, {date}"),
         n => format!("{n} days ago, {date}"),

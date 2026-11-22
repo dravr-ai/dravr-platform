@@ -20,7 +20,7 @@ use pierre_mcp_server::tools::registry_builtin::get_tools;
 /// The way that happens is a `#[serde(default = "…")]` whose path is not
 /// constant: schemars calls it while generating and serializes the result
 /// into `default` (`schemars_derive-1.2.1/src/schema_exprs.rs:785`).
-/// `Utc::now` is the one that bites — it writes the generation timestamp
+/// `Timestamp::now` is the one that bites — it writes the generation timestamp
 /// into the schema, so no two derivations agree, and the advertised default
 /// ("this field defaults to 2026-09-07T18:04:56Z") is meaningless to the
 /// client on top of that.

@@ -56,7 +56,7 @@ impl<T: JwtVerifier> JwtVerifier for Arc<T> {
 // --- Admin JWT utilities (behind `admin-jwt` feature) ---
 
 #[cfg(feature = "admin-jwt")]
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 #[cfg(feature = "admin-jwt")]
 use rand::{distr::Alphanumeric, Rng};
 #[cfg(feature = "admin-jwt")]
@@ -88,7 +88,7 @@ pub struct TokenScope<'a> {
     /// Whether the token carries super-admin privileges.
     pub is_super_admin: bool,
     /// When the token expires (`None` = never).
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Tenant the token is scoped to (`None` = global / super-admin).
     pub tenant_id: Option<&'a str>,
 }
@@ -142,17 +142,17 @@ impl AdminJwtManager {
         let is_super_admin = scope.is_super_admin;
         let expires_at = scope.expires_at;
         let tenant_id = scope.tenant_id;
-        let now = Utc::now();
-        let exp = expires_at.unwrap_or_else(|| now + Duration::days(365));
+        let now = Timestamp::now();
+        let exp = expires_at.unwrap_or_else(|| now + Elapsed::days(365));
 
         let claims = AdminTokenClaims {
             // Standard JWT claims
             iss: service_names::PIERRE_MCP_SERVER.into(),
             sub: token_id.to_owned(),
             aud: service_names::ADMIN_API.into(),
-            exp: u64::try_from(exp.timestamp().max(0)).unwrap_or(0),
-            iat: u64::try_from(now.timestamp().max(0)).unwrap_or(0),
-            nbf: u64::try_from(now.timestamp().max(0)).unwrap_or(0),
+            exp: u64::try_from(exp.epoch_seconds().max(0)).unwrap_or(0),
+            iat: u64::try_from(now.epoch_seconds().max(0)).unwrap_or(0),
+            nbf: u64::try_from(now.epoch_seconds().max(0)).unwrap_or(0),
             jti: token_id.to_owned(),
 
             // Custom claims
@@ -195,7 +195,7 @@ impl AdminJwtManager {
             )));
         }
 
-        let now = u64::try_from(Utc::now().timestamp().max(0)).unwrap_or(0);
+        let now = u64::try_from(Timestamp::now().epoch_seconds().max(0)).unwrap_or(0);
         if claims.exp < now {
             return Err(AppError::auth_expired());
         }

@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{
@@ -51,8 +51,8 @@ async fn seed_user(repos: &RepositoryRegistry, label: &str) -> (Uuid, TenantId) 
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -87,7 +87,7 @@ async fn seed_group_with_invite(
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group_id = repos
         .groups
         .create_group(
@@ -138,7 +138,7 @@ async fn seed_group_with_invite(
 }
 
 async fn join_group(repos: &RepositoryRegistry, group_id: Uuid, user_id: Uuid, tenant: TenantId) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .add_member(&GroupMember {

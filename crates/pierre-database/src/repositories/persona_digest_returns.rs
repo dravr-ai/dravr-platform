@@ -23,7 +23,7 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -43,7 +43,7 @@ pub trait PersonaDigestReturnRepository: Send + Sync {
         tenant_id: TenantId,
         batch_id: Uuid,
         notification_ids: &[Uuid],
-        claimed_at: DateTime<Utc>,
+        claimed_at: Timestamp,
     ) -> AppResult<Vec<Uuid>>;
 
     /// Release every claim of the digest `batch_id`, which did not go out, so
@@ -65,7 +65,7 @@ pub trait PersonaDigestReturnRepository: Send + Sync {
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
-        since: DateTime<Utc>,
+        since: Timestamp,
     ) -> AppResult<HashSet<Uuid>>;
 
     /// When the newest digest of `user_id` in `tenant_id` returned its rows,
@@ -74,7 +74,7 @@ pub trait PersonaDigestReturnRepository: Send + Sync {
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
-    ) -> AppResult<Option<DateTime<Utc>>>;
+    ) -> AppResult<Option<Timestamp>>;
 }
 
 /// `notification_id` is the key: a row an earlier digest claimed is left
@@ -105,10 +105,10 @@ pub(crate) const LAST_PERSONA_DIGEST_AT_SQL: &str = r"
 /// A stored `returned_at_ms` as the instant it records.
 ///
 /// # Errors
-/// Returns a database error for a value outside chrono's representable range,
+/// Returns a database error for a value outside the range the date types hold,
 /// which only a hand-edited row can hold.
-pub(crate) fn returned_at_from_ms(ms: i64) -> AppResult<DateTime<Utc>> {
-    DateTime::from_timestamp_millis(ms).ok_or_else(|| {
+pub(crate) fn returned_at_from_ms(ms: i64) -> AppResult<Timestamp> {
+    Timestamp::from_epoch_millis(ms).ok().ok_or_else(|| {
         AppError::database(format!(
             "persona_digest_returns.returned_at_ms {ms} is not a representable instant"
         ))
@@ -130,7 +130,7 @@ macro_rules! impl_persona_digest_return_repository {
                 tenant_id: TenantId,
                 batch_id: Uuid,
                 notification_ids: &[Uuid],
-                claimed_at: DateTime<Utc>,
+                claimed_at: Timestamp,
             ) -> AppResult<Vec<Uuid>> {
                 let mut tx =
                     self.pool().begin().await.map_err(|e| {
@@ -143,7 +143,7 @@ macro_rules! impl_persona_digest_return_repository {
                         .bind($ids::bind(user_id))
                         .bind($ids::bind(tenant_id.as_uuid()))
                         .bind($ids::bind(batch_id))
-                        .bind(claimed_at.timestamp_millis())
+                        .bind(claimed_at.epoch_millis())
                         .execute(&mut *tx)
                         .await
                         .map_err(|e| {
@@ -181,12 +181,12 @@ macro_rules! impl_persona_digest_return_repository {
                 &self,
                 user_id: Uuid,
                 tenant_id: TenantId,
-                since: DateTime<Utc>,
+                since: Timestamp,
             ) -> AppResult<HashSet<Uuid>> {
                 let rows = sqlx::query(PERSONA_DIGEST_ITEMS_RETURNED_SINCE_SQL)
                     .bind($ids::bind(user_id))
                     .bind($ids::bind(tenant_id.as_uuid()))
-                    .bind(since.timestamp_millis())
+                    .bind(since.epoch_millis())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -201,7 +201,7 @@ macro_rules! impl_persona_digest_return_repository {
                 &self,
                 user_id: Uuid,
                 tenant_id: TenantId,
-            ) -> AppResult<Option<DateTime<Utc>>> {
+            ) -> AppResult<Option<Timestamp>> {
                 let (newest,): (Option<i64>,) = sqlx::query_as(LAST_PERSONA_DIGEST_AT_SQL)
                     .bind($ids::bind(user_id))
                     .bind($ids::bind(tenant_id.as_uuid()))

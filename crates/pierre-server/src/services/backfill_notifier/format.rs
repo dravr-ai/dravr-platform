@@ -6,7 +6,7 @@
 
 use std::fmt::Write as _;
 
-use chrono_tz::Tz;
+use dravr_tronc::dates::Zone;
 use pierre_core::ai_policy::first_party_only;
 use pierre_core::civil_time::format_local_day;
 use pierre_core::models::Activity;
@@ -32,7 +32,7 @@ pub(super) fn warmed_window_policy(provider: &str, warmed: &[Activity]) -> Trans
 /// Distance is shown in kilometres (one decimal) only when present. Pure
 /// formatting over the cheaply-available `Activity` accessors — no allocation
 /// beyond the returned line.
-pub(super) fn format_activity_line(activity: &Activity, locale: &str, zone: Tz) -> String {
+pub(super) fn format_activity_line(activity: &Activity, locale: &str, zone: &Zone) -> String {
     // The day on the athlete's calendar and the sport in their language, from
     // the same helpers the activity list the agent reads uses: the notice is
     // stored in the conversation the model reads back, so a UTC date or an

@@ -18,7 +18,7 @@ mod coach_home_seed_tests {
     use std::collections::BTreeSet;
     use std::sync::Arc;
 
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_core::models::{Activity, TenantId};
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_seeders::coach_home::{run, SeedArgs};
@@ -170,7 +170,7 @@ mod coach_home_seed_tests {
             .map(|a| a["user_id"].as_str().unwrap())
             .collect();
         assert_eq!(fatigued.len(), 3, "{fatigued:?}");
-        let now = Utc::now();
+        let now = Timestamp::now();
         for user_id in fatigued {
             let user_id = Uuid::parse_str(user_id).unwrap();
             let tenant = repos
@@ -186,7 +186,7 @@ mod coach_home_seed_tests {
                     user_id,
                     &tenant_id,
                     Some("strava"),
-                    now - Duration::days(90),
+                    now - Elapsed::days(90),
                     now,
                     500,
                 )

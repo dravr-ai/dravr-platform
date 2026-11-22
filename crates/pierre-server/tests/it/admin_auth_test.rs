@@ -10,6 +10,7 @@
 use crate::common;
 use secrecy::ExposeSecret;
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
 use pierre_routes_admin::auth::service::AdminAuthService;
 
@@ -115,7 +116,7 @@ async fn each_authenticated_use_counts_on_the_token_row() {
 
     // A second of slack: Postgres keeps microseconds, so the stored instant
     // can round below a nanosecond `now`.
-    let before = chrono::Utc::now() - chrono::Duration::seconds(1);
+    let before = Timestamp::now() - Elapsed::seconds(1);
     auth_service
         .authenticate(&token, Some("127.0.0.1"))
         .await

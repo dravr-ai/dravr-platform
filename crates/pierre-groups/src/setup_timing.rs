@@ -17,14 +17,14 @@
 //! joins does not fire it again, and two athletes joining at once fire it
 //! exactly once between them.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::groups::{GroupMember, GroupSetupTimeline};
 use pierre_database::repositories::CoachingGroupRepository;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 /// Whole seconds from `start` to `now`, never negative.
-fn seconds_between(start: DateTime<Utc>, now: DateTime<Utc>) -> i64 {
+fn seconds_between(start: Timestamp, now: Timestamp) -> i64 {
     now.signed_duration_since(start).num_seconds().max(0)
 }
 
@@ -56,7 +56,7 @@ pub(crate) async fn record_member_joined(
     if !is_first_athlete(&timeline, member) {
         return;
     }
-    let now = Utc::now();
+    let now = Timestamp::now();
     info!(
         target: "notify",
         event = "group.first_athlete_joined",
@@ -72,11 +72,11 @@ pub(crate) async fn record_member_joined(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Duration;
+    use dravr_tronc::dates::Elapsed;
     use pierre_core::models::groups::{CoachConsents, GroupRole};
 
     fn member(id: Uuid) -> GroupMember {
-        let now = Utc::now();
+        let now = Timestamp::now();
         GroupMember {
             id,
             group_id: Uuid::new_v4(),
@@ -95,7 +95,7 @@ mod tests {
     }
 
     fn timeline(first: Option<Uuid>) -> GroupSetupTimeline {
-        let now = Utc::now();
+        let now = Timestamp::now();
         GroupSetupTimeline {
             group_created_at: now,
             owner_created_at: now,
@@ -113,8 +113,8 @@ mod tests {
 
     #[test]
     fn elapsed_seconds_are_whole_and_never_negative() {
-        let now = Utc::now();
-        assert_eq!(seconds_between(now - Duration::minutes(42), now), 2520);
-        assert_eq!(seconds_between(now + Duration::seconds(5), now), 0);
+        let now = Timestamp::now();
+        assert_eq!(seconds_between(now - Elapsed::minutes(42), now), 2520);
+        assert_eq!(seconds_between(now + Elapsed::seconds(5), now), 0);
     }
 }

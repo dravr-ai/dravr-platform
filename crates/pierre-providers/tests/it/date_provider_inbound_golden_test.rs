@@ -38,20 +38,21 @@ use tokio::net::TcpListener;
 
 /// Everything in this file that names the date engine.
 mod engine {
-    use chrono::{DateTime, FixedOffset, Utc};
+    use dravr_tronc::date_pattern;
+    use dravr_tronc::dates::{Pattern, Timestamp};
+    use pierre_providers::terra::models::TerraTime;
+
+    /// An instant in UTC, to the nanosecond.
+    const UTC_NANOS: Pattern<Timestamp> = date_pattern!(Timestamp, "%Y-%m-%dT%H:%M:%S%.9fZ");
 
     /// The instant at nanosecond precision in UTC.
-    pub(super) fn show(value: DateTime<Utc>) -> String {
-        value.format("%Y-%m-%dT%H:%M:%S%.9fZ").to_string()
+    pub(super) fn show(value: Timestamp) -> String {
+        value.format_with(&UTC_NANOS)
     }
 
     /// The instant in UTC and the offset kept, as seconds east.
-    pub(super) fn show_kept(value: DateTime<FixedOffset>) -> String {
-        format!(
-            "{} @ {}",
-            show(value.with_timezone(&Utc)),
-            value.offset().local_minus_utc()
-        )
+    pub(super) fn show_kept(value: TerraTime) -> String {
+        format!("{} @ {}", show(value.at), value.offset.seconds())
     }
 }
 
@@ -257,7 +258,7 @@ async fn an_intervals_icu_start_is_read_from_the_instant_or_the_wall_clock() {
             None,
             "2026-08-30T10:00:60",
             TORONTO,
-            "2026-08-30T14:00:60.000000000Z",
+            "2026-08-30T14:00:59.000000000Z",
         ),
         (
             None,

@@ -7,17 +7,18 @@
 use super::{
     claim_scrape_session_retry, debug, into_runtime, record_sync_failure, refresh_head,
     retries_flagged_session, revalidation_timeout, sync_backoff_until, timeout, user_facing_name,
-    warn, ActivityFetchFailure, AppResult, Arc, ConnectionStatus, DataFreshness, DateTime,
+    warn, ActivityFetchFailure, AppResult, Arc, ConnectionStatus, DataFreshness,
     ProviderConnection, RevalidationRegistry, ServerContext, SyncFailure, TenantId, ToolRuntime,
-    Utc, Uuid,
+    Uuid,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_providers::backend_resolver::{brand_name, grant_beside_session};
 use pierre_providers::request_budget::in_background;
 use pierre_tool_runtime::reauth_retry::claimed_retry;
 
 /// Whether a last successful fetch is past the bands the chat path refreshes
 /// at: the same test `refresh_stale_head` applies per provider.
-fn is_stale(as_of: Option<DateTime<Utc>>) -> bool {
+fn is_stale(as_of: Option<Timestamp>) -> bool {
     !matches!(
         DataFreshness::from_last_sync(as_of),
         DataFreshness::Fresh | DataFreshness::Recent
@@ -64,7 +65,7 @@ pub(super) async fn stale_refresh_plan(
     retry: bool,
 ) -> AppResult<StaleRefreshPlan> {
     let cache = &resources.repos().activity_cache;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let mut plan = StaleRefreshPlan::default();
     for connection in connections {
         let bucket = match connection.status {
@@ -171,7 +172,7 @@ pub(super) async fn start_stale_refresh(
     // The page is served from the store; this refresh is work nobody waits
     // on, so its session reads count as background (carnet#1661).
     resources.common.turns.spawn(in_background(async move {
-        let started_at = Utc::now();
+        let started_at = Timestamp::now();
         let bound = revalidation_timeout(&runtime.config().timeouts);
         let mut checked = Vec::with_capacity(providers.len());
         let reads = HeadReads {
@@ -243,7 +244,7 @@ async fn refresh_providers(
 struct TimedOut<'a> {
     providers: &'a [String],
     checked: &'a [String],
-    started_at: DateTime<Utc>,
+    started_at: Timestamp,
 }
 
 /// Record a failed sync for every provider the refresh did not finish before

@@ -12,7 +12,7 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::stages::auth_recovery::AuthRecoveryDeps;
 use pierre_chat_pipeline::stages::capability_recovery::CapabilityRecoveryDeps;
 use pierre_chat_pipeline::stages::prefetch::ActivityRefreshInputs;
@@ -437,7 +437,7 @@ async fn activity_refresh_inputs_print_the_size_of_the_history_never_its_text() 
         model: None,
         finish_reason: None,
         content_blocks: Some(r#"[{"title":"sentinel-blocks-7f3a"}]"#.to_owned()),
-        created_at: Utc::now().to_rfc3339(),
+        created_at: Timestamp::now().to_rfc3339(),
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: Some("web".to_owned()),
         about_user_id: None,

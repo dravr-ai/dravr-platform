@@ -36,7 +36,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::http_client::{api_client, SharedHttpError};
@@ -67,6 +67,7 @@ use crate::mcp::resources::ServerContext;
 use crate::routes::webhooks::{notify_owner, report_sync, stamp_last_sync};
 use crate::services::activity_upload::MAX_UPLOAD_BYTES;
 use crate::services::grant_withdrawal::GrantWithdrawal;
+use dravr_tronc::dates::Elapsed;
 
 /// How long one run holds a row before the sweep may take it.
 const GARMIN_PUSH_LEASE: Duration = Duration::from_mins(10);
@@ -142,7 +143,7 @@ async fn settle(
     lease: &JobLease,
     result: AppResult<BatchOutcome>,
 ) -> AppResult<bool> {
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     match result {
         Ok(outcome) if outcome.retry.is_none() => {
             info!(
@@ -214,8 +215,9 @@ async fn hand_back(
 async fn run(resources: &Arc<ServerContext>, row: &GarminPushInboxRow) -> AppResult<BatchOutcome> {
     let (kind, records) = parse_envelope(row.payload.as_bytes())
         .map_err(|e| AppError::internal(format!("stored Garmin push no longer parses: {e:?}")))?;
-    let received_at =
-        DateTime::<Utc>::from_timestamp_millis(row.received_at_ms).unwrap_or_else(Utc::now);
+    let received_at = Timestamp::from_epoch_millis(row.received_at_ms)
+        .ok()
+        .unwrap_or_else(Timestamp::now);
     let host = ServerHost {
         resources: Arc::clone(resources),
     };
@@ -240,7 +242,7 @@ async fn run(resources: &Arc<ServerContext>, row: &GarminPushInboxRow) -> AppRes
 /// their failure and the sweep goes on.
 pub async fn process_garmin_inbox(resources: &Arc<ServerContext>) -> AppResult<usize> {
     let inbox = Arc::clone(&resources.common.repos.garmin_push_inbox);
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     give_up_exhausted(inbox.as_ref(), now_ms).await;
     let rows = inbox
         .claim_due_pushes(InboxClaim {
@@ -263,7 +265,11 @@ pub async fn process_garmin_inbox(resources: &Arc<ServerContext>) -> AppResult<u
         process_push(resources, row, lease).await;
     }
     delete_processed(inbox.as_ref(), now_ms).await;
-    drop_stale_files(resources.common.repos.pushed_data.as_ref(), Utc::now()).await;
+    drop_stale_files(
+        resources.common.repos.pushed_data.as_ref(),
+        Timestamp::now(),
+    )
+    .await;
     Ok(ran)
 }
 
@@ -289,8 +295,8 @@ async fn delete_processed(inbox: &dyn GarminPushInboxRepository, now_ms: i64) {
 
 /// Delete the activity files kept longer than [`KEPT_FILE_RETENTION`]: their
 /// batch has run its last attempt by then, so nothing will decode them.
-async fn drop_stale_files(pushed: &dyn PushedDataRepository, now: DateTime<Utc>) {
-    let Ok(retention) = chrono::Duration::from_std(KEPT_FILE_RETENTION) else {
+async fn drop_stale_files(pushed: &dyn PushedDataRepository, now: Timestamp) {
+    let Ok(retention) = Elapsed::from_std(KEPT_FILE_RETENTION) else {
         return;
     };
     match pushed.drop_files_fetched_before(now - retention).await {
@@ -345,7 +351,7 @@ pub(super) async fn flag_garmin(
     runtime: &Arc<dyn ToolRuntime>,
     owner: GarminOwner,
     reason: &str,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) {
     if let Err(e) = flag_needs_reauth(
         runtime,
@@ -379,7 +385,7 @@ impl ServerHost {
     /// flagged, and only that flag: a refused grant stays flagged. A grant
     /// whose permissions cannot be read is left as it is.
     async fn flag_if_activities_withdrawn(&self, owner: GarminOwner) {
-        let attempt_started_at = Utc::now();
+        let attempt_started_at = Timestamp::now();
         let grants = match self
             .resources
             .common
@@ -533,7 +539,7 @@ impl GarminPushHost for ServerHost {
         let resources: Arc<ServerContext> = Arc::clone(&self.resources);
         let runtime: Arc<dyn ToolRuntime> = resources;
         let tenant = owner.tenant_id.to_string();
-        let attempt_started_at = Utc::now();
+        let attempt_started_at = Timestamp::now();
         // A token path that hands back no token is a grant nothing can renew:
         // flagged, and the error still returned so the batch retries. A
         // failure that is not that verdict (a store hiccup, a refresh that

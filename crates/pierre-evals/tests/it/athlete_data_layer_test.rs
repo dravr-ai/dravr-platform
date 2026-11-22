@@ -24,7 +24,7 @@
 //! - Treating a cache miss as a contradiction calls the agent a liar over our
 //!   own sync lag.
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::models::SportType;
 use pierre_evals::athlete_data::{check, AthleteRecord, RecordedActivity};
 use pierre_evals::claim_extractor::{ClaimSource, ExtractedClaim};
@@ -87,7 +87,7 @@ fn a_vague_statement_with_no_provider_is_unverifiable_not_contradicted() {
 /// else, so a figures-only fixture keeps them out of the way.
 fn session(distance_km: Option<f64>, duration_min: f64) -> RecordedActivity {
     RecordedActivity {
-        date: NaiveDate::from_ymd_opt(2026, 9, 1).expect("valid date"),
+        date: CivilDate::from_ymd(2026, 9, 1).expect("valid date"),
         sport: SportType::Run,
         name: String::new(),
         distance_km,
@@ -100,8 +100,8 @@ fn session(distance_km: Option<f64>, duration_min: f64) -> RecordedActivity {
 /// The athlete's current day for these fixtures. Every session here is dated
 /// 2026-09-01, so no relative-day word in a claim can attach to one by accident;
 /// the relative-day check has its own file.
-fn fixture_today() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 9, 7).expect("valid date")
+fn fixture_today() -> CivilDate {
+    CivilDate::from_ymd(2026, 9, 7).expect("valid date")
 }
 
 /// A figure that matches a held activity is supported.

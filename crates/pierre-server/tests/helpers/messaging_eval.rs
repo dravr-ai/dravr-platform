@@ -146,12 +146,13 @@
 //! - Correlation-ID threading plan:
 //!   <https://gist.github.com/jfarcand/8b4c9fbdf888f786296a2ba518e07042>
 
-#![allow(dead_code)] // helpers exist for tests that will land in a follow-up commit
+// The helpers tree is compiled into every test binary; each one calls only some of these.
+#![allow(dead_code)]
 
 use std::mem;
 
-use chrono::Utc;
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::Activity;
 
 /// Default athlete physiology used when deriving training-load metrics
@@ -233,7 +234,7 @@ impl CitationFixture {
             .filter_map(Activity::distance_meters)
             .sum();
 
-        let training_load = TrainingLoadCalculator::new(Utc::now().date_naive())
+        let training_load = TrainingLoadCalculator::new(Timestamp::now().utc_date())
             .calculate_training_load(
                 activities,
                 Some(ftp_watts),

@@ -12,7 +12,6 @@ use std::future::Future;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use async_trait::async_trait;
-use chrono::Utc;
 use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::models::connection::{ConnectedUser, ProviderCredentials};
 use dravr_enforme::models::cursor::SyncCursor;
@@ -30,6 +29,7 @@ use dravr_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use dravr_enforme::{RequestGate, RequestGateHandle};
 use dravr_equilibre_sync::SyncStatus;
 use dravr_riviere::DataPoint;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers::TOKEN_TYPE_SESSION;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{DelegatedConnection, DelegationStatus, TenantId, UserOAuthToken};
@@ -584,7 +584,7 @@ impl SleepStore for PierreSyncStorage {
         &self,
         sessions: &[dravr_equilibre_sync::StoredSleepSession],
     ) -> EnformeResult<u64> {
-        let synced_at = Utc::now();
+        let synced_at = Timestamp::now();
         let mut writes = WellnessStore::new(&self.registry).writes("sleep");
         let mut count = 0u64;
         for session in sessions {
@@ -635,7 +635,7 @@ impl RecoveryStore for PierreSyncStorage {
         &self,
         metrics: &[dravr_equilibre_sync::StoredRecoveryMetrics],
     ) -> EnformeResult<u64> {
-        let synced_at = Utc::now();
+        let synced_at = Timestamp::now();
         let mut writes = WellnessStore::new(&self.registry).writes("recovery");
         let mut count = 0u64;
         for metric in metrics {
@@ -685,7 +685,7 @@ impl HealthStore for PierreSyncStorage {
         &self,
         snapshots: &[dravr_equilibre_sync::StoredHealthMetrics],
     ) -> EnformeResult<u64> {
-        let synced_at = Utc::now();
+        let synced_at = Timestamp::now();
         let mut writes = WellnessStore::new(&self.registry).writes("health");
         let mut count = 0u64;
         for snapshot in snapshots {
@@ -734,7 +734,7 @@ impl DailyActivityStore for PierreSyncStorage {
         &self,
         days: &[dravr_equilibre_sync::StoredDailyActivity],
     ) -> EnformeResult<u64> {
-        let synced_at = Utc::now();
+        let synced_at = Timestamp::now();
         let mut writes = WellnessStore::new(&self.registry).writes("daily activity");
         let mut count = 0u64;
         for day in days {
@@ -1013,7 +1013,7 @@ impl UserConnectionStore for PierreSyncStorage {
             .map(|r| ConnectedUser {
                 user_id: r.user_id.to_string(),
                 provider: provider.to_owned(),
-                connected_at: Utc::now(),
+                connected_at: Timestamp::now(),
                 is_active: true,
             })
             .collect();
@@ -1110,7 +1110,7 @@ fn sync_cursor_row_to_enforme(row: &SyncCursorRow) -> SyncCursor {
         _ => SyncStatus::Pending,
     };
 
-    let last_sync_at = row.last_sync_at.unwrap_or_else(Utc::now);
+    let last_sync_at = row.last_sync_at.unwrap_or_else(Timestamp::now);
     let next_retry_at = row.next_retry_at;
 
     SyncCursor {

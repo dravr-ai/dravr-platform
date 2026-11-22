@@ -25,8 +25,7 @@
 //! caller passing the wrong string got a plausible date instead of a type
 //! error. Every caller already holds the `Uuid`.
 
-use chrono::{NaiveDate, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
@@ -39,8 +38,8 @@ use uuid::Uuid;
 /// day is better than no plan. That is the same fallback
 /// [`resolve_zone`] applies, so this agrees with the date anchor and the
 /// activity list rather than drifting from them.
-pub async fn athlete_today(repos: &RepositoryRegistry, user_id: Uuid) -> NaiveDate {
-    clock_date(Utc::now(), athlete_zone(repos, user_id).await)
+pub async fn athlete_today(repos: &RepositoryRegistry, user_id: Uuid) -> CivilDate {
+    clock_date(Timestamp::now(), &athlete_zone(repos, user_id).await)
 }
 
 /// The IANA zone the athlete lives in, read from their user row.
@@ -49,7 +48,7 @@ pub async fn athlete_today(repos: &RepositoryRegistry, user_id: Uuid) -> NaiveDa
 /// absent timezone and an unparseable one all resolve to UTC through
 /// [`resolve_zone`], for a surface that dates what it shows on the athlete's
 /// calendar rather than the server's.
-pub async fn athlete_zone(repos: &RepositoryRegistry, user_id: Uuid) -> Tz {
+pub async fn athlete_zone(repos: &RepositoryRegistry, user_id: Uuid) -> Zone {
     let timezone = repos
         .users
         .get_global(user_id)

@@ -23,8 +23,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::Response;
 use axum::{Extension, Json};
-use chrono::{Duration, Utc};
 use common::{create_test_server_resources, create_test_user_with_email};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
@@ -143,7 +143,7 @@ fn session_json(session_id: &str) -> String {
             "secure": true,
             "http_only": true,
         }],
-        "created_at": serde_json::to_value(Utc::now()).unwrap(),
+        "created_at": serde_json::to_value(Timestamp::now()).unwrap(),
     })
     .to_string()
 }
@@ -167,12 +167,12 @@ async fn store_token(
             access_token: SecretString::from(material.to_owned()),
             refresh_token: None,
             token_type: token_type.to_owned(),
-            expires_at: Some(Utc::now() + Duration::days(30)),
+            expires_at: Some(Timestamp::now() + Elapsed::days(30)),
             scope: None,
             provider_user_id: None,
             oauth_app_client_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -286,8 +286,8 @@ async fn a_super_admin_clones_a_garmin_session_onto_another_account() {
         .admin
         .get_token_usage_history(
             &token_id,
-            Utc::now() - Duration::hours(1),
-            Utc::now() + Duration::hours(1),
+            Timestamp::now() - Elapsed::hours(1),
+            Timestamp::now() + Elapsed::hours(1),
         )
         .await
         .unwrap();
@@ -450,7 +450,7 @@ async fn a_session_that_needs_reauth_is_refused() {
             source.1,
             SCIOTTE_GARMIN,
             Some("session_expired"),
-            Utc::now() + Duration::seconds(1),
+            Timestamp::now() + Elapsed::seconds(1),
         )
         .await
         .unwrap();

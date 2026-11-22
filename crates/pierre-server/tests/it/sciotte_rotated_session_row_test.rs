@@ -27,10 +27,10 @@
 use crate::common::offline_provider_registry;
 use std::sync::{Arc, Mutex};
 
-use chrono::Utc;
 use dravr_enforme::traits::credential_store::CredentialStore;
 use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::wire::{SESSION_ROTATED, SESSION_ROTATED_HEADER};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth_providers::{
     SCIOTTE_GARMIN, SCIOTTE_TRAININGPEAKS, TOKEN_TYPE_SESSION,
 };
@@ -74,7 +74,7 @@ fn session_with(cookie: &str) -> AuthSession {
 
 /// A token row exactly as a sciotte login stores it.
 fn session_row(user_id: Uuid, tenant: TenantId, backend: &str, cookie: &str) -> UserOAuthToken {
-    let now = Utc::now();
+    let now = Timestamp::now();
     UserOAuthToken {
         id: Uuid::new_v4().to_string(),
         user_id,

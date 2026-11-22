@@ -43,7 +43,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use futures_util::future::BoxFuture;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
@@ -456,7 +456,7 @@ impl AuthService {
         tenant_id: &'a str,
         provider: &'a dyn CoreFitnessProvider,
         error: &'a AppError,
-        attempt_started_at: DateTime<Utc>,
+        attempt_started_at: Timestamp,
     ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
             let Some(platform) =
@@ -486,7 +486,7 @@ impl AuthService {
         platform: &dyn CoachPlatform,
         member_user_id: Uuid,
         tenant: TenantId,
-        attempt_started_at: DateTime<Utc>,
+        attempt_started_at: Timestamp,
     ) {
         let link = match self
             .runtime()
@@ -524,7 +524,7 @@ impl AuthService {
         &self,
         platform: &dyn CoachPlatform,
         seat: CoachSeat,
-        attempt_started_at: DateTime<Utc>,
+        attempt_started_at: Timestamp,
     ) {
         // The coach is the one who must reconnect, so the flag and its notice
         // are the coach's, under the coach's tenant.
@@ -569,7 +569,7 @@ impl AuthService {
         seat: CoachSeat,
         provider: &dyn CoreFitnessProvider,
         error: &AppError,
-        attempt_started_at: DateTime<Utc>,
+        attempt_started_at: Timestamp,
     ) {
         if seat.link_id.is_some() {
             self.react_to_delegated_refusal(

@@ -13,7 +13,7 @@ mod group_coach_seat_tests {
     use crate::helpers::axum_test::AxumTestRequest;
     use async_trait::async_trait;
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use futures_util::stream;
     use pierre_core::errors::AppError;
     use pierre_core::llm::{
@@ -131,7 +131,7 @@ mod group_coach_seat_tests {
         let mut user = User::new(email.to_owned(), password_hash, Some(email.to_owned()));
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
         let repos = &resources.common.repos;
         repos.users.create(&user).await.unwrap();
 
@@ -145,8 +145,8 @@ mod group_coach_seat_tests {
                 domain: None,
                 plan: "professional".to_owned(),
                 owner_user_id: user.id,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
             })
             .await
             .unwrap();
@@ -215,7 +215,7 @@ mod group_coach_seat_tests {
             .await
             .unwrap();
         let group_id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         repos
             .groups
             .create_group(

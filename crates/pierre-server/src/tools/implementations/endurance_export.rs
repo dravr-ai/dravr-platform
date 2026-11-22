@@ -10,8 +10,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use dravr_cageux::zones::{AerobicThresholdPace, AerobicThresholdPower, HrZones};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::zones::athlete_hr_zones;
@@ -92,9 +92,9 @@ async fn fetch_window_activities(
     window_days: u32,
 ) -> AppResult<Vec<Activity>> {
     let zone = resolve_zone(user_timezone(resources.repos(), user_id).await?.as_deref());
-    let today = clock_date(Utc::now(), zone);
+    let today = clock_date(Timestamp::now(), &zone);
     let window = CivilWindow {
-        from: Some(today - Duration::days(i64::from(window_days) - 1)),
+        from: Some(today - Elapsed::days(i64::from(window_days) - 1)),
         to: today,
         zone,
     };

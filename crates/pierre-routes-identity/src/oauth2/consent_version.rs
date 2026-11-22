@@ -170,7 +170,7 @@ pub(super) fn approved_under_current_text(
 mod tests {
     use super::super::consent_copy::{express_consent_line, health_line};
     use super::*;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_contremaitre::consent_strings::KEY_CONSENT_EXPRESS;
 
     fn grant(version: Option<String>, locale: Option<&str>) -> OAuthClientGrant {
@@ -180,7 +180,7 @@ mod tests {
             tenant_id: "tenant".to_owned(),
             client_id: "client".to_owned(),
             scope: "fitness:read".to_owned(),
-            granted_at: Utc::now(),
+            granted_at: Timestamp::now(),
             revoked_at: None,
             consent_version: version,
             consent_locale: locale.map(str::to_owned),

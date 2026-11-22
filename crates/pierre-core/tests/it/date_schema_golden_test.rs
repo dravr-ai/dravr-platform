@@ -28,18 +28,18 @@ use serde_json::Value;
 
 /// Everything in this file that names the date engine.
 mod engine {
-    use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc, Weekday};
+    use dravr_tronc::dates::{CivilDate, CivilDateTime, CivilTime, Timestamp, Weekday};
     use schemars::schema_for;
 
     /// The schema of each bare date type, as a JSON value, by family name.
     pub(super) fn schemas() -> Vec<(&'static str, serde_json::Value)> {
         vec![
-            ("instant", schema_for!(DateTime<Utc>)),
-            ("optional instant", schema_for!(Option<DateTime<Utc>>)),
-            ("calendar date", schema_for!(NaiveDate)),
-            ("optional calendar date", schema_for!(Option<NaiveDate>)),
-            ("time of day", schema_for!(NaiveTime)),
-            ("zoneless date-time", schema_for!(NaiveDateTime)),
+            ("instant", schema_for!(Timestamp)),
+            ("optional instant", schema_for!(Option<Timestamp>)),
+            ("calendar date", schema_for!(CivilDate)),
+            ("optional calendar date", schema_for!(Option<CivilDate>)),
+            ("time of day", schema_for!(CivilTime)),
+            ("zoneless date-time", schema_for!(CivilDateTime)),
             ("weekday", schema_for!(Weekday)),
         ]
         .into_iter()
@@ -53,27 +53,27 @@ fn each_date_type_declares_this_schema() {
     let expected = [
         (
             "instant",
-            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"DateTime","type":"string","format":"date-time"}"#,
+            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"Timestamp","type":"string","format":"date-time"}"#,
         ),
         (
             "optional instant",
-            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"Nullable_DateTime","type":["string","null"],"format":"date-time"}"#,
+            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"Nullable_Timestamp","type":["string","null"],"format":"date-time"}"#,
         ),
         (
             "calendar date",
-            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"NaiveDate","type":"string","format":"date"}"#,
+            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"CivilDate","type":"string","format":"date"}"#,
         ),
         (
             "optional calendar date",
-            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"Nullable_NaiveDate","type":["string","null"],"format":"date"}"#,
+            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"Nullable_CivilDate","type":["string","null"],"format":"date"}"#,
         ),
         (
             "time of day",
-            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"NaiveTime","type":"string","format":"partial-time"}"#,
+            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"CivilTime","type":"string","format":"partial-time"}"#,
         ),
         (
             "zoneless date-time",
-            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"NaiveDateTime","type":"string","format":"partial-date-time"}"#,
+            r#"{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"CivilDateTime","type":"string","format":"partial-date-time"}"#,
         ),
         (
             "weekday",

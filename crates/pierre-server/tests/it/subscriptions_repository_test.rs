@@ -11,7 +11,8 @@
     clippy::items_after_statements
 )]
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, UserTier};
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -28,14 +29,14 @@ fn sample_subscription() -> Subscription {
         provider_subscription_id: Some(format!("sub_test_{}", Uuid::new_v4().simple())),
         status: SubscriptionStatus::Active,
         plan_tier: UserTier::Professional,
-        current_period_start: Some(Utc.with_ymd_and_hms(2026, 4, 1, 0, 0, 0).unwrap()),
-        current_period_end: Some(Utc.with_ymd_and_hms(2026, 5, 1, 0, 0, 0).unwrap()),
+        current_period_start: Some(Timestamp::parse_from_rfc3339("2026-04-01T00:00:00Z").unwrap()),
+        current_period_end: Some(Timestamp::parse_from_rfc3339("2026-05-01T00:00:00Z").unwrap()),
         cancel_at_period_end: false,
         canceled_at: None,
         trial_end: None,
         metadata: Some(serde_json::json!({"source": "checkout"})),
-        created_at: Utc.with_ymd_and_hms(2026, 4, 1, 0, 0, 0).unwrap(),
-        updated_at: Utc.with_ymd_and_hms(2026, 4, 1, 0, 0, 0).unwrap(),
+        created_at: Timestamp::parse_from_rfc3339("2026-04-01T00:00:00Z").unwrap(),
+        updated_at: Timestamp::parse_from_rfc3339("2026-04-01T00:00:00Z").unwrap(),
         last_event_at: None,
     }
 }
@@ -108,7 +109,7 @@ async fn upsert_subscription_updates_existing_row_on_status_change() {
     repos.subscriptions.upsert_subscription(&sub).await.unwrap();
 
     sub.status = SubscriptionStatus::PastDue;
-    sub.updated_at = Utc.with_ymd_and_hms(2026, 4, 15, 12, 0, 0).unwrap();
+    sub.updated_at = Timestamp::parse_from_rfc3339("2026-04-15T12:00:00Z").unwrap();
     let updated = repos
         .subscriptions
         .upsert_subscription(&sub)
@@ -138,7 +139,7 @@ async fn upsert_subscription_updates_existing_row_on_status_change() {
 async fn an_older_provider_event_never_overwrites_a_newer_one() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let applied_at = Utc.with_ymd_and_hms(2026, 10, 1, 0, 0, 0).unwrap();
+    let applied_at = Timestamp::parse_from_rfc3339("2026-10-01T00:00:00Z").unwrap();
     let mut sub = sample_subscription();
     sub.last_event_at = Some(applied_at);
     repos
@@ -150,7 +151,7 @@ async fn an_older_provider_event_never_overwrites_a_newer_one() {
 
     let mut late = sub.clone();
     late.status = SubscriptionStatus::PastDue;
-    late.last_event_at = Some(applied_at - chrono::Duration::milliseconds(1));
+    late.last_event_at = Some(applied_at - Elapsed::milliseconds(1));
     let refused = repos
         .subscriptions
         .upsert_subscription(&late)
@@ -171,7 +172,7 @@ async fn an_older_provider_event_never_overwrites_a_newer_one() {
 
     let mut newer = sub.clone();
     newer.status = SubscriptionStatus::PastDue;
-    newer.last_event_at = Some(applied_at + chrono::Duration::seconds(1));
+    newer.last_event_at = Some(applied_at + Elapsed::seconds(1));
     let written = repos
         .subscriptions
         .upsert_subscription(&newer)

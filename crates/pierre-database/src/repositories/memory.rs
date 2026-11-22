@@ -10,7 +10,7 @@
 //! Every statement here runs unchanged on `SQLite` and Postgres, so nothing
 //! in this module takes a per-backend argument:
 //!
-//! - Timestamps bind and decode as `DateTime<Utc>`. sqlx writes RFC3339 text
+//! - Timestamps bind and decode as `Timestamp`. sqlx writes RFC3339 text
 //!   on `SQLite`, byte-identical to the `to_rfc3339()` the rows were written
 //!   with, so the string comparisons the `TEXT` columns rely on keep ordering
 //!   the way the instants do; Postgres binds a native `timestamptz`.
@@ -31,7 +31,6 @@
 //! - `COUNT(*)` and `SUM(CASE …)` decode as `i64` on both without a cast:
 //!   Postgres returns `bigint` for each already.
 
-/// Row decoders generic over `sqlx::Row`.
 mod rows;
 
 pub(crate) use rows::{
@@ -274,15 +273,6 @@ pub(crate) const TOUCH_AGENT_SESSION_SQL: &str = r"
             WHERE id = $2 AND tenant_id = $3
             ";
 
-/// Emit the whole `HarnessMemoryRepository` implementation for one backend type.
-///
-/// The body is written once here; each backend's shell invokes it with its
-/// own type and its uuid codec from [`super::uuid_columns`] (a compaction
-/// block's `about_user_id` is `uuid` on Postgres, `TEXT` on `SQLite`), and
-/// sqlx resolves the driver from `self.pool()` per expansion.
-///
-/// The body names its consts, helpers and types unqualified, so the invoking
-/// shell must `use` every one of them.
 macro_rules! impl_harness_memory_repository {
     ($ty:ty, $ids:ident) => {
         #[async_trait::async_trait]
@@ -292,7 +282,7 @@ macro_rules! impl_harness_memory_repository {
                 params: &InsertCompactionBlockParams<'_>,
             ) -> AppResult<CompactionBlock> {
                 let id = Uuid::new_v4().to_string();
-                let now = Utc::now();
+                let now = Timestamp::now();
                 sqlx::query(INSERT_COMPACTION_BLOCK_SQL)
                     .bind(&id)
                     .bind(params.tenant_id.to_string())
@@ -352,7 +342,7 @@ macro_rules! impl_harness_memory_repository {
                 params: &UpsertUserFactParams<'_>,
             ) -> AppResult<UserFact> {
                 let id = Uuid::new_v4().to_string();
-                let now = Utc::now();
+                let now = Timestamp::now();
 
                 sqlx::query(INSERT_USER_FACT_SQL)
                     .bind(&id)
@@ -416,7 +406,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(params.source.as_str())
                     .bind(params.valid_until)
                     .bind(params.source_msg_id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(params.transport_policy.is_first_party_only())
                     .bind(proposal.status.as_str())
                     .bind(proposal.evidence.as_ref().map(|e| e.quote.as_str()))
@@ -486,7 +476,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(fact_id)
                     .bind(&tenant)
                     .bind(user_id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to approve user fact: {e}")))?;
@@ -505,7 +495,7 @@ macro_rules! impl_harness_memory_repository {
                 sqlx::query(MERGE_USER_FACT_SQL)
                     .bind(params.confidence)
                     .bind(params.source_msg_id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(params.fact_id)
                     .bind(&tenant)
                     .bind(params.transport_policy.is_first_party_only())
@@ -598,7 +588,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(tenant_id.to_string())
                     .bind(user_id)
                     .bind(source.as_str())
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(limit)
                     .bind(readable.is_first_party_only())
                     .fetch_all(self.pool())
@@ -672,12 +662,12 @@ macro_rules! impl_harness_memory_repository {
                 tenant_id: TenantId,
                 user_id: &str,
                 pillar: Option<Pillar>,
-                created_after: Option<DateTime<Utc>>,
-                created_before: Option<DateTime<Utc>>,
+                created_after: Option<Timestamp>,
+                created_before: Option<Timestamp>,
                 predicate_code: Option<PredicateCode>,
             ) -> AppResult<u64> {
                 let result = sqlx::query(EXPIRE_ONBOARDING_FACTS_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(tenant_id.to_string())
                     .bind(user_id)
                     .bind(pillar.map(Pillar::as_str))
@@ -697,9 +687,9 @@ macro_rules! impl_harness_memory_repository {
                 scope: AdminScope,
             ) -> AppResult<UserFactMetrics> {
                 let tenant = scope.tenant_filter().map(|t| t.to_string());
-                let now = Utc::now();
-                let cutoff_24h = now - chrono::Duration::hours(24);
-                let cutoff_7d = now - chrono::Duration::days(7);
+                let now = Timestamp::now();
+                let cutoff_24h = now - dravr_tronc::dates::Elapsed::hours(24);
+                let cutoff_7d = now - dravr_tronc::dates::Elapsed::days(7);
 
                 let aggregates = sqlx::query(COUNT_USER_FACTS_SQL)
                     .bind(cutoff_24h)
@@ -741,7 +731,7 @@ macro_rules! impl_harness_memory_repository {
                 }
 
                 let id = Uuid::new_v4().to_string();
-                let now = Utc::now();
+                let now = Timestamp::now();
                 sqlx::query(INSERT_AGENT_SESSION_SQL)
                     .bind(&id)
                     .bind(&tenant)
@@ -774,7 +764,7 @@ macro_rules! impl_harness_memory_repository {
                 tenant_id: TenantId,
             ) -> AppResult<()> {
                 sqlx::query(TOUCH_AGENT_SESSION_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(session_id)
                     .bind(tenant_id.to_string())
                     .execute(self.pool())

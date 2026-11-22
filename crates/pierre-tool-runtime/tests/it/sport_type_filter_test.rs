@@ -16,12 +16,12 @@
 //! must pass the list through untouched; real sport filters must keep
 //! filtering.
 
-use chrono::{TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_tool_runtime::implementations::fitness_support::filter_activities_by_sport_type;
 
 fn seeded_activities() -> Vec<Activity> {
-    let start = Utc.with_ymd_and_hms(2026, 7, 18, 12, 0, 0).unwrap();
+    let start = Timestamp::parse_from_rfc3339("2026-07-18T12:00:00Z").unwrap();
     vec![
         ActivityBuilder::new(
             "walk-1",
@@ -141,7 +141,7 @@ fn unknown_sport_still_matches_nothing() {
 }
 
 fn cycling_activities() -> Vec<Activity> {
-    let start = Utc.with_ymd_and_hms(2026, 8, 27, 12, 0, 0).unwrap();
+    let start = Timestamp::parse_from_rfc3339("2026-08-27T12:00:00Z").unwrap();
     vec![
         ActivityBuilder::new(
             "ride-1",

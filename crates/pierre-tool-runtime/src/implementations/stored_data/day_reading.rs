@@ -70,7 +70,7 @@ impl<T: JsonSchema> JsonSchema for DayReading<T> {
 mod tests {
     use super::*;
     use crate::conversions;
-    use chrono::{DateTime, NaiveDate};
+    use dravr_tronc::dates::{CivilDate, Timestamp};
     use pierre_core::models::StoredDailyActivity;
     use serde_json::json;
 
@@ -79,13 +79,13 @@ mod tests {
             id: "day-1".to_owned(),
             user_id: "user-1".to_owned(),
             data_source_id: "ds-1".to_owned(),
-            date: NaiveDate::from_ymd_opt(2026, 8, 28).unwrap_or_default(),
+            date: CivilDate::from_ymd(2026, 8, 28).ok().unwrap_or_default(),
             steps: Some(11_284),
             active_kcal: None,
             total_kcal: None,
             intensity_minutes: None,
             source_name: "garmin".to_owned(),
-            recorded_at: DateTime::UNIX_EPOCH,
+            recorded_at: Timestamp::UNIX_EPOCH,
         }
     }
 

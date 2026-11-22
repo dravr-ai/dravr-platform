@@ -29,7 +29,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_commands::group_membership::{GroupJoinHandler, HeldInviteJoin, HeldInviteRefusal};
 use pierre_commands::{ConversationRotation, PlatformCommandContext};
@@ -136,7 +136,7 @@ pub(super) async fn join_held_invite(
     let tenant_id = get_tenant_id(&auth, &resources).await?;
     let ctx = command_context(&resources, &auth, tenant_id).await;
 
-    let outcome = if group_invite_hold::lapsed(&hold, Utc::now()) {
+    let outcome = if group_invite_hold::lapsed(&hold, Timestamp::now()) {
         info!(user_id = %auth.user_id, invite_id = %hold.invite_id, "A held group invite lapsed before its account joined");
         HeldInviteJoin::Refused {
             reason: HeldInviteRefusal::Invalid,
@@ -162,7 +162,7 @@ pub(super) async fn join_held_invite(
     ) {
         repos
             .signup_codes
-            .mark_group_invite_hold_full(auth.user_id, hold.invite_id, Utc::now())
+            .mark_group_invite_hold_full(auth.user_id, hold.invite_id, Timestamp::now())
             .await?;
     } else {
         repos

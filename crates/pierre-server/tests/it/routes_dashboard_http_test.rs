@@ -16,7 +16,7 @@
 use crate::common;
 use crate::helpers;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
@@ -139,7 +139,7 @@ async fn record_call(setup: &DashboardTestSetup, key: &ApiKey, tool_name: &str) 
         .record_api_key(&ApiKeyUsage {
             id: None,
             api_key_id: key.id.clone(),
-            timestamp: Utc::now() - Duration::minutes(1),
+            timestamp: Timestamp::now() - Elapsed::minutes(1),
             tool_name: tool_name.to_owned(),
             response_time_ms: Some(20),
             status_code: 200,

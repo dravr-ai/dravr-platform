@@ -14,7 +14,7 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::groups::{CoachConsents, GroupMember, GroupRole};
 use pierre_core::models::CreateGroupRequest;
@@ -67,7 +67,7 @@ fn ride(days_ago: i64, secs: u32) -> Activity {
         format!("ride-{days_ago}"),
         format!("ride {days_ago}"),
         SportType::Ride,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         u64::from(secs),
         "strava".to_owned(),
     )
@@ -125,7 +125,7 @@ async fn add_member_consents(
     peer: bool,
     coach: bool,
 ) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     res.common
         .repos
         .groups

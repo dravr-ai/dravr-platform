@@ -32,13 +32,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Datelike, NaiveDate};
+use dravr_tronc::dates::CivilDate;
 use pierre_core::models::periodization::serde_num::whole_u32_opt;
 use pierre_core::models::{TenantId, WorkoutStep};
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{
-    parse_plan_date, GoalRace, PlanPhase, PlanWeek, PlannedDay, WeekStatus, MAX_DAYS_PER_WEEK,
+    GoalRace, PlanPhase, PlanWeek, PlannedDay, WeekStatus, MAX_DAYS_PER_WEEK,
 };
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::athlete_anchors::stored_athlete_anchors;
@@ -52,6 +52,9 @@ use pierre_services::training_plan_render::{self, plan_goal_is_stale, ACTIVE_WEE
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::warn;
+
+mod plan_dates;
+pub(super) use plan_dates::plan_date;
 
 use super::calendar::{bounded, validate_step, TargetRule, MAX_SESSION_STEPS, MAX_SHORT_TEXT_LEN};
 use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest};
@@ -91,7 +94,7 @@ use pierre_tools_core::ToolResult;
 /// Keep the weeks [`select_active_weeks`] picks for `today` — the athlete's
 /// fortnight, the same one the prompt block, the plan card and `/plan` show —
 /// and return how many it dropped.
-fn window_to_active_weeks(weeks: &mut Vec<PlanWeek>, today: NaiveDate) -> usize {
+fn window_to_active_weeks(weeks: &mut Vec<PlanWeek>, today: CivilDate) -> usize {
     let before = weeks.len();
     let keep: Vec<String> = training_plan_render::select_active_weeks(weeks, today, ACTIVE_WEEKS)
         .weeks
@@ -193,40 +196,6 @@ pub(super) const MAX_DURATION_MIN: u32 = 24 * 60;
 const MAX_CARBS_G_PER_H: f32 = 150.0;
 const MAX_FLUID_ML_PER_H: f32 = 1_500.0;
 const MAX_SODIUM_MG_PER_H: f32 = 2_000.0;
-
-/// Calendar domain a plan date must fall in.
-///
-/// `parse_plan_date` is a format check: chrono's `%Y` accepts a signed,
-/// unlimited-digit year and `NaiveDate`'s `Display` re-emits it, so
-/// `+262142-12-31` round-trips and persists. Every renderer that walks a plan
-/// adds `Days` to a stored date, which panics past `NaiveDate::MAX` — and a
-/// stored plan is re-rendered into the system prompt on every subsequent turn,
-/// so one such date breaks the athlete's chat until the row is removed.
-/// `9999-12-31` plus the longest offset any renderer adds stays far inside
-/// `NaiveDate::MAX`, which is what makes those additions unreachable from
-/// overflow rather than merely unlikely.
-const MIN_PLAN_YEAR: i32 = 1000;
-const MAX_PLAN_YEAR: i32 = 9999;
-
-/// Parse a plan date, accepting only a canonical `YYYY-MM-DD` inside the
-/// calendar domain plans are rendered in (see [`MIN_PLAN_YEAR`]).
-///
-/// `field` names the payload field in the rejection so the model's next
-/// iteration knows which date to fix.
-pub(super) fn plan_date(field: &str, raw: &str) -> AppResult<NaiveDate> {
-    let Some(date) = parse_plan_date(raw) else {
-        return Err(AppError::invalid_input(format!(
-            "{field} must be YYYY-MM-DD, got '{raw}'"
-        )));
-    };
-    let year = date.year();
-    if !(MIN_PLAN_YEAR..=MAX_PLAN_YEAR).contains(&year) {
-        return Err(AppError::invalid_input(format!(
-            "{field} year {year} is outside {MIN_PLAN_YEAR}-{MAX_PLAN_YEAR}, got '{raw}'"
-        )));
-    }
-    Ok(date)
-}
 
 /// Validate every date/shape/size constraint BEFORE any write so a rejected
 /// payload can never begin a partial save.
@@ -1146,7 +1115,7 @@ crate::declare_security!(SaveTrainingPlanTool => IRREVERSIBLE);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
 
     fn week(id: &str, week_start: &str) -> PlanWeek {
         PlanWeek {
@@ -1162,14 +1131,14 @@ mod tests {
             supersedes_id: None,
             adjustment_reason: String::new(),
             author_agent_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         }
     }
 
     #[test]
     fn window_keeps_the_current_and_next_week_and_counts_the_rest() {
-        let today = NaiveDate::from_ymd_opt(2026, 11, 4).unwrap();
+        let today = CivilDate::from_ymd(2026, 11, 4).unwrap();
         let mut weeks = vec![
             week("over", "2026-10-26"),
             week("current", "2026-11-02"),
@@ -1187,7 +1156,7 @@ mod tests {
 
     #[test]
     fn window_leaves_a_short_plan_alone() {
-        let today = NaiveDate::from_ymd_opt(2026, 11, 4).unwrap();
+        let today = CivilDate::from_ymd(2026, 11, 4).unwrap();
         let mut weeks = vec![week("current", "2026-11-02"), week("next", "2026-11-09")];
 
         assert_eq!(

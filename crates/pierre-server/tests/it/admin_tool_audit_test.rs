@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::Request;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
@@ -66,7 +66,7 @@ async fn admin(resources: &Arc<ServerContext>) -> (Uuid, String) {
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let repos = &resources.common.repos;
     repos.users.create(&user).await.unwrap();
     let tenant_id = TenantId::generate();
@@ -79,8 +79,8 @@ async fn admin(resources: &Arc<ServerContext>) -> (Uuid, String) {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
@@ -558,7 +558,7 @@ async fn untenanted_admin(resources: &Arc<ServerContext>) -> User {
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(Utc::now());
+    user.approved_at = Some(Timestamp::now());
     resources.common.repos.users.create(&user).await.unwrap();
     user
 }

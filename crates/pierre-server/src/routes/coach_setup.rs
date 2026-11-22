@@ -17,7 +17,7 @@
 use std::sync::Arc;
 
 use axum::{extract::State, Json};
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppError;
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
@@ -79,7 +79,7 @@ pub struct CoachSetupAthleteResponse {
     /// The group they joined.
     pub group_id: Uuid,
     /// When they joined it (RFC 3339).
-    pub joined_at: DateTime<Utc>,
+    pub joined_at: Timestamp,
 }
 
 impl From<JoinedAthlete> for CoachSetupAthleteResponse {

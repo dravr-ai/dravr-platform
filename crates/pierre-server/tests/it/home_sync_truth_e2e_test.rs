@@ -50,10 +50,10 @@ use axum::http::{header, HeaderMap, HeaderValue, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Duration, TimeZone, Utc};
 use dravr_sciotte::error::ScraperError;
 use dravr_sciotte::models::{Activity as ScrapedActivity, RouteTrack as ScrapedRoute};
 use dravr_sciotte::wire::{ActivitiesResponse, SCRAPER_BUSY, SESSION_EXPIRED, SESSION_NOT_FOUND};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use futures_util::future::join_all;
 use pierre_core::models::{
@@ -293,7 +293,7 @@ impl Scraper {
 }
 
 /// One scraped ride, as the scraper's own type holds it.
-fn scraped_ride(id: &str, started: DateTime<Utc>) -> ScrapedActivity {
+fn scraped_ride(id: &str, started: Timestamp) -> ScrapedActivity {
     serde_json::from_value(json!({
         "id": id,
         "name": format!("Sortie {id}"),
@@ -503,7 +503,7 @@ async fn activity_detail(
 
 async fn detail_answer(scraper: &Scraper, id: &str) -> Response {
     let script = *scraper.detail.lock().unwrap();
-    let mut detail = scraped_ride(id, Utc::now() - Duration::days(1));
+    let mut detail = scraped_ride(id, Timestamp::now() - Elapsed::days(1));
     match script {
         DetailScript::Route => detail.route = Some(scraped_route(weaving_track())),
         DetailScript::SlowRoute(millis) => {
@@ -681,7 +681,7 @@ async fn route_at(resources: &Arc<ServerContext>, athlete: &Athlete, uri: &str) 
 async fn chat_activities(
     resources: &Arc<ServerContext>,
     athlete: &Athlete,
-    after: DateTime<Utc>,
+    after: Timestamp,
 ) -> Value {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let ctx = ToolContext::new()
@@ -695,8 +695,8 @@ async fn chat_activities(
             json!({
                 "limit": 10,
                 "mode": "summary",
-                "after": after.timestamp(),
-                "before": Utc::now().timestamp()
+                "after": after.epoch_seconds(),
+                "before": Timestamp::now().epoch_seconds()
             }),
         )
         .await;
@@ -725,23 +725,22 @@ fn has_gps(body: &Value, id: &str) -> bool {
         .unwrap()
 }
 
-fn instant(value: &Value) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(
+fn instant(value: &Value) -> Timestamp {
+    Timestamp::parse_from_rfc3339(
         value
             .as_str()
             .unwrap_or_else(|| panic!("not an instant: {value}")),
     )
     .unwrap()
-    .with_timezone(&Utc)
 }
 
 /// When Home says the sync failed, or a panic naming the body.
-fn failed_at(body: &Value) -> DateTime<Utc> {
+fn failed_at(body: &Value) -> Timestamp {
     instant(&body["sync_failure"]["failed_at"])
 }
 
 /// Whether two instants are the same to within the storage round trip.
-fn same_instant(a: DateTime<Utc>, b: DateTime<Utc>) -> bool {
+fn same_instant(a: Timestamp, b: Timestamp) -> bool {
     (a - b).num_seconds().abs() < 2
 }
 
@@ -759,7 +758,7 @@ async fn await_background(resources: &ServerContext) {
 
 /// Run one SQL statement binding `at` and the athlete's user id, on
 /// whichever engine the suite runs on.
-async fn exec_at(resources: &ServerContext, sql: &str, at: DateTime<Utc>, athlete: &Athlete) {
+async fn exec_at(resources: &ServerContext, sql: &str, at: Timestamp, athlete: &Athlete) {
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(sqlite) => {
             sqlx::query(sql)
@@ -784,7 +783,7 @@ async fn exec_at(resources: &ServerContext, sql: &str, at: DateTime<Utc>, athlet
 /// Age the athlete's last good sync to `at`: every cached row's `synced_at`
 /// and the provider's fetch mark, as if both were written then. No repository
 /// writes an old `synced_at`, so the fixture writes it in SQL.
-async fn age_last_sync(resources: &ServerContext, athlete: &Athlete, at: DateTime<Utc>) {
+async fn age_last_sync(resources: &ServerContext, athlete: &Athlete, at: Timestamp) {
     exec_at(
         resources,
         "UPDATE cached_activities SET synced_at = $1 WHERE user_id = $2",
@@ -804,7 +803,7 @@ async fn age_last_sync(resources: &ServerContext, athlete: &Athlete, at: DateTim
 /// Move the athlete's recorded sync failure back to `at`, as if its pause had
 /// been running since then. A streak that began after `at` now begins there,
 /// so the first failure is never later than the last.
-async fn age_failure(resources: &ServerContext, athlete: &Athlete, at: DateTime<Utc>) {
+async fn age_failure(resources: &ServerContext, athlete: &Athlete, at: Timestamp) {
     exec_at(
         resources,
         "UPDATE activity_fetch_failures SET failed_at = $1, \
@@ -824,7 +823,7 @@ async fn expire_route_reads(resources: &ServerContext, athlete: &Athlete) {
         resources,
         "UPDATE activity_route_tracks SET expires_at = $1 \
          WHERE user_id = $2 AND expires_at IS NOT NULL",
-        Utc::now() - Duration::minutes(1),
+        Timestamp::now() - Elapsed::minutes(1),
         athlete,
     )
     .await;
@@ -864,13 +863,13 @@ async fn synced_then_stale(
     resources: &Arc<ServerContext>,
     athlete: &Athlete,
     scraper: &Scraper,
-) -> DateTime<Utc> {
+) -> Timestamp {
     let body = home(resources, athlete).await;
     assert_eq!(body["stale"], true, "never synced: {body}");
     await_background(resources).await;
     assert_eq!(ids(&home(resources, athlete).await), ["r2", "r1"]);
     let reads = scraper.list_reads();
-    let last_good = Utc::now() - Duration::hours(5);
+    let last_good = Timestamp::now() - Elapsed::hours(5);
     age_last_sync(resources, athlete, last_good).await;
     assert_eq!(scraper.list_reads(), reads);
     last_good
@@ -884,7 +883,7 @@ async fn synced_then_failed(
     athlete: &Athlete,
     scraper: &Scraper,
     failing: ListScript,
-) -> DateTime<Utc> {
+) -> Timestamp {
     let last_good = synced_then_stale(resources, athlete, scraper).await;
     scraper.play_list(failing);
     let reads = scraper.list_reads();
@@ -896,15 +895,15 @@ async fn synced_then_failed(
 
 fn two_rides() -> Vec<ScrapedActivity> {
     vec![
-        scraped_ride("r2", Utc::now() - Duration::days(1)),
-        scraped_ride("r1", Utc::now() - Duration::days(3)),
+        scraped_ride("r2", Timestamp::now() - Elapsed::days(1)),
+        scraped_ride("r1", Timestamp::now() - Elapsed::days(3)),
     ]
 }
 
 /// Two rides and the day's new one on top.
 fn three_rides() -> Vec<ScrapedActivity> {
     let mut rides = two_rides();
-    rides.insert(0, scraped_ride("r3", Utc::now() - Duration::hours(2)));
+    rides.insert(0, scraped_ride("r3", Timestamp::now() - Elapsed::hours(2)));
     rides
 }
 
@@ -931,7 +930,7 @@ async fn a_list_the_scraper_vouches_for_lands_on_home_and_is_fresh() {
     assert!(body["sync_failure"].is_null(), "{body}");
     assert_eq!(ids(&body), ["r2", "r1"]);
     assert_eq!(body["activities"][0]["provider"], "strava");
-    assert!(instant(&body["as_of"]) > Utc::now() - Duration::minutes(1));
+    assert!(instant(&body["as_of"]) > Timestamp::now() - Elapsed::minutes(1));
     await_background(&resources).await;
     assert_eq!(scraper.list_reads(), 1, "a fresh head reads no scraper");
 }
@@ -947,7 +946,7 @@ async fn homes_refresh_reads_the_recent_head_without_a_detail_pass() {
     let resources = server_at(&url, ServerTimeouts::default()).await;
     let athlete = athlete_on_the_mirror(&resources, "sync-query").await;
 
-    let asked_at = Utc::now();
+    let asked_at = Timestamp::now();
     home(&resources, &athlete).await;
     await_background(&resources).await;
 
@@ -960,14 +959,9 @@ async fn homes_refresh_reads_the_recent_head_without_a_detail_pass() {
             .find(|(k, _)| k == key)
             .map(|(_, value)| value.clone())
     };
-    let after = Utc
-        .timestamp_opt(param("after").unwrap().parse().unwrap(), 0)
-        .unwrap();
+    let after = Timestamp::from_epoch_seconds(param("after").unwrap().parse().unwrap()).unwrap();
     assert!(
-        (after - (asked_at - Duration::days(30)))
-            .num_minutes()
-            .abs()
-            <= 2,
+        (after - (asked_at - Elapsed::days(30))).num_minutes().abs() <= 2,
         "the head window opens thirty days back: {queries:?}"
     );
     assert!(
@@ -1053,7 +1047,7 @@ async fn synced_one_ride_then_stale(
     home(resources, athlete).await;
     await_background(resources).await;
     assert_eq!(ids(&home(resources, athlete).await), ["solo"]);
-    age_last_sync(resources, athlete, Utc::now() - Duration::hours(5)).await;
+    age_last_sync(resources, athlete, Timestamp::now() - Elapsed::hours(5)).await;
     scraper.play_list(ListScript::Rows(Vec::new()));
 }
 
@@ -1101,7 +1095,7 @@ async fn cached_solo_ride(resources: &ServerContext, athlete: &Athlete) -> Optio
 async fn an_empty_list_answered_three_times_across_an_hour_is_believed_and_evicts_the_ride() {
     let (url, scraper) = spawn_scraper(ListScript::Rows(vec![scraped_ride(
         "solo",
-        Utc::now() - Duration::days(3),
+        Timestamp::now() - Elapsed::days(3),
     )]))
     .await;
     let resources = server_at(&url, ServerTimeouts::default()).await;
@@ -1112,7 +1106,7 @@ async fn an_empty_list_answered_three_times_across_an_hour_is_believed_and_evict
     assert_eq!(first["sync_failure"]["provider"], "strava", "{first}");
     assert_eq!(ids(&first), ["solo"], "one empty answer is not believed");
     // The first empty answer was two hours ago.
-    age_failure(&resources, &athlete, Utc::now() - Duration::hours(2)).await;
+    age_failure(&resources, &athlete, Timestamp::now() - Elapsed::hours(2)).await;
 
     let second = after_a_retry(&resources, &athlete, &scraper).await;
     assert!(second["sync_failure"].is_object(), "{second}");
@@ -1131,7 +1125,7 @@ async fn an_empty_list_answered_three_times_across_an_hour_is_believed_and_evict
     );
     assert_eq!(third["activities"], json!([]), "{third}");
     assert_eq!(third["stale"], false, "{third}");
-    assert!(instant(&third["as_of"]) > Utc::now() - Duration::minutes(1));
+    assert!(instant(&third["as_of"]) > Timestamp::now() - Elapsed::minutes(1));
     assert!(
         cached_solo_ride(&resources, &athlete).await.is_none(),
         "the deleted ride is evicted from the cache"
@@ -1153,7 +1147,7 @@ async fn an_empty_list_answered_three_times_across_an_hour_is_believed_and_evict
 async fn three_empty_answers_inside_the_hour_stay_a_failed_sync() {
     let (url, scraper) = spawn_scraper(ListScript::Rows(vec![scraped_ride(
         "solo",
-        Utc::now() - Duration::days(3),
+        Timestamp::now() - Elapsed::days(3),
     )]))
     .await;
     let resources = server_at(&url, ServerTimeouts::default()).await;
@@ -1176,7 +1170,7 @@ async fn three_empty_answers_inside_the_hour_stay_a_failed_sync() {
 async fn an_empty_answer_after_failed_reads_starts_its_own_run() {
     let (url, scraper) = spawn_scraper(ListScript::Rows(vec![scraped_ride(
         "solo",
-        Utc::now() - Duration::days(3),
+        Timestamp::now() - Elapsed::days(3),
     )]))
     .await;
     let resources = server_at(&url, ServerTimeouts::default()).await;
@@ -1185,7 +1179,7 @@ async fn an_empty_answer_after_failed_reads_starts_its_own_run() {
 
     scraper.play_list(ListScript::Fails);
     after_a_retry(&resources, &athlete, &scraper).await;
-    age_failure(&resources, &athlete, Utc::now() - Duration::hours(2)).await;
+    age_failure(&resources, &athlete, Timestamp::now() - Elapsed::hours(2)).await;
     after_a_retry(&resources, &athlete, &scraper).await;
     scraper.play_list(ListScript::Rows(Vec::new()));
     let body = after_a_retry(&resources, &athlete, &scraper).await;
@@ -1200,12 +1194,12 @@ async fn a_failed_list_is_not_a_sync_and_home_says_when_it_failed() {
     let (url, scraper) = spawn_scraper(ListScript::Rows(two_rides())).await;
     let resources = server_at(&url, ServerTimeouts::default()).await;
     let athlete = athlete_on_the_mirror(&resources, "sync-fails").await;
-    let before = Utc::now();
+    let before = Timestamp::now();
     let last_good = synced_then_failed(&resources, &athlete, &scraper, ListScript::Fails).await;
 
     let body = home(&resources, &athlete).await;
     let failed = failed_at(&body);
-    assert!(before <= failed && failed <= Utc::now(), "{body}");
+    assert!(before <= failed && failed <= Timestamp::now(), "{body}");
     assert!(same_instant(instant(&body["as_of"]), last_good));
     assert_eq!(ids(&body), ["r2", "r1"]);
 }
@@ -1243,7 +1237,10 @@ async fn a_list_whose_count_disagrees_with_its_rows_is_not_a_sync() {
         &resources,
         &athlete,
         &scraper,
-        ListScript::Truncated(vec![scraped_ride("r3", Utc::now() - Duration::hours(2))]),
+        ListScript::Truncated(vec![scraped_ride(
+            "r3",
+            Timestamp::now() - Elapsed::hours(2),
+        )]),
     )
     .await;
 
@@ -1269,9 +1266,14 @@ async fn a_failing_scraper_is_paused_longer_after_each_failure() {
     let reads = scraper.list_reads();
 
     // First failure: two minutes.
-    age_failure(&resources, &athlete, Utc::now() - Duration::seconds(90)).await;
+    age_failure(
+        &resources,
+        &athlete,
+        Timestamp::now() - Elapsed::seconds(90),
+    )
+    .await;
     assert_eq!(home(&resources, &athlete).await["stale"], false);
-    age_failure(&resources, &athlete, Utc::now() - Duration::minutes(3)).await;
+    age_failure(&resources, &athlete, Timestamp::now() - Elapsed::minutes(3)).await;
     assert_eq!(home(&resources, &athlete).await["stale"], true);
     await_background(&resources).await;
     assert_eq!(
@@ -1281,12 +1283,12 @@ async fn a_failing_scraper_is_paused_longer_after_each_failure() {
     );
 
     // Second failure in a row: five minutes.
-    age_failure(&resources, &athlete, Utc::now() - Duration::minutes(3)).await;
+    age_failure(&resources, &athlete, Timestamp::now() - Elapsed::minutes(3)).await;
     let body = home(&resources, &athlete).await;
     assert_eq!(body["stale"], false, "the second pause is longer: {body}");
     await_background(&resources).await;
     assert_eq!(scraper.list_reads(), reads + 1);
-    age_failure(&resources, &athlete, Utc::now() - Duration::minutes(6)).await;
+    age_failure(&resources, &athlete, Timestamp::now() - Elapsed::minutes(6)).await;
     assert_eq!(home(&resources, &athlete).await["stale"], true);
     await_background(&resources).await;
     assert_eq!(scraper.list_reads(), reads + 2);
@@ -1306,10 +1308,15 @@ async fn a_failure_while_the_head_is_fresh_is_refreshed_and_the_retry_works() {
     home(&resources, &athlete).await;
     await_background(&resources).await;
     // Synced ten minutes ago: well inside the freshness bands.
-    age_last_sync(&resources, &athlete, Utc::now() - Duration::minutes(10)).await;
+    age_last_sync(
+        &resources,
+        &athlete,
+        Timestamp::now() - Elapsed::minutes(10),
+    )
+    .await;
 
     scraper.play_list(ListScript::Fails);
-    let turn = chat_activities(&resources, &athlete, Utc::now() - Duration::days(7)).await;
+    let turn = chat_activities(&resources, &athlete, Timestamp::now() - Elapsed::days(7)).await;
     assert_eq!(
         ids(&turn),
         ["r2", "r1"],
@@ -1327,7 +1334,7 @@ async fn a_failure_while_the_head_is_fresh_is_refreshed_and_the_retry_works() {
     assert_eq!(scraper.list_reads(), reads);
 
     // Once the pause is over the fresh head is refreshed all the same.
-    age_failure(&resources, &athlete, Utc::now() - Duration::minutes(3)).await;
+    age_failure(&resources, &athlete, Timestamp::now() - Elapsed::minutes(3)).await;
     assert_eq!(home(&resources, &athlete).await["stale"], true);
     await_background(&resources).await;
     assert_eq!(scraper.list_reads(), reads + 1);
@@ -1373,7 +1380,7 @@ async fn the_failure_names_its_provider_and_that_providers_last_good_sync() {
         "g1",
         "Natation",
         SportType::Swim,
-        Utc::now() - Duration::hours(3),
+        Timestamp::now() - Elapsed::hours(3),
         1_800,
         "garmin",
     )
@@ -1383,7 +1390,7 @@ async fn the_failure_names_its_provider_and_that_providers_last_good_sync() {
         .upsert_activities(athlete.user_id, &athlete.tenant, "sciotte_garmin", &[swim])
         .await
         .unwrap();
-    let garmin_synced = Utc::now();
+    let garmin_synced = Timestamp::now();
     repos
         .activity_cache
         .record_activity_fetch(
@@ -1438,7 +1445,7 @@ async fn a_failed_trainingpeaks_refresh_is_named_by_its_brand() {
         )
         .await
         .unwrap();
-    let failed = Utc::now() - Duration::minutes(5);
+    let failed = Timestamp::now() - Elapsed::minutes(5);
     repos
         .activity_cache
         .record_activity_fetch_failure(
@@ -1481,11 +1488,11 @@ async fn a_closed_window_read_moves_no_freshness_and_leaves_the_failure_standing
 
     // A closed window inside the cache's retention, so the rows it lands are
     // kept: the weeks from sixty to forty days back.
-    let season_start = Utc::now() - Duration::days(60);
-    let season_end = Utc::now() - Duration::days(40);
+    let season_start = Timestamp::now() - Elapsed::days(60);
+    let season_end = Timestamp::now() - Elapsed::days(40);
     scraper.play_list(ListScript::Rows(vec![
-        scraped_ride("s2", Utc::now() - Duration::days(45)),
-        scraped_ride("s1", Utc::now() - Duration::days(55)),
+        scraped_ride("s2", Timestamp::now() - Elapsed::days(45)),
+        scraped_ride("s1", Timestamp::now() - Elapsed::days(55)),
     ]));
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let season = fetch_provider_head(
@@ -1494,8 +1501,8 @@ async fn a_closed_window_read_moves_no_freshness_and_leaves_the_failure_standing
         athlete.user_id,
         &athlete.tenant.to_string(),
         &ActivityQueryParams {
-            after: Some(season_start.timestamp()),
-            before: Some(season_end.timestamp()),
+            after: Some(season_start.epoch_seconds()),
+            before: Some(season_end.epoch_seconds()),
             limit: Some(200),
             offset: None,
         },
@@ -1542,7 +1549,7 @@ async fn an_empty_later_page_is_the_end_of_the_list_and_a_cached_page_is_that_pa
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let tenant = athlete.tenant.to_string();
     let second_page = ActivityQueryParams {
-        after: Some((Utc::now() - Duration::days(30)).timestamp()),
+        after: Some((Timestamp::now() - Elapsed::days(30)).epoch_seconds()),
         before: None,
         limit: Some(1),
         offset: Some(1),
@@ -1590,7 +1597,7 @@ async fn a_chat_read_answered_empty_over_cached_rides_serves_them_and_records_th
     await_background(&resources).await;
 
     scraper.play_list(ListScript::Rows(Vec::new()));
-    let week = Utc::now() - Duration::days(7);
+    let week = Timestamp::now() - Elapsed::days(7);
     let turn = chat_activities(&resources, &athlete, week).await;
     assert_eq!(ids(&turn), ["r2", "r1"], "{turn}");
     let caveat = turn["provider_unavailable"]["note"]
@@ -1673,7 +1680,12 @@ async fn a_refresh_that_timed_out_after_its_sync_landed_is_not_recorded_failed()
         .common
         .repos
         .activity_cache
-        .record_activity_fetch(athlete.user_id, &athlete.tenant, "sciotte", Utc::now())
+        .record_activity_fetch(
+            athlete.user_id,
+            &athlete.tenant,
+            "sciotte",
+            Timestamp::now(),
+        )
         .await
         .unwrap();
     await_background(&resources).await;
@@ -1739,7 +1751,7 @@ async fn an_empty_answer_over_cached_rides_does_not_rearm_a_flagged_session() {
                 athlete.tenant,
                 "sciotte",
                 Some("session_expired"),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -1747,7 +1759,7 @@ async fn an_empty_answer_over_cached_rides_does_not_rearm_a_flagged_session() {
             &resources,
             "UPDATE provider_connections SET status_changed_at = $1, reauth_retry_at = NULL \
              WHERE user_id = $2",
-            Utc::now() - Duration::days(1),
+            Timestamp::now() - Elapsed::days(1),
             &athlete,
         )
         .await;
@@ -1846,7 +1858,7 @@ async fn a_detail_without_a_route_is_unavailable_never_no_gps_and_is_read_again(
     )
     .await;
 
-    let before = Utc::now();
+    let before = Timestamp::now();
     let body = route(&resources, &athlete, "r2").await;
     assert_eq!(body, json!({ "route": null, "reason": "unavailable" }));
     assert_eq!(scraper.detail_reads(), 1);
@@ -1859,8 +1871,8 @@ async fn a_detail_without_a_route_is_unavailable_never_no_gps_and_is_read_again(
         panic!("an unread route is stored with an expiry");
     };
     assert_eq!(reason, "unavailable");
-    let recheck = Duration::minutes(UNREAD_ROUTE_RECHECK_MINUTES);
-    assert!(before + recheck <= expires_at && expires_at <= Utc::now() + recheck);
+    let recheck = Elapsed::minutes(UNREAD_ROUTE_RECHECK_MINUTES);
+    assert!(before + recheck <= expires_at && expires_at <= Timestamp::now() + recheck);
     assert!(
         has_gps(&home(&resources, &athlete).await, "r2"),
         "a read that settled nothing never says the ride has no GPS"
@@ -2349,7 +2361,7 @@ async fn the_incident(label: &str, dead: DeadPage) {
 
 /// Home says Strava's sync failed after `last_good`, dates the rides from
 /// `last_good`, and keeps them.
-fn assert_failed_sync_kept_the_rides(body: &Value, last_good: DateTime<Utc>) {
+fn assert_failed_sync_kept_the_rides(body: &Value, last_good: Timestamp) {
     assert_eq!(body["sync_failure"]["provider"], "strava", "{body}");
     assert!(failed_at(body) > last_good, "{body}");
     assert!(
@@ -2376,7 +2388,7 @@ async fn retry_lands_the_days_ride(
     let body = home(resources, athlete).await;
     assert!(body["sync_failure"].is_null(), "{body}");
     assert_eq!(ids(&body), ["r3", "r2", "r1"]);
-    assert!(instant(&body["as_of"]) > Utc::now() - Duration::minutes(1));
+    assert!(instant(&body["as_of"]) > Timestamp::now() - Elapsed::minutes(1));
 }
 
 /// The incident as it happened: the dead walk answered `200` with
@@ -2539,7 +2551,7 @@ async fn a_restarted_scraper_is_a_failed_sync_while_down_and_the_retries_land_on
 fn five_rides() -> Vec<ScrapedActivity> {
     (1..=5)
         .rev()
-        .map(|n| scraped_ride(&format!("f{n}"), Utc::now() - Duration::days(6 - n)))
+        .map(|n| scraped_ride(&format!("f{n}"), Timestamp::now() - Elapsed::days(6 - n)))
         .collect()
 }
 
@@ -2574,9 +2586,9 @@ async fn route_reads_at_once_take_turns_on_the_session_and_every_map_draws() {
 
     // A sixth ride lands on the next sync; five asks for its map at once.
     let before = scraper.detail_reads();
-    let sixth = scraped_ride("f6", Utc::now() - Duration::hours(1));
+    let sixth = scraped_ride("f6", Timestamp::now() - Elapsed::hours(1));
     scraper.play_list(ListScript::Rows(once(sixth).chain(five_rides()).collect()));
-    age_last_sync(&resources, &athlete, Utc::now() - Duration::hours(5)).await;
+    age_last_sync(&resources, &athlete, Timestamp::now() - Elapsed::hours(5)).await;
     assert_eq!(home(&resources, &athlete).await["stale"], true);
     await_background(&resources).await;
     let asks = join_all((0..5).map(|_| route(&resources, &athlete, "f6"))).await;

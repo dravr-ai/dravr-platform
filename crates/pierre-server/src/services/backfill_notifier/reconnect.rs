@@ -20,7 +20,7 @@
 //! the provider too, and on a dead session each one would otherwise add the
 //! same sentence to the thread.
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::{
     KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
 };
@@ -58,7 +58,7 @@ const REAUTH_NOTE_LOOKBACK: i64 = 20;
 
 /// How long a reconnect sentence written in the app stands: the same one is
 /// not written into that conversation again within it.
-const REAUTH_NOTE_QUIET: Duration = Duration::hours(24);
+const REAUTH_NOTE_QUIET: Elapsed = Elapsed::hours(24);
 
 /// How long a grant's authorization link must still have to run for a
 /// queued notice to be sent with it. The link lasts an hour
@@ -73,7 +73,7 @@ pub(super) struct ReconnectLink {
     /// The (shortened) link.
     pub(super) url: String,
     /// The link's expiry less [`RECONNECT_LINK_MIN_REMAINING_MINUTES`].
-    pub(super) send_by: DateTime<Utc>,
+    pub(super) send_by: Timestamp,
 }
 
 /// A rendered reconnect notice, and the instant after which it must not be
@@ -82,16 +82,16 @@ pub(super) struct ReconnectNotice {
     /// The localized notice text.
     pub(super) body: String,
     /// See [`ReconnectLink::send_by`].
-    pub(super) send_by: Option<DateTime<Utc>>,
+    pub(super) send_by: Option<Timestamp>,
 }
 
 /// The last instant a reconnect notice whose hosted sign-in link is minted
 /// now may still be sent: the link's expiry less
 /// [`RECONNECT_LINK_MIN_REMAINING_MINUTES`]. Also the bound of a notice whose
 /// link could not be minted, when nothing else ends its retry.
-pub(super) fn hosted_send_by() -> DateTime<Utc> {
-    Utc::now() + Duration::minutes(PROVIDER_LINK_TOKEN_TTL_MINUTES)
-        - Duration::minutes(RECONNECT_LINK_MIN_REMAINING_MINUTES)
+pub(super) fn hosted_send_by() -> Timestamp {
+    Timestamp::now() + Elapsed::minutes(PROVIDER_LINK_TOKEN_TTL_MINUTES)
+        - Elapsed::minutes(RECONNECT_LINK_MIN_REMAINING_MINUTES)
 }
 
 impl ServerBackfillNotifier {
@@ -182,7 +182,7 @@ impl ServerBackfillNotifier {
         .await;
         Some(ReconnectLink {
             url,
-            send_by: expires_at - Duration::minutes(GRANT_LINK_MIN_REMAINING_MINUTES),
+            send_by: expires_at - Elapsed::minutes(GRANT_LINK_MIN_REMAINING_MINUTES),
         })
     }
 
@@ -274,7 +274,7 @@ impl ServerBackfillNotifier {
         let (_, bare_key) = self.reauth_keys(user_id, tenant_id, provider).await;
         let body = self.strings.render(bare_key, &locale, &[display]);
         if self
-            .reauth_note_standing(user_id, tenant_id, conversation_id, &body, Utc::now())
+            .reauth_note_standing(user_id, tenant_id, conversation_id, &body, Timestamp::now())
             .await
         {
             info!(provider = %provider, "Reauth nudge: the same sentence still stands in the app; not written again");
@@ -304,7 +304,7 @@ impl ServerBackfillNotifier {
         tenant_id: TenantId,
         conversation_id: &str,
         body: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> bool {
         let recent = match self
             .repos
@@ -338,8 +338,8 @@ impl ServerBackfillNotifier {
         }
         assistant.iter().any(|message| {
             message.content == body
-                && DateTime::parse_from_rfc3339(&message.created_at)
-                    .is_ok_and(|at| now - at.with_timezone(&Utc) < REAUTH_NOTE_QUIET)
+                && Timestamp::parse_from_rfc3339(&message.created_at)
+                    .is_ok_and(|at| now - at < REAUTH_NOTE_QUIET)
         })
     }
 

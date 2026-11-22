@@ -42,7 +42,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, TimeDelta, Utc};
 use dravr_barrage::blob::{BlobKey, BlobStore, DownloadTarget};
 use dravr_barrage::digest::Sha256;
 use dravr_barrage::export::{
@@ -50,6 +49,7 @@ use dravr_barrage::export::{
 };
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{BarrageError, Scope, UserId};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::stream::{self, BoxStream};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
@@ -74,19 +74,19 @@ use crate::periodic::spawn_periodic;
 const MAX_CONCURRENT_BUNDLES: usize = 2;
 
 /// How long a ready bundle stays downloadable.
-const BUNDLE_TTL: TimeDelta = TimeDelta::days(7);
+const BUNDLE_TTL: Elapsed = Elapsed::days(7);
 
 /// How long an unsealed ready bundle is handed back rather than built again.
-const REUSE_WINDOW: TimeDelta = TimeDelta::hours(1);
+const REUSE_WINDOW: Elapsed = Elapsed::hours(1);
 
 /// How long a signed download URL works.
-pub const DOWNLOAD_TTL: TimeDelta = TimeDelta::minutes(15);
+pub const DOWNLOAD_TTL: Elapsed = Elapsed::minutes(15);
 
 /// How often a building bundle's heartbeat moves.
 const HEARTBEAT_EVERY: Duration = Duration::from_secs(60);
 
 /// How long a build may go without a heartbeat before the sweep fails it.
-const STALE_AFTER: TimeDelta = TimeDelta::minutes(10);
+const STALE_AFTER: Elapsed = Elapsed::minutes(10);
 
 /// How often the sweep runs.
 const SWEEP_EVERY: Duration = Duration::from_hours(1);
@@ -107,9 +107,9 @@ pub struct BundleView {
     /// Whether it was sealed with a passphrase.
     pub sealed: bool,
     /// When it was asked for.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When it stops being downloadable.
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// Files it holds, once ready.
     pub files: Option<u64>,
     /// Files the store no longer held, once ready.
@@ -150,7 +150,7 @@ pub enum BundleDownload {
         /// The URL: a bearer credential, handed only to the bundle's owner.
         url: String,
         /// When it stops working.
-        expires_at: DateTime<Utc>,
+        expires_at: Timestamp,
     },
     /// Through the API: the bundle's bytes.
     Stream {
@@ -245,12 +245,9 @@ pub struct BundleSweep {
 }
 
 /// The file name a download is saved as.
-fn download_filename(created_at: DateTime<Utc>, sealed: bool) -> String {
+fn download_filename(created_at: Timestamp, sealed: bool) -> String {
     let extension = if sealed { "zip.age" } else { "zip" };
-    format!(
-        "dravr-originals-{}.{extension}",
-        created_at.format("%Y-%m-%d")
-    )
+    format!("dravr-originals-{}.{extension}", created_at.utc_date())
 }
 
 /// Builds, tracks and hands out the athletes' originals bundles.
@@ -420,7 +417,8 @@ impl OriginalsBundleService {
             let fresh_plain = latest.status == BundleStatus::Ready
                 && !latest.sealed
                 && !sealed
-                && latest.finished_at.unwrap_or(latest.created_at) > Utc::now() - REUSE_WINDOW;
+                && latest.finished_at.unwrap_or(latest.created_at)
+                    > Timestamp::now() - REUSE_WINDOW;
             if fresh_plain {
                 return Ok(Admission::Answered(BundleRequest::Bundle(BundleView::of(
                     &latest,
@@ -449,7 +447,7 @@ impl OriginalsBundleService {
         let BuildSlot(permit) = slot;
         let sealed = seal.is_some();
         let bundles = &self.repos.user_export_bundles;
-        let now = Utc::now();
+        let now = Timestamp::now();
         let asked = ExportBundle {
             id: Uuid::new_v4(),
             tenant_id,
@@ -629,7 +627,7 @@ impl OriginalsBundleService {
                     sha256: report.stat.sha256.to_hex(),
                 };
                 bundles
-                    .finish_ready(tenant, user, id, &contents, Utc::now() + BUNDLE_TTL)
+                    .finish_ready(tenant, user, id, &contents, Timestamp::now() + BUNDLE_TTL)
                     .await
             }
             Err(error) => {
@@ -682,7 +680,7 @@ impl OriginalsBundleService {
                 let files = written.load(Ordering::Relaxed);
                 match repos
                     .user_export_bundles
-                    .heartbeat(tenant, user, id, Utc::now())
+                    .heartbeat(tenant, user, id, Timestamp::now())
                     .await
                 {
                     Ok(true) => info!(bundle_id = %id, files, "Originals bundle still building"),
@@ -752,7 +750,7 @@ impl OriginalsBundleService {
     /// # Errors
     /// A database or store failure; the next pass picks up what this one did
     /// not reach, every step being idempotent.
-    pub async fn sweep(&self, now: DateTime<Utc>) -> AppResult<BundleSweep> {
+    pub async fn sweep(&self, now: Timestamp) -> AppResult<BundleSweep> {
         let bundles = &self.repos.user_export_bundles;
         let mut done = BundleSweep::default();
         for stalled in bundles.stale_building(now - STALE_AFTER).await? {
@@ -825,7 +823,7 @@ pub fn start_originals_bundle_sweep(
         move || {
             let service = Arc::clone(&service);
             async move {
-                let done = service.sweep(Utc::now()).await?;
+                let done = service.sweep(Timestamp::now()).await?;
                 if done != BundleSweep::default() {
                     info!(
                         stalled = done.stalled,
@@ -885,7 +883,7 @@ mod tests {
             user.id,
         );
         repos.tenants.create(&tenant).await.unwrap();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let building = repos
             .user_export_bundles
             .insert_building(&ExportBundle {

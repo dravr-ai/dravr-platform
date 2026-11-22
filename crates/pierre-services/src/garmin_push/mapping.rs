@@ -20,12 +20,14 @@
 //! cageux's [`NormalizedPowerCalculator`], so a ride's intensity, efficiency
 //! and variability factors can be read off it like any provider's.
 
+use pierre_core::civil_time::day_start_utc;
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
 use dravr_cageux::visitor::NormalizedPowerCalculator;
 use dravr_riviere::DataPoint;
 use dravr_sciotte::models::SportType as GarminSportKey;
+use dravr_tronc::dates::Zone;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers::{garmin_service_attribution, GARMIN};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::activity::utc_offset_seconds_if_civil;
@@ -95,8 +97,8 @@ fn whole(value: Option<f64>) -> Option<u32> {
 }
 
 /// Unix seconds as an instant.
-fn instant(seconds: i64) -> Option<DateTime<Utc>> {
-    DateTime::<Utc>::from_timestamp(seconds, 0)
+fn instant(seconds: i64) -> Option<Timestamp> {
+    Timestamp::from_epoch_seconds(seconds).ok()
 }
 
 /// The activity a summary describes, keyed by `activity_id`, or why it is
@@ -446,7 +448,7 @@ pub(crate) fn sleep_session(
         .iter()
         .map(|stage| stage.end)
         .max()
-        .unwrap_or_else(|| start + Duration::seconds(window));
+        .unwrap_or_else(|| start + Elapsed::seconds(window));
     Some(StoredSleepSession {
         id: String::new(),
         user_id: user_id.to_owned(),
@@ -510,7 +512,7 @@ pub(crate) fn daily_activity_row(
     daily: &DailyRecord,
     user_id: &str,
     data_source_id: &str,
-    date: NaiveDate,
+    date: CivilDate,
 ) -> Option<StoredDailyActivity> {
     let active = daily
         .active_kilocalories
@@ -534,7 +536,7 @@ pub(crate) fn daily_activity_row(
         recorded_at: daily
             .start_time_in_seconds
             .and_then(instant)
-            .unwrap_or_else(|| date.and_time(NaiveTime::MIN).and_utc()),
+            .unwrap_or_else(|| day_start_utc(date, &Zone::utc())),
     };
     (day.steps.is_some()
         || day.active_kcal.is_some()
@@ -572,8 +574,8 @@ pub(crate) fn measured(value: f64) -> bool {
 
 /// A `yyyy-mm-dd` calendar date.
 #[must_use]
-pub(crate) fn calendar_date(text: Option<&str>) -> Option<NaiveDate> {
-    NaiveDate::parse_from_str(text?.trim(), "%Y-%m-%d").ok()
+pub(crate) fn calendar_date(text: Option<&str>) -> Option<CivilDate> {
+    CivilDate::parse_from_str(text?.trim(), "%Y-%m-%d").ok()
 }
 
 /// The readings one push brings to a day's recovery row, each `None` when
@@ -614,7 +616,7 @@ pub(crate) fn recovery_row(
     readings: RecoveryReadings,
     user_id: &str,
     data_source_id: &str,
-    date: NaiveDate,
+    date: CivilDate,
 ) -> StoredRecoveryMetrics {
     StoredRecoveryMetrics {
         id: String::new(),
@@ -634,7 +636,7 @@ pub(crate) fn recovery_row(
         daily_strain: None,
         athlete_note: None,
         source_name: GARMIN.to_owned(),
-        recorded_at: date.and_time(NaiveTime::MIN).and_utc(),
+        recorded_at: day_start_utc(date, &Zone::utc()),
     }
 }
 
@@ -672,7 +674,7 @@ pub(crate) fn body_row(
     readings: BodyReadings,
     user_id: &str,
     data_source_id: &str,
-    date: NaiveDate,
+    date: CivilDate,
 ) -> StoredHealthMetrics {
     StoredHealthMetrics {
         id: String::new(),
@@ -690,7 +692,7 @@ pub(crate) fn body_row(
         blood_glucose: None,
         vo2_max: readings.vo2_max,
         source_name: GARMIN.to_owned(),
-        recorded_at: date.and_time(NaiveTime::MIN).and_utc(),
+        recorded_at: day_start_utc(date, &Zone::utc()),
     }
 }
 
@@ -966,12 +968,12 @@ mod tests {
         };
         let session = sleep_session(&record, "user", "source").unwrap();
         assert_eq!(
-            session.start_datetime.timestamp(),
+            session.start_datetime.epoch_seconds(),
             START,
             "the night starts at the record's start"
         );
         assert_eq!(
-            session.end_datetime.timestamp(),
+            session.end_datetime.epoch_seconds(),
             START + 5_400,
             "the night ends start plus duration"
         );
@@ -1002,7 +1004,7 @@ mod tests {
         let points = offset_points(START, &series, measured);
         assert_eq!(points.len(), 2, "a negative no-reading code is dropped");
         assert_eq!(
-            points[1].timestamp.timestamp(),
+            points[1].timestamp.epoch_seconds(),
             START + 360,
             "a point is timed by its offset from the start"
         );
@@ -1010,7 +1012,7 @@ mod tests {
 
     #[test]
     fn a_push_row_carries_only_its_summarys_readings() {
-        let date = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
+        let date = CivilDate::from_ymd(2026, 10, 1).unwrap();
         let hrv = recovery_row(
             RecoveryReadings {
                 hrv_rmssd: Some(61.0),
@@ -1049,7 +1051,7 @@ mod tests {
             },
             "user",
             "source",
-            NaiveDate::from_ymd_opt(2026, 10, 1).unwrap(),
+            CivilDate::from_ymd(2026, 10, 1).unwrap(),
         );
         assert_eq!(
             row.body_battery,

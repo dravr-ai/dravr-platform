@@ -11,11 +11,11 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::Utc;
 use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::models::connection::ConnectedUser;
 use dravr_enforme::SyncOrchestrator;
 use dravr_equilibre_sync::{SyncResult, SyncStatus};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{DelegatedConnection, OAuthNotification, SmartScheduleWeights, TenantId};
 use pierre_database::repositories::WorkerRunRepository;
 use pierre_database::{AuthRepos, RepositoryRegistry};
@@ -142,7 +142,7 @@ async fn run_scheduled_sync_cycle(
         .await;
     }
 
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     for provider in delegated_wellness_providers(orchestrator) {
         sync_delegated_members(storage, orchestrator, provider, now_ms, deadline).await;
     }
@@ -535,7 +535,7 @@ async fn record_landed_sync(
 ) {
     if let Err(e) = repos
         .oauth_tokens
-        .update_provider_last_sync(user_uuid, tenant, backend, Utc::now())
+        .update_provider_last_sync(user_uuid, tenant, backend, Timestamp::now())
         .await
     {
         warn!(%user_uuid, provider = %backend, error = %e, "could not stamp last_sync after a landed sync");
@@ -611,7 +611,7 @@ pub async fn scrape_sync_not_due(
     else {
         return false;
     };
-    Utc::now()
+    Timestamp::now()
         .signed_duration_since(last_sync)
         .to_std()
         .is_ok_and(|age| age < SCRAPE_SYNC_MIN_INTERVAL)
@@ -633,7 +633,7 @@ async fn send_sync_notification(
             success: true,
             message: format!("Synced {records_created} new records from {provider_name}"),
             expires_at: None,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             read_at: None,
         };
         if let Err(e) = sse_manager
@@ -647,6 +647,7 @@ async fn send_sync_notification(
 
 #[cfg(test)]
 mod tests {
+    use dravr_tronc::dates::Elapsed;
     use secrecy::SecretString;
     use std::collections::HashMap;
     use std::future::pending;
@@ -896,7 +897,7 @@ mod tests {
         let user = create_test_user(&format!("{}@example.com", Uuid::new_v4()), None);
         repos.users.create(&user).await.unwrap();
         let tenant_id = TenantId::generate();
-        let now = Utc::now();
+        let now = Timestamp::now();
         repos
             .tenants
             .create(&Tenant {
@@ -921,7 +922,7 @@ mod tests {
                 access_token: SecretString::from("whoop_access_token"),
                 refresh_token: Some(SecretString::from("whoop_refresh")),
                 token_type: "Bearer".to_owned(),
-                expires_at: Some(now + chrono::Duration::hours(1)),
+                expires_at: Some(now + Elapsed::hours(1)),
                 scope: Some("read:sleep".to_owned()),
                 provider_user_id: None,
                 oauth_app_client_id: None,
@@ -959,7 +960,7 @@ mod tests {
             .map(|id| ConnectedUser {
                 user_id: id.to_string(),
                 provider: "whoop".to_owned(),
-                connected_at: Utc::now(),
+                connected_at: Timestamp::now(),
                 is_active: true,
             })
             .collect();
@@ -1039,7 +1040,7 @@ mod tests {
         let user = ConnectedUser {
             user_id: athlete.to_string(),
             provider: "whoop".to_owned(),
-            connected_at: Utc::now(),
+            connected_at: Timestamp::now(),
             is_active: true,
         };
 
@@ -1107,7 +1108,7 @@ mod tests {
                 PLATFORM_SCOPE,
                 PLATFORM_SCOPE,
                 &budget_counter_key("whoop", APP),
-                &budget_period(Utc::now(), ONE_DAY),
+                &budget_period(Timestamp::now(), ONE_DAY),
                 i64::from(background_share),
             )
             .await
@@ -1126,7 +1127,7 @@ mod tests {
         let user = ConnectedUser {
             user_id: athlete.to_string(),
             provider: "whoop".to_owned(),
-            connected_at: Utc::now(),
+            connected_at: Timestamp::now(),
             is_active: true,
         };
         sync_single_user_within(
@@ -1168,7 +1169,7 @@ mod tests {
             let user = ConnectedUser {
                 user_id: athlete.to_string(),
                 provider: "garmin".to_owned(),
-                connected_at: Utc::now(),
+                connected_at: Timestamp::now(),
                 is_active: true,
             };
             // Never landing, so a quiet sync cannot pass by re-arming.

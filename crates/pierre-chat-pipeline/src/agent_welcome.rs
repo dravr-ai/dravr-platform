@@ -46,7 +46,7 @@ mod first_welcome;
 use std::future::Future;
 use std::pin::Pin;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, KEY_AGENT_WELCOME_CAN_SEE,
     KEY_AGENT_WELCOME_DISCOVER_LINE, KEY_AGENT_WELCOME_GREETING,
@@ -385,7 +385,7 @@ async fn first_welcome(
         )
         .await;
     let (history, policy) = if in_app && !spoke {
-        read_history(repos, target.agent_tenant_id, user, Utc::now())
+        read_history(repos, target.agent_tenant_id, user, Timestamp::now())
             .await
             .unwrap_or_else(|e| {
                 warn!(error = %e, "synced history unreadable; the welcome says no figures");
@@ -611,7 +611,7 @@ async fn record_shown(
     }
     if let Err(e) = repos
         .use_case_exposures
-        .record_use_cases_shown(target.agent_tenant_id, user, &ranked, Utc::now())
+        .record_use_cases_shown(target.agent_tenant_id, user, &ranked, Timestamp::now())
         .await
     {
         warn!(error = %e, conversation_id = %target.conversation.id, "starters shown could not be counted");

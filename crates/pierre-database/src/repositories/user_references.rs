@@ -506,7 +506,7 @@ macro_rules! clear_user_in_transaction {
         // reach; the erasure sweep removes them once this commits.
         sqlx::query(QUEUE_ARCHIVE_ERASURE_SQL)
             .bind(&owner)
-            .bind(Utc::now())
+            .bind(Timestamp::now())
             .execute(guard.executor()?)
             .await
             .map_err(|e| delete_user_error(user_id, &e))?;
@@ -514,7 +514,7 @@ macro_rules! clear_user_in_transaction {
             sqlx::query(QUEUE_FIREBASE_DELETION_SQL)
                 .bind($ids::bind(user_id))
                 .bind(project)
-                .bind(Utc::now())
+                .bind(Timestamp::now())
                 .execute(guard.executor()?)
                 .await
                 .map_err(|e| delete_user_error(user_id, &e))?;

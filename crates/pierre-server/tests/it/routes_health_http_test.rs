@@ -15,6 +15,7 @@
 
 use crate::helpers;
 
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_mcp_server::routes::health::HealthRoutes;
 
@@ -65,7 +66,7 @@ async fn test_health_endpoint_response_structure() {
 
     // Verify timestamp is in ISO 8601 format
     let timestamp_str = body["timestamp"].as_str().unwrap();
-    assert!(chrono::DateTime::parse_from_rfc3339(timestamp_str).is_ok());
+    assert!(Timestamp::parse_from_rfc3339(timestamp_str).is_ok());
 }
 
 // ============================================================================
@@ -110,7 +111,7 @@ async fn test_ready_endpoint_response_structure() {
 
     // Verify timestamp is in ISO 8601 format
     let timestamp_str = body["timestamp"].as_str().unwrap();
-    assert!(chrono::DateTime::parse_from_rfc3339(timestamp_str).is_ok());
+    assert!(Timestamp::parse_from_rfc3339(timestamp_str).is_ok());
 }
 
 // ============================================================================

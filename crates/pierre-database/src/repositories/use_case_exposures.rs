@@ -14,7 +14,7 @@
 //! Every statement is keyed by both `tenant_id` and `user_id`.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -27,9 +27,9 @@ pub struct UseCaseExposure {
     /// Welcomes that offered it since its last tap.
     pub shown_count: u32,
     /// When a welcome last offered it.
-    pub last_shown_at: Option<DateTime<Utc>>,
+    pub last_shown_at: Option<Timestamp>,
     /// When the athlete last tapped it.
-    pub tapped_at: Option<DateTime<Utc>>,
+    pub tapped_at: Option<Timestamp>,
 }
 
 /// The starters each athlete was shown and tapped.
@@ -41,7 +41,7 @@ pub trait UseCaseExposureRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: Uuid,
         use_case_ids: &[&str],
-        shown_at: DateTime<Utc>,
+        shown_at: Timestamp,
     ) -> AppResult<()>;
 
     /// Record that `user_id` tapped `use_case_id` at `tapped_at`, which
@@ -51,7 +51,7 @@ pub trait UseCaseExposureRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: Uuid,
         use_case_id: &str,
-        tapped_at: DateTime<Utc>,
+        tapped_at: Timestamp,
     ) -> AppResult<()>;
 
     /// Every starter `user_id` was shown or tapped, by id.
@@ -95,13 +95,13 @@ pub(crate) type ExposureRow = (String, i64, Option<i64>, Option<i64>);
 ///
 /// # Errors
 /// Returns a database error for a negative count or an instant outside
-/// chrono's range, which only a hand-edited row can hold.
+/// the range the date types hold, which only a hand-edited row can hold.
 pub(crate) fn exposure_from_row(
     (use_case_id, shown_count, last_shown_at_ms, tapped_at_ms): ExposureRow,
 ) -> AppResult<UseCaseExposure> {
     let instant = |ms: Option<i64>, column: &str| {
         ms.map(|ms| {
-            DateTime::from_timestamp_millis(ms).ok_or_else(|| {
+            Timestamp::from_epoch_millis(ms).ok().ok_or_else(|| {
                 AppError::database(format!(
                     "use_case_exposures.{column} {ms} is not a representable instant"
                 ))
@@ -134,14 +134,14 @@ macro_rules! impl_use_case_exposure_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 use_case_ids: &[&str],
-                shown_at: DateTime<Utc>,
+                shown_at: Timestamp,
             ) -> AppResult<()> {
                 for use_case_id in use_case_ids {
                     sqlx::query(RECORD_USE_CASE_SHOWN_SQL)
                         .bind($ids::bind(tenant_id.as_uuid()))
                         .bind($ids::bind(user_id))
                         .bind(*use_case_id)
-                        .bind(shown_at.timestamp_millis())
+                        .bind(shown_at.epoch_millis())
                         .execute(self.pool())
                         .await
                         .map_err(|e| {
@@ -156,13 +156,13 @@ macro_rules! impl_use_case_exposure_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 use_case_id: &str,
-                tapped_at: DateTime<Utc>,
+                tapped_at: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(RECORD_USE_CASE_TAPPED_SQL)
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
                     .bind(use_case_id)
-                    .bind(tapped_at.timestamp_millis())
+                    .bind(tapped_at.epoch_millis())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

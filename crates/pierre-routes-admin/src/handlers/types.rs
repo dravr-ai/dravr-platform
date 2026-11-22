@@ -9,7 +9,7 @@
 //! This module contains all DTOs (Data Transfer Objects) used by the admin
 //! routes for serialization and deserialization of API requests and responses.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -191,7 +191,7 @@ pub struct SignupSettingsResponse {
     pub counted: i64,
     /// The ceiling's window start: the later of 24 hours ago and the last
     /// reset (carnet#1131)
-    pub counted_since: DateTime<Utc>,
+    pub counted_since: Timestamp,
     /// Whether the register form's bot check (Turnstile) is configured
     pub turnstile_configured: bool,
     /// What the settings do

@@ -7,7 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::provider::ProviderError;
 use pierre_providers::core::{CredentialKind, OAuth2Credentials};
 use pierre_providers::utils::{conversions, is_authenticated, RetryConfig};
@@ -47,7 +48,7 @@ fn test_is_authenticated() {
         client_secret: SecretString::from("secret"),
         access_token: None,
         refresh_token: Some(SecretString::from("refresh")),
-        expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,
@@ -60,7 +61,7 @@ fn test_is_authenticated() {
         client_secret: SecretString::from("secret"),
         access_token: Some(SecretString::from("token")),
         refresh_token: Some(SecretString::from("refresh")),
-        expires_at: Some(Utc::now() - chrono::Duration::hours(1)),
+        expires_at: Some(Timestamp::now() - Elapsed::hours(1)),
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,
@@ -73,7 +74,7 @@ fn test_is_authenticated() {
         client_secret: SecretString::from("secret"),
         access_token: Some(SecretString::from("token")),
         refresh_token: Some(SecretString::from("refresh")),
-        expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
+        expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
         request_budget: None,

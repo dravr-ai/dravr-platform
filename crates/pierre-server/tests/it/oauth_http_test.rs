@@ -21,6 +21,7 @@ use axum::{
     routing::get,
     Router,
 };
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use std::collections::HashMap;
 
@@ -33,7 +34,7 @@ async fn test_health_endpoint() {
             axum::Json(serde_json::json!({
                 "status": "healthy",
                 "service": "pierre-mcp-server-single-tenant",
-                "timestamp": chrono::Utc::now().to_rfc3339()
+                "timestamp": Timestamp::now().to_rfc3339()
             }))
         }),
     );

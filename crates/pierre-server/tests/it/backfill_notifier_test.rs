@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_chat_pipeline::stages::activity_fold::shape_for_fold;
 use pierre_chat_pipeline::{AssistantTurn, ReplyBlock};
 use pierre_core::models::messaging::{ChannelType, MessageContent};
@@ -1300,7 +1300,7 @@ async fn push_sends_warmed_activity_list() {
     // `after_ts` = 30 days ago, so the 2- and 5-day-old activities fall inside
     // the `[after_ts, now]` window the notifier reads. `activity_count` here is
     // the warmed count the backfill reported.
-    let after_ts = (Utc::now() - Duration::days(30)).timestamp();
+    let after_ts = (Timestamp::now() - Elapsed::days(30)).epoch_seconds();
     notifier
         .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
@@ -1368,7 +1368,7 @@ async fn push_falls_back_to_nudge_on_empty_cache() {
         BASE_URL.to_owned(),
     );
 
-    let after_ts = (Utc::now() - Duration::days(30)).timestamp();
+    let after_ts = (Timestamp::now() - Elapsed::days(30)).epoch_seconds();
     notifier
         .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
@@ -1434,7 +1434,7 @@ async fn push_delivers_into_an_in_app_conversation_with_no_channel_session() {
         BASE_URL.to_owned(),
     );
 
-    let after_ts = (Utc::now() - Duration::days(500)).timestamp();
+    let after_ts = (Timestamp::now() - Elapsed::days(500)).epoch_seconds();
     notifier
         .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
@@ -1540,7 +1540,7 @@ async fn push_into_an_in_app_conversation_delivers_the_agents_answer() {
             tenant_id,
             &conversation_id,
             "strava",
-            (Utc::now() - Duration::days(500)).timestamp(),
+            (Timestamp::now() - Elapsed::days(500)).epoch_seconds(),
             1,
         ))
         .await;
@@ -1627,7 +1627,7 @@ async fn a_withheld_in_app_post_falls_back_to_the_list() {
             tenant_id,
             &conversation_id,
             "strava",
-            (Utc::now() - Duration::days(500)).timestamp(),
+            (Timestamp::now() - Elapsed::days(500)).epoch_seconds(),
             1,
         ))
         .await;
@@ -1683,7 +1683,7 @@ async fn push_still_drops_a_reset_messaging_thread() {
         BASE_URL.to_owned(),
     );
 
-    let after_ts = (Utc::now() - Duration::days(500)).timestamp();
+    let after_ts = (Timestamp::now() - Elapsed::days(500)).epoch_seconds();
     notifier
         .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
@@ -1786,7 +1786,7 @@ async fn push_answers_in_an_adopted_personal_thread_when_asked_in_the_app() {
         BASE_URL.to_owned(),
     );
 
-    let after_ts = (Utc::now() - Duration::days(500)).timestamp();
+    let after_ts = (Timestamp::now() - Elapsed::days(500)).epoch_seconds();
     notifier
         .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
@@ -1859,7 +1859,7 @@ async fn push_body_is_rendered_in_the_users_locale() {
         BASE_URL.to_owned(),
     );
 
-    let after_ts = (Utc::now() - Duration::days(500)).timestamp();
+    let after_ts = (Timestamp::now() - Elapsed::days(500)).epoch_seconds();
     notifier
         .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,

@@ -24,7 +24,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use futures_util::future::join_all;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_core::errors::AppResult;
@@ -93,7 +93,7 @@ pub async fn resume_extraction_jobs(
     system_prompt: &str,
     usage_writes: &TaskTracker,
 ) -> AppResult<usize> {
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     let claim = ExtractionJobClaim {
         now_ms,
         queued_older_than_ms: millis(QUEUED_GRACE),

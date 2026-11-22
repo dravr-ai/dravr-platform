@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::transport::TransportPolicy;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -39,7 +39,7 @@ pub struct CompactionBlock {
     /// Inclusive ID of the last message this block replaces.
     pub last_message_id: String,
     /// When the block was generated.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Where this row may be served (carnet#769): first-party-only when what it
     /// was derived from was. Rows written before the stamp read as unstamped.
     #[serde(default, skip_serializing)]

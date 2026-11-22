@@ -13,6 +13,7 @@
 
 use std::time::Duration;
 
+use dravr_tronc::dates::Timestamp;
 use pierre_services::chat_provider_factory::should_skip_probe;
 
 const INTERVAL: Duration = Duration::from_mins(30);
@@ -53,7 +54,7 @@ async fn piggyback_stamps_the_real_success_time_not_now() {
     // success time, not `now`, or `/health/llm` overstates freshness.
     let state = LlmHealthState::new();
     let observed_ago = Duration::from_mins(10);
-    let before = chrono::Utc::now();
+    let before = Timestamp::now();
     state
         .record_healthy_observed("copilot_headless", observed_ago)
         .await;

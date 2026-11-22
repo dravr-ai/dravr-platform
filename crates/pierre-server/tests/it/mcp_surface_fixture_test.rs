@@ -33,6 +33,11 @@
 //!   the coach's without `athlete`: an admin who coaches no group is not
 //!   offered it.
 //!
+//! Every definition carries its `def_hash` (dravr-tronc 7.3.0), frozen in the
+//! coach fixture. A view derived by editing a schema compares definitions with
+//! the hash set aside, and each served hash is checked against
+//! `Tool::def_hash` of its own definition.
+//!
 //! The contremaitre description overlay starts empty and is only filled when
 //! `CONTREMAITRE_REPO` is set, so these are the compiled-in descriptions — the
 //! same parity rule as the SDK type regeneration.
@@ -49,8 +54,9 @@ use crate::helpers::coach_roster_fixtures::{coached_group, group_agent, Person};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::{env, fs};
+use std::{env, fs, slice};
 
+use crate::helpers::tool_def_hash::without_def_hashes;
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::server::McpServer;
 use dravr_tronc::mcp::tool::ToolContext;
@@ -276,21 +282,19 @@ async fn mcp_surface_matches_the_committed_fixtures() {
     // coach-only tools and without `athlete`, and nothing else is different
     // (carnet#1426). Frozen as a derivation, not as a second 1.3 MB fixture.
     let non_coach_list = call(&server, "tools/list", json!({}), &non_coach).await;
-    let mut expected: Vec<Value> = coach_list["result"]["tools"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|tool| {
-            ![
-                "get_group_member_activities",
-                "get_group_member_plan_status",
-                "get_roster_overview",
-            ]
-            .iter()
-            .any(|coach_tool| tool["name"] == *coach_tool)
-        })
-        .cloned()
-        .collect();
+    let mut expected: Vec<Value> =
+        without_def_hashes(coach_list["result"]["tools"].as_array().unwrap())
+            .into_iter()
+            .filter(|tool| {
+                ![
+                    "get_group_member_activities",
+                    "get_group_member_plan_status",
+                    "get_roster_overview",
+                ]
+                .iter()
+                .any(|coach_tool| tool["name"] == *coach_tool)
+            })
+            .collect();
     let mut athlete_properties = 0_usize;
     for tool in &mut expected {
         if let Some(properties) = tool["inputSchema"]["properties"].as_object_mut() {
@@ -302,8 +306,8 @@ async fn mcp_surface_matches_the_committed_fixtures() {
         "the coach list carries athlete= on the scoped reads, or this proves nothing"
     );
     assert_eq!(
-        json!(expected),
-        non_coach_list["result"]["tools"],
+        expected,
+        without_def_hashes(non_coach_list["result"]["tools"].as_array().unwrap()),
         "a non-coach's list is the coach's without the coach tools and athlete="
     );
     // The public profile's names: what an external client who coaches no
@@ -420,7 +424,7 @@ fn assert_admin_list(
             admin_only.push(tool.clone());
             continue;
         };
-        let mut expected = (*coach_tool).clone();
+        let mut expected = without_def_hashes(slice::from_ref(*coach_tool)).remove(0);
         if let Some(properties) = expected["inputSchema"]["properties"].as_object_mut() {
             properties.remove("athlete");
         }
@@ -431,7 +435,8 @@ fn assert_admin_list(
             required.retain(|property| property != "athlete");
         }
         assert_eq!(
-            tool, &expected,
+            without_def_hashes(slice::from_ref(tool)).remove(0),
+            expected,
             "the admin schema of `{name}` is the coach's without athlete="
         );
     }

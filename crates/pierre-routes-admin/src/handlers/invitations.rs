@@ -20,7 +20,8 @@
 
 use axum::http::StatusCode;
 use axum::response::Response;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
+use pierre_core::civil_time::UTC_MINUTE;
 use tracing::{info, warn};
 
 use pierre_core::admin::models::ValidatedAdminToken;
@@ -91,7 +92,7 @@ pub(super) enum InviteReport {
     /// A single-use invitation was issued and mailed.
     Sent {
         /// When its link stops working.
-        expires_at: DateTime<Utc>,
+        expires_at: Timestamp,
     },
     /// A single-use invitation was issued and its link answered to the
     /// admin who asked, not mailed.
@@ -99,7 +100,7 @@ pub(super) enum InviteReport {
         /// The accept link, token in its fragment.
         url: String,
         /// When the link stops working.
-        expires_at: DateTime<Utc>,
+        expires_at: Timestamp,
     },
     /// The address already has an account, so there is nothing to invite.
     AccountExists,
@@ -118,7 +119,7 @@ impl InviteReport {
     }
 
     /// When the outstanding invitation's link stops working.
-    pub(super) const fn expires_at(&self) -> Option<DateTime<Utc>> {
+    pub(super) const fn expires_at(&self) -> Option<Timestamp> {
         match self {
             Self::Sent { expires_at } | Self::Link { expires_at, .. } => Some(*expires_at),
             _ => None,
@@ -140,11 +141,11 @@ impl InviteReport {
             Self::NotAsked => String::new(),
             Self::Sent { expires_at } => format!(
                 " — invitation sent: its link works once, until {}",
-                expires_at.format("%Y-%m-%d %H:%M UTC")
+                expires_at.format_with(&UTC_MINUTE)
             ),
             Self::Link { expires_at, .. } => format!(
                 " — invitation link issued, not mailed: it works once, until {}",
-                expires_at.format("%Y-%m-%d %H:%M UTC")
+                expires_at.format_with(&UTC_MINUTE)
             ),
             Self::AccountExists => {
                 " — no invitation sent: the address already has an account".to_owned()

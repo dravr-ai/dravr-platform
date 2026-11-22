@@ -97,8 +97,8 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use chrono::Utc;
 use dravr_barrage::export::EXPORT_WITHHELD;
+use dravr_tronc::dates::Timestamp;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio_stream::wrappers::ReceiverStream;
@@ -295,7 +295,7 @@ async fn write_export<S: ChunkSink>(
     let head = json!({
         "format": "dravr-user-export",
         "format_version": 1,
-        "generated_at": Utc::now().to_rfc3339(),
+        "generated_at": Timestamp::now().to_rfc3339(),
         "user_id": user_id,
         "withheld": withheld,
         "originals": sources.originals,
@@ -658,7 +658,7 @@ pub(crate) async fn handle_user_export(
 
     let filename = format!(
         "attachment; filename=\"dravr-export-{}.json\"",
-        Utc::now().format("%Y-%m-%d")
+        Timestamp::now().utc_date()
     );
     let mut response = Response::new(Body::from_stream(ReceiverStream::new(receiver)));
     let response_headers = response.headers_mut();

@@ -30,7 +30,7 @@ mod capability_recovery {
     use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_scraper};
     use async_trait::async_trait;
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use embacle::types::ToolCallRequest;
     use futures_util::stream;
     use hmac::{Hmac, Mac};
@@ -228,7 +228,7 @@ mod capability_recovery {
         user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
 
@@ -240,8 +240,8 @@ mod capability_recovery {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common
@@ -320,7 +320,7 @@ mod capability_recovery {
             }
         })
         .to_string();
-        let timestamp = Utc::now().timestamp().to_string();
+        let timestamp = Timestamp::now().epoch_seconds().to_string();
         let sig = compute_slack_sig(signing_secret, &timestamp, &body);
 
         let router = MessagingRoutes::routes(Arc::clone(resources));
@@ -1117,6 +1117,7 @@ mod capability_recovery {
     mod subject_routing {
         use super::*;
         use crate::helpers::offline_channel::name_fixture_bot;
+        use dravr_tronc::dates::Elapsed;
         use pierre_chat_pipeline::stages::capability_subject::{
             SUBJECT_DECLINED_MARKER, SUBJECT_FETCHED_MARKER,
         };
@@ -1268,7 +1269,7 @@ mod capability_recovery {
             );
             user.user_status = UserStatus::Active;
             user.approved_by = Some(user.id);
-            user.approved_at = Some(Utc::now());
+            user.approved_at = Some(Timestamp::now());
             let user_id = user.id;
             resources.common.repos.users.create(&user).await.unwrap();
 
@@ -1280,8 +1281,8 @@ mod capability_recovery {
                 domain: None,
                 plan: "starter".to_owned(),
                 owner_user_id: user_id,
-                created_at: Utc::now(),
-                updated_at: Utc::now(),
+                created_at: Timestamp::now(),
+                updated_at: Timestamp::now(),
             };
             resources
                 .common
@@ -1328,7 +1329,7 @@ mod capability_recovery {
             role: GroupRole,
             consent: bool,
         ) {
-            let now = Utc::now();
+            let now = Timestamp::now();
             resources
                 .common
                 .repos
@@ -1399,7 +1400,7 @@ mod capability_recovery {
                 PEER_RIDE_ID.to_owned(),
                 "Sortie longue".to_owned(),
                 SportType::Ride,
-                Utc::now() - chrono::Duration::days(12),
+                Timestamp::now() - Elapsed::days(12),
                 7_200,
                 "strava".to_owned(),
             )
@@ -1456,7 +1457,7 @@ mod capability_recovery {
                 .unwrap();
 
             let group_id = Uuid::new_v4();
-            let now = Utc::now();
+            let now = Timestamp::now();
             resources
                 .common
                 .repos

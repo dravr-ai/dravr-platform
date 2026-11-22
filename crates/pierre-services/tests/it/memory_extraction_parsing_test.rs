@@ -15,7 +15,7 @@ use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
@@ -177,7 +177,7 @@ impl HarnessMemoryRepository for RecordingFacts {
         Err(off_path("list_compaction_blocks"))
     }
     async fn upsert_user_fact(&self, params: &UpsertUserFactParams<'_>) -> AppResult<UserFact> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let row = UserFact {
             id: Uuid::new_v4().to_string(),
             tenant_id: params.tenant_id.to_string(),
@@ -299,8 +299,8 @@ impl HarnessMemoryRepository for RecordingFacts {
         _tenant_id: TenantId,
         _user_id: &str,
         _pillar: Option<Pillar>,
-        _created_after: Option<DateTime<Utc>>,
-        _created_before: Option<DateTime<Utc>>,
+        _created_after: Option<Timestamp>,
+        _created_before: Option<Timestamp>,
         _predicate_code: Option<PredicateCode>,
     ) -> AppResult<u64> {
         Err(off_path("expire_onboarding_facts"))
@@ -823,7 +823,7 @@ async fn a_run_that_landed_three_facts_and_lost_one_records_the_three() {
     assert_eq!(facts.upserts.lock().unwrap().len(), 3, "three facts landed");
     let stats = repos
         .memory_extraction_jobs
-        .extraction_run_stats(tenant_id.into(), Utc::now().timestamp_millis(), 0)
+        .extraction_run_stats(tenant_id.into(), Timestamp::now().epoch_millis(), 0)
         .await
         .unwrap();
     assert_eq!(stats.last_24h.failed, 1, "the run is a failure: {stats:?}");

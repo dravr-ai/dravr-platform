@@ -10,7 +10,7 @@
 use crate::common;
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::{admin::jwks::JwksManager, auth::AuthManager};
 use pierre_core::admin::models::{AdminPermission, AdminPermissions};
 use pierre_core::admin::AdminJwtManager;
@@ -42,13 +42,16 @@ async fn test_rsa_keypair_persistence() -> Result<()> {
 
     // Generate a key and save it
     let mut jwks_manager = JwksManager::new();
-    let kid = format!("test_key_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+    let kid = format!(
+        "test_key_{}",
+        Timestamp::now().format("%Y%m%d_%H%M%S").unwrap()
+    );
     jwks_manager.generate_rsa_key_pair_with_size(&kid, 2048)?;
 
     let key_pair = jwks_manager.get_active_key()?;
     let private_pem = key_pair.export_private_key_pem()?;
     let public_pem = key_pair.export_public_key_pem()?;
-    let created_at = Utc::now();
+    let created_at = Timestamp::now();
 
     // Save to database
     repos
@@ -77,13 +80,16 @@ async fn test_jwks_manager_loads_from_database() -> Result<()> {
 
     // Create and save a key (simulates CLI pierre-cli)
     let mut original_jwks = JwksManager::new();
-    let kid = format!("cli_key_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+    let kid = format!(
+        "cli_key_{}",
+        Timestamp::now().format("%Y%m%d_%H%M%S").unwrap()
+    );
     original_jwks.generate_rsa_key_pair_with_size(&kid, 2048)?;
 
     let key_pair = original_jwks.get_active_key()?;
     let private_pem = key_pair.export_private_key_pem()?;
     let public_pem = key_pair.export_public_key_pem()?;
-    let created_at = Utc::now();
+    let created_at = Timestamp::now();
 
     repos
         .security
@@ -112,13 +118,16 @@ async fn test_cli_generated_admin_token_valid_on_server() -> Result<()> {
     // === CLI SIDE (pierre-cli) ===
     // CLI generates key and saves to database
     let mut cli_jwks = JwksManager::new();
-    let kid = format!("admin_key_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+    let kid = format!(
+        "admin_key_{}",
+        Timestamp::now().format("%Y%m%d_%H%M%S").unwrap()
+    );
     cli_jwks.generate_rsa_key_pair_with_size(&kid, 2048)?;
 
     let key_pair = cli_jwks.get_active_key()?;
     let private_pem = key_pair.export_private_key_pem()?;
     let public_pem = key_pair.export_public_key_pem()?;
-    let created_at = Utc::now();
+    let created_at = Timestamp::now();
 
     repos
         .security
@@ -173,13 +182,16 @@ async fn test_user_session_token_with_persisted_keys() -> Result<()> {
 
     // Process 1: Generate and save key
     let mut process1_jwks = JwksManager::new();
-    let kid = format!("session_key_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+    let kid = format!(
+        "session_key_{}",
+        Timestamp::now().format("%Y%m%d_%H%M%S").unwrap()
+    );
     process1_jwks.generate_rsa_key_pair_with_size(&kid, 2048)?;
 
     let key_pair = process1_jwks.get_active_key()?;
     let private_pem = key_pair.export_private_key_pem()?;
     let public_pem = key_pair.export_public_key_pem()?;
-    let created_at = Utc::now();
+    let created_at = Timestamp::now();
 
     repos
         .security
@@ -256,13 +268,13 @@ async fn test_multiple_persisted_keys() -> Result<()> {
 
     // Save first key (inactive)
     let mut jwks1 = JwksManager::new();
-    let kid1 = format!("key1_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+    let kid1 = format!("key1_{}", Timestamp::now().format("%Y%m%d_%H%M%S").unwrap());
     jwks1.generate_rsa_key_pair_with_size(&kid1, 2048)?;
 
     let key_pair1 = jwks1.get_active_key()?;
     let private_pem1 = key_pair1.export_private_key_pem()?;
     let public_pem1 = key_pair1.export_public_key_pem()?;
-    let created_at1 = Utc::now();
+    let created_at1 = Timestamp::now();
 
     repos
         .security
@@ -274,13 +286,13 @@ async fn test_multiple_persisted_keys() -> Result<()> {
 
     // Save second key (active)
     let mut jwks2 = JwksManager::new();
-    let kid2 = format!("key2_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+    let kid2 = format!("key2_{}", Timestamp::now().format("%Y%m%d_%H%M%S").unwrap());
     jwks2.generate_rsa_key_pair_with_size(&kid2, 2048)?;
 
     let key_pair2 = jwks2.get_active_key()?;
     let private_pem2 = key_pair2.export_private_key_pem()?;
     let public_pem2 = key_pair2.export_public_key_pem()?;
-    let created_at2 = Utc::now();
+    let created_at2 = Timestamp::now();
 
     repos
         .security
@@ -320,13 +332,16 @@ async fn test_super_admin_token_persistence() -> Result<()> {
 
     // Generate and save key
     let mut jwks = JwksManager::new();
-    let kid = format!("super_admin_key_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+    let kid = format!(
+        "super_admin_key_{}",
+        Timestamp::now().format("%Y%m%d_%H%M%S").unwrap()
+    );
     jwks.generate_rsa_key_pair_with_size(&kid, 2048)?;
 
     let key_pair = jwks.get_active_key()?;
     let private_pem = key_pair.export_private_key_pem()?;
     let public_pem = key_pair.export_public_key_pem()?;
-    let created_at = Utc::now();
+    let created_at = Timestamp::now();
 
     repos
         .security
@@ -421,7 +436,10 @@ async fn test_rsa_private_key_is_encrypted_at_rest() -> Result<()> {
     let repos = database.repositories();
 
     let mut jwks = JwksManager::new();
-    let kid = format!("at_rest_key_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+    let kid = format!(
+        "at_rest_key_{}",
+        Timestamp::now().format("%Y%m%d_%H%M%S").unwrap()
+    );
     jwks.generate_rsa_key_pair_with_size(&kid, 2048)?;
 
     let key_pair = jwks.get_active_key()?;
@@ -430,7 +448,14 @@ async fn test_rsa_private_key_is_encrypted_at_rest() -> Result<()> {
 
     repos
         .security
-        .save_rsa_keypair(&kid, &private_pem, &public_pem, Utc::now(), true, 2048)
+        .save_rsa_keypair(
+            &kid,
+            &private_pem,
+            &public_pem,
+            Timestamp::now(),
+            true,
+            2048,
+        )
         .await?;
 
     let stored = stored_private_key_column(&database, &kid)
@@ -497,7 +522,10 @@ async fn test_plaintext_rsa_private_key_row_loads_and_upgrades() -> Result<()> {
     let repos = database.repositories();
 
     let mut jwks = JwksManager::new();
-    let kid = format!("legacy_key_{}", Utc::now().format("%Y%m%d_%H%M%S"));
+    let kid = format!(
+        "legacy_key_{}",
+        Timestamp::now().format("%Y%m%d_%H%M%S").unwrap()
+    );
     jwks.generate_rsa_key_pair_with_size(&kid, 2048)?;
 
     let key_pair = jwks.get_active_key()?;
@@ -506,7 +534,14 @@ async fn test_plaintext_rsa_private_key_row_loads_and_upgrades() -> Result<()> {
 
     repos
         .security
-        .save_rsa_keypair(&kid, &private_pem, &public_pem, Utc::now(), true, 2048)
+        .save_rsa_keypair(
+            &kid,
+            &private_pem,
+            &public_pem,
+            Timestamp::now(),
+            true,
+            2048,
+        )
         .await?;
 
     // Put the row back the way a database written before at-rest encryption holds it.

@@ -6,7 +6,7 @@
 
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::agents::{
     Agent, AgentCategory, AgentFieldOverlay, AgentPrerequisites, AgentTranslation, AgentVisibility,
 };
@@ -24,8 +24,8 @@ fn sample_agent() -> Agent {
         tags: vec![],
         sample_prompts: vec![],
         token_count: 0,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
         is_system: true,
         visibility: AgentVisibility::Tenant,
         prerequisites: AgentPrerequisites::default(),
@@ -148,8 +148,8 @@ fn translation_is_fresh_requires_matching_source_sha() {
         purpose: None,
         instructions: None,
         source_sha: Some("abc1234567890def".to_owned()),
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     assert!(tr.is_fresh("abc1234567890def"));
@@ -166,8 +166,8 @@ fn translation_without_source_sha_is_always_stale() {
         purpose: None,
         instructions: None,
         source_sha: None,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     assert!(!tr.is_fresh("any16charsha1234"));

@@ -12,6 +12,7 @@ use crate::protocol_types::{
     A2ASpecError, GetTaskRequest, ListTasksRequest, ListTasksResponse, Task, TaskState,
 };
 use crate::{A2ARequest, A2AResponse};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::a2a::A2ATask;
 use serde_json::{from_value, to_value, Value};
 use std::cmp::Reverse;
@@ -28,7 +29,7 @@ struct ListTasksQuery {
     params: ListTasksRequest,
     page_size: u32,
     offset: u32,
-    updated_after: Option<chrono::DateTime<chrono::Utc>>,
+    updated_after: Option<Timestamp>,
 }
 
 impl A2AServer {
@@ -98,8 +99,8 @@ impl A2AServer {
 
         let updated_after = match params.status_timestamp_after.as_deref() {
             None => None,
-            Some(ts) => match chrono::DateTime::parse_from_rfc3339(ts) {
-                Ok(instant) => Some(instant.with_timezone(&chrono::Utc)),
+            Some(ts) => match Timestamp::parse_from_rfc3339(ts) {
+                Ok(instant) => Some(instant),
                 Err(_) => {
                     return Err(Box::new(Self::invalid_params(
                         "Invalid statusTimestampAfter: expected ISO-8601",
@@ -124,7 +125,7 @@ impl A2AServer {
         resources: &A2AResources,
         principal: &AuthPrincipal,
         params: &ListTasksRequest,
-        updated_after: Option<chrono::DateTime<chrono::Utc>>,
+        updated_after: Option<Timestamp>,
         fetch_limit: u32,
         request_id: Option<&Value>,
     ) -> Result<Vec<A2ATask>, Box<A2AResponse>> {

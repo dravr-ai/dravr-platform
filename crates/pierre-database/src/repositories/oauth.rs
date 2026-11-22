@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 
 use pierre_core::models::TenantId;
@@ -178,7 +178,7 @@ pub trait OAuthTokenRepository: Send + Sync {
         stored: &UserOAuthToken,
         access_token: &str,
         refresh_token: Option<&str>,
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     ) -> AppResult<bool>;
     /// Store user OAuth app credentials (`client_id`, `client_secret`)
     async fn store_user_oauth_app(
@@ -205,14 +205,14 @@ pub trait OAuthTokenRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
-    ) -> AppResult<Option<DateTime<Utc>>>;
+    ) -> AppResult<Option<Timestamp>>;
     /// Update last sync timestamp for a provider within a specific tenant
     async fn update_provider_last_sync(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
-        sync_time: DateTime<Utc>,
+        sync_time: Timestamp,
     ) -> AppResult<()>;
 }
 
@@ -250,11 +250,7 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// Move the expiry of `client_id` forward to `expires_at`, never back and
     /// never onto a row that has none: a registration that expires on
     /// inactivity stays alive while its users keep authorizing through it.
-    async fn extend_client_expiry(
-        &self,
-        client_id: &str,
-        expires_at: DateTime<Utc>,
-    ) -> AppResult<()>;
+    async fn extend_client_expiry(&self, client_id: &str, expires_at: Timestamp) -> AppResult<()>;
     /// Delete the client registration `client_id` names, with the codes,
     /// refresh tokens and states issued through it and the consent grants that
     /// name it. Returns `true` when a registration was deleted, `false` when
@@ -270,8 +266,8 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// deleted in the same transaction.
     async fn delete_stale_clients(
         &self,
-        expired_before: DateTime<Utc>,
-        unauthorized_before: DateTime<Utc>,
+        expired_before: Timestamp,
+        unauthorized_before: Timestamp,
     ) -> AppResult<OAuth2ClientSweep>;
     /// Get OAuth 2.0 client by `client_id`
     async fn get_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>>;
@@ -289,7 +285,7 @@ pub trait OAuth2ServerRepository: Send + Sync {
         code: &str,
         client_id: &str,
         redirect_uri: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<OAuth2AuthCode>>;
     /// Read the authorization code [`consume_auth_code`](Self::consume_auth_code)
     /// would exchange with these arguments, without consuming it: `None` when
@@ -301,14 +297,14 @@ pub trait OAuth2ServerRepository: Send + Sync {
         code: &str,
         client_id: &str,
         redirect_uri: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<OAuth2AuthCode>>;
     /// Atomically consume OAuth 2.0 refresh token (check-and-revoke in single operation)
     async fn consume_refresh_token(
         &self,
         token: &str,
         client_id: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<OAuth2RefreshToken>>;
     /// Revoke every live token in the rotation chain `token` belongs to,
     /// returning how many were revoked — zero when the token is unknown.
@@ -330,7 +326,7 @@ pub trait OAuth2ServerRepository: Send + Sync {
         &self,
         state_value: &str,
         client_id: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<OAuth2State>>;
     /// Persist a user's consent to an MCP OAuth client.
     ///
@@ -458,7 +454,7 @@ pub trait OAuthClientStateRepository: Send + Sync {
         &self,
         state_value: &str,
         provider: &str,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Option<OAuthClientState>>;
     /// Delete the client states that expired without ever being consumed, and
     /// report how many went per provider.
@@ -474,7 +470,7 @@ pub trait OAuthClientStateRepository: Send + Sync {
     /// reaped, never that a provider reaped zero.
     async fn reap_expired_oauth_client_states(
         &self,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Vec<(String, u64)>>;
 }
 
@@ -598,7 +594,7 @@ pub trait ProviderConnectionRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
         error_code: Option<&str>,
-        attempt_started_at: DateTime<Utc>,
+        attempt_started_at: Timestamp,
     ) -> AppResult<ReauthMark>;
     /// Flip the connection `token` belongs to to `needs_reauth` for a refresh
     /// of `token` the provider refused, only while `token` is still its stored
@@ -697,7 +693,7 @@ pub trait ProviderConnectionRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
-        due_before: DateTime<Utc>,
+        due_before: Timestamp,
     ) -> AppResult<bool>;
     /// Every connection flagged `needs_reauth` whose retry is due at
     /// `due_before`, under the condition [`Self::claim_reauth_retry`] claims,
@@ -706,7 +702,7 @@ pub trait ProviderConnectionRepository: Send + Sync {
     /// before touching it.
     async fn list_reauth_retry_due(
         &self,
-        due_before: DateTime<Utc>,
+        due_before: Timestamp,
         limit: i64,
     ) -> AppResult<Vec<ProviderConnection>>;
     /// Atomically claim the one-time sync-failure notification for an `active`

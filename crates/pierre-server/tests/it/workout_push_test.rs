@@ -32,7 +32,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
-use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc, Weekday};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Weekday};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
@@ -72,7 +72,7 @@ const ATHLETE_ID: &str = "i123456";
 struct FakeEvent {
     id: i64,
     body: Value,
-    updated: DateTime<Utc>,
+    updated: Timestamp,
 }
 
 /// How the fake answers.
@@ -156,7 +156,7 @@ impl Stub {
     }
 
     /// Pretend the athlete edited an event on Intervals.icu at `when`.
-    async fn touch(&self, id: i64, when: DateTime<Utc>) {
+    async fn touch(&self, id: i64, when: Timestamp) {
         let mut events = self.events.lock().await;
         let event = events
             .iter_mut()
@@ -250,7 +250,7 @@ fn respond(
             events.push(FakeEvent {
                 id,
                 body: parsed,
-                updated: Utc::now(),
+                updated: Timestamp::now(),
             });
             ("HTTP/1.1 200 OK", json!({ "id": id }).to_string())
         }
@@ -275,7 +275,7 @@ fn respond(
             match events.iter_mut().find(|e| e.id == id) {
                 Some(event) => {
                     event.body = parsed;
-                    event.updated = Utc::now();
+                    event.updated = Timestamp::now();
                     ("HTTP/1.1 200 OK", json!({ "id": id }).to_string())
                 }
                 None => ("HTTP/1.1 404 Not Found", "{}".to_owned()),
@@ -380,7 +380,7 @@ pub(crate) async fn connect_intervals_icu(
     user_id: Uuid,
     tenant: TenantId,
 ) -> Result<()> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     resources
         .repos()
         .oauth_tokens
@@ -525,7 +525,7 @@ impl Fixture {
 
     /// Persist plan weeks the way `save_training_plan` does, with an outline
     /// on the first call so the athlete has an active plan to attach to.
-    async fn save_weeks(&self, with_outline: bool, weeks: &[(NaiveDate, &str, Vec<PlannedDay>)]) {
+    async fn save_weeks(&self, with_outline: bool, weeks: &[(CivilDate, &str, Vec<PlannedDay>)]) {
         self.save_weeks_by(PlanAuthor::none(), with_outline, weeks)
             .await;
     }
@@ -535,7 +535,7 @@ impl Fixture {
         &self,
         author: PlanAuthor<'_>,
         with_outline: bool,
-        weeks: &[(NaiveDate, &str, Vec<PlannedDay>)],
+        weeks: &[(CivilDate, &str, Vec<PlannedDay>)],
     ) {
         self.save_weeks_stamped(author, with_outline, weeks, TransportPolicy::AnyTransport)
             .await;
@@ -547,20 +547,18 @@ impl Fixture {
         &self,
         author: PlanAuthor<'_>,
         with_outline: bool,
-        weeks: &[(NaiveDate, &str, Vec<PlannedDay>)],
+        weeks: &[(CivilDate, &str, Vec<PlannedDay>)],
         transport_policy: TransportPolicy,
     ) {
         let goal = GoalRace {
             name: "Fall race".to_owned(),
-            date: (weeks[0].0 + Duration::days(70))
-                .format("%Y-%m-%d")
-                .to_string(),
+            date: (weeks[0].0 + Elapsed::days(70)).to_string(),
             discipline: "gravel".to_owned(),
             priority: RacePriority::A,
         };
         let phases = vec![PlanPhase {
             kind: PhaseKind::Base,
-            start: weeks[0].0.format("%Y-%m-%d").to_string(),
+            start: weeks[0].0.to_string(),
             weeks: 10,
             intent: "rebuild volume".to_owned(),
             target_hours: None,
@@ -585,7 +583,7 @@ impl Fixture {
         });
         let starts: Vec<String> = weeks
             .iter()
-            .map(|(start, _, _)| start.format("%Y-%m-%d").to_string())
+            .map(|(start, _, _)| start.to_string())
             .collect();
         let inputs: Vec<PlanWeekInput<'_>> = weeks
             .iter()
@@ -683,23 +681,23 @@ fn trail_session() -> Value {
 
 /// The Monday at least a week out, so every plan date is in the future on
 /// whatever day the suite runs.
-fn next_plan_monday() -> NaiveDate {
-    let mut day = Utc::now().date_naive() + Duration::days(7);
+fn next_plan_monday() -> CivilDate {
+    let mut day = Timestamp::now().utc_date() + Elapsed::days(7);
     while day.weekday() != Weekday::Mon {
-        day += Duration::days(1);
+        day += Elapsed::days(1);
     }
     day
 }
 
 fn planned(
-    date: NaiveDate,
+    date: CivilDate,
     sport: &str,
     workout: &str,
     minutes: Option<u32>,
     intensity: &str,
 ) -> PlannedDay {
     PlannedDay {
-        date: date.format("%Y-%m-%d").to_string(),
+        date: date.to_string(),
         sport: sport.to_owned(),
         workout: workout.to_owned(),
         duration_min: minutes,
@@ -714,7 +712,7 @@ fn planned(
     }
 }
 
-fn rest_day(date: NaiveDate) -> PlannedDay {
+fn rest_day(date: CivilDate) -> PlannedDay {
     planned(date, "rest", "", None, "")
 }
 
@@ -738,8 +736,8 @@ fn threshold_steps() -> Vec<WorkoutStep> {
     ]
 }
 
-fn iso(date: NaiveDate) -> String {
-    date.format("%Y-%m-%d").to_string()
+fn iso(date: CivilDate) -> String {
+    date.to_string()
 }
 
 // ── Single prescriptions ───────────────────────────────────────────────────
@@ -855,7 +853,7 @@ async fn a_single_prescription_names_the_agent_it_ran_under() -> Result<()> {
         .await?;
     assert!(direct.success, "prescribe must succeed: {:?}", direct.error);
 
-    let named: Vec<(NaiveDate, Option<String>)> = fixture
+    let named: Vec<(CivilDate, Option<String>)> = fixture
         .live()
         .await
         .into_iter()
@@ -865,11 +863,11 @@ async fn a_single_prescription_names_the_agent_it_ran_under() -> Result<()> {
         named,
         vec![
             (
-                NaiveDate::from_ymd_opt(2026, 9, 15).expect("valid date"),
+                CivilDate::from_ymd(2026, 9, 15).expect("valid date"),
                 Some(turn_agent)
             ),
             (
-                NaiveDate::from_ymd_opt(2026, 9, 16).expect("valid date"),
+                CivilDate::from_ymd(2026, 9, 16).expect("valid date"),
                 Some(direct_agent)
             ),
         ]
@@ -1380,7 +1378,7 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let user = fixture.user_id;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
 
     // Two weeks: one full microcycle with a focus, one sparse week without.
     fixture
@@ -1639,7 +1637,8 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
     // and the agent also re-saved that week with a longer version.
     let tempo_key = CalendarKey::plan_day(user, d(7), 0);
     let tempo = stub.event_by_key(&tempo_key).await.expect("tempo ride");
-    stub.touch(tempo.id, Utc::now() + Duration::hours(1)).await;
+    stub.touch(tempo.id, Timestamp::now() + Elapsed::hours(1))
+        .await;
     fixture
         .save_weeks(
             false,
@@ -1783,7 +1782,7 @@ async fn each_pushed_plan_day_names_the_agent_that_wrote_its_week() -> Result<()
     let stub = stub_live(3000).await;
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
     fixture
         .save_weeks_by(
             PlanAuthor::agent("endurance-agent"),
@@ -1820,7 +1819,7 @@ async fn each_pushed_plan_day_names_the_agent_that_wrote_its_week() -> Result<()
 
     let report = fixture.ok("push_training_plan", json!({})).await?;
     assert_eq!(report["created"].as_u64(), Some(3), "got: {report}");
-    let named: Vec<(NaiveDate, Option<String>)> = fixture
+    let named: Vec<(CivilDate, Option<String>)> = fixture
         .live()
         .await
         .into_iter()
@@ -1848,7 +1847,7 @@ async fn a_structured_plan_day_reaches_the_calendar_as_repeat_blocks() -> Result
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let user = fixture.user_id;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
     let workout = "Threshold 3x8. Keep the recoveries easy";
     let mut structured = planned(d(2), "vélo", workout, Some(61), "Z4");
     structured.steps = threshold_steps();
@@ -1935,7 +1934,7 @@ async fn a_flagged_athletes_calendar_note_loses_its_fuelling_rates_on_the_next_p
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let user = fixture.user_id;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
     let mut ride = planned(d(5), "mtb", "Long ride, eat early", Some(150), "Z2");
     ride.fueling = Some(FuelingProtocol {
         carbs_g_per_h: 90.0,
@@ -2016,7 +2015,7 @@ async fn a_push_from_outside_dravr_writes_the_athletes_own_note_and_tells_the_ca
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let user = fixture.user_id;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
     let mut ride = planned(d(5), "mtb", "Long ride, eat early", Some(150), "Z2");
     ride.fueling = Some(FuelingProtocol {
         carbs_g_per_h: 90.0,
@@ -2101,7 +2100,7 @@ async fn a_band_keeps_its_threshold_and_adjacent_sets_keep_their_groups() -> Res
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let user = fixture.user_id;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
     let step =
         |label: &str, seconds: u32, zone: &str, repeat: u32, group: Option<u32>| WorkoutStep {
             label: label.to_owned(),
@@ -2220,7 +2219,7 @@ async fn a_refused_plan_push_records_every_failure_and_leaves_the_ledger_honest(
                 "",
                 vec![
                     planned(monday, "run", "Easy", Some(30), "Z1"),
-                    rest_day(monday + Duration::days(1)),
+                    rest_day(monday + Elapsed::days(1)),
                 ],
             )],
         )
@@ -2244,14 +2243,14 @@ async fn a_refused_plan_push_records_every_failure_and_leaves_the_ledger_honest(
 
 /// `save_training_plan`'s arguments re-laying the week of `monday` as two
 /// runs, Monday and Wednesday, with no focus (so no week note).
-fn two_runs(monday: NaiveDate) -> Value {
+fn two_runs(monday: CivilDate) -> Value {
     json!({
         "weeks": [{
             "week_start": iso(monday),
             "focus": "",
             "days": [
                 { "date": iso(monday), "sport": "run", "workout": "Easy 40", "duration_min": 40, "intensity": "Z1" },
-                { "date": iso(monday + Duration::days(2)), "sport": "run", "workout": "Steady 50", "duration_min": 50, "intensity": "Z2" }
+                { "date": iso(monday + Elapsed::days(2)), "sport": "run", "workout": "Steady 50", "duration_min": 50, "intensity": "Z2" }
             ]
         }]
     })
@@ -2259,7 +2258,7 @@ fn two_runs(monday: NaiveDate) -> Value {
 
 /// The season a weeks-only save attaches to, written without the tool so
 /// nothing is pushed before the save under test.
-async fn lay_season(fixture: &Fixture, monday: NaiveDate) {
+async fn lay_season(fixture: &Fixture, monday: CivilDate) {
     fixture
         .save_weeks(
             true,
@@ -2454,7 +2453,7 @@ fn spent(fixture: &Fixture, key: &TurnKey) -> (u16, u16) {
 async fn save_four_batches(
     fixture: &Fixture,
     executor: &UniversalToolExecutor,
-    monday: NaiveDate,
+    monday: CivilDate,
 ) -> Result<Vec<Value>> {
     let mut replies = Vec::new();
     for batch in 0..4 {
@@ -2462,7 +2461,7 @@ async fn save_four_batches(
             executor,
             fixture,
             "save_training_plan",
-            two_runs(monday + Duration::weeks(batch)),
+            two_runs(monday + Elapsed::weeks(batch)),
         )
         .await?;
         assert!(
@@ -2592,7 +2591,7 @@ async fn a_cancelled_push_writes_nothing_and_never_reaches_the_removal_pass() ->
     let stub = stub_live(4000).await;
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
 
     // Two sessions (no week focus → no note entry), pushed to completion.
     fixture
@@ -2664,7 +2663,7 @@ async fn a_mid_push_cancel_stops_between_entries_and_the_next_push_finishes() ->
     let stub = stub_cancelling_after_writes(5000, Arc::clone(&flag), 1).await;
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let monday = next_plan_monday();
-    let d = |offset: i64| monday + Duration::days(offset);
+    let d = |offset: i64| monday + Elapsed::days(offset);
 
     // Three sessions; the stub raises the flag when the first create lands,
     // so the loop notices at the second entry's head.

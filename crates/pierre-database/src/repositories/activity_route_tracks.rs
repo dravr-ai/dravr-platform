@@ -18,7 +18,7 @@
 //! Postgres. Every id column is `TEXT` on both engines, like
 //! `cached_activities`, so the ids bind as hyphenated text and the
 //! provider-disconnect purge reaches the rows with the same statement it runs
-//! over that table. `created_at` and `expires_at` bind as `DateTime<Utc>`,
+//! over that table. `created_at` and `expires_at` bind as `Timestamp`,
 //! which sqlx stores as RFC 3339 text on `SQLite` and as `TIMESTAMPTZ` on
 //! Postgres, so the expiry comparison against a bound instant orders the same
 //! way on both engines.
@@ -29,7 +29,7 @@
 //! overwrites the row.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
@@ -53,7 +53,7 @@ pub enum StoredRouteTrack {
         reason: String,
         /// When the answer is read again, for one no read settled; `None` for
         /// an answer that stands.
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     },
 }
 
@@ -142,7 +142,7 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let source: String = row
         .try_get("source")
@@ -153,7 +153,7 @@ where
     let reason: Option<String> = row
         .try_get("unavailable_reason")
         .map_err(|e| AppError::database(format!("read route track reason: {e}")))?;
-    let expires_at: Option<DateTime<Utc>> = row
+    let expires_at: Option<Timestamp> = row
         .try_get("expires_at")
         .map_err(|e| AppError::database(format!("read route track expiry: {e}")))?;
     match (track_json, reason) {
@@ -205,7 +205,7 @@ pub(crate) struct RouteTrackColumns<'a> {
     pub(crate) source: &'a str,
     pub(crate) track_json: Option<&'a str>,
     pub(crate) reason: Option<&'a str>,
-    pub(crate) expires_at: Option<DateTime<Utc>>,
+    pub(crate) expires_at: Option<Timestamp>,
 }
 
 /// The columns one read writes: a drawn track stands, so it never expires.
@@ -251,7 +251,7 @@ macro_rules! impl_activity_route_track_repository {
                     .bind(user_id.to_string())
                     .bind(provider)
                     .bind(activity_id)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("get_route_track: {e}")))?;
@@ -275,7 +275,7 @@ macro_rules! impl_activity_route_track_repository {
                     .bind(columns.source)
                     .bind(columns.track_json)
                     .bind(columns.reason)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(columns.expires_at)
                     .execute(self.pool())
                     .await

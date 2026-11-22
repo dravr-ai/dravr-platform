@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -35,9 +35,9 @@ pub struct DossierFact {
     /// `FactSource` slug (onboarding / conversation / device / agent).
     pub source: String,
     /// When the fact was last touched.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// Freshness horizon, if any.
-    pub valid_until: Option<DateTime<Utc>>,
+    pub valid_until: Option<Timestamp>,
     /// Computed at compose time: `valid_until` is in the past.
     pub stale: bool,
 }

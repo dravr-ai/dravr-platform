@@ -13,7 +13,7 @@
 //! public, so a redirect read from an unredeemed state is an open redirect
 //! (carnet#556).
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use std::fmt;
 use tracing::{error, warn};
@@ -98,7 +98,7 @@ impl OAuthService {
             .data
             .repos()
             .oauth_client_state
-            .consume_oauth_client_state(state, provider, Utc::now())
+            .consume_oauth_client_state(state, provider, Timestamp::now())
             .await
             .map_err(|e| {
                 // The lookup failing is an outage, not a bad state: keep the

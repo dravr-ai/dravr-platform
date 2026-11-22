@@ -30,7 +30,7 @@ use std::time::Duration as StdDuration;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use chrono::{DateTime, Duration, NaiveDate, NaiveTime, TimeZone, Utc};
+use dravr_tronc::dates::{CivilDate, CivilTime, Elapsed, Timestamp};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
     Activity, ActivityBuilder, AnchorProvenance, ConnectionType, DailyTrainingState, SportType,
@@ -110,9 +110,11 @@ async fn athlete(resources: &Arc<ServerContext>) -> Athlete {
 }
 
 /// 07:00 UTC `days_ago` days before today.
-fn morning(days_ago: i64) -> DateTime<Utc> {
-    let day = Utc::now().date_naive() - Duration::days(days_ago);
-    Utc.from_utc_datetime(&day.and_time(NaiveTime::from_hms_opt(7, 0, 0).unwrap()))
+fn morning(days_ago: i64) -> Timestamp {
+    let day = Timestamp::now().utc_date() - Elapsed::days(days_ago);
+    (day.and_time(CivilTime::from_hms(7, 0, 0).unwrap()))
+        .and_utc()
+        .unwrap()
 }
 
 /// An outdoor ride as a GPS recorder stores it, under `provider`.
@@ -137,7 +139,7 @@ fn detected(days_ago: i64) -> Activity {
         format!("whoop-{days_ago}"),
         "Running".to_owned(),
         SportType::Run,
-        morning(days_ago) + Duration::minutes(2),
+        morning(days_ago) + Elapsed::minutes(2),
         3_300,
         WHOOP.to_owned(),
     )
@@ -208,8 +210,8 @@ impl Athlete {
     /// `compute_training_history` writes it and the agent reads it.
     async fn rollup(&self, resources: &Arc<ServerContext>) -> Vec<DailyTrainingState> {
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
-        let to = Utc::now().date_naive();
-        let from = to - Duration::days(CTL_WINDOW_DAYS);
+        let to = Timestamp::now().utc_date();
+        let from = to - Elapsed::days(CTL_WINDOW_DAYS);
         compute_and_persist_history(&runtime, self.tenant, self.user_id, from, to)
             .await
             .unwrap();
@@ -225,7 +227,7 @@ fn ride_days() -> impl Iterator<Item = i64> {
 }
 
 /// The figures two rollups must agree on, day by day.
-fn figures(rows: &[DailyTrainingState]) -> Vec<(NaiveDate, String)> {
+fn figures(rows: &[DailyTrainingState]) -> Vec<(CivilDate, String)> {
     rows.iter()
         .map(|row| {
             (
@@ -323,9 +325,9 @@ async fn a_session_on_a_provider_used_less_recently_still_counts() {
     control.cache(&resources, STRAVA, &once).await;
 
     let rollup = athlete_a.rollup(&resources).await;
-    let today = Utc::now().date_naive();
+    let today = Timestamp::now().utc_date();
     for days_ago in indoor_days {
-        let day = today - Duration::days(days_ago);
+        let day = today - Elapsed::days(days_ago);
         let row = rollup
             .iter()
             .find(|row| row.date == day)

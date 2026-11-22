@@ -42,7 +42,7 @@
 use std::collections::BTreeSet;
 use std::future::Future;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::{ConversationRecord, TenantId};
 use pierre_database::RepositoryRegistry;
@@ -192,7 +192,7 @@ pub(super) struct CalendarScope {
     /// Whose account the coach's writer goes through, once it is built.
     seat: Option<CoachSeat>,
     /// When the coach's credential was read for the writer.
-    credential_read_at: Option<DateTime<Utc>>,
+    credential_read_at: Option<Timestamp>,
 }
 
 /// Resolve whose calendar the call writes: the caller's own, or — for a
@@ -486,7 +486,7 @@ impl CalendarScope {
             )
             .await?));
         }
-        self.credential_read_at = Some(Utc::now());
+        self.credential_read_at = Some(Timestamp::now());
         match AuthService::new(context.resources.clone())
             .coach_calendar_writer(self.writer.user_id, self.user_id, self.tenant, backend)
             .await?

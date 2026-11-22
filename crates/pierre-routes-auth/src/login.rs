@@ -41,6 +41,7 @@ use pierre_auth::dto::auth::{
     UserStatsResponse,
 };
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_email::ResendEmailService;
 use pierre_services::analytics::{analytics, cache_user_email, hash_id};
 use pierre_services::auth::AuthService;
@@ -444,7 +445,7 @@ pub(crate) async fn handle_logout(
         resources
             .repos
             .session_refresh_tokens
-            .revoke_token_family(presented.expose_secret(), chrono::Utc::now())
+            .revoke_token_family(presented.expose_secret(), Timestamp::now())
             .await?;
     }
 
@@ -733,7 +734,7 @@ pub(crate) async fn handle_change_password(
     resources
         .repos
         .session_refresh_tokens
-        .revoke_user_tokens(user_id, chrono::Utc::now())
+        .revoke_user_tokens(user_id, Timestamp::now())
         .await?;
 
     Span::current().record("success", true);
@@ -806,7 +807,7 @@ pub(crate) async fn handle_complete_reset(
     resources
         .repos
         .session_refresh_tokens
-        .revoke_user_tokens(user_id, chrono::Utc::now())
+        .revoke_user_tokens(user_id, Timestamp::now())
         .await?;
 
     info!(user_id = %user_id, "Password reset completed via one-time token");
@@ -856,7 +857,7 @@ pub(crate) async fn handle_forgot_password(
     };
 
     // Rate limit: max N codes per hour per user
-    let one_hour_ago = chrono::Utc::now() - chrono::Duration::hours(1);
+    let one_hour_ago = Timestamp::now() - Elapsed::hours(1);
     let recent_count = resources
         .repos
         .password_reset
@@ -950,7 +951,7 @@ pub(crate) async fn handle_user_stats(
     let user = resources.repos.users.get_global(user_id).await?;
     let days_active = match user {
         Some(u) => {
-            let now = chrono::Utc::now();
+            let now = Timestamp::now();
             let duration = now.signed_duration_since(u.created_at);
             duration.num_days().max(1)
         }

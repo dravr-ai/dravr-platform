@@ -80,7 +80,7 @@ pub(crate) fn mcp_token_prefix(token: &str) -> String {
 /// Postgres, so one statement serves both backends and cannot drift between
 /// them. `user_id` binds through the backend's uuid codec (see
 /// [`super::uuid_columns`]); every other bind is a plain `&str`,
-/// `Option<DateTime<Utc>>` or `DateTime<Utc>` both drivers encode alike.
+/// `Option<Timestamp>` or `Timestamp` both drivers encode alike.
 pub(crate) const CREATE_MCP_TOKEN_SQL: &str = r"
             INSERT INTO user_mcp_tokens (
                 id, user_id, name, token_hash, token_prefix,
@@ -230,11 +230,11 @@ macro_rules! impl_user_mcp_token_repository {
                 let token_hash = hash_mcp_token(&token_value);
                 let token_prefix = mcp_token_prefix(&token_value);
                 let id = Uuid::new_v4().to_string();
-                let now = Utc::now();
+                let now = Timestamp::now();
 
                 let expires_at = request
                     .expires_in_days
-                    .map(|days| now + Duration::days(i64::from(days)));
+                    .map(|days| now + dravr_tronc::dates::Elapsed::days(i64::from(days)));
 
                 sqlx::query(CREATE_MCP_TOKEN_SQL)
                     .bind(&id)
@@ -288,10 +288,10 @@ macro_rules! impl_user_mcp_token_repository {
                     return Err(AppError::auth_invalid("MCP token has been revoked"));
                 }
 
-                let expires_at: Option<DateTime<Utc>> = row
+                let expires_at: Option<Timestamp> = row
                     .try_get("expires_at")
                     .map_err(|e| mcp_token_column_error("expires_at", e))?;
-                if expires_at.is_some_and(|exp| exp < Utc::now()) {
+                if expires_at.is_some_and(|exp| exp < Timestamp::now()) {
                     return Err(AppError::auth_invalid("MCP token has expired"));
                 }
 
@@ -299,7 +299,7 @@ macro_rules! impl_user_mcp_token_repository {
                     .try_get("id")
                     .map_err(|e| mcp_token_column_error("id", e))?;
                 sqlx::query(TOUCH_MCP_TOKEN_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(&token_id)
                     .execute(self.pool())
                     .await

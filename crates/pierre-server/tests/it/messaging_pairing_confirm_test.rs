@@ -26,7 +26,7 @@ mod pairing_confirm {
 
     use axum::http::StatusCode;
     use axum::Router;
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_LINK_CANCELLED};
     use pierre_core::models::messaging::MessageContent;
     use pierre_core::models::TenantId;
@@ -77,7 +77,7 @@ mod pairing_confirm {
         async fn started(&self, channel: &str) -> String {
             let code = Uuid::new_v4().simple().to_string();
             let starter = self.starter_id.to_string();
-            let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+            let expires_at = (Timestamp::now() + Elapsed::minutes(10)).to_rfc3339();
             self.db()
                 .create_link_state(&CreateLinkStateParams {
                     id: &Uuid::new_v4().to_string(),

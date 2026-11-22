@@ -23,7 +23,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
@@ -116,7 +116,7 @@ pub async fn check_garmin_grants_in(
             .list_active_connection_users(tenant_id, GARMIN)
             .await?;
         for user_id in users {
-            let attempt_started_at = Utc::now();
+            let attempt_started_at = Timestamp::now();
             match auth
                 .get_valid_token(user_id, GARMIN, Some(&tenant_str))
                 .await
@@ -155,7 +155,7 @@ pub async fn check_garmin_grants_in(
 async fn flag_if_refused(
     runtime: &Arc<dyn ToolRuntime>,
     owner: GarminOwner,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) -> bool {
     let GarminOwner { user_id, tenant_id } = owner;
     match runtime

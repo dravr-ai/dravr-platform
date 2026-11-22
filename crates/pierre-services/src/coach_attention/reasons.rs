@@ -6,8 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Days, NaiveDate, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use pierre_config::coach_home::CoachHomeConfig;
 use pierre_core::civil_time;
 use pierre_core::models::FormBand;
@@ -40,18 +39,18 @@ fn params<const N: usize>(pairs: [(&'static str, Value); N]) -> BTreeMap<&'stati
     pairs.into_iter().collect()
 }
 
-fn day(date: NaiveDate) -> Value {
-    Value::String(date.format("%Y-%m-%d").to_string())
+fn day(date: CivilDate) -> Value {
+    Value::String(date.to_string())
 }
 
-fn instant(at: DateTime<Utc>) -> Value {
+fn instant(at: Timestamp) -> Value {
     Value::String(at.to_rfc3339())
 }
 
 /// A revoke is news: the day the athlete stopped sharing. An athlete who
 /// never shared (or whose revoke predates the recorded instant) is a standing
 /// state the row's status already names, and raises no reason.
-pub(super) fn consent_revoked(stopped_at: DateTime<Utc>) -> AttentionReason {
+pub(super) fn consent_revoked(stopped_at: Timestamp) -> AttentionReason {
     let evidence = AttentionEvidence {
         key: "coachHome.evidence.sharingStopped",
         params: params([("at", instant(stopped_at))]),
@@ -112,7 +111,7 @@ pub(super) fn unverified_figure(reply: &ReplySignal) -> Option<AttentionReason> 
 }
 
 /// The line naming the athlete's day `source` last delivered a session.
-fn last_received(source: &str, at: DateTime<Utc>, zone: Tz) -> AttentionEvidence {
+fn last_received(source: &str, at: Timestamp, zone: &Zone) -> AttentionEvidence {
     AttentionEvidence {
         key: "coachHome.evidence.lastReceived",
         params: params([
@@ -130,7 +129,7 @@ fn last_received(source: &str, at: DateTime<Utc>, zone: Tz) -> AttentionEvidence
 /// stale, this week otherwise.
 pub(super) fn source_reasons(
     training: &TrainingSignals<'_>,
-    zone: Tz,
+    zone: &Zone,
     thresholds: &CoachHomeConfig,
 ) -> Vec<AttentionReason> {
     let mut reconnect: Vec<&String> = training.needs_reconnect.iter().collect();
@@ -153,7 +152,7 @@ pub(super) fn source_reasons(
 /// The line saying `provider` must be reconnected: since when it refuses
 /// access when the connection recorded it, else that it does. The refusal is
 /// a moment the server recorded, never a date-only row, so it always converts.
-fn refused(training: &TrainingSignals<'_>, provider: &str, zone: Tz) -> AttentionEvidence {
+fn refused(training: &TrainingSignals<'_>, provider: &str, zone: &Zone) -> AttentionEvidence {
     let source = EvidenceSource::with(EvidenceSourceKind::Connection, vec![provider.to_owned()]);
     let name = Value::String(provider.to_owned());
     match training.refused_since.get(provider) {
@@ -175,7 +174,11 @@ fn refused(training: &TrainingSignals<'_>, provider: &str, zone: Tz) -> Attentio
     }
 }
 
-fn provider_reconnect(training: &TrainingSignals<'_>, provider: &str, zone: Tz) -> AttentionReason {
+fn provider_reconnect(
+    training: &TrainingSignals<'_>,
+    provider: &str,
+    zone: &Zone,
+) -> AttentionReason {
     let mut evidence = vec![refused(training, provider, zone)];
     let last = training.last_activity_per_source.get(provider).copied();
     evidence.extend(last.map(|at| last_received(provider, at, zone)));
@@ -193,7 +196,7 @@ fn provider_reconnect(training: &TrainingSignals<'_>, provider: &str, zone: Tz) 
             provider: Some(provider.to_owned()),
             ..AttentionTarget::default()
         },
-        fingerprint: last.map_or_else(|| "none".to_owned(), |at| at.to_rfc3339()),
+        fingerprint: last.map_or_else(|| "none".to_owned(), Timestamp::to_rfc3339),
         dismissed_at: None,
     }
 }
@@ -201,7 +204,7 @@ fn provider_reconnect(training: &TrainingSignals<'_>, provider: &str, zone: Tz) 
 fn nothing_received(
     training: &TrainingSignals<'_>,
     dead: Option<&String>,
-    zone: Tz,
+    zone: &Zone,
 ) -> AttentionReason {
     let source_down = dead.is_some() || training.stale;
     let mut evidence: Vec<AttentionEvidence> = training
@@ -284,7 +287,7 @@ fn nothing_received(
         fingerprint: format!(
             "{}:{}",
             if source_down { "source" } else { "quiet" },
-            latest.map_or_else(|| "none".to_owned(), |at| at.to_rfc3339())
+            latest.map_or_else(|| "none".to_owned(), Timestamp::to_rfc3339)
         ),
         dismissed_at: None,
     }
@@ -294,7 +297,7 @@ fn nothing_received(
 /// threshold's mornings — never on data a dead or stale source left behind.
 pub(super) fn deep_fatigue_streak(
     training: &TrainingSignals<'_>,
-    zone: Tz,
+    zone: &Zone,
     thresholds: &CoachHomeConfig,
 ) -> Option<AttentionReason> {
     let mornings = u32::try_from(training.deep_fatigue_mornings.len()).unwrap_or(u32::MAX);
@@ -310,7 +313,7 @@ pub(super) fn deep_fatigue_streak(
     let providers: Vec<String> = training.last_activity_per_source.keys().cloned().collect();
     let date_of = |days_ago: u32| {
         form_as_of
-            .checked_sub_days(Days::new(u64::from(days_ago)))
+            .checked_sub_days(i64::from(days_ago))
             .unwrap_or(form_as_of)
     };
     let mut evidence: Vec<AttentionEvidence> = training
@@ -354,7 +357,7 @@ pub(super) fn deep_fatigue_streak(
         evidence,
         action: AttentionAction::OpenPlanThread,
         target: AttentionTarget::default(),
-        fingerprint: started.format("%Y-%m-%d").to_string(),
+        fingerprint: started.to_string(),
         dismissed_at: None,
     })
 }
@@ -467,7 +470,7 @@ fn new_member_no_plan(inputs: &AttentionInputs<'_>) -> AttentionReason {
 
 fn plan_ended(plan: &PlanSignals, view: &SeasonView) -> Option<AttentionReason> {
     // The day after the plan's last day; the evidence names the last day.
-    let ended = view.ends?.pred_opt()?;
+    let ended = view.ends?.pred()?;
     let mut line = params([("date", day(ended))]);
     if let Some(race) = &view.race {
         line.insert("race", Value::String(race.name.clone()));
@@ -492,7 +495,7 @@ fn plan_ended(plan: &PlanSignals, view: &SeasonView) -> Option<AttentionReason> 
         }],
         action: AttentionAction::OpenPlanThread,
         target: AttentionTarget::default(),
-        fingerprint: format!("{}:{}", plan.plan_id, ended.format("%Y-%m-%d")),
+        fingerprint: format!("{}:{}", plan.plan_id, ended),
         dismissed_at: None,
     })
 }

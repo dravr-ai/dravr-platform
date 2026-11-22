@@ -8,7 +8,7 @@
 //! `DATABASE_URL` names, isolated per test, so the fleet-wide scan sees this
 //! test's rows only, on `SQLite` and `PostgreSQL` alike.
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{ActivityBuilder, HomeDeclaration, SportType, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{PlaceRun, StoredRouteTrack};
@@ -43,8 +43,8 @@ async fn athlete(repos: &RepositoryRegistry, tenant: &str) -> Athlete {
 }
 
 /// Store one ride for `who`, synced at `at`.
-async fn ride(repos: &RepositoryRegistry, who: Athlete, id: &str, at: DateTime<Utc>) {
-    let start = Utc.with_ymd_and_hms(2026, 1, 1, 8, 0, 0).unwrap();
+async fn ride(repos: &RepositoryRegistry, who: Athlete, id: &str, at: Timestamp) {
+    let start = Timestamp::parse_from_rfc3339("2026-01-01T08:00:00Z").unwrap();
     let activity = ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3_600, "strava")
         .distance_meters(30_000.0)
         .build();
@@ -57,7 +57,7 @@ async fn ride(repos: &RepositoryRegistry, who: Athlete, id: &str, at: DateTime<U
 
 /// Record a clustering of `who` at `at` that saw every row and drawn track
 /// they hold.
-async fn cluster(repos: &RepositoryRegistry, who: Athlete, at: DateTime<Utc>) {
+async fn cluster(repos: &RepositoryRegistry, who: Athlete, at: Timestamp) {
     cluster_seeing(repos, who, at, None).await;
 }
 
@@ -66,8 +66,8 @@ async fn cluster(repos: &RepositoryRegistry, who: Athlete, at: DateTime<Utc>) {
 async fn cluster_seeing(
     repos: &RepositoryRegistry,
     who: Athlete,
-    at: DateTime<Utc>,
-    seen: Option<DateTime<Utc>>,
+    at: Timestamp,
+    seen: Option<Timestamp>,
 ) {
     let places = &repos.athlete_places;
     let stamp = places
@@ -88,7 +88,7 @@ async fn cluster_seeing(
         .unwrap();
 }
 
-async fn due(repos: &RepositoryRegistry, limit: u32, now: DateTime<Utc>) -> Vec<(TenantId, Uuid)> {
+async fn due(repos: &RepositoryRegistry, limit: u32, now: Timestamp) -> Vec<(TenantId, Uuid)> {
     repos
         .athlete_places
         .due_users(limit, VERSION, now)
@@ -120,10 +120,10 @@ async fn execute(db: &Database, sql: &str, binds: &[&str]) {
 async fn a_row_whose_ids_are_not_uuids_is_skipped_and_takes_no_slot() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let valid = athlete(repos, FIRST_TENANT).await;
-    ride(repos, valid, "a", now - Duration::hours(2)).await;
-    cluster(repos, valid, now - Duration::hours(1)).await;
+    ride(repos, valid, "a", now - Elapsed::hours(2)).await;
+    cluster(repos, valid, now - Elapsed::hours(1)).await;
     ride(repos, valid, "b", now).await;
 
     // A run left under a tenant id that is not a uuid, tried before the
@@ -153,11 +153,11 @@ async fn a_row_whose_ids_are_not_uuids_is_skipped_and_takes_no_slot() {
 async fn a_failed_recompute_goes_behind_every_user_tried_before_and_stays_due() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let first = athlete(repos, FIRST_TENANT).await;
     let second = athlete(repos, SECOND_TENANT).await;
-    ride(repos, first, "a", now - Duration::hours(1)).await;
-    ride(repos, second, "b", now - Duration::hours(1)).await;
+    ride(repos, first, "a", now - Elapsed::hours(1)).await;
+    ride(repos, second, "b", now - Elapsed::hours(1)).await;
     assert_eq!(
         due(repos, 1, now).await,
         vec![(first.tenant, first.user)],
@@ -186,7 +186,7 @@ async fn a_failed_recompute_goes_behind_every_user_tried_before_and_stays_due() 
             &second.tenant,
             second.user,
             VERSION,
-            now + Duration::seconds(1),
+            now + Elapsed::seconds(1),
         )
         .await
         .unwrap();
@@ -201,10 +201,10 @@ async fn a_failed_recompute_goes_behind_every_user_tried_before_and_stays_due() 
 async fn a_failed_recompute_keeps_new_rows_due_and_backs_the_daily_backstop_off_a_day() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let who = athlete(repos, FIRST_TENANT).await;
-    ride(repos, who, "a", now - Duration::hours(30)).await;
-    cluster(repos, who, now - Duration::hours(25)).await;
+    ride(repos, who, "a", now - Elapsed::hours(30)).await;
+    cluster(repos, who, now - Elapsed::hours(25)).await;
     assert_eq!(
         due(repos, 100, now).await,
         vec![(who.tenant, who.user)],
@@ -221,7 +221,7 @@ async fn a_failed_recompute_keeps_new_rows_due_and_backs_the_daily_backstop_off_
         "bug: a user due only for the backstop is retried at once after a failure"
     );
     assert_eq!(
-        due(repos, 100, now + Duration::hours(25)).await,
+        due(repos, 100, now + Elapsed::hours(25)).await,
         vec![(who.tenant, who.user)],
         "bug: a failed backstop recompute is never retried"
     );
@@ -239,7 +239,7 @@ async fn a_failed_recompute_keeps_new_rows_due_and_backs_the_daily_backstop_off_
 }
 
 /// Declare `who`'s home elsewhere at `at`, and return the date as stored.
-async fn declare(repos: &RepositoryRegistry, who: Athlete, at: DateTime<Utc>) -> DateTime<Utc> {
+async fn declare(repos: &RepositoryRegistry, who: Athlete, at: Timestamp) -> Timestamp {
     let places = &repos.athlete_places;
     places
         .store_home_declaration(&who.tenant, who.user, HomeDeclaration::Elsewhere, at)
@@ -257,23 +257,23 @@ async fn declare(repos: &RepositoryRegistry, who: Athlete, at: DateTime<Utc>) ->
 async fn a_home_declaration_is_due_until_a_run_sees_it() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let who = athlete(repos, FIRST_TENANT).await;
-    ride(repos, who, "a", now - Duration::hours(2)).await;
-    cluster(repos, who, now - Duration::hours(1)).await;
+    ride(repos, who, "a", now - Elapsed::hours(2)).await;
+    cluster(repos, who, now - Elapsed::hours(1)).await;
     assert!(
         due(repos, 100, now).await.is_empty(),
         "bug: a user whose run saw everything is due"
     );
 
-    let declared_at = declare(repos, who, now - Duration::minutes(30)).await;
+    let declared_at = declare(repos, who, now - Elapsed::minutes(30)).await;
     assert_eq!(
         due(repos, 100, now).await,
         vec![(who.tenant, who.user)],
         "bug: a home declaration did not make the user due"
     );
 
-    cluster_seeing(repos, who, now - Duration::minutes(10), Some(declared_at)).await;
+    cluster_seeing(repos, who, now - Elapsed::minutes(10), Some(declared_at)).await;
     assert!(
         due(repos, 100, now).await.is_empty(),
         "bug: a run that saw the declaration left the user due"
@@ -284,9 +284,9 @@ async fn a_home_declaration_is_due_until_a_run_sees_it() {
 async fn a_user_who_declares_with_no_rows_is_due() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let who = athlete(repos, FIRST_TENANT).await;
-    let declared_at = declare(repos, who, now - Duration::minutes(5)).await;
+    let declared_at = declare(repos, who, now - Elapsed::minutes(5)).await;
     assert_eq!(
         due(repos, 100, now).await,
         vec![(who.tenant, who.user)],
@@ -305,15 +305,15 @@ async fn a_user_who_declares_with_no_rows_is_due() {
 async fn a_declaration_made_while_a_run_was_in_flight_stays_due() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let who = athlete(repos, FIRST_TENANT).await;
-    ride(repos, who, "a", now - Duration::hours(2)).await;
-    let read_by_the_run = declare(repos, who, now - Duration::minutes(30)).await;
-    declare(repos, who, now - Duration::minutes(20)).await;
+    ride(repos, who, "a", now - Elapsed::hours(2)).await;
+    let read_by_the_run = declare(repos, who, now - Elapsed::minutes(30)).await;
+    declare(repos, who, now - Elapsed::minutes(20)).await;
     cluster_seeing(
         repos,
         who,
-        now - Duration::minutes(10),
+        now - Elapsed::minutes(10),
         Some(read_by_the_run),
     )
     .await;
@@ -328,11 +328,11 @@ async fn a_declaration_made_while_a_run_was_in_flight_stays_due() {
 async fn a_failed_recompute_after_a_declaration_keeps_it_due() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let who = athlete(repos, FIRST_TENANT).await;
-    ride(repos, who, "a", now - Duration::hours(2)).await;
-    cluster(repos, who, now - Duration::hours(1)).await;
-    declare(repos, who, now - Duration::minutes(30)).await;
+    ride(repos, who, "a", now - Elapsed::hours(2)).await;
+    cluster(repos, who, now - Elapsed::hours(1)).await;
+    declare(repos, who, now - Elapsed::minutes(30)).await;
     repos
         .athlete_places
         .record_failed_recompute(&who.tenant, who.user, VERSION, now)
@@ -363,10 +363,10 @@ async fn route_read(repos: &RepositoryRegistry, who: Athlete, id: &str, read: &S
 async fn a_drawn_track_stored_after_the_last_run_is_due_until_a_run_sees_it() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let who = athlete(repos, FIRST_TENANT).await;
-    ride(repos, who, "a", now - Duration::hours(2)).await;
-    cluster(repos, who, now - Duration::hours(1)).await;
+    ride(repos, who, "a", now - Elapsed::hours(2)).await;
+    cluster(repos, who, now - Elapsed::hours(1)).await;
     assert!(
         due(repos, 100, now).await.is_empty(),
         "bug: a user whose run saw everything is due"
@@ -390,7 +390,7 @@ async fn a_drawn_track_stored_after_the_last_run_is_due_until_a_run_sees_it() {
         &StoredRouteTrack::Unavailable {
             source: "streams".to_owned(),
             reason: "unavailable".to_owned(),
-            expires_at: Some(now + Duration::minutes(10)),
+            expires_at: Some(now + Elapsed::minutes(10)),
         },
     )
     .await;

@@ -9,7 +9,7 @@
 //! This module provides common validation functions that eliminate duplication
 //! between PostgreSQL and SQLite backends.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 
 /// Validate email format
@@ -91,17 +91,17 @@ pub fn validate_tenant_ownership(
 /// # Examples
 /// ```
 /// # use pierre_database::backends::shared::validation::validate_not_expired;
-/// # use chrono::{Utc, Duration};
-/// let now = Utc::now();
-/// let future = now + Duration::hours(1);
-/// let past = now - Duration::hours(1);
+/// # use dravr_tronc::dates::{Elapsed, Timestamp};
+/// let now = Timestamp::now();
+/// let future = now + Elapsed::hours(1);
+/// let past = now - Elapsed::hours(1);
 ///
 /// assert!(validate_not_expired(future, now, "Token").is_ok());
 /// assert!(validate_not_expired(past, now, "Token").is_err());
 /// ```
 pub fn validate_not_expired(
-    expires_at: DateTime<Utc>,
-    now: DateTime<Utc>,
+    expires_at: Timestamp,
+    now: Timestamp,
     entity_type: &str,
 ) -> AppResult<()> {
     (expires_at > now).ok_or_else(|| AppError::invalid_input(format!("{entity_type} has expired")))

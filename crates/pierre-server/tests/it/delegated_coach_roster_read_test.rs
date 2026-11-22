@@ -36,8 +36,8 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
-use chrono::{Duration as ChronoDuration, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{
@@ -209,7 +209,7 @@ impl FitnessProvider for CoachHub {
             format!("{athlete}-run"),
             "Easy run",
             SportType::Run,
-            Utc::now() - ChronoDuration::days(1),
+            Timestamp::now() - Elapsed::days(1),
             1_800,
             COACHHUB,
         )
@@ -376,7 +376,7 @@ async fn world() -> World {
         .unwrap()
         .id
         .to_string();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -438,7 +438,7 @@ async fn world() -> World {
         COACHHUB.to_owned(),
         COACH_TOKEN.to_owned(),
         None,
-        Some(now + ChronoDuration::hours(6)),
+        Some(now + Elapsed::hours(6)),
         None,
     );
     token.provider_user_id = Some("ch100".to_owned());

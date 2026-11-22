@@ -148,6 +148,8 @@ use crate::common;
 use common::placeholder_llm_chain;
 use secrecy::SecretString;
 
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig as EnvCacheConfig, CorsConfig,
@@ -414,8 +416,8 @@ async fn test_oauth_callback_error_handling() {
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -446,8 +448,8 @@ async fn test_oauth_callback_error_handling() {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: admin_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     database
         .repositories()
@@ -464,8 +466,8 @@ async fn test_oauth_callback_error_handling() {
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -655,7 +657,7 @@ async fn test_oauth_callback_error_handling() {
     // a state this server stored gives back the redirect it was minted with.
     {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-        use chrono::Utc;
+        use dravr_tronc::dates::Timestamp;
         use pierre_core::models::OAuthClientState;
 
         let redirect = "dravr://oauth-callback";
@@ -677,8 +679,8 @@ async fn test_oauth_callback_error_handling() {
                 scope: None,
                 pkce_code_verifier: None,
                 oauth_app_client_id: None,
-                created_at: Utc::now(),
-                expires_at: Utc::now() + chrono::Duration::minutes(10),
+                created_at: Timestamp::now(),
+                expires_at: Timestamp::now() + Elapsed::minutes(10),
                 used: false,
             })
             .await
@@ -730,8 +732,8 @@ async fn test_oauth_state_csrf_protection() {
         password_hash: "hash".to_owned(),
         tier: UserTier::Starter,
         strava_token: None,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         is_active: true,
         user_status: UserStatus::Active,
         role: UserRole::User,
@@ -763,8 +765,8 @@ async fn test_oauth_state_csrf_protection() {
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: admin_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     database
         .repositories()

@@ -23,7 +23,8 @@
 use pierre_providers::ai_scope;
 use std::fmt::Write as _;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::date_pattern;
+use dravr_tronc::dates::{Elapsed, Pattern, Timestamp};
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::untrusted::{cap, flatten_line};
 use pierre_memory::commitments::Commitment;
@@ -64,12 +65,12 @@ fn render_line(commitment: &Commitment, timezone: Option<&str>) -> String {
 ///
 /// `window_end` is local midnight *after* the due day, so a second is
 /// subtracted to land back on the day the athlete was actually given.
-fn local_date(window_end: DateTime<Utc>, timezone: Option<&str>) -> String {
-    (window_end - Duration::seconds(1))
-        .with_timezone(&resolve_zone(timezone))
-        .format("%a %-d %b")
-        .to_string()
+fn local_date(window_end: Timestamp, timezone: Option<&str>) -> String {
+    resolve_zone(timezone).format_with(window_end - Elapsed::seconds(1), &DUE_DAY)
 }
+
+/// `Tue 3 Nov`: the due day a commitment line names.
+const DUE_DAY: Pattern<Timestamp> = date_pattern!(Timestamp, "%a %-d %b");
 
 /// Build the block for a set of commitments, or `None` when there are none.
 ///

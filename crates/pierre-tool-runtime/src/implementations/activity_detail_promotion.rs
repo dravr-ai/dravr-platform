@@ -14,7 +14,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::ai_policy::{AiUse, ProviderTerms};
 use pierre_core::config::fitness::DETAIL_WINDOW_DAYS;
 use pierre_core::errors::ErrorCode;
@@ -26,7 +26,7 @@ use tracing::warn;
 /// reads that may cost.
 pub(crate) struct DetailPlan<'a> {
     /// Activities started at or after this instant are detailed.
-    pub window_start: DateTime<Utc>,
+    pub window_start: Timestamp,
     /// With `Some(n)`, the newest `n` activities are detailed too (an explicit
     /// `mode=detailed`).
     pub explicit_cap: Option<usize>,
@@ -43,8 +43,8 @@ pub(crate) struct DetailPlan<'a> {
 
 impl DetailPlan<'_> {
     /// The window start `DETAIL_WINDOW_DAYS` before `now`.
-    pub(crate) fn window_start(now: DateTime<Utc>) -> DateTime<Utc> {
-        now - Duration::days(DETAIL_WINDOW_DAYS)
+    pub(crate) fn window_start(now: Timestamp) -> Timestamp {
+        now - Elapsed::days(DETAIL_WINDOW_DAYS)
     }
 
     fn wants(&self, rank: usize, activity: &Activity) -> bool {
@@ -179,7 +179,7 @@ mod tests {
     use std::sync::Mutex;
 
     use async_trait::async_trait;
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_core::errors::{AppError, AppResult, ErrorCode};
     use pierre_core::models::{Activity, ActivityBuilder, Athlete, SportType};
     use pierre_providers::core::{ActivityQueryParams, OAuth2Credentials, ProviderConfig};
@@ -274,7 +274,7 @@ mod tests {
                     format!("a{n}"),
                     "Easy run",
                     SportType::Run,
-                    Utc::now() - Duration::days(n),
+                    Timestamp::now() - Elapsed::days(n),
                     1_800,
                     PROVIDER,
                 )
@@ -348,7 +348,7 @@ mod tests {
 
     fn plan(explicit_cap: Option<usize>, read_budget: usize) -> DetailPlan<'static> {
         DetailPlan {
-            window_start: DetailPlan::window_start(Utc::now()),
+            window_start: DetailPlan::window_start(Timestamp::now()),
             explicit_cap,
             read_budget,
             provider_names: PROVIDERS,
@@ -368,7 +368,7 @@ mod tests {
                 "old",
                 "Long run",
                 SportType::Run,
-                Utc::now() - Duration::days(20),
+                Timestamp::now() - Elapsed::days(20),
                 5_400,
                 PROVIDER,
             )
@@ -418,7 +418,7 @@ mod tests {
             "a1",
             "Easy run",
             SportType::Run,
-            Utc::now() - Duration::days(1),
+            Timestamp::now() - Elapsed::days(1),
             1_800,
             PROVIDER,
         )
@@ -459,7 +459,7 @@ mod tests {
             "a1",
             "Ride",
             SportType::Ride,
-            Utc::now() - Duration::days(1),
+            Timestamp::now() - Elapsed::days(1),
             3_600,
             "strava",
         )

@@ -20,7 +20,7 @@ use crate::common;
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::{
     KEY_PLATFORM_POST_CHECK_IN_DAILY_PROMPT, KEY_PLATFORM_POST_CHECK_IN_THREE_PER_WEEK_PROMPT,
     KEY_PLATFORM_POST_CHECK_IN_WEEKLY_PROMPT,
@@ -39,6 +39,7 @@ use messaging_fixtures::{
 };
 
 use crate::recording_post;
+use dravr_tronc::dates::{CivilDate, CivilDateTime};
 use recording_post::{Asked, RecordingPost};
 
 /// Each cadence's instruction, as the copy reads once it lands in
@@ -116,7 +117,7 @@ async fn athlete(
     if let Some(cadence) = cadence {
         repos
             .check_in_preferences
-            .set_check_in_cadence(tenant_id, user_id, cadence, Utc::now())
+            .set_check_in_cadence(tenant_id, user_id, cadence, Timestamp::now())
             .await
             .unwrap();
     }
@@ -124,8 +125,12 @@ async fn athlete(
 }
 
 /// `day` days after Monday 2026-10-12, at `hour:minute` UTC.
-fn at(day: i64, hour: u32, minute: u32) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 10, 12, hour, minute, 0).unwrap() + Duration::days(day)
+fn at(day: i64, hour: u32, minute: u32) -> Timestamp {
+    CivilDate::from_ymd(2026, 10, 12)
+        .and_then(|date| date.and_hms(hour, minute, 0))
+        .and_then(CivilDateTime::and_utc)
+        .unwrap()
+        + Elapsed::days(day)
 }
 
 /// The posts asked for `user_id`.
@@ -160,7 +165,7 @@ async fn off_and_no_choice_never_post() {
     let (never_chose, _) = athlete(&fx, None, None).await;
 
     for half_hour in 0..(7 * 48) {
-        let now = at(0, 0, 0) + Duration::minutes(30 * half_hour);
+        let now = at(0, 0, 0) + Elapsed::minutes(30 * half_hour);
         fx.poster.tick(now).await.unwrap();
     }
 
@@ -343,7 +348,7 @@ async fn whatsapp_dm(
     fx: &Fixture,
     user_id: Uuid,
     tenant_id: TenantId,
-    last_inbound: DateTime<Utc>,
+    last_inbound: Timestamp,
 ) -> String {
     let db = &fx.resources.agent.database;
     let user = user_id.to_string();
@@ -372,11 +377,7 @@ async fn whatsapp_dm(
 
 /// Set when a session's athlete last wrote; `touch_session` only ever stamps
 /// "now", and the window has to be tested shut as well as open.
-pub(crate) async fn backdate_session(
-    db: &Database,
-    session_id: &str,
-    last_message_at: DateTime<Utc>,
-) {
+pub(crate) async fn backdate_session(db: &Database, session_id: &str, last_message_at: Timestamp) {
     const SQL: &str = "UPDATE messaging_sessions SET last_message_at = $1 WHERE id = $2";
     match db.backend() {
         DatabaseBackend::SQLite(inner) => {
@@ -407,7 +408,7 @@ async fn an_open_whatsapp_dm_gets_the_check_in() {
     let fx = fixture(RecordingPost::posting(true)).await;
     let (user_id, tenant_id) = athlete(&fx, Some(CheckInCadence::Weekly), None).await;
     let now = at(0, 8, 15);
-    let dm = whatsapp_dm(&fx, user_id, tenant_id, now - Duration::hours(2)).await;
+    let dm = whatsapp_dm(&fx, user_id, tenant_id, now - Elapsed::hours(2)).await;
 
     fx.poster.tick(now).await.unwrap();
 
@@ -431,7 +432,7 @@ async fn a_closed_whatsapp_window_holds_the_dm_and_posts_in_the_app() {
     let fx = fixture(RecordingPost::posting(true)).await;
     let (user_id, tenant_id) = athlete(&fx, Some(CheckInCadence::Weekly), None).await;
     let now = at(0, 8, 15);
-    let dm = whatsapp_dm(&fx, user_id, tenant_id, now - Duration::hours(30)).await;
+    let dm = whatsapp_dm(&fx, user_id, tenant_id, now - Elapsed::hours(30)).await;
 
     fx.poster.tick(now).await.unwrap();
 

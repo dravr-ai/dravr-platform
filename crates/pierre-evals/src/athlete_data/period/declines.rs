@@ -151,7 +151,7 @@ mod tests {
     use super::super::PeriodHistory;
     use super::*;
     use crate::athlete_data::{extract_figures, word_spans, AthleteRecord, RecordedActivity};
-    use chrono::NaiveDate;
+    use dravr_tronc::dates::CivilDate;
     use pierre_core::models::SportType;
     use pierre_core::text_fold::fold_for_match;
     use pierre_memory::ClaimStatus;
@@ -213,9 +213,9 @@ mod tests {
     /// Wednesday 2026-09-09: 100 + 80 + 80 = 260 km of riding this month and
     /// 20 + 30 = 50 km of running, every day of it vouched for.
     fn month_record(locale: &str, named_subsets: &[&str]) -> AthleteRecord {
-        let today = NaiveDate::from_ymd_opt(2026, 9, 9).unwrap();
+        let today = CivilDate::from_ymd(2026, 9, 9).unwrap();
         let session = |d: u32, sport: SportType, km: f64| RecordedActivity {
-            date: NaiveDate::from_ymd_opt(2026, 9, d).unwrap(),
+            date: CivilDate::from_ymd(2026, 9, d).unwrap(),
             sport,
             name: String::new(),
             distance_km: Some(km),
@@ -238,7 +238,7 @@ mod tests {
             history: Some(PeriodHistory {
                 sessions,
                 by_source: Vec::new(),
-                covered_from: NaiveDate::from_ymd_opt(2026, 7, 1).unwrap(),
+                covered_from: CivilDate::from_ymd(2026, 7, 1).unwrap(),
                 synced_through: today,
                 block_start: None,
             }),

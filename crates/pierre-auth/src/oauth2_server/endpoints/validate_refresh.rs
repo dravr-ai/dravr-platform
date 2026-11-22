@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use jsonwebtoken::dangerous::insecure_decode;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use secrecy::{ExposeSecret, SecretString};
@@ -60,7 +60,7 @@ impl OAuth2AuthorizationServer {
                 Ok(Some(_user)) => match self.access_was_withdrawn(user_id, &claims).await {
                     Ok(false) => Ok(ValidateRefreshResponse {
                         status: ValidationStatus::Valid,
-                        expires_in: Some(claims.exp - Utc::now().timestamp()),
+                        expires_in: Some(claims.exp - Timestamp::now().epoch_seconds()),
                         access_token: None,
                         refresh_token: None,
                         token_type: None,
@@ -386,7 +386,7 @@ impl OAuth2AuthorizationServer {
         }
 
         // Verify the refresh token hasn't expired
-        if refresh_token.expires_at < Utc::now() {
+        if refresh_token.expires_at < Timestamp::now() {
             return Err(AppError::new(
                 ErrorCode::AuthExpired,
                 "Refresh token has expired",

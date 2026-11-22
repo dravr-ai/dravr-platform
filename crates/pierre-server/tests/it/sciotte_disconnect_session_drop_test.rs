@@ -27,11 +27,11 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::delete;
 use axum::{Json, Router};
-use chrono::Utc;
 use common::{
     create_test_server_resources_with_config, create_test_server_resources_with_sciotte,
     create_test_user_with_email, test_server_config,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth_providers::{
     GARMIN, SCIOTTE, SCIOTTE_GARMIN, SCIOTTE_TRAININGPEAKS, STRAVA, TOKEN_TYPE_SESSION,
     TRAININGPEAKS,
@@ -138,7 +138,7 @@ async fn connected_by_session(
     session_id: &str,
 ) -> (Uuid, TenantId) {
     let (user_id, tenant_id) = user_with_tenant(resources).await;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let session = json!({
         "session_id": session_id,
         "cookies": [],

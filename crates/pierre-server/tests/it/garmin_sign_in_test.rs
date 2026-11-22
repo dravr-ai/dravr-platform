@@ -37,7 +37,7 @@ use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_config::admin_types::{ConfigScope, UpdateConfigRequest};
 use pierre_config::environment::{ProviderEndpointOverride, ServerConfig};
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -103,7 +103,7 @@ pub(crate) struct ScraperSwitch {
     /// Every daily-summary read answers a server error.
     pub(crate) fail_summaries: Arc<AtomicBool>,
     /// The daily-summary read of this one day answers a server error.
-    pub(crate) fail_summary_on: Arc<Mutex<Option<NaiveDate>>>,
+    pub(crate) fail_summary_on: Arc<Mutex<Option<CivilDate>>>,
 }
 
 pub(crate) fn session_header(headers: &HeaderMap) -> String {
@@ -154,7 +154,7 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
         calls: Arc::clone(&calls),
         switch,
     };
-    let recent = (Utc::now() - ChronoDuration::days(3)).to_rfc3339();
+    let recent = (Timestamp::now() - Elapsed::days(3)).to_rfc3339();
     let app = Router::new()
         .route(
             "/auth/login-with-credentials",
@@ -419,7 +419,7 @@ pub(crate) async fn session_read_ceiling(
 
 /// A live Garmin grant and its connection, as the OAuth callback leaves them.
 pub(crate) async fn hold_grant(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let repos = &resources.common.repos;
     repos
         .oauth_tokens
@@ -431,7 +431,7 @@ pub(crate) async fn hold_grant(resources: &Arc<ServerContext>, user_id: Uuid, te
             access_token: SecretString::from("garmin-access-do-not-log".to_owned()),
             refresh_token: Some(SecretString::from("garmin-refresh-do-not-log".to_owned())),
             token_type: "Bearer".to_owned(),
-            expires_at: Some(now + ChronoDuration::hours(12)),
+            expires_at: Some(now + Elapsed::hours(12)),
             scope: None,
             provider_user_id: Some(format!("garmin-{user_id}")),
             oauth_app_client_id: None,
@@ -532,8 +532,8 @@ pub(crate) async fn rows_under(
             user_id,
             &tenant,
             Some(key),
-            DateTime::<Utc>::UNIX_EPOCH,
-            Utc::now() + ChronoDuration::days(1),
+            Timestamp::UNIX_EPOCH,
+            Timestamp::now() + Elapsed::days(1),
             1_000,
         )
         .await
@@ -771,7 +771,7 @@ async fn the_history_a_retired_session_stored_is_still_served_through_the_grant(
             id,
             "Garmin ride",
             SportType::Ride,
-            Utc::now() - ChronoDuration::days(days),
+            Timestamp::now() - Elapsed::days(days),
             3_600,
             key,
         )
@@ -824,7 +824,7 @@ async fn the_grants_own_pushes_leave_the_history_needed() {
         "7000000010",
         "Pushed ride",
         SportType::Ride,
-        Utc::now() - ChronoDuration::hours(3),
+        Timestamp::now() - Elapsed::hours(3),
         3_600,
         oauth_providers::GARMIN,
     )
@@ -838,7 +838,7 @@ async fn the_grants_own_pushes_leave_the_history_needed() {
             &tenant,
             oauth_providers::GARMIN,
             &[pushed],
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -996,7 +996,7 @@ async fn the_oauth_callback_keeps_a_flagged_session_beside_the_new_grant() {
             tenant,
             oauth_providers::SCIOTTE_GARMIN,
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1083,7 +1083,7 @@ async fn a_refresh_that_lands_never_clears_a_withdrawn_permission() {
             .await
             .unwrap()
             .unwrap();
-        expired.expires_at = Some(Utc::now() - ChronoDuration::hours(1));
+        expired.expires_at = Some(Timestamp::now() - Elapsed::hours(1));
         resources
             .common
             .repos
@@ -1100,7 +1100,7 @@ async fn a_refresh_that_lands_never_clears_a_withdrawn_permission() {
                 tenant,
                 oauth_providers::GARMIN,
                 Some(reason),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -1153,7 +1153,7 @@ async fn a_refused_grant_is_lifted_by_a_refresh_never_by_a_restored_permission()
             tenant,
             oauth_providers::GARMIN,
             Some("grant_refused"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();

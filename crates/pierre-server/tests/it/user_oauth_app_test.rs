@@ -18,7 +18,8 @@ use crate::common;
 use secrecy::{ExposeSecret, SecretString};
 
 use anyhow::Result;
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::tenant::oauth_manager::{
     default_rate_limit_for_provider, issuing_client, IssuingClient, IssuingLookup,
 };
@@ -66,9 +67,9 @@ async fn create_test_user(database: &Database, email: &str) -> Result<Uuid> {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(Utc::now()),
-        created_at: Utc::now(),
-        last_active: Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         firebase_uid: None,
         auth_provider: String::new(),
         analytics_consent: false,
@@ -100,7 +101,7 @@ async fn create_test_user_with_tenant(
     tenant_id: TenantId,
 ) -> Result<Uuid> {
     let user_id = create_test_user(database, email).await?;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let tenant = Tenant {
         id: tenant_id,
         name: format!("Test Tenant {tenant_id}"),
@@ -671,7 +672,7 @@ async fn test_pool_attribution_priority_over_user_and_tenant_credentials() -> Re
         "strava".to_owned(),
         "pool-issued-access".to_owned(),
         Some("pool-issued-refresh".to_owned()),
-        Some(Utc::now() + chrono::Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     )
     .with_oauth_app_client_id(Some("pool_strava_id".to_owned()));
@@ -942,7 +943,7 @@ async fn test_oauth_app_timestamps() -> Result<()> {
     let tenant_id = TenantId::generate();
     let user_id = create_test_user_with_tenant(&database, "user@example.com", tenant_id).await?;
 
-    let before = Utc::now();
+    let before = Timestamp::now();
 
     database
         .repositories()
@@ -956,7 +957,7 @@ async fn test_oauth_app_timestamps() -> Result<()> {
         )
         .await?;
 
-    let after = Utc::now();
+    let after = Timestamp::now();
 
     let app = database
         .repositories()

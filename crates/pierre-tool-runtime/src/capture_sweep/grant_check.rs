@@ -23,7 +23,7 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::CaptureFreshness;
 use pierre_providers::registry::ProviderRegistry;
@@ -108,7 +108,7 @@ async fn check_grant(
     }
     // Taken before the token is read, so a reconnect that lands while the
     // refresh is in flight is newer than the refusal it reports.
-    let attempt_started_at = Utc::now();
+    let attempt_started_at = Timestamp::now();
     let outcome = match AuthService::new(Arc::clone(runtime))
         .get_valid_token(user_id, &grant.provider, Some(&grant.tenant_id))
         .await

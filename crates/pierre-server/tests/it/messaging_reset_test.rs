@@ -64,6 +64,7 @@ mod reset_locale {
     use crate::helpers::command_e2e::{CommandE2e, Member, RoomE2e, RouterLlm};
     use crate::helpers::notify_capture::{capture_logs, named, only};
     use dravr_canot::rich_text::{parse_markdown, render_rich_text};
+    use dravr_tronc::dates::Timestamp;
     use pierre_commands::reset::ResetHandler;
     use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
     use pierre_config::constants::usage_quotas::DEFAULT_MAX_ACTIVE_CONVERSATIONS;
@@ -1210,7 +1211,7 @@ mod reset_locale {
             member.user_id,
             member.home_tenant,
             FINISH_PROFILE,
-            chrono::Utc::now().date_naive(),
+            Timestamp::now().utc_date(),
             "telegram",
         )
         .await

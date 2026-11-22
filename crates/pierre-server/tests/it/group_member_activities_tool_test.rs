@@ -17,7 +17,7 @@
 #[cfg(feature = "tools-groups")]
 mod peer_fetch_tests {
     use crate::common::create_test_server_resources;
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use dravr_tronc::mcp::schema::ToolResponse;
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
@@ -60,7 +60,7 @@ mod peer_fetch_tests {
 
     async fn create_tenant_owned_by(resources: &ServerContext, owner_id: Uuid) -> TenantId {
         let tenant_id = TenantId::generate();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let tenant = Tenant {
             id: tenant_id,
             name: "Peer Tenant".to_owned(),
@@ -112,7 +112,7 @@ mod peer_fetch_tests {
         peer_data_sharing: bool,
     ) -> Uuid {
         let id = Uuid::new_v4();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = CoachingGroup {
             id,
             tenant_id: tenant_id.to_string(),
@@ -150,7 +150,7 @@ mod peer_fetch_tests {
         role: GroupRole,
         consent: bool,
     ) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         resources
             .common
             .repos
@@ -184,7 +184,7 @@ mod peer_fetch_tests {
     }
 
     async fn add_member_sharing(resources: &ServerContext, sharing: MemberSharing) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         resources
             .common
             .repos
@@ -241,7 +241,7 @@ mod peer_fetch_tests {
             id.to_owned(),
             format!("ride {id}"),
             SportType::Ride,
-            Utc::now() - Duration::days(2),
+            Timestamp::now() - Elapsed::days(2),
             7_200,
             "strava".to_owned(),
         )

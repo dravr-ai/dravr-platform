@@ -42,7 +42,7 @@
 //! stored from the measurements once a week ([`crate::anchor_promotion`]),
 //! and stored history recomputed when it moves.
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::constants::oauth_providers::ATHLETE;
 use pierre_core::errors::AppResult;
@@ -235,10 +235,8 @@ pub async fn record_manual_measurements(
             },
         )
         .await?;
-    let now = Utc::now();
-    let date = now
-        .with_timezone(&athlete_zone(repos, user_id).await)
-        .date_naive();
+    let now = Timestamp::now();
+    let date = athlete_zone(repos, user_id).await.date_at(now);
     let mut writes = store.writes("manual entry");
     if let Some(resting_hr) = stated.resting_hr {
         let row = StoredRecoveryMetrics {
@@ -293,7 +291,7 @@ pub async fn record_manual_measurements(
 
 #[cfg(test)]
 mod tests {
-    use chrono::NaiveDate;
+    use dravr_tronc::dates::CivilDate;
     use pierre_core::models::SportType;
 
     use super::*;
@@ -302,7 +300,7 @@ mod tests {
     fn measured<T>(value: T) -> Measured<T> {
         Measured {
             value,
-            date: NaiveDate::from_ymd_opt(2026, 10, 30).unwrap_or_default(),
+            date: CivilDate::from_ymd(2026, 10, 30).ok().unwrap_or_default(),
             source: "garmin".to_owned(),
         }
     }

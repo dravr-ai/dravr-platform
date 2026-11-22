@@ -24,7 +24,7 @@ use std::sync::Arc;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use chrono::{DateTime, Duration, NaiveTime, TimeZone, Utc};
+use dravr_tronc::dates::{CivilTime, Elapsed, Timestamp};
 use pierre_core::constants::oauth::providers::SENSITIVE_T2;
 use pierre_core::models::{DataSource, DeviceType, StoredHealthMetrics, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -338,12 +338,12 @@ async fn blood_pressure_and_glucose_stay_off_external_transports() {
         )
         .await
         .unwrap();
-    let date = Utc::now() - Duration::days(1);
+    let date = Timestamp::now() - Elapsed::days(1);
     let reading = StoredHealthMetrics {
         id: String::new(),
         user_id: who.id.to_string(),
         data_source_id: source_id,
-        date: date.date_naive(),
+        date: date.utc_date(),
         weight_kg: Some(72.5),
         body_fat_pct: None,
         muscle_mass_kg: None,
@@ -364,7 +364,7 @@ async fn blood_pressure_and_glucose_stay_off_external_transports() {
             &who.tenant,
             &reading,
             WellnessWriteMode::FullDay,
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -535,9 +535,11 @@ async fn the_a2a_card_offers_none_of_the_first_party_tools() {
 }
 
 /// 07:00 UTC `days_ago` days before today.
-fn morning(days_ago: i64) -> DateTime<Utc> {
-    let day = Utc::now().date_naive() - Duration::days(days_ago);
-    Utc.from_utc_datetime(&day.and_time(NaiveTime::from_hms_opt(7, 0, 0).unwrap()))
+fn morning(days_ago: i64) -> Timestamp {
+    let day = Timestamp::now().utc_date() - Elapsed::days(days_ago);
+    (day.and_time(CivilTime::from_hms(7, 0, 0).unwrap()))
+        .and_utc()
+        .unwrap()
 }
 
 /// Upload the ride of `days_ago` through the athlete's own route; its id.
@@ -665,7 +667,7 @@ async fn a_deep_upload_history_reads_its_rows_over_mcp() {
         &app,
         &grant(&res, &who),
         "get_training_history",
-        json!({"from": (Utc::now() - Duration::days(14)).format("%Y-%m-%d").to_string()}),
+        json!({"from": (Timestamp::now() - Elapsed::days(14)).utc_date().to_string()}),
     )
     .await;
     assert_eq!(answer["result"]["isError"], false, "{answer}");

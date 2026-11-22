@@ -7,13 +7,13 @@
 //! The riviere time-series store, written once.
 //!
 //! `data_point_series` keys on text ids on both backends; `recorded_at`
-//! binds as a [`DateTime<Utc>`], which sqlx-sqlite encodes to the bytes
+//! binds as a [`Timestamp`], which sqlx-sqlite encodes to the bytes
 //! `to_rfc3339()` writes, so the half-open range comparisons order as they
 //! always did on the `SQLite` TEXT column while Postgres gets its
 //! `TIMESTAMPTZ`. Nothing on this table is spelled differently per engine.
 
-use chrono::{DateTime, Utc};
 use dravr_riviere::{DataPoint, RiviereError};
+use dravr_tronc::dates::Timestamp;
 
 // ============================================================================
 // data_point_series (riviere TimeSeriesStore)
@@ -77,13 +77,13 @@ where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     f64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
-    let timestamp: DateTime<Utc> =
-        row.try_get("recorded_at")
-            .map_err(|e| RiviereError::Storage {
-                message: format!("invalid recorded_at: {e}"),
-            })?;
+    let timestamp: Timestamp = row
+        .try_get("recorded_at")
+        .map_err(|e| RiviereError::Storage {
+            message: format!("invalid recorded_at: {e}"),
+        })?;
     let value: f64 = row.try_get("value").map_err(|e| RiviereError::Storage {
         message: format!("invalid value: {e}"),
     })?;
@@ -155,7 +155,7 @@ macro_rules! impl_time_series_store {
                         message: format!("begin tx for time-series insert: {e}"),
                     })?;
 
-                let synced_at = Utc::now();
+                let synced_at = Timestamp::now();
                 for point in &points {
                     let id = Uuid::new_v4().to_string();
                     sqlx::query(TS_INSERT_POINT_SQL)
@@ -231,7 +231,7 @@ macro_rules! impl_time_series_store {
                 range: &TimeRange,
             ) -> Result<u64, RiviereError> {
                 let res = sqlx::query(TS_DELETE_RANGE_SQL)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(source_id)
                     .bind(i64::from(series_type))
                     .bind(range.start)

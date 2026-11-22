@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::Router;
-use chrono::{Duration, DurationRound, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use embacle_tool_host::ToolSurface;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier};
 use pierre_chat_pipeline::stages::persistence::get_conversation_history;
@@ -129,7 +129,7 @@ fn session(id: &str, name: &str, days_ago: i64) -> Activity {
         id,
         name,
         SportType::Ride,
-        Utc::now() - Duration::days(days_ago),
+        Timestamp::now() - Elapsed::days(days_ago),
         3_600,
         RELAY,
     )
@@ -240,7 +240,7 @@ pub(crate) async fn athlete_with_relay(resources: &ServerContext) -> Rider {
         RELAY.to_owned(),
         "relay-access".to_owned(),
         Some("relay-refresh".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         None,
     );
     repos.oauth_tokens.upsert_token(&token).await.unwrap();
@@ -346,8 +346,8 @@ async fn the_same_call_returns_the_relays_items_only_to_dravrs_own_surfaces() {
             athlete.user_id,
             &athlete.tenant,
             Some(RELAY),
-            Utc::now() - Duration::days(30),
-            Utc::now(),
+            Timestamp::now() - Elapsed::days(30),
+            Timestamp::now(),
             50,
         )
         .await
@@ -452,7 +452,7 @@ async fn api_key(resources: &Arc<ServerContext>, user_id: Uuid) -> String {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     resources.common.repos.api_keys.create(&key).await.unwrap();
     data.full_key
@@ -482,9 +482,10 @@ async fn get(app: &Router, uri: &str, authorization: &str) -> (StatusCode, Value
 /// holds. Only the relay's copy of the shared ride carries a distance, so the
 /// merged workout shows one only when the relay's copy was merged in.
 async fn seed_home(resources: &Arc<ServerContext>, athlete: &Rider) {
-    let start = (Utc::now() - Duration::days(1))
-        .duration_trunc(Duration::minutes(1))
-        .unwrap();
+    let start = Timestamp::from_epoch_seconds(
+        (Timestamp::now() - Elapsed::days(1)).epoch_seconds() / 60 * 60,
+    )
+    .unwrap();
     let relay_copy = ActivityBuilder::new(
         "n-shared",
         "Relay Long Ride",
@@ -500,7 +501,7 @@ async fn seed_home(resources: &Arc<ServerContext>, athlete: &Rider) {
         "n-only",
         "Relay Recovery Spin",
         SportType::Ride,
-        start - Duration::days(1),
+        start - Elapsed::days(1),
         2_400,
         RELAY,
     )
@@ -791,7 +792,7 @@ async fn derived_training_status_leaves_the_relay_out_of_an_api_key_answer() {
                 format!("n-day-{day}"),
                 format!("Relay Day {day}"),
                 SportType::Ride,
-                Utc::now() - Duration::days(day),
+                Timestamp::now() - Elapsed::days(day),
                 3_600,
                 RELAY,
             )
@@ -1192,9 +1193,8 @@ async fn facts_and_the_plan_derived_from_the_relay_are_withheld_and_the_rest_ser
 
     let goal = GoalRace {
         name: "Relay Gran Fondo".to_owned(),
-        date: (Utc::now() + Duration::days(90))
-            .date_naive()
-            .format("%Y-%m-%d")
+        date: (Timestamp::now() + Elapsed::days(90))
+            .utc_date()
             .to_string(),
         discipline: "road".to_owned(),
         priority: RacePriority::A,
@@ -1547,7 +1547,7 @@ async fn a_room_entry_copied_from_a_stamped_reply_keeps_its_place_withheld_over_
         )
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group_id = Uuid::new_v4();
     repos
         .groups
@@ -2073,7 +2073,7 @@ mod scraped {
                 id,
                 name,
                 SportType::Run,
-                Utc::now() - Duration::days(days_ago),
+                Timestamp::now() - Elapsed::days(days_ago),
                 2_700,
                 SCIOTTE,
             )
@@ -2194,7 +2194,7 @@ mod scraped {
             SCIOTTE.to_owned(),
             "scraper-session".to_owned(),
             None,
-            Some(Utc::now() + Duration::hours(6)),
+            Some(Timestamp::now() + Elapsed::hours(6)),
             None,
         );
         repos.oauth_tokens.upsert_token(&token).await.unwrap();

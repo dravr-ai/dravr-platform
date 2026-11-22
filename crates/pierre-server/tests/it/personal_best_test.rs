@@ -24,7 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::StatusCode;
-use chrono::{DateTime, TimeZone, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId, TimeSeriesData};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -41,6 +41,7 @@ use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_tenant};
 use crate::helpers::axum_test::AxumTestRequest;
+use dravr_tronc::dates::{CivilDate, CivilDateTime};
 
 /// How long the fire-and-forget dispatch task is given to persist its row.
 const DISPATCH_SETTLE: Duration = Duration::from_millis(400);
@@ -99,13 +100,16 @@ async fn fixture(email: &str) -> Fixture {
     }
 }
 
-fn day(n: u32) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 9, n, 7, 0, 0).unwrap()
+fn day(n: u32) -> Timestamp {
+    CivilDate::from_ymd(2026, 9, n)
+        .and_then(|date| date.and_hms(7, 0, 0))
+        .and_then(CivilDateTime::and_utc)
+        .unwrap()
 }
 
 /// A Strava run of `km` kilometres at a constant `seconds_per_km`, sampled
 /// once a second with its cumulative distance, as the Strava mapper builds it.
-fn run(id: &str, start: DateTime<Utc>, seconds_per_km: u32, km: u32) -> (Activity, TimeSeriesData) {
+fn run(id: &str, start: Timestamp, seconds_per_km: u32, km: u32) -> (Activity, TimeSeriesData) {
     let duration = seconds_per_km * km;
     let timestamps: Vec<u32> = (0..=duration).collect();
     let metres_per_second = 1000.0 / f64::from(seconds_per_km);

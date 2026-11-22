@@ -16,6 +16,7 @@
 
 use std::collections::BTreeSet;
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::periodization::{
     DaySubstitution, EnvelopeFinding, ReadinessLevel, SpacingCheck, TrainingAlert, WorkoutPurpose,
 };
@@ -638,7 +639,7 @@ pub struct CalendarEntry {
     /// The provider's own id for the event, once it has been pushed.
     pub provider_event_id: Option<String>,
     /// When the ledger row last changed.
-    pub pushed_at: chrono::DateTime<chrono::Utc>,
+    pub pushed_at: Timestamp,
 }
 
 /// What a push would change, without the entry list.

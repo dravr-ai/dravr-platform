@@ -7,7 +7,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
 use dravr_cageux::config::intelligence::{IntelligenceConfig, SleepRecoveryConfig};
 use dravr_cageux::{
     algorithms::RecoveryAggregationAlgorithm,
@@ -21,6 +20,7 @@ use dravr_cageux::{
     },
     training_load::TrainingLoad,
 };
+use dravr_tronc::dates::Timestamp;
 
 /// Helper to get default test config
 fn test_config() -> SleepRecoveryConfig {
@@ -562,7 +562,7 @@ fn test_rest_day_not_needed() {
         limitations: vec![],
     };
     let sleep_data = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 8.0,
         deep_sleep_hours: Some(1.6),
         rem_sleep_hours: Some(2.0),
@@ -619,7 +619,7 @@ fn test_rest_day_strongly_recommended() {
         limitations: vec![],
     };
     let sleep_data = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 5.5, // Short sleep
         deep_sleep_hours: Some(0.5),
         rem_sleep_hours: Some(1.0),
@@ -680,7 +680,7 @@ fn test_rest_day_moderate_confidence() {
         limitations: vec![],
     };
     let sleep_data = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 7.0,
         deep_sleep_hours: Some(1.2),
         rem_sleep_hours: Some(1.6),
@@ -736,7 +736,7 @@ fn test_rest_day_reasoning_generated() {
         limitations: vec![],
     };
     let sleep_data = SleepData {
-        date: Utc::now(),
+        date: Timestamp::now(),
         duration_hours: 6.5,
         deep_sleep_hours: Some(1.0),
         rem_sleep_hours: Some(1.5),

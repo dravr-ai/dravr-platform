@@ -48,7 +48,8 @@ use async_trait::async_trait;
 use axum::extract::RawQuery;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::AppResult;
@@ -116,7 +117,7 @@ fn session_ride(start: i64) -> Value {
         "id": format!("9{start}"),
         "name": "Sortie",
         "sport_type": "ride",
-        "start_date": Utc.timestamp_opt(start, 0).unwrap().to_rfc3339(),
+        "start_date": Timestamp::from_epoch_seconds(start).unwrap().to_rfc3339(),
         "duration_seconds": 3600,
         "provider": "strava",
         "distance_meters": 20000.0
@@ -179,7 +180,7 @@ async fn spawn_session(starts: Vec<i64>) -> (String, Arc<MockSession>) {
 /// Every walk's end the athlete was told.
 #[derive(Default)]
 struct Told {
-    walks: Mutex<Vec<(String, DateTime<Utc>, usize)>>,
+    walks: Mutex<Vec<(String, Timestamp, usize)>>,
 }
 
 #[async_trait]
@@ -407,7 +408,7 @@ impl Fixture {
     }
 
     /// The walks' ends the athlete was told, once every write settled.
-    async fn told(&self) -> Vec<(String, DateTime<Utc>, usize)> {
+    async fn told(&self) -> Vec<(String, Timestamp, usize)> {
         sleep(Duration::from_millis(200)).await;
         self.told.walks.lock().unwrap().clone()
     }
@@ -426,7 +427,7 @@ impl Fixture {
 /// oldest year.
 #[tokio::test]
 async fn a_session_walk_goes_on_through_the_grant_below_its_oldest_row() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let api_rides = [
@@ -527,8 +528,11 @@ async fn a_session_walk_goes_on_through_the_grant_below_its_oldest_row() {
         "bug: the post counts every activity the walk brought in"
     );
     assert_eq!(
-        oldest.year(),
-        Utc.timestamp_opt(api_rides[2], 0).unwrap().year(),
+        oldest.utc_date().year(),
+        Timestamp::from_epoch_seconds(api_rides[2])
+            .unwrap()
+            .utc_date()
+            .year(),
         "bug: the post names the oldest year either key holds"
     );
 }
@@ -539,7 +543,7 @@ async fn a_session_walk_goes_on_through_the_grant_below_its_oldest_row() {
 /// session, never the session from the top. The athlete is told once.
 #[tokio::test]
 async fn a_restart_mid_api_phase_resumes_the_grant_not_the_session() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     // Sixteen requests a window, four of them background, two of which the
     // detail walk holds (carnet#1585): the history walk's two are the profile
@@ -652,7 +656,7 @@ async fn incomplete_in_the_api_phase(fx: &Fixture) -> (i64, usize) {
         Some(BackfillJobState::Owed),
         "the API phase is paused, owed"
     );
-    let ended_ms = Utc::now().timestamp_millis() - 25 * 3_600_000;
+    let ended_ms = Timestamp::now().epoch_millis() - 25 * 3_600_000;
     let sql = "UPDATE activity_backfill_jobs SET outcome = 'incomplete', ended_at_ms = $2, \
                leased_until_ms = 0, lease_token = NULL WHERE user_id = $1";
     match fx.resources.agent.database.backend() {
@@ -710,7 +714,7 @@ async fn walk_backend(fx: &Fixture) -> Option<String> {
 /// counters — never the session from the top.
 #[tokio::test]
 async fn an_incomplete_api_phase_resumes_through_its_grant_below_its_cursor() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 16, true).await;
     fx.strava.serve(vec![
@@ -779,7 +783,7 @@ async fn an_incomplete_api_phase_resumes_through_its_grant_below_its_cursor() {
 /// reading nothing, until that grant is live beside the session again.
 #[tokio::test]
 async fn an_incomplete_api_phase_waits_for_its_grant_to_be_live() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 16, true).await;
     fx.strava.serve(vec![
@@ -798,7 +802,7 @@ async fn an_incomplete_api_phase_waits_for_its_grant_to_be_live() {
             fx.tenant,
             oauth_providers::STRAVA,
             Some("invalid_grant"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -833,7 +837,7 @@ async fn an_incomplete_api_phase_waits_for_its_grant_to_be_live() {
 /// its oldest row, and that phase's end is told with what it brought in.
 #[tokio::test]
 async fn a_session_alone_ends_after_its_steps_and_a_later_grant_walks_below_it() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, false).await;
     fx.strava.serve(vec![session_oldest - YEAR / 2]);
@@ -927,7 +931,7 @@ async fn a_session_alone_ends_after_its_steps_and_a_later_grant_walks_below_it()
 /// far back their history reaches, is told nothing again.
 #[tokio::test]
 async fn a_reopened_walk_that_finds_nothing_older_tells_nothing() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, false).await;
     fx.strava.serve(vec![now - 3 * DAY]);
@@ -992,7 +996,7 @@ async fn a_session_that_lapses_mid_api_phase_leaves_one_walk_of_the_grant() {
     use pierre_core::models::coverage::Pending;
     use pierre_tool_runtime::training_history_compute::history_walk_pending;
 
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let fx = fixture(vec![now - 3 * DAY, now - 2 * YEAR], 400, true).await;
     fx.strava.serve(vec![now - 5 * YEAR]);
     fx.strava.created(now - 6 * YEAR);
@@ -1048,7 +1052,7 @@ async fn a_session_that_lapses_mid_api_phase_leaves_one_walk_of_the_grant() {
             fx.tenant,
             oauth_providers::SCIOTTE,
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1150,7 +1154,7 @@ async fn walked_then_grant_revoked(fx: &Fixture, session_oldest: i64) {
 /// paging the grant again strictly below the session's oldest row.
 #[tokio::test]
 async fn a_purged_grant_reconnected_beside_its_session_is_walked_again_below_it() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     fx.strava.serve(vec![
@@ -1201,7 +1205,7 @@ async fn a_purged_grant_reconnected_beside_its_session_is_walked_again_below_it(
 /// the recent rides the session held and the deep ones the purge took.
 #[tokio::test]
 async fn a_purged_grant_reconnected_after_its_session_lapsed_is_walked_again() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     fx.strava.serve(vec![
@@ -1227,7 +1231,7 @@ async fn a_purged_grant_reconnected_after_its_session_lapsed_is_walked_again() {
             fx.tenant,
             oauth_providers::SCIOTTE,
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1282,7 +1286,8 @@ async fn hold_the_second_api_year(fx: &Fixture, session_oldest: i64) -> Arc<Noti
         session_oldest - 3 * YEAR / 2,
         session_oldest - 5 * YEAR / 2,
     ]);
-    fx.strava.created(Utc::now().timestamp() - 6 * YEAR);
+    fx.strava
+        .created(Timestamp::now().epoch_seconds() - 6 * YEAR);
     assert!(
         start_history_walk(
             &fx.runtime(),
@@ -1316,7 +1321,7 @@ impl Fixture {
                 self.tenant,
                 oauth_providers::SCIOTTE,
                 BackfillJobKind::HistoryWalk,
-                Utc::now().timestamp_millis(),
+                Timestamp::now().epoch_millis(),
             )
             .await
             .unwrap()
@@ -1365,7 +1370,7 @@ impl Fixture {
 /// history is read again.
 #[tokio::test]
 async fn a_purge_mid_step_then_a_reconnect_reads_the_purged_range_again() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let gate = hold_the_second_api_year(&fx, session_oldest).await;
@@ -1422,7 +1427,7 @@ async fn a_purge_mid_step_then_a_reconnect_reads_the_purged_range_again() {
 /// live grant reopens below the session, reading the purged history back.
 #[tokio::test]
 async fn a_reconnect_during_a_purged_step_is_walked_once_the_step_stops() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let gate = hold_the_second_api_year(&fx, session_oldest).await;
@@ -1469,7 +1474,7 @@ async fn a_reconnect_during_a_purged_step_is_walked_once_the_step_stops() {
 /// later.
 #[tokio::test]
 async fn a_reconnect_during_a_purged_step_that_fails_is_walked_once_it_stops() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let gate = hold_the_second_api_year(&fx, session_oldest).await;
@@ -1506,7 +1511,7 @@ async fn a_reconnect_during_a_purged_step_that_fails_is_walked_once_it_stops() {
 async fn the_api_phase_starts_below_the_sessions_own_oldest_row_not_a_stray_grant_page() {
     use pierre_core::models::{ActivityBuilder, SportType};
 
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let stray = session_oldest - 5 * YEAR / 2;
@@ -1520,7 +1525,7 @@ async fn the_api_phase_starts_below_the_sessions_own_oldest_row_not_a_stray_gran
         stray.to_string(),
         "Morning ride".to_owned(),
         SportType::Ride,
-        Utc.timestamp_opt(stray, 0).unwrap(),
+        Timestamp::from_epoch_seconds(stray).unwrap(),
         3_600,
         oauth_providers::STRAVA.to_owned(),
     )
@@ -1593,7 +1598,7 @@ impl Fixture {
             .common
             .repos
             .activity_backfill_jobs
-            .claim_stale_backfill_jobs(Self::claim_at(Utc::now().timestamp_millis()))
+            .claim_stale_backfill_jobs(Self::claim_at(Timestamp::now().epoch_millis()))
             .await
             .unwrap();
         assert_eq!(claimed.len(), 1, "the dead runner holds the walk's row");
@@ -1644,7 +1649,7 @@ impl Fixture {
                 self.tenant,
                 oauth_providers::SCIOTTE,
                 Some("session_expired"),
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .unwrap();
@@ -1675,7 +1680,7 @@ impl Fixture {
 /// reading the purged history back, without any further ask.
 #[tokio::test]
 async fn a_purge_under_a_dead_runner_is_walked_again_once_its_lease_lapses() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     fx.strava.serve(vec![
@@ -1740,7 +1745,7 @@ async fn a_purge_under_a_dead_runner_is_walked_again_once_its_lease_lapses() {
 /// session's key.
 #[tokio::test]
 async fn a_reconnect_after_the_session_lapsed_never_pages_the_grant_beside_a_purged_step() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     fx.strava.serve(vec![
@@ -1821,7 +1826,7 @@ async fn fail_the_next_api_step(fx: &Fixture) -> (i64, i64) {
     fx.reach_the_api_phase().await;
     let gate = fx.strava.hold_next_listing();
     fx.strava.fail_the_held_listing();
-    let before = Utc::now().timestamp_millis();
+    let before = Timestamp::now().epoch_millis();
     fx.sweep(true).await;
     fx.strava.listing_held().await;
     gate.notify_one();
@@ -1830,7 +1835,7 @@ async fn fail_the_next_api_step(fx: &Fixture) -> (i64, i64) {
         assert!(Instant::now() < deadline, "the failed step never settled");
         sleep(Duration::from_millis(50)).await;
     }
-    (before, Utc::now().timestamp_millis())
+    (before, Timestamp::now().epoch_millis())
 }
 
 /// A failed walk step gives its row back with its retry a whole lease
@@ -1838,7 +1843,7 @@ async fn fail_the_next_api_step(fx: &Fixture) -> (i64, i64) {
 /// before that lease has passed, and does once it has.
 #[tokio::test]
 async fn a_failed_walk_steps_retry_is_due_a_whole_lease_later() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     fx.strava.serve(vec![session_oldest - YEAR / 2]);
@@ -1890,7 +1895,7 @@ async fn a_failed_walk_steps_retry_is_due_a_whole_lease_later() {
 /// once.
 #[tokio::test]
 async fn a_walk_reopened_after_a_failed_step_is_claimable_at_once() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     fx.strava.serve(vec![session_oldest - YEAR / 2]);
@@ -1917,7 +1922,7 @@ async fn a_walk_reopened_after_a_failed_step_is_claimable_at_once() {
         .common
         .repos
         .activity_backfill_jobs
-        .claim_stale_backfill_jobs(Fixture::claim_at(Utc::now().timestamp_millis() + 1_000))
+        .claim_stale_backfill_jobs(Fixture::claim_at(Timestamp::now().epoch_millis() + 1_000))
         .await
         .unwrap();
     assert_eq!(
@@ -1958,7 +1963,7 @@ impl Fixture {
                     .await
                     .unwrap(),
             };
-            if leased_until <= Utc::now().timestamp_millis() {
+            if leased_until <= Timestamp::now().epoch_millis() {
                 sleep(Duration::from_millis(300)).await;
                 return;
             }
@@ -2028,7 +2033,7 @@ impl Fixture {
 /// terminated provider.
 #[tokio::test]
 async fn a_termination_under_a_running_step_reopens_nothing() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let gate = hold_the_second_api_year(&fx, session_oldest).await;
@@ -2050,7 +2055,7 @@ async fn a_termination_under_a_running_step_reopens_nothing() {
 /// stops starts no walk of the terminated grant from the head.
 #[tokio::test]
 async fn a_termination_under_a_running_step_starts_no_walk_of_the_grant() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let gate = hold_the_second_api_year(&fx, session_oldest).await;
@@ -2070,7 +2075,7 @@ async fn a_termination_under_a_running_step_starts_no_walk_of_the_grant() {
 /// nothing through the terminated provider's live grant.
 #[tokio::test]
 async fn a_termination_settles_a_purged_walk_the_sweep_would_have_reopened() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     fx.strava.serve(vec![
@@ -2171,7 +2176,7 @@ impl LiveActivityStore for HeldWrite {
         tenant_id: TenantId,
         provider: &str,
         activities: &[Activity],
-        synced_at: DateTime<Utc>,
+        synced_at: Timestamp,
         origin: WriteOrigin,
     ) -> AppResult<LiveIngest> {
         let held = {
@@ -2205,7 +2210,7 @@ impl LiveActivityStore for HeldWrite {
         tenant_id: TenantId,
         provider: &str,
         activity: &Activity,
-        received_at: DateTime<Utc>,
+        received_at: Timestamp,
     ) -> AppResult<LiveIngest> {
         self.inner
             .ingest_received(user_id, tenant_id, provider, activity, received_at)
@@ -2253,8 +2258,8 @@ impl LiveActivityStore for HeldWrite {
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> AppResult<u64> {
         self.inner
             .discard_between(user_id, tenant_id, provider, start, end)
@@ -2342,7 +2347,7 @@ impl Fixture {
 /// rows it wrote, so nothing of the purged grant is left in the store.
 #[tokio::test]
 async fn a_purge_landing_while_a_step_writes_leaves_none_of_its_rows() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let store = fx.hold_writes();
@@ -2373,7 +2378,7 @@ async fn a_purge_landing_while_a_step_writes_leaves_none_of_its_rows() {
 /// grant is left in the store.
 #[tokio::test]
 async fn a_step_whose_row_both_purges_took_leaves_none_of_its_rows() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let store = fx.hold_writes();
@@ -2437,7 +2442,7 @@ impl Fixture {
     /// did, with the samples its provider pushed and the athlete's declared
     /// gear choice for it.
     async fn hold_earlier_read(&self, key: &str, id: &str, start: i64) {
-        let started = Utc.timestamp_opt(start, 0).unwrap();
+        let started = Timestamp::from_epoch_seconds(start).unwrap();
         let ride = ActivityBuilder::new(
             id.to_owned(),
             "Morning ride".to_owned(),
@@ -2456,7 +2461,7 @@ impl Fixture {
                 self.tenant,
                 key,
                 &[ride],
-                Utc::now(),
+                Timestamp::now(),
                 WriteOrigin::Import,
             )
             .await
@@ -2484,7 +2489,7 @@ impl Fixture {
                     grade_smooth: None,
                     moving: None,
                 },
-                synced_at: Utc::now(),
+                synced_at: Timestamp::now(),
             })
             .await
             .unwrap();
@@ -2516,7 +2521,7 @@ impl Fixture {
     /// What is left of the ride `id` starting at `start` under `key`.
     async fn kept(&self, key: &str, id: &str, start: i64) -> Kept {
         let repos = &self.resources.common.repos;
-        let started = Utc.timestamp_opt(start, 0).unwrap();
+        let started = Timestamp::from_epoch_seconds(start).unwrap();
         let gear_key = ActivityGearKey {
             provider: key.to_owned(),
             activity_id: id.to_owned(),
@@ -2538,8 +2543,8 @@ impl Fixture {
                 .athlete_gear
                 .list_gear_attributions(
                     self.user_id,
-                    started - chrono::Duration::hours(1),
-                    started + chrono::Duration::hours(1),
+                    started - Elapsed::hours(1),
+                    started + Elapsed::hours(1),
                 )
                 .await
                 .unwrap()
@@ -2618,7 +2623,7 @@ impl Fixture {
     /// rides are older than the rollup's default window reaches back, and
     /// with this one the rollup has days to warm.
     async fn base_the_rollup(&self, key: &str) {
-        let start = Utc::now().timestamp() - 100 * DAY;
+        let start = Timestamp::now().epoch_seconds() - 100 * DAY;
         self.hold_earlier_read(key, &format!("8{start}"), start)
             .await;
     }
@@ -2653,7 +2658,7 @@ impl Fixture {
 
     /// Store a day of the grant's wellness, synced `age_days` ago.
     async fn sync_grant_wellness(&self, age_days: i64) {
-        let synced_at = Utc::now() - chrono::Duration::days(age_days);
+        let synced_at = Timestamp::now() - Elapsed::days(age_days);
         let repos = &self.resources.common.repos;
         let source_id = repos
             .data_sources
@@ -2680,7 +2685,7 @@ impl Fixture {
                     id: String::new(),
                     user_id: self.user_id.to_string(),
                     data_source_id: source_id,
-                    date: synced_at.date_naive(),
+                    date: synced_at.utc_date(),
                     steps: Some(9_000),
                     active_kcal: None,
                     total_kcal: None,
@@ -2713,12 +2718,9 @@ impl Fixture {
 }
 
 /// The days the rollup checks look over: every year the tests walk.
-fn rollup_span() -> (NaiveDate, NaiveDate) {
-    let today = Utc::now().date_naive();
-    (
-        today - chrono::Duration::days(12 * 365),
-        today + chrono::Duration::days(1),
-    )
+fn rollup_span() -> (CivilDate, CivilDate) {
+    let today = Timestamp::now().utc_date();
+    (today - Elapsed::days(12 * 365), today + Elapsed::days(1))
 }
 
 /// Start the walk, and wait until its session's first step reached the
@@ -2757,7 +2759,7 @@ const MEND_WALK_ROW_READS: &str =
 /// it.
 #[tokio::test]
 async fn a_session_purge_landing_while_a_step_writes_keeps_the_grants_page() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let second_year = session_oldest - 3 * YEAR / 2;
     let earlier = second_year.to_string();
@@ -2813,7 +2815,7 @@ async fn a_session_purge_landing_while_a_step_writes_keeps_the_grants_page() {
 /// and attests as much: the step keeps the page it wrote.
 #[tokio::test]
 async fn a_wellness_expiry_landing_while_a_step_writes_takes_nothing_back() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     fx.sync_grant_wellness(40).await;
@@ -2845,7 +2847,7 @@ async fn a_wellness_expiry_landing_while_a_step_writes_takes_nothing_back() {
         .provider_data
         .expire_provider_wellness(
             oauth_providers::STRAVA,
-            Utc::now() - chrono::Duration::days(30),
+            Timestamp::now() - Elapsed::days(30),
         )
         .await
         .unwrap();
@@ -2894,7 +2896,7 @@ impl Fixture {
 /// again and lands it over the rows that stayed.
 #[tokio::test]
 async fn a_ledger_unread_after_a_steps_write_takes_nothing_back_and_fails() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let second_year = session_oldest - 3 * YEAR / 2;
     let earlier = second_year.to_string();
@@ -2918,7 +2920,7 @@ async fn a_ledger_unread_after_a_steps_write_takes_nothing_back_and_fails() {
         "the step's write added the year's new ride"
     );
     fx.execute(BREAK_WALK_ROW_READS).await;
-    let failed_at = Utc::now().timestamp_millis();
+    let failed_at = Timestamp::now().epoch_millis();
     write.resume.as_ref().unwrap().notify_one();
     let deadline = Instant::now() + WALK_DEADLINE;
     while !fx.idle().await {
@@ -2957,7 +2959,7 @@ async fn a_ledger_unread_after_a_steps_write_takes_nothing_back_and_fails() {
     let lease = i64::try_from(BACKFILL_JOB_LEASE.as_millis()).unwrap();
     let due = ledger
         .claim_stale_backfill_jobs(Fixture::claim_at(
-            Utc::now().timestamp_millis() + lease + 2_000,
+            Timestamp::now().epoch_millis() + lease + 2_000,
         ))
         .await
         .unwrap();
@@ -3003,7 +3005,7 @@ async fn a_ledger_unread_after_a_steps_write_takes_nothing_back_and_fails() {
 /// stored: nothing of the purged grant is left.
 #[tokio::test]
 async fn a_ledger_unread_for_a_moment_after_a_steps_write_takes_back_what_a_purge_reached() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let second_year = session_oldest - 3 * YEAR / 2;
     let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
@@ -3060,7 +3062,7 @@ const MEND_PURGE_READS: &str =
 /// is left.
 #[tokio::test]
 async fn a_purge_attestation_unread_for_a_moment_takes_back_what_the_purge_reached() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let second_year = session_oldest - 3 * YEAR / 2;
     let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
@@ -3125,7 +3127,7 @@ async fn a_purge_attestation_unread_for_a_moment_takes_back_what_the_purge_reach
 /// landed, so it keeps its page and warms the training-history rollup.
 #[tokio::test]
 async fn a_purge_attestation_unread_for_a_moment_with_no_purge_keeps_the_page() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let mut fx = fixture(vec![now - 3 * DAY, now - 2 * YEAR], 400, true).await;
     let store = fx.hold_writes();
     let write = store.hold_and_pause_next_write(oauth_providers::SCIOTTE);
@@ -3158,7 +3160,7 @@ async fn a_purge_attestation_unread_for_a_moment_with_no_purge_keeps_the_page() 
 /// whole, and it fails without warming the rollup.
 #[tokio::test]
 async fn a_purge_attestation_unread_through_every_retry_deletes_nothing() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
     let other = format!("9{recent}");
     let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
@@ -3201,7 +3203,7 @@ async fn a_purge_attestation_unread_through_every_retry_deletes_nothing() {
 /// left in the store.
 #[tokio::test]
 async fn a_termination_landing_while_a_step_writes_leaves_none_of_its_rows() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let store = fx.hold_writes();
@@ -3231,7 +3233,7 @@ async fn a_termination_landing_while_a_step_writes_leaves_none_of_its_rows() {
 /// already stored included: nothing of the purged grant is left.
 #[tokio::test]
 async fn a_grant_purge_landing_while_a_step_writes_takes_back_its_whole_page() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let session_oldest = now - 2 * YEAR;
     let second_year = session_oldest - 3 * YEAR / 2;
     let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
@@ -3264,7 +3266,7 @@ async fn a_grant_purge_landing_while_a_step_writes_takes_back_its_whole_page() {
 /// ride stays whole.
 #[tokio::test]
 async fn an_expiry_landing_while_a_step_writes_takes_back_only_what_it_added() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
     let earlier = format!("9{recent}");
     let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
@@ -3326,7 +3328,7 @@ async fn an_expiry_landing_while_a_step_writes_takes_back_only_what_it_added() {
 /// then, so it takes nothing back: the other writer's ride stays whole.
 #[tokio::test]
 async fn an_expiry_never_takes_back_a_ride_another_writer_stored_during_the_step() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
     let (earlier, concurrent) = (format!("9{recent}"), format!("9{session_oldest}"));
     let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
@@ -3373,7 +3375,7 @@ async fn an_expiry_never_takes_back_a_ride_another_writer_stored_during_the_step
 /// it still takes nothing back and the other writer's ride stays whole.
 #[tokio::test]
 async fn a_cache_only_ride_never_hides_a_concurrent_writers_ride_from_an_expiry() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
     let (cached, concurrent) = (format!("9{recent}"), format!("9{session_oldest}"));
     let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
@@ -3382,7 +3384,7 @@ async fn a_cache_only_ride_never_hides_a_concurrent_writers_ride_from_an_expiry(
         cached.clone(),
         "Morning ride".to_owned(),
         SportType::Ride,
-        Utc.timestamp_opt(recent, 0).unwrap(),
+        Timestamp::from_epoch_seconds(recent).unwrap(),
         3_600,
         oauth_providers::SCIOTTE.to_owned(),
     )
@@ -3434,7 +3436,7 @@ async fn a_cache_only_ride_never_hides_a_concurrent_writers_ride_from_an_expiry(
 /// page is left.
 #[tokio::test]
 async fn an_expiry_takes_back_what_the_step_added_beside_a_ride_the_athlete_deleted() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
     let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
     let store = fx.hold_writes();
@@ -3488,7 +3490,7 @@ async fn an_expiry_takes_back_what_the_step_added_beside_a_ride_the_athlete_dele
 /// rollup over it, and ends.
 #[tokio::test]
 async fn a_row_removed_by_no_purge_while_a_step_writes_keeps_its_page() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
     let earlier = format!("9{recent}");
     let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
@@ -3525,7 +3527,7 @@ async fn a_row_removed_by_no_purge_while_a_step_writes_keeps_its_page() {
 /// check: no purge landed during its write, and it keeps its page.
 #[tokio::test]
 async fn a_purge_attested_before_a_steps_check_takes_nothing_back() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
     let earlier = format!("9{recent}");
     let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
@@ -3572,7 +3574,7 @@ async fn a_purge_attested_before_a_steps_check_takes_nothing_back() {
 /// terminated provider is left in the store.
 #[tokio::test]
 async fn a_termination_of_the_steps_own_key_takes_back_its_whole_page() {
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
     let earlier = format!("9{recent}");
     let mut fx = fixture(vec![recent, session_oldest], 400, true).await;

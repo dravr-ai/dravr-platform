@@ -31,7 +31,7 @@ mod support_session_assistant_tests {
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use axum::Router;
-    use chrono::{Duration, Utc};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_auth::auth::{DelegatedGrant, IMPERSONATION_WRITE_REFUSED};
     use pierre_core::models::{OAuth2Client, OAuth2RefreshToken, OAuthClientGrant};
     use pierre_core::permissions::impersonation::{
@@ -80,7 +80,7 @@ mod support_session_assistant_tests {
         res.common
             .repos
             .groups
-            .set_coach_assistant_read(&group.to_string(), bea.id, true, Utc::now())
+            .set_coach_assistant_read(&group.to_string(), bea.id, true, Timestamp::now())
             .await
             .unwrap()
             .expect("a live member");
@@ -160,7 +160,7 @@ mod support_session_assistant_tests {
                         client_name: Some("Admin assistant".to_owned()),
                         client_uri: None,
                         scope: None,
-                        created_at: Utc::now(),
+                        created_at: Timestamp::now(),
                         expires_at: None,
                     })
                     .await
@@ -168,7 +168,7 @@ mod support_session_assistant_tests {
             }
             let family = Uuid::new_v4().to_string();
             let refresh = format!("rt_{}", Uuid::new_v4().simple());
-            let now = Utc::now();
+            let now = Timestamp::now();
             oauth
                 .store_refresh_token(&OAuth2RefreshToken {
                     token: SecretString::from(refresh.clone()),
@@ -176,7 +176,7 @@ mod support_session_assistant_tests {
                     user_id: who.id,
                     tenant_id: who.tenant.to_string(),
                     scope: Some(scopes.join(" ")),
-                    expires_at: now + Duration::days(1),
+                    expires_at: now + Elapsed::days(1),
                     created_at: now,
                     revoked: false,
                     family_id: family.clone(),
@@ -587,7 +587,7 @@ mod support_session_assistant_tests {
 
         sessions.end_all_sessions(world.admin.id).await.unwrap();
         let stale = ImpersonationSession {
-            started_at: Utc::now() - Duration::minutes(61),
+            started_at: Timestamp::now() - Elapsed::minutes(61),
             ..ImpersonationSession::bound_to(
                 world.admin.id,
                 world.casey.id,
@@ -952,7 +952,7 @@ mod support_session_assistant_tests {
                 tenant_id: world.admin.tenant.to_string(),
                 client_id: ADMIN_CLIENT.to_owned(),
                 scope: "admin".to_owned(),
-                granted_at: Utc::now(),
+                granted_at: Timestamp::now(),
                 revoked_at: None,
                 consent_version: None,
                 consent_locale: None,
@@ -1027,7 +1027,7 @@ mod support_session_assistant_tests {
             .common
             .repos
             .oauth2_server
-            .consume_refresh_token(&grant.refresh, ADMIN_CLIENT, Utc::now())
+            .consume_refresh_token(&grant.refresh, ADMIN_CLIENT, Timestamp::now())
             .await
             .unwrap();
         assert!(consumed.is_some(), "the rotation consumed the token");
@@ -1230,7 +1230,7 @@ mod support_session_assistant_tests {
     async fn expire_family(world: &World, family: &str) {
         const EXPIRE: &str =
             "UPDATE oauth2_refresh_tokens SET expires_at = $1 WHERE family_id = $2";
-        let past = Utc::now() - Duration::minutes(1);
+        let past = Timestamp::now() - Elapsed::minutes(1);
         match world.res.agent.database.backend() {
             DatabaseBackend::SQLite(db) => {
                 sqlx::query(EXPIRE)

@@ -35,7 +35,7 @@ use axum::routing::get;
 use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use hmac::{Hmac, Mac};
 use photograveur::{resolve, Locale, RenderBlock};
 use pierre_core::errors::AppError;
@@ -128,7 +128,7 @@ impl VizToken {
             block_index,
             theme: theme.to_owned(),
             locale: locale.to_owned(),
-            expires_at: Utc::now().timestamp() + TOKEN_TTL_SECONDS,
+            expires_at: Timestamp::now().epoch_seconds() + TOKEN_TTL_SECONDS,
         }
     }
 
@@ -160,7 +160,7 @@ impl VizToken {
         let locale = parts.next()?.to_owned();
         let expires_at: i64 = parts.next()?.parse().ok()?;
 
-        if Utc::now().timestamp() > expires_at {
+        if Timestamp::now().epoch_seconds() > expires_at {
             debug!(message_id, "viz token expired");
             return None;
         }

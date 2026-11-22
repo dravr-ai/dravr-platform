@@ -17,7 +17,7 @@
 //! `user_oauth_app_credentials.user_id` are `uuid` columns on Postgres and
 //! `TEXT` on `SQLite`, so the shell hands the body its
 //! [`uuid_columns`](super::uuid_columns) codec. `tenant_id` is text on both
-//! and binds as such. Timestamps bind as [`DateTime<Utc>`] on both
+//! and binds as such. Timestamps bind as [`Timestamp`] on both
 //! (`TIMESTAMPTZ` on Postgres, RFC 3339 text on `SQLite`); the pool table
 //! keeps epoch seconds in a `BIGINT`/`INTEGER` column and reads as `i64`,
 //! its `seat_cap` is `INTEGER` on both and reads as `i32`, and `enabled` is
@@ -32,7 +32,7 @@
 use secrecy::SecretString;
 use std::fmt::Display;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     ConnectionStatus, StravaPoolApp, StravaSeatHolder, UserOAuthApp, UserOAuthToken,
@@ -104,8 +104,8 @@ pub(crate) const RECORD_PROVIDER_USER_ID_SQL: &str = r"
 /// compare-and-swap tells this write from the row it read by. A clock that
 /// stepped back, or two writes inside one tick, would otherwise leave it
 /// unchanged. One microsecond is the finest step both backends store.
-pub(crate) fn refresh_stamp(read_at: DateTime<Utc>) -> DateTime<Utc> {
-    Utc::now().max(read_at + Duration::microseconds(1))
+pub(crate) fn refresh_stamp(read_at: Timestamp) -> Timestamp {
+    Timestamp::now().max(read_at + Elapsed::microseconds(1))
 }
 
 /// One read of the token columns. `$filter` is the `WHERE` clause; `$order`
@@ -417,8 +417,8 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let tenant_id: String = row
         .try_get("tenant_id")
@@ -531,17 +531,17 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<DateTime<Utc>>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let status: Option<String> = row
         .try_get("connection_status")
         .map_err(|e| column_error("connection_status", e))?;
-    let connection_connected_at: Option<DateTime<Utc>> = row
+    let connection_connected_at: Option<Timestamp> = row
         .try_get("connection_connected_at")
         .map_err(|e| column_error("connection_connected_at", e))?;
-    let token_created_at: DateTime<Utc> = row
+    let token_created_at: Timestamp = row
         .try_get("token_created_at")
         .map_err(|e| column_error("token_created_at", e))?;
     let counts: i64 = row
@@ -575,7 +575,7 @@ where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     Ok(UserOAuthApp {
         id: row.try_get("id").map_err(|e| column_error("id", e))?,
@@ -955,7 +955,7 @@ macro_rules! impl_oauth_token_repository {
                     .bind(&encrypted)
                     .bind(i32::try_from(seat_cap).unwrap_or(i32::MAX))
                     .bind(label)
-                    .bind(Utc::now().timestamp())
+                    .bind(Timestamp::now().epoch_seconds())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -971,7 +971,7 @@ macro_rules! impl_oauth_token_repository {
             ) -> AppResult<()> {
                 sqlx::query(SET_STRAVA_POOL_APP_ENABLED_SQL)
                     .bind(enabled)
-                    .bind(Utc::now().timestamp())
+                    .bind(Timestamp::now().epoch_seconds())
                     .bind(client_id)
                     .execute(self.pool())
                     .await
@@ -1016,7 +1016,7 @@ macro_rules! impl_oauth_token_repository {
                 stored: &UserOAuthToken,
                 access_token: &str,
                 refresh_token: Option<&str>,
-                expires_at: Option<DateTime<Utc>>,
+                expires_at: Option<Timestamp>,
             ) -> AppResult<bool> {
                 let refreshed = UserOAuthToken {
                     access_token: SecretString::from(access_token),
@@ -1060,7 +1060,7 @@ macro_rules! impl_oauth_token_repository {
                     .bind(client_id)
                     .bind(client_secret)
                     .bind(redirect_uri)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -1120,10 +1120,10 @@ macro_rules! impl_oauth_token_repository {
                 user_id: Uuid,
                 tenant_id: TenantId,
                 provider: &str,
-            ) -> AppResult<Option<DateTime<Utc>>> {
+            ) -> AppResult<Option<Timestamp>> {
                 // Outer Option: the row may not exist. Inner Option: last_sync is
                 // NULL until the first successful sync.
-                let last_sync: Option<Option<DateTime<Utc>>> =
+                let last_sync: Option<Option<Timestamp>> =
                     sqlx::query_scalar(GET_PROVIDER_LAST_SYNC_SQL)
                         .bind($ids::bind(user_id))
                         .bind(tenant_id.to_string())
@@ -1142,7 +1142,7 @@ macro_rules! impl_oauth_token_repository {
                 user_id: Uuid,
                 tenant_id: TenantId,
                 provider: &str,
-                sync_time: DateTime<Utc>,
+                sync_time: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(UPDATE_PROVIDER_LAST_SYNC_SQL)
                     .bind(sync_time)

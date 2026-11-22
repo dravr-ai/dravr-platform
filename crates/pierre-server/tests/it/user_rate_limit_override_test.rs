@@ -6,7 +6,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
@@ -23,7 +23,7 @@ async fn build_user(
 ) -> (Uuid, TenantId) {
     let user_id = Uuid::new_v4();
     let tenant_id = TenantId::generate();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let user = User {
         id: user_id,
         email: format!("rate+{user_id}@example.com"),
@@ -87,7 +87,7 @@ async fn override_upsert_then_get_round_trips() {
     // Create a real admin to satisfy the set_by foreign key.
     let (admin_user_id, _admin_tenant) = build_user(repos, UserTier::Enterprise).await;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let row = UserRateLimitOverride {
         user_id,
         monthly_limit: Some(1500),
@@ -118,7 +118,7 @@ async fn override_null_limit_round_trips_as_unlimited() {
     let repos = db.repositories();
     let (user_id, _tenant_id) = build_user(repos, UserTier::Starter).await;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let row = UserRateLimitOverride {
         user_id,
         monthly_limit: None,
@@ -144,7 +144,7 @@ async fn override_delete_reverts_to_tier_default() {
     let repos = db.repositories();
     let (user_id, _tenant_id) = build_user(repos, UserTier::Starter).await;
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let row = UserRateLimitOverride {
         user_id,
         monthly_limit: Some(3000),
@@ -186,7 +186,7 @@ async fn override_upsert_preserves_original_set_at() {
     let repos = db.repositories();
     let (user_id, _tenant_id) = build_user(repos, UserTier::Starter).await;
 
-    let initial = Utc::now();
+    let initial = Timestamp::now();
     repos
         .user_rate_limit_overrides
         .upsert(&UserRateLimitOverride {
@@ -211,7 +211,7 @@ async fn override_upsert_preserves_original_set_at() {
     // Sleep briefly so update timestamps differ.
     sleep(Duration::from_millis(50)).await;
 
-    let later = Utc::now();
+    let later = Timestamp::now();
     repos
         .user_rate_limit_overrides
         .upsert(&UserRateLimitOverride {

@@ -18,7 +18,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::agents::AgentVisibility;
@@ -76,7 +76,7 @@ async fn seed_group_on(
     agent_id: String,
     coach: Option<Uuid>,
 ) -> Uuid {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .create_group(
@@ -304,7 +304,7 @@ async fn an_invite_to_another_owners_group_still_refuses_and_nothing_is_archived
             use_count: 0,
             is_active: true,
             approves_signup: false,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         })
         .await
         .unwrap();

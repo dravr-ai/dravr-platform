@@ -57,7 +57,7 @@
 
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use futures_util::future::BoxFuture;
 use pierre_auth::connect_order::{order_and_seats, sign_in_falls_back_to_oauth};
 use pierre_auth::garmin_seats::garmin_seat_summary;
@@ -345,7 +345,13 @@ pub async fn notify_grant_withdrawn(
     let mark = runtime
         .repos()
         .provider_connections
-        .mark_needs_reauth(user_id, tenant_id, grant, Some(GRANT_WITHDRAWN), Utc::now())
+        .mark_needs_reauth(
+            user_id,
+            tenant_id,
+            grant,
+            Some(GRANT_WITHDRAWN),
+            Timestamp::now(),
+        )
         .await;
     match mark {
         Ok(ReauthMark::Flagged | ReauthMark::AlreadyFlagged) => {}
@@ -466,7 +472,7 @@ pub async fn flag_needs_reauth(
     tenant_id: TenantId,
     provider: &str,
     reason: &str,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) -> AppResult<(ReauthMark, ReauthNotice)> {
     let mark = runtime
         .repos()
@@ -607,7 +613,7 @@ pub(crate) async fn flag_refused(
     tenant_id: TenantId,
     refused: &str,
     reason: &str,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) {
     let flagged = match flag_needs_reauth(
         runtime,

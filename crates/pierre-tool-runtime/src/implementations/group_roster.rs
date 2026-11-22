@@ -58,6 +58,8 @@ use serde::Serialize;
 use serde_json::Value;
 use tracing::info;
 
+use dravr_tronc::date_pattern;
+use dravr_tronc::dates::{CivilDate, Pattern};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::ai_policy::ProviderTerms;
@@ -83,6 +85,9 @@ use crate::conversions::{
 };
 use crate::read_subject::COACH_ACCESS_OFF;
 use crate::runtime::ToolRuntime;
+
+/// `Tuesday`: the weekday the roster overview names.
+const WEEKDAY_NAME: Pattern<CivilDate> = date_pattern!(CivilDate, "%A");
 
 /// The tool's name, as a refusal words it.
 const TOOL_NAME: &str = "get_roster_overview";
@@ -292,10 +297,10 @@ pub fn project_training(snapshot: &MemberFitnessSnapshot) -> RosterTraining {
         .iter()
         .take(RECENT_ACTIVITIES_PER_ATHLETE)
         .map(|a| {
-            let day = local_date(a.start, zone);
+            let day = local_date(a.start, &zone);
             RosterOverviewActivity {
-                date: day.format("%Y-%m-%d").to_string(),
-                weekday: day.format("%A").to_string(),
+                date: day.to_string(),
+                weekday: day.format_with(&WEEKDAY_NAME),
                 sport: a.sport.clone(),
                 name: display_line(&a.name, ACTIVITY_NAME_MAX_CHARS),
                 duration_seconds: a.duration_seconds,
@@ -316,7 +321,7 @@ pub fn project_training(snapshot: &MemberFitnessSnapshot) -> RosterTraining {
         last_activity_per_source: reading
             .last_activity_per_source
             .into_iter()
-            .map(|(source, day)| (source, day.format("%Y-%m-%d").to_string()))
+            .map(|(source, day)| (source, day.to_string()))
             .collect(),
         needs_reconnect: reading.needs_reconnect,
         stale: reading.stale,
@@ -591,7 +596,7 @@ crate::declare_security!(GetRosterOverviewTool => empty; coach);
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::groups::{OvertrainingRiskLevel, RosterActivity};
 
     use super::*;
@@ -626,7 +631,7 @@ mod tests {
     fn the_overview_keeps_durations_to_the_second() {
         // 53:59 truncated to whole minutes reads as 53, about 10 s/km slow on
         // 6.1 km (carnet#1015).
-        let start = Utc.with_ymd_and_hms(2026, 10, 13, 17, 0, 0).unwrap();
+        let start = Timestamp::parse_from_rfc3339("2026-10-13T17:00:00Z").unwrap();
         let snapshot = MemberFitnessSnapshot {
             user_id: Uuid::nil(),
             display_name: "Philippe".to_owned(),

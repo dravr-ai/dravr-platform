@@ -460,7 +460,8 @@ pub(crate) fn health_the_link_files(
 
 #[cfg(test)]
 mod tests {
-    use chrono::{NaiveDate, Utc};
+    use dravr_tronc::dates::Elapsed;
+    use dravr_tronc::dates::{CivilDate, Timestamp};
     use pierre_core::constants::oauth_providers::INTERVALS_ICU;
 
     use super::*;
@@ -474,7 +475,7 @@ mod tests {
             id: "intervals_icu-recovery-m1-2026-10-14".to_owned(),
             user_id: "m1".to_owned(),
             data_source_id: "intervals_icu-default".to_owned(),
-            date: NaiveDate::from_ymd_opt(2026, 10, 14).unwrap(),
+            date: CivilDate::from_ymd(2026, 10, 14).unwrap(),
             recovery_score: Some(80),
             readiness_score: Some(70),
             hrv_ms: hrv,
@@ -488,7 +489,7 @@ mod tests {
             daily_strain: Some(9.0),
             athlete_note: note.map(str::to_owned),
             source_name: INTERVALS_ICU.to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         }
     }
 
@@ -497,7 +498,7 @@ mod tests {
             id: "intervals_icu-health-m1-2026-10-14".to_owned(),
             user_id: "m1".to_owned(),
             data_source_id: "intervals_icu-default".to_owned(),
-            date: NaiveDate::from_ymd_opt(2026, 10, 14).unwrap(),
+            date: CivilDate::from_ymd(2026, 10, 14).unwrap(),
             weight_kg: weight,
             body_fat_pct: Some(12.0),
             muscle_mass_kg: Some(33.0),
@@ -509,19 +510,19 @@ mod tests {
             blood_glucose: Some(5.1),
             vo2_max: Some(55.0),
             source_name: INTERVALS_ICU.to_owned(),
-            recorded_at: Utc::now(),
+            recorded_at: Timestamp::now(),
         }
     }
 
     fn sleep() -> StoredSleepSession {
-        let start = Utc::now();
+        let start = Timestamp::now();
         StoredSleepSession {
             id: "intervals_icu-sleep-m1-2026-10-14".to_owned(),
             user_id: "m1".to_owned(),
             data_source_id: "intervals_icu-default".to_owned(),
             is_nap: false,
             start_datetime: start,
-            end_datetime: start + chrono::Duration::hours(7),
+            end_datetime: start + Elapsed::hours(7),
             total_sleep_seconds: Some(25_200),
             deep_sleep_seconds: None,
             light_sleep_seconds: None,
@@ -656,7 +657,7 @@ mod tests {
         night.stages = vec![dravr_equilibre_sync::SleepStage {
             stage_type: dravr_equilibre_sync::SleepStageType::Deep,
             start: night.start_datetime,
-            end: night.start_datetime + chrono::Duration::minutes(90),
+            end: night.start_datetime + Elapsed::minutes(90),
             duration_seconds: 5_400,
         }];
 

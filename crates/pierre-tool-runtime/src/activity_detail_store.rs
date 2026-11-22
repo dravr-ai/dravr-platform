@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::slice;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, PlaceRef, RouteGeometrySource, TenantId};
@@ -68,10 +68,10 @@ const COPIES_PER_SERVED_ACTIVITY: usize = 4;
 /// When a stored detail is read again: [`EMPTY_DETAIL_RECHECK_MINUTES`] out
 /// for one that carried no detail-only field, never for one that carried any.
 #[must_use]
-fn detail_recheck_at(detail: &ActivityDetail, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+fn detail_recheck_at(detail: &ActivityDetail, now: Timestamp) -> Option<Timestamp> {
     detail
         .is_empty()
-        .then(|| now + Duration::minutes(EMPTY_DETAIL_RECHECK_MINUTES))
+        .then(|| now + Elapsed::minutes(EMPTY_DETAIL_RECHECK_MINUTES))
 }
 
 /// The cache key what a read of a row listed under `listed_under` brought
@@ -339,7 +339,7 @@ async fn keep_detail(
     if efforts == Efforts::Withheld {
         detail.segment_efforts = None;
     }
-    let recheck_at = detail_recheck_at(&detail, Utc::now());
+    let recheck_at = detail_recheck_at(&detail, Timestamp::now());
     let activity_id = detailed.id();
     match repos
         .activity_cache
@@ -480,7 +480,7 @@ struct PlaceRank {
     /// The row is under the key the served list read it from.
     listed: bool,
     /// When the row was first stored.
-    stored_at: Option<DateTime<Utc>>,
+    stored_at: Option<Timestamp>,
 }
 
 impl PlaceRank {
@@ -518,8 +518,8 @@ async fn served_rows(
     let page_rows =
         i64::try_from(ids.len().saturating_mul(COPIES_PER_SERVED_ACTIVITY)).unwrap_or(i64::MAX);
     let query = CachedRowsQuery::window(
-        oldest - Duration::days(1),
-        newest + Duration::days(1),
+        oldest - Elapsed::days(1),
+        newest + Elapsed::days(1),
         page_rows,
     )
     .with_ids(&ids);
@@ -577,7 +577,7 @@ pub fn served_place_name(place: &PlaceRef) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::{ActivityBuilder, SportType};
 
     use super::*;
@@ -587,7 +587,7 @@ mod tests {
             "15550001111",
             "Ride",
             SportType::Ride,
-            Utc::now(),
+            Timestamp::now(),
             3_600,
             backend,
         )

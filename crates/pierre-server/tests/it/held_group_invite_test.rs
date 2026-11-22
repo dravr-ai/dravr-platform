@@ -32,8 +32,8 @@ use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
 use axum::Router;
-use chrono::{DateTime, Duration, Utc};
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use helpers::impersonation::{assert_refusal_audited, assert_support_refused, impersonation_of};
 use pierre_contremaitre::messaging_strings::{
@@ -305,14 +305,14 @@ impl Coach {
         );
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
         user.manages_roster = true;
         let repos = &resources.common.repos;
         repos.users.create(&user).await.unwrap();
         // Membership rows are written by the invitation flows in production;
         // the repository exposes no direct writer, so the fixture files the
         // row the way those flows do.
-        let now = Utc::now();
+        let now = Timestamp::now();
         match resources.agent.database.backend() {
             DatabaseBackend::SQLite(sqlite) => {
                 sqlx::query(INSERT_TENANT_MEMBER)
@@ -456,7 +456,7 @@ pub(crate) async fn expire_invite(
     resources: &ServerContext,
     tenant: TenantId,
     invite_id: Uuid,
-    at: DateTime<Utc>,
+    at: Timestamp,
 ) {
     let changed = match resources.agent.database.backend() {
         DatabaseBackend::SQLite(sqlite) => sqlx::query(EXPIRE_INVITE)
@@ -781,7 +781,7 @@ async fn a_held_invite_that_expired_since_still_joins() {
         &resources,
         coach.tenant,
         invite.id,
-        Utc::now() - Duration::minutes(1),
+        Timestamp::now() - Elapsed::minutes(1),
     )
     .await;
     let (status, body) = join_held(&resources, &user).await;
@@ -851,7 +851,7 @@ async fn a_hold_older_than_its_window_lapses_and_is_dropped() {
         .hold_group_invite(
             user.id,
             invite.id,
-            Utc::now() - Duration::days(SIGNUP_INVITE_MAX_DAYS + 1),
+            Timestamp::now() - Elapsed::days(SIGNUP_INVITE_MAX_DAYS + 1),
         )
         .await
         .unwrap();
@@ -976,7 +976,7 @@ async fn a_held_coach_invite_attaches_an_eligible_coach_and_refuses_anyone_else(
         .common
         .repos
         .signup_codes
-        .hold_group_invite(outsider.id, invite.id, Utc::now())
+        .hold_group_invite(outsider.id, invite.id, Timestamp::now())
         .await
         .unwrap();
     let (status, body) = join_held(&resources, &outsider).await;
@@ -1143,7 +1143,7 @@ async fn a_held_coach_invite_that_expired_since_is_refused() {
         &resources,
         coach.tenant,
         invite.id,
-        Utc::now() - Duration::minutes(1),
+        Timestamp::now() - Elapsed::minutes(1),
     )
     .await;
 
@@ -1463,7 +1463,7 @@ async fn the_holder_reads_the_group_and_inviter_of_their_hold_and_never_the_code
         .hold_group_invite(
             user.id,
             invite.id,
-            Utc::now() - Duration::days(SIGNUP_INVITE_MAX_DAYS + 1),
+            Timestamp::now() - Elapsed::days(SIGNUP_INVITE_MAX_DAYS + 1),
         )
         .await
         .unwrap();

@@ -153,6 +153,7 @@ use secrecy::ExposeSecret;
 
 use crate::helpers;
 use anyhow::Result;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::mcp::AppBehaviorConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
@@ -271,7 +272,7 @@ impl AdminTestSetup {
             &expired_permissions,
             &TokenScope {
                 is_super_admin: false,
-                expires_at: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+                expires_at: Some(Timestamp::now() - Elapsed::hours(1)),
                 tenant_id: None,
             },
             &jwks_manager,
@@ -334,7 +335,7 @@ async fn create_approved_user(database: &Database, email: &str) -> Result<User> 
     // Create user with approved status and timestamp
     let mut approved_user = user;
     approved_user.user_status = UserStatus::Active;
-    approved_user.approved_at = Some(chrono::Utc::now());
+    approved_user.approved_at = Some(Timestamp::now());
 
     database.repositories().users.create(&approved_user).await?;
     Ok(approved_user)

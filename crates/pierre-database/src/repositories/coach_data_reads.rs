@@ -19,7 +19,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_core::transport::{Transport, UNDECLARED_TRANSPORT};
@@ -157,7 +157,7 @@ pub struct NewCoachDataRead<'read> {
     /// Which kind of data the read reached.
     pub class: CoachReadClass,
     /// When the coach read it.
-    pub read_at: DateTime<Utc>,
+    pub read_at: Timestamp,
     /// The transport the read was served over: an external one when the
     /// coach's outside assistant (an MCP client, an A2A agent, an API key)
     /// received the data, a first-party one for Dravr's own surfaces.
@@ -181,7 +181,7 @@ pub struct CoachDataRead {
     /// Which kind of data the read reached.
     pub class: CoachReadClass,
     /// When the coach read it.
-    pub read_at: DateTime<Utc>,
+    pub read_at: Timestamp,
     /// What the row says the read was served over.
     pub transport: RecordedTransport,
     /// The admin whose support session made the read while acting as the
@@ -260,7 +260,7 @@ pub trait CoachDataReadRepository: Send + Sync {
 
     /// Delete every read recorded before `cutoff`, in every tenant, returning
     /// how many went.
-    async fn purge_coach_reads_before(&self, cutoff: DateTime<Utc>) -> AppResult<u64>;
+    async fn purge_coach_reads_before(&self, cutoff: Timestamp) -> AppResult<u64>;
 }
 
 /// Record one read. `$n` placeholders throughout: sqlx accepts them on
@@ -292,7 +292,7 @@ pub(crate) const RECORD_COACH_READ_SQL: &str = r"
 /// The UTC day a read recorded once a day is keyed on, as `read_day` stores
 /// it.
 pub(crate) fn read_day(read: &NewCoachDataRead<'_>) -> String {
-    read.read_at.date_naive().format("%Y-%m-%d").to_string()
+    read.read_at.utc_date().to_string()
 }
 
 /// The athlete's reads in one group under their tenant, newest first.
@@ -412,7 +412,7 @@ macro_rules! impl_coach_data_read_repository {
                     .collect()
             }
 
-            async fn purge_coach_reads_before(&self, cutoff: DateTime<Utc>) -> AppResult<u64> {
+            async fn purge_coach_reads_before(&self, cutoff: Timestamp) -> AppResult<u64> {
                 let done = sqlx::query(PURGE_COACH_READS_SQL)
                     .bind(cutoff)
                     .execute(self.pool())

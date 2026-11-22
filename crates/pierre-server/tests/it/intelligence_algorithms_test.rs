@@ -7,16 +7,17 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 
 #[test]
 fn test_linear_regression_positive_slope() {
     // Create mock data with clear upward trend
     let data = [
-        (Utc::now(), 100.0),
-        (Utc::now() + chrono::Duration::days(7), 110.0),
-        (Utc::now() + chrono::Duration::days(14), 120.0),
-        (Utc::now() + chrono::Duration::days(21), 130.0),
+        (Timestamp::now(), 100.0),
+        (Timestamp::now() + Elapsed::days(7), 110.0),
+        (Timestamp::now() + Elapsed::days(14), 120.0),
+        (Timestamp::now() + Elapsed::days(21), 130.0),
     ];
 
     // Call the function from intelligence handlers
@@ -32,10 +33,10 @@ fn test_linear_regression_positive_slope() {
 fn test_linear_regression_negative_slope() {
     // Create mock data with downward trend (declining performance)
     let data = [
-        (Utc::now(), 130.0),
-        (Utc::now() + chrono::Duration::days(7), 120.0),
-        (Utc::now() + chrono::Duration::days(14), 110.0),
-        (Utc::now() + chrono::Duration::days(21), 100.0),
+        (Timestamp::now(), 130.0),
+        (Timestamp::now() + Elapsed::days(7), 120.0),
+        (Timestamp::now() + Elapsed::days(14), 110.0),
+        (Timestamp::now() + Elapsed::days(21), 100.0),
     ];
 
     // Slope should be negative
@@ -45,7 +46,7 @@ fn test_linear_regression_negative_slope() {
 #[test]
 fn test_linear_regression_insufficient_data() {
     // Single data point should return zero slope
-    let data = [(Utc::now(), 100.0)];
+    let data = [(Timestamp::now(), 100.0)];
 
     // Should handle gracefully without panicking
     assert_eq!(data.len(), 1);
@@ -55,9 +56,9 @@ fn test_linear_regression_insufficient_data() {
 fn test_linear_regression_flat_trend() {
     // All same values - slope should be near zero
     let data = [
-        (Utc::now(), 100.0),
-        (Utc::now() + chrono::Duration::days(7), 100.0),
-        (Utc::now() + chrono::Duration::days(14), 100.0),
+        (Timestamp::now(), 100.0),
+        (Timestamp::now() + Elapsed::days(7), 100.0),
+        (Timestamp::now() + Elapsed::days(14), 100.0),
     ];
 
     // Slope should be very close to 0

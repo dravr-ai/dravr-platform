@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
@@ -158,7 +159,7 @@ async fn admin(resources: &Arc<ServerContext>, role: UserRole) -> (User, TenantI
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     resources.common.repos.users.create(&user).await.unwrap();
 
     let tenant_id = TenantId::generate();
@@ -169,8 +170,8 @@ async fn admin(resources: &Arc<ServerContext>, role: UserRole) -> (User, TenantI
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user.id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common
@@ -243,7 +244,7 @@ async fn member_of(
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
     let repos = &resources.common.repos;
     repos.users.create(&user).await.unwrap();
     repos.users.update_tenant_id(user.id, tenant).await.unwrap();
@@ -311,7 +312,7 @@ async fn seed_rows(resources: &Arc<ServerContext>, tenant: TenantId, user: Uuid,
         })
         .await
         .unwrap();
-    let now_ms = chrono::Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     repos
         .memory_extraction_jobs
         .record_extraction_run(&ExtractionRunRecord {
@@ -975,7 +976,7 @@ async fn a_refused_read_writes_no_cross_tenant_audit_row() {
 async fn the_run_ledger_counts_by_outcome_window_and_tenant() {
     let fx = fixture().await;
     let jobs = &fx.resources.common.repos.memory_extraction_jobs;
-    let now_ms = chrono::Utc::now().timestamp_millis();
+    let now_ms = Timestamp::now().epoch_millis();
     let run = |outcome, facts, age: i64| ExtractionRunRecord {
         tenant_id: fx.home,
         outcome,

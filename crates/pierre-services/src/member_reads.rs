@@ -152,7 +152,7 @@ pub async fn readable_members(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::groups::{CoachConsents, GroupRole};
 
     use super::*;
@@ -168,9 +168,9 @@ mod tests {
             coach_sharing_consent: coach,
             coach_sharing_consent_at: None,
             coach_consents: CoachConsents::default(),
-            consent_given_at: Utc::now(),
-            joined_at: Utc::now(),
-            left_at: left.then(Utc::now),
+            consent_given_at: Timestamp::now(),
+            joined_at: Timestamp::now(),
+            left_at: left.then(Timestamp::now),
             display_name: None,
         }
     }

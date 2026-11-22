@@ -43,23 +43,20 @@ use uuid::Uuid;
 
 /// Everything in the two `SQLite` date suites that names the date engine.
 pub(crate) mod engine {
-    use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
-
-    pub(crate) type Instant = DateTime<Utc>;
-    pub(crate) type CivilDate = NaiveDate;
-    pub(crate) type CivilTime = NaiveTime;
-    pub(crate) type CivilDateTime = NaiveDateTime;
+    pub(crate) use dravr_tronc::dates::{
+        CivilDate, CivilDateTime, CivilTime, Timestamp as Instant,
+    };
 
     const STAMP: &str = "%Y-%m-%dT%H:%M:%S%.9f";
 
     /// A zoneless date-time from `2026-11-17T10:00:05.120000000`.
     pub(crate) fn civil(text: &str) -> CivilDateTime {
-        NaiveDateTime::parse_from_str(text, STAMP).unwrap()
+        CivilDateTime::parse_from_str(text, STAMP).unwrap()
     }
 
     /// The UTC instant at that date and time.
     pub(crate) fn instant(text: &str) -> Instant {
-        civil(text).and_utc()
+        civil(text).and_utc().unwrap()
     }
 
     /// The date part.
@@ -79,22 +76,22 @@ pub(crate) mod engine {
 
     /// The same shape back, so a verdict reads the way the input was written.
     pub(crate) fn show(value: Instant) -> String {
-        value.format(STAMP).to_string()
+        value.format(STAMP).unwrap()
     }
 
     /// The same shape for a zoneless date-time.
     pub(crate) fn show_civil(value: CivilDateTime) -> String {
-        value.format(STAMP).to_string()
+        value.format(STAMP).unwrap()
     }
 
     /// A time of day at nanosecond precision.
     pub(crate) fn show_time(value: CivilTime) -> String {
-        value.format("%H:%M:%S%.9f").to_string()
+        value.format("%H:%M:%S%.9f").unwrap()
     }
 
     /// The shape SQL defaults write: `2026-11-17 10:00:05`.
     pub(crate) fn sql_default_shape(value: Instant) -> String {
-        value.format("%Y-%m-%d %H:%M:%S").to_string()
+        value.format("%Y-%m-%d %H:%M:%S").unwrap()
     }
 }
 

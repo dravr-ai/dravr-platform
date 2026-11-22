@@ -24,7 +24,6 @@ use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use bytes::Bytes;
-use chrono::{DateTime, Duration, Utc};
 use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::{BlobId, BlobKey};
 use dravr_barrage::digest::Sha256;
@@ -32,6 +31,7 @@ use dravr_barrage::record::ActivityId;
 use dravr_barrage::store::memory::MemoryImportJobStore;
 use dravr_barrage::store::{BarrageStores, PageReq, RecordQuery};
 use dravr_barrage::{BarrageError, Scope, SourceKey};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::stream::{self, BoxStream, StreamExt};
 use pierre_config::activity_retention::{DEFAULT_DAYS_KEY, PROVIDER_DAYS_KEY};
 use pierre_core::constants::oauth_providers::{
@@ -123,15 +123,8 @@ pub(crate) fn imports_serving(export: Vec<u8>) -> (ArchiveImports, BarrageStores
 }
 
 /// One CSV row: id, start, name, type, elapsed seconds, filename.
-fn csv_row(
-    id: &str,
-    start: DateTime<Utc>,
-    name: &str,
-    kind: &str,
-    elapsed: u32,
-    file: &str,
-) -> String {
-    let date = start.format("%b %-d, %Y, %-I:%M:%S %p");
+fn csv_row(id: &str, start: Timestamp, name: &str, kind: &str, elapsed: u32, file: &str) -> String {
+    let date = start.format("%b %-d, %Y, %-I:%M:%S %p").unwrap();
     format!(
         "{id},\"{date}\",{name},{kind},,{elapsed},5.0,,,false,,,{file},,,{elapsed}.0,{elapsed}.0,\
          5000.0,4.0,3.1,40.0,,,321"
@@ -150,12 +143,13 @@ fn zip_of(members: &[(&str, &[u8])]) -> Vec<u8> {
 }
 
 /// Ten days ago at 07:00 UTC.
-fn ten_days_ago() -> DateTime<Utc> {
-    (Utc::now() - Duration::days(10))
-        .date_naive()
-        .and_hms_opt(7, 0, 0)
+fn ten_days_ago() -> Timestamp {
+    (Timestamp::now() - Elapsed::days(10))
+        .utc_date()
+        .and_hms(7, 0, 0)
         .expect("a valid time")
         .and_utc()
+        .unwrap()
 }
 
 /// A Strava export holding a recorded ride (`9001`, a FIT file) and a manual
@@ -173,7 +167,7 @@ pub(crate) fn strava_export() -> Vec<u8> {
         ),
         csv_row(
             "9002",
-            start + Duration::days(1),
+            start + Elapsed::days(1),
             "Treadmill",
             "Run",
             1200,
@@ -197,7 +191,7 @@ pub(crate) fn strava_export() -> Vec<u8> {
 
 /// A Strava export holding one recorded ride, `id`, of `seconds` one-second
 /// samples from `start`.
-pub(crate) fn one_ride_export(id: &str, start: DateTime<Utc>, seconds: u32) -> Vec<u8> {
+pub(crate) fn one_ride_export(id: &str, start: Timestamp, seconds: u32) -> Vec<u8> {
     let file = format!("activities/{id}.fit");
     let csv = format!(
         "{CSV_HEADER}\n{}\n",
@@ -486,8 +480,8 @@ async fn agent_tool(
 /// summary, its overnight HRV, a weigh-in, a `VO2max` estimate and the
 /// night before it.
 fn garmin_wellness_export(days_ago: i64) -> Vec<u8> {
-    let day = (Utc::now() - Duration::days(days_ago)).date_naive();
-    let date = day.format("%Y-%m-%d").to_string();
+    let day = (Timestamp::now() - Elapsed::days(days_ago)).utc_date();
+    let date = day.to_string();
     let uds = json!([{
         "calendarDate": date, "totalSteps": 11_284,
         "activeKilocalories": 520.0, "totalKilocalories": 2410.0,
@@ -604,13 +598,13 @@ async fn an_export_only_athlete_reads_their_wellness_back_from_the_tools() {
     );
     assert_eq!(night["sleep_score"], 82, "the night's score: {night}");
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let holds = stored_health::holds_recovery_rows(
         &resources.common.repos,
         resources.data().provider_registry().as_ref(),
         athlete.user_id,
         &athlete.tenant,
-        (now - Duration::days(14), now),
+        (now - Elapsed::days(14), now),
     )
     .await
     .expect("the origins read");
@@ -655,13 +649,13 @@ async fn asking_for_coros_or_whoop_serves_the_export_imported_from_it() {
         .await
         .expect("a server context");
     let athlete = seed_athlete(&resources, "archive-companions").await;
-    let start = Utc::now() - Duration::days(3);
+    let start = Timestamp::now() - Elapsed::days(3);
     for (key, id, offset) in [(COROS_ARCHIVE, "coros-1", 0), (WHOOP_ARCHIVE, "whoop-1", 4)] {
         let activity = ActivityBuilder::new(
             id.to_owned(),
             format!("{key} workout"),
             SportType::Run,
-            start + Duration::hours(offset),
+            start + Elapsed::hours(offset),
             1_800,
             key.to_owned(),
         )
@@ -675,7 +669,7 @@ async fn asking_for_coros_or_whoop_serves_the_export_imported_from_it() {
                 &athlete.tenant,
                 key,
                 &[activity],
-                Utc::now(),
+                Timestamp::now(),
             )
             .await
             .expect("the imported row is cached");
@@ -804,7 +798,7 @@ async fn deleting_an_imported_ride_erases_the_strava_copy_of_the_same_workout() 
         "5151",
         "Another ride",
         SportType::Ride,
-        start + Duration::days(3),
+        start + Elapsed::days(3),
         1_800,
         STRAVA,
     )
@@ -817,7 +811,7 @@ async fn deleting_an_imported_ride_erases_the_strava_copy_of_the_same_workout() 
             athlete.tenant,
             STRAVA,
             &read,
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Live,
         )
         .await
@@ -837,7 +831,7 @@ async fn deleting_an_imported_ride_erases_the_strava_copy_of_the_same_workout() 
             athlete.tenant,
             STRAVA,
             &read,
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Live,
         )
         .await
@@ -907,7 +901,7 @@ async fn deleting_an_imported_ride_leaves_the_uploaded_copy_of_the_same_workout(
             athlete.tenant,
             "upload",
             slice::from_ref(&uploaded),
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Live,
         )
         .await
@@ -935,7 +929,7 @@ async fn deleting_an_imported_ride_leaves_the_uploaded_copy_of_the_same_workout(
             athlete.tenant,
             "upload",
             slice::from_ref(&uploaded),
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Live,
         )
         .await
@@ -1258,7 +1252,7 @@ async fn a_deleted_account_is_erased_where_imports_do_not_run() {
             athlete.tenant,
             STRAVA,
             &[ride],
-            Utc::now(),
+            Timestamp::now(),
             WriteOrigin::Live,
         )
         .await
@@ -1339,7 +1333,7 @@ async fn imported_rows_are_never_expired_by_retention() {
         Some(Arc::clone(&stores.blobs)),
     )
     .expect("the test server carries the admin config service")
-    .run(Utc::now() + Duration::days(365))
+    .run(Timestamp::now() + Elapsed::days(365))
     .await
     .expect("the sweep runs");
 
@@ -1486,7 +1480,7 @@ async fn an_apple_sdnn_reading_keeps_its_own_series_and_goes_with_the_source() {
         .await
         .expect("a server context");
     let athlete = seed_athlete(&resources, "apple-sdnn").await;
-    let at = Utc::now() - Duration::days(1);
+    let at = Timestamp::now() - Elapsed::days(1);
     let exported = WellnessRecords {
         hrv_sdnn: vec![HrvSdnnReading {
             at,
@@ -1509,7 +1503,7 @@ async fn an_apple_sdnn_reading_keeps_its_own_series_and_goes_with_the_source() {
         .await
         .unwrap();
     assert_eq!(sources.len(), 1, "bug: one source files the readings");
-    let range = TimeRange::new(at - Duration::hours(1), at + Duration::hours(1));
+    let range = TimeRange::new(at - Elapsed::hours(1), at + Elapsed::hours(1));
     let read = |series: SeriesType| {
         let source = sources[0].id.clone();
         let range = range.clone();
@@ -1532,7 +1526,7 @@ async fn an_apple_sdnn_reading_keeps_its_own_series_and_goes_with_the_source() {
         read(SeriesType::HrvRmssd).await.is_empty(),
         "bug: SDNN is filed as rMSSD"
     );
-    let window = (at - Duration::hours(1), at + Duration::hours(1));
+    let window = (at - Elapsed::hours(1), at + Elapsed::hours(1));
     let days = repos
         .recovery
         .get_recovery_metrics(athlete.user_id, &athlete.tenant, window.0, window.1)

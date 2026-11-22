@@ -23,7 +23,7 @@ mod refused {
     use std::time::Duration;
 
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_chat_pipeline::turn_stop;
     use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_TURN_UNAVAILABLE};
     use pierre_database::backends::MessagingRepository;
@@ -127,7 +127,7 @@ mod refused {
             "{rows:?}"
         );
         assert!(
-            turn_stop::awaiting_question(&rows, &user, Utc::now(), ceiling).is_none(),
+            turn_stop::awaiting_question(&rows, &user, Timestamp::now(), ceiling).is_none(),
             "a refused turn is not a reply on its way: {rows:?}"
         );
 

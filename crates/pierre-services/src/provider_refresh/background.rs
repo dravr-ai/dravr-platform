@@ -8,10 +8,10 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
 use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::SyncOrchestrator;
 use dravr_equilibre_sync::SyncResult;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{OAuthNotification, TenantId};
 use pierre_database::{AuthRepos, RepositoryRegistry};
 use pierre_providers::backend_resolver::sync_backend;
@@ -106,7 +106,12 @@ impl BackgroundSync {
         if let Err(e) = self
             .repos
             .oauth_tokens
-            .update_provider_last_sync(user_id, tenant_id, &sync_backend(provider), Utc::now())
+            .update_provider_last_sync(
+                user_id,
+                tenant_id,
+                &sync_backend(provider),
+                Timestamp::now(),
+            )
             .await
         {
             warn!("Failed to update last_sync after refresh: {e}");
@@ -151,7 +156,7 @@ fn notification(
         success,
         message,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         read_at: None,
     }
 }

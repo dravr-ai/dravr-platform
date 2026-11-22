@@ -46,7 +46,7 @@ use std::fmt;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::CoachingGroup;
@@ -491,7 +491,7 @@ fn new_coach_read<'read>(
         group: access.group.id,
         tool,
         class,
-        read_at: Utc::now(),
+        read_at: Timestamp::now(),
         transport: ai_scope::declared_transport(),
         impersonator: SUPPORT_SESSION
             .try_with(|support| support.as_ref().map(|grant| grant.impersonator_id))

@@ -35,52 +35,60 @@ use crate::date_inbound_inputs::INBOUND_INPUTS;
 
 /// Everything in this file that names the date engine.
 mod engine {
-    use chrono::{DateTime, FixedOffset, NaiveDateTime, Utc};
+    use dravr_tronc::date_pattern;
+    use dravr_tronc::dates::{CivilDateTime, Offset, Pattern, Timestamp};
 
     const REJECTED: &str = "rejected";
 
-    fn kept(value: DateTime<FixedOffset>) -> String {
-        format!(
-            "{} @ {}",
-            value.with_timezone(&Utc).format("%Y-%m-%dT%H:%M:%S%.9fZ"),
-            value.offset().local_minus_utc()
-        )
+    /// An instant in UTC, to the nanosecond.
+    const UTC_NANOS: Pattern<Timestamp> = date_pattern!(Timestamp, "%Y-%m-%dT%H:%M:%S%.9fZ");
+
+    /// A wall clock, to the nanosecond.
+    const ZONELESS_NANOS: Pattern<CivilDateTime> =
+        date_pattern!(CivilDateTime, "%Y-%m-%dT%H:%M:%S%.9f");
+
+    /// The instant in UTC and the offset it was written with.
+    fn kept((value, offset): (Timestamp, Offset)) -> String {
+        format!("{} @ {}", value.format_with(&UTC_NANOS), offset.seconds())
     }
 
-    fn zoneless(value: NaiveDateTime) -> String {
-        value.format("%Y-%m-%dT%H:%M:%S%.9f").to_string()
+    fn zoneless(value: CivilDateTime) -> String {
+        value.format_with(&ZONELESS_NANOS)
     }
 
-    /// The text as a JSON string into a field that keeps its offset.
+    /// The text as a JSON string into a field that keeps its offset: what
+    /// serde reads, with the offset [`Timestamp::parse_with_offset`] keeps.
     pub(super) fn json_fixed_offset(text: &str) -> String {
         let quoted = serde_json::Value::String(text.to_owned()).to_string();
-        serde_json::from_str::<DateTime<FixedOffset>>(&quoted)
-            .map_or_else(|_| REJECTED.to_owned(), kept)
+        serde_json::from_str::<Timestamp>(&quoted)
+            .ok()
+            .and_then(|_| Timestamp::parse_with_offset(text).ok())
+            .map_or_else(|| REJECTED.to_owned(), kept)
     }
 
     /// The shape `PostgreSQL` renders a `TIMESTAMPTZ` in when cast to text.
     pub(super) fn offset_pattern(text: &str) -> String {
-        DateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f%#z")
+        Timestamp::parse_from_str_with_offset(text, "%Y-%m-%d %H:%M:%S%.f%#z")
             .map_or_else(|_| REJECTED.to_owned(), kept)
     }
 
     /// The shape `SQLite`'s `CURRENT_TIMESTAMP` writes, with an optional fraction.
     pub(super) fn zoneless_space_pattern(text: &str) -> String {
-        NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f")
+        CivilDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f")
             .map_or_else(|_| REJECTED.to_owned(), zoneless)
     }
 
     /// The wall clock Intervals.icu sends and takes in its queries.
     pub(super) fn zoneless_t_pattern(text: &str) -> String {
-        NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S")
+        CivilDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S")
             .map_or_else(|_| REJECTED.to_owned(), zoneless)
     }
 
     /// An offset on its own, as seconds east of UTC.
     pub(super) fn offset_alone(text: &str) -> String {
-        text.parse::<FixedOffset>().map_or_else(
+        text.parse::<Offset>().map_or_else(
             |_| REJECTED.to_owned(),
-            |offset| offset.local_minus_utc().to_string(),
+            |offset| offset.seconds().to_string(),
         )
     }
 
@@ -89,15 +97,14 @@ mod engine {
     /// hand-formatted text.
     pub(super) fn leap_second(text: &str) -> [String; 5] {
         let quoted = serde_json::Value::String(text.to_owned()).to_string();
-        serde_json::from_str::<DateTime<Utc>>(&quoted).map_or_else(
+        serde_json::from_str::<Timestamp>(&quoted).map_or_else(
             |_| [REJECTED; 5].map(str::to_owned),
             |value| {
                 [
-                    value.format("%Y-%m-%dT%H:%M:%S%.9fZ").to_string(),
-                    value.timestamp().to_string(),
-                    value
-                        .timestamp_nanos_opt()
-                        .map_or_else(|| "none".to_owned(), |nanos| nanos.to_string()),
+                    value.format_with(&UTC_NANOS),
+                    value.epoch_seconds().to_string(),
+                    i64::try_from(value.epoch_nanos())
+                        .map_or_else(|_| "none".to_owned(), |nanos| nanos.to_string()),
                     serde_json::to_string(&value).unwrap(),
                     value.to_rfc3339(),
                 ]
@@ -107,9 +114,7 @@ mod engine {
 
     /// Nanoseconds from the epoch for a plain instant, to compare against.
     pub(super) fn epoch_nanos(text: &str) -> String {
-        DateTime::parse_from_rfc3339(text)
-            .unwrap()
-            .timestamp_nanos_opt()
+        i64::try_from(Timestamp::parse_from_rfc3339(text).unwrap().epoch_nanos())
             .unwrap()
             .to_string()
     }
@@ -250,8 +255,8 @@ fn json_into_a_fixed_offset_value_keeps_the_offset_it_was_written_with() {
         ),
         ("2026-11-17T10:00:05,123Z", "rejected"),
         ("2026-11-17T10:00:05.Z", "rejected"),
-        ("2016-12-31T23:59:60Z", "2016-12-31T23:59:60.000000000Z @ 0"),
-        ("2026-11-17T10:00:60Z", "2026-11-17T10:00:60.000000000Z @ 0"),
+        ("2016-12-31T23:59:60Z", "2016-12-31T23:59:59.000000000Z @ 0"),
+        ("2026-11-17T10:00:60Z", "2026-11-17T10:00:59.000000000Z @ 0"),
         ("2026-11-17T24:00:00Z", "rejected"),
         ("2026-02-30T10:00:05Z", "rejected"),
         ("2025-02-29T10:00:05Z", "rejected"),
@@ -341,7 +346,7 @@ fn the_offset_pattern_reads_what_postgresql_renders() {
             ("2026-11-13 10:04:05+05:3", "rejected"),
             (
                 "2026-11-13 10:04:60+00",
-                "2026-11-13T10:04:60.000000000Z @ 0",
+                "2026-11-13T10:04:59.000000000Z @ 0",
             ),
             ("2026-11-13 24:00:00+00", "rejected"),
             ("2026-11-13 10:04:05,250+00", "rejected"),
@@ -383,7 +388,7 @@ fn the_zoneless_space_pattern_reads_what_sqlite_defaults_write() {
             ("2026-11-13 10:04", "rejected"),
             ("2026-11-13 10:04:05+00", "rejected"),
             ("2026-11-13 10:04:05Z", "rejected"),
-            ("2026-11-13 10:04:60", "2026-11-13T10:04:60.000000000"),
+            ("2026-11-13 10:04:60", "2026-11-13T10:04:59.000000000"),
             ("2026-11-13 24:00:00", "rejected"),
             ("2026-1-3 9:4:5", "2026-01-03T09:04:05.000000000"),
             (" 2026-11-13 10:04:05", "2026-11-13T10:04:05.000000000"),
@@ -409,7 +414,7 @@ fn the_zoneless_t_pattern_reads_a_wall_clock_to_the_second() {
             ("2026-08-30 10:00:00", "rejected"),
             ("2026-08-30t10:00:00", "rejected"),
             ("2026-08-30T10:00", "rejected"),
-            ("2026-08-30T10:00:60", "2026-08-30T10:00:60.000000000"),
+            ("2026-08-30T10:00:60", "2026-08-30T10:00:59.000000000"),
             ("2026-08-30T24:00:00", "rejected"),
             ("2026-8-30T9:0:0", "2026-08-30T09:00:00.000000000"),
             (" 2026-08-30T10:00:00", "2026-08-30T10:00:00.000000000"),
@@ -455,11 +460,11 @@ fn an_offset_alone_parses_to_seconds_east() {
     );
 }
 
-/// Second 60 is accepted on any minute and kept as a value of its own: it
-/// prints as `:60`, serializes as `:60`, and counts the same nanoseconds from
-/// the epoch as the first instant of the next minute. An engine that cannot
-/// hold second 60 edits these rows, and the nanosecond column says which
-/// instant each row must still mean.
+/// Second 60 is accepted on any minute and read as second 59 of that minute:
+/// it prints as `:59`, serializes as `:59`, and counts the nanoseconds of
+/// second 59 from the epoch. chrono kept second 60 as a value of its own and
+/// wrote `:60` back; the date types hold no leap second (carnet#1620,
+/// accepted 2026-11-18).
 #[test]
 fn a_leap_second_is_recorded_as_text_and_as_epoch_nanoseconds() {
     // input, [shown, epoch seconds, epoch nanoseconds, JSON, hand formatted]
@@ -467,41 +472,41 @@ fn a_leap_second_is_recorded_as_text_and_as_epoch_nanoseconds() {
         (
             "2016-12-31T23:59:60Z",
             [
-                "2016-12-31T23:59:60.000000000Z",
+                "2016-12-31T23:59:59.000000000Z",
                 "1483228799",
-                "1483228800000000000",
-                r#""2016-12-31T23:59:60Z""#,
-                "2016-12-31T23:59:60+00:00",
+                "1483228799000000000",
+                r#""2016-12-31T23:59:59Z""#,
+                "2016-12-31T23:59:59+00:00",
             ],
         ),
         (
             "2016-12-31T23:59:60.500Z",
             [
-                "2016-12-31T23:59:60.500000000Z",
+                "2016-12-31T23:59:59.500000000Z",
                 "1483228799",
-                "1483228800500000000",
-                r#""2016-12-31T23:59:60.500Z""#,
-                "2016-12-31T23:59:60.500+00:00",
+                "1483228799500000000",
+                r#""2016-12-31T23:59:59.500Z""#,
+                "2016-12-31T23:59:59.500+00:00",
             ],
         ),
         (
             "2026-11-17T10:00:60Z",
             [
-                "2026-11-17T10:00:60.000000000Z",
+                "2026-11-17T10:00:59.000000000Z",
                 "1794909659",
-                "1794909660000000000",
-                r#""2026-11-17T10:00:60Z""#,
-                "2026-11-17T10:00:60+00:00",
+                "1794909659000000000",
+                r#""2026-11-17T10:00:59Z""#,
+                "2026-11-17T10:00:59+00:00",
             ],
         ),
         (
             "2016-12-31T18:59:60-05:00",
             [
-                "2016-12-31T23:59:60.000000000Z",
+                "2016-12-31T23:59:59.000000000Z",
                 "1483228799",
-                "1483228800000000000",
-                r#""2016-12-31T23:59:60Z""#,
-                "2016-12-31T23:59:60+00:00",
+                "1483228799000000000",
+                r#""2016-12-31T23:59:59Z""#,
+                "2016-12-31T23:59:59+00:00",
             ],
         ),
         (
@@ -525,21 +530,21 @@ fn a_leap_second_is_recorded_as_text_and_as_epoch_nanoseconds() {
         .collect();
     assert_eq!(actual, wanted, "second-60 facts per input");
 
-    // The nanosecond column is the next minute's first instant, and the
-    // half-second row is half a second after it.
+    // The nanosecond column is second 59's, and the half-second row is half
+    // a second after it.
     assert_eq!(
-        engine::epoch_nanos("2017-01-01T00:00:00Z"),
+        engine::epoch_nanos("2016-12-31T23:59:59Z"),
         rows[0].1[2],
-        "23:59:60 counts as the first instant of 2017"
+        "23:59:60 counts as 23:59:59"
     );
     assert_eq!(
-        engine::epoch_nanos("2017-01-01T00:00:00.5Z"),
+        engine::epoch_nanos("2016-12-31T23:59:59.5Z"),
         rows[1].1[2],
-        "23:59:60.5 counts as half a second into 2017"
+        "23:59:60.5 counts as 23:59:59.5"
     );
     assert_eq!(
-        engine::epoch_nanos("2026-11-17T10:01:00Z"),
+        engine::epoch_nanos("2026-11-17T10:00:59Z"),
         rows[2].1[2],
-        "10:00:60 counts as the first instant of 10:01"
+        "10:00:60 counts as 10:00:59"
     );
 }

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CalendarEventSource, PrescribedWorkout, SportType, TenantId, UserId};
 use pierre_core::transport::TransportPolicy;
@@ -46,7 +46,7 @@ pub trait PrescribedWorkoutRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: Uuid,
         provider: &str,
-        from: Option<NaiveDate>,
+        from: Option<CivilDate>,
     ) -> AppResult<Vec<PrescribedWorkout>>;
 
     /// Move a row to `status` (`replaced` or `withdrawn`), stamping
@@ -77,8 +77,8 @@ macro_rules! prescribed_columns {
 /// Postgres. `id` and `replaces_id` bind as [`UuidColumn`], `tenant_id` as
 /// [`TenantId`] and `user_id` as [`UserId`], each of which encodes as
 /// hyphenated text on `SQLite` and as a native `uuid` on Postgres.
-/// `prescribed_for_date` binds as a `NaiveDate`: `%Y-%m-%d` text on
-/// `SQLite`, `DATE` on Postgres. The timestamps bind as `DateTime<Utc>`:
+/// `prescribed_for_date` binds as a `CivilDate`: `%Y-%m-%d` text on
+/// `SQLite`, `DATE` on Postgres. The timestamps bind as `Timestamp`:
 /// RFC3339 text on `SQLite`, `TIMESTAMPTZ` on Postgres. `payload_json`
 /// binds as [`Value`], which sqlx stores as `TEXT` on `SQLite` and `jsonb`
 /// on Postgres: the stored JSON is an opaque blob. Its readers parse it —
@@ -154,8 +154,8 @@ where
     R: Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    CivilDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Value: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     UuidColumn: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     TenantId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
@@ -176,13 +176,13 @@ where
         .map_err(|e| AppError::database(format!("read sport: {e}")))?;
     let sport: SportType = serde_json::from_str(&sport_str)
         .map_err(|e| AppError::database(format!("parse sport: {e}")))?;
-    let prescribed_for_date: NaiveDate = row
+    let prescribed_for_date: CivilDate = row
         .try_get("prescribed_for_date")
         .map_err(|e| AppError::database(format!("read prescribed_for_date: {e}")))?;
-    let created_at: DateTime<Utc> = row
+    let created_at: Timestamp = row
         .try_get("created_at")
         .map_err(|e| AppError::database(format!("read created_at: {e}")))?;
-    let updated_at: DateTime<Utc> = row
+    let updated_at: Timestamp = row
         .try_get("updated_at")
         .map_err(|e| AppError::database(format!("read updated_at: {e}")))?;
     let payload: Value = row
@@ -304,7 +304,7 @@ macro_rules! impl_prescribed_workout_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 provider: &str,
-                from: Option<NaiveDate>,
+                from: Option<CivilDate>,
             ) -> AppResult<Vec<PrescribedWorkout>> {
                 let rows = sqlx::query(LIST_LIVE_CALENDAR_EVENTS_SQL)
                     .bind(tenant_id)
@@ -326,7 +326,7 @@ macro_rules! impl_prescribed_workout_repository {
             ) -> AppResult<()> {
                 let result = sqlx::query(SET_PRESCRIBED_WORKOUT_STATUS_SQL)
                     .bind(status)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .bind(tenant_id)
                     .bind(UuidColumn(id))
                     .execute(self.pool())

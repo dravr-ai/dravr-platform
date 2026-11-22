@@ -627,7 +627,7 @@ macro_rules! impl_training_plan_draft_helpers {
                 .bind(&draft_plan.id)
                 .bind(owner.tenant_id)
                 .bind(owner.user_id)
-                .bind(Utc::now().timestamp())
+                .bind(Timestamp::now().epoch_seconds())
                 .execute(&mut *conn)
                 .await
                 .map_err(|e| AppError::database(format!("mark draft published: {e}")))?;
@@ -645,7 +645,7 @@ macro_rules! impl_training_plan_draft_helpers {
             pool: &sqlx::Pool<$db>,
             params: &SaveDraftParams<'_>,
         ) -> AppResult<SavedDraftBundle> {
-            let now = Utc::now().timestamp();
+            let now = Timestamp::now().epoch_seconds();
             let mut tx = pool
                 .begin()
                 .await

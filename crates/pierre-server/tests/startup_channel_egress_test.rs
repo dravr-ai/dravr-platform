@@ -102,7 +102,6 @@ use axum::extract::connect_info::MockConnectInfo;
 use axum::http::{Request, StatusCode};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::{Duration as ChronoDuration, Utc};
 use common::offline_channel::OfflineSendAdapters;
 use common::{
     create_test_server_resources, create_test_server_resources_on_adapters,
@@ -114,6 +113,7 @@ use common::{
 use dravr_canot::channel::MessagingChannel;
 use dravr_canot::error::MessagingResult;
 use dravr_meteo::InMemoryStore;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::ToolContext;
 use hmac::{Hmac, Mac};
@@ -586,7 +586,7 @@ async fn refresh_an_expired_garmin_grant(resources: &Arc<ServerContext>) -> Stri
         "garmin".to_owned(),
         "access-of-an-expired-garmin-grant".to_owned(),
         Some("refresh-of-an-expired-garmin-grant".to_owned()),
-        Some(Utc::now() - ChronoDuration::hours(1)),
+        Some(Timestamp::now() - Elapsed::hours(1)),
         Some("read".to_owned()),
     );
     resources
@@ -615,7 +615,7 @@ async fn read_the_athlete_from(resources: &ServerContext, provider: &str) -> Opt
             client_secret: SecretString::from("egress-guard-client-secret"),
             access_token: Some(SecretString::from("egress-guard-access-token")),
             refresh_token: None,
-            expires_at: Some(Utc::now() + ChronoDuration::hours(1)),
+            expires_at: Some(Timestamp::now() + Elapsed::hours(1)),
             scopes: Vec::new(),
             kind: CredentialKind::OAuthBearer,
             request_budget: None,
@@ -648,7 +648,7 @@ async fn pull_whoop_wellness(resources: &Arc<ServerContext>) -> Result<u32, Stri
         "whoop".to_owned(),
         "access-of-a-live-whoop-grant".to_owned(),
         Some("refresh-of-a-live-whoop-grant".to_owned()),
-        Some(Utc::now() + ChronoDuration::hours(1)),
+        Some(Timestamp::now() + Elapsed::hours(1)),
         Some("read:recovery read:sleep".to_owned()),
     );
     resources
@@ -697,11 +697,12 @@ async fn upload_a_ride_and_list_it(resources: &Arc<ServerContext>, email: &str) 
             .await
             .unwrap();
     let token = generate_test_token(resources, &user).await;
-    let started = (Utc::now() - ChronoDuration::days(1))
-        .date_naive()
-        .and_hms_opt(7, 0, 0)
+    let started = (Timestamp::now() - Elapsed::days(1))
+        .utc_date()
+        .and_hms(7, 0, 0)
         .unwrap()
-        .and_utc();
+        .and_utc()
+        .unwrap();
     let upload = Request::post("/api/me/activities/upload")
         .header("authorization", format!("Bearer {token}"))
         .header("content-type", "application/octet-stream")
@@ -884,7 +885,7 @@ async fn drive_the_weather_clients(asked: &Asked) -> Vec<String> {
         "egress-guard-city".to_owned(),
         "City-only ride".to_owned(),
         SportType::Ride,
-        Utc::now() - ChronoDuration::days(2),
+        Timestamp::now() - Elapsed::days(2),
         3600,
         "test",
     )
@@ -903,7 +904,7 @@ async fn drive_the_weather_clients(asked: &Asked) -> Vec<String> {
 
     // The gazetteer again, from a place name in `discover_routes` and one in
     // `get_weather_forecast`.
-    let tomorrow = (Utc::now() + ChronoDuration::days(1)).to_rfc3339();
+    let tomorrow = (Timestamp::now() + Elapsed::days(1)).to_rfc3339();
     for (tool, place) in [
         ("discover_routes", "Guardbourg"),
         ("get_weather_forecast", "Trapford"),
@@ -1153,7 +1154,7 @@ async fn complete_an_oauth_link(resources: &Arc<ServerContext>, channel: &str) -
             channel_user_id: None,
             sender_name: None,
             app_return_uri: None,
-            expires_at: &(Utc::now() + ChronoDuration::minutes(10)).to_rfc3339(),
+            expires_at: &(Timestamp::now() + Elapsed::minutes(10)).to_rfc3339(),
         })
         .await
         .unwrap();
@@ -1233,7 +1234,7 @@ async fn drive_the_non_channel_hosts(resources: &Arc<ServerContext>, asked: &Ask
     if athlete.listed.len() != 1 {
         wrong.push("the agent's activity list did not list the uploaded ride".to_owned());
     }
-    let tomorrow = (Utc::now() + ChronoDuration::days(1)).to_rfc3339();
+    let tomorrow = (Timestamp::now() + Elapsed::days(1)).to_rfc3339();
     let forecast = run_registered_tool(
         resources,
         &athlete,
@@ -2284,7 +2285,7 @@ async fn revoke_a_strava_grant(resources: &Arc<ServerContext>) -> RevocationOutc
         "strava".to_owned(),
         "access-of-a-live-strava-grant".to_owned(),
         Some("refresh-of-a-live-strava-grant".to_owned()),
-        Some(Utc::now() + ChronoDuration::hours(4)),
+        Some(Timestamp::now() + Elapsed::hours(4)),
         Some("read".to_owned()),
     );
     resources
@@ -2686,7 +2687,7 @@ async fn tap_reject_on_a_sign_up_card(resources: &Arc<ServerContext>, user_id: U
     })
     .to_string();
     let body = format!("payload={}", urlencoding::encode(&payload));
-    let timestamp = Utc::now().timestamp().to_string();
+    let timestamp = Timestamp::now().epoch_seconds().to_string();
     let mut mac = Hmac::<Sha256>::new_from_slice(OPS_SIGNING_SECRET.as_bytes()).unwrap();
     mac.update(format!("v0:{timestamp}:{body}").as_bytes());
     let signature = format!("v0={}", hex::encode(mac.finalize().into_bytes()));

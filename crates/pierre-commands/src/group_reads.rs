@@ -16,6 +16,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_READS_SOURCE_WEEKLY_DIGEST, KEY_GROUP_READS_SUPPORT_READ, KEY_GROUP_READS_TRAINING,
     KEY_GROUP_READS_WELLNESS,
 };
+use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::errors::AppError;
 use pierre_database::repositories::{CoachReadClass, CoachReadSurface};
 use pierre_services::athlete_display_name::fetch_user_display_name;
@@ -94,7 +95,7 @@ impl CommandHandler for GroupReadsHandler {
                     Some(key) => format!("{named}, {}", reg.render(key, locale, &[])),
                     None => named,
                 };
-                let when = read.read_at.format("%Y-%m-%d %H:%M UTC").to_string();
+                let when = read.read_at.format_with(&UTC_MINUTE);
                 lines.push(reg.render(
                     KEY_GROUP_READS_LINE,
                     locale,

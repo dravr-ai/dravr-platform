@@ -28,7 +28,7 @@
 //! shrink the detail walk's reservation, and both walks stop once the app's
 //! day holds its background share.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use uuid::Uuid;
 
@@ -147,7 +147,7 @@ impl ProviderRateLimiter {
         &self,
         provider: &str,
         windows: Vec<Window>,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> AppResult<Vec<Window>> {
         let Some(sizes) = self.detail_walk_sizes(provider, &windows) else {
             return Ok(windows);

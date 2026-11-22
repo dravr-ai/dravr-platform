@@ -152,14 +152,14 @@ fn detect_activity_patterns(
         // the following weekday and reported as a 01:00 habit (registre#252).
         _ => format_weekly_schedule(&PatternDetector::detect_weekly_schedule(
             activities,
-            resolve_zone(user_timezone),
+            &resolve_zone(user_timezone),
         )), // weekly_schedule: the handler admits no other value
     }
 }
 
 /// Format weekly schedule pattern results for JSON response
 fn format_weekly_schedule(pattern: &WeeklySchedulePattern) -> PatternsResult {
-    use chrono::Weekday;
+    use dravr_tronc::dates::Weekday;
 
     // Convert Weekday enum to string
     let day_to_string = |weekday: &Weekday| -> &str {

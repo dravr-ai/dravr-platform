@@ -7,17 +7,17 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::rate_limiting::{calculate_api_key_rate_limit, RequestBudget};
 use pierre_core::models::WindowUsage;
 use uuid::Uuid;
 
 /// `count` calls in the key's window, the oldest a day before `now`.
-fn used(count: u32, now: DateTime<Utc>) -> WindowUsage {
+fn used(count: u32, now: Timestamp) -> WindowUsage {
     WindowUsage {
         count,
-        oldest: Some(now - Duration::days(1)),
+        oldest: Some(now - Elapsed::days(1)),
     }
 }
 
@@ -99,10 +99,10 @@ fn test_rate_limit_calculation() {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
 
-    let now = Utc::now();
+    let now = Timestamp::now();
     let budget = calculate_api_key_rate_limit(&api_key, &used(5000, now), now);
     assert!(!budget.is_exceeded());
     assert_eq!(budget.remaining_after_this_request(), Some(4999));
@@ -127,11 +127,11 @@ fn test_rate_limit_enterprise_unlimited() {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
 
     // Enterprise tier should never be rate limited
-    let now = Utc::now();
+    let now = Timestamp::now();
     for count in [0, 1_000_000] {
         let budget = calculate_api_key_rate_limit(&enterprise_key, &used(count, now), now);
         assert_eq!(budget, RequestBudget::Unlimited);
@@ -155,11 +155,11 @@ fn test_rate_limit_professional_tier() {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
 
-    let now = Utc::now();
-    let resets_at = now - Duration::days(1) + Duration::days(30);
+    let now = Timestamp::now();
+    let resets_at = now - Elapsed::days(1) + Elapsed::days(30);
 
     // Under limit
     let budget = calculate_api_key_rate_limit(&professional_key, &used(50_000, now), now);
@@ -200,13 +200,13 @@ fn test_rate_limit_reset_time_calculation() {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
 
     // A key's window slides: it frees its first slot when the oldest call in
     // it leaves, not at the start of a calendar month.
-    let now = Utc::now();
-    let oldest = now - Duration::days(10);
+    let now = Timestamp::now();
+    let oldest = now - Elapsed::days(10);
     let budget = calculate_api_key_rate_limit(
         &api_key,
         &WindowUsage {
@@ -218,7 +218,7 @@ fn test_rate_limit_reset_time_calculation() {
     let RequestBudget::Metered { resets_at, .. } = budget else {
         panic!("Reset time should be set for non-enterprise tiers");
     };
-    assert_eq!(resets_at, oldest + Duration::days(30));
+    assert_eq!(resets_at, oldest + Elapsed::days(30));
     assert!(resets_at > now);
 
     // With no call in the window yet, the first one would leave it a full
@@ -236,7 +236,7 @@ fn test_rate_limit_reset_time_calculation() {
         RequestBudget::Metered {
             limit: 10_000,
             used: 0,
-            resets_at: now + Duration::days(30),
+            resets_at: now + Elapsed::days(30),
         }
     );
 }
@@ -316,7 +316,7 @@ async fn test_create_api_key_with_expiration() {
     // Check expiration is set correctly
     assert!(api_key.expires_at.is_some());
     let expires_at = api_key.expires_at.unwrap();
-    let expected_expiry = Utc::now() + Duration::days(30);
+    let expected_expiry = Timestamp::now() + Elapsed::days(30);
 
     // Should be within 1 minute of expected (to account for test execution time)
     let diff = (expires_at - expected_expiry).num_seconds().abs();
@@ -377,7 +377,7 @@ fn test_api_key_validation_scenarios() {
         is_active: true,
         last_used_at: None,
         expires_at: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
 
     assert!(manager.is_key_valid(&active_key).is_ok());
@@ -390,13 +390,13 @@ fn test_api_key_validation_scenarios() {
 
     // Test expired key
     let mut expired_key = active_key.clone();
-    expired_key.expires_at = Some(Utc::now() - Duration::days(1));
+    expired_key.expires_at = Some(Timestamp::now() - Elapsed::days(1));
 
     assert!(manager.is_key_valid(&expired_key).is_err());
 
     // Test key expiring in future (should be valid)
     let mut future_expiry_key = active_key;
-    future_expiry_key.expires_at = Some(Utc::now() + Duration::days(1));
+    future_expiry_key.expires_at = Some(Timestamp::now() + Elapsed::days(1));
 
     assert!(manager.is_key_valid(&future_expiry_key).is_ok());
 }
@@ -488,7 +488,7 @@ async fn test_create_trial_key() {
 
     // Verify expiration is set to 14 days
     let expires_at = api_key.expires_at.unwrap();
-    let expected_expiry = Utc::now() + Duration::days(14);
+    let expected_expiry = Timestamp::now() + Elapsed::days(14);
     let diff = (expires_at - expected_expiry).num_seconds().abs();
     assert!(diff < 60, "Trial key should expire in 14 days");
 }
@@ -511,7 +511,7 @@ async fn test_create_trial_key_with_custom_expiration() {
     // Verify custom expiration is respected
     assert!(api_key.expires_at.is_some());
     let expires_at = api_key.expires_at.unwrap();
-    let expected_expiry = Utc::now() + Duration::days(7);
+    let expected_expiry = Timestamp::now() + Elapsed::days(7);
     let diff = (expires_at - expected_expiry).num_seconds().abs();
     assert!(diff < 60, "Trial key should expire in 7 days");
 

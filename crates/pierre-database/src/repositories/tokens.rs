@@ -10,7 +10,7 @@
 //! `oauth2_auth_codes.user_id`, `oauth2_refresh_tokens.user_id` and
 //! `oauth2_states.user_id` included — so a uuid binds as its hyphenated text
 //! and is parsed on the way back on both drivers, and no uuid codec is
-//! needed. Timestamps bind as [`DateTime<Utc>`] on both (`TIMESTAMPTZ` on
+//! needed. Timestamps bind as [`Timestamp`] on both (`TIMESTAMPTZ` on
 //! Postgres, RFC 3339 text on `SQLite`, which orders correctly for the
 //! `expires_at > now` filters because every value shares one offset and
 //! width); `device_authorization` keeps epoch seconds in a `BIGINT`/`INTEGER`
@@ -476,7 +476,7 @@ macro_rules! impl_oauth2_server_repository {
             async fn extend_client_expiry(
                 &self,
                 client_id: &str,
-                expires_at: DateTime<Utc>,
+                expires_at: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(EXTEND_OAUTH2_CLIENT_EXPIRY_SQL)
                     .bind(client_id)
@@ -520,8 +520,8 @@ macro_rules! impl_oauth2_server_repository {
 
             async fn delete_stale_clients(
                 &self,
-                expired_before: DateTime<Utc>,
-                unauthorized_before: DateTime<Utc>,
+                expired_before: Timestamp,
+                unauthorized_before: Timestamp,
             ) -> AppResult<OAuth2ClientSweep> {
                 let sweep_error = |e: sqlx::Error| {
                     AppError::database(format!("Failed to sweep OAuth2 clients: {e}"))
@@ -638,7 +638,7 @@ macro_rules! impl_oauth2_server_repository {
                 code: &str,
                 client_id: &str,
                 redirect_uri: &str,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<OAuth2AuthCode>> {
                 let row = sqlx::query(CONSUME_OAUTH2_AUTH_CODE_SQL)
                     .bind(code)
@@ -659,7 +659,7 @@ macro_rules! impl_oauth2_server_repository {
                 code: &str,
                 client_id: &str,
                 redirect_uri: &str,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<OAuth2AuthCode>> {
                 let row = sqlx::query(PEEK_OAUTH2_AUTH_CODE_SQL)
                     .bind(code)
@@ -679,7 +679,7 @@ macro_rules! impl_oauth2_server_repository {
                 &self,
                 token: &str,
                 client_id: &str,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<OAuth2RefreshToken>> {
                 let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
 
@@ -801,7 +801,7 @@ macro_rules! impl_oauth2_server_repository {
                 &self,
                 state_value: &str,
                 client_id: &str,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<OAuth2State>> {
                 let row = sqlx::query(CONSUME_OAUTH2_STATE_SQL)
                     .bind(state_value)

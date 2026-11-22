@@ -16,6 +16,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 use crate::common;
+use dravr_tronc::dates::Timestamp;
 
 /// Test complete OAuth flow with SSE notifications
 #[tokio::test]
@@ -81,7 +82,7 @@ async fn test_oauth_strava_with_sse_notifications() -> Result<()> {
         message: "Successfully connected to Strava! You can now access your fitness data."
             .to_owned(),
         expires_at: None,
-        created_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
         read_at: None,
     };
 
@@ -162,7 +163,7 @@ async fn test_mcp_client_oauth_notification_flow() -> Result<()> {
         success: true,
         message: "OAuth completed - data ready for MCP tools".to_owned(),
         expires_at: None,
-        created_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
         read_at: None,
     };
 
@@ -208,7 +209,7 @@ async fn test_oauth_sse_error_scenarios() -> Result<()> {
         success: false,
         message: "OAuth failed - invalid credentials".to_owned(),
         expires_at: None,
-        created_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
         read_at: None,
     };
 

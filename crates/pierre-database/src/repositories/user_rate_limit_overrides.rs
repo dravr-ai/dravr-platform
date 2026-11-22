@@ -7,7 +7,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::MonthlyLimitOverride;
 use uuid::Uuid;
@@ -28,9 +28,9 @@ pub struct UserRateLimitOverride {
     /// Admin user who set the override (audit trail).
     pub set_by: Option<Uuid>,
     /// First-set timestamp.
-    pub set_at: DateTime<Utc>,
+    pub set_at: Timestamp,
     /// Most-recent update timestamp.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// CRUD for `user_rate_limit_overrides`, the per-user exemption table.
@@ -66,7 +66,7 @@ pub trait UserRateLimitOverrideRepository: Send + Sync {
 /// Postgres, so one statement serves both backends and cannot drift between
 /// them. The id binds through the backend's uuid codec (see
 /// [`super::uuid_columns`]); every other bind is a plain `Option<i32>`,
-/// `Option<&str>` or `DateTime<Utc>` both drivers encode alike.
+/// `Option<&str>` or `Timestamp` both drivers encode alike.
 pub(crate) const GET_RATE_LIMIT_OVERRIDE_SQL: &str = r"
             SELECT user_id, monthly_limit, note, set_by, set_at, updated_at
             FROM user_rate_limit_overrides
@@ -172,7 +172,7 @@ macro_rules! impl_user_rate_limit_override_repository {
                     .bind(row.monthly_limit.map(limit_to_column))
                     .bind(row.note.as_deref())
                     .bind($ids::bind_opt(row.set_by))
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

@@ -29,7 +29,7 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 use axum::Router;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::connect_order::{connect_order, set_connect_order, ConnectOrder};
 use pierre_config::environment::ServerConfig;
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
@@ -164,7 +164,7 @@ async fn a_reconnect_signs_in_under_either_order() {
             tenant,
             oauth_providers::SCIOTTE_GARMIN,
             Some("session_expired"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();

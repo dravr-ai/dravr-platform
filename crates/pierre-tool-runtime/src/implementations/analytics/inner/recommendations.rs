@@ -15,8 +15,6 @@ use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::read_subject::{self, WellnessInput};
-use chrono::{Duration, Utc};
-use chrono_tz::Tz;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::pattern_detection::PatternDetector;
 use dravr_cageux::performance_prediction::PerformancePredictor;
@@ -24,6 +22,7 @@ use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use dravr_cageux::training_load::TrainingLoad;
 use dravr_cageux::training_load::{FormBand, RiskLevel, TrainingLoadCalculator, TrainingLoadLevel};
 use dravr_cageux::zones::HrZones;
+use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_config::constants::units::METERS_PER_KM;
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::models::zones::HrZonesUnavailable;
@@ -134,7 +133,7 @@ pub fn generate_training_recommendations(
     }
 
     // Filter to last 4 weeks for recommendation generation
-    let four_weeks_ago = Utc::now() - Duration::days(28);
+    let four_weeks_ago = Timestamp::now() - Elapsed::days(28);
     let recent_activities: Vec<_> = activities
         .iter()
         .filter(|a| a.start_date() >= four_weeks_ago)
@@ -163,7 +162,7 @@ pub fn generate_training_recommendations(
                 &recent_activities,
                 athlete,
                 algorithm_config,
-                zone,
+                &zone,
             )
         }
         "goal_specific" => {
@@ -174,7 +173,7 @@ pub fn generate_training_recommendations(
             athlete,
             zones,
             algorithm_config,
-            zone,
+            &zone,
         ),
         "intensity" => generate_intensity_recommendations(&recent_activities, zones),
         "nutrition" => generate_nutrition_recommendations(latest, zones, nutrition_athlete),
@@ -185,7 +184,7 @@ pub fn generate_training_recommendations(
             athlete,
             zones,
             algorithm_config,
-            zone,
+            &zone,
         ),
     };
     // Every mode left here read heart rate against the athlete's zones.
@@ -198,7 +197,7 @@ fn generate_training_plan_recommendations(
     activities: &[Activity],
     athlete: &AthleteInputs,
     algorithm_config: &AlgorithmConfig,
-    zone: Tz,
+    zone: &Zone,
 ) -> RecommendationsResult {
     // Analyze volume progression to detect spikes
     let volume_pattern = PatternDetector::detect_volume_progression(activities);
@@ -213,8 +212,11 @@ fn generate_training_plan_recommendations(
     sorted.sort_by_key(Activity::start_date);
 
     // Calculate training load metrics
-    let calculator =
-        TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, Utc::now());
+    let calculator = TrainingLoadCalculator::as_of_today(
+        algorithm_config.clone(),
+        zone.clone(),
+        Timestamp::now(),
+    );
     let training_load = athlete.training_load(calculator, &sorted).ok();
 
     let mut recommendations = Vec::new();
@@ -430,15 +432,18 @@ fn generate_recovery_recommendations(
     athlete: &AthleteInputs,
     hr_zones: Option<&HrZones>,
     algorithm_config: &AlgorithmConfig,
-    zone: Tz,
+    zone: &Zone,
 ) -> RecommendationsResult {
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted = activities.to_vec();
     sorted.sort_by_key(Activity::start_date);
 
     // Calculate TSB (Training Stress Balance)
-    let calculator =
-        TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, Utc::now());
+    let calculator = TrainingLoadCalculator::as_of_today(
+        algorithm_config.clone(),
+        zone.clone(),
+        Timestamp::now(),
+    );
     let training_load = athlete.training_load(calculator, &sorted).ok();
 
     // Detect overtraining signals
@@ -707,15 +712,18 @@ fn generate_comprehensive_recommendations(
     athlete: &AthleteInputs,
     hr_zones: Option<&HrZones>,
     algorithm_config: &AlgorithmConfig,
-    zone: Tz,
+    zone: &Zone,
 ) -> RecommendationsResult {
     // Sort oldest-first — EMA calculation requires chronological order
     let mut sorted = activities.to_vec();
     sorted.sort_by_key(Activity::start_date);
 
     // Comprehensive analysis using all available modules
-    let calculator =
-        TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone, Utc::now());
+    let calculator = TrainingLoadCalculator::as_of_today(
+        algorithm_config.clone(),
+        zone.clone(),
+        Timestamp::now(),
+    );
     let training_load = athlete.training_load(calculator, &sorted).ok();
 
     let volume_pattern = PatternDetector::detect_volume_progression(activities);
@@ -1031,7 +1039,7 @@ mod tests {
             format!("run_{days_ago}"),
             "Run",
             SportType::Run,
-            Utc::now() - Duration::days(days_ago),
+            Timestamp::now() - Elapsed::days(days_ago),
             3000,
             "test",
         )
@@ -1049,7 +1057,7 @@ mod tests {
             &AthleteInputs::default(),
             Some(&zones),
             &AlgorithmConfig::default(),
-            Tz::UTC,
+            &Zone::utc(),
         );
         Ok(result
             .training_summary

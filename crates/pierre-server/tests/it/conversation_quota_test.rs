@@ -14,10 +14,10 @@ use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, RETRY_AFTER};
 use axum::http::{Request, StatusCode};
-use chrono::{Duration, Utc};
 use common::{
     create_test_server_resources, create_test_server_resources_with_llm, create_test_user_with_plan,
 };
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::stream;
 use helpers::notify_capture::capture_notify;
 use pierre_config::constants::usage_quotas::{
@@ -660,10 +660,7 @@ async fn the_conversation_list_marks_the_archived_thread() {
         .as_str()
         .unwrap()
         .to_owned();
-    assert!(
-        chrono::DateTime::parse_from_rfc3339(&stamp).is_ok(),
-        "{stamp}"
-    );
+    assert!(Timestamp::parse_from_rfc3339(&stamp).is_ok(), "{stamp}");
 }
 
 /// Concurrent slot decisions at the cap's edge, on a pool whose connections
@@ -828,7 +825,7 @@ async fn a_resuming_command_claims_the_thread_even_when_it_then_does_nothing() {
                 .common
                 .repos
                 .agent_drafts
-                .create_pending_action(&expired, Utc::now() - Duration::minutes(1))
+                .create_pending_action(&expired, Timestamp::now() - Elapsed::minutes(1))
                 .await
                 .unwrap();
             format!("/confirm {}", expired.id)

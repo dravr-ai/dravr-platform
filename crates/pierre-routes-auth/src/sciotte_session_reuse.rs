@@ -4,8 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{Duration as ChronoDuration, Utc};
 use dravr_sciotte::models::AuthSession;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::errors::AppError;
 use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
@@ -29,7 +29,7 @@ use crate::AuthRoutesContext;
 /// never announce through an expiry) or wants a different account, and in both
 /// cases the credentials just submitted must be honoured, not the stored
 /// session.
-const SESSION_REUSE_WINDOW: ChronoDuration = ChronoDuration::minutes(2);
+const SESSION_REUSE_WINDOW: Elapsed = Elapsed::minutes(2);
 
 /// What a credential login does with the session stored for its provider.
 pub(crate) enum StoredSessionUse {
@@ -80,7 +80,7 @@ enum SessionHealth {
 fn has_expired(session: &AuthSession) -> bool {
     session
         .expires_at
-        .is_some_and(|expires_at| expires_at <= Utc::now())
+        .is_some_and(|expires_at| expires_at <= Timestamp::now())
 }
 
 /// Read what the platform has observed about `session`: its own expiry, and
@@ -127,7 +127,7 @@ fn answers_login(
 ) -> bool {
     // Only a session written moments ago answers the login; an older one is
     // exactly what a reconnect is replacing.
-    if Utc::now() - token.updated_at > SESSION_REUSE_WINDOW {
+    if Timestamp::now() - token.updated_at > SESSION_REUSE_WINDOW {
         info!(
             %user_id,
             provider = %provider_name,

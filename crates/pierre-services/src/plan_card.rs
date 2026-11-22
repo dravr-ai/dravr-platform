@@ -32,7 +32,7 @@
 //! Its block carries [`PlanCardDraft`] beside `plan` — the athlete, and where
 //! the draft stands — so a client can offer Publish and Discard on it.
 
-use chrono::{Days, NaiveDate};
+use dravr_tronc::dates::CivilDate;
 use pierre_contremaitre::evidence_strings;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -330,7 +330,7 @@ impl PlanCard {
     pub fn build(
         plan: &TrainingPlan,
         weeks: &[PlanWeek],
-        today: NaiveDate,
+        today: CivilDate,
         registry: &MessagingStringsRegistry,
         locale: &str,
         fueling: &FuelingDisclosure,
@@ -341,7 +341,7 @@ impl PlanCard {
             .map(|p| PhaseCard {
                 kind: p.kind,
                 start: p.start.clone(),
-                end: p.end_exclusive().map(|d| d.format("%Y-%m-%d").to_string()),
+                end: p.end_exclusive().map(|d| d.to_string()),
                 weeks: p.weeks,
                 purpose: p.purpose.clone(),
                 intent: p.intent.clone(),
@@ -491,7 +491,7 @@ pub async fn try_load_subject_plan_card(
     repos: &RepositoryRegistry,
     target: &CoachDraftTarget,
     subject: PlanSubject,
-    today: NaiveDate,
+    today: CivilDate,
     registry: &MessagingStringsRegistry,
     locale: &str,
 ) -> AppResult<Option<SubjectPlanCard>> {
@@ -615,7 +615,7 @@ pub async fn load_plan_card(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
-    today: NaiveDate,
+    today: CivilDate,
     registry: &MessagingStringsRegistry,
     locale: &str,
 ) -> Option<PlanCard> {
@@ -649,7 +649,7 @@ pub async fn try_load_plan_card(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
-    today: NaiveDate,
+    today: CivilDate,
     registry: &MessagingStringsRegistry,
     locale: &str,
 ) -> AppResult<Option<PlanCard>> {
@@ -703,11 +703,11 @@ pub async fn try_load_plan_weeks_between(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlanSpan {
     /// The athlete's civil today, which flags the current week.
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// The first day asked about.
-    pub from: NaiveDate,
+    pub from: CivilDate,
     /// The last day asked about, included.
-    pub to: NaiveDate,
+    pub to: CivilDate,
 }
 
 /// The stored weeks that overlap `from..=to`, each with whether `today`
@@ -715,19 +715,19 @@ pub struct PlanSpan {
 /// days later, is skipped rather than guessed at, as the card skips it.
 fn weeks_between(
     weeks: &[PlanWeek],
-    today: NaiveDate,
-    from: NaiveDate,
-    to: NaiveDate,
+    today: CivilDate,
+    from: CivilDate,
+    to: CivilDate,
 ) -> impl Iterator<Item = (&PlanWeek, bool)> {
     weeks.iter().filter_map(move |week| {
         let start = parse_plan_date(&week.week_start)?;
-        let end = start.checked_add_days(Days::new(DAYS_AFTER_WEEK_START))?;
+        let end = start.checked_add_days(DAYS_AFTER_WEEK_START)?;
         (start <= to && end >= from).then(|| (week, (start..=end).contains(&today)))
     })
 }
 
 /// Days from a week's Monday to its Sunday.
-const DAYS_AFTER_WEEK_START: u64 = 6;
+const DAYS_AFTER_WEEK_START: i64 = 6;
 
 /// The athlete's active plan with its weeks and the fuelling disclosure its
 /// days are projected under.
@@ -773,7 +773,7 @@ async fn load_active_plan(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_contremaitre::evidence_strings::KEY_EVIDENCE_OUTSIDE;
     use pierre_memory::training_plans::{RacePriority, WeekStatus};
 
@@ -791,13 +791,13 @@ mod tests {
             supersedes_id: None,
             adjustment_reason: String::new(),
             author_agent_id: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         }
     }
 
-    fn date(text: &str) -> NaiveDate {
-        parse_plan_date(text).unwrap_or(NaiveDate::MIN)
+    fn date(text: &str) -> CivilDate {
+        parse_plan_date(text).unwrap_or(CivilDate::MIN)
     }
 
     fn bare_card() -> PlanCard {

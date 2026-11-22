@@ -27,6 +27,7 @@ use secrecy::ExposeSecret;
 
 use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::mcp::AppBehaviorConfig;
 use pierre_core::admin::models::{
@@ -107,7 +108,7 @@ async fn session_with_role(
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
 
     let user_id = user.id;
     resources.common.repos.users.create(&user).await?;
@@ -120,8 +121,8 @@ async fn session_with_role(
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources.common.repos.tenants.create(&tenant).await?;
     resources

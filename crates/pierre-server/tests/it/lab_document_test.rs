@@ -24,6 +24,8 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
+use dravr_tronc::dates::Timestamp;
+
 use bytes::Bytes;
 use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::digest::Sha256;
@@ -200,7 +202,7 @@ async fn a_text_report_becomes_pending_records_the_athlete_confirms_or_rejects()
         assert!(
             repos
                 .health_records
-                .decide_clinical_record(&tenant, user, id, decision, chrono::Utc::now())
+                .decide_clinical_record(&tenant, user, id, decision, Timestamp::now())
                 .await
                 .unwrap(),
             "bug: {decision:?} was not recorded"
@@ -214,7 +216,7 @@ async fn a_text_report_becomes_pending_records_the_athlete_confirms_or_rejects()
                 user,
                 confirmed,
                 ReviewDecision::Rejected,
-                chrono::Utc::now()
+                Timestamp::now()
             )
             .await
             .unwrap(),

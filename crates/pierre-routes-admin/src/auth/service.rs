@@ -25,6 +25,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::backends::{AdminRepository, UserRepository};
 use uuid::Uuid;
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::AdminJwtManager;
 
 /// Admin authentication service
@@ -155,7 +156,7 @@ impl AdminAuthService {
 
         // Step 4: Check expiration
         if let Some(expires_at) = stored_token.expires_at {
-            if chrono::Utc::now() > expires_at {
+            if Timestamp::now() > expires_at {
                 return Err(AppError::auth_expired());
             }
         }
@@ -182,7 +183,7 @@ impl AdminAuthService {
         self.log_token_usage(&stored_token.id, "auth_check", None, ip_address, true, None)
             .await?;
         self.admin
-            .record_token_use(&stored_token.id, chrono::Utc::now(), ip_address)
+            .record_token_use(&stored_token.id, Timestamp::now(), ip_address)
             .await?;
 
         info!(
@@ -239,7 +240,7 @@ impl AdminAuthService {
         let usage = AdminTokenUsage {
             id: None,
             admin_token_id: admin_token_id.to_owned(),
-            timestamp: chrono::Utc::now(),
+            timestamp: Timestamp::now(),
             action: action.parse().unwrap_or(AdminAction::ProvisionKey),
             target_resource: target_resource.map(str::to_owned),
             ip_address: ip_address.map(str::to_owned),

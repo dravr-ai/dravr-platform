@@ -12,14 +12,14 @@
 //! caller-formatted bucket label that starts with its date (a day, a month,
 //! or a provider budget's window start), so the pruning compare is lexical on
 //! both engines by design. `updated_at` is `TIMESTAMPTZ` on
-//! Postgres and RFC 3339 text on `SQLite`; it binds as [`DateTime<Utc>`] on
+//! Postgres and RFC 3339 text on `SQLite`; it binds as [`Timestamp`] on
 //! both (sqlx-sqlite writes the bytes `to_rfc3339()` produces) and is read
 //! back as one, rendered RFC 3339 for the record. Nothing differs per
 //! engine, so the macro takes only the backend type.
 
 use std::fmt::Display;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::UsageCounterRecord;
 use sqlx::Row;
@@ -94,12 +94,12 @@ where
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     for<'a> String: sqlx::Decode<'a, R::Database> + sqlx::Type<R::Database>,
     for<'a> i64: sqlx::Decode<'a, R::Database> + sqlx::Type<R::Database>,
-    for<'a> DateTime<Utc>: sqlx::Decode<'a, R::Database> + sqlx::Type<R::Database>,
+    for<'a> Timestamp: sqlx::Decode<'a, R::Database> + sqlx::Type<R::Database>,
 {
     let text = |col: &str| -> AppResult<String> {
         row.try_get(col).map_err(|e| counter_column_error(col, e))
     };
-    let updated_at: DateTime<Utc> = row
+    let updated_at: Timestamp = row
         .try_get("updated_at")
         .map_err(|e| counter_column_error("updated_at", e))?;
     Ok(UsageCounterRecord {
@@ -139,7 +139,7 @@ macro_rules! impl_usage_counter_repository {
                     .bind(counter_key)
                     .bind(period)
                     .bind(amount)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| {
@@ -165,7 +165,7 @@ macro_rules! impl_usage_counter_repository {
                     .bind(counter_key)
                     .bind(period)
                     .bind(limit)
-                    .bind(Utc::now())
+                    .bind(Timestamp::now())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

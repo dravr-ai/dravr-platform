@@ -95,7 +95,7 @@ impl GroupService {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use pierre_core::models::groups::{
         CoachConsents, GroupDigestMode, GroupRespondMode, GroupRole,
     };
@@ -103,7 +103,7 @@ mod tests {
     use super::*;
 
     fn group(owner_id: Uuid, coach_user_id: Option<Uuid>) -> CoachingGroup {
-        let now = Utc::now();
+        let now = Timestamp::now();
         CoachingGroup {
             id: Uuid::new_v4(),
             tenant_id: Uuid::new_v4().to_string(),
@@ -126,7 +126,7 @@ mod tests {
     }
 
     fn member(group: &CoachingGroup, role: GroupRole, peer: bool, coach: bool) -> GroupMember {
-        let now = Utc::now();
+        let now = Timestamp::now();
         GroupMember {
             id: Uuid::new_v4(),
             group_id: group.id,

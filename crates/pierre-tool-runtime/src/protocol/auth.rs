@@ -12,7 +12,7 @@ use crate::protocol::types::{
 };
 use crate::read_subject;
 use crate::runtime::ToolRuntime;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use futures_util::future::BoxFuture;
 use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingClient, IssuingLookup};
 use pierre_core::constants::oauth_providers::{self, USER_PROVIDED_PROVIDERS};
@@ -60,7 +60,7 @@ pub struct TokenData {
     pub refresh_token: SecretString,
     /// When the access token expires; `None` for a token issued without an
     /// expiry (an Intervals.icu OAuth token never expires)
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// OAuth scopes as comma-separated string
     pub scopes: String,
     /// Provider name (e.g., "strava", "whoop")
@@ -263,7 +263,7 @@ impl AuthService {
     }
 
     /// Check if token is expired or due for refresh ([`refresh_due`])
-    fn is_token_expired(expires_at: DateTime<Utc>) -> bool {
+    fn is_token_expired(expires_at: Timestamp) -> bool {
         refresh_due(expires_at)
     }
 

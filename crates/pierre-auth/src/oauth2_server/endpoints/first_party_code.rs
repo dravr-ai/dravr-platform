@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use tracing::{error, warn};
 use uuid::Uuid;
 
@@ -97,7 +97,7 @@ impl OAuth2AuthorizationServer {
         };
         let auth_code = self
             .oauth2_server
-            .peek_auth_code(code, client_id, redirect_uri, Utc::now())
+            .peek_auth_code(code, client_id, redirect_uri, Timestamp::now())
             .await
             .map_err(|e| {
                 error!(client_id, "Failed to read authorization code: {e:#}");

@@ -8,7 +8,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{ActivityBuilder, *};
 
 #[test]
@@ -17,7 +18,7 @@ fn test_enhanced_activity_with_power_metrics() {
         "power_test",
         "Cycling Workout",
         SportType::Ride,
-        Utc::now(),
+        Timestamp::now(),
         3600, // 1 hour
         "strava",
     )
@@ -88,7 +89,7 @@ fn test_running_activity_with_biomechanical_data() {
         "run_test",
         "Tempo Run",
         SportType::Run,
-        Utc::now(),
+        Timestamp::now(),
         2700, // 45 minutes
         "garmin",
     )
@@ -144,8 +145,8 @@ fn test_running_activity_with_biomechanical_data() {
 fn test_sleep_session_model() {
     let sleep_session = SleepSession {
         id: "sleep_123".to_owned(),
-        start_time: Utc::now() - chrono::Duration::hours(8),
-        end_time: Utc::now(),
+        start_time: Timestamp::now() - Elapsed::hours(8),
+        end_time: Timestamp::now(),
         time_in_bed: 480,      // 8 hours
         total_sleep_time: 420, // 7 hours
         sleep_efficiency: 87.5,
@@ -153,22 +154,22 @@ fn test_sleep_session_model() {
         stages: vec![
             SleepStage {
                 stage_type: SleepStageType::Awake,
-                start_time: Utc::now() - chrono::Duration::hours(8),
+                start_time: Timestamp::now() - Elapsed::hours(8),
                 duration_minutes: 15,
             },
             SleepStage {
                 stage_type: SleepStageType::Light,
-                start_time: Utc::now() - chrono::Duration::hours(7) - chrono::Duration::minutes(45),
+                start_time: Timestamp::now() - Elapsed::hours(7) - Elapsed::minutes(45),
                 duration_minutes: 180, // 3 hours
             },
             SleepStage {
                 stage_type: SleepStageType::Deep,
-                start_time: Utc::now() - chrono::Duration::hours(4) - chrono::Duration::minutes(45),
+                start_time: Timestamp::now() - Elapsed::hours(4) - Elapsed::minutes(45),
                 duration_minutes: 120, // 2 hours
             },
             SleepStage {
                 stage_type: SleepStageType::Rem,
-                start_time: Utc::now() - chrono::Duration::hours(2) - chrono::Duration::minutes(45),
+                start_time: Timestamp::now() - Elapsed::hours(2) - Elapsed::minutes(45),
                 duration_minutes: 105, // 1.75 hours
             },
         ],
@@ -198,11 +199,7 @@ fn test_sleep_session_model() {
 #[test]
 fn test_recovery_metrics_model() {
     let recovery_metrics = RecoveryMetrics {
-        date: Utc::now()
-            .date_naive()
-            .and_hms_opt(0, 0, 0)
-            .unwrap()
-            .and_utc(),
+        date: Timestamp::now().utc_date().at_midnight().and_utc().unwrap(),
         recovery_score: Some(78.0),
         readiness_score: Some(82.0),
         stress_level: Some(25.0), // Low stress
@@ -302,11 +299,7 @@ fn test_time_series_data_model() {
 #[test]
 fn test_health_metrics_model() {
     let health_metrics = HealthMetrics {
-        date: Utc::now()
-            .date_naive()
-            .and_hms_opt(0, 0, 0)
-            .unwrap()
-            .and_utc(),
+        date: Timestamp::now().utc_date().at_midnight().and_utc().unwrap(),
         weight: Some(70.5),
         body_fat_percentage: Some(12.5),
         muscle_mass: Some(58.2),
@@ -375,7 +368,7 @@ fn test_backward_compatibility() {
         "basic_test",
         "Simple Run",
         SportType::Run,
-        Utc::now(),
+        Timestamp::now(),
         1800,
         "strava",
     )

@@ -17,7 +17,7 @@ use crate::common;
 use crate::helpers;
 use secrecy::ExposeSecret;
 
-use chrono::{DateTime, Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use helpers::first_party_sign_in::{
     first_party_router, redeem, FirstPartyClient, SignIn, DEFAULT_PEER,
@@ -538,23 +538,18 @@ async fn second_tenant_membership(setup: &AuthTestSetup, user_id: Uuid) -> (Tena
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: owner.id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         })
         .await
         .unwrap();
-    let joined = Utc::now() + Duration::seconds(5);
+    let joined = Timestamp::now() + Elapsed::seconds(5);
     insert_member(setup, user_id, second, joined).await;
     (first, second)
 }
 
 /// File `user_id` as a member of `tenant_id`, joined at `at`.
-async fn insert_member(
-    setup: &AuthTestSetup,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    at: DateTime<Utc>,
-) {
+async fn insert_member(setup: &AuthTestSetup, user_id: Uuid, tenant_id: TenantId, at: Timestamp) {
     match setup.resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => {
             sqlx::query(INSERT_MEMBER)

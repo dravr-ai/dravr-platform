@@ -125,10 +125,10 @@ const _: () = assert!(
 /// and a wrong weekday is the failure an athlete actually notices.
 #[must_use]
 pub fn format_current_date(user_timezone: Option<&str>, locale: &str) -> String {
-    use chrono::{Datelike, Duration, NaiveDate, TimeZone, Utc};
-    let now_utc = Utc::now();
+    use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
+    let now_utc = Timestamp::now();
     let tz = resolve_zone(user_timezone);
-    let local = now_utc.with_timezone(&tz);
+    let local = tz.civil_at(now_utc);
     let label = tz.name();
 
     // Floored, never rounded up: rounding up crosses midnight and would move
@@ -136,38 +136,40 @@ pub fn format_current_date(user_timezone: Option<&str>, locale: &str) -> String 
     // quantum stale, which is immaterial here because the guidance below tells
     // the model to pass NO bounds for a freshness fetch — `now` is only ever a
     // `before` for a window question (today / this week / this month).
-    let quantized_epoch = (now_utc.timestamp() / NOW_QUANTUM_SECS) * NOW_QUANTUM_SECS;
+    let quantized_epoch = (now_utc.epoch_seconds() / NOW_QUANTUM_SECS) * NOW_QUANTUM_SECS;
     // The weekday is named here, never left to the model. Deriving "mercredi"
     // from 2026-09-02 is calendar arithmetic, which the epoch table below
     // already refuses to ask of the model for epochs; on 2026-09-02 an athlete
     // left the conversation after correcting weekday claims three times.
-    let datetime_str = Utc.timestamp_opt(quantized_epoch, 0).single().map_or_else(
-        || format_clock_stamp(local.with_timezone(&Utc), tz, locale),
-        |q| format_clock_stamp(q, tz, locale),
-    );
+    let datetime_str = Timestamp::from_epoch_seconds(quantized_epoch)
+        .ok()
+        .map_or_else(
+            || format_clock_stamp(now_utc, &tz, locale),
+            |q| format_clock_stamp(q, &tz, locale),
+        );
     let now_epoch = quantized_epoch;
 
     // Local-midnight epoch of a local date, DST-safe (a spring gap/fold at
     // midnight is vanishingly rare; take the earliest valid instant). Falls
     // back to `now` if construction ever fails so a boundary is never silently
     // wrong by years.
-    let midnight_epoch = |date: NaiveDate| -> i64 {
-        date.and_hms_opt(0, 0, 0)
-            .and_then(|naive| tz.from_local_datetime(&naive).earliest())
-            .map_or(now_epoch, |dt| dt.timestamp())
+    let midnight_epoch = |date: CivilDate| -> i64 {
+        tz.resolve(date.at_midnight())
+            .earliest()
+            .map_or(now_epoch, Timestamp::epoch_seconds)
     };
-    let today0 = midnight_epoch(local.date_naive());
-    let yesterday0 = midnight_epoch((local - Duration::days(1)).date_naive());
+    let today0 = midnight_epoch(local.date());
+    let yesterday0 = midnight_epoch(tz.date_at(now_utc - Elapsed::days(1)));
     // Monday-anchored week (the convention pierre_system.md already states).
-    let week0 = midnight_epoch(monday_of(local.date_naive()));
+    let week0 = midnight_epoch(monday_of(local.date()));
     // First of the current month, 00:00 local — the "ce mois" / "this month"
     // window, which is otherwise a from-scratch date→epoch conversion.
     let month0 = local
-        .date_naive()
+        .date()
         .with_day(1)
-        .and_then(|d| d.and_hms_opt(0, 0, 0))
-        .and_then(|naive| tz.from_local_datetime(&naive).earliest())
-        .map_or(now_epoch, |dt| dt.timestamp());
+        .map(CivilDate::at_midnight)
+        .and_then(|naive| tz.resolve(naive).earliest())
+        .map_or(now_epoch, Timestamp::epoch_seconds);
 
     // A full epoch reference table so the model COPIES every common boundary
     // instead of converting an absolute date to an epoch — the arithmetic LLMs

@@ -24,7 +24,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use serde::Serialize;
 use uuid::Uuid;
@@ -187,14 +187,14 @@ pub struct RosterForm {
     /// The band form falls in, as a share of the athlete's own fitness.
     pub band: FormBand,
     /// The athlete's civil day the band was read for.
-    pub as_of: NaiveDate,
+    pub as_of: CivilDate,
 }
 
 /// The athlete's most recent session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 pub struct RosterLastSession {
     /// The day they trained, on their own clock.
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// Sport, as the provider classified it.
     pub sport: String,
     /// Moving time in seconds.
@@ -214,7 +214,7 @@ pub struct RosterReading {
     /// Their latest session.
     pub last_session: Option<RosterLastSession>,
     /// The day each connected source last delivered a session.
-    pub last_activity_per_source: BTreeMap<String, NaiveDate>,
+    pub last_activity_per_source: BTreeMap<String, CivilDate>,
     /// Sources whose connection died and must be reconnected by the athlete.
     pub needs_reconnect: Vec<String>,
     /// True when the data came from a stale cache that could not be
@@ -237,14 +237,14 @@ pub fn read_snapshot(snapshot: &MemberFitnessSnapshot) -> RosterReading {
             .recent_activities
             .first()
             .map(|a| RosterLastSession {
-                date: local_date(a.start, zone),
+                date: local_date(a.start, &zone),
                 sport: a.sport.clone(),
                 duration_seconds: a.duration_seconds,
             }),
         last_activity_per_source: snapshot
             .last_activity_per_provider
             .iter()
-            .map(|(source, at)| (source.clone(), local_date(*at, zone)))
+            .map(|(source, at)| (source.clone(), local_date(*at, &zone)))
             .collect(),
         needs_reconnect: snapshot.needs_reauth_providers.clone(),
         stale: snapshot.served_stale,

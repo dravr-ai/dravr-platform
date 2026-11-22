@@ -22,7 +22,7 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 
 /// One deleted account still to erase from barrage.
@@ -38,7 +38,7 @@ pub struct PendingArchiveErasure {
 #[async_trait]
 pub trait ArchiveErasureRepository: Send + Sync {
     /// The rows due at `now`, oldest attempt first, at most `limit`.
-    async fn due(&self, now: DateTime<Utc>, limit: i64) -> AppResult<Vec<PendingArchiveErasure>>;
+    async fn due(&self, now: Timestamp, limit: i64) -> AppResult<Vec<PendingArchiveErasure>>;
 
     /// Remove the row of `erased_account_id`: barrage holds nothing of the
     /// account any more. Returns whether a row was removed.
@@ -50,7 +50,7 @@ pub trait ArchiveErasureRepository: Send + Sync {
         &self,
         erased_account_id: &str,
         error: &str,
-        next_attempt_at: DateTime<Utc>,
+        next_attempt_at: Timestamp,
     ) -> AppResult<()>;
 }
 
@@ -97,7 +97,7 @@ macro_rules! impl_archive_erasure_repository {
         impl ArchiveErasureRepository for $ty {
             async fn due(
                 &self,
-                now: DateTime<Utc>,
+                now: Timestamp,
                 limit: i64,
             ) -> AppResult<Vec<PendingArchiveErasure>> {
                 let rows = sqlx::query(DUE_ARCHIVE_ERASURES_SQL)
@@ -137,7 +137,7 @@ macro_rules! impl_archive_erasure_repository {
                 &self,
                 erased_account_id: &str,
                 error: &str,
-                next_attempt_at: DateTime<Utc>,
+                next_attempt_at: Timestamp,
             ) -> AppResult<()> {
                 sqlx::query(RECORD_ARCHIVE_ERASURE_FAILURE_SQL)
                     .bind(erased_account_id)

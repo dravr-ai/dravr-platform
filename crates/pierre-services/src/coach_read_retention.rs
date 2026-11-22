@@ -16,7 +16,7 @@ use std::cmp::Reverse;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Months, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{CoachDataRead, CoachDataReadRepository, WorkerRunRepository};
 use pierre_database::RepositoryRegistry;
@@ -46,7 +46,7 @@ pub fn start_coach_read_retention_task(
     spawn_periodic(WORKER_NAME, PERIOD, ledger, move || {
         let reads = Arc::clone(&reads);
         async move {
-            purge_expired_coach_reads(reads.as_ref(), Utc::now())
+            purge_expired_coach_reads(reads.as_ref(), Timestamp::now())
                 .await
                 .map(|_| ())
         }
@@ -92,8 +92,12 @@ pub async fn own_coach_reads(
 ///
 /// Returns an internal error when `now` is too close to the start of the
 /// calendar to step back the retention.
-pub fn coach_read_cutoff(now: DateTime<Utc>) -> AppResult<DateTime<Utc>> {
-    now.checked_sub_months(Months::new(COACH_READ_RETENTION_MONTHS))
+pub fn coach_read_cutoff(now: Timestamp) -> AppResult<Timestamp> {
+    let civil = now.utc_datetime();
+    civil
+        .date()
+        .checked_sub_months(COACH_READ_RETENTION_MONTHS)
+        .and_then(|date| date.and_time(civil.time()).and_utc().ok())
         .ok_or_else(|| AppError::internal("coach read retention cutoff is out of range"))
 }
 
@@ -106,7 +110,7 @@ pub fn coach_read_cutoff(now: DateTime<Utc>) -> AppResult<DateTime<Utc>> {
 /// it and retries the pass.
 pub async fn purge_expired_coach_reads(
     reads: &dyn CoachDataReadRepository,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<u64> {
     let purged = reads
         .purge_coach_reads_before(coach_read_cutoff(now)?)
@@ -122,16 +126,15 @@ pub async fn purge_expired_coach_reads(
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
 
     use super::*;
 
     #[test]
     fn the_cutoff_is_twelve_calendar_months_back() {
-        let now = Utc.with_ymd_and_hms(2026, 11, 12, 16, 0, 0).unwrap();
+        let now = Timestamp::parse_from_rfc3339("2026-11-12T16:00:00Z").unwrap();
         assert_eq!(
             coach_read_cutoff(now).unwrap(),
-            Utc.with_ymd_and_hms(2025, 11, 12, 16, 0, 0).unwrap(),
+            Timestamp::parse_from_rfc3339("2025-11-12T16:00:00Z").unwrap(),
             "bug: a read is kept twelve months to the day"
         );
     }

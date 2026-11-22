@@ -9,7 +9,7 @@ use std::mem;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use dravr_tronc::dates::CivilDate;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::provider_context::{
@@ -219,8 +219,8 @@ impl FitnessProvider for AiGovernedProvider {
 
     async fn list_planned_workouts(
         &self,
-        after: NaiveDate,
-        before: NaiveDate,
+        after: CivilDate,
+        before: CivilDate,
     ) -> AppResult<Vec<PlannedWorkout>> {
         let workouts = self.inner.list_planned_workouts(after, before).await?;
         Ok(filter_planned_workouts(self.lookup(), workouts))
@@ -232,8 +232,8 @@ impl FitnessProvider for AiGovernedProvider {
 
     async fn list_calendar_events(
         &self,
-        from: NaiveDate,
-        to: NaiveDate,
+        from: CivilDate,
+        to: CivilDate,
     ) -> AppResult<Vec<CalendarEventRef>> {
         self.untagged_read()?;
         self.inner.list_calendar_events(from, to).await

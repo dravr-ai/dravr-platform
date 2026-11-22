@@ -124,10 +124,10 @@ pub(super) fn sync_providers(
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use chrono::NaiveDate;
     use dravr_enforme::providers::sciotte_reader::{
         AuthSession, DailySummary, ScraperError, ScraperResult,
     };
+    use dravr_tronc::dates::CivilDate;
 
     /// A scrape reader no test here reads through.
     struct NoScrape;
@@ -138,7 +138,7 @@ mod tests {
             &self,
             provider: &str,
             _: &AuthSession,
-            _: NaiveDate,
+            _: CivilDate,
         ) -> ScraperResult<DailySummary> {
             Err(ScraperError::Internal {
                 reason: format!("no scrape reader for {provider} in this test"),

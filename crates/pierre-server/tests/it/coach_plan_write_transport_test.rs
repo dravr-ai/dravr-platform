@@ -28,6 +28,7 @@ mod coach_plan_write_transport_tests {
     use crate::helpers::coach_roster_fixtures::{
         coach, coached_group, group_agent, join, person, Person,
     };
+    use dravr_tronc::dates::Elapsed;
 
     use std::collections::BTreeSet;
     use std::sync::Arc;
@@ -35,7 +36,7 @@ mod coach_plan_write_transport_tests {
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use axum::Router;
-    use chrono::{Datelike, Days, NaiveDate, Utc};
+    use dravr_tronc::dates::{CivilDate, Timestamp};
     use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
     use pierre_core::constants::oauth::providers::INTERVALS_ICU;
     use pierre_core::models::{ConnectionType, UserOAuthToken, API_KEY_TOKEN_TYPE};
@@ -131,7 +132,7 @@ mod coach_plan_write_transport_tests {
             join(&res, group, alex.id, alex.tenant, true).await;
             // The coach's own Intervals.icu key: without a calendar the
             // calendar tools answer before whose calendar it is.
-            let now = Utc::now();
+            let now = Timestamp::now();
             let repos = &res.common.repos;
             repos
                 .oauth_tokens
@@ -232,7 +233,7 @@ mod coach_plan_write_transport_tests {
         /// The family editor's Save on `thread`: a day of the draft built
         /// from a workout family (carnet#1515).
         async fn draft_day_route(&self, thread: &str, authorization: &str) -> (StatusCode, Value) {
-            let date = (Utc::now().date_naive() + Days::new(1)).format("%Y-%m-%d");
+            let date = Timestamp::now().utc_date() + Elapsed::days(1);
             self.rest(
                 AxumTestRequest::put(&format!(
                     "/api/chat/conversations/{thread}/subject-plan/draft/days/{date}"
@@ -366,17 +367,17 @@ mod coach_plan_write_transport_tests {
         }
     }
 
-    fn monday(weeks: u64) -> NaiveDate {
-        let today = Utc::now().date_naive();
-        let this = today - Days::new(u64::from(today.weekday().num_days_from_monday()));
-        this + Days::new(7 * weeks)
+    fn monday(weeks: i64) -> CivilDate {
+        let today = Timestamp::now().utc_date();
+        let this = today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()));
+        this + Elapsed::days(7 * weeks)
     }
 
-    fn week(start: NaiveDate) -> Value {
+    fn week(start: CivilDate) -> Value {
         let days: Vec<Value> = (0..7)
             .map(|offset| {
                 json!({
-                    "date": (start + Days::new(offset)).format("%Y-%m-%d").to_string(),
+                    "date": (start + Elapsed::days(offset)).to_string(),
                     "sport": "run",
                     "workout": "easy aerobic run",
                     "duration_min": 40,
@@ -385,7 +386,7 @@ mod coach_plan_write_transport_tests {
             })
             .collect();
         json!({
-            "week_start": start.format("%Y-%m-%d").to_string(),
+            "week_start": start.to_string(),
             "focus": "aerobic base",
             "days": days,
         })

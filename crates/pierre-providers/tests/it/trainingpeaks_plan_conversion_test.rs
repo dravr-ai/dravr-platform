@@ -16,17 +16,17 @@
 //! timed and target 0 %. Each is built here with the exact values that test
 //! asserts, and converted with the function production calls.
 
-use chrono::{NaiveDate, TimeZone, Utc};
 use dravr_sciotte::models::{
     IntensityClass, IntensityMetric, LengthMetric, PlannedBlock, PlannedStep, PlannedStructure,
     PlannedWorkout as SciottePlannedWorkout, SportType as SciotteSportType, TargetKind,
 };
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_providers::models::periodization::ThresholdBasis;
 use pierre_providers::models::{PlannedWorkout, RelativeIntensity, SportType, WorkoutStep};
 use pierre_providers::trainingpeaks_plan::planned_workout_from_trainingpeaks;
 
-fn day(y: i32, m: u32, d: u32) -> NaiveDate {
-    NaiveDate::from_ymd_opt(y, m, d).expect("valid date literal") // Safe: literal calendar date
+fn day(y: i32, m: u32, d: u32) -> CivilDate {
+    CivilDate::from_ymd(y, m, d).expect("valid date literal") // Safe: literal calendar date
 }
 
 /// A sciotte step: its name, role, length and target bounds.
@@ -54,7 +54,7 @@ fn block(repeat: u32, steps: Vec<PlannedStep>) -> PlannedBlock {
 /// A planned workout with nothing but its identity, day, sport and title.
 fn tp_workout(
     id: &str,
-    date: NaiveDate,
+    date: CivilDate,
     sport: SciotteSportType,
     title: &str,
 ) -> SciottePlannedWorkout {
@@ -633,7 +633,7 @@ fn a_day_off_is_a_plan_with_no_steps() {
 
 #[test]
 fn a_done_workout_names_the_activity_that_completed_it_and_keeps_its_start() {
-    let start = Utc.with_ymd_and_hms(2026, 9, 14, 7, 15, 0).unwrap(); // Safe: literal instant
+    let start = Timestamp::parse_from_rfc3339("2026-09-14T07:15:00Z").unwrap(); // Safe: literal instant
     let converted: PlannedWorkout = planned_workout_from_trainingpeaks(&SciottePlannedWorkout {
         start_time: Some(start),
         planned_duration_seconds: Some(3600),

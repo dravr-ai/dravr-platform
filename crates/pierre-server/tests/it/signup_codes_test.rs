@@ -32,10 +32,10 @@ use std::sync::Arc;
 use axum::extract::connect_info::MockConnectInfo;
 use axum::http::StatusCode;
 use axum::Router;
-use chrono::{Duration, Utc};
 use common::{
     acting_on, create_test_server_resources, create_test_user_with_plan, generate_test_token,
 };
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_logs_and_spans, capture_notify, named};
 use pierre_config::constants::oauth_rate_limiting::SIGNUP_CODE_ATTEMPTS;
@@ -277,7 +277,7 @@ async fn a_code_gets_past_the_daily_ceiling_but_not_past_a_closed_switch() {
         .common
         .repos
         .users
-        .count_created_since(Utc::now() - Duration::hours(24))
+        .count_created_since(Timestamp::now() - Elapsed::hours(24))
         .await
         .unwrap();
     set_policy(
@@ -341,7 +341,7 @@ async fn a_used_up_revoked_or_expired_code_is_refused_like_an_unknown_one() {
         .unwrap();
     assert!(repos
         .signup_codes
-        .revoke(revoked.record.id, Utc::now())
+        .revoke(revoked.record.id, Timestamp::now())
         .await
         .unwrap());
     let (status, body) = register(
@@ -361,7 +361,7 @@ async fn a_used_up_revoked_or_expired_code_is_refused_like_an_unknown_one() {
             "ODE1",
             None,
             None,
-            Some(Utc::now() - Duration::minutes(1)),
+            Some(Timestamp::now() - Elapsed::minutes(1)),
             None,
         )
         .await
@@ -1101,7 +1101,7 @@ async fn the_reset_restarts_the_daily_count_and_keeps_the_limit() {
         .common
         .repos
         .users
-        .count_created_since(Utc::now() - Duration::hours(24))
+        .count_created_since(Timestamp::now() - Elapsed::hours(24))
         .await
         .unwrap();
     set_policy(
@@ -1204,7 +1204,7 @@ async fn a_reset_older_than_a_day_changes_nothing() {
         .common
         .repos
         .users
-        .count_created_since(Utc::now() - Duration::hours(24))
+        .count_created_since(Timestamp::now() - Elapsed::hours(24))
         .await
         .unwrap();
     assert!(day_count >= 1, "fixture precondition");
@@ -1213,7 +1213,7 @@ async fn a_reset_older_than_a_day_changes_nothing() {
         .database
         .set_system_setting(
             SETTING_SIGNUP_DAILY_LIMIT_RESET_AT,
-            &(Utc::now() - Duration::hours(25)).to_rfc3339(),
+            &(Timestamp::now() - Elapsed::hours(25)).to_rfc3339(),
         )
         .await
         .unwrap();

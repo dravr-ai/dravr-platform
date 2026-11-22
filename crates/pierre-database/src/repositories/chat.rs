@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::AppResult;
 
@@ -397,7 +397,7 @@ pub trait ChatRepository: Send + Sync {
     async fn list_assistant_messages_after(
         &self,
         tenant_id: TenantId,
-        since: Option<DateTime<Utc>>,
+        since: Option<Timestamp>,
         after_message_id: Option<&str>,
         limit: i64,
     ) -> AppResult<Vec<AssistantMessage>>;
@@ -817,7 +817,7 @@ pub(crate) use participant_scope;
 /// sqlx accepts them on `SQLite` as well as Postgres. Ids the caller holds
 /// as text bind through the backend's codec (`user_id` and `group_id` are
 /// `uuid` columns on Postgres, TEXT on `SQLite`); timestamps bind as
-/// `DateTime<Utc>` on both, which sqlx-sqlite writes as the RFC 3339 text
+/// `Timestamp` on both, which sqlx-sqlite writes as the RFC 3339 text
 /// the columns hold there.
 pub(crate) const CREATE_CONVERSATION_SQL: &str = r"
     INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, agent_id, group_id, total_tokens, created_at, updated_at)

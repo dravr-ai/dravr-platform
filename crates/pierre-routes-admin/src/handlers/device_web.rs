@@ -27,7 +27,7 @@ use axum::http::header::{RETRY_AFTER, SET_COOKIE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Form;
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
@@ -229,7 +229,7 @@ async fn resolve_approval(
             &format!("This login request is already {}.", record.status),
         ));
     }
-    if record.expires_at <= Utc::now().timestamp() {
+    if record.expires_at <= Timestamp::now().epoch_seconds() {
         return Html(render_message(
             "Expired",
             "This code has expired. Start a new login from the CLI.",

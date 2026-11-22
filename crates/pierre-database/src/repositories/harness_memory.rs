@@ -11,6 +11,7 @@ use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::AppResult;
 use pierre_core::transport::TransportPolicy;
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Pillar, TenantId};
 use uuid::Uuid;
 
@@ -62,7 +63,7 @@ pub struct UpsertUserFactParams<'a> {
     /// Provenance (onboarding / conversation / device / agent).
     pub source: pierre_memory::FactSource,
     /// Freshness horizon after which the fact is stale, or `None` for no expiry.
-    pub valid_until: Option<chrono::DateTime<chrono::Utc>>,
+    pub valid_until: Option<Timestamp>,
     /// Source message id for provenance.
     pub source_msg_id: Option<&'a str>,
     /// The stamp of what the row is derived from (carnet#769).
@@ -347,8 +348,8 @@ pub trait HarnessMemoryRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: &str,
         pillar: Option<Pillar>,
-        created_after: Option<chrono::DateTime<chrono::Utc>>,
-        created_before: Option<chrono::DateTime<chrono::Utc>>,
+        created_after: Option<Timestamp>,
+        created_before: Option<Timestamp>,
         predicate_code: Option<pierre_memory::PredicateCode>,
     ) -> AppResult<u64>;
 

@@ -150,6 +150,7 @@ use crate::common;
 
 use axum::http::HeaderMap;
 use axum::{routing::post, Form, Json, Router};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
@@ -489,9 +490,9 @@ async fn create_active_user(database: &Database, user_id: Uuid, email: &str) {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
@@ -516,8 +517,8 @@ async fn create_bare_tenant(database: &Database, tenant_id: TenantId, owner: Uui
         domain: None,
         plan: "starter".to_owned(),
         owner_user_id: owner,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     database
         .repositories()
@@ -543,7 +544,7 @@ async fn strava_expired_token_refreshes_exactly_once_and_persists() {
     // an ABSOLUTE future `expires_at` (Strava encodes expiry as a unix timestamp).
     let hits = Arc::new(AtomicUsize::new(0));
     let hits_route = Arc::clone(&hits);
-    let future_unix = (chrono::Utc::now() + chrono::Duration::hours(6)).timestamp();
+    let future_unix = (Timestamp::now() + Elapsed::hours(6)).epoch_seconds();
     let app = Router::new().route(
         "/oauth/token",
         post(move || {
@@ -588,7 +589,7 @@ async fn strava_expired_token_refreshes_exactly_once_and_persists() {
         oauth_providers::STRAVA.to_owned(),
         "expired_access_token".to_owned(),
         Some("old_refresh_token".to_owned()),
-        Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+        Some(Timestamp::now() - Elapsed::hours(1)),
         Some("read,activity:read_all".to_owned()),
     );
     database
@@ -624,7 +625,7 @@ async fn strava_expired_token_refreshes_exactly_once_and_persists() {
     assert_eq!(stored.access_token.expose_secret(), "mock_new_access_token");
     assert_ne!(stored.access_token.expose_secret(), "expired_access_token");
     assert!(
-        stored.expires_at.unwrap() > chrono::Utc::now(),
+        stored.expires_at.unwrap() > Timestamp::now(),
         "refreshed token must have a future expiry"
     );
     assert_eq!(
@@ -652,7 +653,7 @@ async fn strava_pool_issued_token_refreshes_under_its_own_app() {
 
     let forms: Arc<Mutex<Vec<HashMap<String, String>>>> = Arc::new(Mutex::new(Vec::new()));
     let forms_route = Arc::clone(&forms);
-    let future_unix = (chrono::Utc::now() + chrono::Duration::hours(6)).timestamp();
+    let future_unix = (Timestamp::now() + Elapsed::hours(6)).epoch_seconds();
     let app = Router::new().route(
         "/oauth/token",
         post(move |Form(form): Form<HashMap<String, String>>| {
@@ -702,7 +703,7 @@ async fn strava_pool_issued_token_refreshes_under_its_own_app() {
         oauth_providers::STRAVA.to_owned(),
         "expired_access_token".to_owned(),
         Some("pool_old_refresh_token".to_owned()),
-        Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+        Some(Timestamp::now() - Elapsed::hours(1)),
         Some("read,activity:read_all".to_owned()),
     )
     .with_oauth_app_client_id(Some("201455".to_owned()));
@@ -838,7 +839,7 @@ async fn assert_refresh_once_and_persists(case: RefreshSeamCase) {
         case.provider.to_owned(),
         "expired_access_token".to_owned(),
         Some("old_refresh_token".to_owned()),
-        Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+        Some(Timestamp::now() - Elapsed::hours(1)),
         Some("read,activity:read_all".to_owned()),
     );
     database
@@ -906,7 +907,7 @@ async fn assert_refresh_once_and_persists(case: RefreshSeamCase) {
     assert_eq!(stored.access_token.expose_secret(), case.expected_access);
     assert_ne!(stored.access_token.expose_secret(), "expired_access_token");
     assert!(
-        stored.expires_at.unwrap() > chrono::Utc::now(),
+        stored.expires_at.unwrap() > Timestamp::now(),
         "{} refreshed token must have a future expiry",
         case.provider
     );
@@ -985,9 +986,9 @@ async fn test_connection_status_with_oauth_manager() {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
@@ -1067,9 +1068,9 @@ async fn test_analyze_activity_token_refresh() {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
@@ -1085,7 +1086,7 @@ async fn test_analyze_activity_token_refresh() {
     repos.users.create(&user).await.unwrap();
 
     // Store token that will expire soon
-    let expires_at = chrono::Utc::now() + chrono::Duration::minutes(3); // Expires in 3 minutes (within buffer)
+    let expires_at = Timestamp::now() + Elapsed::minutes(3); // Expires in 3 minutes (within buffer)
     let oauth_token = UserOAuthToken::new(
         user_id,
         "00000000-0000-0000-0000-000000000000".to_owned(),
@@ -1160,9 +1161,9 @@ async fn test_concurrent_token_operations() {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
@@ -1189,7 +1190,7 @@ async fn test_concurrent_token_operations() {
     let tenant_id_str = tenant.id.to_string();
 
     // Store valid token (scoped to the provisioned tenant)
-    let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
+    let expires_at = Timestamp::now() + Elapsed::hours(1);
     let oauth_token = UserOAuthToken::new(
         user_id,
         tenant_id_str.clone(),
@@ -1250,9 +1251,9 @@ async fn test_oauth_provider_init_failure() {
         user_status: UserStatus::Active,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
+        approved_at: Some(Timestamp::now()),
+        created_at: Timestamp::now(),
+        last_active: Timestamp::now(),
         strava_token: None,
         firebase_uid: None,
         auth_provider: String::new(),

@@ -28,10 +28,10 @@ use std::sync::Arc;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::Utc;
 use common::{
     create_test_server_resources_with_sciotte, create_test_user_with_plan, generate_test_token,
 };
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::provider_terms_version;
@@ -191,7 +191,7 @@ async fn group(
     members: &[&Person],
 ) -> Uuid {
     let repos = &res.common.repos;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -316,7 +316,7 @@ impl World {
 
     /// Store `session` as the coach's own TrainingPeaks session.
     async fn coach_signs_in_as(&self, session: &str) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.res
             .common
             .repos

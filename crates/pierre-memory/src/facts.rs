@@ -7,7 +7,7 @@
 use pierre_core::transport::TransportPolicy;
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::Pillar;
 use serde::{Deserialize, Serialize};
 
@@ -401,13 +401,13 @@ pub struct UserFact {
     pub source: FactSource,
     /// Freshness horizon: after this instant the fact is considered stale and
     /// is demoted/flagged at render time. `None` means no expiry.
-    pub valid_until: Option<DateTime<Utc>>,
+    pub valid_until: Option<Timestamp>,
     /// ID of the message the fact was extracted from, for provenance.
     pub source_msg_id: Option<String>,
     /// When the fact was first recorded.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When the fact was last touched (updated / merged / confidence decayed).
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// Where this row may be served (carnet#769): first-party-only when what it
     /// was derived from was. Rows written before the stamp read as unstamped.
     #[serde(default, skip_serializing)]
@@ -458,7 +458,7 @@ pub struct UserFactMetrics {
     pub facts_by_kind: BTreeMap<String, u64>,
     /// Timestamp of the most recently updated fact, or `None` when the tenant
     /// has no facts yet. Drives the "last activity" badge in the admin UI.
-    pub newest_updated_at: Option<DateTime<Utc>>,
+    pub newest_updated_at: Option<Timestamp>,
 }
 
 impl UserFactMetrics {

@@ -17,8 +17,8 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -79,7 +79,7 @@ impl Fixture {
         let agent_id = create_group_agent(repos, owner.id, owner.tenant)
             .await
             .unwrap();
-        let now = Utc::now();
+        let now = Timestamp::now();
         let group = repos
             .groups
             .create_group(

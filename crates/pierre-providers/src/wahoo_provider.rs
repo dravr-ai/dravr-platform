@@ -52,7 +52,7 @@ use crate::wahoo_plan::{
 };
 use crate::wahoo_streams::{is_wahoo_file_url, time_series_from_fit, MAX_FIT_BYTES};
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use reqwest::{Method, StatusCode};
 use secrecy::{ExposeSecret, SecretString};
 use serde::de::{self, Deserializer};
@@ -201,10 +201,8 @@ struct WahooPowerZone {
 }
 
 /// Parse one of Wahoo's ISO 8601 instants.
-fn parse_instant(value: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(value)
-        .ok()
-        .map(|at| at.with_timezone(&Utc))
+fn parse_instant(value: &str) -> Option<Timestamp> {
+    Timestamp::parse_from_rfc3339(value).ok()
 }
 
 /// A non-negative reading as a whole number.
@@ -216,7 +214,7 @@ fn whole(value: Option<f64>) -> Option<u32> {
 
 impl WahooWorkout {
     /// When the workout started.
-    fn started(&self) -> AppResult<DateTime<Utc>> {
+    fn started(&self) -> AppResult<Timestamp> {
         parse_instant(&self.starts).ok_or_else(|| {
             AppError::external_service(
                 oauth_providers::WAHOO,
@@ -286,7 +284,7 @@ impl WahooWorkout {
     /// did not write.
     fn calendar_event(&self) -> Option<CalendarEventRef> {
         let token = self.external_id.as_deref().filter(|t| is_dravr_token(t))?;
-        let date = self.started().ok()?.date_naive();
+        let date = self.started().ok()?.utc_date();
         Some(CalendarEventRef {
             provider_event_id: self.id.to_string(),
             external_id: Some(token.to_owned()),
@@ -581,7 +579,7 @@ impl WahooProvider {
         let existing: Vec<WahooPlan> = self
             .get_json(&format!("plans?external_id={external_id}"))
             .await?;
-        let now = Utc::now();
+        let now = Timestamp::now();
         if let Some(plan) = existing.iter().find(|plan| !plan.deleted) {
             let form = wahoo_plan::plan_form(session, &file, now, false);
             let id = self
@@ -767,7 +765,7 @@ impl FitnessProvider for WahooProvider {
             let Ok(started) = workout.started() else {
                 return Walk::Continue;
             };
-            let at = started.timestamp();
+            let at = started.epoch_seconds();
             if params.before.is_some_and(|before| at >= before) {
                 return Walk::Continue;
             }
@@ -824,7 +822,7 @@ impl FitnessProvider for WahooProvider {
         let seen = page.saturating_mul(per_page);
         let has_more =
             !listing.workouts.is_empty() && listing.total.is_none_or(|total| seen < total);
-        let position = |page: usize| Cursor::new(Utc::now(), &format!("{page}:{per_page}"));
+        let position = |page: usize| Cursor::new(Timestamp::now(), &format!("{page}:{per_page}"));
         let next = has_more.then(|| position(page.saturating_add(1)));
         let prev = (page > 1).then(|| position(page - 1));
         Ok(CursorPage::new(activities, next, prev, has_more))
@@ -860,8 +858,8 @@ impl FitnessProvider for WahooProvider {
 
     async fn list_calendar_events(
         &self,
-        from: NaiveDate,
-        to: NaiveDate,
+        from: CivilDate,
+        to: CivilDate,
     ) -> AppResult<Vec<CalendarEventRef>> {
         let mut events = Vec::new();
         self.walk_workouts(|workout| {
@@ -869,7 +867,7 @@ impl FitnessProvider for WahooProvider {
                 // Not Dravr's, or no readable start: stop only once the
                 // listing is before the window.
                 return match workout.started() {
-                    Ok(started) if started.date_naive() < from => Walk::Stop,
+                    Ok(started) if started.utc_date() < from => Walk::Stop,
                     _ => Walk::Continue,
                 };
             };
@@ -1030,7 +1028,7 @@ mod tests {
         assert_eq!(event.external_id.as_deref(), Some("dravr-abc"));
         assert_eq!(
             event.date,
-            NaiveDate::from_ymd_opt(2026, 10, 8).unwrap_or_default()
+            CivilDate::from_ymd(2026, 10, 8).ok().unwrap_or_default()
         );
     }
 

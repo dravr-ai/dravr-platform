@@ -7,7 +7,7 @@
 use std::fmt;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// How fresh a piece of provider data is based on time since last sync.
@@ -59,9 +59,9 @@ impl DataFreshness {
     ///
     /// Returns `Expired` if `last_sync` is `None` (never synced).
     #[must_use]
-    pub fn from_last_sync(last_sync: Option<DateTime<Utc>>) -> Self {
+    pub fn from_last_sync(last_sync: Option<Timestamp>) -> Self {
         last_sync.map_or(Self::Expired, |ts| {
-            let age = Utc::now().signed_duration_since(ts);
+            let age = Timestamp::now().signed_duration_since(ts);
             if age.num_seconds() < 0 {
                 // Clock skew — treat as fresh
                 Self::Fresh
@@ -97,7 +97,7 @@ pub struct ProviderFreshness {
     /// Provider name (e.g. "strava", "whoop", "garmin")
     pub provider: String,
     /// When data was last successfully synced, if ever.
-    pub last_sync_at: Option<DateTime<Utc>>,
+    pub last_sync_at: Option<Timestamp>,
     /// Computed freshness level.
     pub freshness: DataFreshness,
 }

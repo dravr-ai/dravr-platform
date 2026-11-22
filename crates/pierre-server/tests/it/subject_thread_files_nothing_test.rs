@@ -47,11 +47,11 @@ use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
 use axum::http::StatusCode;
-use chrono::{Datelike, Days, Duration, SecondsFormat, Utc};
 use common::{
     create_test_server_resources_with_chat_provider_and_config, create_test_user_with_plan,
     generate_test_token, test_server_config, test_server_config_with_sciotte,
 };
+use dravr_tronc::dates::{Elapsed, SecondsFormat, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use embacle::types::ToolCallRequest;
 use futures_util::stream;
@@ -308,9 +308,7 @@ impl ScriptedModel {
     }
 
     fn writes(agent_id: &str) -> Vec<ToolCallRequest> {
-        let due = (Utc::now().date_naive() + Days::new(5))
-            .format("%Y-%m-%d")
-            .to_string();
+        let due = (Timestamp::now().utc_date() + Elapsed::days(5)).to_string();
         let arguments = [
             json!({
                 "kind": "physiology",
@@ -602,7 +600,7 @@ impl Fixture {
     /// in its room.
     async fn room(&self) -> Room {
         let repos = self.repos();
-        let now = Utc::now();
+        let now = Timestamp::now();
         grant_coach_access(repos, self.coach.id).await.unwrap();
         let group = repos
             .groups
@@ -771,8 +769,8 @@ impl Fixture {
     /// A season of the coach's own with a phase and no week written, so
     /// `/fortnight` has two weeks to write.
     async fn coach_season_with_a_phase(&self) {
-        let today = Utc::now().date_naive();
-        let monday = today - Days::new(u64::from(today.weekday().num_days_from_monday()));
+        let today = Timestamp::now().utc_date();
+        let monday = today - Elapsed::days(i64::from(today.weekday().num_days_from_monday()));
         let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&self.res);
         let ctx = ToolContext::new()
             .with_user(self.coach.id.to_string())
@@ -794,7 +792,7 @@ impl Fixture {
                         "strategy": "build toward the race",
                         "phases": [{
                             "kind": "build",
-                            "start": monday.format("%Y-%m-%d").to_string(),
+                            "start": monday.to_string(),
                             "weeks": 8,
                             "intent": "two hard days",
                         }],
@@ -871,7 +869,8 @@ impl Fixture {
 /// session asks, and the URL the server's scraper client is built to reach it
 /// at.
 async fn stand_in_scraper() -> String {
-    let ride_start = (Utc::now() - Duration::hours(20)).to_rfc3339_opts(SecondsFormat::Secs, true);
+    let ride_start =
+        (Timestamp::now() - Elapsed::hours(20)).to_rfc3339_opts(SecondsFormat::Secs, true);
     spawn_mock_scraper_serving(Arc::new(AtomicBool::new(true)), ride_start).await
 }
 
@@ -920,7 +919,7 @@ async fn coached_group(
     coach: &Person,
     agent_id: &str,
 ) -> CoachingGroup {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -957,7 +956,7 @@ async fn coached_group(
 }
 
 async fn join(repos: &RepositoryRegistry, group: &CoachingGroup, who: &Person) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .groups
         .add_member(&GroupMember {

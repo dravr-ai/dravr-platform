@@ -37,8 +37,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Duration, NaiveDate, Utc};
-use chrono_tz::Tz;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Zone};
 use pierre_config::coach_home::CoachHomeConfig;
 use pierre_core::models::groups::FormMorning;
 use pierre_core::models::FormBand;
@@ -176,7 +175,7 @@ pub struct AttentionEvidence {
     /// Where the line comes from.
     pub source: EvidenceSource,
     /// When the source said it.
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
 }
 
 /// What a reason's action acts on, when it names one thing.
@@ -221,26 +220,26 @@ pub struct AttentionReason {
     pub fingerprint: String,
     /// When the coach marked it handled ("Traité") for this very signal;
     /// absent while it awaits them.
-    pub dismissed_at: Option<DateTime<Utc>>,
+    pub dismissed_at: Option<Timestamp>,
 }
 
 /// A shared athlete's training, as the queue reads it.
 #[derive(Debug, Clone, Copy)]
 pub struct TrainingSignals<'row> {
     /// When the snapshot was read.
-    pub computed_at: DateTime<Utc>,
+    pub computed_at: Timestamp,
     /// The band today's form falls in and the athlete's own civil day it was
     /// read for; absent when not computed.
-    pub form: Option<(FormBand, NaiveDate)>,
+    pub form: Option<(FormBand, CivilDate)>,
     /// Days since the last session; absent with none in the lookback.
     pub days_since_last_activity: Option<i32>,
     /// The instant each source last delivered a session.
-    pub last_activity_per_source: &'row BTreeMap<String, DateTime<Utc>>,
+    pub last_activity_per_source: &'row BTreeMap<String, Timestamp>,
     /// Sources the athlete must reconnect.
     pub needs_reconnect: &'row [String],
     /// When each of those started refusing access, where the connection
     /// recorded it.
-    pub refused_since: &'row BTreeMap<String, DateTime<Utc>>,
+    pub refused_since: &'row BTreeMap<String, Timestamp>,
     /// The data came from a cache that could not be refreshed.
     pub stale: bool,
     /// The run of deep-fatigue mornings ending today, today first.
@@ -255,7 +254,7 @@ pub struct SeasonRace {
     /// Its name.
     pub name: String,
     /// Its day.
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// The goal (A) race of a peak, rather than a B or C race.
     pub a_race: bool,
 }
@@ -266,10 +265,10 @@ pub struct PlanSignals {
     /// The plan's id.
     pub plan_id: String,
     /// When the plan last changed.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// The day after the plan's last day: its last phase's end, its last
     /// race or its season end, whichever is latest.
-    pub ends: Option<NaiveDate>,
+    pub ends: Option<CivilDate>,
     /// Every race on it, the goal race included.
     pub races: Vec<SeasonRace>,
 }
@@ -280,7 +279,7 @@ pub struct DraftSignals {
     /// The draft's id: the same through every save until it is published.
     pub draft_id: String,
     /// When the coach last saved into it.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// Publishing it would overwrite weeks the athlete changed since.
     pub has_conflicts: bool,
 }
@@ -295,7 +294,7 @@ pub struct ReplySignal {
     /// That group's name.
     pub group_name: String,
     /// When it was sent.
-    pub sent_at: DateTime<Utc>,
+    pub sent_at: Timestamp,
     /// The figures in it nothing in the athlete's data matches, in the
     /// checker's order; empty when every figure matched, and for a reply
     /// withheld from the caller, whose claims are not read.
@@ -310,16 +309,16 @@ pub struct AttentionInputs<'row> {
     /// Their standing on the roster.
     pub status: RosterAthleteStatus,
     /// When they stopped sharing, when known.
-    pub sharing_stopped_at: Option<DateTime<Utc>>,
+    pub sharing_stopped_at: Option<Timestamp>,
     /// When they joined the coach's groups.
     pub joined: &'row RosterJoin,
     /// Now.
-    pub now: DateTime<Utc>,
+    pub now: Timestamp,
     /// The athlete's own civil today.
-    pub today: NaiveDate,
+    pub today: CivilDate,
     /// The zone that today is read in, and every session, refusal and join the
     /// evidence names a day for.
-    pub zone: Tz,
+    pub zone: &'row Zone,
     /// Their training; only for a sharer with a reading.
     pub training: Option<TrainingSignals<'row>>,
     /// Whether the plan was read: the coaching gate let the coach read it.
@@ -362,7 +361,7 @@ pub struct SeasonView {
     /// (`nothing_since_last_race`).
     pub race: Option<SeasonRace>,
     /// The day after the plan's last day, when there is a plan.
-    pub ends: Option<NaiveDate>,
+    pub ends: Option<CivilDate>,
 }
 
 /// Every reason to look at this athlete, in rank order.
@@ -456,7 +455,7 @@ pub fn season_view(
 }
 
 fn is_new_member(inputs: &AttentionInputs<'_>, thresholds: &CoachHomeConfig) -> bool {
-    inputs.now - inputs.joined.at < Duration::days(i64::from(thresholds.new_member_days))
+    inputs.now - inputs.joined.at < Elapsed::days(i64::from(thresholds.new_member_days))
 }
 
 /// Mark each reason the coach dismissed for its current signal.
@@ -466,7 +465,7 @@ fn is_new_member(inputs: &AttentionInputs<'_>, thresholds: &CoachHomeConfig) -> 
 /// again.
 pub fn apply_dismissals(
     reasons: &mut [AttentionReason],
-    dismissed: &BTreeMap<String, (String, DateTime<Utc>)>,
+    dismissed: &BTreeMap<String, (String, Timestamp)>,
 ) {
     for reason in reasons {
         reason.dismissed_at = dismissed
@@ -481,7 +480,7 @@ mod tests {
     use super::*;
     use crate::coach_roster::RosterGroupRef;
 
-    static NO_REFUSALS: BTreeMap<String, DateTime<Utc>> = BTreeMap::new();
+    static NO_REFUSALS: BTreeMap<String, Timestamp> = BTreeMap::new();
 
     const THRESHOLDS: CoachHomeConfig = CoachHomeConfig {
         days_without_activity: 5,
@@ -489,12 +488,12 @@ mod tests {
         new_member_days: 14,
     };
 
-    fn at(s: &str) -> DateTime<Utc> {
-        DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    fn at(s: &str) -> Timestamp {
+        Timestamp::parse_from_rfc3339(s).unwrap()
     }
 
-    fn date(s: &str) -> NaiveDate {
-        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    fn date(s: &str) -> CivilDate {
+        CivilDate::parse_from_str(s, "%Y-%m-%d").unwrap()
     }
 
     fn joined(s: &str) -> RosterJoin {
@@ -517,7 +516,7 @@ mod tests {
             joined: join,
             now: at("2026-10-30T12:00:00Z"),
             today: date("2026-10-30"),
-            zone: Tz::UTC,
+            zone: Box::leak(Box::new(Zone::utc())),
             training,
             plan_read: true,
             plan: None,
@@ -527,7 +526,7 @@ mod tests {
     }
 
     fn training<'a>(
-        sources: &'a BTreeMap<String, DateTime<Utc>>,
+        sources: &'a BTreeMap<String, Timestamp>,
         dead: &'a [String],
         mornings: &'a [FormMorning],
         days: Option<i32>,
@@ -692,7 +691,7 @@ mod tests {
     /// The days a session starting at `start` is named on, for an athlete in
     /// `zone`: the quiet spell's `lastReceived` line and the fatigue run's
     /// `lastSession` line.
-    fn session_days(zone: Tz, start: DateTime<Utc>) -> (Value, Value) {
+    fn session_days(zone: &Zone, start: Timestamp) -> (Value, Value) {
         let join = joined("2026-01-01T00:00:00Z");
         let sources = BTreeMap::from([("garmin".to_owned(), start)]);
         let mornings = [morning(0, -40.0), morning(1, -38.0)];
@@ -716,21 +715,30 @@ mod tests {
 
     #[test]
     fn an_evening_session_west_of_greenwich_is_the_day_ridden() {
-        let (received, session) = session_days(Tz::America__Toronto, at("2026-05-28T01:00:00Z"));
+        let (received, session) = session_days(
+            &Zone::from_name("America/Toronto").unwrap(),
+            at("2026-05-28T01:00:00Z"),
+        );
         assert_eq!(received, "2026-05-27", "21:00 local, not the next UTC day");
         assert_eq!(session, "2026-05-27", "21:00 local, not the next UTC day");
     }
 
     #[test]
     fn a_morning_session_east_of_greenwich_is_the_day_ridden() {
-        let (received, session) = session_days(Tz::Asia__Tokyo, at("2026-10-29T23:30:00Z"));
+        let (received, session) = session_days(
+            &Zone::from_name("Asia/Tokyo").unwrap(),
+            at("2026-10-29T23:30:00Z"),
+        );
         assert_eq!(received, "2026-10-30", "08:30 local, not the prior UTC day");
         assert_eq!(session, "2026-10-30", "08:30 local, not the prior UTC day");
     }
 
     #[test]
     fn a_date_only_start_keeps_the_day_its_provider_named() {
-        let (received, session) = session_days(Tz::America__Toronto, at("2026-10-20T00:00:00Z"));
+        let (received, session) = session_days(
+            &Zone::from_name("America/Toronto").unwrap(),
+            at("2026-10-20T00:00:00Z"),
+        );
         assert_eq!(received, "2026-10-20", "a date has no time to convert");
         assert_eq!(session, "2026-10-20", "a date has no time to convert");
     }
@@ -746,7 +754,7 @@ mod tests {
         let mut signals = training(&sources, &dead, &[], Some(8));
         signals.refused_since = &since;
         let mut row = inputs(&join, Some(signals));
-        row.zone = Tz::America__Toronto;
+        row.zone = Box::leak(Box::new(Zone::from_name("America/Toronto").unwrap()));
         let reasons = attention_reasons(&row, &THRESHOLDS);
         let line = reasons
             .iter()
@@ -764,7 +772,7 @@ mod tests {
     fn a_join_is_named_on_the_athletes_day() {
         let join = joined("2026-10-29T00:00:00Z");
         let mut row = inputs(&join, None);
-        row.zone = Tz::America__Toronto;
+        row.zone = Box::leak(Box::new(Zone::from_name("America/Toronto").unwrap()));
         let reasons = attention_reasons(&row, &THRESHOLDS);
         let new_member = reasons
             .iter()

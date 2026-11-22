@@ -20,8 +20,8 @@
 
 use std::fmt;
 
-use chrono::{DateTime, Utc};
 use dravr_barrage::SourceKey;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::{CachedKeyCount, StoredActivityRow};
@@ -283,8 +283,8 @@ impl<'repos> CacheAdoption<'repos> {
 /// `rows`, oldest sync first, as runs of the activities sharing one stamp:
 /// each run goes to the store at its own stamp, so no row's `synced_at`
 /// moves when the store projects it back.
-fn by_stamp(rows: Vec<StoredActivityRow>) -> Vec<(DateTime<Utc>, Vec<Activity>)> {
-    let mut runs: Vec<(DateTime<Utc>, Vec<Activity>)> = Vec::new();
+fn by_stamp(rows: Vec<StoredActivityRow>) -> Vec<(Timestamp, Vec<Activity>)> {
+    let mut runs: Vec<(Timestamp, Vec<Activity>)> = Vec::new();
     for row in rows {
         match runs.last_mut() {
             Some((stamp, activities)) if *stamp == row.synced_at => activities.push(row.activity),

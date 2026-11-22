@@ -16,7 +16,7 @@
 //! timestamps are RFC 3339 text on `SQLite` and `TIMESTAMPTZ` on Postgres.
 //! Neither needs a per-backend spelling: `TRUE`/`FALSE` are literals both
 //! engines accept and a `bool` binds and decodes as 0/1 on `SQLite`, and a
-//! `DateTime<Utc>` binds and decodes as RFC 3339 text there. `user_id` is
+//! `Timestamp` binds and decodes as RFC 3339 text there. `user_id` is
 //! `TEXT` on both and holds the hyphenated uuid, so the id is stringified
 //! on the way in and parsed on the way out. One body therefore serves both
 //! drivers with no macro argument beyond the backend type.
@@ -25,7 +25,7 @@
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them.
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::OAuthClientState;
 use uuid::Uuid;
@@ -90,7 +90,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let text = |col: &str| -> AppResult<String> {
         row.try_get(col)
@@ -164,7 +164,7 @@ macro_rules! impl_oauth_client_state_repository {
                 &self,
                 state_value: &str,
                 provider: &str,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Option<OAuthClientState>> {
                 let row = sqlx::query(CONSUME_CLIENT_STATE_SQL)
                     .bind(state_value)
@@ -181,7 +181,7 @@ macro_rules! impl_oauth_client_state_repository {
 
             async fn reap_expired_oauth_client_states(
                 &self,
-                now: DateTime<Utc>,
+                now: Timestamp,
             ) -> AppResult<Vec<(String, u64)>> {
                 let rows = sqlx::query(REAP_EXPIRED_CLIENT_STATES_SQL)
                     .bind(now)

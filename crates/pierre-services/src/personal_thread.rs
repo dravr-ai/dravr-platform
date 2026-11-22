@@ -38,7 +38,7 @@
 //! model reads the thread from the divider on (see
 //! [`DIVIDER_FINISH_REASON`]).
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     is_in_app_channel, AddMessageParams, ConversationRecord, MessageRecord, OnboardingState,
@@ -267,10 +267,8 @@ fn newest_of(
 
 /// When a thread was last active, for ordering two of them; an unreadable
 /// stamp orders first, so a readable one wins.
-fn activity(thread: &ConversationRecord) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(&thread.updated_at)
-        .ok()
-        .map(|at| at.with_timezone(&Utc))
+fn activity(thread: &ConversationRecord) -> Option<Timestamp> {
+    Timestamp::parse_from_rfc3339(&thread.updated_at).ok()
 }
 
 /// Designate the athlete's newest in-app thread of their own, when they have

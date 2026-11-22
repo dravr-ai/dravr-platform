@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -26,7 +26,7 @@ pub struct PreApprovedEmail {
     /// Admin note (cohort, reason).
     pub note: Option<String>,
     /// When the allow was recorded.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// A single-use invitation an admin mailed to an address with no account.
@@ -43,9 +43,9 @@ pub struct UserInvitation {
     /// The admin who sent it, when attributable (`None` for a service token).
     pub invited_by: Option<Uuid>,
     /// When the link stops working.
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Timestamp,
     /// When it was sent.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// What redeeming it gives besides the account.
     pub kind: InvitationKind,
 }

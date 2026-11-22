@@ -29,7 +29,7 @@ use axum::{
     response::{IntoResponse, Response},
     Extension, Json,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use rand::RngCore;
 use secrecy::SecretString;
 use serde::Serialize;
@@ -158,7 +158,7 @@ pub async fn handle_device_authorization(
 ) -> AppResult<Response> {
     let device_code = generate_device_code();
     let user_code = generate_user_code();
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
 
     let record = DeviceAuthorization {
         device_code_hash: hash_device_code(&device_code),
@@ -220,7 +220,7 @@ pub async fn handle_device_token(
         .ok_or_else(|| AppError::invalid_input("device_code is required"))?;
 
     let hash = hash_device_code(device_code);
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
 
     let Some(record) = context
         .repos
@@ -413,7 +413,7 @@ pub async fn handle_device_approve(
         ));
     };
 
-    if record.expires_at <= Utc::now().timestamp() {
+    if record.expires_at <= Timestamp::now().epoch_seconds() {
         return Ok(admin_json(
             AdminResponse {
                 success: false,

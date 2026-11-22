@@ -10,8 +10,9 @@
 use crate::common;
 use secrecy::ExposeSecret;
 
-use chrono::Utc;
 use common::{create_test_server_resources, test_oauth_config, TEST_STRAVA_CLIENT_ID};
+use dravr_tronc::dates::Elapsed;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::strava_pool::{select_strava_app, strava_seat_summary, SelectedStravaApp};
 use pierre_core::models::{ConnectionType, TenantId, User, UserOAuthToken};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
@@ -96,7 +97,7 @@ async fn connect(repos: &RepositoryRegistry, athlete: Uuid, tenant: TenantId, ap
         "strava".to_owned(),
         "acc".to_owned(),
         Some("ref".to_owned()),
-        Some(Utc::now() + chrono::Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     )
     .with_oauth_app_client_id(app.map(str::to_owned));
@@ -191,7 +192,7 @@ async fn a_token_whose_connection_needs_reauth_or_is_revoked_holds_no_seat() {
         "strava".to_owned(),
         "acc".to_owned(),
         Some("ref".to_owned()),
-        Some(Utc::now() + chrono::Duration::hours(6)),
+        Some(Timestamp::now() + Elapsed::hours(6)),
         Some("read".to_owned()),
     );
     repos.oauth_tokens.upsert_token(&orphan).await.unwrap();
@@ -205,7 +206,13 @@ async fn a_token_whose_connection_needs_reauth_or_is_revoked_holds_no_seat() {
     for athlete in [dead_env, dead_pool] {
         repos
             .provider_connections
-            .mark_needs_reauth(athlete, tenant, "strava", Some("invalid_grant"), Utc::now())
+            .mark_needs_reauth(
+                athlete,
+                tenant,
+                "strava",
+                Some("invalid_grant"),
+                Timestamp::now(),
+            )
             .await
             .unwrap();
     }
@@ -276,7 +283,7 @@ async fn a_needs_reauth_over_our_own_client_credentials_keeps_its_seat() {
         connect(repos, athlete, tenant, Some("201456")).await;
         repos
             .provider_connections
-            .mark_needs_reauth(athlete, tenant, "strava", Some(reason), Utc::now())
+            .mark_needs_reauth(athlete, tenant, "strava", Some(reason), Timestamp::now())
             .await
             .unwrap();
         athletes.push(athlete);
@@ -399,7 +406,13 @@ async fn a_dead_athlete_takes_the_pool_while_the_env_app_is_full_and_returns_whe
     connect(repos, athlete, tenant, None).await;
     repos
         .provider_connections
-        .mark_needs_reauth(athlete, tenant, "strava", Some("invalid_grant"), Utc::now())
+        .mark_needs_reauth(
+            athlete,
+            tenant,
+            "strava",
+            Some("invalid_grant"),
+            Timestamp::now(),
+        )
         .await
         .unwrap();
     let others = fill(repos, tenant, None, cap).await;
@@ -424,7 +437,7 @@ async fn a_dead_athlete_takes_the_pool_while_the_env_app_is_full_and_returns_whe
             tenant,
             "strava",
             Some("invalid_grant"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -538,7 +551,13 @@ async fn a_pool_athlete_reconnects_on_its_pool_app_while_it_is_enabled_and_has_r
 
     repos
         .provider_connections
-        .mark_needs_reauth(athlete, tenant, "strava", Some("invalid_grant"), Utc::now())
+        .mark_needs_reauth(
+            athlete,
+            tenant,
+            "strava",
+            Some("invalid_grant"),
+            Timestamp::now(),
+        )
         .await
         .unwrap();
     assert_eq!(

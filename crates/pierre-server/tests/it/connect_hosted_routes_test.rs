@@ -12,8 +12,8 @@ use crate::helpers;
 
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
 use dravr_canot::channels::descriptor_for;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::connect_order::{set_connect_order, ConnectOrder};
 use pierre_config::environment::ServerConfig;
@@ -1128,7 +1128,7 @@ async fn hold_garmin_grant(resources: &Arc<ServerContext>, user_id: Uuid, tenant
         oauth_providers::GARMIN.to_owned(),
         "garmin-access".to_owned(),
         Some("garmin-refresh".to_owned()),
-        Some(Utc::now() + Duration::hours(12)),
+        Some(Timestamp::now() + Elapsed::hours(12)),
         None,
     );
     // A seat is one Garmin user, counted by the id Garmin knows them by.
@@ -1175,7 +1175,7 @@ async fn picker_offers_a_dead_garmin_grant_its_sign_in_and_asks_a_session_nothin
             tenant_id,
             oauth_providers::GARMIN,
             Some("refresh_refused"),
-            Utc::now(),
+            Timestamp::now(),
         )
         .await
         .unwrap();
@@ -1292,7 +1292,7 @@ async fn picker_reads_an_imported_garmin_history_on_a_grant() {
         "garmin-history-1".to_owned(),
         "Sortie".to_owned(),
         SportType::Run,
-        Utc::now() - Duration::days(60),
+        Timestamp::now() - Elapsed::days(60),
         3_600,
         oauth_providers::SCIOTTE_GARMIN.to_owned(),
     )

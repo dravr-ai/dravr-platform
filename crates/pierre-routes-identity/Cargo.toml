@@ -23,7 +23,7 @@ pierre-services = { version = "0.3.0", path = "../pierre-services" }
 
 axum = { version = "0.8", features = ["macros"] }
 base64 = "0.22"
-chrono = { version = "0.4", features = ["serde"] }
+dravr-tronc = { workspace = true }
 hex = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

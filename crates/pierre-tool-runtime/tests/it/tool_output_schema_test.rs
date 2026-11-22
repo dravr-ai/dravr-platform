@@ -17,13 +17,14 @@
 //! describes the fields the payload carries, and it rejects a payload missing
 //! one.
 
-use chrono::NaiveDate;
-use chrono_tz::America::Montreal;
 use dravr_cageux::nutrition_calculator::TrainingDayLoad;
 use dravr_meteo::{
     DummyWeatherProvider, GeocodeError, Geocoded, Geocoder, Place, PlaceQuery, WeatherError,
     WeatherProvider, WeatherQuery, WeatherSample,
 };
+use dravr_tronc::dates::CivilDate;
+use dravr_tronc::dates::Timestamp;
+use dravr_tronc::dates::Zone;
 use dravr_tronc::mcp::schema::Tool;
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
@@ -1248,13 +1249,13 @@ fn get_health_snapshots_declares_a_schema_that_accepts_its_payload() {
         id: "day-1".to_owned(),
         user_id: "user-1".to_owned(),
         data_source_id: "ds-1".to_owned(),
-        date: NaiveDate::from_ymd_opt(2026, 9, 5).unwrap_or_default(),
+        date: CivilDate::from_ymd(2026, 9, 5).ok().unwrap_or_default(),
         steps: Some(11_284),
         active_kcal: Some(520.0),
         total_kcal: None,
         intensity_minutes: Some(104),
         source_name: "garmin_archive".to_owned(),
-        recorded_at: chrono::DateTime::UNIX_EPOCH,
+        recorded_at: Timestamp::UNIX_EPOCH,
     };
     let sample = Formatted::Json(HealthSnapshotsResult {
         count: 0,
@@ -1308,10 +1309,10 @@ fn list_data_sources_declares_a_schema_that_accepts_its_payload() {
 /// read's `windows`, each riviere's own type forwarded unprojected.
 #[test]
 fn get_heart_rate_series_declares_a_schema_that_accepts_its_payload() {
-    use chrono::{Duration, TimeZone, Utc};
     use dravr_riviere::{AggregatedPoint, DataPoint};
+    use dravr_tronc::dates::{Elapsed, Timestamp};
 
-    let at = Utc.with_ymd_and_hms(2026, 10, 12, 6, 0, 0).unwrap();
+    let at = Timestamp::parse_from_rfc3339("2026-10-12T06:00:00Z").unwrap();
     let range = || DateRange {
         start: "2026-10-12T06:00:00+00:00".to_owned(),
         end: "2026-10-12T07:00:00+00:00".to_owned(),
@@ -1353,7 +1354,7 @@ fn get_heart_rate_series_declares_a_schema_that_accepts_its_payload() {
             points: vec![],
             windows: vec![AggregatedPoint {
                 window_start: at,
-                window_end: at + Duration::minutes(15),
+                window_end: at + Elapsed::minutes(15),
                 value: 61.5,
                 sample_count: 15,
             }],
@@ -1380,7 +1381,7 @@ fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
         Completeness, Coverage, CoverageWindow, IncompleteReason, Pending, WindowScope,
     };
 
-    let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).expect("a real day");
+    let day = |y, m, d| CivilDate::from_ymd(y, m, d).expect("a real day");
     let effort = |provider: &str| SegmentHistoryEffort {
         provider: provider.to_owned(),
         source: provider.to_owned(),
@@ -3990,7 +3991,7 @@ async fn a_forecast_answers_with_meteos_shape_plus_daylight_and_validates() {
         &DummyWeatherProvider::temperate(),
         &StubGeocoder,
         &args,
-        Montreal,
+        &Zone::from_name("America/Montreal").unwrap(),
     )
     .await
     .expect("renders");
@@ -4025,7 +4026,7 @@ async fn a_forecast_answers_with_meteos_shape_plus_daylight_and_validates() {
         wind_speed_kmh: None,
         conditions: "snow".to_owned(),
     });
-    let bare = forecast(&bare, &StubGeocoder, &args, chrono_tz::UTC)
+    let bare = forecast(&bare, &StubGeocoder, &args, &Zone::utc())
         .await
         .expect("renders");
     assert!(bare.content["sample"].get("humidity_percentage").is_none());
@@ -4040,7 +4041,7 @@ async fn a_forecast_by_place_reads_the_geocoded_coordinates() {
     let provider = RecordingProvider::new();
     let args = json!({ "place": "Chamonix", "timestamp": "2026-09-28T07:30:00Z" });
 
-    let result = forecast(&provider, &StubGeocoder, &args, chrono_tz::UTC)
+    let result = forecast(&provider, &StubGeocoder, &args, &Zone::utc())
         .await
         .expect("renders");
     assert!(!result.is_error, "{:#}", result.content);
@@ -4082,7 +4083,7 @@ async fn an_ambiguous_place_takes_the_top_match_and_says_so() {
         &provider,
         &StubGeocoder,
         &json!({ "place": "Paris", "timestamp": "2026-09-28T07:30:00Z" }),
-        chrono_tz::UTC,
+        &Zone::utc(),
     )
     .await
     .expect("renders");
@@ -4098,7 +4099,7 @@ async fn an_ambiguous_place_takes_the_top_match_and_says_so() {
         &provider,
         &StubGeocoder,
         &json!({ "place": "Paris", "country_code": "us", "timestamp": "2026-09-28T07:30:00Z" }),
-        chrono_tz::UTC,
+        &Zone::utc(),
     )
     .await
     .expect("renders");
@@ -4118,7 +4119,7 @@ async fn coordinates_win_over_a_place_and_the_answer_says_so() {
             "place": "Chamonix",
             "timestamp": "2026-09-28T07:30:00Z",
         }),
-        chrono_tz::UTC,
+        &Zone::utc(),
     )
     .await
     .expect("renders");
@@ -4168,7 +4169,7 @@ async fn a_forecast_refuses_what_meteo_refuses() {
             "timestamp must be RFC 3339",
         ),
     ] {
-        let result = forecast(&provider, &StubGeocoder, &args, chrono_tz::UTC)
+        let result = forecast(&provider, &StubGeocoder, &args, &Zone::utc())
             .await
             .expect("renders");
         assert!(result.is_error, "{args} must be refused");
@@ -4787,7 +4788,7 @@ fn sample_query_answer() -> QueryAnswer {
         WindowScope, WindowTotals,
     };
 
-    let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).expect("a real day");
+    let day = |y, m, d| CivilDate::from_ymd(y, m, d).expect("a real day");
     let values = MetricValues {
         count: Some(12),
         distance_km: Some(254.3),
@@ -5325,7 +5326,7 @@ fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
     let estimated = MetricProvenance {
         kind: MeasurementKind::Estimated,
         origin: Some("vekta".to_owned()),
-        as_of: NaiveDate::from_ymd_opt(2026, 10, 1),
+        as_of: CivilDate::from_ymd(2026, 10, 1).ok(),
     };
     let value = serde_json::to_value(SetPhysiologyResult {
         saved: true,
@@ -5370,7 +5371,7 @@ fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
                     low: Some(365.0),
                     high: Some(395.0),
                     origin: Some("lab".to_owned()),
-                    as_of: NaiveDate::from_ymd_opt(2026, 11, 2),
+                    as_of: CivilDate::from_ymd(2026, 11, 2).ok(),
                     method: Some("ramp peak".to_owned()),
                     confidence: AnchorConfidence::High,
                 },
@@ -5449,13 +5450,15 @@ fn an_import_names_each_outcome_and_which_values_the_provider_supplied() {
                 ftp_watts: Some(MetricProvenance {
                     kind: MeasurementKind::Estimated,
                     origin: Some("intervals.icu".to_owned()),
-                    as_of: NaiveDate::from_ymd_opt(2026, 9, 30),
+                    as_of: CivilDate::from_ymd(2026, 9, 30).ok(),
                 }),
                 ..ThresholdProvenance::default()
             },
             threshold_stated_on: ThresholdStatedOn::default(),
             anchor_provenance: AnchorProvenance {
-                resting_hr: NaiveDate::from_ymd_opt(2026, 10, 30).map(AnchorStamp::promoted),
+                resting_hr: CivilDate::from_ymd(2026, 10, 30)
+                    .ok()
+                    .map(AnchorStamp::promoted),
                 ..AnchorProvenance::default()
             },
             sport_anchors: Vec::new(),
@@ -6214,10 +6217,10 @@ fn prescribing_reports_the_calendar_entry_it_created() {
 /// and an empty calendar too.
 #[test]
 fn get_planned_workouts_declares_a_schema_that_accepts_its_payload() {
-    use chrono::NaiveDate;
+    use dravr_tronc::dates::CivilDate;
     use pierre_core::models::{PlannedWorkoutBuilder, WorkoutStep};
 
-    let day = |d: u32| NaiveDate::from_ymd_opt(2026, 9, d).expect("valid date literal");
+    let day = |d: u32| CivilDate::from_ymd(2026, 9, d).expect("valid date literal");
     let step = |label: &str, zone: &str, repeat: u32, group: u32| WorkoutStep {
         label: label.to_owned(),
         duration_seconds: 600,

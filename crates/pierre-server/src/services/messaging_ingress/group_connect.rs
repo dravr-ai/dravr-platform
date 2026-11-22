@@ -25,8 +25,8 @@
 
 use std::sync::Arc;
 
-use chrono::Utc;
 use dravr_canot::channel::MessagingChannel;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_ERROR_GENERIC, KEY_GROUP_CHAT_ALREADY_CONNECTED,
     KEY_GROUP_CHAT_CHAT_TAKEN, KEY_GROUP_CHAT_CODE_INVALID, KEY_GROUP_CHAT_CONNECTED,
@@ -382,7 +382,7 @@ async fn join_note_once(
         .common
         .repos
         .groups
-        .record_chat_invite_prompt(group.id, channel, &message.sender_id, Utc::now())
+        .record_chat_invite_prompt(group.id, channel, &message.sender_id, Timestamp::now())
         .await
     {
         Ok(true) => {}
@@ -417,8 +417,8 @@ async fn join_note_once(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
     use dravr_canot::turn::ConversationTurnId;
+    use dravr_tronc::dates::Timestamp;
 
     use super::*;
 
@@ -433,7 +433,7 @@ mod tests {
             conversation_id: Some("-100777".to_owned()),
             chat_title: Some("Les Rouleurs".to_owned()),
             channel_message_id: "1".to_owned(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             raw_payload: serde_json::Value::Null,
             turn_id: ConversationTurnId::new(),
             is_direct_message,

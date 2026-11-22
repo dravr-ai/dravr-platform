@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 
 use pierre_core::models::{
@@ -31,10 +31,10 @@ pub struct SyncCursorRow {
     pub data_type: String,
     /// Provider-specific cursor token for pagination
     pub cursor_value: Option<String>,
-    /// When the last sync completed. `DateTime` so the PG backend binds a
+    /// When the last sync completed. `Timestamp` so the PG backend binds a
     /// native TIMESTAMPTZ (a TEXT bind is rejected); `SQLite` stores RFC 3339 TEXT
-    /// via sqlx's chrono encoding.
-    pub last_sync_at: Option<DateTime<Utc>>,
+    /// through the date type's own sqlx encoding.
+    pub last_sync_at: Option<Timestamp>,
     /// Current sync status (pending, completed, failed)
     pub last_sync_status: String,
     /// Total records synced in the last batch
@@ -47,7 +47,7 @@ pub struct SyncCursorRow {
     /// decodes either width.
     pub retry_count: i32,
     /// When to attempt the next retry
-    pub next_retry_at: Option<DateTime<Utc>>,
+    pub next_retry_at: Option<Timestamp>,
 }
 
 /// Connected user info for sync scheduling.
@@ -114,7 +114,7 @@ pub trait SleepRepository: Send + Sync {
         &self,
         tenant_id: &TenantId,
         session: &StoredSleepSession,
-        synced_at: DateTime<Utc>,
+        synced_at: Timestamp,
     ) -> AppResult<Option<String>>;
 
     /// Clear the provider-scored figure (`sleep_score`) from every night
@@ -131,8 +131,8 @@ pub trait SleepRepository: Send + Sync {
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> AppResult<Vec<StoredSleepSession>>;
     /// The distinct origins of the sleep sessions starting inside the window,
     /// without reading a session.
@@ -140,8 +140,8 @@ pub trait SleepRepository: Send + Sync {
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> AppResult<Vec<WellnessRowOrigin>>;
     /// Delete a single sleep session by id with the requested deletion mode.
     ///
@@ -178,7 +178,7 @@ pub trait RecoveryRepository: Send + Sync {
         tenant_id: &TenantId,
         metrics: &StoredRecoveryMetrics,
         mode: WellnessWriteMode,
-        synced_at: DateTime<Utc>,
+        synced_at: Timestamp,
     ) -> AppResult<String>;
 
     /// Clear every provider-scored composite (recovery and readiness score,
@@ -206,8 +206,8 @@ pub trait RecoveryRepository: Send + Sync {
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> AppResult<Vec<StoredRecoveryMetrics>>;
     /// The distinct origins of the recovery readings dated inside the window,
     /// without reading a reading.
@@ -215,8 +215,8 @@ pub trait RecoveryRepository: Send + Sync {
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> AppResult<Vec<WellnessRowOrigin>>;
     /// Delete a single recovery metric by id with the requested deletion mode.
     ///
@@ -256,7 +256,7 @@ pub trait HealthSnapshotRepository: Send + Sync {
         tenant_id: &TenantId,
         snapshot: &StoredHealthMetrics,
         mode: WellnessWriteMode,
-        synced_at: DateTime<Utc>,
+        synced_at: Timestamp,
     ) -> AppResult<String>;
     /// Each origin's (provider and data source's) newest live body day of a
     /// user holding a `VO2max` (when `vo2_max`) and its newest holding a
@@ -272,8 +272,8 @@ pub trait HealthSnapshotRepository: Send + Sync {
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> AppResult<Vec<StoredHealthMetrics>>;
     /// Delete a single health snapshot by id with the requested deletion mode.
     ///
@@ -313,7 +313,7 @@ pub trait DailyActivityRepository: Send + Sync {
         tenant_id: &TenantId,
         day: &StoredDailyActivity,
         mode: WellnessWriteMode,
-        synced_at: DateTime<Utc>,
+        synced_at: Timestamp,
     ) -> AppResult<String>;
 
     /// Live days of a user inside an inclusive date window, newest first.
@@ -321,8 +321,8 @@ pub trait DailyActivityRepository: Send + Sync {
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        start: Timestamp,
+        end: Timestamp,
     ) -> AppResult<Vec<StoredDailyActivity>>;
 }
 

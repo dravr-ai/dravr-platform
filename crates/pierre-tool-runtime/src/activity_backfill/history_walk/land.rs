@@ -25,7 +25,7 @@
 
 use std::time::Instant;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 
 use pierre_core::models::Activity;
 use pierre_database::repositories::{JobLease, JobProgressStep};
@@ -87,7 +87,7 @@ pub(super) async fn read_nothing(
 async fn fell_short(job: &ActivityBackfillJob, cursor: Cursor) -> Step {
     let key = job.provider_name.as_str();
     match oldest_stored(&job.resources, job.user_id, job.tenant_id, &[key]).await {
-        Ok(Some(oldest)) if oldest.timestamp() < cursor.top => {
+        Ok(Some(oldest)) if oldest.epoch_seconds() < cursor.top => {
             warn!(user_id = %job.user_id, provider = key, before = cursor.top, "History walk: a step fell short of its window above rows already stored; it failed");
             Step::Failed
         }
@@ -112,7 +112,7 @@ pub(super) async fn land(
 ) -> Step {
     let fetched = activities.len();
     let short = !provider.head_complete()
-        && !sync_verdict::covers_list_head(span.read, Utc::now().timestamp());
+        && !sync_verdict::covers_list_head(span.read, Timestamp::now().epoch_seconds());
     let activities = if short {
         activities
     } else {
@@ -125,7 +125,7 @@ pub(super) async fn land(
     };
     let oldest = activities
         .iter()
-        .map(|activity| activity.start_date().timestamp())
+        .map(|activity| activity.start_date().epoch_seconds())
         .min()
         .unwrap_or(span.bottom);
     if short {

@@ -23,7 +23,7 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{error, info};
@@ -188,7 +188,7 @@ impl From<ClaimVerdict> for VerdictRow {
             disposition_reason: v.disposition_reason.map(|r| r.as_str().to_owned()),
             disposition_note: v.disposition_note,
             disposed_by: v.disposed_by,
-            disposed_at: v.disposed_at.map(|t| t.to_rfc3339()),
+            disposed_at: v.disposed_at.map(Timestamp::to_rfc3339),
         }
     }
 }
@@ -578,7 +578,7 @@ pub async fn handle_set_verdict_disposition(
             reason,
             note,
             disposed_by: &admin_token.service_name,
-            disposed_at: Utc::now(),
+            disposed_at: Timestamp::now(),
         })
         .await
         .map_err(|e| {

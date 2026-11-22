@@ -34,6 +34,7 @@ use super::types::{
     RateLimitInfo, RevokeKeyRequest,
 };
 use crate::context::AdminApiContext;
+use dravr_tronc::dates::Timestamp;
 
 /// Helper function for JSON responses with status
 pub(crate) fn json_response<T: serde::Serialize>(
@@ -148,7 +149,7 @@ fn create_provision_response(
         api_key: SecretString::from(api_key_string),
         user_id: user.id.to_string(),
         tier: format!("{tier:?}").to_lowercase(),
-        expires_at: api_key.expires_at.map(|dt| dt.to_rfc3339()),
+        expires_at: api_key.expires_at.map(Timestamp::to_rfc3339),
         rate_limit: Some(RateLimitInfo {
             requests: api_key.rate_limit_requests,
             period: period_name.to_owned(),
@@ -484,8 +485,8 @@ pub(crate) async fn handle_list_api_keys(
                         },
                         "is_active": key.is_active,
                         "created_at": key.created_at.to_rfc3339(),
-                        "last_used_at": key.last_used_at.map(|dt| dt.to_rfc3339()),
-                        "expires_at": key.expires_at.map(|dt| dt.to_rfc3339()),
+                        "last_used_at": key.last_used_at.map(Timestamp::to_rfc3339),
+                        "expires_at": key.expires_at.map(Timestamp::to_rfc3339),
                         "usage_count": 0
                     })
                 })

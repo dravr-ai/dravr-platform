@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::messaging_strings::KEY_NEW_CONVERSATION_TITLE_PREFIX;
 use pierre_services::conversation_forge::dated_title;
 use pierre_services::locale::user_locale;
@@ -37,6 +37,6 @@ pub(crate) async fn fresh_title_fallback(resources: &ServerContext, user_id: &st
         &prefix,
         &locale,
         user.as_ref().and_then(|u| u.timezone.as_deref()),
-        Utc::now(),
+        Timestamp::now(),
     )
 }

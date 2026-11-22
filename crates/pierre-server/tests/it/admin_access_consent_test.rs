@@ -25,7 +25,7 @@ use axum::body::{to_bytes, Body};
 use axum::extract::connect_info::MockConnectInfo;
 use axum::http::Request;
 use base64::{engine::general_purpose, Engine as _};
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use jsonwebtoken::dangerous::insecure_decode;
 use jsonwebtoken::{encode, Algorithm, Header};
 use pierre_auth::auth::Claims;
@@ -503,11 +503,7 @@ async fn drop_audit_trail(resources: &Arc<ServerContext>) {
 
 /// Move the start of `client_id`'s refresh families back to `started`, as
 /// if their first token had been minted then.
-async fn family_started_at(
-    resources: &Arc<ServerContext>,
-    client_id: &str,
-    started: chrono::DateTime<Utc>,
-) {
+async fn family_started_at(resources: &Arc<ServerContext>, client_id: &str, started: Timestamp) {
     const STATEMENT: &str =
         "UPDATE oauth2_refresh_tokens SET family_created_at = $1 WHERE client_id = $2";
     match resources.agent.database.backend() {
@@ -532,10 +528,7 @@ async fn family_started_at(
 }
 
 /// When each refresh token `client_id` holds stops exchanging.
-async fn refresh_expiries(
-    resources: &Arc<ServerContext>,
-    client_id: &str,
-) -> Vec<chrono::DateTime<Utc>> {
+async fn refresh_expiries(resources: &Arc<ServerContext>, client_id: &str) -> Vec<Timestamp> {
     const QUERY: &str = "SELECT expires_at FROM oauth2_refresh_tokens WHERE client_id = $1";
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => sqlx::query_scalar(QUERY)
@@ -1064,13 +1057,13 @@ async fn a_refresh_family_holding_admin_stops_a_day_after_its_first_token() {
     .await;
 
     // Within the day the family rotates, its successor cut at the day's end.
-    family_started_at(&resources, &client.0, Utc::now() - Duration::hours(23)).await;
+    family_started_at(&resources, &client.0, Timestamp::now() - Elapsed::hours(23)).await;
     let (_access, second_refresh, scope) =
         issued(&refresh(&resources, (&client.0, &client.1), &first_refresh).await);
     assert!(scope_names(&scope).contains(&"admin"), "{scope}");
 
     // Past the day, however recent the last rotation, the family is done.
-    family_started_at(&resources, &client.0, Utc::now() - Duration::hours(25)).await;
+    family_started_at(&resources, &client.0, Timestamp::now() - Elapsed::hours(25)).await;
     let refused = refresh(&resources, (&client.0, &client.1), &second_refresh).await;
     assert_eq!(
         refused.status(),
@@ -1099,7 +1092,7 @@ async fn an_admin_familys_first_refresh_token_expires_within_the_day() {
     let expiries = refresh_expiries(&resources, &client.0).await;
     assert_eq!(expiries.len(), 1, "one refresh token was stored");
     assert!(
-        expiries[0] <= Utc::now() + Duration::hours(24),
+        expiries[0] <= Timestamp::now() + Elapsed::hours(24),
         "bug: an admin family's first token outlives the day: {}",
         expiries[0]
     );
@@ -1165,7 +1158,7 @@ async fn a_demoted_admins_refresh_drops_admin_for_good() {
 fn expired(resources: &Arc<ServerContext>, token: &str) -> String {
     let mut claims = insecure_decode::<Claims>(token).unwrap().claims;
     claims.iat -= 7200;
-    claims.exp = Utc::now().timestamp() - 3600;
+    claims.exp = Timestamp::now().epoch_seconds() - 3600;
     let key = resources.auth.jwks_manager.get_active_key().unwrap();
     let mut header = Header::new(Algorithm::RS256);
     header.kid = Some(key.kid.clone());

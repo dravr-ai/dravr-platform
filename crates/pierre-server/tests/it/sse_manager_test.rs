@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_sse::manager::{ConnectionMetadata, ConnectionType, SseManager};
 use uuid::Uuid;
 
@@ -86,8 +87,8 @@ fn test_connection_metadata_creation() {
         connection_type: ConnectionType::Notification {
             user_id: Uuid::new_v4(),
         },
-        created_at: chrono::Utc::now(),
-        last_activity: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_activity: Timestamp::now(),
     };
 
     assert!(metadata.created_at <= metadata.last_activity);
@@ -99,8 +100,8 @@ fn test_connection_metadata_clone() {
         connection_type: ConnectionType::Notification {
             user_id: Uuid::new_v4(),
         },
-        created_at: chrono::Utc::now(),
-        last_activity: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_activity: Timestamp::now(),
     };
 
     let cloned = metadata.clone();
@@ -113,8 +114,8 @@ fn test_connection_metadata_debug() {
         connection_type: ConnectionType::Notification {
             user_id: Uuid::new_v4(),
         },
-        created_at: chrono::Utc::now(),
-        last_activity: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        last_activity: Timestamp::now(),
     };
 
     let debug_str = format!("{metadata:?}");
@@ -229,7 +230,7 @@ async fn test_send_notification_nonexistent_user() {
         success: true,
         message: "Token refreshed successfully".to_owned(),
         expires_at: None,
-        created_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
         read_at: None,
     };
 
@@ -342,7 +343,7 @@ async fn test_metadata_timestamps() {
     assert!(conn_meta.created_at <= conn_meta.last_activity);
 
     // Both timestamps should be recent (within last minute)
-    let now = chrono::Utc::now();
-    let one_minute_ago = now - chrono::Duration::minutes(1);
+    let now = Timestamp::now();
+    let one_minute_ago = now - Elapsed::minutes(1);
     assert!(conn_meta.created_at > one_minute_ago);
 }

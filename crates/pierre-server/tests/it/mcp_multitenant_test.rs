@@ -167,6 +167,7 @@ use uuid::Uuid;
 // Import common test utilities
 use crate::common;
 use common::*;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 
 /// Helper to create a multitenant MCP server for testing
 async fn create_test_multitenant_server(
@@ -324,7 +325,7 @@ async fn test_tenant_data_isolation() -> Result<()> {
     let repos = database.repositories();
 
     // Store different data for each user
-    let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
+    let expires_at = Timestamp::now() + Elapsed::hours(6);
 
     for (i, (user_id, _email, _token)) in users.iter().enumerate() {
         // Store Strava tokens
@@ -453,7 +454,7 @@ async fn test_concurrent_user_operations() -> Result<()> {
             assert_eq!(claims.email, format!("concurrent_user_{}@test.com", i));
 
             // Store some data
-            let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
+            let expires_at = Timestamp::now() + Elapsed::hours(6);
             let oauth_token = UserOAuthToken::new(
                 user_id,
                 "00000000-0000-0000-0000-000000000000".to_owned(),
@@ -644,7 +645,7 @@ async fn test_database_encryption_isolation() -> Result<()> {
     let repos = database.repositories();
 
     // Store encrypted data for each user
-    let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
+    let expires_at = Timestamp::now() + Elapsed::hours(6);
 
     let user1_oauth_token = UserOAuthToken::new(
         *user1_id,
@@ -735,7 +736,7 @@ async fn test_session_state_management() -> Result<()> {
 
     // Verify the timestamp was updated
     let updated_user = repos.users.get_global(user_id).await?.unwrap();
-    // last_active is a DateTime<Utc>, not an Option
+    // last_active is a Timestamp, not an Option
 
     // Test multiple updates
     sleep(Duration::from_millis(10)).await;
@@ -842,7 +843,7 @@ async fn test_memory_safety_concurrent_access() -> Result<()> {
             assert_eq!(claims.email, format!("memory_test_{}@test.com", i));
 
             // Store and retrieve data
-            let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
+            let expires_at = Timestamp::now() + Elapsed::hours(6);
             let oauth_token = UserOAuthToken::new(
                 user_id,
                 "00000000-0000-0000-0000-000000000000".to_owned(),
@@ -1001,7 +1002,7 @@ async fn test_large_scale_multitenant_operations() -> Result<()> {
             let repos = db.repositories();
 
             // Store and retrieve data
-            let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
+            let expires_at = Timestamp::now() + Elapsed::hours(6);
             let oauth_token = UserOAuthToken::new(
                 user_id,
                 "00000000-0000-0000-0000-000000000000".to_owned(),

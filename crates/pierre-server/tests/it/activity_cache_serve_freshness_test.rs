@@ -30,7 +30,7 @@
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType};
@@ -79,7 +79,7 @@ async fn serving_a_covered_window_from_cache_does_not_restamp_its_freshness() {
         "sciotte-ride-1".to_owned(),
         "Sortie longue".to_owned(),
         SportType::Ride,
-        Utc::now() - Duration::days(200),
+        Timestamp::now() - Elapsed::days(200),
         7_200,
         "sciotte".to_owned(),
     )
@@ -89,7 +89,7 @@ async fn serving_a_covered_window_from_cache_does_not_restamp_its_freshness() {
         "sciotte-run-1".to_owned(),
         "Tourbierer".to_owned(),
         SportType::TrailRunning,
-        Utc::now() - Duration::days(210),
+        Timestamp::now() - Elapsed::days(210),
         1_712,
         "sciotte".to_owned(),
     )
@@ -114,7 +114,7 @@ async fn serving_a_covered_window_from_cache_does_not_restamp_its_freshness() {
             &tenant,
             "sciotte",
             BackfillCoverage {
-                oldest_reached_ts: (Utc::now() - Duration::days(400)).timestamp(),
+                oldest_reached_ts: (Timestamp::now() - Elapsed::days(400)).epoch_seconds(),
                 hit_feed_end: true,
                 // Written by the capture deployed now: this test is about
                 // freshness, so the window must read as covered.
@@ -147,7 +147,7 @@ async fn serving_a_covered_window_from_cache_does_not_restamp_its_freshness() {
             &runtime,
             &ctx,
             json!({
-                "after": (Utc::now() - Duration::days(300)).timestamp(),
+                "after": (Timestamp::now() - Elapsed::days(300)).epoch_seconds(),
                 "limit": 10,
                 "mode": "summary"
             }),
@@ -270,7 +270,7 @@ fn a_window_ending_now_is_an_open_head_not_a_closed_window() {
 /// returned all thirteen.
 #[test]
 fn a_live_row_replaces_the_cached_copy_of_the_same_activity() {
-    let start = Utc::now() - Duration::days(3);
+    let start = Timestamp::now() - Elapsed::days(3);
     let cached_copy = ActivityBuilder::new(
         "20194413415",
         "Trop technique mais gros fuuuuun!",
@@ -285,7 +285,7 @@ fn a_live_row_replaces_the_cached_copy_of_the_same_activity() {
         "20100000001",
         "Début!",
         SportType::TrailRunning,
-        start - Duration::days(3),
+        start - Elapsed::days(3),
         8_701,
         "sciotte",
     )
@@ -307,7 +307,7 @@ fn a_live_row_replaces_the_cached_copy_of_the_same_activity() {
         "20231181975",
         "Retour!",
         SportType::MountainBike,
-        start + Duration::days(3),
+        start + Elapsed::days(3),
         5_385,
         "sciotte",
     )

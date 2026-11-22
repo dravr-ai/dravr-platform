@@ -14,7 +14,7 @@
 //! a reply through the same path a chat turn takes — the heuristic extractor,
 //! then every layer — with the athlete's synced nights in the snapshot.
 
-use chrono::{Duration, NaiveDate};
+use dravr_tronc::dates::{CivilDate, Elapsed};
 use pierre_core::models::SportType;
 use pierre_evals::athlete_data::{AthleteRecord, RecordedActivity};
 use pierre_evals::{
@@ -27,16 +27,16 @@ use pierre_memory::{ClaimStatus, EvidenceStrength, VerdictLayer};
 /// below ever reached the evidence layer, this is what would "support" it.
 const CORPUS: &str = r#"{"id":"doi:10.1/d","category":"recovery","proposition":"Adults require 7 to 9 hours of sleep per night","strength":"strong","citation":"AASM 2015"}"#;
 
-fn today() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2026, 10, 9).unwrap()
+fn today() -> CivilDate {
+    CivilDate::from_ymd(2026, 10, 9).unwrap()
 }
 
 /// A week of nights: HRV 60 ms then 51 last night (−15%), resting HR 48 then
 /// 52, sleep 7 h 30 then 6 h.
 fn readings() -> RecoveryReadings {
     let series = |earlier: f64, last: f64| {
-        let mut daily: Vec<(NaiveDate, f64)> = (1..=6)
-            .map(|back| (today() - Duration::days(back), earlier))
+        let mut daily: Vec<(CivilDate, f64)> = (1..=6)
+            .map(|back| (today() - Elapsed::days(back), earlier))
             .collect();
         daily.push((today(), last));
         NightlyMetric::from_daily(&daily, today())

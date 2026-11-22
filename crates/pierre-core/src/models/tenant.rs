@@ -54,7 +54,7 @@
 //!   does not carry that verdict. Do not read a `TenantId` parameter as
 //!   "already authorized".
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -236,9 +236,9 @@ pub struct Tenant {
     /// User ID of the tenant owner
     pub owner_user_id: Uuid,
     /// When tenant was created
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When tenant was last updated
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 impl Tenant {
@@ -251,7 +251,7 @@ impl Tenant {
         plan: String,
         owner_user_id: Uuid,
     ) -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Self {
             id: TenantId::generate(),
             name,
@@ -303,9 +303,9 @@ pub struct OAuthClientGrant {
     /// Exact space-separated scope string that was consented to
     pub scope: String,
     /// When the grant was recorded
-    pub granted_at: DateTime<Utc>,
+    pub granted_at: Timestamp,
     /// When the grant was revoked (soft delete); `None` while active
-    pub revoked_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<Timestamp>,
     /// The version of the consent screen's text the user approved: a digest
     /// of every line the screen can show, in [`Self::consent_locale`]. A
     /// later authorization asks again when the text in that language has
@@ -326,7 +326,7 @@ pub struct ClientGrantStanding {
     /// Whether an un-revoked grant exists for the client
     pub active: bool,
     /// When a grant for the client was last revoked; `None` when none ever was
-    pub last_revoked_at: Option<DateTime<Utc>>,
+    pub last_revoked_at: Option<Timestamp>,
 }
 
 impl ClientGrantStanding {
@@ -342,7 +342,7 @@ impl ClientGrantStanding {
     #[must_use]
     pub fn admits_token_issued_at(&self, issued_at: i64) -> bool {
         self.last_revoked_at
-            .is_none_or(|revoked_at| self.active && issued_at > revoked_at.timestamp())
+            .is_none_or(|revoked_at| self.active && issued_at > revoked_at.epoch_seconds())
     }
 }
 

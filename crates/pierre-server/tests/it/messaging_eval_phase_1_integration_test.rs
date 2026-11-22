@@ -44,7 +44,7 @@ mod phase_1_integration {
     };
     use async_trait::async_trait;
     use axum::http::StatusCode;
-    use chrono::Utc;
+    use dravr_tronc::dates::Timestamp;
     use futures_util::stream;
     use hmac::{Hmac, Mac};
     use pierre_core::errors::AppError;
@@ -166,7 +166,7 @@ mod phase_1_integration {
         user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);
-        user.approved_at = Some(Utc::now());
+        user.approved_at = Some(Timestamp::now());
         let user_id = user.id;
         resources.common.repos.users.create(&user).await.unwrap();
 
@@ -178,8 +178,8 @@ mod phase_1_integration {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         resources
             .common
@@ -306,7 +306,7 @@ mod phase_1_integration {
             }
         })
         .to_string();
-        let timestamp = Utc::now().timestamp().to_string();
+        let timestamp = Timestamp::now().epoch_seconds().to_string();
         let sig = compute_slack_sig(signing_secret, &timestamp, &body);
 
         let router = MessagingRoutes::routes(Arc::clone(&resources));

@@ -8,7 +8,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::playbooks::{AdviceStatus, OutcomeMetric, TriggerKind};
 use pierre_services::advice_capture::{
@@ -53,7 +53,7 @@ fn gate_rejects_short_and_non_recommendation_replies() {
 
 #[test]
 fn raw_to_pending_maps_types_and_schedules_due_date() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let raw = RawAdvicePublic {
         trigger_kind: "hrv_drop".to_owned(),
         trigger_sport: None,
@@ -84,7 +84,7 @@ fn raw_to_pending_maps_types_and_schedules_due_date() {
 
 #[test]
 fn raw_to_pending_rejects_non_slug_sport() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let base = |sport: &str| RawAdvicePublic {
         trigger_kind: "hrv_drop".to_owned(),
         trigger_sport: Some(sport.to_owned()),
@@ -117,7 +117,7 @@ fn raw_to_pending_rejects_non_slug_sport() {
 
 #[test]
 fn raw_to_pending_clamps_window_and_defaults_unknowns() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let raw = RawAdvicePublic {
         trigger_kind: "garbage".to_owned(),
         trigger_sport: Some(String::new()), // empty sport -> None

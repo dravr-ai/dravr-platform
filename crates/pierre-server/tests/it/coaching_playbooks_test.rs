@@ -12,7 +12,7 @@
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_database::repositories::{ArchetypePriorUpsert, RecordedOutcome};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::playbooks::{
@@ -60,7 +60,7 @@ async fn record_outcome_creates_then_increments_same_playbook() {
         intervention: &intervention,
         outcome_metric: &metric,
         label: OutcomeLabel::Success,
-        at: Utc::now(),
+        at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
     };
 
@@ -120,7 +120,7 @@ async fn list_playbooks_is_tenant_isolated() {
             intervention: &intervention,
             outcome_metric: &metric,
             label: OutcomeLabel::Success,
-            at: Utc::now(),
+            at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
         };
         repos
@@ -154,19 +154,19 @@ async fn pending_advice_due_label_and_future() {
         intervention: sample_intervention(),
         outcome_metric: sample_metric(),
         baseline: MetricBaseline {
-            captured_at: Utc::now(),
+            captured_at: Timestamp::now(),
         },
         due_by,
         status: AdviceStatus::Pending,
         label: None,
         label_source: None,
         source_msg_id: Some("m1".to_owned()),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
     };
 
-    let past = make_advice("due-now", Utc::now() - Duration::hours(1));
-    let future = make_advice("not-yet", Utc::now() + Duration::hours(48));
+    let past = make_advice("due-now", Timestamp::now() - Elapsed::hours(1));
+    let future = make_advice("not-yet", Timestamp::now() + Elapsed::hours(48));
     repos.playbooks.insert_pending_advice(&past).await.unwrap();
     repos
         .playbooks
@@ -174,7 +174,7 @@ async fn pending_advice_due_label_and_future() {
         .await
         .unwrap();
 
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let due = repos.playbooks.due_pending_advice(now, 100).await.unwrap();
     assert_eq!(due.len(), 1, "only the past-due advice is returned");
     assert_eq!(due[0].id, "due-now");
@@ -191,7 +191,7 @@ async fn pending_advice_due_label_and_future() {
         intervention: &intervention,
         outcome_metric: &metric,
         label: OutcomeLabel::Success,
-        at: Utc::now(),
+        at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
     };
     let playbook_id = repos
@@ -238,7 +238,7 @@ async fn agent_scoping_includes_agnostic_excludes_other_agent() {
             intervention: &intervention,
             outcome_metric: &metric,
             label: OutcomeLabel::Success,
-            at: Utc::now(),
+            at: Timestamp::now(),
             transport_policy: TransportPolicy::AnyTransport,
         };
         repos
@@ -284,14 +284,14 @@ fn due_sample_advice(id: &str) -> PendingAdvice {
         intervention: sample_intervention(),
         outcome_metric: sample_metric(),
         baseline: MetricBaseline {
-            captured_at: Utc::now(),
+            captured_at: Timestamp::now(),
         },
-        due_by: Utc::now() - Duration::hours(1),
+        due_by: Timestamp::now() - Elapsed::hours(1),
         status: AdviceStatus::Pending,
         label: None,
         label_source: None,
         source_msg_id: None,
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
     }
 }
@@ -313,7 +313,7 @@ async fn forget_playbook_purges_pending_advice_so_it_cannot_resurrect() {
         intervention: &intervention,
         outcome_metric: &metric,
         label: OutcomeLabel::Success,
-        at: Utc::now(),
+        at: Timestamp::now(),
         transport_policy: TransportPolicy::AnyTransport,
     };
     let playbook_id = repos
@@ -336,7 +336,7 @@ async fn forget_playbook_purges_pending_advice_so_it_cannot_resurrect() {
         .unwrap();
     assert_eq!(removed, 1);
 
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let due = repos.playbooks.due_pending_advice(now, 100).await.unwrap();
     assert!(due.is_empty(), "forget purged the in-flight advice");
     let playbooks = repos
@@ -365,7 +365,7 @@ async fn insert_pending_advice_dedups_identical_open_advice() {
         .await
         .unwrap();
 
-    let now = Utc::now().timestamp();
+    let now = Timestamp::now().epoch_seconds();
     let due = repos.playbooks.due_pending_advice(now, 100).await.unwrap();
     assert_eq!(due.len(), 1, "reaffirmed advice deduped to one open row");
 }

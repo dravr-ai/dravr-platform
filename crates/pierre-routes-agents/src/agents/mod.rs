@@ -26,7 +26,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
@@ -148,7 +148,7 @@ pub(crate) fn get_store_manager<C: AgentsCtx>(ctx: &Arc<C>) -> &dyn StoreListing
 /// Build metadata for agent responses.
 pub(crate) fn build_metadata() -> AgentsMetadata {
     AgentsMetadata {
-        timestamp: Utc::now().to_rfc3339(),
+        timestamp: Timestamp::now().to_rfc3339(),
         api_version: "1.0".to_owned(),
     }
 }

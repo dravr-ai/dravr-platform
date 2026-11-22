@@ -21,8 +21,8 @@
 //! intervals.icu series owes (carnet#521). Series from different sources are
 //! never merged: two devices' samples at the same instant are two readings.
 
-use chrono::{DateTime, Utc};
 use dravr_riviere::{AggregatedPoint, Aggregation, DataPoint, RiviereError, SeriesType, TimeRange};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -123,7 +123,7 @@ pub async fn continuous_series(
     user_id: Uuid,
     tenant: &TenantId,
     series: SeriesType,
-    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    (start, end): (Timestamp, Timestamp),
     read: SeriesRead,
 ) -> AppResult<StoredHealth<SourceSeries>> {
     let sources = repos
@@ -173,7 +173,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use chrono::{Duration, TimeZone};
+    use dravr_tronc::dates::Elapsed;
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::constants::oauth_providers::INTERVALS_ICU;
     use pierre_core::models::{ActivityBuilder, DataSource, DeviceType, SportType};
@@ -199,13 +199,13 @@ mod tests {
     /// with one intervals.icu ride recorded on `device`.
     async fn intervals_series(
         device: &str,
-    ) -> (Arc<RepositoryRegistry>, Uuid, TenantId, DateTime<Utc>) {
+    ) -> (Arc<RepositoryRegistry>, Uuid, TenantId, Timestamp) {
         let db = create_test_db().await.unwrap();
         let repos = Arc::clone(db.repositories());
         let user = create_test_user(&format!("series-{}@example.com", Uuid::new_v4()), None);
         let user_id = repos.users.create(&user).await.unwrap();
         let tenant = TenantId::generate();
-        let morning = Utc.with_ymd_and_hms(2026, 10, 12, 6, 0, 0).unwrap();
+        let morning = Timestamp::parse_from_rfc3339("2026-10-12T06:00:00Z").unwrap();
         let source_id = repos
             .data_sources
             .upsert_data_source(
@@ -230,7 +230,7 @@ mod tests {
                 SeriesType::HeartRate.id(),
                 vec![
                     DataPoint::new(morning, 52.0),
-                    DataPoint::new(morning + Duration::minutes(30), 58.0),
+                    DataPoint::new(morning + Elapsed::minutes(30), 58.0),
                 ],
             )
             .await
@@ -239,7 +239,7 @@ mod tests {
             "ride",
             "Ride",
             SportType::Ride,
-            morning - Duration::days(1),
+            morning - Elapsed::days(1),
             3_600,
             INTERVALS_ICU,
         )
@@ -261,7 +261,7 @@ mod tests {
             user_id,
             &tenant,
             SeriesType::HeartRate,
-            (morning, morning + Duration::hours(1)),
+            (morning, morning + Elapsed::hours(1)),
             SeriesRead::Points,
         )
         .await

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::tool_execution::{MAX_MAX_TOOL_ITERATIONS, MIN_MAX_TOOL_ITERATIONS};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::field_update::FieldUpdate;
@@ -166,7 +167,7 @@ impl AgentResponse {
         self.is_assigned = state.is_member;
         self.is_favorite = state.is_favorite;
         self.use_count = state.use_count;
-        self.last_used_at = state.last_used_at.map(|dt| dt.to_rfc3339());
+        self.last_used_at = state.last_used_at.map(Timestamp::to_rfc3339);
     }
 }
 
@@ -182,7 +183,7 @@ impl From<AgentListItem> for AgentResponse {
             token_count: item.agent.token_count,
             is_favorite: item.is_favorite,
             use_count: item.use_count,
-            last_used_at: item.last_used_at.map(|dt| dt.to_rfc3339()),
+            last_used_at: item.last_used_at.map(Timestamp::to_rfc3339),
             created_at: item.agent.created_at.to_rfc3339(),
             updated_at: item.agent.updated_at.to_rfc3339(),
             is_system: item.agent.is_system,
@@ -710,9 +711,9 @@ impl StoreAgentResponse {
             token_count: agent.token_count,
             install_count: listing.install_count,
             icon_url: listing.icon_url,
-            published_at: listing.published_at.map(|dt| dt.to_rfc3339()),
-            submitted_at: listing.review_submitted_at.map(|dt| dt.to_rfc3339()),
-            rejected_at: listing.review_decision_at.map(|dt| dt.to_rfc3339()),
+            published_at: listing.published_at.map(Timestamp::to_rfc3339),
+            submitted_at: listing.review_submitted_at.map(Timestamp::to_rfc3339),
+            rejected_at: listing.review_decision_at.map(Timestamp::to_rfc3339),
             author_id: listing.author_id,
             author_email,
             rejection_reason,

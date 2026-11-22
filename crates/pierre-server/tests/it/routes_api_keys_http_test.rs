@@ -16,7 +16,7 @@
 use crate::common;
 use crate::helpers;
 
-use chrono::{Duration, SecondsFormat, Utc};
+use dravr_tronc::dates::{Elapsed, SecondsFormat, Timestamp};
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
@@ -482,7 +482,7 @@ async fn record_call(
         .record_api_key(&ApiKeyUsage {
             id: None,
             api_key_id: key.id.clone(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             tool_name: tool_name.to_owned(),
             response_time_ms: Some(response_time_ms),
             status_code,
@@ -498,11 +498,11 @@ async fn record_call(
 
 /// A usage window around now, as the query string the route reads.
 fn window_around_now() -> String {
-    let now = Utc::now();
+    let now = Timestamp::now();
     format!(
         "start_date={}&end_date={}",
-        (now - Duration::days(1)).to_rfc3339_opts(SecondsFormat::Secs, true),
-        (now + Duration::days(1)).to_rfc3339_opts(SecondsFormat::Secs, true),
+        (now - Elapsed::days(1)).to_rfc3339_opts(SecondsFormat::Secs, true),
+        (now + Elapsed::days(1)).to_rfc3339_opts(SecondsFormat::Secs, true),
     )
 }
 

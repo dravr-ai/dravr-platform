@@ -26,9 +26,9 @@
 
 use std::fmt;
 
-use chrono::{DateTime, NaiveDate, Utc};
 use dravr_barrage::Tier;
 use dravr_riviere::SeriesType;
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{StoredHealthMetrics, TenantId};
@@ -104,7 +104,7 @@ pub struct ServedClinicalRecord {
     pub sensitivity_class: Option<String>,
     /// When it was effective.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub effective_at: Option<DateTime<Utc>>,
+    pub effective_at: Option<Timestamp>,
     /// The source it came from (an import's key, or `lab_document`).
     pub source: String,
     /// The resource as read (the athlete's read) or without free text.
@@ -129,9 +129,9 @@ pub struct ServedSelfReport {
     /// What it records.
     pub kind: String,
     /// When it starts.
-    pub start: DateTime<Utc>,
+    pub start: Timestamp,
     /// When it ends.
-    pub end: DateTime<Utc>,
+    pub end: Timestamp,
     /// A coded value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value_code: Option<String>,
@@ -151,7 +151,7 @@ pub struct ServedSelfReport {
 #[derive(Debug, Clone, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct GlucoseReadingOut {
     /// When it was measured.
-    pub at: DateTime<Utc>,
+    pub at: Timestamp,
     /// The reading, mg/dL.
     pub mg_dl: f64,
     /// The source it came from.
@@ -162,7 +162,7 @@ pub struct GlucoseReadingOut {
 #[derive(Debug, Clone, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct GlucoseDay {
     /// The day.
-    pub date: NaiveDate,
+    pub date: CivilDate,
     /// The day's reading, mg/dL.
     pub mg_dl: f64,
     /// The source it came from.
@@ -293,7 +293,7 @@ async fn glucose_page(
     repos: &RepositoryRegistry,
     terms: &dyn ProviderTerms,
     (user_id, tenant): (Uuid, &TenantId),
-    range: (DateTime<Utc>, DateTime<Utc>),
+    range: (Timestamp, Timestamp),
     (coach, project): (Option<CoachReach>, RowProjection<StoredHealthMetrics>),
 ) -> AppResult<HealthRecordsPage> {
     let mut page = HealthRecordsPage::default();
@@ -413,10 +413,10 @@ impl RecordsRead<'_> {
                 })
             }
             RecordKind::Glucose => {
-                let until = window.until.unwrap_or_else(Utc::now);
+                let until = window.until.unwrap_or_else(Timestamp::now);
                 let since = window
                     .since
-                    .unwrap_or_else(|| until - chrono::Duration::days(GLUCOSE_DEFAULT_DAYS));
+                    .unwrap_or_else(|| until - Elapsed::days(GLUCOSE_DEFAULT_DAYS));
                 // Two stored reads in one future: boxed, so every caller's
                 // future stays small.
                 Box::pin(glucose_page(

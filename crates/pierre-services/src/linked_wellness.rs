@@ -21,7 +21,7 @@
 //! with the athlete's other sources. A night is dated by the morning it ended
 //! on, in the athlete's zone.
 
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{DelegationStatus, TenantId};
@@ -42,7 +42,7 @@ pub struct Reading<T> {
     /// The value.
     pub value: T,
     /// The day it describes.
-    pub date: NaiveDate,
+    pub date: CivilDate,
 }
 
 /// The newest wellness a coach's link filed for a coached athlete in the
@@ -141,13 +141,13 @@ pub async fn read_linked_wellness(
     repos: &RepositoryRegistry,
     terms: &dyn ProviderTerms,
     link: &WellnessLink,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> AppResult<LinkedWellness> {
     let filed = Filed {
         athlete: link.athlete,
         tenant: link.tenant,
         provider: link.provider.clone(),
-        start: now - Duration::days(LINKED_WELLNESS_DAYS),
+        start: now - Elapsed::days(LINKED_WELLNESS_DAYS),
         end: now,
     };
     under_ai_consent(
@@ -164,8 +164,8 @@ struct Filed {
     athlete: Uuid,
     tenant: TenantId,
     provider: String,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
+    start: Timestamp,
+    end: Timestamp,
 }
 
 /// The newest of each reading the link's platform filed in the span.

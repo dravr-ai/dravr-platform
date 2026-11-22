@@ -12,6 +12,7 @@ use crate::helpers;
 
 use axum::http::StatusCode;
 use common::create_test_server_resources;
+use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::groups::{
@@ -46,7 +47,7 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
     );
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
-    user.approved_at = Some(chrono::Utc::now());
+    user.approved_at = Some(Timestamp::now());
 
     let user_id = user.id;
     resources.common.repos.users.create(&user).await.unwrap();
@@ -59,8 +60,8 @@ async fn seed_user_tenant(resources: &Arc<ServerContext>, email: &str) -> (Uuid,
         domain: None,
         plan: "professional".to_owned(),
         owner_user_id: user_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
     resources
         .common
@@ -129,7 +130,7 @@ async fn seed_group_membership(
     agent_id: &str,
     role: GroupRole,
 ) -> Uuid {
-    let now = chrono::Utc::now();
+    let now = Timestamp::now();
     let group_id = Uuid::new_v4();
     let group = CoachingGroup {
         id: group_id,

@@ -10,6 +10,7 @@
 use crate::common;
 
 use anyhow::Result;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::testkit::assert::assert_rpc_error;
 use dravr_tronc::testkit::McpTestClient;
 use pierre_auth::auth::{AuthManager, DelegatedGrant};
@@ -204,9 +205,9 @@ impl TestServer {
             user_status: UserStatus::Active,
             role: UserRole::User,
             approved_by: Some(user_id),
-            approved_at: Some(chrono::Utc::now()),
-            created_at: chrono::Utc::now(),
-            last_active: chrono::Utc::now(),
+            approved_at: Some(Timestamp::now()),
+            created_at: Timestamp::now(),
+            last_active: Timestamp::now(),
             firebase_uid: None,
             auth_provider: String::new(),
             analytics_consent: false,
@@ -233,8 +234,8 @@ impl TestServer {
             domain: None,
             plan: "starter".to_owned(),
             owner_user_id: user_id,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
         };
         repos.tenants.create(&tenant).await?;
         repos.users.update_tenant_id(user_id, tenant_id).await?;

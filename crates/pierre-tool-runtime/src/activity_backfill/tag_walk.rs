@@ -50,7 +50,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::provider_context::ProviderActivitySearch;
 use pierre_core::models::Activity;
@@ -222,7 +222,7 @@ pub(super) async fn run_tag_walk(job: &ActivityBackfillJob, recorded: Option<(Jo
         return;
     };
     let renewal = keep_backfill_lease(job, &lease);
-    let attempt_started_at = Utc::now();
+    let attempt_started_at = Timestamp::now();
     let step = walk_step(job).await;
     settle(job, &lease, attempts, step, attempt_started_at).await;
     drop(renewal);
@@ -472,7 +472,7 @@ async fn settle(
     lease: &JobLease,
     attempts: i64,
     step: Step,
-    attempt_started_at: DateTime<Utc>,
+    attempt_started_at: Timestamp,
 ) {
     let ledger = &job.resources.repos().activity_backfill_jobs;
     match step {

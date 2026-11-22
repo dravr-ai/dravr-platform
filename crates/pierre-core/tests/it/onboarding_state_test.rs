@@ -6,6 +6,7 @@
 
 #![allow(missing_docs, clippy::unwrap_used)]
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::models::onboarding::{
     CoverageMap, CoverageTarget, GuidedFlow, LoadSnapshot, OnboardingState, TopicSlug,
     TopicVisibility, WalkAudience, MAX_PROBE_ATTEMPTS,
@@ -26,7 +27,7 @@ fn covered_fact() -> DossierFact {
         object: "x".to_owned(),
         confidence: 0.9,
         source: "onboarding".to_owned(),
-        updated_at: chrono::DateTime::from_timestamp(0, 0).unwrap_or_default(),
+        updated_at: Timestamp::from_epoch_seconds(0).ok().unwrap_or_default(),
         valid_until: None,
         stale: false,
     }

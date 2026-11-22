@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::recipes::{
     IngredientUnit, MealTiming, Recipe, RecipeIngredient, ValidatedNutrition,
@@ -75,7 +75,7 @@ pub trait RecipeRepository: Send + Sync {
 // them. `user_id` binds through the backend's uuid codec (see
 // [`super::uuid_columns`]): `uuid` on Postgres, hyphenated `TEXT` on `SQLite`.
 // `tenant_id` is `TEXT` on both schemas and binds as its string on both.
-// Timestamps bind as `DateTime<Utc>` on both: sqlx-sqlite writes the RFC 3339
+// Timestamps bind as `Timestamp` on both: sqlx-sqlite writes the RFC 3339
 // text the column already holds, Postgres its native `TIMESTAMPTZ`.
 
 /// The twenty-one columns every read of `recipes` returns, in the order
@@ -334,7 +334,7 @@ where
 ///
 /// `user_id` is read by the caller through its backend's uuid codec and
 /// handed in; everything else decodes alike on both drivers: `id` as the
-/// hyphenated text both schemas store, timestamps as `DateTime<Utc>`,
+/// hyphenated text both schemas store, timestamps as `Timestamp`,
 /// counts as `i32`.
 ///
 /// The nutrition cache is present when `cached_calories` is; a cached row
@@ -354,7 +354,7 @@ where
     String: Decode<'r, R::Database> + Type<R::Database>,
     i32: Decode<'r, R::Database> + Type<R::Database>,
     f64: Decode<'r, R::Database> + Type<R::Database>,
-    DateTime<Utc>: Decode<'r, R::Database> + Type<R::Database>,
+    Timestamp: Decode<'r, R::Database> + Type<R::Database>,
 {
     let id: String = column(row, "id")?;
     let meal_timing: String = column(row, "meal_timing")?;
@@ -364,7 +364,7 @@ where
     let cached_calories: Option<f64> = column(row, "cached_calories")?;
     let nutrition = match cached_calories {
         Some(calories) => {
-            let validated_at: Option<DateTime<Utc>> = column(row, "nutrition_validated_at")?;
+            let validated_at: Option<Timestamp> = column(row, "nutrition_validated_at")?;
             Some(ValidatedNutrition {
                 calories,
                 protein_g: column::<_, Option<f64>>(row, "cached_protein_g")?.unwrap_or(0.0),
@@ -373,7 +373,7 @@ where
                 fiber_g: column(row, "cached_fiber_g")?,
                 sodium_mg: column(row, "cached_sodium_mg")?,
                 sugar_g: column(row, "cached_sugar_g")?,
-                validated_at: validated_at.unwrap_or_else(Utc::now),
+                validated_at: validated_at.unwrap_or_else(Timestamp::now),
             })
         }
         None => None,
@@ -560,7 +560,7 @@ macro_rules! impl_recipe_repository {
                 tenant_id: TenantId,
                 recipe: &Recipe,
             ) -> AppResult<String> {
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let recipe_id = recipe.id.to_string();
                 let instructions_json = serde_json::to_string(&recipe.instructions)?;
                 let tags_json = serde_json::to_string(&recipe.tags)?;
@@ -668,7 +668,7 @@ macro_rules! impl_recipe_repository {
                 tenant_id: TenantId,
                 recipe: &Recipe,
             ) -> AppResult<bool> {
-                let now = Utc::now();
+                let now = Timestamp::now();
                 let instructions_json = serde_json::to_string(&recipe.instructions)?;
                 let tags_json = serde_json::to_string(&recipe.tags)?;
 

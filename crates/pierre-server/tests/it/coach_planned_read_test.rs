@@ -40,8 +40,8 @@ use axum::routing::get;
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_plan, in_web_turn};
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::providers::INTERVALS_ICU;
 use pierre_core::models::groups::{
@@ -222,7 +222,7 @@ async fn person(res: &Arc<ServerContext>, email: &str, name: &str) -> Person {
 /// `who`'s own Intervals.icu API key, for account `athlete`, with the
 /// connection a linked key registers.
 async fn connect_intervals(repos: &RepositoryRegistry, who: Person, key: &str, athlete: &str) {
-    let now = Utc::now();
+    let now = Timestamp::now();
     repos
         .oauth_tokens
         .upsert_token(&UserOAuthToken {
@@ -266,7 +266,7 @@ async fn coached_group(
     let agent_id = create_group_agent(repos, owner.id, owner.tenant)
         .await
         .unwrap();
-    let now = Utc::now();
+    let now = Timestamp::now();
     let group = repos
         .groups
         .create_group(
@@ -341,7 +341,7 @@ impl World {
 
     /// `who` joins `group`, sharing with its coach or not.
     async fn join(&self, group: &CoachingGroup, who: Person, shares: bool) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.repos()
             .groups
             .add_member(&GroupMember {
@@ -399,7 +399,7 @@ impl World {
             .expect("no live link holds this member or athlete yet");
         let link = repos
             .delegated_connections
-            .confirm(proposed.id, member.id, member.tenant, Utc::now())
+            .confirm(proposed.id, member.id, member.tenant, Timestamp::now())
             .await
             .unwrap()
             .expect("the proposal names the member");

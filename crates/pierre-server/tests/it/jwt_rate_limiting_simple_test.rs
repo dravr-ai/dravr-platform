@@ -14,7 +14,7 @@
 
 use crate::common;
 
-use chrono::Utc;
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::rate_limiting::{calculate_jwt_rate_limit, RequestBudget};
 use pierre_core::errors::ErrorCode;
@@ -78,7 +78,7 @@ async fn test_jwt_tokens_now_have_rate_limiting() {
     // Before: JWT tokens had no budget (unlimited access)
     // After: JWT tokens are metered by the user's tier, 10,000 for Starter,
     // resetting at the first instant of the next UTC month.
-    let now = Utc::now();
+    let now = Timestamp::now();
     let budget = calculate_jwt_rate_limit(&user, usage, now);
     assert_eq!(
         budget,

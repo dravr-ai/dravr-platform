@@ -34,14 +34,15 @@
 //! history".
 
 use std::collections::BTreeMap;
+use std::iter;
 
-use chrono::{Duration, NaiveDate};
 use dravr_cageux::algorithms::training_load::{DailyTrainingLoad, TrainingLoadAlgorithm};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::constants::limits::MAX_TIMEFRAME_DAYS;
 use dravr_cageux::error::IntelligenceResult;
 use dravr_cageux::models::activity::Activity;
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
+use dravr_tronc::dates::{CivilDate, Elapsed};
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::models::{DailyTrainingState, UserPhysiologicalProfile};
 
@@ -182,7 +183,7 @@ impl AthleteInputs {
         &self,
         calculator: TrainingLoadCalculator,
         activities: &[Activity],
-    ) -> BTreeMap<NaiveDate, f64> {
+    ) -> BTreeMap<CivilDate, f64> {
         self.calibrated(calculator).daily_tss(
             activities,
             self.ftp_watts,
@@ -217,8 +218,8 @@ impl AthleteInputs {
 pub fn compute_training_history(
     activities: &[Activity],
     inputs: AthleteInputs,
-    from: NaiveDate,
-    to: NaiveDate,
+    from: CivilDate,
+    to: CivilDate,
     algorithm_config: &AlgorithmConfig,
     user_timezone: Option<&str>,
 ) -> IntelligenceResult<Vec<DailyTrainingState>> {
@@ -233,7 +234,7 @@ pub fn compute_training_history(
 
     // Anchor the warm-up window on the configured chronic window so CTL/ATL
     // converge before `from`.
-    let warmup = from - Duration::days(warmup_days(algorithm_config.params.training_load_ctl_days));
+    let warmup = from - Elapsed::days(warmup_days(algorithm_config.params.training_load_ctl_days));
     // Bucket on the athlete's civil day, not the server's. A 21:00
     // America/Toronto session lands on the next UTC date, which shifted the
     // whole per-day series one day against the athlete's own calendar and made
@@ -243,15 +244,14 @@ pub fn compute_training_history(
     let calculator = TrainingLoadCalculator::from_config(algorithm_config.clone(), to)
         .in_zone(resolve_zone(user_timezone));
     let algorithm = calculator.algorithm();
-    let daily_tss: BTreeMap<NaiveDate, f64> = inputs
+    let daily_tss: BTreeMap<CivilDate, f64> = inputs
         .daily_tss(calculator, activities)
         .range(warmup..=to)
         .map(|(day, tss)| (*day, *tss))
         .collect();
 
     // Every day across [warmup, to], a rest day at zero.
-    let daily_load: Vec<(NaiveDate, f64)> = warmup
-        .iter_days()
+    let daily_load: Vec<(CivilDate, f64)> = iter::successors(Some(warmup), |day| day.succ())
         .take_while(|day| *day <= to)
         .map(|day| (day, daily_tss.get(&day).copied().unwrap_or(0.0)))
         .collect();
@@ -314,14 +314,14 @@ pub fn compute_training_history(
 /// seed no longer moves.
 fn load_series(
     algorithm: &TrainingLoadAlgorithm,
-    daily_tss: &BTreeMap<NaiveDate, f64>,
-    from: NaiveDate,
-    to: NaiveDate,
+    daily_tss: &BTreeMap<CivilDate, f64>,
+    from: CivilDate,
+    to: CivilDate,
 ) -> IntelligenceResult<Vec<DailyTrainingLoad>> {
-    let lookback_from = from - Duration::days(RAMP_RATE_LOOKBACK_DAYS);
+    let lookback_from = from - Elapsed::days(RAMP_RATE_LOOKBACK_DAYS);
     let lookback_as_of = to
-        .min(lookback_from + Duration::days(i64::from(MAX_TIMEFRAME_DAYS)))
-        .max(from - Duration::days(1));
+        .min(lookback_from + Elapsed::days(i64::from(MAX_TIMEFRAME_DAYS)))
+        .max(from - Elapsed::days(1));
     let mut series = algorithm.daily_series(daily_tss, lookback_from, lookback_as_of)?;
     series.truncate(usize::try_from(RAMP_RATE_LOOKBACK_DAYS).unwrap_or(7));
     series.extend(algorithm.daily_series(daily_tss, from, to)?);
@@ -330,7 +330,7 @@ fn load_series(
 
 #[allow(clippy::cast_precision_loss)]
 fn compute_acwr(
-    daily_load: &[(NaiveDate, f64)],
+    daily_load: &[(CivilDate, f64)],
     idx: usize,
     days_of_history: usize,
 ) -> Option<f64> {
@@ -357,7 +357,7 @@ fn compute_acwr(
 
 #[allow(clippy::cast_precision_loss)]
 fn compute_monotony_strain(
-    daily_load: &[(NaiveDate, f64)],
+    daily_load: &[(CivilDate, f64)],
     idx: usize,
     days_of_history: usize,
 ) -> (Option<f64>, Option<f64>) {
