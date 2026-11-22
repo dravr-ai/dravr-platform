@@ -447,12 +447,36 @@ jobs:
         env:
           SATELLITE: ${{ inputs.satellite }}
           VERSION: ${{ needs.resolve.outputs.version }}
+          COMPANIONS: ${{ needs.resolve.outputs.companions }}
           UPDATE_ARGS: ${{ steps.rewrite.outputs.update_args }}
         run: |
           set -euo pipefail
           PIN=scripts/ci/satellite-pin.sh
-          # shellcheck disable=SC2086
-          cargo update ${UPDATE_ARGS}
+          # Move only the bumped crates' lines when that is provably enough.
+          # `cargo update -p` re-resolves the graph and flips any crate that
+          # accepts two versions already in the lock (quinn's socket2, on 33 of the
+          # 40 lane integrations of 2026-11-01..22). For a git-tag release the
+          # new entry is the tag and its commit, so lock-rewrite edits those two
+          # lines and `cargo metadata --locked` proves the lock still resolves.
+          # Anything else — a crates-io or git-rev source (exit 3), a release that
+          # changed its own dependencies, a version that is not its tag — puts the
+          # lock back and takes the cargo update path below.
+          cp Cargo.lock "${RUNNER_TEMP}/Cargo.lock.before"
+          PRECISE=true
+          "$PIN" lock-rewrite "${SATELLITE}" "${VERSION}" || PRECISE=false
+          while IFS=$'\t' read -r name want; do
+            [ -z "${name}" ] && continue
+            [ "${PRECISE}" = true ] || break
+            "$PIN" lock-rewrite "${name}" "${want}" || PRECISE=false
+          done < <(printf '%s' "${COMPANIONS:-{\}}" | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
+          if [ "${PRECISE}" = true ] && cargo metadata --locked --format-version 1 >/dev/null; then
+            echo "lock moved by a precise rewrite: only the bumped crates' lines changed"
+          else
+            echo "::notice::no precise lock rewrite for ${SATELLITE} ${VERSION} (reason above); using cargo update"
+            cp "${RUNNER_TEMP}/Cargo.lock.before" Cargo.lock
+            # shellcheck disable=SC2086
+            cargo update ${UPDATE_ARGS}
+          fi
 
           # Which dravr-ecosystem crates now resolve more than once? Asked of the
           # duplicate gate itself in its machine-readable mode, so "ecosystem

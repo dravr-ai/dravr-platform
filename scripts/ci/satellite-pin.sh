@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Reads satellites.toml and moves a satellite's pins across every manifest that carries them
-# ABOUTME: Subcommands resolve/sites/rewrite/verify/lock-assert/gates/names — the testable half of the bump chain
+# ABOUTME: Subcommands resolve/sites/rewrite/verify/lock-assert/lock-rewrite/gates/names — the testable half of the bump chain
 
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -31,7 +31,8 @@
 #      hard-fails with "refusing to push a partial bump". The negative form cannot
 #      tell "already current" from "sed matched nothing".
 #
-# Exit codes: 0 success, 1 a real failure, 2 the scan could not verify anything.
+# Exit codes: 0 success, 1 a real failure, 2 the scan could not verify anything,
+# 3 lock-rewrite cannot move this source's lock lines precisely.
 
 set -uo pipefail
 
@@ -369,6 +370,98 @@ cmd_lock_assert() { # $1=name $2=target
 }
 
 # ---------------------------------------------------------------------------
+# lock-rewrite — move only the bumped crates' lines in Cargo.lock
+#
+# `cargo update -p <crate>` re-resolves the graph, and a crate that accepts two
+# versions already in the lock can land on either: quinn's socket2 flipped between
+# 0.5.10 and 0.6.5 on 33 of the 40 lane integrations from 2026-11-01 to 2026-11-22
+# (0e56c7def among them). For a git-tag release the new lock entry is known
+# without resolving anything — the version is the tag and the source is the
+# tag's commit — so this edits exactly those two lines per package and touches
+# nothing else. The caller proves the result with `cargo metadata --locked` and
+# falls back to `cargo update` when it fails (the release changed its own
+# dependencies, or its version is not its tag).
+#
+# Exit 0 rewrote, 1 a real failure, 3 this source cannot be rewritten precisely
+# (crates-io needs a registry checksum, git-rev a version only a fetch can read).
+# ---------------------------------------------------------------------------
+
+# The commit a tag names, peeled through an annotated tag. SATELLITE_PIN_TAG_SHA
+# stands in for the network in the fixture suite.
+tag_commit() { # $1=git url $2=tag
+  if [ -n "${SATELLITE_PIN_TAG_SHA:-}" ]; then printf '%s' "$SATELLITE_PIN_TAG_SHA"; return 0; fi
+  local refs peeled plain
+  refs=$(git ls-remote "$1" "refs/tags/$2" "refs/tags/$2^{}") || return 1
+  peeled=$(printf '%s\n' "$refs" | awk '$2 ~ /\^\{\}$/ {print $1}')
+  plain=$(printf '%s\n' "$refs" | awk '$2 !~ /\^\{\}$/ {print $1}')
+  printf '%s' "${peeled:-$plain}"
+}
+
+cmd_lock_rewrite() { # $1=name $2=target
+  local name="$1" target="$2" src bare lock crate url prefix sha moved=0 total=0
+  require_stanza "$name"
+  src=$(stanza_source "$name")
+  case "$src" in
+    git-tag|git-tag+version) ;;
+    *) echo "lock-rewrite: ${name} is ${src}; only git-tag sources rewrite precisely" >&2; exit 3 ;;
+  esac
+  bare=$(normalize "$target")
+  printf '%s' "$bare" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
+    || die "target must be a three-component version, got '${target}'"
+  lock="${REPO_ROOT}/Cargo.lock"
+  [ -f "$lock" ] || die "no Cargo.lock at ${lock}"
+
+  for crate in $(stanza_crates "$name"); do
+    # The URL and the tag's v-prefix come from the entry already in the lock, so
+    # the rewrite keeps whatever spelling cargo wrote.
+    url=$(LOCK_CRATE="$crate" perl -ne '
+      BEGIN { $c = $ENV{LOCK_CRATE}; }
+      $n = $1 if /^name = "([^"]+)"/;
+      if ($n eq $c && /^source = "git\+([^"?]+)\?tag=(v?)[0-9]+\.[0-9]+\.[0-9]+#[0-9a-f]+"/) { print "$1\t$2"; exit; }
+    ' "$lock")
+    [ -z "$url" ] && die "Cargo.lock has no git+tag entry for ${crate} — nothing to rewrite"
+    prefix=$(printf '%s' "$url" | cut -f2); url=$(printf '%s' "$url" | cut -f1)
+    sha=$(tag_commit "$url" "${prefix}${bare}") || die "could not read tag ${prefix}${bare} of ${url}"
+    printf '%s' "$sha" | grep -qE '^[0-9a-f]{40}$' \
+      || die "tag ${prefix}${bare} of ${url} resolved to '${sha}', not a commit"
+
+    # The count arrives on stderr, so perl's exit status is judged on its own: a
+    # crash still runs END and prints a count after its message.
+    if ! moved=$(LOCK_CRATE="$crate" LOCK_URL="$url" LOCK_TAG="${prefix}${bare}" LOCK_VER="$bare" LOCK_SHA="$sha" \
+      perl -i -ne '
+        BEGIN { $c = $ENV{LOCK_CRATE}; $u = quotemeta($ENV{LOCK_URL}); $moved = 0; }
+        # Every table header ends the block before it; only [[package]] blocks
+        # are candidates. Blocks are flushed inside the loop, at each header and
+        # at eof, because perl -i has closed the output by the time END runs.
+        if (/^\[/) { flush(); @block = ($_); }
+        elsif (@block) { push @block, $_; }
+        else { print; }
+        flush() if eof;
+        END { print STDERR "$moved\n"; }
+        sub flush {
+          return unless @block;
+          unless ($block[0] =~ /^\[\[package\]\]/) { print @block; @block = (); return; }
+          my ($n) = map { /^name = "([^"]+)"/ ? $1 : () } @block;
+          my ($s) = grep { /^source = "git\+$u\?tag=v?[0-9]+\.[0-9]+\.[0-9]+#[0-9a-f]+"$/ } @block;
+          if (defined $n && $n eq $c && defined $s) {
+            for (@block) {
+              s/^version = "[^"]+"$/version = "$ENV{LOCK_VER}"/;
+              s/^source = "git\+$u\?tag=v?[0-9]+\.[0-9]+\.[0-9]+#[0-9a-f]+"$/source = "git+$ENV{LOCK_URL}?tag=$ENV{LOCK_TAG}#$ENV{LOCK_SHA}"/;
+            }
+            $moved++;
+          }
+          print @block; @block = ();
+        }
+      ' "$lock" 2>&1 >/dev/null); then
+      die "perl could not rewrite ${lock} for ${crate}: ${moved}"
+    fi
+    [ "$moved" -ge 1 ] 2>/dev/null || die "rewrote no Cargo.lock entry for ${crate} (perl reported '${moved}')"
+    total=$(( total + moved ))
+  done
+  echo "rewrote ${total} Cargo.lock entry/entries for ${name} → ${bare}"
+}
+
+# ---------------------------------------------------------------------------
 
 # Which version a run integrates. A run can start long after its trigger, so main
 # may already be past the version it was told to move to, and integrating it then
@@ -394,6 +487,7 @@ usage: satellite-pin.sh <command> [args]
   rewrite <name> <target>      move every pin site, in place
   verify  <name> <target>      positive verification of every site
   lock-assert <name> <target>  Cargo.lock actually moved
+  lock-rewrite <name> <target> move only these crates' Cargo.lock lines (git-tag; exit 3 otherwise)
   target <pinned> <version> <may_move_back>  the version a run integrates
   gates <name>                 workflow files this satellite must gate on
   crates <name>                package names moving on one version
@@ -409,6 +503,7 @@ case "${1:-}" in
   rewrite)       cmd_rewrite "${2:?name}" "${3:?target}" ;;
   verify)        cmd_verify  "${2:?name}" "${3:?target}" ;;
   lock-assert)   cmd_lock_assert "${2:?name}" "${3:?target}" ;;
+  lock-rewrite)  cmd_lock_rewrite "${2:?name}" "${3:?target}" ;;
   target)        cmd_target "${2:?pinned}" "${3:?version}" "${4:?may_move_back}" ;;
   gates)         require_stanza "${2:?name}"; stanza_gates "$2"; echo ;;
   crates)        require_stanza "${2:?name}"; stanza_crates "$2"; echo ;;
