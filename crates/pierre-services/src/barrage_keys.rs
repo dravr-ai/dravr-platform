@@ -309,14 +309,30 @@ pub fn published_checkpoint_key() -> Option<&'static CheckpointKey> {
     PUBLISHED_KEY.get()
 }
 
-fn publish(signer: &dyn Signer) {
+/// Publish `signer`'s key into `slot`, once: the process-wide slot is
+/// [`PUBLISHED_KEY`].
+///
+/// The same key offered again is a no-op. Another key is refused: a process
+/// signs with one key, and serving the first while signing with the second
+/// would publish a key no new checkpoint verifies against.
+///
+/// # Errors
+///
+/// When `slot` already holds a different key.
+fn publish_into(slot: &OnceLock<CheckpointKey>, signer: &dyn Signer) -> AppResult<()> {
     let key = CheckpointKey {
         name: signer.key_name().to_owned(),
         public_key: signer.public_key(),
     };
-    if PUBLISHED_KEY.set(key.clone()).is_err() && PUBLISHED_KEY.get() != Some(&key) {
-        warn!("a second checkpoint key was offered; the first one stays published");
+    let published = slot.get_or_init(|| key.clone());
+    if *published == key {
+        return Ok(());
     }
+    Err(AppError::internal(format!(
+        "a second checkpoint key `{}` was offered while `{}` is published; a process signs \
+         record_log checkpoints with one key",
+        key.name, published.name
+    )))
 }
 
 /// Which checkpoint signer a deployment runs, from its configuration.
@@ -351,8 +367,8 @@ fn select_signer(kms_resource: Option<&str>, signing_key: Option<&str>) -> Signe
 ///
 /// # Errors
 ///
-/// When the named KMS key cannot be read or is not Ed25519, or the local
-/// key cannot be derived.
+/// When the named KMS key cannot be read or is not Ed25519, the local key
+/// cannot be derived, or another key is already published in this process.
 pub async fn checkpoint_signer(keyed: &PlatformKeyed) -> AppResult<Option<Arc<dyn Signer>>> {
     let kms_resource = env::var_os(KMS_KEY_RESOURCE_ENV).map(|v| v.to_string_lossy().into_owned());
     let signing_key = env::var(CHECKPOINT_SIGNING_KEY_ENV).ok();
@@ -374,7 +390,7 @@ pub async fn checkpoint_signer(keyed: &PlatformKeyed) -> AppResult<Option<Arc<dy
                 Arc::new(LocalSigner::derived(keyed)?)
             }
         };
-    publish(signer.as_ref());
+    publish_into(&PUBLISHED_KEY, signer.as_ref())?;
     Ok(Some(signer))
 }
 
@@ -558,6 +574,47 @@ mod tests {
             other.mac(KeyedDomain::LogRecord, b"m").unwrap(),
             keyed.mac(KeyedDomain::LogRecord, b"m").unwrap(),
             "bug: two processes share an ephemeral key"
+        );
+    }
+
+    /// The key a process signs with, offered again (a second boot path, a
+    /// retry), stays published and is no error.
+    #[test]
+    fn the_same_checkpoint_key_offered_again_is_a_no_op() {
+        let slot = OnceLock::new();
+        let signer = LocalSigner::random().unwrap();
+        publish_into(&slot, &signer).unwrap();
+        assert!(
+            publish_into(&slot, &signer).is_ok(),
+            "bug: the published key offered again is refused"
+        );
+        assert_eq!(
+            slot.get().map(|key| key.public_key),
+            Some(signer.public_key()),
+            "bug: the published key changed"
+        );
+    }
+
+    /// A second, different key is refused loudly and the first stays
+    /// published: did.json never names a key the process does not sign with
+    /// unnoticed.
+    #[test]
+    fn a_second_different_checkpoint_key_is_refused() {
+        let slot = OnceLock::new();
+        let first = LocalSigner::random().unwrap();
+        let second = LocalSigner::random().unwrap();
+        publish_into(&slot, &first).unwrap();
+        let refused = publish_into(&slot, &second);
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("a second checkpoint key")),
+            "bug: a second checkpoint key is published silently: {refused:?}"
+        );
+        assert_eq!(
+            slot.get().map(|key| key.public_key),
+            Some(first.public_key()),
+            "bug: the second key replaced the first"
         );
     }
 }
