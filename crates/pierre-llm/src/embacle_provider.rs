@@ -43,6 +43,7 @@ use crate::provider::ChatProvider;
 use crate::router_store;
 use crate::served_tier::{observe_served_tier, record_served_tier};
 use crate::stage::{LlmStage, StageModels};
+use crate::tier_bench::TierBench;
 
 /// The platform's one facade over an embacle runner.
 ///
@@ -95,6 +96,10 @@ pub struct EmbacleProvider {
     /// head outside any chain, read and write it too. `None` when built
     /// outside [`Self::chain`].
     cooldowns: Option<QuotaCooldowns>,
+    /// The tiers of this chain that cannot answer the probe request (see
+    /// [`crate::tier_bench`]), shared exactly as `cooldowns` is. `None` when
+    /// built outside [`Self::chain`].
+    bench: Option<TierBench>,
 }
 
 impl EmbacleProvider {
@@ -199,6 +204,7 @@ impl EmbacleProvider {
             kind: None,
             stage_models: StageModels::inherit_all(),
             cooldowns: None,
+            bench: None,
         }
     }
 
@@ -231,19 +237,26 @@ impl EmbacleProvider {
             .iter()
             .map(Self::spends_copilot_github_token)
             .collect();
-        Self::chain_observed(tiers, ChainObserver::guarded(copilot_tiers), cooldowns)
+        Self::chain_observed(
+            tiers,
+            ChainObserver::guarded(copilot_tiers),
+            cooldowns,
+            TierBench::default(),
+        )
     }
 
     fn chain_observed(
         mut tiers: Vec<Self>,
         observer: ChainObserver,
         cooldowns: QuotaCooldowns,
+        bench: TierBench,
     ) -> Result<Self, AppError> {
         if tiers.len() <= 1 {
             let mut last = tiers.pop().ok_or_else(|| {
                 AppError::config("A runtime fallback chain needs at least one provider")
             })?;
             last.cooldowns = Some(cooldowns);
+            last.bench = Some(bench);
             return Ok(last);
         }
 
@@ -257,7 +270,12 @@ impl EmbacleProvider {
             .with_observer(Arc::new(observer));
 
         let head = tiers.remove(0);
-        let tail = Self::chain_observed(tiers, ChainObserver::unguarded(), cooldowns.clone())?;
+        let tail = Self::chain_observed(
+            tiers,
+            ChainObserver::unguarded(),
+            cooldowns.clone(),
+            bench.clone(),
+        )?;
 
         Ok(Self {
             runner: Arc::new(chain),
@@ -269,6 +287,7 @@ impl EmbacleProvider {
             kind: head.kind,
             stage_models: head.stage_models,
             cooldowns: Some(cooldowns),
+            bench: Some(bench),
         })
     }
 
@@ -281,6 +300,12 @@ impl EmbacleProvider {
     #[must_use]
     pub const fn quota_cooldowns(&self) -> Option<&QuotaCooldowns> {
         self.cooldowns.as_ref()
+    }
+
+    /// The bench this provider's chain shares, when it was built by
+    /// [`Self::chain`].
+    pub(crate) const fn tier_bench(&self) -> Option<&TierBench> {
+        self.bench.as_ref()
     }
 
     /// The chain minus its head, when this provider is a chain.
@@ -313,6 +338,7 @@ impl EmbacleProvider {
             kind: self.kind,
             stage_models: self.stage_models.clone(),
             cooldowns: self.cooldowns.clone(),
+            bench: self.bench.clone(),
         }
     }
 
@@ -551,6 +577,7 @@ impl EmbacleProvider {
             kind: None,
             stage_models: StageModels::inherit_all(),
             cooldowns: None,
+            bench: None,
         }
     }
 
@@ -642,6 +669,7 @@ impl EmbacleProvider {
             kind: None,
             stage_models: StageModels::inherit_all(),
             cooldowns: None,
+            bench: None,
         })
     }
 
@@ -710,6 +738,7 @@ impl fmt::Debug for EmbacleProvider {
             .field("kind", &self.kind)
             .field("stage_models", &self.stage_models)
             .field("cooldowns", &self.cooldowns)
+            .field("bench", &self.bench)
             .finish()
     }
 }

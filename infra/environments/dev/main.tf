@@ -427,9 +427,14 @@ module "backend" {
       #    every tool outside the loaded core deferred (chat_catalogue.rs,
       #    defers_on): on the live incident corpus it gave 3 findings
       #    deferred against 6 with every tool loaded. A spent credit
-      #    answers HTTP 402, which embacle maps to RateLimit, so it falls
-      #    through like a quota: to anthropic#2, then anthropic#3, then
-      #    copilot_sdk. Any quota answer fires
+      #    answers HTTP 400 invalid_request_error ("Your credit balance is
+      #    too low"), not the 402 Anthropic documents; embacle 0.47.1 maps
+      #    that wording to RateLimit, so it falls through like a quota: to
+      #    anthropic#2, then anthropic#3, then copilot_sdk. An account that
+      #    is dead under any other wording is caught by the probe instead: a
+      #    tier that cannot answer "ping" is benched and passed over
+      #    (crates/pierre-llm/src/tier_bench.rs, carnet#1709). Any quota
+      #    answer fires
       #    dravr-llm-tier-rate-limited and more than three skips in five
       #    minutes fire dravr-llm-chain-fallthrough (llm_chain_monitoring.tf).
       #    Tool-loop iterations run on the turn's own model
@@ -478,7 +483,10 @@ module "backend" {
       # its "ping" is a real turn on the head's account — a call billed
       # against the Anthropic organization's prepaid credit. Athlete turns
       # and the chain-fallthrough alert cover a credential that dies mid-day.
-      # (JF, 2026-09-21: "startup only".)
+      # (JF, 2026-09-21: "startup only".) This switches off the probe of a
+      # chain that works. What is out of service is still asked again every
+      # five minutes, whatever this is set to: a benched tier, and the chain
+      # itself while no tier answers (carnet#1709).
       PIERRE_LLM_HEALTH_PROBE_INTERVAL_SECS = "0"
 
       # Route Copilot-headless tool turns through native MCP tool calling: the

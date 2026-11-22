@@ -200,6 +200,13 @@ pub const KEY_EMPTY_REPLY: &str = "messaging.empty_reply";
 /// Closes the status placeholder that would otherwise stay open forever.
 /// No format placeholders.
 pub const KEY_TURN_INTERRUPTED: &str = "messaging.turn_interrupted";
+/// Key: the turn was refused because no LLM tier can answer right now.
+///
+/// Written as the assistant row that closes the refused turn. Unlike
+/// [`KEY_TURN_INTERRUPTED`] it does not ask the athlete to send the question
+/// again at once: the same turn would be refused the same way. No format
+/// placeholders.
+pub const KEY_TURN_UNAVAILABLE: &str = "messaging.turn_unavailable";
 /// Key: the athlete stopped the turn before it produced a reply.
 ///
 /// Written as the assistant row that closes the stopped turn, so the

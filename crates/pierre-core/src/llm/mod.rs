@@ -83,8 +83,12 @@ impl From<RunnerError> for AppError {
                 ErrorCode::InvalidInput,
                 format!("Prompt exceeds model context window: {}", err.message),
             ),
-            // Caller-side and permanent: another provider would reject the
-            // same request the same way, so it never falls through a chain.
+            // Caller-side and permanent when the vendor is right: another
+            // provider would reject the same request the same way, so it never
+            // falls through a chain on its kind. A vendor can be wrong about
+            // it (Anthropic reports a spent credit as a 400), so the platform
+            // asks the tier for a probe completion before it believes this
+            // code: `ChatProvider::bench_if_dead` in pierre-llm.
             ErrorKind::InvalidRequest => Self::new(
                 ErrorCode::InvalidInput,
                 format!("Provider rejected the request: {}", err.message),

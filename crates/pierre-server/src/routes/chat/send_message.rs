@@ -35,7 +35,9 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::conversation_turn_lock::{acquire_turn_lock, evict_idle_turn_lock};
-use crate::services::failed_turn_notice::{close_failed_turn, close_unanswered_turn, TurnThread};
+use crate::services::failed_turn_notice::{
+    close_failed_turn, close_unanswered_turn, FailedTurn, TurnThread,
+};
 use pierre_auth::auth::{AuthMethod, AuthResult, ImpersonationGrant};
 use pierre_chat_pipeline::suggestions::is_postback;
 use pierre_chat_pipeline::turn_stop::TurnStop;
@@ -318,8 +320,14 @@ pub(super) async fn send_message(
         .await;
     // Closed under the thread's lock, so a messaging turn on the same thread
     // cannot slip its question in between and take the notice instead.
-    if served.is_err() {
-        close_failed_turn(&egress.thread(), &stop, &profile.locale).await;
+    if let Err(error) = &served {
+        close_failed_turn(
+            &egress.thread(),
+            &stop,
+            FailedTurn::of(error),
+            &profile.locale,
+        )
+        .await;
     }
     drop(held);
     evict_idle_turn_lock(&egress.conversation.id, &lock);
@@ -634,8 +642,14 @@ fn send_message_sse(inputs: SseInputs) -> Response {
             // Closed under the thread's lock, and before the `failed` frame
             // goes out, so a client that re-reads the thread on it already
             // finds the notice and a messaging turn cannot take it instead.
-            if served.is_err() {
-                close_failed_turn(&egress.thread(), &stop, &profile.locale).await;
+            if let Err(error) = &served {
+                close_failed_turn(
+                    &egress.thread(),
+                    &stop,
+                    FailedTurn::of(error),
+                    &profile.locale,
+                )
+                .await;
             }
             drop(held);
             served

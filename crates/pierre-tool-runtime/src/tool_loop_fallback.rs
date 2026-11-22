@@ -1,5 +1,5 @@
 // ABOUTME: The runtime fallback chain, re-created for the tool loops that converse with the chain's head alone
-// ABOUTME: Skips a head inside a quota cooldown, starts one on a quota refusal, re-runs the turn on the tail
+// ABOUTME: Skips a cooling or benched head, starts a cooldown on a quota refusal, re-runs the turn on the tail
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,6 +19,9 @@
 //!   full chain and every tail chain read too, so all of them agree.
 //! - **Fall-through.** A provider fault or a lost turn re-runs the whole turn
 //!   on the chain's tail, routed again by the tail head's own capabilities.
+//! - **Second opinion.** A head that rejects the turn and cannot answer the
+//!   probe request either is dead, not right: it is benched (in the same
+//!   book, so the next turn passes it over) and the tail takes the turn.
 
 use std::sync::Arc;
 
@@ -106,8 +109,12 @@ pub(crate) async fn run_api_turn(
             run_tail_fallback(params, llm_messages, error, Some(r), API_LOOP).await
         }
         Ok(result) => Ok(result),
-        Err(ApiLoopError::Head { error, prior }) if is_llm_provider_fault(&error) => {
-            run_tail_fallback(params, llm_messages, error, Some(*prior), API_LOOP).await
+        Err(ApiLoopError::Head { error, prior }) => {
+            if is_llm_provider_fault(&error) || head_is_dead(params.provider).await {
+                run_tail_fallback(params, llm_messages, error, Some(*prior), API_LOOP).await
+            } else {
+                Err(error)
+            }
         }
         Err(other) => Err(other.into_error()),
     }
@@ -138,8 +145,27 @@ pub(crate) async fn run_headless_turn(
         HeadlessRoute::Reroute(reason) => {
             run_tail_fallback(params, llm_messages, reason, None, HEADLESS_LOOP).await
         }
-        HeadlessRoute::Fail(err) => Err(err),
+        HeadlessRoute::Fail(err) => {
+            if head_is_dead(params.provider).await {
+                run_tail_fallback(params, llm_messages, err, None, HEADLESS_LOOP).await
+            } else {
+                Err(err)
+            }
+        }
     }
+}
+
+/// Whether the head that just rejected a turn cannot answer the probe request
+/// either, in which case it is now benched and the tail takes the turn.
+///
+/// The second opinion on an error that is not a provider fault: a vendor that
+/// reports a dead account as a rejected request (Anthropic's spent credit is
+/// a `400 invalid_request_error`) would otherwise fail every turn on a head
+/// with healthy tiers behind it. A head that answers the probe rejected this
+/// request, and the error stands. See [`ChatProvider::bench_head_if_dead`];
+/// `false` with no tail.
+async fn head_is_dead(provider: &ChatProvider) -> bool {
+    provider.bench_head_if_dead().await
 }
 
 /// The chain's tail, when the chain's head is inside a quota cooldown and a

@@ -61,6 +61,8 @@ mod router_store;
 pub mod served_tier;
 /// Which model each background LLM stage runs on
 pub mod stage;
+/// The tiers of a chain that cannot answer the probe request, benched until they can
+pub mod tier_bench;
 mod tool_bridge;
 /// The platform's tool surface and tool-carrying response
 mod tool_types;

@@ -49,7 +49,7 @@ use super::turn_guard::{
 };
 use super::{build_messaging_profile, outbound_retry, PendingDispatch};
 use crate::services::conversation_turn_lock::{acquire_turn_lock, evict_idle_turn_lock};
-use crate::services::failed_turn_notice::{close_failed_turn, TurnThread};
+use crate::services::failed_turn_notice::{close_failed_turn, FailedTurn, TurnThread};
 use crate::services::turn_runner::turn_watchdog;
 use pierre_chat_pipeline::turn_stop::TurnStop;
 use pierre_services::onboarding_gate::user_has_connected_provider;
@@ -898,7 +898,13 @@ async fn serve_turn(
         // the notice row first, under the thread's lock; the channel still
         // hears only the apology below (carnet#1362).
         TurnOutcome::Failed(e) => {
-            close_failed_turn(&failed_turn_thread(dispatch), &stop, &dispatch.locale).await;
+            close_failed_turn(
+                &failed_turn_thread(dispatch),
+                &stop,
+                FailedTurn::of(&e),
+                &dispatch.locale,
+            )
+            .await;
             report_dispatch_failure(dispatch, channel_config, &e).await;
             return Served::Ended(TurnClose::Finished);
         }

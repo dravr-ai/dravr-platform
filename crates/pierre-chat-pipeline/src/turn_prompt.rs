@@ -73,7 +73,12 @@ fn ask_of(turn_id: ConversationTurnId, origin: TurnOrigin, message_id: &str) -> 
 }
 
 /// Fail the turn fast with a 503 while the LLM health probe reads
-/// `Unhealthy`, rather than sending it to a provider known to be down.
+/// `Unhealthy`, rather than sending it to a chain known to be down.
+///
+/// `Unhealthy` means no tier answers. A dead head with a live tier behind it
+/// is benched and reads `Healthy`, so the turn is admitted and that tier
+/// serves it; the probe asks an `Unhealthy` chain again every five minutes,
+/// so the refusal ends when a tier comes back (`pierre_llm::tier_bench`).
 ///
 /// # Errors
 ///

@@ -31,7 +31,7 @@ use embacle::{Attempt, FallbackObserver, FallthroughReason, Tier, QUOTA_COOLDOWN
 use tracing::{info, warn};
 
 use crate::chain_guard::{ChainGuard, CircuitTransition, CHAIN_GUARD};
-use crate::served_tier::{record_served_tier, ServedTier};
+use crate::served_tier::{record_reached_tier, record_served_tier, ServedTier};
 
 /// Position of the primary tier, the only one the guard measures.
 const PRIMARY: usize = 0;
@@ -188,6 +188,8 @@ impl FallbackObserver for ChainObserver {
     }
 
     fn on_fallthrough(&self, from: Tier<'_>, to: Tier<'_>, reason: FallthroughReason<'_>) {
+        // The tier now being asked: the one a rejection after this came from.
+        record_reached_tier(to.position);
         match reason {
             FallthroughReason::Skipped(reason) => self.note_skipped(from, to, reason),
             FallthroughReason::EmptyCompletion => note_empty_completion(from, to),

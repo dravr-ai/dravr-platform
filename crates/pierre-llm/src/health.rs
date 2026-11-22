@@ -35,9 +35,10 @@ fn elapsed_ms() -> u64 {
 /// `Unknown` is the boot default — the `/ready` route returns 200 in that
 /// window so a slow LLM round-trip does not delay Cloud Run's first traffic
 /// shift. Once the probe finishes, the status flips to `Healthy` or
-/// `Unhealthy` and stays there for the lifetime of the process (re-probing
-/// is the fallback chain's and the alert layer's job, not the readiness
-/// gate's).
+/// `Unhealthy`. `Unhealthy` means no tier of the chain answers: a dead tier
+/// in front of a live one is benched ([`crate::tier_bench`]) and the chain
+/// reads `Healthy`. An `Unhealthy` chain is asked again every
+/// [`crate::tier_bench::BENCH_REPROBE_INTERVAL`] until a tier answers.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum LlmHealthStatus {
