@@ -2625,7 +2625,9 @@
         "pregnancy": "Grossesse",
         "lactation": "Allaitement",
         "basal_body_temperature": "Température basale",
-        "mindful_session": "Séance de pleine conscience"
+        "mindful_session": "Séance de pleine conscience",
+        "mood": "Humeur",
+        "emotion": "Émotion"
       },
       "value": {
         "unspecified": "Non précisé",
@@ -2648,7 +2650,14 @@
         "intrauterine_device": "Stérilet",
         "intravaginal_ring": "Anneau vaginal",
         "oral": "Pilule",
-        "patch": "Timbre"
+        "patch": "Timbre",
+        "very_unpleasant": "Très désagréable",
+        "unpleasant": "Désagréable",
+        "slightly_unpleasant": "Légèrement désagréable",
+        "neutral": "Neutre",
+        "slightly_pleasant": "Légèrement agréable",
+        "pleasant": "Agréable",
+        "very_pleasant": "Très agréable"
       }
     }
   },
@@ -4659,6 +4668,26 @@
           "unknown_columns": "Dravr ne sait pas encore lire cet export WHOOP. Il lit l'export de données WHOOP en anglais : règle WHOOP en anglais, puis demande un nouvel export."
         }
       }
+    },
+    "deviceHealth": {
+      "sectionTitle": "Ce téléphone",
+      "appleHealth": "Apple Santé (cet iPhone)",
+      "healthConnect": "Health Connect",
+      "description": "Entraînements, sommeil, fréquence cardiaque, poids et plus, lus sur ce téléphone. Dravr n’y écrit jamais.",
+      "toggleLabel": "Synchroniser {{name}}",
+      "syncing": "Synchronisation…",
+      "neverSynced": "Pas encore synchronisé",
+      "lastSync": "Dernière synchronisation {{time}}",
+      "off": "Désactivé. Ce qui a été synchronisé reste jusqu’à ce que vous le supprimiez.",
+      "counts": "{{activities}} entraînements · {{nights}} nuits · {{days}} jours · {{selfReports}} entrées",
+      "deleteAction": "Supprimer les données synchronisées",
+      "deleteTitle": "Supprimer les données synchronisées ?",
+      "deleteBody": "Cela supprime chaque entraînement, nuit, jour et entrée que Dravr a synchronisés depuis {{name}}, et désactive la synchronisation. Rien n’est supprimé sur ce téléphone.",
+      "deleteConfirm": "Supprimer",
+      "declined": "Dravr n’a pas reçu l’accès. Vous pouvez l’autoriser dans les réglages de {{name}}.",
+      "enableFailed": "Impossible d’activer {{name}}.",
+      "syncFailed": "La dernière synchronisation n’a pas abouti. Elle reprendra à votre retour dans l’app.",
+      "deleteFailed": "Les données synchronisées n’ont pas pu être supprimées. Réessayez."
     }
   },
   "settings": {

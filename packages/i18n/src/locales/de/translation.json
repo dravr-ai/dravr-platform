@@ -2625,7 +2625,9 @@
         "pregnancy": "Schwangerschaft",
         "lactation": "Stillen",
         "basal_body_temperature": "Basaltemperatur",
-        "mindful_session": "Achtsamkeitsübung"
+        "mindful_session": "Achtsamkeitsübung",
+        "mood": "Stimmung",
+        "emotion": "Gefühl"
       },
       "value": {
         "unspecified": "Nicht angegeben",
@@ -2648,7 +2650,14 @@
         "intrauterine_device": "Spirale",
         "intravaginal_ring": "Vaginalring",
         "oral": "Pille",
-        "patch": "Pflaster"
+        "patch": "Pflaster",
+        "very_unpleasant": "Sehr unangenehm",
+        "unpleasant": "Unangenehm",
+        "slightly_unpleasant": "Leicht unangenehm",
+        "neutral": "Neutral",
+        "slightly_pleasant": "Leicht angenehm",
+        "pleasant": "Angenehm",
+        "very_pleasant": "Sehr angenehm"
       }
     }
   },
@@ -4659,6 +4668,26 @@
           "unknown_columns": "Dravr kann diesen WHOOP-Export noch nicht lesen. Dravr liest den WHOOP-Datenexport auf Englisch: Stelle WHOOP auf Englisch um und fordere einen neuen Export an."
         }
       }
+    },
+    "deviceHealth": {
+      "sectionTitle": "Dieses Telefon",
+      "appleHealth": "Apple Health (dieses iPhone)",
+      "healthConnect": "Health Connect",
+      "description": "Trainings, Schlaf, Herzfrequenz, Gewicht und mehr, von diesem Telefon gelesen. Dravr schreibt nie dorthin.",
+      "toggleLabel": "{{name}} synchronisieren",
+      "syncing": "Wird synchronisiert…",
+      "neverSynced": "Noch nicht synchronisiert",
+      "lastSync": "Zuletzt synchronisiert {{time}}",
+      "off": "Aus. Bereits Synchronisiertes bleibt, bis du es löschst.",
+      "counts": "{{activities}} Trainings · {{nights}} Nächte · {{days}} Tage · {{selfReports}} Einträge",
+      "deleteAction": "Synchronisierte Daten löschen",
+      "deleteTitle": "Synchronisierte Daten löschen?",
+      "deleteBody": "Damit werden alle Trainings, Nächte, Tage und Einträge entfernt, die Dravr aus {{name}} synchronisiert hat, und die Synchronisierung wird ausgeschaltet. Auf diesem Telefon wird nichts gelöscht.",
+      "deleteConfirm": "Löschen",
+      "declined": "Dravr hat keinen Zugriff erhalten. Du kannst ihn in den Einstellungen von {{name}} erlauben.",
+      "enableFailed": "{{name}} konnte nicht aktiviert werden.",
+      "syncFailed": "Die letzte Synchronisierung wurde nicht abgeschlossen. Sie wird wiederholt, wenn du zur App zurückkehrst.",
+      "deleteFailed": "Die synchronisierten Daten konnten nicht gelöscht werden. Versuche es erneut."
     }
   },
   "settings": {

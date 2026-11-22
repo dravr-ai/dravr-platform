@@ -2625,7 +2625,9 @@
         "pregnancy": "Gravidez",
         "lactation": "Amamentação",
         "basal_body_temperature": "Temperatura basal",
-        "mindful_session": "Sessão de atenção plena"
+        "mindful_session": "Sessão de atenção plena",
+        "mood": "Humor",
+        "emotion": "Emoção"
       },
       "value": {
         "unspecified": "Não especificado",
@@ -2648,7 +2650,14 @@
         "intrauterine_device": "DIU",
         "intravaginal_ring": "Anel vaginal",
         "oral": "Pílula",
-        "patch": "Adesivo"
+        "patch": "Adesivo",
+        "very_unpleasant": "Muito desagradável",
+        "unpleasant": "Desagradável",
+        "slightly_unpleasant": "Ligeiramente desagradável",
+        "neutral": "Neutro",
+        "slightly_pleasant": "Ligeiramente agradável",
+        "pleasant": "Agradável",
+        "very_pleasant": "Muito agradável"
       }
     }
   },
@@ -4659,6 +4668,26 @@
           "unknown_columns": "O Dravr ainda não consegue ler esta exportação da WHOOP. Ele lê a exportação de dados da WHOOP em inglês: mude sua conta WHOOP para inglês e solicite uma nova exportação."
         }
       }
+    },
+    "deviceHealth": {
+      "sectionTitle": "Este telefone",
+      "appleHealth": "Apple Saúde (este iPhone)",
+      "healthConnect": "Health Connect",
+      "description": "Treinos, sono, frequência cardíaca, peso e mais, lidos deste telefone. O Dravr nunca escreve nele.",
+      "toggleLabel": "Sincronizar {{name}}",
+      "syncing": "Sincronizando…",
+      "neverSynced": "Ainda não sincronizado",
+      "lastSync": "Última sincronização {{time}}",
+      "off": "Desativado. O que foi sincronizado fica até você excluir.",
+      "counts": "{{activities}} treinos · {{nights}} noites · {{days}} dias · {{selfReports}} registros",
+      "deleteAction": "Excluir dados sincronizados",
+      "deleteTitle": "Excluir os dados sincronizados?",
+      "deleteBody": "Isso remove todos os treinos, noites, dias e registros que o Dravr sincronizou de {{name}} e desativa a sincronização. Nada é excluído deste telefone.",
+      "deleteConfirm": "Excluir",
+      "declined": "O Dravr não recebeu acesso. Você pode permitir nas configurações de {{name}}.",
+      "enableFailed": "Não foi possível ativar {{name}}.",
+      "syncFailed": "A última sincronização não terminou. Ela será retomada quando você voltar ao app.",
+      "deleteFailed": "Não foi possível excluir os dados sincronizados. Tente novamente."
     }
   },
   "settings": {

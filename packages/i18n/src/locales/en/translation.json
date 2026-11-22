@@ -2625,7 +2625,9 @@
         "pregnancy": "Pregnancy",
         "lactation": "Breastfeeding",
         "basal_body_temperature": "Basal body temperature",
-        "mindful_session": "Mindfulness session"
+        "mindful_session": "Mindfulness session",
+        "mood": "Mood",
+        "emotion": "Emotion"
       },
       "value": {
         "unspecified": "Not specified",
@@ -2648,7 +2650,14 @@
         "intrauterine_device": "IUD",
         "intravaginal_ring": "Vaginal ring",
         "oral": "Pill",
-        "patch": "Patch"
+        "patch": "Patch",
+        "very_unpleasant": "Very unpleasant",
+        "unpleasant": "Unpleasant",
+        "slightly_unpleasant": "Slightly unpleasant",
+        "neutral": "Neutral",
+        "slightly_pleasant": "Slightly pleasant",
+        "pleasant": "Pleasant",
+        "very_pleasant": "Very pleasant"
       }
     }
   },
@@ -4659,6 +4668,26 @@
           "unknown_columns": "Dravr can't read this WHOOP export yet. It reads WHOOP's data export in English: set WHOOP to English, then request a new export."
         }
       }
+    },
+    "deviceHealth": {
+      "sectionTitle": "This phone",
+      "appleHealth": "Apple Health (this iPhone)",
+      "healthConnect": "Health Connect",
+      "description": "Workouts, sleep, heart rate, weight and more, read from this phone. Dravr never writes to it.",
+      "toggleLabel": "Sync {{name}}",
+      "syncing": "Syncing…",
+      "neverSynced": "Not synced yet",
+      "lastSync": "Last sync {{time}}",
+      "off": "Off. What was synced stays until you delete it.",
+      "counts": "{{activities}} workouts · {{nights}} nights · {{days}} days · {{selfReports}} entries",
+      "deleteAction": "Delete synced data",
+      "deleteTitle": "Delete synced data?",
+      "deleteBody": "This removes every workout, night, day and entry Dravr synced from {{name}} and turns syncing off. Nothing on this phone is deleted.",
+      "deleteConfirm": "Delete",
+      "declined": "Dravr was not given access. You can allow it in {{name}}'s settings.",
+      "enableFailed": "{{name}} could not be turned on.",
+      "syncFailed": "The last sync did not finish. It will try again when you come back to the app.",
+      "deleteFailed": "The synced data could not be deleted. Try again."
     }
   },
   "settings": {
