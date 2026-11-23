@@ -1705,9 +1705,6 @@
     "group-agent": {
       "description": "Set this group's Dravr agent, or detach its human coach"
     },
-    "group-coach": {
-      "description": "Set this group's Dravr agent, or detach its human coach"
-    },
     "group-consent": {
       "description": "Choose whether your training data is shared with this group's human coach and its members"
     },

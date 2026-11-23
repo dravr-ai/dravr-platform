@@ -1705,9 +1705,6 @@
     "group-agent": {
       "description": "Definir o agente Dravr deste grupo, ou desvincular o seu coach humano"
     },
-    "group-coach": {
-      "description": "Definir o agente Dravr deste grupo, ou desvincular o seu coach humano"
-    },
     "group-consent": {
       "description": "Escolher se os teus dados de treino são partilhados com o coach humano e os membros deste grupo"
     },
