@@ -2085,7 +2085,13 @@
     "peerDayReads_one": "{{member}} read your activities once in {{group}}",
     "peerDayReads_other": "{{member}} read your activities {{count}} times in {{group}}",
     "formerMember": "A former member",
-    "agentTurnRow": "Asked Dravr's agent about your data"
+    "agentTurnRow": "Asked Dravr's agent about your data",
+    "peerServedToAssistant": "Read by an AI tool this member connects to Dravr. The company that runs it received this data.",
+    "peerSupportRead": "Read by Dravr support while helping this member.",
+    "apiKeyDayRequests_one": "{{count}} request",
+    "apiKeyDayRequests_other": "{{count}} requests",
+    "peerDayViews_one": "{{count}} view in {{group}}",
+    "peerDayViews_other": "{{count}} views in {{group}}"
   },
   "delegation": {
     "actionFailed": "That did not go through. Try again.",
