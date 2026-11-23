@@ -423,7 +423,7 @@ async fn each_stored_wellness_read_in_the_thread_reads_the_athletes_under_their_
         "the athlete's hour of HRV samples: {series}"
     );
     assert!(
-        mentions(&series, "66.75") && !mentions(&series, "33.75"),
+        mentions_number(&series, "66.75") && !mentions_number(&series, "33.75"),
         "bug: the samples read are the athlete's: {series}"
     );
 
