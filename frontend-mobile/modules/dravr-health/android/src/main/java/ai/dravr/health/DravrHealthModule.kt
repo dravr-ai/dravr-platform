@@ -19,8 +19,6 @@ import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
-import androidx.health.connect.client.records.InstantaneousRecord
-import androidx.health.connect.client.records.IntervalRecord
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
@@ -62,8 +60,11 @@ private val RECORD_TYPES: Map<String, KClass<out Record>> = mapOf(
   "WeightRecord" to WeightRecord::class,
 )
 
+/** Health Connect's own package; the client library keeps its constant for it internal. */
+private const val HEALTH_CONNECT_PACKAGE = "com.google.android.apps.healthdata"
+
 /** Whatever the day totals are filed under: the store itself, which merged them across apps. */
-private val STORE_RECORDER = mapOf("name" to "Health Connect", "bundle" to HealthConnectClient.DEFAULT_PROVIDER_PACKAGE_NAME)
+private val STORE_RECORDER = mapOf("name" to "Health Connect", "bundle" to HEALTH_CONNECT_PACKAGE)
 
 class HealthConnectUnavailableException : CodedException("Health Connect is not available on this device")
 
@@ -380,9 +381,19 @@ class DravrHealthModule : Module() {
     }
 }
 
-/** When a record starts: an interval record's start, an instantaneous record's time. */
+/**
+ * When a record starts: an interval record's start, an instantaneous record's
+ * time. The library keeps IntervalRecord and InstantaneousRecord internal, so
+ * each type this module reads is named.
+ */
 private fun Record.startInstant(): Instant = when (this) {
-  is IntervalRecord -> startTime
-  is InstantaneousRecord -> time
+  is ExerciseSessionRecord -> startTime
+  is SleepSessionRecord -> startTime
+  is StepsRecord -> startTime
+  is ActiveCaloriesBurnedRecord -> startTime
+  is DistanceRecord -> startTime
+  is RestingHeartRateRecord -> time
+  is HeartRateVariabilityRmssdRecord -> time
+  is WeightRecord -> time
   else -> Instant.EPOCH
 }
