@@ -271,6 +271,9 @@ Components are small and flat; every tinted element reads a shared tone function
 ### Inputs / Fields
 - The editorial underline is the one form-field language: radius 0, a 1px bottom border in `rgba(192, 200, 195, 0.45)`, sentence-case labels. Focus grows the underline to 2px `primary`, and `:focus-visible` adds a 2px `primary` outline offset 3px. Error text is `error`. The phone `Input` is the same underline, radius 0.
 
+### Segmented controls and radio groups
+A **segmented control** switches one surface between two to four modes: Coach Home's athletes / training switch and the day editor's "This session / From a family". On the web it is `ui/SegmentedControl`, pressed buttons on a `surface-container` track with the chosen one lifted onto `surface-container-lowest`. A **form choice** (a sport, a workout family, a format) is a radio group: the web's `Radio`, and on the phone `ui/RadioGroup` with radiogroup / radio roles, a segmented layout for a few short words and a list layout, one row per option with its summary under the chosen one, for names that run long. A radio's ring is the `outline` token with a `primary` dot, and every target is 44pt. A text tab is a filter, never a form choice.
+
 ### Status
 A status is an 8px dot beside the word that says it, never a tinted chip and never red or green text. The dot takes a feedback tone; a category dot takes its pillar hue.
 
@@ -285,6 +288,8 @@ Login is two sheets. The aside carries the lockup top-left, the mark at 220px an
 
 ### Chat surfaces — Home's conversation and the Groups messenger
 The athlete's own conversation with Dravr is Home; the Groups tab is the messenger for rooms with other people. The agent's turn is **prose on the canvas** (24px avatar, name and time, words to 620px, no fill, no border); the athlete's is the one bubble, on `primary-container`, on the right. The composer is the one white shape on the paper (40px, radius 12, ghost-border). Plan cards are the one hairline card in the thread.
+
+**The coach's day editor.** In a coach's plan thread every entry of a day carries "Edit day" ("Edit session" when its date holds several), and a date's last entry carries "Add a session". The editor is a sheet that opens on the session as it stands: title, sport, duration, intensity and steps edited in place, a Rest switch, and "From a family" as its second mode, sport first, where the kernel's preview and warn-only findings sit under the values. The footer names what a save replaces; a sheet with changes asks before it closes; an edited or added session is marked on the card and can be undone. A hand-written session says it is not checked against a family's evidence, in body ink, never a warning tone.
 
 | Region | Light | Dark | Notes |
 |---|---|---|---|

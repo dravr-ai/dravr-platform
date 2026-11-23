@@ -60,7 +60,7 @@ interface MessageListProps {
   conversationId?: string | null;
   /**
    * The open thread is a coach's plan thread on one athlete: its plan cards
-   * offer "Build from family" on each day, to the thread's owner.
+   * offer "Edit day" on each day, to the thread's owner.
    */
   editsPlanDays?: boolean;
   messages: Message[];

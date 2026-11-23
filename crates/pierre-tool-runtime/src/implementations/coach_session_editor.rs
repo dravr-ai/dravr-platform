@@ -1,5 +1,5 @@
-// ABOUTME: A coach's "build from family" editor in their thread about one athlete — the family catalogue, a built session's preview, the draft-day write
-// ABOUTME: Every session is the save path's own: instantiate_template_day on the athlete's anchors, projected through the plan card's day
+// ABOUTME: A coach's day editor in their thread about one athlete — the family catalogue, a built session's preview, the draft-day writes
+// ABOUTME: Every built session is the save path's own: instantiate_template_day on the athlete's anchors, projected through the plan card's day
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -27,6 +27,19 @@
 //!   steps of its own: the save path generates them, so the draft holds what
 //!   the preview showed.
 //!
+//! The same editor opens on the day's own session, which the coach edits in
+//! place or makes a rest day ([`save_draft_hand_day`]), and puts a day they
+//! edited back as it stood ([`restore_draft_day`]) (carnet#1714). Every day
+//! save of the coach's keeps the day as it stood before their first edit in
+//! the draft, which is what restoring writes back.
+//!
+//! A date holds several sessions (carnet#1716). The coach adds one
+//! ([`add_draft_session`]), which restoring removes, and removes one of
+//! several ([`remove_draft_day`]); the last one on a date is made a rest day
+//! instead. A session is addressed by its date and position, and every write
+//! names it as the client last saw it ([`SessionAt`]): a write whose session
+//! moved writes nothing.
+//!
 //! No number is derived here: the kernel builds the steps, measures them and
 //! derives the values; this module chooses which kernel call and words them.
 //! A value outside the preset's range is built and measured, never refused
@@ -52,7 +65,8 @@ use pierre_core::models::periodization::{
 };
 use pierre_core::models::{HeldAnchors, UnitSystem, WorkoutStep};
 use pierre_database::repositories::training_plans::PlanAuthor;
-use pierre_database::repositories::{PlanWeekInput, SaveDraftParams};
+use pierre_database::repositories::{PlanWeekInput, SaveDraftParams, SavedDraftBundle};
+use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay};
 use pierre_providers::ai_scope;
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
@@ -71,6 +85,16 @@ use super::plan_scope::PlanWriter;
 use super::training_plan_vision::{check_template_params, instantiate_template_day};
 use crate::envelope_words::{anchor_sentence, finding_sentence, stated_param};
 use crate::runtime::ToolRuntime;
+
+mod day_edits;
+mod sessions;
+
+pub use day_edits::{
+    add_draft_session, remove_draft_day, restore_draft_day, save_draft_hand_day, AddedSession,
+    HandDay,
+};
+use sessions::{placed, stamp_edit, written_index};
+pub use sessions::{SessionAt, SessionExpect};
 
 /// A session as the coach builds it: what the preview measures and the
 /// draft-day write saves.
@@ -297,8 +321,23 @@ pub enum DraftDayOutcome {
     /// The athlete has no live plan and the coach no draft: there is no week
     /// to write the day into. Nothing was written.
     NoPlan,
+    /// The coach holds no draft to restore a day of, and a restore never
+    /// opens one. Nothing was written.
+    NoDraft,
     /// No week of the plan holds the date. Nothing was written.
     NoPlanWeek,
+    /// The day carries no snapshot to put back and is no session the coach
+    /// added: the coach never edited it in this draft. Nothing was written.
+    NothingToRestore,
+    /// The position the write named no longer holds the session the client
+    /// saw there (carnet#1716). Nothing was written.
+    SessionMoved,
+    /// The session is the only entry on its date, which is made a rest day
+    /// rather than emptied. Nothing was written.
+    LastSession,
+    /// The date already holds as many entries as a date holds. Nothing was
+    /// written.
+    DateFull,
 }
 
 /// A build the catalogue cannot make, with the `details.reason` a client
@@ -412,9 +451,9 @@ struct BuiltDay {
     derived: Option<DerivedValues>,
 }
 
-/// Make `build` into the family day the save stores on `date`, its sport
-/// written `sport_label`, generated on `anchors` by the save's own path
-/// ([`instantiate_template_day`]).
+/// Make `build` into the family day the save stores on `date` at `position`
+/// among its entries, its sport written `sport_label`, generated on `anchors`
+/// by the save's own path ([`instantiate_template_day`]).
 ///
 /// The day names its family, preset and values and writes no steps, so the
 /// save path generates them; its session name and intensity are the
@@ -432,6 +471,7 @@ fn build_day(
     catalogue: &PackagedCatalogue<'_>,
     build: &SessionBuild,
     date: CivilDate,
+    position: u32,
     sport_label: String,
     anchors: Option<&HeldAnchors>,
 ) -> AppResult<BuiltDay> {
@@ -490,8 +530,10 @@ fn build_day(
         template_source: Some(tier.template_source()),
         template_preset: Some(preset.key.clone()),
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     };
-    let Some(instance) = instantiate_template_day(catalogue, &mut day, anchors)? else {
+    let Some(instance) = instantiate_template_day(catalogue, &mut day, position, anchors)? else {
         let why = day.envelope.and_then(|envelope| envelope.not_generated);
         return Err(why.map_or_else(
             || {
@@ -611,7 +653,8 @@ pub async fn preview_session(
         let catalogue = writer_catalogue(runtime, &thread.writer).await?;
         let anchors = stored_athlete_anchors(repos, target.tenant(), target.athlete()).await?;
         let label = build.sport.as_str().to_owned();
-        let day = build_day(&catalogue, build, date, label, anchors.as_ref())?;
+        // A preview is no entry of the week: it is built as the date's first.
+        let day = build_day(&catalogue, build, date, 0, label, anchors.as_ref())?;
         let units = resolve_user_units(repos.unit_preferences.as_ref(), target.coach()).await;
         Ok(session_preview(day, build.sport, words, units))
     };
@@ -624,15 +667,18 @@ pub async fn preview_session(
     .await
 }
 
-/// Save `build` as `date` of the coach's draft of the athlete's plan.
+/// Save `build` as a session on `date` of the coach's draft of the athlete's plan.
 ///
-/// The draft is read over the live plan, the week holding `date` taken from
-/// it, and that day replaced — or added, in date order — by the family day
-/// the save path generates on the athlete's anchors; the week's other days
-/// stay as they are. Only that week is saved into the draft, which opens
-/// from the live plan when the coach holds none ([`SaveDraftParams`] with no
-/// outline), authored by the thread's agent and stamped from what the write
-/// read. The athlete sees nothing until the coach publishes.
+/// It goes over the session `at` names, or, with no `at`, over the date's
+/// first entry — a new one where the date holds none — as the released app
+/// builds write it (carnet#1515).
+///
+/// The week holding `date` is read from the draft — over the live plan when
+/// the coach holds none, which the save then opens it from — and that
+/// session replaced by the family day the save path generates on the
+/// athlete's anchors; the week's other days stay as they are
+/// ([`save_days_into_week`]). The athlete sees nothing until the coach
+/// publishes.
 ///
 /// A day whose sport the build's sport family covers keeps its own label (a
 /// gravel ride built as a ride stays gravel); any other takes the family's.
@@ -646,51 +692,38 @@ pub async fn save_draft_day(
     runtime: &Arc<dyn ToolRuntime>,
     thread: &EditorThread,
     date: CivilDate,
+    at: Option<&SessionAt>,
     build: &SessionBuild,
 ) -> AppResult<DraftDayOutcome> {
     let repos = runtime.repos();
     let target = &thread.target;
     let write = async {
         ai_scope::note_member_read(target.athlete());
-        let view = coach_plan_view(repos, target).await?;
-        let weeks = match (view.draft, view.live) {
-            (Some(draft), _) => draft.weeks,
-            (None, Some(live)) => live.weeks,
-            (None, None) => return Ok(DraftDayOutcome::NoPlan),
+        let week = match week_holding(repos, target, date, WeekFrom::DraftOrLive).await? {
+            Ok(week) => week,
+            Err(outcome) => return Ok(outcome),
         };
-        let Some(week) = weeks.into_iter().find(|week| holds(week, date)) else {
-            return Ok(DraftDayOutcome::NoPlanWeek);
+        let dated = date.to_string();
+        let index = match written_index(&week.days, &dated, at) {
+            Ok(index) => index,
+            Err(outcome) => return Ok(outcome),
         };
         let catalogue = writer_catalogue(runtime, &thread.writer).await?;
         let anchors = stored_athlete_anchors(repos, target.tenant(), target.athlete()).await?;
-        let dated = date.to_string();
-        let replaced = week.days.iter().find(|day| day.date == dated);
+        let replaced = index.and_then(|index| week.days.get(index));
+        let position = at.map_or(0, |at| at.position);
         let label = sport_label(replaced, build.sport);
-        let made = build_day(&catalogue, build, date, label, anchors.as_ref())?;
-        let days = with_day(week.days, made.day);
-        let saved = repos
-            .training_plans
-            .save_draft_bundle(&SaveDraftParams {
-                owner: target.owner(),
-                author: PlanAuthor::from_agent(thread.writer.agent_id.as_deref()),
-                goal_fact_id: None,
-                outline: None,
-                weeks: &[PlanWeekInput {
-                    week_start: &week.week_start,
-                    focus: &week.focus,
-                    days: &days,
-                    adjustment_reason: &week.adjustment_reason,
-                    phase_index: week.phase_index,
-                }],
-                transport_policy: ai_scope::derived_policy(),
-            })
-            .await?;
+        let mut made = build_day(&catalogue, build, date, position, label, anchors.as_ref())?;
+        stamp_edit(&mut made.day, replaced);
+        let days = placed(&week.days, index, made.day)?;
+        let saved = save_days_into_week(repos, thread, &week, &days).await?;
         info!(
             athlete_user_id = %target.athlete(),
             coach_user_id = %target.coach(),
             draft_id = %saved.draft.plan.id,
             opened = saved.opened,
             date = %dated,
+            position,
             family = %build.family,
             preset = %made.preset,
             "coach saved a family day into their draft of a coached athlete's plan"
@@ -709,6 +742,76 @@ pub async fn save_draft_day(
     .await
 }
 
+/// Which plan a day write reads the week it changes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WeekFrom {
+    /// The coach's draft, else the live plan the write opens the draft from.
+    DraftOrLive,
+    /// The coach's draft only: the write never opens one.
+    Draft,
+}
+
+/// The week holding `date` that a write on that day of the coach's draft
+/// changes, read as `from` says — the draft's weeks are the live ones with
+/// each week the coach drafted in its place — or the outcome that leaves
+/// nothing written: `NoPlan` or `NoDraft` when there is no plan to read it
+/// from, `NoPlanWeek` when no week holds the date.
+///
+/// # Errors
+///
+/// The errors of [`coach_plan_view`].
+async fn week_holding(
+    repos: &RepositoryRegistry,
+    target: &CoachDraftTarget,
+    date: CivilDate,
+    from: WeekFrom,
+) -> AppResult<Result<PlanWeek, DraftDayOutcome>> {
+    let view = coach_plan_view(repos, target).await?;
+    let weeks = match (view.draft, view.live, from) {
+        (Some(draft), _, _) => draft.weeks,
+        (None, Some(live), WeekFrom::DraftOrLive) => live.weeks,
+        (None, None, WeekFrom::DraftOrLive) => return Ok(Err(DraftDayOutcome::NoPlan)),
+        (None, _, WeekFrom::Draft) => return Ok(Err(DraftDayOutcome::NoDraft)),
+    };
+    Ok(weeks
+        .into_iter()
+        .find(|week| holds(week, date))
+        .ok_or(DraftDayOutcome::NoPlanWeek))
+}
+
+/// Save `days` as `week` of the coach's draft, and only that week, its
+/// other fields as they stand. The draft opens from the live plan when the
+/// coach holds none ([`SaveDraftParams`] with no outline), authored by the
+/// thread's agent and stamped from what the write read.
+///
+/// # Errors
+///
+/// The repository error of the save.
+async fn save_days_into_week(
+    repos: &RepositoryRegistry,
+    thread: &EditorThread,
+    week: &PlanWeek,
+    days: &[PlannedDay],
+) -> AppResult<SavedDraftBundle> {
+    repos
+        .training_plans
+        .save_draft_bundle(&SaveDraftParams {
+            owner: thread.target.owner(),
+            author: PlanAuthor::from_agent(thread.writer.agent_id.as_deref()),
+            goal_fact_id: None,
+            outline: None,
+            weeks: &[PlanWeekInput {
+                week_start: &week.week_start,
+                focus: &week.focus,
+                days,
+                adjustment_reason: &week.adjustment_reason,
+                phase_index: week.phase_index,
+            }],
+            transport_policy: ai_scope::derived_policy(),
+        })
+        .await
+}
+
 /// Whether `week` holds `date`: its first day or one of the six after it.
 fn holds(week: &PlanWeek, date: CivilDate) -> bool {
     parse_plan_date(&week.week_start).is_some_and(|start| {
@@ -722,15 +825,6 @@ fn sport_label(replaced: Option<&PlannedDay>, sport: SportFamily) -> String {
     replaced
         .filter(|day| SportFamily::of(&plan_sport(&day.sport)) == Some(sport))
         .map_or_else(|| sport.as_str().to_owned(), |day| day.sport.clone())
-}
-
-/// `days` with `day` in place of the one on its date, else added in date
-/// order.
-fn with_day(mut days: Vec<PlannedDay>, day: PlannedDay) -> Vec<PlannedDay> {
-    days.retain(|held| held.date != day.date);
-    let at = days.partition_point(|held| held.date < day.date);
-    days.insert(at, day);
-    days
 }
 
 #[cfg(test)]
@@ -756,6 +850,7 @@ mod tests {
             &catalogue,
             &build(value),
             date("2026-11-18"),
+            0,
             "ride".to_owned(),
             None,
         )
@@ -957,31 +1052,6 @@ mod tests {
                 "bug: a build the catalogue cannot make is refused by its reason: {value}: {refused}"
             );
         }
-    }
-
-    #[test]
-    fn a_day_replaces_its_date_or_joins_the_week_in_date_order() {
-        let day = |date: &str, workout: &str| -> PlannedDay {
-            serde_json::from_value(
-                json!({ "date": date, "sport": "run", "workout": workout, "intensity": "Z2" }),
-            )
-            .unwrap()
-        };
-        let week = vec![day("2026-11-16", "a"), day("2026-11-18", "b")];
-        let replaced = with_day(week.clone(), day("2026-11-18", "built"));
-        let workouts: Vec<&str> = replaced.iter().map(|d| d.workout.as_str()).collect();
-        assert_eq!(
-            workouts,
-            ["a", "built"],
-            "bug: the built day replaces the day on its date"
-        );
-        let added = with_day(week, day("2026-11-17", "built"));
-        let dates: Vec<&str> = added.iter().map(|d| d.date.as_str()).collect();
-        assert_eq!(
-            dates,
-            ["2026-11-16", "2026-11-17", "2026-11-18"],
-            "bug: a new day joins the week in date order"
-        );
     }
 
     #[test]

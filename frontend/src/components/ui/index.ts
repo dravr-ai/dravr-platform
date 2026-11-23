@@ -24,6 +24,8 @@ export type { SwitchProps } from './Switch';
 export { StatusIndicator } from './StatusIndicator';
 export { StatusFilter } from './StatusFilter';
 export type { StatusFilterProps, StatusFilterValue } from './StatusFilter';
+export { SegmentedControl } from './SegmentedControl';
+export type { SegmentedControlProps, SegmentedOption } from './SegmentedControl';
 
 // Form components
 export { Input } from './Input';

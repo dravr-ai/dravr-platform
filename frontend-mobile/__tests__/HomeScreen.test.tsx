@@ -13,6 +13,7 @@ import { ROUTE_INK } from '@pierre/shared-constants';
 import type {
   ActivityRouteResponse,
   CalendarResponse,
+  PlanDay,
   RecentActivitiesResponse,
   TrainingPlanResponse,
   TrainingStatusResponse,
@@ -24,6 +25,7 @@ import {
   LATEST_ROUTE_RESPONSE,
   NO_GPS_ROUTE_RESPONSE,
   NO_PLAN_RESPONSE,
+  PLAN,
   PLAN_RESPONSE,
   PROVIDERS_CONNECTED,
   PROVIDERS_NONE,
@@ -240,7 +242,7 @@ describe('today and tomorrow', () => {
     // 2026-09-24 is day 17 of a build phase that started 2026-09-07: week 3.
     expect(screen.getByTestId('home-today-phase')).toHaveTextContent('Build · week 3');
     expect(screen.getByTestId('home-tomorrow')).toHaveTextContent(/^Tomorrow/);
-    expect(screen.getByTestId('home-tomorrow-value')).toHaveTextContent('Easy run · 40 min');
+    expect(screen.getByTestId('home-tomorrow-value-0')).toHaveTextContent('Easy run · 40 min');
     // The plan is asked for in the app's language.
     expect(mockGetTrainingPlan).toHaveBeenCalledWith('en');
   });
@@ -248,7 +250,7 @@ describe('today and tomorrow', () => {
   it('drafts a question about today\'s session into the personal thread', async () => {
     const screen = renderHome();
 
-    fireEvent.press(await screen.findByTestId('home-today-day'));
+    fireEvent.press(await screen.findByTestId('home-today-day-0'));
 
     await waitFor(() =>
       expect(mockPush).toHaveBeenCalledWith(
@@ -263,7 +265,7 @@ describe('today and tomorrow', () => {
     mockGetPersonalConversation.mockResolvedValue(null);
     const screen = renderHome();
 
-    fireEvent.press(await screen.findByTestId('home-today-day'));
+    fireEvent.press(await screen.findByTestId('home-today-day-0'));
 
     await waitFor(() =>
       expect(mockPush).toHaveBeenCalledWith(
@@ -279,7 +281,7 @@ describe('today and tomorrow', () => {
     try {
       const screen = renderHome();
 
-      fireEvent.press(await screen.findByTestId('home-today-day'));
+      fireEvent.press(await screen.findByTestId('home-today-day-0'));
 
       await waitFor(() => expect(alert).toHaveBeenCalledWith('Error', 'Could not open a chat'));
       expect(mockPush).not.toHaveBeenCalled();
@@ -292,7 +294,7 @@ describe('today and tomorrow', () => {
   it('offers a route for today\'s session, drafted into the personal thread naming it', async () => {
     const screen = renderHome();
 
-    const link = await screen.findByTestId('home-today-route');
+    const link = await screen.findByTestId('home-today-route-0');
     expect(within(link).getByText('Find a route for this session')).toBeTruthy();
     fireEvent.press(link);
 
@@ -303,12 +305,112 @@ describe('today and tomorrow', () => {
     );
   });
 
+  // carnet#1716: a date may hold several sessions, in the order they are
+  // done; each is its own row, with its own draft and its own route.
+  describe('on days that hold two sessions', () => {
+    const SPIN: PlanDay = {
+      date: '2026-09-24',
+      position: 1,
+      sport: 'ride',
+      workout: 'Recovery spin',
+      duration_min: 45,
+      intensity: 'Z1',
+      rest: false,
+    };
+    const CORE: PlanDay = {
+      date: '2026-09-25',
+      position: 1,
+      sport: 'strength',
+      workout: 'Core circuit',
+      duration_min: 20,
+      intensity: 'easy',
+      rest: false,
+    };
+    const plan = {
+      ...PLAN,
+      weeks: PLAN.weeks.map((week, index) => {
+        if (index !== 0) return week;
+        const days = [...week.days];
+        days.splice(days.findIndex((day) => day.date === '2026-09-25') + 1, 0, CORE);
+        days.splice(days.findIndex((day) => day.date === '2026-09-24') + 1, 0, SPIN);
+        return { ...week, days };
+      }),
+    };
+
+    beforeEach(() => {
+      mockGetTrainingPlan.mockResolvedValue({ plan, today: '2026-09-24' });
+      mockGetCalendar.mockImplementation(async (from, to) => calendarAnswer(from, to, { plan, activities: [] }));
+    });
+
+    it('enlarges each of today\'s sessions in order, each drafting its own question', async () => {
+      const screen = renderHome();
+
+      const first = await screen.findByTestId('home-today-day-0');
+      expect(first).toHaveTextContent(/^Tempo run/);
+      expect(screen.getByTestId('home-today-day-1')).toHaveTextContent(/^Recovery spin/);
+      expect(screen.queryByTestId('home-today-day-2')).toBeNull();
+
+      fireEvent.press(screen.getByTestId('home-today-day-1'));
+      await waitFor(() =>
+        expect(mockPush).toHaveBeenCalledWith(
+          draftHref('Walk me through my session on Thursday, September 24: Recovery spin'),
+        ),
+      );
+    });
+
+    it('offers each session its own route, named for it', async () => {
+      const screen = renderHome();
+
+      const spin = await screen.findByTestId('home-today-route-1');
+      expect(screen.getByTestId('home-today-route-0')).toHaveProp('accessibilityHint', 'Tempo run');
+      expect(spin).toHaveProp('accessibilityHint', 'Recovery spin');
+      fireEvent.press(spin);
+      await waitFor(() =>
+        expect(mockPush).toHaveBeenCalledWith(
+          draftHref('Suggest a route close to where I am for my session on Thursday, September 24: Recovery spin'),
+        ),
+      );
+    });
+
+    it("names each of tomorrow's sessions on its own line, each drafting its own question", async () => {
+      const screen = renderHome();
+
+      expect(await screen.findByTestId('home-tomorrow-value-0')).toHaveTextContent('Easy run · 40 min');
+      expect(screen.getByTestId('home-tomorrow-value-1')).toHaveTextContent('Core circuit · 20 min');
+      expect(screen.getByTestId('home-tomorrow')).toHaveTextContent(/^Tomorrow/);
+
+      fireEvent.press(screen.getByTestId('home-tomorrow-day-1'));
+      await waitFor(() =>
+        expect(mockPush).toHaveBeenCalledWith(draftHref('Walk me through my session on Friday, September 25: Core circuit')),
+      );
+    });
+
+    it("names both sessions in the week cell's spoken label, and opens the day on both rows", async () => {
+      const screen = renderHome();
+
+      await screen.findByTestId('home-week-detail');
+      expect(screen.getByTestId('home-week-day-2026-09-24').props.accessibilityLabel).toBe(
+        'Thursday, September 24 — Tempo run · Run · 50 min · Z3; Recovery spin · Ride · 45 min · Z1',
+      );
+      const detail = screen.getByTestId('home-week-detail');
+      expect(within(detail).getByTestId('home-plan-day-2026-09-24-0')).toHaveTextContent(/Tempo run/);
+      expect(within(detail).getByTestId('home-plan-day-2026-09-24-1')).toHaveTextContent(/^Recovery spin/);
+
+      fireEvent.press(within(detail).getByTestId('home-plan-day-2026-09-24-1'));
+      await waitFor(() =>
+        expect(mockPush).toHaveBeenCalledWith(
+          draftHref('Walk me through my session on Thursday, September 24: Recovery spin'),
+        ),
+      );
+    });
+  });
+
   it('offers no route on a day the plan holds no session for', async () => {
     mockGetTrainingPlan.mockResolvedValue({ plan: PLAN_RESPONSE.plan, today: '2026-09-27' });
     const screen = renderHome();
 
     expect(await screen.findByTestId('home-today-uncovered')).toBeTruthy();
-    expect(screen.queryByTestId('home-today-route')).toBeNull();
+    expect(screen.queryByTestId('home-today-route-0')).toBeNull();
   });
 
   it('says the plan does not cover a day it never reached, and never calls it rest', async () => {
@@ -317,9 +419,9 @@ describe('today and tomorrow', () => {
 
     expect(await screen.findByTestId('home-today-uncovered')).toHaveTextContent("Your plan doesn't cover this day.");
     // No enlarged day at all: neither a session nor a rest day stands in for the gap.
-    expect(screen.queryByTestId('home-today-day')).toBeNull();
+    expect(screen.queryByTestId('home-today-day-0')).toBeNull();
     // Tomorrow is Monday of next week, which the plan keeps as rest.
-    expect(screen.getByTestId('home-tomorrow-value')).toHaveTextContent('Rest');
+    expect(screen.getByTestId('home-tomorrow-value-0')).toHaveTextContent('Rest');
   });
 
   // carnet#820: not every athlete wants a plan, so the offer is a quiet ink
@@ -588,7 +690,7 @@ describe('the week strip', () => {
     const detail = screen.getByTestId('home-week-detail');
     expect(within(detail).getByText('Rest')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('home-plan-day-2026-09-22'));
+    fireEvent.press(screen.getByTestId('home-plan-day-2026-09-22-0'));
     await waitFor(() =>
       expect(mockPush).toHaveBeenCalledWith(draftHref('Why is Tuesday, September 22 a rest day in my plan?')),
     );

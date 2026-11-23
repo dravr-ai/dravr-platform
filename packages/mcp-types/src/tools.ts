@@ -1591,7 +1591,7 @@ export interface SaveTrainingPlanParams {
   /** Why this week is being re-saved; omit on first save. */
   adjustment_reason?: string;
 
-  /** The day rows, in date order (max 7). */
+  /** The day rows in date order; two sessions on one date are two rows, in the order done (max 5 per date). */
   days: {
 
   /** Day date, YYYY-MM-DD. */

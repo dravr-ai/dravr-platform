@@ -216,7 +216,7 @@ describe('the Home tab over the wire', () => {
     expect(within(today).getByText('Tempo run')).toBeTruthy();
     expect(screen.getByTestId('home-today-phase')).toHaveTextContent('Build · week 3');
 
-    fireEvent.press(screen.getByTestId('home-today-day'));
+    fireEvent.press(screen.getByTestId('home-today-day-0'));
     await waitFor(() =>
       expect(mockPush).toHaveBeenCalledWith({
         pathname: '/(app)/chat/[conversationId]',

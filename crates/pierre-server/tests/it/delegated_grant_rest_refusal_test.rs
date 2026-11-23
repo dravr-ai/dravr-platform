@@ -935,6 +935,47 @@ async fn no_route_an_admins_session_reaches_takes_a_delegation_holding_every_sco
             ask: Ask::Put(json!({ "family": "vo2max_short", "sport": "ride" })),
             session_status: 404,
         },
+        Reached {
+            what: "PUT …/subject-plan/draft/days/{date}/{n}",
+            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
+            path: format!("{plan_card}/draft/days/2026-11-18/0"),
+            ask: Ask::Put(json!({
+                "build": { "family": "vo2max_short", "sport": "ride" },
+                "expect": { "sport": "run", "workout": "Easy" }
+            })),
+            session_status: 404,
+        },
+        Reached {
+            what: "PUT …/subject-plan/draft/days/{date}/{n}/session",
+            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
+            path: format!("{plan_card}/draft/days/2026-11-18/0/session"),
+            ask: Ask::Put(json!({
+                "day": { "rest": true },
+                "expect": { "sport": "run", "workout": "Easy" }
+            })),
+            session_status: 404,
+        },
+        Reached {
+            what: "POST …/subject-plan/draft/days/{date}/{n}/restore",
+            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
+            path: format!("{plan_card}/draft/days/2026-11-18/0/restore"),
+            ask: Ask::Post(json!({ "expect": { "sport": "run", "workout": "Easy" } })),
+            session_status: 404,
+        },
+        Reached {
+            what: "POST …/subject-plan/draft/days/{date}/{n}/remove",
+            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
+            path: format!("{plan_card}/draft/days/2026-11-18/0/remove"),
+            ask: Ask::Post(json!({ "expect": { "sport": "run", "workout": "Easy" } })),
+            session_status: 404,
+        },
+        Reached {
+            what: "POST …/subject-plan/draft/days/{date}/sessions",
+            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
+            path: format!("{plan_card}/draft/days/2026-11-18/sessions"),
+            ask: Ask::Post(json!({ "day": { "rest": true } })),
+            session_status: 404,
+        },
     ];
 
     for route in &reached {

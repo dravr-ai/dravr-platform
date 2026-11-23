@@ -75,9 +75,10 @@ pub enum PlanChange {
 /// `previous` is the athlete's live weeks before the publish, `None` when
 /// they had no live season. Only the weeks the publish wrote are compared,
 /// each with the live week of the same `week_start`: weeks the coach did not
-/// draft keep the athlete's version, so nothing changed there. A day counts
-/// as changed when its session differs in any field, when it is new to its
-/// week, or when the publish took it away. A day whose date does not parse
+/// draft keep the athlete's version, so nothing changed there. A date counts
+/// as changed when its entries differ, compared in order and in every field:
+/// a session rewritten, added, taken away — one of two on the date included
+/// (carnet#1716) — or moved within the date. A date that does not parse
 /// cannot be named, and is left out (logged).
 #[must_use]
 pub fn plan_change(previous: Option<&[PlanWeek]>, published: &[PlanWeek]) -> Option<PlanChange> {
@@ -90,11 +91,18 @@ pub fn plan_change(previous: Option<&[PlanWeek]>, published: &[PlanWeek]) -> Opt
             .iter()
             .find(|live| live.week_start == week.week_start)
             .map_or(&[][..], |live| live.days.as_slice());
-        let rewritten = week.days.iter().filter(|day| !before.contains(day));
-        let removed = before
+        let dates: BTreeSet<&str> = before
             .iter()
-            .filter(|day| !week.days.iter().any(|after| after.date == day.date));
-        changed.extend(rewritten.chain(removed).map(|day| day.date.as_str()));
+            .chain(&week.days)
+            .map(|day| day.date.as_str())
+            .collect();
+        for date in dates {
+            let was = before.iter().filter(|day| day.date == date);
+            let is = week.days.iter().filter(|day| day.date == date);
+            if !was.eq(is) {
+                changed.insert(date);
+            }
+        }
     }
     let days: Vec<CivilDate> = changed
         .into_iter()
@@ -393,6 +401,8 @@ mod tests {
             template_source: None,
             template_preset: None,
             envelope: None,
+            coach_original: None,
+            coach_added: false,
         }
     }
 
@@ -417,6 +427,30 @@ mod tests {
 
     fn date(raw: &str) -> CivilDate {
         parse_plan_date(raw).unwrap()
+    }
+
+    /// Removing one of two sessions on a date, or reordering them, names
+    /// the date; the same two sessions in the same order do not
+    /// (carnet#1716).
+    #[test]
+    fn a_session_taken_from_a_date_with_two_names_the_date() {
+        let brick = vec![day("2026-10-27", "bike"), day("2026-10-27", "run")];
+        let previous = [week("2026-10-26", brick.clone())];
+        for (published, named) in [
+            (vec![day("2026-10-27", "bike")], true),
+            (
+                vec![day("2026-10-27", "run"), day("2026-10-27", "bike")],
+                true,
+            ),
+            (brick, false),
+        ] {
+            let change = plan_change(Some(&previous), &[week("2026-10-26", published.clone())]);
+            assert_eq!(
+                change,
+                named.then(|| PlanChange::Days(vec![date("2026-10-27")])),
+                "bug: a date's entries are compared whole: {published:?}"
+            );
+        }
     }
 
     #[test]

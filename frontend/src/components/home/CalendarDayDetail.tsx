@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: One open calendar day — the workouts done on it, each opening its own view, and the plan's session with its chat draft
+// ABOUTME: One open calendar day — the workouts done on it, each opening its own view, and the plan's entries, each with its chat draft
 // ABOUTME: Shared by the week strip and the month sheet; a day older than stored history says so instead of reading as empty
 
 import { useTranslation } from '@pierre/i18n';
 import type { CalendarDay, HomeActivity } from '@pierre/shared-types';
 import { activityRowFigures, planDayDraft, sportLabel, useDistanceUnit } from '@pierre/ui-logic';
-import { DayRow } from '../chat/WorkoutPlanCard';
+import { PlanDateRows } from '../chat/WorkoutPlanCard';
 import { activityViewRoute } from '../activity/activityRoute';
 
 interface CalendarDayDetailProps {
@@ -53,10 +53,11 @@ function Part({ label }: { label: string }) {
 }
 
 /**
- * The open day. Up to today it lists what was done; the plan's session for
- * it follows whenever the plan has one, so a past day reads as planned
- * against done. A day the plan never reached says so only from today on —
- * before that, what was done is the whole story.
+ * The open day. Up to today it lists what was done; the plan's entries for
+ * it follow whenever the plan has them — the plan card's rows, then one chat
+ * draft per entry, in order — so a past day reads as planned against done.
+ * A day the plan never reached says so only from today on — before that,
+ * what was done is the whole story.
  */
 export function CalendarDayDetail({ day, today, id, onOpenChatDraft, onNavigate }: CalendarDayDetailProps) {
   const { t, language } = useTranslation();
@@ -69,7 +70,6 @@ export function CalendarDayDetail({ day, today, id, onOpenChatDraft, onNavigate 
   }
   const past = day.date <= today;
   const lookup = day.plan;
-  const draft = lookup === null ? null : planDayDraft(t, language, day.date, lookup);
   const showPlan = lookup !== null && (lookup.kind !== 'uncovered' || !past);
   return (
     <div
@@ -94,22 +94,32 @@ export function CalendarDayDetail({ day, today, id, onOpenChatDraft, onNavigate 
       {showPlan && lookup !== null && (
         <div data-testid={`${id}-planned`}>
           {past && <Part label={t('home.calendar.planned')} />}
-          {lookup.kind === 'uncovered' || draft === null ? (
+          {lookup.kind === 'uncovered' ? (
             <p className="py-1 text-sm text-on-surface-variant">{t('home.plan.notCovered')}</p>
           ) : (
             <>
               <table className="w-full text-sm">
                 <tbody>
-                  <DayRow day={lookup.day} />
+                  <PlanDateRows entries={lookup.days} />
                 </tbody>
               </table>
-              <button
-                type="button"
-                onClick={() => onOpenChatDraft(draft)}
-                className="mt-1 rounded py-1 text-left text-sm font-medium text-primary transition-colors hover:text-primary-hover focus-ring"
-              >
-                {draft}
-              </button>
+              {/* Each draft names its own entry, so the drafts follow the rows in their order. */}
+              <div className="mt-1 flex flex-col items-start gap-1">
+                {lookup.days.map((entry, position) => {
+                  const draft = planDayDraft(t, language, entry);
+                  return (
+                    <button
+                      key={`${entry.date}-${position}`}
+                      type="button"
+                      data-testid={`${id}-draft-${position}`}
+                      onClick={() => onOpenChatDraft(draft)}
+                      className="rounded py-1 text-left text-sm font-medium text-primary transition-colors hover:text-primary-hover focus-ring"
+                    >
+                      {draft}
+                    </button>
+                  );
+                })}
+              </div>
             </>
           )}
         </div>

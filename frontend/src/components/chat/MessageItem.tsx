@@ -75,7 +75,7 @@ interface MessageItemProps {
   conversationId?: string | null;
   /**
    * The host is a coach's plan thread on one athlete: a plan card naming
-   * that athlete offers "Build from family" on each day, to the thread's
+   * that athlete offers "Edit day" on each day, to the thread's
    * owner. False everywhere else — the athlete's own threads, Home, a room
    * and the private rows drawn in it.
    */

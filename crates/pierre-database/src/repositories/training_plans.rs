@@ -114,7 +114,8 @@ pub struct PlanWeekInput<'a> {
     pub week_start: &'a str,
     /// The week's intent in agent voice.
     pub focus: &'a str,
-    /// The day rows, in date order (at most seven).
+    /// The day rows, in date order. Two sessions on one date are two entries
+    /// with that date, in the order they are done; at most 5 per date.
     pub days: &'a [PlannedDay],
     /// Why the agent re-saved this week; empty on first save.
     pub adjustment_reason: &'a str,

@@ -38,7 +38,7 @@ use pierre_runtime_context::ConfigLookupScope;
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::plan_calendar_push::plan_sport;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -437,7 +437,9 @@ fn emit_week_assessed(plan_id: &str, week_start: &str, verdict: &WeekVerdict) {
         volume = verdict.volume_outcome().as_str(),
         week_loading = verdict.week_loading.as_str(),
         unclassified_days = verdict.unclassified_days,
-        hard_days = verdict.hard_days.len(),
+        // The verdict lists a date once per hard session (a date may hold
+        // two, carnet#1716); the event counts the hard days themselves.
+        hard_days = verdict.hard_days.iter().collect::<BTreeSet<_>>().len(),
         detail = %detail,
         "saved week measured against its phase and flavour"
     );

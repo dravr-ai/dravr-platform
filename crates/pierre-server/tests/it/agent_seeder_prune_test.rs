@@ -221,6 +221,8 @@ async fn season_authored_by(
         template_source: None,
         template_preset: None,
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     }];
     repos
         .training_plans

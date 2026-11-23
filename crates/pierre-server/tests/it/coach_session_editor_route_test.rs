@@ -1,5 +1,5 @@
-// ABOUTME: GET families, POST session-preview, PUT draft/days/{date} under /api/chat/conversations/{id}/subject-plan — the coach's family editor over HTTP
-// ABOUTME: Pins the catalogue's per-sport ranges, a warn-only preview that writes nothing, the draft-day write and every refusal by its reason
+// ABOUTME: GET families, POST session-preview, the draft/days/{date} writes and each session's under /api/chat/conversations/{id}/subject-plan
+// ABOUTME: Pins the catalogue's ranges, a warn-only preview, the family and hand-written writes, add, remove, restore, and every refusal by its reason
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,6 +9,15 @@
 //! clients parse these bodies strictly (`packages/shared-types/src/
 //! session-editor.ts`), so their keys are asserted, and every refusal by the
 //! `details.reason` a client branches on.
+//!
+//! carnet#1714. The editor also opens on the day's own session: the coach
+//! edits it by hand or makes it a rest day, the card marks the day `edited`
+//! with the session the first edit replaced, and restore puts that back.
+//!
+//! carnet#1716. A date holds several sessions, each addressed by its
+//! position and named as the client last saw it (`expect`): the coach adds
+//! one, which restore removes, removes one of several, and a write whose
+//! session moved is a 409 `session_moved` that writes nothing.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -32,7 +41,9 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::CONVERSATION_ID;
-use pierre_tool_runtime::implementations::training_plans::SaveTrainingPlanTool;
+use pierre_tool_runtime::implementations::training_plans::{
+    GetTrainingPlanTool, SaveTrainingPlanTool,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -294,6 +305,106 @@ impl Fixture {
         .await
     }
 
+    /// `PUT …/draft/days/{date}/{n}`: a family build over session n.
+    async fn put_session(
+        &self,
+        conversation: &str,
+        (date, position): (&str, u32),
+        body: Value,
+        auth: &str,
+    ) -> (StatusCode, Value) {
+        self.request(
+            AxumTestRequest::put(&format!(
+                "{}/draft/days/{date}/{position}?locale=en",
+                Self::base(conversation)
+            ))
+            .json(&body),
+            auth,
+        )
+        .await
+    }
+
+    /// `PUT …/draft/days/{date}/{n}/session`: session n written by hand.
+    async fn put_hand_session(
+        &self,
+        conversation: &str,
+        (date, position): (&str, u32),
+        day: Value,
+        expect: &Value,
+        auth: &str,
+    ) -> (StatusCode, Value) {
+        self.request(
+            AxumTestRequest::put(&format!(
+                "{}/draft/days/{date}/{position}/session?locale=en",
+                Self::base(conversation)
+            ))
+            .json(&json!({ "day": day, "expect": expect })),
+            auth,
+        )
+        .await
+    }
+
+    /// `POST …/draft/days/{date}/{n}/{action}`: session n restored or
+    /// removed.
+    async fn on_session(
+        &self,
+        conversation: &str,
+        (date, position, action): (&str, u32, &str),
+        expect: &Value,
+        auth: &str,
+    ) -> (StatusCode, Value) {
+        self.request(
+            AxumTestRequest::post(&format!(
+                "{}/draft/days/{date}/{position}/{action}?locale=en",
+                Self::base(conversation)
+            ))
+            .json(&json!({ "expect": expect })),
+            auth,
+        )
+        .await
+    }
+
+    async fn restore(
+        &self,
+        conversation: &str,
+        (date, position): (&str, u32),
+        expect: &Value,
+        auth: &str,
+    ) -> (StatusCode, Value) {
+        self.on_session(conversation, (date, position, "restore"), expect, auth)
+            .await
+    }
+
+    async fn remove(
+        &self,
+        conversation: &str,
+        (date, position): (&str, u32),
+        expect: &Value,
+        auth: &str,
+    ) -> (StatusCode, Value) {
+        self.on_session(conversation, (date, position, "remove"), expect, auth)
+            .await
+    }
+
+    /// `POST …/draft/days/{date}/sessions`: a session added to the date.
+    async fn add_session(
+        &self,
+        conversation: &str,
+        date: &str,
+        body: Value,
+        auth: &str,
+    ) -> (StatusCode, Value) {
+        self.request(
+            AxumTestRequest::post(&format!(
+                "{}/draft/days/{date}/sessions?locale=en",
+                Self::base(conversation)
+            ))
+            .json(&body),
+            auth,
+        )
+        .await
+    }
+
     async fn get_plan(&self) -> Value {
         let (status, body) = self
             .request(
@@ -322,19 +433,52 @@ fn reason(body: &Value) -> &str {
         .unwrap_or_else(|| panic!("expected a refusal naming its reason, got {body}"))
 }
 
-/// The day `date` of `card`'s weeks.
-fn day_of<'a>(card: &'a Value, date: &str) -> &'a Value {
+/// Every entry on `date` of `card`'s weeks, in order.
+fn entries_of<'a>(card: &'a Value, date: &str) -> Vec<&'a Value> {
     card["weeks"]
         .as_array()
         .into_iter()
         .flatten()
         .flat_map(|week| week["days"].as_array().into_iter().flatten())
-        .find(|day| day["date"] == date)
+        .filter(|day| day["date"] == date)
+        .collect()
+}
+
+/// The first entry on `date` of `card`'s weeks.
+fn day_of<'a>(card: &'a Value, date: &str) -> &'a Value {
+    entries_of(card, date)
+        .first()
+        .copied()
         .unwrap_or_else(|| panic!("no day {date} in {card}"))
+}
+
+/// A session as the client last saw it: the card's exact `sport` and
+/// `workout`, what every session write carries as `expect`.
+fn seen(day: &Value) -> Value {
+    json!({ "sport": day["sport"], "workout": day["workout"] })
+}
+
+/// The athlete's own session on any date of their season, as the card shows
+/// it before the coach edits anything.
+fn athletes_session() -> Value {
+    json!({ "sport": "run", "workout": ATHLETE_WORKOUT })
 }
 
 fn short_intervals(params: &Value) -> Value {
     json!({ "family": FAMILY, "preset": "30_15", "sport": "ride", "params": params })
+}
+
+/// A run the coach writes by hand: 10 min warm-up, 6 × 20 s strides, 38 min
+/// steady — 50 minutes, and no `duration_min`: the server takes the steps'.
+fn easy_fifty() -> Value {
+    json!({
+        "rest": false, "sport": "run", "workout": "Easy 50 min", "intensity": "Z2",
+        "steps": [
+            { "label": "Warm-up", "duration_seconds": 600, "target_zone": "Z1" },
+            { "label": "Strides", "duration_seconds": 20, "target_zone": "Z5", "repeat": 6 },
+            { "label": "Steady", "duration_seconds": 2280, "target_zone": "Z2" }
+        ]
+    })
 }
 
 #[tokio::test]
@@ -343,13 +487,24 @@ async fn only_the_coachs_own_thread_about_an_athlete_opens_the_editor() {
     let date = ymd(monday(1) + Elapsed::days(2));
     let build = short_intervals(&json!({}));
     let preview = json!({ "date": date, "family": FAMILY, "sport": "ride" });
+    let expect = athletes_session();
+    let session_build = json!({ "build": build, "expect": expect });
+    let added = json!({ "day": easy_fifty() });
+    let at = (date.as_str(), 0);
 
     // Another user — the group's owner here — gets nothing of it.
+    let owner = fx.owner.auth.as_str();
     for (status, body) in [
-        fx.families(&fx.thread, &fx.owner.auth, "en").await,
-        fx.preview(&fx.thread, preview.clone(), &fx.owner.auth)
+        fx.families(&fx.thread, owner, "en").await,
+        fx.preview(&fx.thread, preview.clone(), owner).await,
+        fx.put_day(&fx.thread, &date, build.clone(), owner).await,
+        fx.put_session(&fx.thread, at, session_build.clone(), owner)
             .await,
-        fx.put_day(&fx.thread, &date, build.clone(), &fx.owner.auth)
+        fx.put_hand_session(&fx.thread, at, easy_fifty(), &expect, owner)
+            .await,
+        fx.restore(&fx.thread, at, &expect, owner).await,
+        fx.remove(&fx.thread, at, &expect, owner).await,
+        fx.add_session(&fx.thread, &date, added.clone(), owner)
             .await,
     ] {
         assert_eq!(
@@ -374,11 +529,18 @@ async fn only_the_coachs_own_thread_about_an_athlete_opens_the_editor() {
         .await
         .unwrap()
         .id;
+    let coach = fx.coach.auth.as_str();
     for (status, body) in [
-        fx.families(&plain, &fx.coach.auth, "en").await,
-        fx.preview(&plain, preview.clone(), &fx.coach.auth).await,
-        fx.put_day(&plain, &date, build.clone(), &fx.coach.auth)
+        fx.families(&plain, coach, "en").await,
+        fx.preview(&plain, preview.clone(), coach).await,
+        fx.put_day(&plain, &date, build.clone(), coach).await,
+        fx.put_session(&plain, at, session_build.clone(), coach)
             .await,
+        fx.put_hand_session(&plain, at, easy_fifty(), &expect, coach)
+            .await,
+        fx.restore(&plain, at, &expect, coach).await,
+        fx.remove(&plain, at, &expect, coach).await,
+        fx.add_session(&plain, &date, added.clone(), coach).await,
     ] {
         assert_eq!(
             status,
@@ -392,21 +554,40 @@ async fn only_the_coachs_own_thread_about_an_athlete_opens_the_editor() {
         );
     }
 
-    // An API key the coach holds writes no day of the athlete's draft.
+    // An API key the coach holds writes no day of the athlete's draft, by
+    // any of the writes.
     let key = common::issue_test_api_key(&fx.res.agent.database, fx.coach.id, "coach script")
         .await
         .unwrap();
-    let (status, body) = fx.put_day(&fx.thread, &date, build, &key).await;
-    assert_eq!(
-        status,
-        StatusCode::FORBIDDEN,
-        "bug: an outside client is refused the draft-day write: {body}"
-    );
-    assert_eq!(
-        reason(&body),
-        "external_transport",
-        "bug: an outside client is refused the write with the plan tools' reason"
-    );
+    for (write, (status, body)) in [
+        (
+            "family day",
+            fx.put_day(&fx.thread, &date, build, &key).await,
+        ),
+        (
+            "family session",
+            fx.put_session(&fx.thread, at, session_build, &key).await,
+        ),
+        (
+            "hand session",
+            fx.put_hand_session(&fx.thread, at, easy_fifty(), &expect, &key)
+                .await,
+        ),
+        ("restore", fx.restore(&fx.thread, at, &expect, &key).await),
+        ("remove", fx.remove(&fx.thread, at, &expect, &key).await),
+        ("add", fx.add_session(&fx.thread, &date, added, &key).await),
+    ] {
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "bug: an outside client is refused the {write} write: {body}"
+        );
+        assert_eq!(
+            reason(&body),
+            "external_transport",
+            "bug: an outside client is refused the {write} write with the plan tools' reason"
+        );
+    }
     assert!(!fx.has_draft().await, "bug: a refused write opened a draft");
 }
 
@@ -891,5 +1072,770 @@ async fn a_date_no_week_holds_and_a_plan_that_does_not_exist_write_nothing() {
     assert!(
         !bare.has_draft().await,
         "bug: a refused write opened a draft"
+    );
+}
+
+#[tokio::test]
+async fn a_hand_day_saves_into_the_draft_marked_edited_and_restores() {
+    let fx = Fixture::new(true).await;
+    let date = ymd(monday(1) + Elapsed::days(2));
+
+    let (status, saved) = fx
+        .put_hand_session(
+            &fx.thread,
+            (&date, 0),
+            easy_fifty(),
+            &athletes_session(),
+            &fx.coach.auth,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: the coach saves a hand-written day into their draft: {saved}"
+    );
+    assert!(
+        saved["draft_state"].is_object(),
+        "bug: the save opens a draft from the live plan: {saved}"
+    );
+    let day = day_of(&saved["draft"], &date);
+    assert_eq!(
+        day["workout"], "Easy 50 min",
+        "bug: the day takes the coach's name: {day}"
+    );
+    assert_eq!(
+        day["sport"], "run",
+        "bug: the day takes the coach's sport: {day}"
+    );
+    assert_eq!(
+        day["intensity"], "Z2",
+        "bug: the day takes the coach's intensity: {day}"
+    );
+    assert_eq!(
+        day["duration_min"], 50,
+        "bug: a day with steps and no stated length takes their total: {day}"
+    );
+    assert_eq!(
+        day["steps"].as_array().map(Vec::len),
+        Some(3),
+        "bug: the day keeps the coach's steps: {day}"
+    );
+    assert_eq!(
+        day["steps"][1],
+        json!({ "label": "Strides", "duration_seconds": 20, "target_zone": "Z5", "repeat": 6 }),
+        "bug: a step reads back as the card's step: {day}"
+    );
+    for key in [
+        "template_slug",
+        "template_source",
+        "template_preset",
+        "template_params",
+    ] {
+        assert!(
+            day.get(key).is_none(),
+            "bug: a hand-written day names no family ({key}): {day}"
+        );
+    }
+    assert!(
+        day.get("evidence").is_none() && day.get("outside_evidence").is_none(),
+        "bug: no envelope check measures a hand-written day: {day}"
+    );
+    assert_eq!(
+        day["edited"],
+        json!({ "workout": ATHLETE_WORKOUT, "rest": false }),
+        "bug: the card marks the day with the session the edit replaced: {day}"
+    );
+    for offset in [0, 1, 3, 4, 5, 6] {
+        let other = day_of(&saved["draft"], &ymd(monday(1) + Elapsed::days(offset)));
+        assert!(
+            other.get("edited").is_none() && other["workout"] == ATHLETE_WORKOUT,
+            "bug: the save edited another day of the week: {other}"
+        );
+    }
+    let live = day_of(&saved["live"], &date);
+    assert!(
+        live["workout"] == ATHLETE_WORKOUT && live.get("edited").is_none(),
+        "bug: the save changed the athlete's live plan: {live}"
+    );
+    assert_eq!(
+        fx.get_plan().await,
+        saved,
+        "bug: the write's answer is not the subject plan as the read gives it"
+    );
+
+    // The thread's agent reads the edited day and never the snapshot.
+    let read = call(
+        &fx.res,
+        &fx.coach,
+        &GetTrainingPlanTool,
+        Some(&fx.thread),
+        json!({}),
+    )
+    .await;
+    assert!(
+        read["draft"]["weeks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|week| week["days"].as_array().into_iter().flatten())
+            .any(|day| day["date"] == date && day["workout"] == "Easy 50 min"),
+        "bug: the agent reads the draft as the coach edited it: {read}"
+    );
+    assert!(
+        !read.to_string().contains("coach_original"),
+        "bug: the coach's snapshot reached the agent's read: {read}"
+    );
+
+    // A second edit, to a rest day, keeps what the first one replaced.
+    let (status, rested) = fx
+        .put_hand_session(
+            &fx.thread,
+            (&date, 0),
+            json!({ "rest": true }),
+            &seen(day),
+            &fx.coach.auth,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: the coach makes the day a rest day: {rested}"
+    );
+    let rest = day_of(&rested["draft"], &date);
+    assert_eq!(rest["rest"], true, "bug: the day is a rest day: {rest}");
+    assert_eq!(
+        rest["sport"], "rest",
+        "bug: a rest day is written as the agent writes one: {rest}"
+    );
+    assert!(
+        rest.get("steps").is_none() && rest.get("duration_min").is_none(),
+        "bug: a rest day carries no steps or length: {rest}"
+    );
+    assert_eq!(
+        rest["edited"],
+        json!({ "workout": ATHLETE_WORKOUT, "rest": false }),
+        "bug: a second edit keeps the first edit's snapshot: {rest}"
+    );
+
+    // Restore puts the day back as it stood before the first edit.
+    let (status, restored) = fx
+        .restore(&fx.thread, (&date, 0), &seen(rest), &fx.coach.auth)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: the coach restores the day they edited: {restored}"
+    );
+    let back = day_of(&restored["draft"], &date);
+    assert_eq!(
+        back,
+        day_of(&restored["live"], &date),
+        "bug: the restored day is the day as it stood, and no longer marked edited: {back}"
+    );
+    assert_eq!(
+        restored["draft_state"]["draft_id"], saved["draft_state"]["draft_id"],
+        "bug: the restore wrote into another draft: {restored}"
+    );
+
+    // Nothing is left to restore.
+    let (status, body) = fx
+        .restore(&fx.thread, (&date, 0), &athletes_session(), &fx.coach.auth)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "bug: a day with nothing to restore is a 422: {body}"
+    );
+    assert_eq!(
+        reason(&body),
+        "nothing_to_restore",
+        "bug: a day with nothing to restore is refused by its reason"
+    );
+}
+
+#[tokio::test]
+async fn a_family_build_over_a_day_is_marked_edited_and_restores() {
+    let fx = Fixture::new(true).await;
+    let date = ymd(monday(1) + Elapsed::days(2));
+
+    let (status, saved) = fx
+        .put_day(
+            &fx.thread,
+            &date,
+            short_intervals(&json!({})),
+            &fx.coach.auth,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: the family build saves: {saved}"
+    );
+    assert_eq!(
+        day_of(&saved["draft"], &date)["edited"],
+        json!({ "workout": ATHLETE_WORKOUT, "rest": false }),
+        "bug: a family build marks the day with the session it replaced: {saved}"
+    );
+
+    // A hand edit over the family day keeps the snapshot the build took.
+    let built = seen(day_of(&saved["draft"], &date));
+    let (status, edited) = fx
+        .put_hand_session(&fx.thread, (&date, 0), easy_fifty(), &built, &fx.coach.auth)
+        .await;
+    assert_eq!(status, StatusCode::OK, "bug: the hand edit saves: {edited}");
+    assert_eq!(
+        day_of(&edited["draft"], &date)["edited"]["workout"],
+        ATHLETE_WORKOUT,
+        "bug: a hand edit after a build keeps the build's snapshot: {edited}"
+    );
+
+    let (status, restored) = fx
+        .restore(
+            &fx.thread,
+            (&date, 0),
+            &seen(day_of(&edited["draft"], &date)),
+            &fx.coach.auth,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "bug: the restore saves: {restored}");
+    assert_eq!(
+        day_of(&restored["draft"], &date),
+        day_of(&restored["live"], &date),
+        "bug: restoring a built day puts back the day the build replaced: {restored}"
+    );
+}
+
+#[tokio::test]
+async fn a_hand_day_past_the_agents_bounds_is_refused_and_writes_nothing() {
+    let fx = Fixture::new(true).await;
+    let date = ymd(monday(1) + Elapsed::days(2));
+    let step = |target: &str, repeat: u32| json!({ "label": "Work", "duration_seconds": 60, "target_zone": target, "repeat": repeat });
+    for body in [
+        json!({ "rest": false, "sport": "run", "workout": " ", "intensity": "Z2" }),
+        json!({ "rest": false, "sport": "run", "workout": "Reps", "steps": [step("Z4", 101)] }),
+        json!({ "rest": false, "sport": "run", "workout": "Reps", "steps": [step("fast", 1)] }),
+        json!({ "rest": false, "sport": "run", "workout": "Long", "duration_min": 1441 }),
+        json!({ "rest": false, "sport": "run", "workout": "Reps", "duration_min": 30,
+                "steps": [step("Z4", 1)] }),
+    ] {
+        let (status, refused) = fx
+            .put_hand_session(
+                &fx.thread,
+                (&date, 0),
+                body.clone(),
+                &athletes_session(),
+                &fx.coach.auth,
+            )
+            .await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "bug: a day past the agent's day bounds is a 400: {body}: {refused}"
+        );
+        assert_eq!(
+            reason(&refused),
+            "invalid_session",
+            "bug: a day past the agent's day bounds is refused by its reason: {body}: {refused}"
+        );
+    }
+    assert!(!fx.has_draft().await, "bug: a refused write opened a draft");
+}
+
+#[tokio::test]
+async fn restore_refuses_with_no_draft_no_week_and_no_edit() {
+    let fx = Fixture::new(true).await;
+    let date = ymd(monday(1) + Elapsed::days(3));
+
+    // No draft: restore never opens one.
+    let (status, body) = fx
+        .restore(&fx.thread, (&date, 0), &athletes_session(), &fx.coach.auth)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "bug: a restore with no draft is a 404: {body}"
+    );
+    assert_eq!(
+        reason(&body),
+        "no_plan",
+        "bug: a restore with no draft is refused by its reason"
+    );
+    assert!(!fx.has_draft().await, "bug: a restore opened a draft");
+
+    // A draft the agent wrote: its days carry no snapshot.
+    let drafted = call(
+        &fx.res,
+        &fx.coach,
+        &SaveTrainingPlanTool,
+        Some(&fx.thread),
+        json!({ "weeks": [week(monday(1), COACH_WORKOUT)] }),
+    )
+    .await;
+    assert_eq!(
+        drafted["draft"], true,
+        "fixture: the coach's save from the thread drafts the athlete's plan: {drafted}"
+    );
+    let drafted_session = json!({ "sport": "run", "workout": COACH_WORKOUT });
+    let (status, body) = fx
+        .restore(&fx.thread, (&date, 0), &drafted_session, &fx.coach.auth)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "bug: a day the coach never edited is a 422: {body}"
+    );
+    assert_eq!(
+        reason(&body),
+        "nothing_to_restore",
+        "bug: a day the coach never edited is refused by its reason"
+    );
+
+    // A date no week holds.
+    let (status, body) = fx
+        .restore(
+            &fx.thread,
+            (&ymd(monday(6)), 0),
+            &athletes_session(),
+            &fx.coach.auth,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "bug: a date no week holds is a 422: {body}"
+    );
+    assert_eq!(
+        reason(&body),
+        "no_plan_week",
+        "bug: a date no week holds is refused by its reason"
+    );
+
+    // An edit over the agent's day snapshots that day, and restore puts it
+    // back.
+    let (status, edited) = fx
+        .put_hand_session(
+            &fx.thread,
+            (&date, 0),
+            easy_fifty(),
+            &drafted_session,
+            &fx.coach.auth,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "fixture: the coach edits the day");
+    let (status, restored) = fx
+        .restore(
+            &fx.thread,
+            (&date, 0),
+            &seen(day_of(&edited["draft"], &date)),
+            &fx.coach.auth,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "bug: the restore saves: {restored}");
+    let back = day_of(&restored["draft"], &date);
+    assert!(
+        back["workout"] == COACH_WORKOUT && back.get("edited").is_none(),
+        "bug: restoring puts back the day the agent drafted: {back}"
+    );
+}
+
+/// A hand session the coach adds to a date: strength beside the athlete's
+/// run.
+fn core_twenty() -> Value {
+    json!({ "rest": false, "sport": "strength", "workout": "Core 20 min", "duration_min": 20 })
+}
+
+/// The `(workout, position, added)` of each entry on `date` of `card`.
+fn placed_on(card: &Value, date: &str) -> Vec<(String, u64, bool)> {
+    entries_of(card, date)
+        .into_iter()
+        .map(|day| {
+            (
+                day["workout"].as_str().unwrap_or_default().to_owned(),
+                day["position"].as_u64().unwrap_or(u64::MAX),
+                day["added"] == true,
+            )
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_coach_adds_sessions_to_a_date_and_restoring_an_added_one_removes_it() {
+    let fx = Fixture::new(true).await;
+    let date = ymd(monday(1) + Elapsed::days(2));
+    let coach = fx.coach.auth.as_str();
+
+    let (status, with_core) = fx
+        .add_session(&fx.thread, &date, json!({ "day": core_twenty() }), coach)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: the coach adds a hand session to a date: {with_core}"
+    );
+    assert_eq!(
+        placed_on(&with_core["draft"], &date),
+        [
+            (ATHLETE_WORKOUT.to_owned(), 0, false),
+            ("Core 20 min".to_owned(), 1, true)
+        ],
+        "bug: the added session follows the date's entry, marked added"
+    );
+    assert!(
+        entries_of(&with_core["draft"], &date)[1]
+            .get("edited")
+            .is_none(),
+        "bug: an added session carries no snapshot"
+    );
+    assert_eq!(
+        placed_on(&with_core["live"], &date),
+        [(ATHLETE_WORKOUT.to_owned(), 0, false)],
+        "bug: adding a session changed the athlete's live plan"
+    );
+
+    let (status, with_build) = fx
+        .add_session(
+            &fx.thread,
+            &date,
+            json!({ "build": short_intervals(&json!({})) }),
+            coach,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: the coach adds a family session to a date: {with_build}"
+    );
+    let built = entries_of(&with_build["draft"], &date)[2];
+    assert!(
+        built["template_slug"] == FAMILY && built["position"] == 2 && built["added"] == true,
+        "bug: a family session is added third, marked added: {built}"
+    );
+
+    // The thread's agent reads the sessions, never the coach's marks.
+    let read = call(
+        &fx.res,
+        &fx.coach,
+        &GetTrainingPlanTool,
+        Some(&fx.thread),
+        json!({}),
+    )
+    .await;
+    assert!(
+        !read.to_string().contains("coach_added"),
+        "bug: the added-session flag reached the agent's read: {read}"
+    );
+
+    // An edit of an added session keeps it added, with no snapshot.
+    let core = seen(entries_of(&with_build["draft"], &date)[1]);
+    let (status, edited) = fx
+        .put_hand_session(
+            &fx.thread,
+            (&date, 1),
+            json!({ "rest": false, "sport": "strength", "workout": "Core 30 min" }),
+            &core,
+            coach,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "bug: the hand edit saves: {edited}");
+    let core_edited = entries_of(&edited["draft"], &date)[1];
+    assert!(
+        core_edited["workout"] == "Core 30 min"
+            && core_edited["added"] == true
+            && core_edited.get("edited").is_none(),
+        "bug: an edited added session stays added: {core_edited}"
+    );
+
+    // Restoring it removes it; the date keeps its other entries.
+    let (status, restored) = fx
+        .restore(&fx.thread, (&date, 1), &seen(core_edited), coach)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: restoring an added session saves: {restored}"
+    );
+    let left: Vec<String> = placed_on(&restored["draft"], &date)
+        .into_iter()
+        .map(|(workout, ..)| workout)
+        .collect();
+    assert_eq!(
+        left,
+        [
+            ATHLETE_WORKOUT.to_owned(),
+            built["workout"].as_str().unwrap().to_owned()
+        ],
+        "bug: restoring an added session removes it and leaves the others"
+    );
+}
+
+#[tokio::test]
+async fn a_coach_removes_one_of_several_sessions_and_never_the_last() {
+    let fx = Fixture::new(true).await;
+    let date = ymd(monday(1) + Elapsed::days(3));
+    let coach = fx.coach.auth.as_str();
+    let (status, _) = fx
+        .add_session(&fx.thread, &date, json!({ "day": core_twenty() }), coach)
+        .await;
+    assert_eq!(status, StatusCode::OK, "fixture: the coach adds a session");
+
+    let (status, removed) = fx
+        .remove(&fx.thread, (&date, 0), &athletes_session(), coach)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: the coach removes one of two sessions: {removed}"
+    );
+    assert_eq!(
+        placed_on(&removed["draft"], &date),
+        [("Core 20 min".to_owned(), 0, true)],
+        "bug: the other session stays, now the date's first"
+    );
+
+    let last = seen(entries_of(&removed["draft"], &date)[0]);
+    let (status, body) = fx.remove(&fx.thread, (&date, 0), &last, coach).await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "bug: the date's last session is a 422: {body}"
+    );
+    assert_eq!(
+        reason(&body),
+        "last_session",
+        "bug: the last session is refused by its reason"
+    );
+    assert_eq!(
+        placed_on(&fx.get_plan().await["draft"], &date),
+        [("Core 20 min".to_owned(), 0, true)],
+        "bug: a refused removal wrote something"
+    );
+}
+
+#[tokio::test]
+async fn a_write_whose_session_moved_is_a_409_and_writes_nothing() {
+    let fx = Fixture::new(true).await;
+    let date = ymd(monday(1) + Elapsed::days(2));
+    let coach = fx.coach.auth.as_str();
+    let (status, _) = fx
+        .add_session(&fx.thread, &date, json!({ "day": core_twenty() }), coach)
+        .await;
+    assert_eq!(status, StatusCode::OK, "fixture: the coach adds a session");
+    let before = fx.get_plan().await;
+
+    let stale = json!({ "sport": "run", "workout": "a session no longer there" });
+    let build = json!({ "build": short_intervals(&json!({})), "expect": stale });
+    for (write, (status, body)) in [
+        (
+            "family session",
+            fx.put_session(&fx.thread, (&date, 0), build, coach).await,
+        ),
+        (
+            "hand session",
+            fx.put_hand_session(
+                &fx.thread,
+                (&date, 1),
+                easy_fifty(),
+                &athletes_session(),
+                coach,
+            )
+            .await,
+        ),
+        (
+            "restore",
+            fx.restore(&fx.thread, (&date, 0), &stale, coach).await,
+        ),
+        (
+            "remove",
+            fx.remove(&fx.thread, (&date, 2), &athletes_session(), coach)
+                .await,
+        ),
+    ] {
+        assert_eq!(
+            status,
+            StatusCode::CONFLICT,
+            "bug: a {write} whose session moved is a 409: {body}"
+        );
+        assert_eq!(
+            reason(&body),
+            "session_moved",
+            "bug: a {write} whose session moved is refused by its reason"
+        );
+    }
+    assert_eq!(
+        fx.get_plan().await,
+        before,
+        "bug: a write whose session moved wrote something"
+    );
+}
+
+#[tokio::test]
+async fn a_date_holds_five_sessions_one_rest_and_takes_a_session_where_it_held_none() {
+    let fx = Fixture::new(true).await;
+    let coach = fx.coach.auth.as_str();
+    let date = ymd(monday(1) + Elapsed::days(4));
+    for n in 1..5 {
+        let (status, body) = fx
+            .add_session(
+                &fx.thread,
+                &date,
+                json!({ "day": { "rest": false, "sport": "run", "workout": format!("Run {n}") } }),
+                coach,
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "bug: session {n} is added: {body}");
+    }
+    let (status, body) = fx
+        .add_session(&fx.thread, &date, json!({ "day": core_twenty() }), coach)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "bug: a sixth session on a date is a 422: {body}"
+    );
+    assert_eq!(
+        reason(&body),
+        "date_full",
+        "bug: a full date is refused by its reason"
+    );
+    assert_eq!(
+        entries_of(&fx.get_plan().await["draft"], &date).len(),
+        5,
+        "bug: a refused add wrote something"
+    );
+
+    let rest_date = ymd(monday(1) + Elapsed::days(5));
+    let (status, rested) = fx
+        .add_session(
+            &fx.thread,
+            &rest_date,
+            json!({ "day": { "rest": true } }),
+            coach,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: a rest entry beside the date's session is added: {rested}"
+    );
+    let (status, body) = fx
+        .add_session(
+            &fx.thread,
+            &rest_date,
+            json!({ "day": { "rest": true } }),
+            coach,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "bug: a second rest entry on a date is a 400: {body}"
+    );
+    assert_eq!(
+        reason(&body),
+        "invalid_session",
+        "bug: a second rest entry is refused by the plan's day bounds"
+    );
+
+    let (status, body) = fx
+        .add_session(
+            &fx.thread,
+            &ymd(monday(6)),
+            json!({ "day": core_twenty() }),
+            coach,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "bug: a date no week holds is a 422: {body}"
+    );
+    assert_eq!(reason(&body), "no_plan_week", "bug: refused by its reason");
+
+    // A draft week the agent wrote with one day: another date of it holds no
+    // entry, and takes an added session.
+    let sparse = json!({
+        "week_start": ymd(monday(0)),
+        "days": [{ "date": ymd(monday(0)), "sport": "run", "workout": COACH_WORKOUT }],
+    });
+    let drafted = call(
+        &fx.res,
+        &fx.coach,
+        &SaveTrainingPlanTool,
+        Some(&fx.thread),
+        json!({ "weeks": [sparse] }),
+    )
+    .await;
+    assert_eq!(
+        drafted["draft"], true,
+        "fixture: the agent drafts a week: {drafted}"
+    );
+    let empty = ymd(monday(0) + Elapsed::days(3));
+    let (status, added) = fx
+        .add_session(&fx.thread, &empty, json!({ "day": core_twenty() }), coach)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: a date of a plan week that holds no entry takes a session: {added}"
+    );
+    assert_eq!(
+        placed_on(&added["draft"], &empty),
+        [("Core 20 min".to_owned(), 0, true)],
+        "bug: the added session is the date's only entry"
+    );
+}
+
+#[tokio::test]
+async fn the_released_put_writes_the_dates_first_entry_and_a_build_lands_by_position() {
+    let fx = Fixture::new(true).await;
+    let date = ymd(monday(1) + Elapsed::days(2));
+    let coach = fx.coach.auth.as_str();
+    let (status, _) = fx
+        .add_session(&fx.thread, &date, json!({ "day": core_twenty() }), coach)
+        .await;
+    assert_eq!(status, StatusCode::OK, "fixture: the coach adds a session");
+
+    // The route released app builds call names no session: it builds over
+    // the date's first entry and leaves the second.
+    let (status, saved) = fx
+        .put_day(&fx.thread, &date, short_intervals(&json!({})), coach)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: the released PUT still saves: {saved}"
+    );
+    let entries = entries_of(&saved["draft"], &date);
+    assert!(
+        entries.len() == 2
+            && entries[0]["template_slug"] == FAMILY
+            && entries[0]["edited"] == json!({ "workout": ATHLETE_WORKOUT, "rest": false })
+            && entries[1]["workout"] == "Core 20 min",
+        "bug: the released PUT builds over position 0 only: {entries:?}"
+    );
+
+    // A build by position lands on the session it names.
+    let (status, built) = fx
+        .put_session(
+            &fx.thread,
+            (&date, 1),
+            json!({ "build": short_intervals(&json!({})), "expect": seen(entries[1]) }),
+            coach,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: a family build over session 1 saves: {built}"
+    );
+    let second = entries_of(&built["draft"], &date)[1];
+    assert!(
+        second["template_slug"] == FAMILY && second["added"] == true,
+        "bug: the build lands on session 1, still an added session: {second}"
+    );
+    assert_eq!(
+        entries_of(&built["draft"], &date)[0],
+        entries[0],
+        "bug: a build by position leaves the date's other session"
     );
 }

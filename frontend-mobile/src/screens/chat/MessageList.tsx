@@ -51,7 +51,6 @@ import type {
   ChatMessageAction,
   ClaimVerdict,
   MessageAudience,
-  PlanDay,
   ReplyBlock,
   UseCaseStarter,
   VerdictTone,
@@ -70,7 +69,7 @@ import TopicDivider from './TopicDivider';
 import PrivateLaneDivider from './PrivateLaneDivider';
 import { presentMessageMenu } from './presentMessageMenu';
 import SceneView from './SceneView';
-import WorkoutPlanCard from './WorkoutPlanCard';
+import WorkoutPlanCard, { type SessionEditorTarget } from './WorkoutPlanCard';
 import EnvelopeNotice from './EnvelopeNotice';
 import PlanDraftControls from './PlanDraftControls';
 import { MARKDOWN_RULES, TABLE_CELL_MIN_WIDTH } from './markdownRules';
@@ -526,11 +525,12 @@ interface MessageListProps {
   /** A coach's private lane in this room; absent in every other thread and for every other reader. */
   privateLane?: MessageListPrivateLane;
   /**
-   * Opens the coach's family editor on a day of a plan card (carnet#1515).
-   * The host hands it only in the coach's own plan thread on an athlete;
-   * without it no card's day offers the editor.
+   * Opens the coach's day editor on an entry of a plan card, or on a date to
+   * add a session to (carnet#1515, #1714, #1716). The host hands it only in
+   * the coach's own plan thread on an athlete; without it no card's entry
+   * offers the editor.
    */
-  onBuildPlanDay?: (day: PlanDay) => void;
+  onBuildPlanDay?: (target: SessionEditorTarget) => void;
 }
 
 export function MessageList({

@@ -27,7 +27,6 @@ import type {
   Message,
   MessageAudience,
   MessageOrigin,
-  PlanDay,
   SciotteTarget,
   TurnSendOptions,
   UseCaseStarter,
@@ -46,6 +45,7 @@ import { UsageWarningBanner } from './UsageWarningBanner';
 import { VerdictSheet, type VerdictSource } from './VerdictSheet';
 import PlanThreadOpenDraft from './PlanThreadOpenDraft';
 import SessionEditorSheet from './SessionEditorSheet';
+import type { SessionEditorTarget } from './WorkoutPlanCard';
 import { useChatVoiceInput } from './useChatVoiceInput';
 import type { useMessages } from './useMessages';
 import type { useProviderStatus } from './useProviderStatus';
@@ -182,8 +182,9 @@ export function ChatThread({
   // authorization (`intervalsConnectPath` answered `'choose'`) or is the key
   // form alone.
   const [intervalsSheet, setIntervalsSheet] = useState<{ offersAuthorize: boolean } | null>(null);
-  // The plan day the coach's family editor is open on, or `null` while it is closed.
-  const [editingDay, setEditingDay] = useState<PlanDay | null>(null);
+  // What the coach's day editor is open on — an entry to edit, or a date to
+  // add a session to — or `null` while it is closed.
+  const [editing, setEditing] = useState<SessionEditorTarget | null>(null);
   // The provider sign-in a reply's reconnect opens for a card that signs in
   // (COROS, TrainingPeaks, Strava or Garmin with no seat).
   const signIn = useSignInModal();
@@ -551,13 +552,14 @@ export function ChatThread({
     [openDraftState, threadMessages, messageBlocks],
   );
   const openDraft = draftCarried ? null : planDraftRead.open;
-  // "Build from family" on every day of the thread's plan cards (carnet#1515),
-  // on the condition the open draft is drawn on: a plan thread whose
+  // "Edit day" on every entry of the thread's plan cards, and "Add a session"
+  // on every date with room (carnet#1515, #1714, #1716), on the condition the
+  // open draft is drawn on: a plan thread whose
   // subject-plan read answered, which the server answers only for the
   // thread's owner, about an athlete still sharing.
   const buildsDays =
     planSubjectName !== null && conversationId !== null && (planDraftRead.open !== null || planDraftRead.noDraft);
-  const onBuildPlanDay = buildsDays ? setEditingDay : undefined;
+  const onBuildPlanDay = buildsDays ? setEditing : undefined;
   const planDraft =
     openDraft !== null && conversationId !== null ? (
       <PlanThreadOpenDraft conversationId={conversationId} open={openDraft} onBuildDay={onBuildPlanDay} />
@@ -711,8 +713,8 @@ export function ChatThread({
         <SessionEditorSheet
           conversationId={conversationId}
           athleteName={planSubjectName}
-          day={editingDay}
-          onClose={() => setEditingDay(null)}
+          target={editing}
+          onClose={() => setEditing(null)}
         />
       ) : null}
 

@@ -512,7 +512,10 @@ fn week_schema() -> PropertySchema {
     );
     p.insert(
         "days".to_owned(),
-        array_prop("The day rows, in date order (max 7).", day_schema()),
+        array_prop(
+            "The day rows in date order; two sessions on one date are two rows, in the order done (max 5 per date).",
+            day_schema(),
+        ),
     );
     p.insert(
         "adjustment_reason".to_owned(),

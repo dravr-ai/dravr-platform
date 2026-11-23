@@ -6,9 +6,8 @@
 
 import React from 'react';
 import { View } from 'react-native';
-import type { PlanDay } from '@pierre/shared-types';
 import type { OpenPlanDraft } from '@pierre/ui-logic';
-import WorkoutPlanCard from './WorkoutPlanCard';
+import WorkoutPlanCard, { type SessionEditorTarget } from './WorkoutPlanCard';
 import PlanDraftControls from './PlanDraftControls';
 
 interface PlanThreadOpenDraftProps {
@@ -16,8 +15,8 @@ interface PlanThreadOpenDraftProps {
   conversationId: string;
   /** The draft the subject-plan read holds open. */
   open: OpenPlanDraft;
-  /** Opens the coach's family editor on one of the draft's days (carnet#1515). */
-  onBuildDay?: (day: PlanDay) => void;
+  /** Opens the coach's day editor on one of the draft's entries, or on a date to add one (carnet#1515, #1714, #1716). */
+  onBuildDay?: (target: SessionEditorTarget) => void;
 }
 
 /** The draft "Review the draft" sent the coach here to read, with its controls. */

@@ -96,6 +96,8 @@ fn rest_day_detection_and_optional_fields() {
         template_source: None,
         template_preset: None,
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     };
     assert!(rest.is_rest());
     // duration_min: None must not serialize a null (schema hygiene for

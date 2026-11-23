@@ -85,9 +85,21 @@ export const ENDPOINTS = {
     /** Preview (POST) a session built from a family, measured on the athlete's anchors; nothing is saved */
     SUBJECT_SESSION_PREVIEW: (conversationId: string) =>
       `/api/chat/conversations/${conversationId}/subject-plan/session-preview`,
-    /** Save (PUT) a session built from a family as one day of the coach's draft */
-    SUBJECT_DRAFT_DAY: (conversationId: string, date: string) =>
-      `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}`,
+    /** Save (PUT) a session built from a family over session `position` of a date in the coach's draft */
+    SUBJECT_DRAFT_DAY: (conversationId: string, date: string, position: number) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/${position}`,
+    /** Save (PUT) a session the coach wrote by hand, or a rest day, over session `position` (carnet#1714, #1716) */
+    SUBJECT_DRAFT_HAND_DAY: (conversationId: string, date: string, position: number) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/${position}/session`,
+    /** Restore (POST) session `position` to how it stood before the coach's first edit, or remove it when the coach added it */
+    SUBJECT_DRAFT_DAY_RESTORE: (conversationId: string, date: string, position: number) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/${position}/restore`,
+    /** Remove (POST) session `position` from a date that holds more than one (carnet#1716) */
+    SUBJECT_DRAFT_DAY_REMOVE: (conversationId: string, date: string, position: number) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/${position}/remove`,
+    /** Add (POST) a session at the end of a date's entries in the coach's draft (carnet#1716) */
+    SUBJECT_DRAFT_SESSIONS: (conversationId: string, date: string) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/sessions`,
   },
 
   // ==================== SLASH COMMANDS ====================

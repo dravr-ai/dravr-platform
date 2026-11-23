@@ -389,6 +389,8 @@ fn planned(date: CivilDate, workout: &str, minutes: u32) -> PlannedDay {
         template_source: None,
         template_preset: None,
         envelope: None,
+        coach_original: None,
+        coach_added: false,
     }
 }
 

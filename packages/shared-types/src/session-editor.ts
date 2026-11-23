@@ -141,6 +141,37 @@ export interface SessionPreview {
 /** `PUT …/subject-plan/draft/days/{date}`: the build saved as that day of the coach's draft. */
 export type DraftDayRequest = SessionBuild;
 
+/**
+ * A session as the coach wrote it by hand, or a rest day, saved into the
+ * coach's draft (carnet#1714). A hand-written session names no family, so
+ * no envelope check runs on it.
+ */
+export type HandDayRequest =
+  | { rest: true }
+  | {
+      rest: false;
+      /** The day's sport, in the plan's own words (`run`, `gravel`, …). */
+      sport: string;
+      workout: string;
+      duration_min?: number;
+      intensity: string;
+      steps: PlanStep[];
+    };
+
+/**
+ * The session a write is about, as the client last saw it on the card: a
+ * date's sessions are addressed by position, so a write whose position now
+ * holds another session is refused (409 `session_moved`) rather than landing
+ * on the wrong one (carnet#1716).
+ */
+export interface SessionExpect {
+  sport: string;
+  workout: string;
+}
+
+/** A session a coach adds to a date: built from a family, or written by hand (carnet#1716). */
+export type AddedSession = { build: SessionBuild } | { day: HandDayRequest };
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

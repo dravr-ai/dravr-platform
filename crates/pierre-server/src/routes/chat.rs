@@ -13,7 +13,7 @@
 //! - [`chat::personal`] — the caller's personal thread and the topics "+" opens in it
 //! - [`chat::subject_thread`] — a group's coach's thread about one athlete, opened or reopened
 //! - [`chat::subject_plan`] — in that thread, the coach's draft of the athlete's plan: read, publish, discard
-//! - [`chat::subject_session`] — in that thread, a day of the draft built from a workout family: families, preview, save
+//! - [`chat::subject_session`] — in that thread, a session of the draft: built from a workout family (families, preview, save), written by hand, put back, removed or added
 //! - [`chat::athlete_physiology`] — the same coach reads and sets the athlete's thresholds from Group info
 //! - [`chat::read_marker`] — the caller's read marker: mark read / mark unread
 //! - [`chat::starters`] — the use-case starters an empty thread offers
@@ -168,6 +168,30 @@ impl ChatRoutes {
             .route(
                 "/api/chat/conversations/{conversation_id}/subject-plan/draft/days/{date}",
                 put(subject_session::put_subject_draft_day),
+            )
+            // One session of the date, by its position and as the client saw
+            // it: a family build, edited by hand or made a rest entry, put
+            // back, removed; and a session added to the date (carnet#1714,
+            // carnet#1716)
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan/draft/days/{date}/sessions",
+                post(subject_session::add_subject_draft_session),
+            )
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan/draft/days/{date}/{position}",
+                put(subject_session::put_subject_draft_session),
+            )
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan/draft/days/{date}/{position}/session",
+                put(subject_session::put_subject_draft_hand_session),
+            )
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan/draft/days/{date}/{position}/restore",
+                post(subject_session::restore_subject_draft_session),
+            )
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan/draft/days/{date}/{position}/remove",
+                post(subject_session::remove_subject_draft_session),
             )
             // The use-case starters an empty thread offers, ranked from the
             // athlete's state (carnet#829)

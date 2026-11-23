@@ -9,10 +9,10 @@ import { clsx } from 'clsx';
 import { ChevronDown } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
-import { planDayOn } from '@pierre/shared-types';
+import { planDayOn, planSessionsOf } from '@pierre/shared-types';
 import { FORM_BAND_LABEL_KEY, formLine, garminContributionLine } from '@pierre/shared-constants';
 import { decodePolyline } from '@pierre/domain-utils';
-import { planWindow } from '@pierre/ui-logic';
+import { planDayMinutes, planWindow } from '@pierre/ui-logic';
 import { recentActivitiesQuery, useTrainingPlan, useTrainingStatus } from '../../hooks/useHome';
 import { RouteSketch } from './RouteSketch';
 import { useGettingStarted } from './gettingStartedState';
@@ -27,7 +27,11 @@ interface TodayPeekProps {
   hidden: boolean;
 }
 
-/** Today's session in a few words, or `null` while the plan says nothing about today. */
+/**
+ * Today's sessions in a few words — their workouts joined by "+", then the
+ * minutes they add up to — or `null` while the plan says nothing about today.
+ * A rest entry beside a session leaves the session to speak (carnet#1716).
+ */
 function useTodayHeadline(): string | null {
   const { t } = useTranslation();
   const plan = useTrainingPlan();
@@ -37,7 +41,13 @@ function useTodayHeadline(): string | null {
   const today = planDayOn(plan.data.plan, calendar.today);
   if (today.kind === 'rest') return t('chat.restDay');
   if (today.kind !== 'session') return null;
-  return [today.day.workout, today.day.duration_min !== undefined ? `${today.day.duration_min} min` : null]
+  const minutes = planDayMinutes(today);
+  return [
+    planSessionsOf(today)
+      .map((day) => day.workout)
+      .join(' + '),
+    minutes !== null ? `${minutes} min` : null,
+  ]
     .filter((part): part is string => typeof part === 'string' && part.length > 0)
     .join(' · ');
 }

@@ -267,6 +267,27 @@ mod coach_plan_write_transport_tests {
             )
         }
 
+        /// A per-session write of the day editor on `thread` (carnet#1714,
+        /// carnet#1716): a PUT or a POST to `suffix` after tomorrow's date,
+        /// `body` as the client sends it.
+        async fn session_route(
+            &self,
+            thread: &str,
+            (put, suffix): (bool, &str),
+            body: Value,
+            authorization: &str,
+        ) -> (StatusCode, Value) {
+            let date = Timestamp::now().utc_date() + Elapsed::days(1);
+            let path =
+                format!("/api/chat/conversations/{thread}/subject-plan/draft/days/{date}/{suffix}");
+            let request = if put {
+                AxumTestRequest::put(&path)
+            } else {
+                AxumTestRequest::post(&path)
+            };
+            self.rest(request.json(&body), authorization).await
+        }
+
         /// Whether the coach holds a draft of the athlete's plan.
         async fn has_draft(&self) -> bool {
             let tenant = self.athlete.tenant.to_string();
@@ -614,8 +635,8 @@ mod coach_plan_write_transport_tests {
     }
 
     /// The plan card's Publish and Discard routes run the draft publish and
-    /// discard themselves, not through the plan tools, and the family
-    /// editor's Save writes a day of the draft the same way: an API key the
+    /// discard themselves, not through the plan tools, and the day editor's
+    /// session writes change the draft the same way: an API key the
     /// coach holds is refused on each, with the plan tools' reason, and the
     /// draft stays as it was. The coach's own session from the app publishes and
     /// discards on the same routes.
@@ -628,13 +649,65 @@ mod coach_plan_write_transport_tests {
             .await
             .unwrap();
 
-        // Both routes are tried before any verdict, so a regression names
+        // Every route is tried before any verdict, so a regression names
         // each one it reopens. An API key is the whole header, not a bearer.
+        let seen = json!({ "sport": "run", "workout": "Easy" });
+        let build = json!({ "family": "vo2max_short", "sport": "ride" });
         let mut written = Vec::new();
         for (route, (status, body)) in [
             ("publish", w.publish_route(&thread, &key).await),
             ("discard", w.discard_route(&thread, &key).await),
             ("draft day", w.draft_day_route(&thread, &key).await),
+            (
+                "session build",
+                w.session_route(
+                    &thread,
+                    (true, "0"),
+                    json!({ "build": build, "expect": seen }),
+                    &key,
+                )
+                .await,
+            ),
+            (
+                "hand session",
+                w.session_route(
+                    &thread,
+                    (true, "0/session"),
+                    json!({ "day": { "rest": true }, "expect": seen }),
+                    &key,
+                )
+                .await,
+            ),
+            (
+                "restore session",
+                w.session_route(
+                    &thread,
+                    (false, "0/restore"),
+                    json!({ "expect": seen }),
+                    &key,
+                )
+                .await,
+            ),
+            (
+                "remove session",
+                w.session_route(
+                    &thread,
+                    (false, "0/remove"),
+                    json!({ "expect": seen }),
+                    &key,
+                )
+                .await,
+            ),
+            (
+                "add session",
+                w.session_route(
+                    &thread,
+                    (false, "sessions"),
+                    json!({ "day": { "rest": true } }),
+                    &key,
+                )
+                .await,
+            ),
         ] {
             if status != StatusCode::FORBIDDEN || body["details"]["reason"] != EXTERNAL {
                 written.push(format!("{route} with an API key: {status} {body}"));

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The Home page's Today section — the plan's session for the athlete's today, enlarged, and tomorrow's under it
-// ABOUTME: A rest day says rest and a day the plan never reached says so; tapping a day drafts the question in chat
+// ABOUTME: The Home page's Today section — the plan's sessions for the athlete's today, enlarged, and tomorrow's under them
+// ABOUTME: A rest day says rest and a day the plan never reached says so; tapping an entry drafts the question about it in chat
 
 import { MapPin } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
-import type { PlanDayLookup, WorkoutPlan } from '@pierre/shared-types';
+import type { TFunction } from '@pierre/i18n';
+import type { PlanDay, PlanDayLookup, PlanWeek, WorkoutPlan } from '@pierre/shared-types';
 import { planDayOn } from '@pierre/shared-types';
 import {
   DRAFT_DATE,
@@ -27,37 +28,33 @@ interface HomeTodayProps {
 }
 
 /**
- * Today's session as the page's one data card: the workout in the display
- * face, the phase and its week on the right, the sport, minutes and intensity
- * under it. The whole card is the way into the conversation about it.
+ * One of today's entries as a data card: the workout in the display face,
+ * the sport, minutes and intensity under it; a rest entry says rest over the
+ * week's focus. The phase and its week ride on the first card's right. The
+ * whole card is the way into the conversation about that entry, and a test
+ * id carries its position among the date's entries (carnet#1716).
  */
 function TodayCard({
-  lookup,
+  day,
+  position,
+  week,
   phaseLabel,
-  draft,
   onOpenChatDraft,
 }: {
-  lookup: PlanDayLookup;
+  day: PlanDay;
+  position: number;
+  week: PlanWeek;
   phaseLabel: string | null;
-  draft: string | null;
   onOpenChatDraft: (text: string) => void;
 }) {
-  const { t } = useTranslation();
-  if (lookup.kind === 'uncovered' || draft === null) {
-    return (
-      <p data-testid="home-today-uncovered" className="py-3 text-sm text-on-surface-variant">
-        {t('home.plan.notCovered')}
-      </p>
-    );
-  }
-  const headline = lookup.kind === 'session' ? lookup.day.workout : t('chat.restDay');
-  const detail =
-    lookup.kind === 'session' ? sessionFacts(t, lookup.day).join(' · ') : lookup.week.focus;
+  const { t, language } = useTranslation();
+  const headline = day.rest ? t('chat.restDay') : day.workout;
+  const detail = day.rest ? week.focus : sessionFacts(t, day).join(' · ');
   return (
     <button
       type="button"
-      data-testid={lookup.kind === 'session' ? 'home-today-session' : 'home-today-rest'}
-      onClick={() => onOpenChatDraft(draft)}
+      data-testid={`${day.rest ? 'home-today-rest' : 'home-today-session'}-${position}`}
+      onClick={() => onOpenChatDraft(planDayDraft(t, language, day))}
       className="card block w-full text-left transition-colors hover:bg-surface-container-low/60 focus-ring"
     >
       <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -70,16 +67,24 @@ function TodayCard({
 }
 
 /**
- * The way from today's session to a route for it: an ink link under the card
- * that drafts the question in chat, where the agent searches real routes near
- * the place the athlete names.
+ * The way from one of today's sessions to a route for it: an ink link under
+ * its card that drafts the question in chat, where the agent searches real
+ * routes near the place the athlete names.
  */
-function RouteLink({ draft, onOpenChatDraft }: { draft: string; onOpenChatDraft: (text: string) => void }) {
+function RouteLink({
+  draft,
+  position,
+  onOpenChatDraft,
+}: {
+  draft: string;
+  position: number;
+  onOpenChatDraft: (text: string) => void;
+}) {
   const { t } = useTranslation();
   return (
     <button
       type="button"
-      data-testid="home-today-route"
+      data-testid={`home-today-route-${position}`}
       onClick={() => onOpenChatDraft(draft)}
       className="mt-2 inline-flex items-center gap-1.5 rounded text-sm font-medium text-primary transition-colors hover:text-primary-hover focus-ring touch-target"
     >
@@ -89,50 +94,47 @@ function RouteLink({ draft, onOpenChatDraft }: { draft: string; onOpenChatDraft:
   );
 }
 
-/** "Tomorrow" and what the plan holds for it, on one line. */
-function TomorrowLine({
-  lookup,
-  draft,
-  onOpenChatDraft,
-}: {
-  lookup: PlanDayLookup;
-  draft: string | null;
-  onOpenChatDraft: (text: string) => void;
-}) {
-  const { t } = useTranslation();
-  const value =
-    lookup.kind === 'session'
-      ? [lookup.day.workout, lookup.day.duration_min !== undefined ? `${lookup.day.duration_min} min` : null]
-          .filter((part): part is string => typeof part === 'string' && part.length > 0)
-          .join(' · ')
-      : lookup.kind === 'rest'
-        ? t('chat.restDay')
-        : t('home.plan.notCovered');
+/** One entry in a few words: its workout and minutes, or rest. */
+function entryWords(t: TFunction, day: PlanDay): string {
+  if (day.rest) return t('chat.restDay');
+  return [day.workout, day.duration_min !== undefined ? `${day.duration_min} min` : null]
+    .filter((part): part is string => typeof part === 'string' && part.length > 0)
+    .join(' · ');
+}
+
+/** "Tomorrow" and what the plan holds for it: one line per entry, each drafting its own question. */
+function TomorrowLine({ lookup, onOpenChatDraft }: { lookup: PlanDayLookup; onOpenChatDraft: (text: string) => void }) {
+  const { t, language } = useTranslation();
   return (
     <div data-testid="home-tomorrow" className="mt-3 flex min-w-0 items-baseline gap-3 text-sm">
       <span className="shrink-0 text-on-surface-variant">{t('home.plan.tomorrow')}</span>
-      {draft === null ? (
-        <span className="min-w-0 text-on-surface-variant">{value}</span>
+      {lookup.kind === 'uncovered' ? (
+        <span className="min-w-0 text-on-surface-variant">{t('home.plan.notCovered')}</span>
       ) : (
-        <button
-          type="button"
-          onClick={() => onOpenChatDraft(draft)}
-          className="min-w-0 truncate rounded text-left font-medium text-on-surface transition-colors hover:text-primary focus-ring"
-        >
-          {value}
-        </button>
+        <div className="min-w-0 space-y-1">
+          {lookup.days.map((day, position) => (
+            <button
+              key={`${day.date}-${position}`}
+              type="button"
+              data-testid={`home-tomorrow-${position}`}
+              onClick={() => onOpenChatDraft(planDayDraft(t, language, day))}
+              className="block max-w-full truncate rounded text-left font-medium text-on-surface transition-colors hover:text-primary focus-ring"
+            >
+              {entryWords(t, day)}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
-/** The Today section: the athlete's today by the plan, then tomorrow. */
+/** The Today section: each of the athlete's entries today by the plan, in order, then tomorrow. */
 export function HomeToday({ plan, calendar, onOpenChatDraft }: HomeTodayProps) {
   const { t, language } = useTranslation();
   const today = planDayOn(plan, calendar.today);
   const tomorrow = planDayOn(plan, calendar.tomorrow);
   const unit = useDistanceUnit();
-  const routeDraft = planDayRouteDraft(t, language, calendar.today, today, unit);
   return (
     <Section
       title={t('chat.dayToday')}
@@ -144,18 +146,32 @@ export function HomeToday({ plan, calendar, onOpenChatDraft }: HomeTodayProps) {
         </span>
       }
     >
-      <TodayCard
-        lookup={today}
-        phaseLabel={today.kind === 'uncovered' ? null : phaseWeekLabel(t, plan.phases, calendar.today)}
-        draft={planDayDraft(t, language, calendar.today, today)}
-        onOpenChatDraft={onOpenChatDraft}
-      />
-      {routeDraft !== null && <RouteLink draft={routeDraft} onOpenChatDraft={onOpenChatDraft} />}
-      <TomorrowLine
-        lookup={tomorrow}
-        draft={planDayDraft(t, language, calendar.tomorrow, tomorrow)}
-        onOpenChatDraft={onOpenChatDraft}
-      />
+      {today.kind === 'uncovered' ? (
+        <p data-testid="home-today-uncovered" className="py-3 text-sm text-on-surface-variant">
+          {t('home.plan.notCovered')}
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {today.days.map((day, position) => {
+            const routeDraft = planDayRouteDraft(t, language, day, unit);
+            return (
+              <div key={`${day.date}-${position}`}>
+                <TodayCard
+                  day={day}
+                  position={position}
+                  week={today.week}
+                  phaseLabel={position === 0 ? phaseWeekLabel(t, plan.phases, calendar.today) : null}
+                  onOpenChatDraft={onOpenChatDraft}
+                />
+                {routeDraft !== null && (
+                  <RouteLink draft={routeDraft} position={position} onOpenChatDraft={onOpenChatDraft} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <TomorrowLine lookup={tomorrow} onOpenChatDraft={onOpenChatDraft} />
     </Section>
   );
 }

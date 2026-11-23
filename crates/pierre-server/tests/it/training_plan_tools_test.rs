@@ -309,7 +309,7 @@ async fn a_step_outside_the_zone_grammar_is_rejected_with_no_write() -> Result<(
     )
     .await;
     assert!(
-        message.contains("day 2026-07-16 steps[1].target_zone"),
+        message.contains("day 2026-07-16 session 1 steps[1].target_zone"),
         "the rejection names the step: {message}"
     );
     assert!(
@@ -332,7 +332,9 @@ async fn a_day_whose_duration_contradicts_its_steps_is_rejected() -> Result<()> 
     )
     .await;
     assert!(
-        message.contains("day 2026-07-16 duration_min 45 contradicts its steps, which total 61"),
+        message.contains(
+            "day 2026-07-16 session 1 duration_min 45 contradicts its steps, which total 61"
+        ),
         "the rejection names the total: {message}"
     );
     assert_no_plan(&executor, user_id, &tenant_id).await
@@ -428,7 +430,7 @@ async fn a_rest_day_cannot_carry_steps() -> Result<()> {
     )
     .await;
     assert!(
-        message.contains("day 2026-07-16 is a rest day and carries steps"),
+        message.contains("day 2026-07-16 session 1 is a rest day and carries steps"),
         "got: {message}"
     );
     assert_no_plan(&executor, user_id, &tenant_id).await
@@ -679,7 +681,26 @@ async fn adjust_single_week_without_outline_supersedes_that_week() -> Result<()>
         weeks[0]["adjustment_reason"],
         "legs heavy Tuesday — tempo moved to Wednesday",
     );
-    assert_eq!(weeks[0]["days"][1]["date"], "2026-07-15");
+    let days: Vec<(&str, &str)> = weeks[0]["days"]
+        .as_array()
+        .expect("days")
+        .iter()
+        .map(|day| {
+            (
+                day["date"].as_str().unwrap_or_default(),
+                day["workout"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        days,
+        [
+            ("2026-07-13", "off — legs up"),
+            ("2026-07-14", "endurance easy"),
+            ("2026-07-15", "tempo 3x8min"),
+        ],
+        "the save stores the week in date order, the tempo on Wednesday (carnet#1716)"
+    );
     assert_eq!(weeks[1]["focus"], "moderate build", "week 2 untouched");
     Ok(())
 }
@@ -2655,8 +2676,8 @@ async fn a_day_cannot_name_a_template_nobody_can_read() -> Result<()> {
     .await;
     assert!(
         message.contains(
-            "day 2026-07-14 names template 'hill_repeats_9x9', which is neither in the \
-             catalogue nor among this athlete's saved sessions"
+            "day 2026-07-14 session 1 names template 'hill_repeats_9x9', which is neither in \
+             the catalogue nor among this athlete's saved sessions"
         ),
         "got: {message}"
     );
@@ -2676,7 +2697,8 @@ async fn a_rest_day_cannot_name_a_template() -> Result<()> {
     )
     .await;
     assert!(
-        message.contains("day 2026-07-13 is a rest day and names template recovery_30min"),
+        message
+            .contains("day 2026-07-13 session 1 is a rest day and names template recovery_30min"),
         "got: {message}"
     );
     assert_no_plan(&executor, user_id, &tenant_id).await

@@ -361,6 +361,9 @@ describe('createSessionEditorHooks', () => {
     vi.useRealTimers();
   });
 
+  /** The session a write is about, as the card showed it. */
+  const EXPECT = { sport: 'run', workout: 'Easy run' };
+
   const BUILD: SessionBuild = {
     family: 'vo2max-short',
     preset: 'ronnestad-30-15',
@@ -386,6 +389,10 @@ describe('createSessionEditorHooks', () => {
         Promise.resolve(preview(request.params?.reps ?? 0)),
       ),
       saveSubjectDraftDay: vi.fn(),
+      saveSubjectDraftHandDay: vi.fn(),
+      restoreSubjectDraftDay: vi.fn(),
+      removeSubjectDraftDay: vi.fn(),
+      addSubjectDraftSession: vi.fn(),
     };
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     const wrapper = ({ children }: { children: ReactNode }) =>
@@ -450,10 +457,67 @@ describe('createSessionEditorHooks', () => {
     const { result } = renderHook(() => hooks.useSaveDraftDay('conv-1', 'en'), { wrapper });
 
     await act(async () => {
-      await result.current.mutateAsync({ date: '2026-11-24', build: BUILD });
+      await result.current.mutateAsync({ date: '2026-11-24', position: 1, expect: EXPECT, build: BUILD });
     });
 
-    expect(chatApi.saveSubjectDraftDay).toHaveBeenCalledWith('conv-1', '2026-11-24', BUILD, 'en');
+    expect(chatApi.saveSubjectDraftDay).toHaveBeenCalledWith('conv-1', '2026-11-24', 1, BUILD, EXPECT, 'en');
     expect(queryClient.getQueryData(QUERY_KEYS.chat.subjectPlan('conv-1'))).toEqual({ status: 'ok', plan: answered });
+  });
+
+  it('saves a hand-written day and restores a day, each answering the plan into the card’s cache (carnet#1714)', async () => {
+    const { chatApi, queryClient, wrapper, hooks } = harness();
+    const answered: SubjectPlanResponse = {
+      athlete: { user_id: 'user-alice', display_name: 'Alice Runner' },
+      today: '2026-11-21',
+      live: null,
+      draft: null,
+      draft_state: null,
+    };
+    const restored: SubjectPlanResponse = { ...answered, today: '2026-11-22' };
+    chatApi.saveSubjectDraftHandDay.mockResolvedValue(answered);
+    chatApi.restoreSubjectDraftDay.mockResolvedValue(restored);
+    const hand = renderHook(() => hooks.useSaveDraftHandDay('conv-1', 'en'), { wrapper });
+    const restore = renderHook(() => hooks.useRestoreDraftDay('conv-1', 'en'), { wrapper });
+    const day = { rest: false as const, sport: 'run', workout: 'Easy 50 min', duration_min: 50, intensity: 'easy', steps: [] };
+
+    await act(async () => {
+      await hand.result.current.mutateAsync({ date: '2026-11-24', position: 0, expect: EXPECT, day });
+    });
+    expect(chatApi.saveSubjectDraftHandDay).toHaveBeenCalledWith('conv-1', '2026-11-24', 0, day, EXPECT, 'en');
+    expect(queryClient.getQueryData(QUERY_KEYS.chat.subjectPlan('conv-1'))).toEqual({ status: 'ok', plan: answered });
+
+    await act(async () => {
+      await restore.result.current.mutateAsync({ date: '2026-11-24', position: 0, expect: EXPECT });
+    });
+    expect(chatApi.restoreSubjectDraftDay).toHaveBeenCalledWith('conv-1', '2026-11-24', 0, EXPECT, 'en');
+    expect(queryClient.getQueryData(QUERY_KEYS.chat.subjectPlan('conv-1'))).toEqual({ status: 'ok', plan: restored });
+  });
+
+  it('removes a session and adds one, each answering the plan into the card’s cache (carnet#1716)', async () => {
+    const { chatApi, queryClient, wrapper, hooks } = harness();
+    const answered: SubjectPlanResponse = {
+      athlete: { user_id: 'user-alice', display_name: 'Alice Runner' },
+      today: '2026-11-21',
+      live: null,
+      draft: null,
+      draft_state: null,
+    };
+    chatApi.removeSubjectDraftDay.mockResolvedValue(answered);
+    chatApi.addSubjectDraftSession.mockResolvedValue({ ...answered, today: '2026-11-23' });
+    const remove = renderHook(() => hooks.useRemoveDraftSession('conv-1', 'en'), { wrapper });
+    const add = renderHook(() => hooks.useAddDraftSession('conv-1', 'en'), { wrapper });
+
+    await act(async () => {
+      await remove.result.current.mutateAsync({ date: '2026-11-24', position: 1, expect: EXPECT });
+    });
+    expect(chatApi.removeSubjectDraftDay).toHaveBeenCalledWith('conv-1', '2026-11-24', 1, EXPECT, 'en');
+    expect(queryClient.getQueryData(QUERY_KEYS.chat.subjectPlan('conv-1'))).toEqual({ status: 'ok', plan: answered });
+
+    const session = { day: { rest: false as const, sport: 'strength', workout: 'Core', intensity: '', steps: [] } };
+    await act(async () => {
+      await add.result.current.mutateAsync({ date: '2026-11-24', session });
+    });
+    expect(chatApi.addSubjectDraftSession).toHaveBeenCalledWith('conv-1', '2026-11-24', session, 'en');
+    expect(queryClient.getQueryData(QUERY_KEYS.chat.subjectPlan('conv-1'))).toMatchObject({ plan: { today: '2026-11-23' } });
   });
 });

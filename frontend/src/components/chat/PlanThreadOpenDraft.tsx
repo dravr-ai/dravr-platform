@@ -17,7 +17,7 @@ interface PlanThreadOpenDraftProps {
 
 /**
  * The draft "Review the draft" sent the coach here to read, with its controls
- * and, on each day, the family editor.
+ * and, on each day, the day editor.
  */
 export default function PlanThreadOpenDraft({ conversationId, open }: PlanThreadOpenDraftProps) {
   return (

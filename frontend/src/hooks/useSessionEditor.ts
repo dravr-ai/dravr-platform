@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The web client's binding of the coach's "build from family" editor hooks — the families, the live preview, the save into the draft
-// ABOUTME: The hooks live in @pierre/ui-logic, one definition for web and mobile (carnet#1515)
+// ABOUTME: The web client's binding of the coach's day editor hooks — the families, the live preview, the per-session writes, the reread
+// ABOUTME: The hooks live in @pierre/ui-logic, one definition for web and mobile (carnet#1515, #1714, #1716)
 
 import { createSessionEditorHooks } from '@pierre/ui-logic';
 import { chatApi } from '../services/api';
@@ -11,13 +11,29 @@ import { chatApi } from '../services/api';
  * The editor's hooks over the web chat API. The API is reached when a hook
  * calls it, so importing this touches no client.
  */
-export const { useSubjectFamilies, useSessionPreview, useSaveDraftDay } = createSessionEditorHooks({
+export const {
+  useSubjectFamilies,
+  useSessionPreview,
+  useSaveDraftDay,
+  useSaveDraftHandDay,
+  useRestoreDraftDay,
+  useRemoveDraftSession,
+  useAddDraftSession,
+  useRereadPlan,
+} = createSessionEditorHooks({
   chatApi: {
     getSubjectFamilies: (conversationId, locale) => chatApi.getSubjectFamilies(conversationId, locale),
     previewSubjectSession: (conversationId, request, locale) =>
       chatApi.previewSubjectSession(conversationId, request, locale),
-    saveSubjectDraftDay: (conversationId, date, request, locale) =>
-      chatApi.saveSubjectDraftDay(conversationId, date, request, locale),
+    saveSubjectDraftDay: (conversationId, date, position, build, expect, locale) =>
+      chatApi.saveSubjectDraftDay(conversationId, date, position, build, expect, locale),
+    saveSubjectDraftHandDay: (conversationId, date, position, day, expect, locale) =>
+      chatApi.saveSubjectDraftHandDay(conversationId, date, position, day, expect, locale),
+    restoreSubjectDraftDay: (conversationId, date, position, expect, locale) =>
+      chatApi.restoreSubjectDraftDay(conversationId, date, position, expect, locale),
+    removeSubjectDraftDay: (conversationId, date, position, expect, locale) =>
+      chatApi.removeSubjectDraftDay(conversationId, date, position, expect, locale),
+    addSubjectDraftSession: (conversationId, date, session, locale) =>
+      chatApi.addSubjectDraftSession(conversationId, date, session, locale),
   },
 });
-

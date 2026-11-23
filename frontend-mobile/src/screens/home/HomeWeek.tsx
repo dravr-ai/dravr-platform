@@ -25,7 +25,7 @@ import { EmptyState, Section } from '../../components/ui';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { useHomeCalendar } from '../../hooks/useHomeCalendar';
 import { WeekHeading } from '../chat/WorkoutPlanCard';
-import { CalendarDayDetail, DayMarks, PlanDayButton } from './CalendarDayDetail';
+import { CalendarDayDetail, DayMarks, PlanDayEntries } from './CalendarDayDetail';
 import { HomeMonthSheet } from './HomeMonthSheet';
 import {
   calendarDayLabel,
@@ -74,8 +74,9 @@ function HeaderButton({
 
 /**
  * The plan's week after this one: its heading with the focus the plan gave
- * it, folded by default so Home stays about today. Opening it lists its days,
- * each one a way into a chat about it.
+ * it, folded by default so Home stays about today. Opening it lists its
+ * dates, each entry of a date once and in order, each one a way into a chat
+ * about it.
  */
 function NextWeek({
   week,
@@ -111,10 +112,11 @@ function NextWeek({
       </Pressable>
       {open ? (
         <View testID="home-next-week-days">
-          {week.days.map((day) => {
-            const lookup = planWeeksDayOn([week], day.date);
+          {/* Once per date: a date holding two sessions is one lookup with both. */}
+          {[...new Set(week.days.map((day) => day.date))].map((date) => {
+            const lookup = planWeeksDayOn([week], date);
             return lookup.kind === 'uncovered' ? null : (
-              <PlanDayButton key={day.date} lookup={lookup} openDraft={openDraft} />
+              <PlanDayEntries key={date} lookup={lookup} openDraft={openDraft} />
             );
           })}
         </View>

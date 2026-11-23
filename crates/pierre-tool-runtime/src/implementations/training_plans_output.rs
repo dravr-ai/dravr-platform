@@ -13,6 +13,13 @@
 //! Dravr pushed, and for an athlete with no calendar provider connected it
 //! is empty permanently. `scope` says so in words next to the emptiness, and
 //! it is part of the declared shape for that reason rather than a nicety.
+//!
+//! No week `get_training_plan` serves carries a day's coach marks: the day a
+//! coach's edit replaced (`coach_original`, carnet#1714) and the flag on a
+//! session the coach added (`coach_added`, carnet#1716) are their editor's to
+//! restore, never the agent's to read. Only a draft's days hold them —
+//! publishing drops them, so the live weeks never do — and the draft's weeks
+//! are served without them.
 
 use std::collections::BTreeSet;
 
@@ -21,12 +28,14 @@ use pierre_core::models::periodization::{
     DaySubstitution, EnvelopeFinding, ReadinessLevel, SpacingCheck, TrainingAlert, WorkoutPurpose,
 };
 use pierre_core::models::{CalendarEventSource, TargetAnchor};
-use pierre_memory::training_plans::{GoalRace, PlanWeek, PlannedDay, TrainingPlan};
+use pierre_memory::training_plans::{
+    session_positions, GoalRace, PlanWeek, PlannedDay, TrainingPlan,
+};
 use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::plan_calendar_push::{PushPreview, PushReport};
 use pierre_services::plan_fueling::WithheldFueling;
 use pierre_services::ramp_check::RampVerdict;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use uuid::Uuid;
 
 /// What `get_training_plan` answers with.
@@ -87,7 +96,9 @@ pub struct DraftSection {
     /// copy of the athlete's live outline when the coach drafted weeks only.
     pub plan: TrainingPlan,
     /// The weeks as publishing would leave them: the athlete's live weeks,
-    /// with each week the coach drafted in its place.
+    /// with each week the coach drafted in its place, no day carrying the
+    /// coach's editor marks.
+    #[serde(serialize_with = "agent_weeks")]
     pub weeks: Vec<PlanWeek>,
     /// The `week_start` of each week the coach drafted.
     pub drafted_weeks: Vec<String>,
@@ -97,6 +108,16 @@ pub struct DraftSection {
     /// `weeks` as they are from the live ones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fueling_withheld: Option<WithheldFueling>,
+}
+
+/// `weeks` as an agent reads them: every day without the coach's editor
+/// marks (carnet#1714, carnet#1716).
+fn agent_weeks<S: Serializer>(weeks: &[PlanWeek], serializer: S) -> Result<S::Ok, S::Error> {
+    let mut read = weeks.to_vec();
+    for week in &mut read {
+        week.drop_coach_marks();
+    }
+    read.serialize(serializer)
 }
 
 /// The goal race as the save replies quote it back: name and date.
@@ -337,7 +358,7 @@ pub enum ReplacementBasis {
     PurposeFallback,
 }
 
-/// One week whose hard sessions sit closer together than its flavour allows.
+/// One week whose hard days sit closer together than its flavour allows.
 ///
 /// Named rather than paired for the reason [`WeekReadiness`] is: a tuple
 /// serialises positionally and the reader has to know which slot is which.
@@ -379,7 +400,7 @@ pub struct CrowdedWeek {
 /// — which is the common case and costs the turn nothing.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct PlanSafetyReport {
-    /// Weeks whose hard sessions are closer together than the minimum.
+    /// Weeks whose hard days are closer together than the minimum.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub crowded_weeks: Vec<CrowdedWeek>,
     /// The opening week against the athlete's recent weekly hours, when it
@@ -434,6 +455,8 @@ pub struct PlanEnvelopeReport {
 pub struct DayEnvelopeNotice {
     /// The day, `YYYY-MM-DD`.
     pub date: String,
+    /// The session's place among the entries on its date, from 0.
+    pub position: u32,
     /// The family the day names.
     pub template_slug: String,
     /// The preset it was measured against.
@@ -463,15 +486,18 @@ impl PlanEnvelopeReport {
     /// save stamps an envelope only on a day whose `template_slug` it
     /// resolved, so every day reported names its family.
     pub fn from_days<'a>(days: impl IntoIterator<Item = &'a PlannedDay>) -> Option<Self> {
+        let days: Vec<&PlannedDay> = days.into_iter().collect();
         let days: Vec<DayEnvelopeNotice> = days
-            .into_iter()
-            .filter_map(|day| {
+            .iter()
+            .zip(session_positions(days.iter().copied()))
+            .filter_map(|(day, position)| {
                 let envelope = day.envelope.as_ref()?;
                 if envelope.findings.is_empty() && envelope.not_generated.is_none() {
                     return None;
                 }
                 Some(DayEnvelopeNotice {
                     date: day.date.clone(),
+                    position,
                     template_slug: day.template_slug.clone()?,
                     preset: envelope.preset.clone(),
                     relabelled_purpose: envelope.relabelled_purpose,
@@ -495,7 +521,7 @@ pub struct WeekComplianceBlock {
     pub tid: String,
     /// Hard-session count against the cap.
     pub hard_sessions: String,
-    /// Hours between hard sessions.
+    /// Hours between hard days.
     pub spacing: String,
     /// Hours against the phase's volume target.
     pub volume: String,
@@ -712,5 +738,133 @@ impl CalendarPushOutcome {
     #[must_use]
     pub(super) fn refused_for(&self, code: &str) -> bool {
         matches!(self, Self::NotPushed { reason, .. } if reason == code)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_core::transport::TransportPolicy;
+    use pierre_memory::training_plans::{PlanStatus, RacePriority, WeekStatus};
+    use serde_json::json;
+
+    /// A week whose one day the coach edited, its snapshot kept, and a
+    /// session they added beside it.
+    fn edited_week() -> PlanWeek {
+        let days: Vec<PlannedDay> = serde_json::from_value(json!([
+            { "date": "2026-11-18", "sport": "run", "workout": "Easy 50 min", "intensity": "Z2",
+              "coach_original": {
+                  "date": "2026-11-18", "sport": "run", "workout": "Easy 45 min", "intensity": "Z2"
+              } },
+            { "date": "2026-11-18", "sport": "strength", "workout": "Core 20 min",
+              "coach_added": true }
+        ]))
+        .unwrap();
+        PlanWeek {
+            id: "week".to_owned(),
+            tenant_id: "tenant".to_owned(),
+            user_id: "user".to_owned(),
+            plan_id: "draft".to_owned(),
+            week_start: "2026-11-16".to_owned(),
+            focus: String::new(),
+            phase_index: None,
+            days,
+            status: WeekStatus::Active,
+            supersedes_id: None,
+            adjustment_reason: String::new(),
+            author_agent_id: None,
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
+        }
+    }
+
+    fn draft_plan() -> TrainingPlan {
+        TrainingPlan {
+            id: "draft".to_owned(),
+            tenant_id: "tenant".to_owned(),
+            user_id: "user".to_owned(),
+            author_agent_id: None,
+            goal_fact_id: None,
+            goal_race: GoalRace {
+                name: "Race".to_owned(),
+                date: "2027-05-16".to_owned(),
+                discipline: "trail".to_owned(),
+                priority: RacePriority::A,
+            },
+            races: Vec::new(),
+            strategy: "the coach's draft".to_owned(),
+            flavour: None,
+            season_start: None,
+            season_end: None,
+            phases: Vec::new(),
+            status: PlanStatus::Draft,
+            supersedes_id: None,
+            source_conversation_id: None,
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
+            transport_policy: TransportPolicy::default(),
+        }
+    }
+
+    #[test]
+    fn the_agents_read_of_a_draft_serves_no_coach_mark() {
+        let section = DraftSection {
+            plan: draft_plan(),
+            weeks: vec![edited_week()],
+            drafted_weeks: vec!["2026-11-16".to_owned()],
+            state: DraftState {
+                draft_id: "draft".to_owned(),
+                updated_at: Timestamp::now(),
+                conflicts: Vec::new(),
+                season_relaid: false,
+            },
+            fueling_withheld: None,
+        };
+        assert!(
+            section.weeks[0].days[0].coach_original.is_some(),
+            "fixture: the drafted day carries the coach's snapshot"
+        );
+        let wire = serde_json::to_value(&section).unwrap();
+        let day = &wire["weeks"][0]["days"][0];
+        assert_eq!(
+            day["workout"], "Easy 50 min",
+            "bug: the agent reads the day as the coach edited it: {wire}"
+        );
+        assert!(
+            day.get("coach_original").is_none(),
+            "bug: the coach's snapshot reached the agent's read of the draft: {wire}"
+        );
+        let added = &wire["weeks"][0]["days"][1];
+        assert!(
+            added["workout"] == "Core 20 min" && added.get("coach_added").is_none(),
+            "bug: the added-session flag reached the agent's read of the draft: {wire}"
+        );
+    }
+
+    /// Two sessions on one date with findings are two reported entries, each
+    /// at its place on the date (carnet#1716).
+    #[test]
+    fn the_envelope_report_places_each_session_on_its_date() {
+        let finding = json!({ "code": "cycle_mean_floor", "action": "warn", "message": "m" });
+        let days: Vec<PlannedDay> = serde_json::from_value(json!([
+            { "date": "2026-11-18", "sport": "ride", "workout": "a", "template_slug": "x",
+              "envelope": { "findings": [finding] } },
+            { "date": "2026-11-18", "sport": "run", "workout": "b", "template_slug": "y",
+              "envelope": { "findings": [finding] } },
+            { "date": "2026-11-19", "sport": "run", "workout": "c", "template_slug": "y",
+              "envelope": { "findings": [finding] } }
+        ]))
+        .unwrap();
+        let report = PlanEnvelopeReport::from_days(&days).expect("a report");
+        let placed: Vec<(&str, u32)> = report
+            .days
+            .iter()
+            .map(|day| (day.date.as_str(), day.position))
+            .collect();
+        assert_eq!(
+            placed,
+            [("2026-11-18", 0), ("2026-11-18", 1), ("2026-11-19", 0)],
+            "bug: each reported session carries its place on its date"
+        );
     }
 }

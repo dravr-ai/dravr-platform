@@ -5,6 +5,9 @@ export { Button } from './Button';
 export { Input } from './Input';
 export { Checkbox } from './Checkbox';
 export type { CheckboxProps } from './Checkbox';
+// A form's single choice: segments for a few short words, a list for named options (never TextTabs, the filter language).
+export { RadioGroup } from './RadioGroup';
+export type { RadioGroupProps, RadioOption } from './RadioGroup';
 export { Card } from './Card';
 export { VoiceButton } from './VoiceButton';
 export { PromptDialog } from './PromptDialog';

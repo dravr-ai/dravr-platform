@@ -408,7 +408,7 @@ describe("ChatThread in a coach's own threads", () => {
   });
 
   it('draws the open draft again when the only row shows an earlier save of it', async () => {
-    // The coach saved into the same draft since (the family editor, carnet#1515): the
+    // The coach saved into the same draft since (the day editor, carnet#1515): the
     // row's card is stale and hides its controls, so the draft as it stands is drawn.
     getSubjectPlan.mockResolvedValue(subjectPlan({ ...DRAFT, updated_at: '2026-10-16T15:30:00Z' }));
     getConversationMessages.mockResolvedValue({
@@ -429,7 +429,7 @@ describe("ChatThread in a coach's own threads", () => {
     expect(await screen.findByRole('button', { name: 'Publish to Alice Runner' })).toBeEnabled();
   });
 
-  describe('"Build from family" on the plan card (carnet#1515)', () => {
+  describe('"Edit day" on the plan card (carnet#1515, #1714)', () => {
     const WEEK_PLAN: WorkoutPlan = {
       ...PLAN,
       weeks: [
@@ -453,7 +453,7 @@ describe("ChatThread in a coach's own threads", () => {
       getConversationMessages.mockResolvedValue({ messages: [PLAN_ROW] });
       renderThread({ initial: PLAN_ID, openThread });
 
-      expect(await screen.findByRole('button', { name: 'Build from family' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Edit day' })).toBeInTheDocument();
     });
 
     it('offers it nowhere when the server refuses the read — not the owner, or the athlete stopped sharing', async () => {
@@ -464,7 +464,7 @@ describe("ChatThread in a coach's own threads", () => {
       await screen.findByText('Here is the plan.');
       await waitFor(() => expect(getSubjectPlan).toHaveBeenCalledWith(PLAN_ID));
       expect(screen.getByText('Harricana 65K')).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Build from family' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Edit day' })).not.toBeInTheDocument();
     });
   });
 

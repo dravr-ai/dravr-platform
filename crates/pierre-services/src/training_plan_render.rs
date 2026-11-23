@@ -77,11 +77,13 @@ impl SelectedWeek<'_> {
         }
     }
 
-    /// The week's days that fall on `date`.
+    /// Every entry the week holds on `date`, in the week's order: two
+    /// sessions on one date are two entries (carnet#1716). Empty when the
+    /// week lists nothing on it.
     #[must_use]
-    pub fn day_on(&self, date: CivilDate) -> Option<&PlannedDay> {
+    pub fn days_on(&self, date: CivilDate) -> Vec<&PlannedDay> {
         let wanted = date.to_string();
-        self.week.days.iter().find(|d| d.date == wanted)
+        self.week.days.iter().filter(|d| d.date == wanted).collect()
     }
 }
 

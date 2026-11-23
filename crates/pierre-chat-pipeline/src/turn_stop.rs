@@ -874,6 +874,7 @@ mod tests {
         .expect("a finding");
         NoticeDay {
             date: date.to_owned(),
+            position: Some(0),
             findings: vec![finding],
             relabelled_purpose: None,
             anchor: None,

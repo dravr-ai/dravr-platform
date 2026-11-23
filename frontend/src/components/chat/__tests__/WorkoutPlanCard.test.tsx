@@ -332,4 +332,34 @@ describe('WorkoutPlanCard', () => {
     expect(screen.queryByText('now')).not.toBeInTheDocument();
     expect(screen.queryByText(/more weeks in the plan/)).not.toBeInTheDocument();
   });
+
+  it("draws a date's several entries as rows in order, the date once, on the athlete's plain card (carnet#1716)", () => {
+    const base = plan();
+    const brick = {
+      ...base,
+      weeks: [
+        {
+          ...base.weeks[0],
+          days: [
+            { date: '2026-09-16', position: 0, sport: 'ride', workout: 'Bike 90 min', duration_min: 90, intensity: 'Z2', rest: false },
+            { date: '2026-09-16', position: 1, sport: 'run', workout: 'Run off the bike', duration_min: 20, intensity: 'tempo', rest: false },
+            { date: '2026-09-17', position: 0, sport: 'rest', workout: 'off', intensity: '', rest: true },
+          ],
+        },
+      ],
+    };
+    render(<WorkoutPlanCard plan={brick} />);
+
+    const rows = screen.getAllByRole('row');
+    expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual([
+      'plan-day-2026-09-16-0',
+      'plan-day-2026-09-16-1',
+      'plan-day-2026-09-17-0',
+    ]);
+    expect(screen.getAllByText('Wed, Sep 16')).toHaveLength(1);
+    expect(within(rows[0]).getByText('Bike 90 min')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('Run off the bike')).toBeInTheDocument();
+    // Nothing to press on a card that is not the coach's.
+    expect(screen.queryByRole('button', { name: /Edit|Add a session/ })).toBeNull();
+  });
 });

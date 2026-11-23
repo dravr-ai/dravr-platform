@@ -1069,3 +1069,69 @@ impl LedgerWrite<'_> {
             .await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::slice;
+
+    fn week_of(days: &serde_json::Value) -> PlanWeek {
+        serde_json::from_value(serde_json::json!({
+            "id": "w", "tenant_id": "t", "user_id": "u", "plan_id": "p",
+            "week_start": "2026-11-16", "focus": "", "status": "active",
+            "supersedes_id": null, "adjustment_reason": "",
+            "created_at": "2026-11-01T00:00:00Z", "updated_at": "2026-11-01T00:00:00Z",
+            "days": days,
+        }))
+        .expect("a stored week")
+    }
+
+    /// The key and session of each plan day the push wants.
+    fn keyed(user_id: Uuid, week: &PlanWeek) -> Vec<(String, String)> {
+        let from = parse_plan_date("2026-11-16").expect("a plan date");
+        desired_entries(
+            user_id,
+            slice::from_ref(week),
+            from,
+            &FuelingDisclosure::from_gate(None),
+        )
+        .into_iter()
+        .filter(|entry| entry.source == CalendarEventSource::PlanDay)
+        .map(|entry| (entry.session.external_id, entry.session.notes))
+        .collect()
+    }
+
+    /// The push keys a date's sessions by their ordinal among its non-rest
+    /// entries, so a rest entry beside them shifts no key, and reordering a
+    /// date's sessions keeps its two keys and swaps what each carries: the
+    /// provider entries are rewritten in place, never re-keyed or doubled
+    /// (carnet#1716).
+    #[test]
+    fn a_reorder_keeps_the_dates_keys_and_swaps_their_sessions() {
+        let user_id = Uuid::new_v4();
+        let date = parse_plan_date("2026-11-16").expect("a plan date");
+        let first = CalendarKey::plan_day(user_id, date, 0);
+        let second = CalendarKey::plan_day(user_id, date, 1);
+        let bike = serde_json::json!({ "date": "2026-11-16", "sport": "ride", "workout": "bike" });
+        let rest = serde_json::json!({ "date": "2026-11-16", "sport": "rest", "workout": "Rest" });
+        let core =
+            serde_json::json!({ "date": "2026-11-16", "sport": "strength", "workout": "core" });
+
+        let written = keyed(user_id, &week_of(&serde_json::json!([bike, rest, core])));
+        assert_eq!(
+            written,
+            [
+                (first.clone(), "bike".to_owned()),
+                (second.clone(), "core".to_owned())
+            ],
+            "bug: a rest entry beside the sessions takes no ordinal"
+        );
+
+        let reordered = keyed(user_id, &week_of(&serde_json::json!([core, rest, bike])));
+        assert_eq!(
+            reordered,
+            [(first, "core".to_owned()), (second, "bike".to_owned())],
+            "bug: a reorder keeps the date's two keys and swaps the sessions they carry"
+        );
+    }
+}

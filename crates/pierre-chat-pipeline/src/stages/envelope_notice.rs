@@ -192,6 +192,7 @@ mod tests {
     fn day(findings: Vec<EnvelopeFinding>) -> NoticeDay {
         NoticeDay {
             date: "2026-07-14".to_owned(),
+            position: Some(0),
             findings,
             relabelled_purpose: None,
             anchor: None,

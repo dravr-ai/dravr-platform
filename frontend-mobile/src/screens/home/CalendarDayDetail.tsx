@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: One open calendar day — the workouts done on it, each opening its own view, and the plan's session drafting a chat
+// ABOUTME: One open calendar day — the workouts done on it, each opening its own view, and the plan's sessions, each drafting its own chat
 // ABOUTME: Shared by the week strip and the month sheet; a day older than stored history says so instead of reading as empty
 
 import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useTranslation } from '@pierre/i18n';
-import type { CalendarDay, HomeActivity, PlanDayLookup } from '@pierre/shared-types';
+import type { CalendarDay, HomeActivity, PlanDay, PlanDayLookup } from '@pierre/shared-types';
 import { activityRowFigures, planDayDraft, sportLabel, useDistanceUnit } from '@pierre/ui-logic';
 import { EvidenceSheet } from '../chat/EvidenceChip';
 import { DayRow, Figure } from '../chat/WorkoutPlanCard';
 
 /**
  * The marks under a cell's date: a dot for a workout done, then a filled bar
- * for a planned session or a hollow one for rest, nothing where the plan is
- * silent. Filled against hollow, not one colour against another, so the
- * difference survives any colour vision; the spoken label says it in words.
+ * when the plan holds a session on it — any of its entries that is not rest —
+ * or a hollow one when it holds only rest, nothing where the plan is silent.
+ * Filled against hollow, not one colour against another, so the difference
+ * survives any colour vision; the spoken label says it in words.
  */
 export function DayMarks({ day }: { day: CalendarDay }) {
   const done = day.activities.length > 0;
@@ -34,24 +35,28 @@ export function DayMarks({ day }: { day: CalendarDay }) {
   );
 }
 
-/** A plan day drawn the way the chat card draws it, pressable into a drafted chat about it. */
-export function PlanDayButton({
-  lookup,
+/**
+ * One of a date's plan entries drawn the way the chat card draws it,
+ * pressable into a drafted chat about that entry. Only a date's first entry
+ * leads with the date, as on the card.
+ */
+function PlanDayButton({
+  day,
+  position,
   openDraft,
 }: {
-  lookup: Exclude<PlanDayLookup, { kind: 'uncovered' }>;
+  day: PlanDay;
+  /** Where the entry sits among its date's entries, from 0. */
+  position: number;
   openDraft: (draft: string) => void;
 }) {
   const { t, language } = useTranslation();
   const [evidenceOpen, setEvidenceOpen] = useState(false);
-  const draft = planDayDraft(t, language, lookup.day.date, lookup);
-  const evidence = lookup.day.evidence;
+  const evidence = day.evidence;
   return (
     <>
       <Pressable
-        onPress={() => {
-          if (draft !== null) openDraft(draft);
-        }}
+        onPress={() => openDraft(planDayDraft(t, language, day))}
         accessibilityRole="button"
         // The row is one element to VoiceOver, which never reaches the
         // evidence chip inside it; the row's actions menu opens the same sheet.
@@ -62,13 +67,34 @@ export function PlanDayButton({
           if (event.nativeEvent.actionName === 'evidence') setEvidenceOpen(true);
         }}
         className="min-h-11 pb-2"
-        testID={`home-plan-day-${lookup.day.date}`}
+        testID={`home-plan-day-${day.date}-${position}`}
       >
-        <DayRow day={lookup.day} />
+        <DayRow day={day} position={position} showDate={position === 0} />
       </Pressable>
       {evidence ? (
         <EvidenceSheet evidence={evidence} visible={evidenceOpen} onClose={() => setEvidenceOpen(false)} />
       ) : null}
+    </>
+  );
+}
+
+/**
+ * Every entry the plan holds on a date, in the order they are done — two
+ * sessions, or a rest entry beside an optional one (carnet#1716) — each its
+ * own row with its own drafted chat.
+ */
+export function PlanDayEntries({
+  lookup,
+  openDraft,
+}: {
+  lookup: Exclude<PlanDayLookup, { kind: 'uncovered' }>;
+  openDraft: (draft: string) => void;
+}) {
+  return (
+    <>
+      {lookup.days.map((day, position) => (
+        <PlanDayButton key={`${day.date}-${position}`} day={day} position={position} openDraft={openDraft} />
+      ))}
     </>
   );
 }
@@ -122,8 +148,8 @@ interface CalendarDayDetailProps {
 }
 
 /**
- * The open day. Up to today it lists what was done; the plan's session for
- * it follows whenever the plan has one, so a past day reads as planned
+ * The open day. Up to today it lists what was done; the plan's entries for
+ * it follow whenever the plan has some, so a past day reads as planned
  * against done. A day the plan never reached says so only from today on.
  */
 export function CalendarDayDetail({ day, today, testID, openDraft, openActivity }: CalendarDayDetailProps) {
@@ -160,7 +186,7 @@ export function CalendarDayDetail({ day, today, testID, openDraft, openActivity 
               <Figure>{day.date}</Figure> {t('home.plan.notCovered')}
             </Text>
           ) : (
-            <PlanDayButton lookup={lookup} openDraft={openDraft} />
+            <PlanDayEntries lookup={lookup} openDraft={openDraft} />
           )}
         </View>
       ) : null}

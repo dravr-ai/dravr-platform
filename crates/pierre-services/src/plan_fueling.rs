@@ -78,9 +78,10 @@ pub enum FuelingDisclosure {
 pub struct WithheldFueling {
     /// Why the rates are absent and who sets them.
     pub figures_withheld: FiguresWithheld,
-    /// The days whose stored protocol was withheld from `weeks`, `YYYY-MM-DD`.
-    /// Empty when no returned day carries one — the statement still stands,
-    /// because a save carrying rates for this athlete is refused.
+    /// The days whose stored protocol was withheld from `weeks`, `YYYY-MM-DD`,
+    /// each date once however many of its sessions carried one. Empty when no
+    /// returned day carries one — the statement still stands, because a save
+    /// carrying rates for this athlete is refused.
     pub dates: Vec<String>,
 }
 
@@ -176,9 +177,9 @@ impl FuelingDisclosure {
         let Self::Withheld(statement) = self else {
             return None;
         };
-        let mut dates = Vec::new();
+        let mut dates: Vec<String> = Vec::new();
         for day in weeks.iter_mut().flat_map(|week| week.days.iter_mut()) {
-            if day.fueling.take().is_some() {
+            if day.fueling.take().is_some() && !dates.contains(&day.date) {
                 dates.push(day.date.clone());
             }
         }
@@ -194,7 +195,8 @@ impl FuelingDisclosure {
     /// # Errors
     ///
     /// Returns [`AppError::invalid_input`] naming every day that carries a
-    /// protocol, and what to write instead, when the rates are withheld.
+    /// protocol, each date once, and what to write instead, when the rates
+    /// are withheld.
     pub fn refuse_figures<'a>(
         &self,
         days: impl IntoIterator<Item = &'a PlannedDay>,
@@ -202,11 +204,13 @@ impl FuelingDisclosure {
         let Self::Withheld(statement) = self else {
             return Ok(());
         };
-        let dates: Vec<&str> = days
-            .into_iter()
-            .filter(|day| day.fueling.is_some())
-            .map(|day| day.date.as_str())
-            .collect();
+        let fuelled = days.into_iter().filter(|day| day.fueling.is_some());
+        let mut dates: Vec<&str> = Vec::new();
+        for day in fuelled {
+            if !dates.contains(&day.date.as_str()) {
+                dates.push(day.date.as_str());
+            }
+        }
         if dates.is_empty() {
             return Ok(());
         }
@@ -260,6 +264,44 @@ mod tests {
             );
         }
         assert!(refusal.contains("2026-07-14"), "{refusal}");
+    }
+
+    /// Two fuelled sessions on one date name that date once, in the refusal
+    /// and in what a read withheld (carnet#1716).
+    #[test]
+    fn a_date_with_two_fuelled_sessions_is_listed_once() {
+        let first = fuelled_day();
+        let second = PlannedDay {
+            workout: "1 h tempo run".to_owned(),
+            ..first.clone()
+        };
+        let flagged = FuelingDisclosure::from_gate(Some(FiguresWithheld::medical_flag()));
+        let refusal = flagged
+            .refuse_figures([&first, &second])
+            .expect_err("a save carrying rates is refused")
+            .message;
+        assert_eq!(
+            refusal.matches("2026-07-14").count(),
+            1,
+            "bug: the refusal names the date once: {refusal}"
+        );
+
+        let mut weeks: Vec<PlanWeek> = vec![serde_json::from_value(serde_json::json!({
+            "id": "w", "tenant_id": "t", "user_id": "u", "plan_id": "p",
+            "week_start": "2026-07-13", "focus": "", "status": "active",
+            "supersedes_id": null, "adjustment_reason": "",
+            "created_at": "2026-07-01T00:00:00Z", "updated_at": "2026-07-01T00:00:00Z",
+            "days": [first, second],
+        }))
+        .expect("a stored week")];
+        let withheld = flagged
+            .redact_weeks(&mut weeks)
+            .expect("the rates are withheld");
+        assert_eq!(
+            withheld.dates,
+            ["2026-07-14"],
+            "bug: a read names the date once"
+        );
     }
 
     #[test]

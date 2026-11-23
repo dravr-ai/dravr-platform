@@ -150,10 +150,11 @@ pub struct PlanShareHandler;
 /// for nothing and a plan that simply does not reach this date — the two used
 /// to collapse into the same "nothing scheduled" line, which is how a hole in
 /// the stored weeks read as a working plan with an easy day in it.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum DayStatus<'a> {
-    /// A stored week spans the date and prescribes this session.
-    Session(&'a PlannedDay),
+    /// A stored week spans the date and prescribes these entries, in the
+    /// week's order: one line each (carnet#1716). Never empty.
+    Sessions(Vec<&'a PlannedDay>),
     /// A stored week spans the date and prescribes nothing on it.
     Unscheduled,
     /// No stored week spans the date at all.
@@ -166,16 +167,20 @@ enum DayStatus<'a> {
 /// selected week merely *spans* the date — a week can cover a date without
 /// listing it, which is a real rest day rather than a gap.
 fn day_status<'a>(weeks: &'a [SelectedWeek<'a>], date: CivilDate) -> DayStatus<'a> {
-    weeks.iter().find_map(|w| w.day_on(date)).map_or_else(
-        || {
-            if weeks.iter().any(|w| (w.start..=w.end).contains(&date)) {
-                DayStatus::Unscheduled
-            } else {
-                DayStatus::Uncovered
-            }
-        },
-        DayStatus::Session,
-    )
+    weeks
+        .iter()
+        .map(|w| w.days_on(date))
+        .find(|days| !days.is_empty())
+        .map_or_else(
+            || {
+                if weeks.iter().any(|w| (w.start..=w.end).contains(&date)) {
+                    DayStatus::Unscheduled
+                } else {
+                    DayStatus::Uncovered
+                }
+            },
+            DayStatus::Sessions,
+        )
 }
 
 /// The outline phase whose span contains `date`, when the outline has one.
@@ -195,34 +200,45 @@ fn resume_week<'a>(
     weeks.iter().find(|w| w.start > today)
 }
 
-/// Render one day as `"<label>: <session>"`.
+/// Render one day as `"<label>: <session>"`, one such line per entry on a
+/// date that holds several (carnet#1716).
 fn render_day(
     reg: &MessagingStringsRegistry,
     locale: &str,
     label: &str,
     day: DayStatus<'_>,
 ) -> String {
-    let session = match day {
-        DayStatus::Uncovered => reg.render(KEY_PLAN_NO_COVERAGE, locale, &[]),
-        DayStatus::Unscheduled => reg.render(KEY_PLAN_NO_SESSION, locale, &[]),
-        DayStatus::Session(d) if d.is_rest() => reg.render(KEY_PLAN_REST, locale, &[]),
-        DayStatus::Session(d) => {
-            let duration = d
-                .duration_min
-                .map_or_else(String::new, |m| format!(" {m}min"));
-            let intensity = if d.intensity.is_empty() {
-                String::new()
-            } else {
-                format!(" [{}]", d.intensity)
-            };
-            let session = format!("{}{duration}{intensity} — {}", d.sport, d.workout);
-            match session_notes(reg, locale, d) {
-                Some(notes) => reg.render(KEY_PLAN_SESSION_NOTES, locale, &[&session, &notes]),
-                None => session,
-            }
-        }
+    let line = |session: String| reg.render(KEY_PLAN_DAY_LINE, locale, &[label, &session]);
+    match day {
+        DayStatus::Uncovered => line(reg.render(KEY_PLAN_NO_COVERAGE, locale, &[])),
+        DayStatus::Unscheduled => line(reg.render(KEY_PLAN_NO_SESSION, locale, &[])),
+        DayStatus::Sessions(days) => days
+            .into_iter()
+            .map(|d| line(render_session(reg, locale, d)))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
+}
+
+/// One entry as its day line names it: the rest day's words, or the
+/// session's sport, length, intensity and workout with its notes.
+fn render_session(reg: &MessagingStringsRegistry, locale: &str, d: &PlannedDay) -> String {
+    if d.is_rest() {
+        return reg.render(KEY_PLAN_REST, locale, &[]);
+    }
+    let duration = d
+        .duration_min
+        .map_or_else(String::new, |m| format!(" {m}min"));
+    let intensity = if d.intensity.is_empty() {
+        String::new()
+    } else {
+        format!(" [{}]", d.intensity)
     };
-    reg.render(KEY_PLAN_DAY_LINE, locale, &[label, &session])
+    let session = format!("{}{duration}{intensity} — {}", d.sport, d.workout);
+    match session_notes(reg, locale, d) {
+        Some(notes) => reg.render(KEY_PLAN_SESSION_NOTES, locale, &[&session, &notes]),
+        None => session,
+    }
 }
 
 /// What a family day's stored envelope says about it, as `/plan` notes it:
@@ -382,7 +398,7 @@ fn render_view(
                 let _ = writeln!(
                     out,
                     "{}",
-                    render_day(reg, locale, &day.date, DayStatus::Session(day))
+                    render_day(reg, locale, &day.date, DayStatus::Sessions(vec![day]))
                 );
             }
         }
@@ -771,7 +787,7 @@ mod tests {
             }
         }))
         .expect("a stored day");
-        let line = render_day(&reg, "en", "Today", DayStatus::Session(&day));
+        let line = render_day(&reg, "en", "Today", DayStatus::Sessions(vec![&day]));
         assert_eq!(
             line,
             "Today: run 45min — 30/15 (Outside the evidence · Transposed from another sport · \
@@ -784,9 +800,34 @@ mod tests {
         }))
         .expect("a stored day");
         assert_eq!(
-            render_day(&reg, "en", "Tomorrow", DayStatus::Session(&plain)),
+            render_day(&reg, "en", "Tomorrow", DayStatus::Sessions(vec![&plain])),
             "Tomorrow: ride 90min — endurance",
             "bug: a day with no envelope keeps its line as it was"
+        );
+    }
+
+    /// A date holding a ride and a rest entry beside it reads as two day
+    /// lines, in the week's order, each under the date's label (carnet#1716).
+    #[test]
+    fn a_date_with_two_entries_renders_one_line_each() {
+        let reg = MessagingStringsRegistry::new();
+        let day = |sport: &str, workout: &str| -> PlannedDay {
+            serde_json::from_value(serde_json::json!({
+                "date": "2026-07-15", "sport": sport, "workout": workout, "duration_min": 60
+            }))
+            .expect("a stored day")
+        };
+        let ride = day("ride", "endurance");
+        let strength = day("strength", "Optional: light strength");
+        assert_eq!(
+            render_day(
+                &reg,
+                "en",
+                "Tomorrow",
+                DayStatus::Sessions(vec![&ride, &strength])
+            ),
+            "Tomorrow: ride 60min — endurance\nTomorrow: strength 60min — Optional: light strength",
+            "bug: each session on the date gets its own day line"
         );
     }
 

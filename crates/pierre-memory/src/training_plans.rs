@@ -16,10 +16,11 @@
 //!   purpose, volume and intensity targets the fortnight is written against,
 //!   and a prose strategy. One `active` outline per (tenant, user): the
 //!   athlete's season, which every agent they use reads and adds weeks to.
-//! - [`PlanWeek`] — one **microcycle**: seven [`PlannedDay`] rows with
-//!   intensity expressed *relative to thresholds* (zones, %FTP) so an FTP
-//!   retest never invalidates a stored plan, and — when the agent states
-//!   it — the session's structure as [`WorkoutStep`]s.
+//! - [`PlanWeek`] — one **microcycle**: the [`PlannedDay`] rows of one
+//!   calendar week, two sessions on a date being two rows, with intensity
+//!   expressed *relative to thresholds* (zones, %FTP) so an FTP retest
+//!   never invalidates a stored plan, and — when the agent states it — the
+//!   session's structure as [`WorkoutStep`]s.
 //!
 //! Plans are captured by explicit agent tool calls, never post-hoc
 //! extraction — Tier-2 extraction minting agent prescriptions as `user_facts`
@@ -528,6 +529,20 @@ pub struct PlannedDay {
     /// never taken from the payload.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub envelope: Option<DayEnvelope>,
+    /// The day as it stood before the coach's first edit in this draft, when
+    /// the coach edited it from their plan thread (carnet#1714). Stamped by the
+    /// coach's day saves only, never taken from an agent payload, never shown
+    /// to the agent, and dropped when the draft is published.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub coach_original: Option<Box<Self>>,
+    /// Whether the coach added this session to its date from their plan
+    /// thread (carnet#1716): restoring it removes it. Set by the coach's "add
+    /// a session" only, never taken from an agent payload, never shown to the
+    /// agent, and dropped when the draft is published.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(skip)]
+    pub coach_added: bool,
 }
 
 /// The authorship tier a day's template was found in at save time.
@@ -653,7 +668,8 @@ pub struct PlanWeek {
         deserialize_with = "whole_u32_opt"
     )]
     pub phase_index: Option<u32>,
-    /// The day rows, in date order. At most seven.
+    /// The day rows, in date order. Two sessions on one date are two entries
+    /// with that date, in the order they are done; at most 5 per date.
     pub days: Vec<PlannedDay>,
     /// Lifecycle status.
     pub status: WeekStatus,
@@ -672,8 +688,37 @@ pub struct PlanWeek {
     pub updated_at: Timestamp,
 }
 
-/// Maximum day rows in one week — a microcycle is a calendar week.
-pub const MAX_DAYS_PER_WEEK: usize = 7;
+impl PlanWeek {
+    /// Drop the coach's editor marks from every day — the pre-edit snapshot
+    /// (carnet#1714) and the added-session flag (carnet#1716): a week that
+    /// goes live, or that an agent reads, carries neither.
+    pub fn drop_coach_marks(&mut self) {
+        for day in &mut self.days {
+            day.coach_original = None;
+            day.coach_added = false;
+        }
+    }
+}
+
+/// Most entries one date holds, a rest entry included (carnet#1716). A week
+/// is bounded by its seven dates, so it holds at most 35.
+pub const MAX_SESSIONS_PER_DATE: usize = 5;
+
+/// The position of each of `days` among the entries on its date, in the
+/// order given: 0-based, a rest entry included. With its date, this is how a
+/// session is known (carnet#1716); a session has no stable id.
+#[must_use]
+pub fn session_positions<'a>(days: impl IntoIterator<Item = &'a PlannedDay>) -> Vec<u32> {
+    let mut seen: BTreeMap<&'a str, u32> = BTreeMap::new();
+    days.into_iter()
+        .map(|day| {
+            let next = seen.entry(day.date.as_str()).or_insert(0);
+            let position = *next;
+            *next = next.saturating_add(1);
+            position
+        })
+        .collect()
+}
 
 /// Parse a civil plan date, accepting only canonical zero-padded
 /// `YYYY-MM-DD`.
@@ -686,4 +731,106 @@ pub const MAX_DAYS_PER_WEEK: usize = 7;
 pub fn parse_plan_date(s: &str) -> Option<CivilDate> {
     let parsed = CivilDate::parse_from_str(s, "%Y-%m-%d").ok()?;
     (parsed.to_string() == s).then_some(parsed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn edited_day(date: &str) -> PlannedDay {
+        serde_json::from_value(serde_json::json!({
+            "date": date, "sport": "run", "workout": "Easy 50 min", "intensity": "Z2",
+            "coach_original": { "date": date, "sport": "rest", "workout": "Rest" }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_coachs_marks_are_stored_with_their_day_and_dropped_from_a_week_that_goes_live() {
+        let day = edited_day("2026-11-18");
+        let stored = serde_json::to_value(&day).unwrap();
+        assert_eq!(
+            stored["coach_original"]["workout"], "Rest",
+            "bug: the day's JSON column keeps the coach's snapshot: {stored}"
+        );
+        let unedited = PlannedDay {
+            coach_original: None,
+            ..day.clone()
+        };
+        let unmarked = serde_json::to_value(&unedited).unwrap();
+        assert!(
+            unmarked.get("coach_original").is_none() && unmarked.get("coach_added").is_none(),
+            "bug: a day with no snapshot and not added writes neither key: {unmarked}"
+        );
+        let added = PlannedDay {
+            coach_added: true,
+            ..unedited
+        };
+        let stored_added = serde_json::to_value(&added).unwrap();
+        assert_eq!(
+            stored_added["coach_added"], true,
+            "bug: the day's JSON column keeps the added-session flag: {stored_added}"
+        );
+        assert_eq!(
+            serde_json::from_value::<PlannedDay>(stored_added).unwrap(),
+            added,
+            "bug: an added session reads back as written"
+        );
+
+        let mut week = PlanWeek {
+            id: "week".to_owned(),
+            tenant_id: "tenant".to_owned(),
+            user_id: "user".to_owned(),
+            plan_id: "draft".to_owned(),
+            week_start: "2026-11-16".to_owned(),
+            focus: String::new(),
+            phase_index: None,
+            days: vec![edited_day("2026-11-17"), day, added],
+            status: WeekStatus::Active,
+            supersedes_id: None,
+            adjustment_reason: String::new(),
+            author_agent_id: None,
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
+        };
+        week.drop_coach_marks();
+        assert!(
+            week.days
+                .iter()
+                .all(|day| day.coach_original.is_none() && !day.coach_added),
+            "bug: a week that goes live keeps a coach's mark: {:?}",
+            week.days
+        );
+        assert!(
+            week.days.iter().all(|day| day.workout == "Easy 50 min"),
+            "bug: dropping the marks changed the days themselves"
+        );
+    }
+
+    #[test]
+    fn a_session_is_placed_among_its_dates_entries_rest_included() {
+        let on = |date: &str, sport: &str| -> PlannedDay {
+            serde_json::from_value(
+                serde_json::json!({ "date": date, "sport": sport, "workout": sport }),
+            )
+            .unwrap()
+        };
+        let days = [
+            on("2026-11-16", "ride"),
+            on("2026-11-16", "rest"),
+            on("2026-11-16", "strength"),
+            on("2026-11-17", "run"),
+            on("2026-11-18", "swim"),
+            on("2026-11-18", "run"),
+        ];
+        assert_eq!(
+            session_positions(&days),
+            [0, 1, 2, 0, 0, 1],
+            "bug: each entry's position counts the entries before it on its date"
+        );
+        assert!(
+            session_positions(&[]).is_empty(),
+            "bug: no entries, no positions"
+        );
+    }
 }

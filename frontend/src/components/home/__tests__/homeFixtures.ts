@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Wire-shaped fixtures for the Home tests — a plan card around Thursday 2026-09-24, five cached activities, a provider's status
+// ABOUTME: Wire-shaped fixtures for the Home tests — a plan card around Thursday 2026-09-24 (and one with two sessions on a date), five cached activities, a provider's status
 // ABOUTME: Built as the server serializes them, so a component test starts from the contract rather than a convenience shape
 
 import type {
@@ -87,6 +87,31 @@ export function homePlan(overrides: Partial<WorkoutPlan> = {}): WorkoutPlan {
     weeks_deferred: 4,
     ...overrides,
   };
+}
+
+/**
+ * The same plan with several entries on a date (carnet#1716): today holds 20
+ * minutes of technique swimming before the tempo run, and tomorrow's rest day an
+ * optional spin beside it. Each entry carries its position on its date.
+ */
+export function twoSessionPlan(): WorkoutPlan {
+  const plan = homePlan();
+  plan.weeks[0].days = plan.weeks[0].days.flatMap((day) => {
+    if (day.date === TODAY) {
+      return [
+        { date: TODAY, position: 0, sport: 'swim', workout: 'Technique swim', duration_min: 20, intensity: 'easy', rest: false },
+        { ...day, position: 1 },
+      ];
+    }
+    if (day.date === '2026-09-25') {
+      return [
+        { ...day, position: 0 },
+        { date: day.date, position: 1, sport: 'ride', workout: 'Optional: easy spin', duration_min: 30, intensity: 'Z1', rest: false },
+      ];
+    }
+    return [{ ...day, position: 0 }];
+  });
+  return plan;
 }
 
 /** A few points around Mont Royal, as the route endpoint's coordinates. */

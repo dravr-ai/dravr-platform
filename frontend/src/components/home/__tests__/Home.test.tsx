@@ -284,7 +284,7 @@ describe('Home — Today', () => {
 
     // The page header belongs to the conversation; Today is the panel beside it.
     expect(screen.queryByRole('heading', { level: 2, name: 'Home' })).toBeNull();
-    expect(await screen.findByTestId('home-today-session')).toHaveTextContent('Tempo run');
+    expect(await screen.findByTestId('home-today-session-0')).toHaveTextContent('Tempo run');
     expect(screen.getByTestId('home-week')).toBeInTheDocument();
     expect(await screen.findByTestId('home-status-band')).toHaveTextContent('Productive');
     expect(await screen.findByTestId('home-volume-distance')).toHaveTextContent('8.00 km');
@@ -313,7 +313,7 @@ describe('Home — Today', () => {
 
     await screen.findByTestId('home-today');
     const team = await screen.findByTestId('home-team');
-    await screen.findByTestId('home-today-session');
+    await screen.findByTestId('home-today-session-0');
     expect(screen.getByTestId('home-briefing').firstElementChild).toHaveAttribute('data-testid', 'home-today');
     expect(screen.getByTestId('home-status').compareDocumentPosition(team)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.queryByTestId('home-getting-started')).toBeNull();
@@ -409,7 +409,7 @@ describe('Home — Today', () => {
 
     api.getTrainingPlan.mockResolvedValueOnce({ plan: homePlan(), today: TODAY });
     await userEvent.click(within(failed).getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByTestId('home-today-session')).toBeInTheDocument();
+    expect(await screen.findByTestId('home-today-session-0')).toBeInTheDocument();
   });
 
   it('treats a today that is not a calendar day as a load failure rather than guessing a week', async () => {

@@ -71,5 +71,5 @@ pub use scope::MemoryScope;
 pub use sessions::{AgentSession, SessionStatus};
 pub use training_plans::{
     parse_plan_date, FlavourSelection, GoalRace, PlanPhase, PlanStatus, PlanWeek, PlannedDay,
-    RacePriority, SelectedBy, TemplateParams, TrainingPlan, WeekStatus, MAX_DAYS_PER_WEEK,
+    RacePriority, SelectedBy, TemplateParams, TrainingPlan, WeekStatus,
 };

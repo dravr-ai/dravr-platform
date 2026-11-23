@@ -30,19 +30,20 @@
 //! that athlete's: the coach's draft over their live weeks, or their live
 //! season while the coach holds no draft ([`try_load_subject_plan_card`]).
 //! Its block carries [`PlanCardDraft`] beside `plan` — the athlete, and where
-//! the draft stands — so a client can offer Publish and Discard on it.
+//! the draft stands — so a client can offer Publish and Discard on it. A day
+//! of the draft the coach edited carries [`DayEdit`]: the session the edit
+//! replaced (carnet#1714). Every day carries its position among its date's
+//! entries, which with the date is how the coach's editor addresses it, and
+//! a session the coach added is marked `added` (carnet#1716).
 
 use dravr_tronc::dates::CivilDate;
-use pierre_contremaitre::evidence_strings;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::periodization::serde_num::whole_u32_opt;
-use pierre_core::models::periodization::{PhaseKind, SportFamily, WorkoutStep};
-use pierre_core::models::{FuelingProtocol, TenantId};
+use pierre_core::models::periodization::PhaseKind;
+use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{
-    parse_plan_date, GoalRace, PlanWeek, PlannedDay, SelectedBy, TemplateParams, TemplateSource,
-    TrainingPlan,
+    parse_plan_date, session_positions, GoalRace, PlanWeek, SelectedBy, TrainingPlan,
 };
 use pierre_providers::ai_scope;
 use serde::{Deserialize, Serialize};
@@ -50,11 +51,13 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::coach_plan_draft::{coach_plan_view, CoachDraftTarget, DraftState};
-use crate::medical_flag::FiguresWithheld;
-use crate::plan_calendar_push;
 use crate::plan_fueling::FuelingDisclosure;
 use crate::training_plan_render::{select_active_weeks, ACTIVE_WEEKS};
 use pierre_core::json_value::to_value_as_written;
+
+mod day;
+
+pub use day::{day_card, DayCard, DayEdit, DayEvidence, TemplateValues};
 
 /// The `type` of a plan card's entry in a `content_blocks` array.
 pub const WORKOUT_PLAN_BLOCK_TYPE: &str = "workout_plan";
@@ -161,163 +164,6 @@ pub struct WeekCard {
     pub current: bool,
     /// The week's days in order.
     pub days: Vec<DayCard>,
-}
-
-/// One day of a week.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct DayCard {
-    /// Civil date, `YYYY-MM-DD`.
-    pub date: String,
-    /// Sport label.
-    pub sport: String,
-    /// The session in the agent's words.
-    pub workout: String,
-    /// Planned duration in minutes, when stated.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub duration_min: Option<u32>,
-    /// Intensity label as the agent wrote it.
-    pub intensity: String,
-    /// `true` for a rest day.
-    pub rest: bool,
-    /// The session's structure, when the day carries one.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub steps: Vec<WorkoutStep>,
-    /// What to take in, when prescribed and this athlete may see the rates.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fueling: Option<FuelingProtocol>,
-    /// In place of `fueling`, for a day that stores a protocol while a
-    /// medical flag is on file: why the rates are absent and who sets them.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fueling_withheld: Option<FiguresWithheld>,
-    /// The template the day instantiates, when it does.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub template_slug: Option<String>,
-    /// Which tier the template came from.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub template_source: Option<TemplateSource>,
-    /// The warning the card marks a day with when the envelope check found the
-    /// session outside its family's evidence, as stored with the day, in the
-    /// reader's words (`messaging.evidence.outside`); the reply that saved it
-    /// carried the notice saying why (carnet#1495). The clients print it as
-    /// given (carnet#1552). Absent when the check found nothing, and when the
-    /// string is missing, as for the chip.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub outside_evidence: Option<String>,
-    /// Where the day's evidence sits when it is weaker than a trial in this
-    /// sport without a qualifier: one chip, the weakest evidence winning
-    /// (carnet#1495). Absent otherwise, and on a day no family measured.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub evidence: Option<DayEvidence>,
-    /// "Counts as <purpose>" in the reader's words, when an edit relabelled
-    /// the session. Absent when none did.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub counts_as: Option<String>,
-    /// The family preset the day instantiates, when it names one: what the
-    /// coach's family editor opens on (carnet#1515).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub template_preset: Option<String>,
-    /// The values the day fills its preset with, when it states any of the
-    /// six the editor shows.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub template_params: Option<TemplateValues>,
-    /// The day's sport as a family preset reads it, when it is one of the
-    /// three a preset is written for.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub family_sport: Option<SportFamily>,
-}
-
-/// The six values a family day states on its preset.
-///
-/// What the card shows of the day's `template_params` and what the coach's
-/// family editor sends (carnet#1515). The pacing and anchor a day may also
-/// state stay the agent's; the card does not show them.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct TemplateValues {
-    /// Sets.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "whole_u32_opt"
-    )]
-    pub sets: Option<u32>,
-    /// Reps per set.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "whole_u32_opt"
-    )]
-    pub reps: Option<u32>,
-    /// Work bout, seconds.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "whole_u32_opt"
-    )]
-    pub work_seconds: Option<u32>,
-    /// Rest between reps, seconds.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "whole_u32_opt"
-    )]
-    pub rest_seconds: Option<u32>,
-    /// Rest between sets, seconds.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "whole_u32_opt"
-    )]
-    pub set_rest_seconds: Option<u32>,
-    /// Whole-session duration, minutes.
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "whole_u32_opt"
-    )]
-    pub duration_minutes: Option<u32>,
-}
-
-impl TemplateValues {
-    /// The six values `params` states, or `None` when it states none of them.
-    #[must_use]
-    pub fn of(params: &TemplateParams) -> Option<Self> {
-        let values = Self {
-            sets: params.sets,
-            reps: params.reps,
-            work_seconds: params.work_seconds,
-            rest_seconds: params.rest_seconds,
-            set_rest_seconds: params.set_rest_seconds,
-            duration_minutes: params.duration_minutes,
-        };
-        (values != Self::default()).then_some(values)
-    }
-
-    /// The values as a day stores them, its pacing and anchor left to the
-    /// preset.
-    #[must_use]
-    pub const fn template_params(self) -> TemplateParams {
-        TemplateParams {
-            sets: self.sets,
-            reps: self.reps,
-            work_seconds: self.work_seconds,
-            rest_seconds: self.rest_seconds,
-            duration_minutes: self.duration_minutes,
-            set_rest_seconds: self.set_rest_seconds,
-            pacing: None,
-            anchor: None,
-        }
-    }
-}
-
-/// The evidence chip a day carries, resolved in the reader's language.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DayEvidence {
-    /// The chip (`messaging.evidence.*`).
-    pub label: String,
-    /// The studies the badge rests on, as cited ("Rønnestad 2015 [RCT]"):
-    /// what the chip opens. Absent when the badge cites none.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub basis: Option<String>,
-    /// What the chip opens on in place of `basis` when the badge cites no
-    /// study: why none is, for its status (convention, or a trial run in
-    /// another sport). Absent when `basis` is present.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
 }
 
 impl PlanCard {
@@ -526,62 +372,12 @@ fn week_card(
         days: week
             .days
             .iter()
-            .map(|d| day_card(d, fueling, registry, locale))
-            .collect(),
-    }
-}
-
-/// One stored day as the card shows it, its outside-the-evidence warning,
-/// evidence chip and relabel line in `locale`'s words from the findings, badge
-/// and purpose the save stored.
-///
-/// The card's every day goes through here, and so does the day the coach's
-/// family editor previews before saving it (carnet#1515), so the chip the
-/// preview shows is the one the card shows once the day is saved.
-#[must_use]
-pub fn day_card(
-    day: &PlannedDay,
-    fueling: &FuelingDisclosure,
-    registry: &MessagingStringsRegistry,
-    locale: &str,
-) -> DayCard {
-    let (fueling, fueling_withheld) = fueling.day_fueling(day);
-    let envelope = day.envelope.as_ref();
-    let evidence = envelope
-        .and_then(|envelope| envelope.badge.as_ref())
-        .and_then(|badge| {
-            evidence_strings::evidence_chip_label(registry, locale, badge).map(|label| {
-                DayEvidence {
-                    label,
-                    basis: badge.basis.clone(),
-                    note: evidence_strings::evidence_note(registry, locale, badge),
-                }
+            .zip(session_positions(&week.days))
+            .map(|(day, position)| DayCard {
+                position,
+                ..day_card(day, fueling, registry, locale)
             })
-        });
-    let counts_as = envelope
-        .and_then(|envelope| envelope.relabelled_purpose)
-        .and_then(|purpose| evidence_strings::counts_as_line(registry, locale, purpose));
-    let outside_evidence = envelope
-        .filter(|envelope| !envelope.findings.is_empty())
-        .and_then(|_| evidence_strings::outside_evidence_label(registry, locale));
-    DayCard {
-        date: day.date.clone(),
-        sport: day.sport.clone(),
-        workout: day.workout.clone(),
-        duration_min: day.duration_min,
-        intensity: day.intensity.clone(),
-        rest: day.is_rest(),
-        steps: day.steps.clone(),
-        fueling,
-        fueling_withheld,
-        template_slug: day.template_slug.clone(),
-        template_source: day.template_source,
-        outside_evidence,
-        evidence,
-        counts_as,
-        template_preset: day.template_preset.clone(),
-        template_params: day.template_params.as_ref().and_then(TemplateValues::of),
-        family_sport: SportFamily::of(&plan_calendar_push::plan_sport(&day.sport)),
+            .collect(),
     }
 }
 
@@ -774,7 +570,6 @@ async fn load_active_plan(
 mod tests {
     use super::*;
     use dravr_tronc::dates::Timestamp;
-    use pierre_contremaitre::evidence_strings::KEY_EVIDENCE_OUTSIDE;
     use pierre_memory::training_plans::{RacePriority, WeekStatus};
 
     fn week(week_start: &str) -> PlanWeek {
@@ -903,235 +698,41 @@ mod tests {
         );
     }
 
-    /// A day the envelope check found something on is marked on its card with
-    /// the warning in the reader's words; a day it found nothing on, or never
-    /// measured, carries no mark at all (carnet#1495, carnet#1552).
+    /// Each day of a week's card is placed among its date's entries, a rest
+    /// entry included, in the week's own order (carnet#1716).
     #[test]
-    fn only_a_day_with_an_envelope_finding_is_marked_outside_the_evidence() {
-        let day = |envelope: serde_json::Value| -> PlannedDay {
-            serde_json::from_value(serde_json::json!({
-                "date": "2026-07-14", "sport": "ride", "workout": "20/40",
-                "template_slug": "vo2max_short", "envelope": envelope
-            }))
-            .expect("a stored day")
-        };
-        let fueling = FuelingDisclosure::from_gate(None);
-        let strings = MessagingStringsRegistry::new();
-        let finding = serde_json::json!({
-            "code": "cycle_mean_floor", "action": "warn", "message": "English, for the model."
-        });
-
-        let outside = day_card(
-            &day(serde_json::json!({ "findings": [finding] })),
-            &fueling,
-            &strings,
+    fn a_weeks_days_are_placed_among_their_dates_entries() {
+        let mut held = week("2026-11-16");
+        held.days = serde_json::from_value(serde_json::json!([
+            { "date": "2026-11-16", "sport": "ride", "workout": "Endurance 2 h" },
+            { "date": "2026-11-16", "sport": "rest", "workout": "Rest" },
+            { "date": "2026-11-16", "sport": "strength", "workout": "Core 20 min",
+              "coach_added": true },
+            { "date": "2026-11-17", "sport": "run", "workout": "Easy 45 min" }
+        ]))
+        .unwrap();
+        let card = week_card(
+            &held,
+            true,
+            &FuelingDisclosure::from_gate(None),
+            &MessagingStringsRegistry::new(),
             "en",
         );
+        let placed: Vec<(&str, u32, bool)> = card
+            .days
+            .iter()
+            .map(|day| (day.workout.as_str(), day.position, day.added))
+            .collect();
         assert_eq!(
-            outside.outside_evidence.as_deref(),
-            Some("Outside the evidence"),
-            "bug: a stored finding marks the day with the catalogue's warning"
+            placed,
+            [
+                ("Endurance 2 h", 0, false),
+                ("Rest", 1, false),
+                ("Core 20 min", 2, true),
+                ("Easy 45 min", 0, false),
+            ],
+            "bug: each day carries its place on its date and an added session its mark"
         );
-        assert_eq!(
-            serde_json::to_value(&outside).unwrap()["outside_evidence"],
-            "Outside the evidence",
-            "bug: the warning reaches the wire as the label the clients print"
-        );
-        assert_eq!(
-            day_card(
-                &day(serde_json::json!({ "findings": [finding] })),
-                &fueling,
-                &strings,
-                "fr",
-            )
-            .outside_evidence
-            .as_deref(),
-            Some("Hors des données probantes"),
-            "bug: the warning follows the reader's locale, as the chip does"
-        );
-
-        let blank = MessagingStringsRegistry::new();
-        blank.update(KEY_EVIDENCE_OUTSIDE, "en", String::new(), String::new());
-        let unworded = day_card(
-            &day(serde_json::json!({ "findings": [finding] })),
-            &fueling,
-            &blank,
-            "en",
-        );
-        assert!(
-            serde_json::to_value(&unworded)
-                .unwrap()
-                .get("outside_evidence")
-                .is_none(),
-            "bug: a missing warning string never reaches the wire as an empty label"
-        );
-
-        for clean in [
-            serde_json::json!({ "findings": [] }),
-            serde_json::Value::Null,
-        ] {
-            let card = day_card(&day(clean), &fueling, &strings, "en");
-            assert_eq!(
-                card.outside_evidence, None,
-                "bug: a day with no finding is not marked"
-            );
-            assert!(
-                serde_json::to_value(&card)
-                    .unwrap()
-                    .get("outside_evidence")
-                    .is_none(),
-                "bug: an unmarked day carries no key"
-            );
-        }
-    }
-
-    /// The card names where a family day's evidence sits from the badge the
-    /// save stored, in the reader's language, with the citation it opens on or,
-    /// when the badge cites none, why by its status, and what a relabel now
-    /// counts it as; an unqualified trial and an unmeasured day carry neither
-    /// key (carnet#1495, step 3).
-    #[test]
-    fn a_day_carries_its_evidence_chip_and_relabel_line_from_what_the_save_stored(
-    ) -> Result<(), &'static str> {
-        let day = |envelope: serde_json::Value| -> PlannedDay {
-            serde_json::from_value(serde_json::json!({
-                "date": "2026-07-14", "sport": "run", "workout": "30/15",
-                "template_slug": "vo2max_short", "envelope": envelope
-            }))
-            .expect("a stored day")
-        };
-        let fueling = FuelingDisclosure::from_gate(None);
-        let strings = MessagingStringsRegistry::new();
-
-        let transposed = day_card(
-            &day(serde_json::json!({
-                "findings": [], "relabelled_purpose": "threshold",
-                "badge": { "status": "transposed", "basis": "Rønnestad 2015 [RCT]" }
-            })),
-            &fueling,
-            &strings,
-            "en",
-        );
-        assert_eq!(
-            transposed.evidence,
-            Some(DayEvidence {
-                label: "Transposed from another sport".to_owned(),
-                basis: Some("Rønnestad 2015 [RCT]".to_owned()),
-                note: None,
-            }),
-            "bug: a transposed preset that cites its study opens on the citation, with no note"
-        );
-        assert_eq!(
-            transposed.counts_as.as_deref(),
-            Some("Counts as threshold work"),
-            "bug: a relabelled day names what it now counts as"
-        );
-
-        let french = day_card(
-            &day(serde_json::json!({ "findings": [], "badge": { "status": "convention" } })),
-            &fueling,
-            &strings,
-            "fr",
-        );
-        assert_eq!(
-            french.evidence.as_ref().map(|chip| chip.label.as_str()),
-            Some("Convention d'entraînement"),
-            "bug: the chip reads in the reader's language"
-        );
-        let chip = french
-            .evidence
-            .ok_or("bug: a convention day carries its chip")?;
-        assert_eq!(
-            chip.basis, None,
-            "bug: a session no study covers cites none"
-        );
-        assert_eq!(
-            chip.note.as_deref(),
-            Some("Aucun essai ne couvre cette séance ; elle suit la pratique courante de l'entraînement."),
-            "bug: it opens on why no study covers it, in the reader's language"
-        );
-
-        let uncited = day_card(
-            &day(serde_json::json!({ "findings": [], "badge": { "status": "transposed" } })),
-            &fueling,
-            &strings,
-            "en",
-        );
-        assert_eq!(
-            uncited.evidence.and_then(|chip| chip.note).as_deref(),
-            Some("Its trials ran in another sport; it reaches this one through the transposition rules."),
-            "bug: a transposed chip with no citation opens on where its trial ran, never on 'no trial covers this'"
-        );
-
-        for quiet in [
-            serde_json::json!({ "findings": [], "badge": { "status": "trialled" } }),
-            serde_json::Value::Null,
-        ] {
-            let wire =
-                serde_json::to_value(day_card(&day(quiet), &fueling, &strings, "en")).unwrap();
-            assert!(
-                wire.get("evidence").is_none() && wire.get("counts_as").is_none(),
-                "bug: an unqualified trial or an unmeasured day carries no chip and no relabel: {wire}"
-            );
-        }
-        Ok(())
-    }
-
-    /// What the coach's family editor opens on (carnet#1515): the preset, the
-    /// six values the day states — never its pacing or anchor — and the
-    /// sport as a preset reads it, an mtb day as a ride; a rest day and a
-    /// day that states none carry none of them.
-    #[test]
-    fn a_family_day_carries_its_preset_values_and_sport_for_the_editor() {
-        let fueling = FuelingDisclosure::from_gate(None);
-        let strings = MessagingStringsRegistry::new();
-        let wire = |day: serde_json::Value| {
-            let day: PlannedDay = serde_json::from_value(day).expect("a stored day");
-            serde_json::to_value(day_card(&day, &fueling, &strings, "en")).unwrap()
-        };
-
-        let family = wire(serde_json::json!({
-            "date": "2026-07-14", "sport": "mtb", "workout": "30/15",
-            "template_slug": "vo2max_short", "template_preset": "30_15",
-            "template_params": { "sets": 4, "reps": 11, "pacing": "fixed" }
-        }));
-        assert_eq!(
-            family["template_preset"], "30_15",
-            "bug: the card carries the preset the day instantiates: {family}"
-        );
-        assert_eq!(
-            family["template_params"],
-            serde_json::json!({ "sets": 4, "reps": 11 }),
-            "bug: the card shows the six values only, pacing left to the agent"
-        );
-        assert_eq!(
-            family["family_sport"], "ride",
-            "bug: an mtb day reads as a ride"
-        );
-
-        let swim = wire(serde_json::json!({
-            "date": "2026-07-15", "sport": "natation", "workout": "easy", "intensity": "Z2",
-            "template_params": { "pacing": "fixed" }
-        }));
-        assert_eq!(
-            swim["family_sport"], "swim",
-            "bug: a natation day reads as a swim: {swim}"
-        );
-        assert!(
-            swim.get("template_params").is_none() && swim.get("template_preset").is_none(),
-            "bug: a day stating none of the six carries no values: {swim}"
-        );
-
-        for quiet in [
-            serde_json::json!({ "date": "2026-07-16", "sport": "rest", "workout": "Rest" }),
-            serde_json::json!({ "date": "2026-07-17", "sport": "strength", "workout": "gym" }),
-        ] {
-            let quiet = wire(quiet);
-            assert!(
-                quiet.get("family_sport").is_none(),
-                "bug: a day no preset is written for names no family sport: {quiet}"
-            );
-        }
     }
 
     #[test]

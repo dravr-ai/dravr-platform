@@ -1,4 +1,4 @@
-// ABOUTME: Civil-date reads over a plan card — what the plan holds on a date: a session, a rest day, or nothing
+// ABOUTME: Civil-date reads over a plan card — what the plan holds on a date: its sessions, a rest day, or nothing
 // ABOUTME: One answer for both Home screens, so a rest day and a day the plan never reached are never confused
 
 import type { PlanDay, PlanPhase, PlanWeek, WorkoutPlan } from './workout-plan.js';
@@ -64,18 +64,26 @@ export function mondayOf(date: string): string {
 }
 
 /**
- * What the plan holds on one date.
+ * What the plan holds on one date. A date may hold several entries, in the
+ * order they are done — two sessions, or a rest entry beside an optional one
+ * (carnet#1716) — so `days` lists every entry on the date, rest included.
  *
- * - `session` — a day with a workout.
- * - `rest` — a day the plan deliberately keeps free.
+ * - `session` — at least one entry is a workout.
+ * - `rest` — the date holds only its rest entry: a day kept free.
  * - `uncovered` — the plan says nothing about the date: before it starts,
  *   after its shown weeks, or a gap in a week. Never shown as rest, because
  *   the plan did not say rest.
  */
 export type PlanDayLookup =
-  | { kind: 'session'; day: PlanDay; week: PlanWeek }
-  | { kind: 'rest'; day: PlanDay; week: PlanWeek }
+  | { kind: 'session'; days: PlanDay[]; week: PlanWeek }
+  | { kind: 'rest'; days: PlanDay[]; week: PlanWeek }
   | { kind: 'uncovered' };
+
+/** The workouts a date holds, in order: its entries without the rest entry. */
+export function planSessionsOf(lookup: PlanDayLookup | null): PlanDay[] {
+  if (lookup === null || lookup.kind === 'uncovered') return [];
+  return lookup.days.filter((day) => !day.rest);
+}
 
 /** Look `date` (`YYYY-MM-DD`) up in the plan's shown weeks. */
 export function planDayOn(plan: WorkoutPlan, date: string): PlanDayLookup {
@@ -88,9 +96,9 @@ export function planDayOn(plan: WorkoutPlan, date: string): PlanDayLookup {
  */
 export function planWeeksDayOn(weeks: readonly PlanWeek[], date: string): PlanDayLookup {
   for (const week of weeks) {
-    const day = week.days.find((candidate) => candidate.date === date);
-    if (day !== undefined) {
-      return day.rest ? { kind: 'rest', day, week } : { kind: 'session', day, week };
+    const days = week.days.filter((candidate) => candidate.date === date);
+    if (days.length > 0) {
+      return days.every((day) => day.rest) ? { kind: 'rest', days, week } : { kind: 'session', days, week };
     }
   }
   return { kind: 'uncovered' };

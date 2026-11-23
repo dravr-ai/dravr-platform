@@ -25,6 +25,7 @@
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::slice;
 use std::sync::Arc;
 
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
@@ -133,6 +134,7 @@ pub(super) async fn read_ladder(
     });
     let bank = Bank {
         catalogue: &catalogue,
+        flavour: &flavour,
         level,
         allowed: ladder(&flavour)
             .get(&level)
@@ -259,6 +261,8 @@ fn week_days(
 /// read against the level the athlete cleared today.
 struct Bank<'a> {
     catalogue: &'a PackagedCatalogue<'a>,
+    /// The plan's flavour, whose ladder the kernel reads.
+    flavour: &'a Flavour,
     level: ReadinessLevel,
     /// The purposes the flavour's ladder opens at `level`.
     allowed: &'a [WorkoutPurpose],
@@ -268,10 +272,11 @@ impl Bank<'_> {
     /// Each substitution the kernel made, with what the bank offers in its
     /// place.
     ///
-    /// The kernel keeps the week's order and skips only days no template
-    /// resolved for, so one walk over the days pairs each substitution with
-    /// the template its day resolved to — by position, which still holds on a
-    /// date that carries two sessions.
+    /// The kernel reports the days it moves in the week's order, one entry
+    /// each, and moves a day on that day alone. So the days it moves, asked
+    /// one at a time, are the substitutions in order, and each is paired with
+    /// the template of the day at its own position: on a date with two
+    /// sessions of one purpose, only the one the kernel moved (carnet#1716).
     fn answer(
         &self,
         substitutions: Vec<DaySubstitution>,
@@ -280,13 +285,11 @@ impl Bank<'_> {
         phase: Option<PhaseKind>,
         preferred: &[WorkoutPurpose],
     ) -> Vec<ReadinessSubstitution> {
-        let mut walk = days.iter().zip(templates);
+        let moved = self.moved_templates(&substitutions, days, templates, preferred);
         substitutions
             .into_iter()
-            .map(|day| {
-                let template = walk
-                    .find(|(input, _)| input.date == day.date && input.purpose == Some(day.from))
-                    .and_then(|(_, template)| template.as_ref());
+            .zip(moved)
+            .map(|(day, template)| {
                 let replacement = match (day.reason, template) {
                     (SubstitutionReason::TemplateAboveLevel, Some(template)) => {
                         Some(self.replacement(template, phase, preferred))
@@ -294,6 +297,31 @@ impl Bank<'_> {
                     _ => None,
                 };
                 ReadinessSubstitution { day, replacement }
+            })
+            .collect()
+    }
+
+    /// The template of the day behind each of `substitutions`: the days the
+    /// kernel moves, asked one at a time, in the week's order.
+    fn moved_templates<'t>(
+        &self,
+        substitutions: &[DaySubstitution],
+        days: &[DayReadinessInput],
+        templates: &'t [Option<WorkoutTemplate>],
+        preferred: &[WorkoutPurpose],
+    ) -> Vec<Option<&'t WorkoutTemplate>> {
+        let mut moved = days.iter().zip(templates).filter(|(day, _)| {
+            !substitute(self.flavour, self.level, slice::from_ref(*day), preferred)
+                .substitutions
+                .is_empty()
+        });
+        substitutions
+            .iter()
+            .map(|day| {
+                moved
+                    .next()
+                    .filter(|(input, _)| input.date == day.date)
+                    .and_then(|(_, template)| template.as_ref())
             })
             .collect()
     }
@@ -701,6 +729,59 @@ mod tests {
         assert_eq!(inputs[2].readiness_min, Some(ReadinessLevel::P2));
         assert_eq!(inputs[2].purpose, Some(WorkoutPurpose::Threshold));
         assert!(inputs.iter().all(|d| d.counts_as_quality == Some(true)));
+    }
+
+    /// Two sessions of one purpose on one date, only the second above the
+    /// level: its substitution is paired with its own template, not the
+    /// first one's (carnet#1716).
+    #[test]
+    fn a_substitution_is_paired_with_the_session_the_kernel_moved() {
+        let registry = pierre_contremaitre::TrainingCatalogueRegistry::new();
+        let catalogue = PackagedCatalogue::catalogue_only(&registry);
+        let (flavour, purpose) = registry
+            .flavours()
+            .into_iter()
+            .find_map(|flavour| {
+                let purpose = ladder(&flavour)
+                    .get(&ReadinessLevel::P2)?
+                    .purposes
+                    .first()
+                    .copied()?;
+                Some((flavour, purpose))
+            })
+            .expect("a compiled-in flavour opens a purpose at P2");
+        let mut workouts = registry.workouts().into_iter();
+        let first = workouts.next().expect("a compiled-in workout");
+        let second = workouts.next().expect("a second compiled-in workout");
+        let session = |floor: ReadinessLevel| DayReadinessInput {
+            date: "2026-11-18".to_owned(),
+            purpose: Some(purpose),
+            readiness_min: Some(floor),
+            counts_as_quality: None,
+        };
+        let days = [session(ReadinessLevel::P2), session(ReadinessLevel::P3)];
+        let templates = [Some(first), Some(second.clone())];
+        let verdict = substitute(&flavour, ReadinessLevel::P2, &days, &[]);
+        assert_eq!(
+            verdict.substitutions.len(),
+            1,
+            "fixture: the kernel moves only the session above the level"
+        );
+        let bank = Bank {
+            catalogue: &catalogue,
+            flavour: &flavour,
+            level: ReadinessLevel::P2,
+            allowed: &[],
+        };
+        let paired = bank.moved_templates(&verdict.substitutions, &days, &templates, &[]);
+        assert_eq!(
+            paired
+                .iter()
+                .map(|t| t.map(|t| t.slug.as_str()))
+                .collect::<Vec<_>>(),
+            [Some(second.slug.as_str())],
+            "bug: the substitution is paired with the second session's template"
+        );
     }
 
     #[test]

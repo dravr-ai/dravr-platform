@@ -18936,7 +18936,7 @@
                 "description": "Where the draft stands: what publishing it now would overwrite."
               },
               "weeks": {
-                "description": "The weeks as publishing would leave them: the athlete's live weeks,\nwith each week the coach drafted in its place.",
+                "description": "The weeks as publishing would leave them: the athlete's live weeks,\nwith each week the coach drafted in its place, no day carrying the\ncoach's editor marks.",
                 "items": {
                   "$ref": "#/$defs/PlanWeek"
                 },
@@ -20208,7 +20208,7 @@
                 "type": "string"
               },
               "days": {
-                "description": "The day rows, in date order. At most seven.",
+                "description": "The day rows, in date order. Two sessions on one date are two entries\nwith that date, in the order they are done; at most 5 per date.",
                 "items": {
                   "$ref": "#/$defs/PlannedDay"
                 },
@@ -21252,7 +21252,7 @@
                 "type": "string"
               },
               "spacing": {
-                "description": "Hours between hard sessions.",
+                "description": "Hours between hard days.",
                 "type": "string"
               },
               "tid": {
@@ -21359,7 +21359,7 @@
             "description": "What `get_training_plan` states when the plan's fuelling rates are\nwithheld.",
             "properties": {
               "dates": {
-                "description": "The days whose stored protocol was withheld from `weeks`, `YYYY-MM-DD`.\nEmpty when no returned day carries one — the statement still stands,\nbecause a save carrying rates for this athlete is refused.",
+                "description": "The days whose stored protocol was withheld from `weeks`, `YYYY-MM-DD`,\neach date once however many of its sessions carried one. Empty when no\nreturned day carries one — the statement still stands, because a save\ncarrying rates for this athlete is refused.",
                 "items": {
                   "type": "string"
                 },
@@ -21675,7 +21675,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:b09562ab755b0b375a159da57989a2a8ea43f83262d6a975338b9978410427cf"
+          "def_hash": "sha256:98d9e9bbf2858a4cfaa0e8dfcb9ab6558c5e8d498feef3cfafb03cf0677f69cc"
         }
       }
     },
@@ -32076,7 +32076,7 @@
                   "type": "string"
                 },
                 "days": {
-                  "description": "The day rows, in date order (max 7).",
+                  "description": "The day rows in date order; two sessions on one date are two rows, in the order done (max 5 per date).",
                   "items": {
                     "description": "One prescribed day.",
                     "properties": {
@@ -32408,7 +32408,7 @@
             ]
           },
           "CrowdedWeek": {
-            "description": "One week whose hard sessions sit closer together than its flavour allows.\n\nNamed rather than paired for the reason [`WeekReadiness`] is: a tuple\nserialises positionally and the reader has to know which slot is which.\nThe check is flattened, so the kernel stays the one definition of what\n\"too close\" means — including the minimum it applied and which gaps were\nshort.",
+            "description": "One week whose hard days sit closer together than its flavour allows.\n\nNamed rather than paired for the reason [`WeekReadiness`] is: a tuple\nserialises positionally and the reader has to know which slot is which.\nThe check is flattened, so the kernel stays the one definition of what\n\"too close\" means — including the minimum it applied and which gaps were\nshort.",
             "oneOf": [
               {
                 "description": "Every gap between hard days meets the minimum.",
@@ -32522,6 +32522,12 @@
                   "null"
                 ]
               },
+              "position": {
+                "description": "The session's place among the entries on its date, from 0.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
               "preset": {
                 "description": "The preset it was measured against.",
                 "type": [
@@ -32547,6 +32553,7 @@
             },
             "required": [
               "date",
+              "position",
               "template_slug",
               "findings"
             ],
@@ -32795,7 +32802,7 @@
             "description": "What the two safety-shaped checks found in the weeks this save wrote.\n\nA coach's save into their draft of an athlete's plan carries the same\nreport, measured on the draft view — the draft's outline over the\nathlete's live weeks — so the coach hears of it before publishing puts the\nplan in the athlete's hands.\n\nThe compliance rail has measured every saved week since it shipped and\nreported into a log line no agent reads; the readiness rail the same. This\nis the half that reaches the turn: the agent sees what the platform\nmeasured on the save it just made, and can say so before the athlete acts\non a week that crowds its hard days or opens well above their recent load.\n\nOnly the two checks the ledger calls safety-shaped travel here. Time in\nzone, volume against target and template parameter ranges are coaching\njudgements the agent already owns, and a platform that volunteered those\nwould be second-guessing the plan rather than flagging a risk.\n\nStructured, never prose. What the athlete is told is the agent's to write:\nthe framing rules on load ratios are CI-enforced and live in the prompt,\nso a sentence composed here would be a second place they could be broken.\n\nAbsent when both checks read within, unmeasured, or had nothing to measure\n— which is the common case and costs the turn nothing.",
             "properties": {
               "crowded_weeks": {
-                "description": "Weeks whose hard sessions are closer together than the minimum.",
+                "description": "Weeks whose hard days are closer together than the minimum.",
                 "items": {
                   "$ref": "#/$defs/CrowdedWeek"
                 },
@@ -33550,7 +33557,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:ae56c8b19da168a890fdf02784b8ff7abd4cb082addf71538c8d9bc71b484bac"
+          "def_hash": "sha256:53706b1ebaa6e7ab9b7c3a13b818b19d8fe03bdc2841a1bfb7e11e6b3200d0f2"
         }
       }
     },

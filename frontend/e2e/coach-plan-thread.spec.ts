@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for a coach's per-athlete plan thread (carnet#1069/#1070), View <name>'s plan (carnet#1244), <name>'s thresholds (carnet#1561), the family editor (carnet#1515)
+// ABOUTME: E2E for a coach's per-athlete plan thread (carnet#1069/#1070), View <name>'s plan (carnet#1244), <name>'s thresholds (carnet#1561), the day editor (carnet#1515, #1714, #1716)
 // ABOUTME: and the private lane in a one-athlete room (carnet#1249): Adjust plan from this → Only <agent> → Publish. Every route is mocked
 
 import { test, expect, type Page } from '@playwright/test';
@@ -142,6 +142,7 @@ const draftPlan = {
       days: [
         {
           date: '2026-10-20',
+          position: 0,
           sport: 'run',
           workout: 'Easy 45 min',
           duration_min: 45,
@@ -151,6 +152,7 @@ const draftPlan = {
         },
         {
           date: '2026-10-25',
+          position: 0,
           sport: 'run',
           workout: 'Long run 1h40',
           duration_min: 100,
@@ -565,10 +567,14 @@ test.describe("A coach sets an athlete's thresholds from Group info", () => {
 });
 
 // ---------------------------------------------------------------------------
-// carnet#1515: in the plan thread, each day of the plan card opens the
-// "build from family" editor; the kernel's preview follows the values, a
-// value outside the evidence earns a finding and still saves (D3), and the
-// save lands in the coach's draft.
+// carnet#1515, #1714, #1716: in the plan thread, each entry of the plan card
+// opens the day editor. It opens on the session's own words, which the coach
+// edits by hand; "From a family" builds it from a workout family instead, the
+// kernel's preview following the values, and a value outside the evidence
+// earns a finding and still saves (D3). Every save lands in the coach's draft,
+// an edited session is marked, and "Undo your edits" puts it back. A date may
+// hold several sessions: the coach adds one, removes one, and a write that
+// finds its session moved since the card showed it closes the sheet.
 // ---------------------------------------------------------------------------
 
 /** The family the thread's agent offers, as `GET …/subject-plan/families` answers it. */
@@ -660,22 +666,116 @@ const savedDraftPlan = {
   ],
 };
 
-/** What the editor sent: the previews it asked for and the day it saved. */
-interface EditorSent {
-  previews: unknown[];
-  saved: Array<{ path: string; body: unknown }>;
-}
+/** The steps the coach writes on 20 October: 48 easy minutes, then six 20-second strides. */
+const handSteps = [
+  { label: 'Easy', duration_seconds: 2880, target_zone: 'easy' },
+  { label: 'Strides', duration_seconds: 20, target_zone: 'fast', repeat: 6 },
+];
 
-async function setupFamilyEditorMocks(page: Page): Promise<EditorSent> {
-  const sent: EditorSent = { previews: [], saved: [] };
-  const base = `**/api/chat/conversations/${PLAN_CONVERSATION_ID}/subject-plan`;
-  const savedRead = {
+/**
+ * The draft once the coach rewrote 20 October by hand, marked as edited: the
+ * server wrote the 50 minutes its steps total.
+ */
+const handEditedDraftPlan = {
+  ...draftPlan,
+  weeks: [
+    {
+      ...draftPlan.weeks[0],
+      days: [
+        {
+          ...draftPlan.weeks[0].days[0],
+          workout: 'Easy 50 min',
+          duration_min: 50,
+          steps: handSteps,
+          edited: { workout: 'Easy 45 min', rest: false },
+        },
+        draftPlan.weeks[0].days[1],
+      ],
+    },
+  ],
+};
+
+/** The session the coach adds on 20 October, after the agent's run (carnet#1716). */
+const addedStrides = {
+  date: '2026-10-20',
+  position: 1,
+  sport: 'run',
+  workout: 'Strides 15 min',
+  duration_min: 15,
+  intensity: 'fast',
+  rest: false,
+  added: true,
+};
+
+/** The draft once the coach added a second session on 20 October. */
+const twoSessionDraftPlan = {
+  ...draftPlan,
+  weeks: [
+    {
+      ...draftPlan.weeks[0],
+      days: [draftPlan.weeks[0].days[0], addedStrides, draftPlan.weeks[0].days[1]],
+    },
+  ],
+};
+
+/** The draft as the agent left it while the coach's sheet was open: 20 October is 40 minutes now. */
+const movedDraftPlan = {
+  ...draftPlan,
+  weeks: [
+    {
+      ...draftPlan.weeks[0],
+      days: [{ ...draftPlan.weeks[0].days[0], workout: 'Easy 40 min', duration_min: 40 }, draftPlan.weeks[0].days[1]],
+    },
+  ],
+};
+
+/** The subject-plan read of `draft`, stamped `updatedAt`. */
+function draftRead(draft: unknown, updatedAt: string) {
+  return {
     athlete: { user_id: ATHLETE_ID, display_name: 'Alice Runner' },
     today: '2026-10-16',
     live: null,
-    draft: savedDraftPlan,
-    draft_state: { ...draftState, updated_at: '2026-10-16T14:20:00.120000Z' },
+    draft,
+    draft_state: { ...draftState, updated_at: updatedAt },
   };
+}
+
+/** What the editor sent: the previews it asked for, each write of a session in order, and the plan reads. */
+interface EditorSent {
+  previews: unknown[];
+  saved: Array<{ method: string; path: string; body: unknown }>;
+  /** How often the thread read the subject plan once the editor's mocks answered it. */
+  reads: number;
+}
+
+/** How the editor's mocked server starts, and whether it refuses the writes. */
+interface EditorMockOptions {
+  /** The draft's first day the coach already rewrote by hand. */
+  startEdited?: boolean;
+  /** 20 October already holds the coach's added session after the agent's run (carnet#1716). */
+  startTwoSessions?: boolean;
+  /** Every write finds its session moved (409 `session_moved`); the draft reads as the agent left it. */
+  sessionMoved?: boolean;
+}
+
+/**
+ * The editor's routes: the catalogue, the preview, and the writes of a
+ * session, addressed by date and position (carnet#1716) — the family build
+ * (`PUT …/draft/days/{date}/{n}`), the hand save (`PUT …/{n}/session`), the
+ * restore (`POST …/{n}/restore`), the remove (`POST …/{n}/remove`) and the add
+ * (`POST …/{date}/sessions`) — each answering the draft as it left it.
+ */
+async function setupFamilyEditorMocks(
+  page: Page,
+  { startEdited = false, startTwoSessions = false, sessionMoved = false }: EditorMockOptions = {},
+): Promise<EditorSent> {
+  const sent: EditorSent = { previews: [], saved: [], reads: 0 };
+  const base = `**/api/chat/conversations/${PLAN_CONVERSATION_ID}/subject-plan`;
+  let current: unknown = startEdited
+    ? draftRead(handEditedDraftPlan, '2026-10-16T14:20:00.120000Z')
+    : startTwoSessions
+      ? draftRead(twoSessionDraftPlan, '2026-10-16T14:20:00.120000Z')
+      : null;
 
   await page.route(`${base}/families**`, (route) => route.fulfill(json(familyCatalogue)));
   await page.route(`${base}/session-preview**`, (route) => {
@@ -684,44 +784,84 @@ async function setupFamilyEditorMocks(page: Page): Promise<EditorSent> {
     return route.fulfill(json(sessionPreview(body.params?.reps ?? REPS_LIMIT)));
   });
   await page.route(`${base}/draft/days/**`, (route) => {
-    sent.saved.push({ path: new URL(route.request().url()).pathname, body: route.request().postDataJSON() });
-    return route.fulfill(json(savedRead));
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    sent.saved.push({ method: request.method(), path, body: request.postDataJSON() });
+    if (sessionMoved) {
+      // The agent rewrote the day while the sheet was open: nothing is written.
+      current = draftRead(movedDraftPlan, '2026-10-16T14:22:00.120000Z');
+      return route.fulfill(
+        json(
+          {
+            error: 'conflict',
+            message: 'Session 1 on 2026-10-20 is no longer Easy 45 min.',
+            details: { reason: 'session_moved' },
+          },
+          409,
+        ),
+      );
+    }
+    if (path.endsWith('/restore') || path.endsWith('/remove')) {
+      current = draftRead(draftPlan, '2026-10-16T14:25:00.120000Z');
+    } else if (path.endsWith('/sessions')) {
+      current = draftRead(twoSessionDraftPlan, '2026-10-16T14:20:00.120000Z');
+    } else if (path.endsWith('/session')) {
+      current = draftRead(handEditedDraftPlan, '2026-10-16T14:20:00.120000Z');
+    } else {
+      current = draftRead(savedDraftPlan, '2026-10-16T14:20:00.120000Z');
+    }
+    return route.fulfill(json(current));
   });
-  // Once the day is saved, the plan thread reads the draft as the save left it.
-  await page.route(base, (route) => (sent.saved.length > 0 ? route.fulfill(json(savedRead)) : route.fallback()));
+  // Once a session is written, the plan thread reads the draft as the write left it.
+  await page.route(base, (route) => {
+    if (current === null) return route.fallback();
+    sent.reads += 1;
+    return route.fulfill(json(current));
+  });
   return sent;
 }
 
-test.describe("A coach builds a day of the athlete's plan from a workout family", () => {
-  test('Build from family → a value past the evidence earns a finding → Save puts the day in the draft', async ({
+/** Group info → Alice's plan thread, with the draft card on screen. */
+async function openAlicePlanThread(page: Page) {
+  await loginToDashboard(page);
+  await openGroups(page);
+  const groupRow = page.locator('[data-testid="conversation-row"]', { hasText: 'Marathon Training 2026' });
+  await groupRow.getByRole('button').first().click();
+  await page.getByTestId('conversation-header-title').click();
+  await expect(page.getByTestId('group-info-panel')).toBeVisible({ timeout: 10000 });
+  await page.getByRole('button', { name: 'Open their plan thread · Alice Runner' }).click();
+  await page.waitForURL(new RegExp(`#chat/${PLAN_CONVERSATION_ID}$`));
+  await expect(page.getByTestId('plan-draft-badge').first()).toHaveText("Draft · Alice Runner can't see it yet");
+}
+
+const DRAFT_DAY_PATH = `/api/chat/conversations/${PLAN_CONVERSATION_ID}/subject-plan/draft/days/2026-10-20`;
+
+test.describe("A coach edits a day of the athlete's plan", () => {
+  test('Edit day → From a family → a value past the evidence earns a finding → Save puts the day in the draft', async ({
     page,
   }) => {
     await setupDashboardMocks(page, { role: 'user' });
     await setupPlanThreadMocks(page);
     const sent = await setupFamilyEditorMocks(page);
-    await loginToDashboard(page);
-    await openGroups(page);
+    await openAlicePlanThread(page);
 
-    const groupRow = page.locator('[data-testid="conversation-row"]', { hasText: 'Marathon Training 2026' });
-    await groupRow.getByRole('button').first().click();
-    await page.getByTestId('conversation-header-title').click();
-    await expect(page.getByTestId('group-info-panel')).toBeVisible({ timeout: 10000 });
-    await page.getByRole('button', { name: 'Open their plan thread · Alice Runner' }).click();
-    await page.waitForURL(new RegExp(`#chat/${PLAN_CONVERSATION_ID}$`));
-    await expect(page.getByTestId('plan-draft-badge')).toHaveText("Draft · Alice Runner can't see it yet");
-
-    // Every day of the card offers the editor; the first opens on its run.
-    const build = page.getByRole('button', { name: 'Build from family' });
-    await expect(build).toHaveCount(2);
-    await build.first().click();
+    // Every day of the card offers the editor; the agent's run opens on its own session.
+    const edit = page.getByRole('button', { name: 'Edit day' });
+    await expect(edit).toHaveCount(2);
+    await edit.first().click();
     const editor = page.getByTestId('session-editor');
-    await expect(editor.getByTestId('session-editor-family')).toHaveValue('vo2max_short');
-    await expect(editor.getByRole('radio', { name: 'Run' })).toBeChecked();
-    await expect(editor.getByTestId('session-editor-param-sets')).toHaveValue('2');
-    await expect(editor.getByTestId('session-editor-range-sets')).toHaveText('Evidence range 2–3');
+    await expect(editor.getByRole('heading', { name: 'Edit Tue, Oct 20' })).toBeVisible();
+    await expect(editor.getByRole('button', { name: 'This session' })).toHaveAttribute('aria-pressed', 'true');
 
-    // The preview at the preset's defaults: the kernel's steps, nothing found.
-    await expect(editor.getByTestId('session-editor-findings')).toContainText("Inside the family's evidence.");
+    // The family mode starts from the day's sport.
+    await editor.getByRole('button', { name: 'From a family' }).click();
+    await expect(editor.getByRole('radio', { name: 'Run' })).toBeChecked();
+    await expect(editor.getByTestId('session-editor-family')).toHaveValue('vo2max_short');
+    await expect(editor.getByTestId('session-editor-param-sets')).toHaveValue('2');
+    await expect(editor.getByTestId('session-editor-range-sets')).toHaveText('Tested range 2–3');
+
+    // The preview at the format's defaults: the kernel's steps, nothing found.
+    await expect(editor.getByTestId('session-editor-findings')).toContainText('Inside the tested range.');
     await expect(editor.getByTestId('session-editor-derived')).toContainText('% of vVO2max');
 
     // A value past the evidence is kept as typed, marked, and measured.
@@ -738,6 +878,9 @@ test.describe("A coach builds a day of the athlete's plan from a workout family"
       params: { sets: 2, reps: 20 },
       date: '2026-10-20',
     });
+    await expect(editor.getByTestId('session-editor-replacement')).toHaveText(
+      'Replaces Easy 45 min with 30/15 (Rønnestad).',
+    );
 
     // The finding never holds Save back: the day goes into the coach's draft.
     await editor.getByTestId('session-editor-save').click();
@@ -745,8 +888,12 @@ test.describe("A coach builds a day of the athlete's plan from a workout family"
     await expect(page.getByTestId('session-editor')).toHaveCount(0);
     expect(sent.saved).toEqual([
       {
-        path: `/api/chat/conversations/${PLAN_CONVERSATION_ID}/subject-plan/draft/days/2026-10-20`,
-        body: { family: 'vo2max_short', preset: '30_15', sport: 'run', params: { sets: 2, reps: 20 } },
+        method: 'PUT',
+        path: `${DRAFT_DAY_PATH}/0`,
+        body: {
+          build: { family: 'vo2max_short', preset: '30_15', sport: 'run', params: { sets: 2, reps: 20 } },
+          expect: { sport: 'run', workout: 'Easy 45 min' },
+        },
       },
     ]);
 
@@ -755,6 +902,182 @@ test.describe("A coach builds a day of the athlete's plan from a workout family"
     const open = page.getByTestId('chat-plan-thread-open-draft');
     await expect(open).toContainText('VO2max — short intervals — 30/15 (Rønnestad)');
     await expect(open.getByRole('button', { name: 'Publish to Alice Runner' })).toBeEnabled();
+  });
+
+  test('Edit day → the session by hand: 45 easy minutes become 50 with strides → Save → the card marks it Edited', async ({
+    page,
+  }) => {
+    await setupDashboardMocks(page, { role: 'user' });
+    await setupPlanThreadMocks(page);
+    const sent = await setupFamilyEditorMocks(page);
+    await openAlicePlanThread(page);
+
+    await page.getByRole('button', { name: 'Edit day' }).first().click();
+    const editor = page.getByTestId('session-editor');
+    await expect(editor.getByLabel('Title', { exact: true })).toHaveValue('Easy 45 min');
+    await expect(editor.getByTestId('session-editor-replacement')).toHaveText('No changes yet.');
+    await expect(editor.getByTestId('session-editor-save')).toBeDisabled();
+
+    await editor.getByLabel('Title', { exact: true }).fill('Easy 50 min');
+    // A session with no steps states its minutes; once it has steps they total them.
+    await expect(editor.getByLabel('Duration (min)', { exact: true })).toHaveValue('45');
+    await editor.getByRole('button', { name: 'Add a step' }).click();
+    await expect(editor.getByLabel('Duration (min)', { exact: true })).toHaveCount(0);
+    const easy = editor.getByTestId('session-editor-step-1');
+    await expect(easy.getByLabel('Step', { exact: true })).toBeFocused();
+    await easy.getByLabel('Step', { exact: true }).fill('Easy');
+    await easy.getByLabel('Duration (m:ss)', { exact: true }).fill('48');
+    await easy.getByLabel('Target', { exact: true }).fill('easy');
+    await expect(easy.getByLabel('Duration (m:ss)', { exact: true })).toHaveValue('48:00');
+
+    await editor.getByRole('button', { name: 'Add a step' }).click();
+    const strides = editor.getByTestId('session-editor-step-2');
+    await strides.getByLabel('Step', { exact: true }).fill('Strides');
+    await strides.getByLabel('Duration (m:ss)', { exact: true }).fill(':20');
+    await strides.getByLabel('Target', { exact: true }).fill('fast');
+    await strides.getByLabel('Repeat', { exact: true }).fill('6');
+    await expect(strides.getByLabel('Duration (m:ss)', { exact: true })).toHaveValue('0:20');
+    await expect(editor.getByTestId('session-editor-unchecked')).toHaveText("Not checked against a family's evidence.");
+    await expect(editor.getByTestId('session-editor-replacement')).toHaveText('Replaces Easy 45 min with Easy 50 min.');
+
+    await editor.getByTestId('session-editor-save').click();
+    await expect(page.getByText('Saved to your draft. Alice Runner sees it only once you publish.')).toBeVisible();
+    await expect(page.getByTestId('session-editor')).toHaveCount(0);
+    expect(sent.saved).toEqual([
+      {
+        method: 'PUT',
+        path: `${DRAFT_DAY_PATH}/0/session`,
+        body: {
+          day: { rest: false, sport: 'run', workout: 'Easy 50 min', intensity: 'easy', steps: handSteps },
+          expect: { sport: 'run', workout: 'Easy 45 min' },
+        },
+      },
+    ]);
+    expect(sent.previews).toEqual([]);
+
+    // The draft as it stands now: the day rewritten, marked, and said to be unchecked.
+    const open = page.getByTestId('chat-plan-thread-open-draft');
+    await expect(open).toContainText('Easy 50 min');
+    await expect(open.getByTestId('plan-day-edited')).toHaveText('Edited');
+    await expect(open.getByTestId('plan-day-unchecked')).toHaveText("Not checked against a family's evidence.");
+  });
+
+  test('Edit day on an edited day → Undo your edits → the day is back as it stood', async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user' });
+    await setupPlanThreadMocks(page);
+    const sent = await setupFamilyEditorMocks(page, { startEdited: true });
+    await openAlicePlanThread(page);
+
+    const open = page.getByTestId('chat-plan-thread-open-draft');
+    await expect(open.getByTestId('plan-day-edited')).toHaveText('Edited');
+    await open.getByRole('button', { name: 'Edit day' }).first().click();
+    const editor = page.getByTestId('session-editor');
+    await expect(editor.getByTestId('session-editor-edited')).toContainText('You edited this day in your draft.');
+    const restore = editor.getByRole('button', { name: 'Undo your edits' });
+    await expect(restore).toHaveAccessibleDescription('Puts back Easy 45 min, as the day stood before your first edit.');
+
+    await restore.click();
+    await expect(page.getByText('Tue, Oct 20 is back as it was in your draft.')).toBeVisible();
+    await expect(page.getByTestId('session-editor')).toHaveCount(0);
+    expect(sent.saved).toEqual([
+      { method: 'POST', path: `${DRAFT_DAY_PATH}/0/restore`, body: { expect: { sport: 'run', workout: 'Easy 50 min' } } },
+    ]);
+    await expect(open).toContainText('Easy 45 min');
+    await expect(open.getByTestId('plan-day-edited')).toHaveCount(0);
+  });
+
+  test('Add a session on a date → a second session by hand → Save → the date holds two rows', async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user' });
+    await setupPlanThreadMocks(page);
+    const sent = await setupFamilyEditorMocks(page);
+    await openAlicePlanThread(page);
+
+    await page.getByTestId('plan-day-add-2026-10-20').first().click();
+    const editor = page.getByTestId('session-editor');
+    await expect(editor.getByRole('heading', { name: 'Add a session on Tue, Oct 20' })).toBeVisible();
+    // A blank session, in the date's sport; rest beside sessions is the agent's to write.
+    await expect(editor.getByRole('switch', { name: 'Rest day' })).toHaveCount(0);
+    await expect(editor.getByLabel('Title', { exact: true })).toHaveValue('');
+    await expect(editor.getByTestId('session-editor-replacement')).toHaveCount(0);
+    await expect(editor.getByTestId('session-editor-save')).toBeDisabled();
+
+    await editor.getByLabel('Title', { exact: true }).fill('Strides 15 min');
+    await editor.getByLabel('Duration (min)', { exact: true }).fill('15');
+    await editor.getByLabel('Intensity', { exact: true }).fill('fast');
+    await editor.getByTestId('session-editor-save').click();
+
+    await expect(page.getByText('Saved to your draft. Alice Runner sees it only once you publish.')).toBeVisible();
+    await expect(page.getByTestId('session-editor')).toHaveCount(0);
+    expect(sent.saved).toEqual([
+      {
+        method: 'POST',
+        path: `${DRAFT_DAY_PATH}/sessions`,
+        body: { day: { rest: false, sport: 'run', workout: 'Strides 15 min', duration_min: 15, intensity: 'fast', steps: [] } },
+      },
+    ]);
+
+    // The draft as it stands now: the date's two sessions, each edited on its own.
+    const open = page.getByTestId('chat-plan-thread-open-draft');
+    await expect(open.getByTestId('plan-day-2026-10-20-0')).toContainText('Easy 45 min');
+    await expect(open.getByTestId('plan-day-2026-10-20-1')).toContainText('Strides 15 min');
+    await expect(open.getByTestId('plan-day-2026-10-20-1').getByTestId('plan-day-added')).toHaveText('Added');
+    await expect(open.getByRole('button', { name: 'Edit session' })).toHaveCount(2);
+    await expect(open.getByText('Tue, Oct 20', { exact: true })).toHaveCount(1);
+  });
+
+  test("Edit session on a date's second session → Remove this session → confirm → the date holds one row", async ({
+    page,
+  }) => {
+    await setupDashboardMocks(page, { role: 'user' });
+    await setupPlanThreadMocks(page);
+    const sent = await setupFamilyEditorMocks(page, { startTwoSessions: true });
+    await openAlicePlanThread(page);
+
+    const open = page.getByTestId('chat-plan-thread-open-draft');
+    await open.getByTestId('plan-day-edit-2026-10-20-1').click();
+    const editor = page.getByTestId('session-editor');
+    await expect(editor.getByLabel('Title', { exact: true })).toHaveValue('Strides 15 min');
+    await editor.getByRole('button', { name: 'Remove this session' }).click();
+
+    const confirm = page.getByRole('dialog', { name: 'Remove this session?' });
+    await expect(confirm).toContainText('Strides 15 min leaves Tue, Oct 20 in your draft.');
+    await confirm.getByRole('button', { name: 'Remove session' }).click();
+
+    await expect(page.getByText('Strides 15 min is off Tue, Oct 20 in your draft.')).toBeVisible();
+    await expect(page.getByTestId('session-editor')).toHaveCount(0);
+    expect(sent.saved).toEqual([
+      {
+        method: 'POST',
+        path: `${DRAFT_DAY_PATH}/1/remove`,
+        body: { expect: { sport: 'run', workout: 'Strides 15 min' } },
+      },
+    ]);
+    await expect(open.getByTestId('plan-day-2026-10-20-1')).toHaveCount(0);
+    await expect(open.getByRole('button', { name: 'Edit session' })).toHaveCount(0);
+    await expect(open.getByRole('button', { name: 'Edit day' })).toHaveCount(2);
+  });
+
+  test('A write that finds its session moved says so, closes the sheet, and the card reads the day as it stands', async ({
+    page,
+  }) => {
+    await setupDashboardMocks(page, { role: 'user' });
+    await setupPlanThreadMocks(page);
+    const sent = await setupFamilyEditorMocks(page, { sessionMoved: true });
+    await openAlicePlanThread(page);
+
+    await page.getByRole('button', { name: 'Edit day' }).first().click();
+    const editor = page.getByTestId('session-editor');
+    await editor.getByLabel('Title', { exact: true }).fill('Easy 50 min');
+    await editor.getByTestId('session-editor-save').click();
+
+    await expect(page.getByText('This day changed since you opened it. Here it is as it stands now.')).toBeVisible();
+    await expect(page.getByTestId('session-editor')).toHaveCount(0);
+    // One write, never retried onto whichever session sits there now.
+    expect(sent.saved).toHaveLength(1);
+    expect(sent.saved[0]?.path).toBe(`${DRAFT_DAY_PATH}/0/session`);
+    // The plan is read again, and the card shows the agent's change.
+    await expect.poll(() => sent.reads).toBeGreaterThan(0);
+    await expect(page.getByTestId('chat-plan-thread-open-draft')).toContainText('Easy 40 min');
   });
 });
 

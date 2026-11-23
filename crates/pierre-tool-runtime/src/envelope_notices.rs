@@ -14,10 +14,12 @@
 //! hold, the headless loop through [`EnvelopeNotices`], filled at the dispatch
 //! chokepoint, since its tools run on the tool-host surface's own executor.
 //!
-//! A plan write stores whole weeks, so it also reports every day of them it
-//! found nothing on, as a clean day: a day saved again clean in the same turn
-//! replaces what an earlier save reported for it, and the notice never warns
-//! about a session the agent already fixed.
+//! A plan write stores whole weeks, so it also reports every date of them as
+//! clean before the sessions it found something on: a date saved again in
+//! the same turn clears what an earlier save reported for any session on it,
+//! and the notice never warns about a session the agent already fixed. A
+//! session is known by its date and its place among the date's entries, so
+//! two sessions on one date are two reports (carnet#1716).
 
 use std::sync::Arc;
 
@@ -49,7 +51,8 @@ const PRESCRIBE_TOOL: &str = "prescribe_workout";
 /// prescription is its own calendar entry, which no plan write touches.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum NoticeSource {
-    /// A day of a week a plan save or publish stored, known by its date.
+    /// A session of a week a plan save or publish stored, known by its date
+    /// and its place among the date's entries.
     #[default]
     PlanDay,
     /// The session a `prescribe_workout` put on the athlete's calendar,
@@ -69,6 +72,11 @@ pub enum NoticeSource {
 pub struct NoticeDay {
     /// The session's day, `YYYY-MM-DD`.
     pub date: String,
+    /// A plan session's place among the entries on its date, from 0. `None`
+    /// on a date a plan write stored, which stands for every session on it,
+    /// and on a prescription, which its id identifies.
+    #[serde(default)]
+    pub position: Option<u32>,
     /// What the check found; every finding warns. Empty on a clean day.
     #[serde(default)]
     pub findings: Vec<EnvelopeFinding>,
@@ -86,10 +94,12 @@ pub struct NoticeDay {
 }
 
 impl NoticeDay {
-    /// A day a plan write stored with nothing found on it.
+    /// A date a plan write stored, every session on it clean until the
+    /// write's own reports say otherwise.
     fn clean(date: String) -> Self {
         Self {
             date,
+            position: None,
             findings: Vec::new(),
             relabelled_purpose: None,
             anchor: None,
@@ -97,12 +107,18 @@ impl NoticeDay {
         }
     }
 
-    /// Whether this report replaces `held`: a plan day replaces the same
-    /// date's plan day; a prescription replaces its own earlier report and the
-    /// prescription it replaced in place, whatever their dates.
+    /// Whether this report replaces `held`: a plan session replaces the same
+    /// session of its date, and a stored date every session on it; a
+    /// prescription replaces its own earlier report and the prescription it
+    /// replaced in place, whatever their dates.
     fn replaces(&self, held: &Self) -> bool {
         match (&self.source, &held.source) {
-            (NoticeSource::PlanDay, NoticeSource::PlanDay) => self.date == held.date,
+            (NoticeSource::PlanDay, NoticeSource::PlanDay) => {
+                self.date == held.date
+                    && (self.position.is_none()
+                        || held.position.is_none()
+                        || self.position == held.position)
+            }
             (
                 NoticeSource::Prescription { id, replaces },
                 NoticeSource::Prescription { id: held_id, .. },
@@ -115,8 +131,8 @@ impl NoticeDay {
 /// The sessions a `tool_name` result `payload` reports; empty for any other
 /// tool.
 ///
-/// A plan write reports its days with findings under `envelope.days`, and
-/// every other day of the weeks it stored as clean. A day the save could not
+/// A plan write reports every date of the weeks it stored as clean, then its
+/// sessions with findings under `envelope.days`. A day the save could not
 /// build carries a reason for the agent and no finding, so it reads as clean:
 /// the notice leaves it to the agent. A prescription reports its one session:
 /// its `envelope`, `envelope_anchor` and `scheduled_for`, clean when the check
@@ -133,30 +149,32 @@ pub fn envelope_in_payload(tool_name: &str, payload: &Value) -> Vec<NoticeDay> {
     }
 }
 
-/// Every day one plan write stored: the days it reported, then the rest of
-/// the weeks it wrote as clean. A reported day that did not parse is neither
-/// shown nor marked clean, so an earlier report of it stands: a stale warning
-/// costs less than a lost one.
+/// Every session one plan write stored: each date of the weeks it wrote as
+/// clean, which clears what an earlier write reported on it, then the
+/// sessions it reported, each at its place on its date. A date holding a
+/// reported session that did not parse is neither shown nor marked clean, so
+/// an earlier report of it stands: a stale warning costs less than a lost
+/// one.
 fn plan_write(tool_name: &str, payload: &Value) -> Vec<NoticeDay> {
     let reported: &[Value] = payload
         .get("envelope")
         .and_then(|envelope| envelope.get("days"))
         .and_then(Value::as_array)
         .map_or(&[], Vec::as_slice);
-    let mut days: Vec<NoticeDay> = reported
-        .iter()
-        .filter_map(|day| parsed(tool_name, day.clone()))
+    let mut sessions: Vec<NoticeDay> = Vec::new();
+    let mut unread: Vec<&str> = Vec::new();
+    for day in reported {
+        match parsed(tool_name, day.clone()) {
+            Some(session) => sessions.push(session),
+            None => unread.extend(day.get("date").and_then(Value::as_str)),
+        }
+    }
+    let mut days: Vec<NoticeDay> = days_written(tool_name, payload)
+        .into_iter()
+        .filter(|date| !unread.contains(&date.as_str()))
+        .map(NoticeDay::clean)
         .collect();
-    let reported_dates: Vec<&str> = reported
-        .iter()
-        .filter_map(|day| day.get("date").and_then(Value::as_str))
-        .collect();
-    days.extend(
-        days_written(tool_name, payload)
-            .into_iter()
-            .filter(|date| !reported_dates.contains(&date.as_str()))
-            .map(NoticeDay::clean),
-    );
+    days.extend(sessions);
     days
 }
 
@@ -229,6 +247,7 @@ fn prescribed_session(payload: &Value) -> Option<NoticeDay> {
     };
     Some(NoticeDay {
         date: payload.get("scheduled_for")?.as_str()?.to_owned(),
+        position: None,
         findings,
         relabelled_purpose: envelope
             .and_then(|envelope| envelope.get("relabelled_purpose"))
@@ -258,8 +277,9 @@ pub fn envelope_in_responses(responses: &[FunctionResponse]) -> Vec<NoticeDay> {
 /// Fold `later` sessions into `days`, each replacing the earlier reports it
 /// supersedes.
 ///
-/// A second save of the same plan day is what was stored, a clean day
-/// included, which clears it; a prescription replaces its own earlier report
+/// A second save of a plan date is what was stored: its clean date clears
+/// every earlier report on it, and its sessions with findings follow, two on
+/// one date being two reports; a prescription replaces its own earlier report
 /// and the one it replaced in place. A plan day and a prescription on one
 /// date are two sessions, so neither replaces the other.
 pub fn merge_notice_days(days: &mut Vec<NoticeDay>, later: Vec<NoticeDay>) {
@@ -344,6 +364,7 @@ mod tests {
     fn day(code: &str) -> NoticeDay {
         NoticeDay {
             date: "2026-07-14".to_owned(),
+            position: Some(0),
             findings: serde_json::from_value(json!([finding(code)]))
                 .expect("a finding the kernel's own shape reads"),
             relabelled_purpose: None,
@@ -489,17 +510,24 @@ mod tests {
         );
         assert_eq!(
             saved.len(),
-            7,
-            "bug: the save's stored week reads off SavedWeek: its six other days ride clean"
+            8,
+            "bug: the save's stored week reads off SavedWeek: its seven dates ride clean, then \
+             the session with a finding"
         );
-        assert_eq!(saved[0].date, "2026-07-14", "bug: its day");
+        let reported = &saved[7];
+        assert_eq!(reported.date, "2026-07-14", "bug: its day");
         assert_eq!(
-            saved[0].relabelled_purpose,
+            reported.position,
+            Some(0),
+            "bug: the session's place on its date reads off the report"
+        );
+        assert_eq!(
+            reported.relabelled_purpose,
             Some(WorkoutPurpose::Threshold),
             "bug: the relabel the save stored"
         );
         assert!(
-            saved[0].anchor.is_some(),
+            reported.anchor.is_some(),
             "bug: the anchor the save stored rides with the day"
         );
 
@@ -526,8 +554,8 @@ mod tests {
         );
         assert_eq!(
             live.len(),
-            7,
-            "bug: the publish's live week reads off weeks_published: its six other days ride clean"
+            8,
+            "bug: the publish's live week reads off weeks_published: its seven dates ride clean"
         );
 
         let first = Uuid::new_v4();
@@ -630,6 +658,48 @@ mod tests {
             warned(&days),
             Vec::<&str>::new(),
             "bug: a day the agent fixed in the same turn must not keep warning"
+        );
+    }
+
+    /// Two sessions on one date are two reports: one save warns on both, and
+    /// a later save that finds only the second clears the first
+    /// (carnet#1716).
+    #[test]
+    fn two_sessions_on_one_date_are_two_notices_and_a_resave_clears_the_fixed_one() {
+        let on_the_14th = |position: u32, code: &str| json!({ "date": "2026-07-14", "position": position, "findings": [finding(code)] });
+        let mut days = Vec::new();
+        merge_notice_days(
+            &mut days,
+            envelope_in_payload(
+                SAVE_TOOL,
+                &save_of_week(&json!([
+                    on_the_14th(0, "ratio_ceiling"),
+                    on_the_14th(1, "cycle_mean_floor")
+                ])),
+            ),
+        );
+        assert_eq!(
+            warned(&days),
+            vec!["2026-07-14", "2026-07-14"],
+            "bug: the second session's warning does not evict the first's"
+        );
+
+        merge_notice_days(
+            &mut days,
+            envelope_in_payload(
+                SAVE_TOOL,
+                &save_of_week(&json!([on_the_14th(1, "cycle_mean_floor")])),
+            ),
+        );
+        let left: Vec<(Option<u32>, &str)> = days
+            .iter()
+            .filter(|day| !day.findings.is_empty())
+            .map(|day| (day.position, day.findings[0].code.as_str()))
+            .collect();
+        assert_eq!(
+            left,
+            [(Some(1), "cycle_mean_floor")],
+            "bug: a re-save of the date clears the session it found clean and keeps the other"
         );
     }
 

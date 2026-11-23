@@ -169,7 +169,7 @@ test.describe('Home accessibility', () => {
   for (const theme of ['light', 'dark'] as const) {
     test(`the planned week with activities has no WCAG 2.1 AA violations (${theme})`, async ({ page }) => {
       await signIn(page, PLAN);
-      await expect(page.getByTestId('home-today-session')).toBeVisible();
+      await expect(page.getByTestId('home-today-session-0')).toBeVisible();
       await expect(page.getByTestId('home-activity-row')).toHaveCount(1);
       // Open a day so the reused plan-card row is measured too.
       await page.getByTestId(`home-week-day-${TODAY}`).click();

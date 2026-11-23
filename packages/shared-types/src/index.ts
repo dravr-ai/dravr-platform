@@ -182,6 +182,7 @@ export type {
   PlanFueling,
   PlanDay,
   PlanDayEvidence,
+  PlanDayEdit,
   PlanWeek,
   WorkoutPlan,
 } from './workout-plan.js';
@@ -231,6 +232,9 @@ export type {
   SessionFinding,
   SessionPreview,
   DraftDayRequest,
+  HandDayRequest,
+  SessionExpect,
+  AddedSession,
 } from './session-editor.js';
 export {
   SESSION_SPORTS,
@@ -246,6 +250,7 @@ export {
   mondayOf,
   planDayOn,
   planWeeksDayOn,
+  planSessionsOf,
   planDayDistanceMeters,
   phaseWeekOn,
 } from './plan-calendar.js';

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The Home plan section — today's session enlarged with tomorrow under it; the week strip is HomeWeek's
-// ABOUTME: A rest day and a day the plan never reached read differently; a tap on today opens a chat drafted about it
+// ABOUTME: The Home plan section — today's sessions enlarged with tomorrow's under them; the week strip is HomeWeek's
+// ABOUTME: A rest day and a day the plan never reached read differently; a tap on a session opens a chat drafted about it
 
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
@@ -20,7 +20,7 @@ import {
   type WorkoutPlan,
 } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { planDayDraft, planDayRouteDraft, sportLabel, type Translate, useDistanceUnit } from '@pierre/ui-logic';
+import { planDayDraft, planDayRouteDraft, sportLabel, useDistanceUnit } from '@pierre/ui-logic';
 import { healthCheckOutstanding } from '@pierre/shared-constants';
 import { EmptyState, Section } from '../../components/ui';
 import { HealthCheckSheet } from '../../components/HealthCheckSheet';
@@ -87,62 +87,94 @@ function SessionSummary({ day }: { day: PlanDay }) {
   );
 }
 
-/** What tomorrow holds, as the short value beside its label: the session and its length, rest, or silence. */
-function TomorrowValue({ lookup }: { lookup: PlanDayLookup }) {
-  const { t } = useTranslation();
-  let value: React.ReactNode;
-  switch (lookup.kind) {
-    case 'session':
-      value =
-        lookup.day.duration_min !== undefined ? (
-          <>
-            {lookup.day.workout}
-            {' · '}
-            <Figure>{lookup.day.duration_min} min</Figure>
-          </>
-        ) : (
-          lookup.day.workout
-        );
-      break;
-    case 'rest':
-      value = t('chat.restDay');
-      break;
-    case 'uncovered':
-      value = t('home.plan.notCovered');
-      break;
-  }
-  return (
-    <Text className="flex-1 text-sm text-text-primary" numberOfLines={1} testID="home-tomorrow-value">
-      {value}
-    </Text>
-  );
-}
-
 /** Opens a new chat with the given text in its composer. */
 type OpenDraft = (draft: string) => void;
 
-/** Open the draft about a plan day; a day the plan does not cover has none. */
-function openPlanDayDraft(
-  t: Translate,
-  language: string,
-  lookup: PlanDayLookup,
-  openDraft: OpenDraft,
-): void {
-  if (lookup.kind === 'uncovered') return;
-  const draft = planDayDraft(t, language, lookup.day.date, lookup);
-  if (draft !== null) openDraft(draft);
-}
-
 /**
- * Today, enlarged: the session with its sport, length and intensity, the
- * phase and its week, and tomorrow on one line underneath. A rest day says
- * rest; a day outside the plan's shown weeks says the plan does not cover it
- * — never rest, because the plan did not say rest.
+ * One of today's entries, enlarged: the session with its sport, length and
+ * intensity, or the rest day — a tap drafts a chat about that entry — then,
+ * for a session in a sport with routes, the way to a route for it. A date
+ * may hold several entries (carnet#1716); each is its own.
  */
-function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft: OpenDraft }) {
+function TodayEntry({ day, position, openDraft }: { day: PlanDay; position: number; openDraft: OpenDraft }) {
   const { t, language } = useTranslation();
   const unit = useDistanceUnit();
   const colors = useThemeColors();
+  const routeDraft = planDayRouteDraft(t, language, day, unit);
+  return (
+    <View className={position > 0 ? 'mt-3' : undefined}>
+      <Pressable
+        onPress={() => openDraft(planDayDraft(t, language, day))}
+        accessibilityRole="button"
+        className="min-h-11 justify-center"
+        testID={`home-today-day-${position}`}
+      >
+        {day.rest ? (
+          <Text className="text-xl font-semibold text-text-primary">{t('chat.restDay')}</Text>
+        ) : (
+          <>
+            <Text className="text-xl font-semibold text-text-primary">{day.workout}</Text>
+            <SessionSummary day={day} />
+          </>
+        )}
+      </Pressable>
+      {routeDraft !== null ? (
+        <Pressable
+          onPress={() => openDraft(routeDraft)}
+          accessibilityRole="button"
+          // Two sessions on a day offer two of these: the hint says whose it is.
+          accessibilityHint={day.workout}
+          className="min-h-11 flex-row items-center self-start"
+          testID={`home-today-route-${position}`}
+        >
+          <Feather name="map-pin" size={16} color={colors.tokens.primary} style={{ marginRight: spacing.xs }} />
+          <Text className="text-sm font-medium text-primary">{t('home.plan.routeCta')}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+/** One of tomorrow's entries, as the short value beside its label: the session and its length, or rest. */
+function TomorrowEntry({ day, position, openDraft }: { day: PlanDay; position: number; openDraft: OpenDraft }) {
+  const { t, language } = useTranslation();
+  let value: React.ReactNode;
+  if (day.rest) {
+    value = t('chat.restDay');
+  } else if (day.duration_min !== undefined) {
+    value = (
+      <>
+        {day.workout}
+        {' · '}
+        <Figure>{day.duration_min} min</Figure>
+      </>
+    );
+  } else {
+    value = day.workout;
+  }
+  return (
+    <Pressable
+      onPress={() => openDraft(planDayDraft(t, language, day))}
+      accessibilityRole="button"
+      className="min-h-11 justify-center"
+      testID={`home-tomorrow-day-${position}`}
+    >
+      <Text className="text-sm text-text-primary" numberOfLines={1} testID={`home-tomorrow-value-${position}`}>
+        {value}
+      </Text>
+    </Pressable>
+  );
+}
+
+/**
+ * Today, enlarged: each of its entries in order — a session with its sport,
+ * length and intensity, or rest — then the phase and its week, and tomorrow's
+ * entries underneath, one line each. A day outside the plan's shown weeks
+ * says the plan does not cover it — never rest, because the plan did not say
+ * rest.
+ */
+function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft: OpenDraft }) {
+  const { t } = useTranslation();
   const { todayLookup, tomorrowLookup, phaseWeek } = calendar;
   const phaseLabel =
     phaseWeek === null
@@ -152,67 +184,42 @@ function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft:
           week: phaseWeek.week,
         });
 
-  const routeDraft =
-    todayLookup.kind === 'session' ? planDayRouteDraft(t, language, todayLookup.day.date, todayLookup, unit) : null;
-
-  const today =
-    todayLookup.kind === 'uncovered' ? (
-      <Text className="text-base text-text-secondary" testID="home-today-uncovered">
-        {t('home.plan.notCovered')}
-      </Text>
-    ) : (
-      <Pressable
-        onPress={() => openPlanDayDraft(t, language, todayLookup, openDraft)}
-        accessibilityRole="button"
-        className="min-h-11 justify-center"
-        testID="home-today-day"
-      >
-        {todayLookup.kind === 'rest' ? (
-          <Text className="text-xl font-semibold text-text-primary">{t('chat.restDay')}</Text>
-        ) : (
-          <>
-            <Text className="text-xl font-semibold text-text-primary">{todayLookup.day.workout}</Text>
-            <SessionSummary day={todayLookup.day} />
-          </>
-        )}
-      </Pressable>
-    );
-
   // No card: on the phone a group is its Section, and today is that group's
   // content (DESIGN.md "Phone"). The larger type is what sets it apart.
   return (
     <View className="px-4" testID="home-today">
-      {today}
-      {routeDraft !== null ? (
-        <Pressable
-          onPress={() => openDraft(routeDraft)}
-          accessibilityRole="button"
-          className="min-h-11 flex-row items-center self-start"
-          testID="home-today-route"
-        >
-          <Feather name="map-pin" size={16} color={colors.tokens.primary} style={{ marginRight: spacing.xs }} />
-          <Text className="text-sm font-medium text-primary">{t('home.plan.routeCta')}</Text>
-        </Pressable>
-      ) : null}
+      {todayLookup.kind === 'uncovered' ? (
+        <Text className="text-base text-text-secondary" testID="home-today-uncovered">
+          {t('home.plan.notCovered')}
+        </Text>
+      ) : (
+        todayLookup.days.map((day, position) => (
+          <TodayEntry key={`${day.date}-${position}`} day={day} position={position} openDraft={openDraft} />
+        ))
+      )}
       {phaseLabel !== null ? (
         <Text className="mt-2 text-sm text-text-secondary" testID="home-today-phase">
           {phaseLabel}
         </Text>
       ) : null}
-      <Pressable
-        onPress={
-          tomorrowLookup.kind === 'uncovered'
-            ? undefined
-            : () => openPlanDayDraft(t, language, tomorrowLookup, openDraft)
-        }
-        disabled={tomorrowLookup.kind === 'uncovered'}
-        accessibilityRole={tomorrowLookup.kind === 'uncovered' ? undefined : 'button'}
-        className="mt-3 pt-3 min-h-11 flex-row items-center border-t border-border-faint"
-        testID="home-tomorrow"
-      >
-        <Text className="text-sm font-medium text-text-secondary mr-2">{t('home.plan.tomorrow')}</Text>
-        <TomorrowValue lookup={tomorrowLookup} />
-      </Pressable>
+      <View className="mt-3 pt-3 flex-row border-t border-border-faint" testID="home-tomorrow">
+        <View className="min-h-11 justify-center mr-2">
+          <Text className="text-sm font-medium text-text-secondary">{t('home.plan.tomorrow')}</Text>
+        </View>
+        <View className="flex-1">
+          {tomorrowLookup.kind === 'uncovered' ? (
+            <View className="min-h-11 justify-center">
+              <Text className="text-sm text-text-primary" numberOfLines={1} testID="home-tomorrow-uncovered">
+                {t('home.plan.notCovered')}
+              </Text>
+            </View>
+          ) : (
+            tomorrowLookup.days.map((day, position) => (
+              <TomorrowEntry key={`${day.date}-${position}`} day={day} position={position} openDraft={openDraft} />
+            ))
+          )}
+        </View>
+      </View>
     </View>
   );
 }

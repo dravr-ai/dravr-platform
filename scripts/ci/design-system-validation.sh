@@ -102,7 +102,11 @@ BASELINE_MOBILE_CARD_SITES=9
 # 35: DiscoverRow's category dot moved its size and radius from an inline
 # style (`borderRadius: 3`) to classes (carnet#1518) — the same dot, now
 # counted here instead of below; the inline-radius baseline falls 32 -> 31.
-BASELINE_MOBILE_ROUNDED_FULL=35
+# 37: the phone's ui/RadioGroup (carnet#1714), the form-choice primitive the
+# day editor's family and format lists draw through: its radio ring and the
+# dot inside it, one site each, a radio's own circle rather than a card or
+# button that skipped the radius ladder.
+BASELINE_MOBILE_ROUNDED_FULL=37
 BASELINE_MOBILE_INLINE_BORDER_RADIUS=31
 
 # Feedback tints written by hand instead of read from a tone table

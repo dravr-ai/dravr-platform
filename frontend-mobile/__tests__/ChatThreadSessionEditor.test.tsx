@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: "Build from family" in the coach's plan thread on the phone — offered to the owner of a thread about an athlete, and to nobody else
-// ABOUTME: The thread reads its draft as ChatScreen does, so the server's answer for the owner is what turns the day's action on
+// ABOUTME: "Edit day" and "Add a session" in the coach's plan thread on the phone — offered to the owner of a thread about an athlete, and to nobody else
+// ABOUTME: The thread reads its draft as ChatScreen does, so the server's answer for the owner turns the day's action on and shows a saved edit
 
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
@@ -18,6 +18,10 @@ const mockListParticipants = jest.fn();
 const mockGetFamilies = jest.fn();
 const mockPreview = jest.fn();
 const mockSaveDay = jest.fn();
+const mockSaveHandDay = jest.fn();
+const mockRestore = jest.fn();
+const mockRemove = jest.fn();
+const mockAdd = jest.fn();
 
 jest.mock('../src/services/api', () => ({
   chatApi: {
@@ -26,6 +30,10 @@ jest.mock('../src/services/api', () => ({
     getSubjectFamilies: (...a: unknown[]) => mockGetFamilies(...a),
     previewSubjectSession: (...a: unknown[]) => mockPreview(...a),
     saveSubjectDraftDay: (...a: unknown[]) => mockSaveDay(...a),
+    saveSubjectDraftHandDay: (...a: unknown[]) => mockSaveHandDay(...a),
+    restoreSubjectDraftDay: (...a: unknown[]) => mockRestore(...a),
+    removeSubjectDraftDay: (...a: unknown[]) => mockRemove(...a),
+    addSubjectDraftSession: (...a: unknown[]) => mockAdd(...a),
   },
 }));
 
@@ -154,7 +162,7 @@ function renderThread(subjectName: string | null) {
   );
 }
 
-describe('"Build from family" in the coach\'s plan thread', () => {
+describe('"Edit day" in the coach\'s plan thread', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockListParticipants.mockResolvedValue([
@@ -168,8 +176,8 @@ describe('"Build from family" in the coach\'s plan thread', () => {
     renderThread('Chloé Tremblay');
 
     const card = within(screen.getByTestId('thread-row-card'));
-    expect(await card.findByTestId('workout-plan-day-build-2026-11-24')).toHaveTextContent('Build from family');
-    expect(card.getByTestId('workout-plan-day-build-2026-11-25')).toHaveTextContent('Build from family');
+    expect(await card.findByTestId('workout-plan-day-edit-2026-11-24-0')).toHaveTextContent('Edit day');
+    expect(card.getByTestId('workout-plan-day-edit-2026-11-25-0')).toHaveTextContent('Edit day');
     expect(mockGetSubjectPlan).toHaveBeenCalledWith(CONVERSATION_ID);
   });
 
@@ -178,7 +186,7 @@ describe('"Build from family" in the coach\'s plan thread', () => {
     renderThread('Chloé Tremblay');
 
     const draftCard = within(await screen.findByTestId('chat-plan-thread-open-draft'));
-    expect(draftCard.getByTestId('workout-plan-day-build-2026-11-25')).toBeTruthy();
+    expect(draftCard.getByTestId('workout-plan-day-edit-2026-11-25-0')).toBeTruthy();
   });
 
   it('offers nothing to a member of the thread who does not own it, whom the server refuses the plan', async () => {
@@ -187,7 +195,7 @@ describe('"Build from family" in the coach\'s plan thread', () => {
 
     await waitFor(() => expect(mockGetSubjectPlan).toHaveBeenCalledWith(CONVERSATION_ID));
     expect(screen.getByText('Harricana 65K')).toBeTruthy();
-    expect(screen.queryByText('Build from family')).toBeNull();
+    expect(screen.queryByText('Edit day')).toBeNull();
     expect(screen.queryByTestId('session-editor-sheet')).toBeNull();
   });
 
@@ -195,7 +203,7 @@ describe('"Build from family" in the coach\'s plan thread', () => {
     renderThread(null);
 
     expect(screen.getByText('Harricana 65K')).toBeTruthy();
-    expect(screen.queryByText('Build from family')).toBeNull();
+    expect(screen.queryByText('Edit day')).toBeNull();
     expect(mockGetSubjectPlan).not.toHaveBeenCalled();
   });
 
@@ -203,15 +211,69 @@ describe('"Build from family" in the coach\'s plan thread', () => {
     mockGetSubjectPlan.mockResolvedValue(subjectPlan(null));
     renderThread('Chloé Tremblay');
 
-    fireEvent.press(await screen.findByTestId('workout-plan-day-build-2026-11-25'));
+    fireEvent.press(await screen.findByTestId('workout-plan-day-edit-2026-11-25-0'));
 
-    expect(screen.getByTestId('session-editor-title')).toHaveTextContent('Build a session for Wednesday, November 25');
-    expect(await screen.findByTestId('session-editor-no-families')).toHaveTextContent(
-      'No workout families are available for Chloé Tremblay.',
-    );
-    expect(mockGetFamilies).toHaveBeenCalledWith(CONVERSATION_ID, 'en');
+    // The rest day opens on its own session, which needs no family to edit.
+    expect(screen.getByTestId('session-editor-title')).toHaveTextContent('Edit Wed, Nov 25');
+    expect(screen.getByTestId('session-editor-rest')).toHaveProp('value', true);
+    expect(screen.queryByTestId('session-editor-no-families')).toBeNull();
 
     fireEvent.press(screen.getByTestId('session-editor-cancel'));
     expect(screen.queryByTestId('session-editor-title')).toBeNull();
+  });
+
+  it('opens the editor on a blank session from "Add a session", and closes it on Cancel', async () => {
+    mockGetSubjectPlan.mockResolvedValue(subjectPlan(null));
+    renderThread('Chloé Tremblay');
+
+    fireEvent.press(await screen.findByTestId('workout-plan-day-add-2026-11-24'));
+
+    expect(screen.getByTestId('session-editor-title')).toHaveTextContent('Add a session on Tue, Nov 24');
+    expect(screen.getByTestId('session-editor-workout')).toHaveProp('value', '');
+    expect(screen.queryByTestId('session-editor-rest')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('session-editor-cancel'));
+    expect(screen.queryByTestId('session-editor-title')).toBeNull();
+  });
+
+  it("marks the day on the open draft's card once a hand edit saves", async () => {
+    mockGetSubjectPlan.mockResolvedValue(subjectPlan(DRAFT));
+    renderThread('Chloé Tremblay');
+
+    const draftCard = within(await screen.findByTestId('chat-plan-thread-open-draft'));
+    expect(draftCard.queryByTestId('workout-plan-day-edited-2026-11-24-0')).toBeNull();
+    fireEvent.press(draftCard.getByTestId('workout-plan-day-edit-2026-11-24-0'));
+    fireEvent.changeText(screen.getByTestId('session-editor-workout'), 'Easy 50 min');
+
+    // The write answers the subject plan with the edited day, as the read after it does.
+    const editedDay: PlanDay = { ...SESSION_DAY, workout: 'Easy 50 min', edited: { workout: 'Easy run', rest: false } };
+    const editedPlan: WorkoutPlan = {
+      ...mockThreadPlan,
+      weeks: [{ ...mockThreadPlan.weeks[0], days: [editedDay, REST_DAY] }],
+    };
+    const after: SubjectPlanResponse = {
+      ...subjectPlan(null),
+      draft: editedPlan,
+      draft_state: { ...DRAFT, updated_at: '2026-11-22T09:00:00Z' },
+    };
+    mockSaveHandDay.mockResolvedValue(after);
+    mockGetSubjectPlan.mockResolvedValue(after);
+    fireEvent.press(screen.getByTestId('session-editor-save'));
+
+    await waitFor(() => expect(mockSaveHandDay).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('session-editor-title')).toBeNull());
+    expect(mockSaveHandDay).toHaveBeenCalledWith(
+      CONVERSATION_ID,
+      '2026-11-24',
+      0,
+      { rest: false, sport: 'run', workout: 'Easy 50 min', duration_min: 45, intensity: 'easy', steps: [] },
+      { sport: 'run', workout: 'Easy run' },
+      'en',
+    );
+    const card = within(await screen.findByTestId('chat-plan-thread-open-draft'));
+    expect(await card.findByTestId('workout-plan-day-edited-2026-11-24-0')).toHaveTextContent('Edited');
+    expect(card.getByTestId('workout-plan-day-unchecked-2026-11-24-0')).toHaveTextContent(
+      "Not checked against a family's evidence.",
+    );
   });
 });

@@ -34,12 +34,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use dravr_tronc::dates::CivilDate;
 use pierre_core::models::periodization::serde_num::whole_u32_opt;
-use pierre_core::models::{TenantId, WorkoutStep};
+use pierre_core::models::TenantId;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
-use pierre_memory::training_plans::{
-    GoalRace, PlanPhase, PlanWeek, PlannedDay, WeekStatus, MAX_DAYS_PER_WEEK,
-};
+use pierre_memory::training_plans::{GoalRace, PlanPhase, PlanWeek, PlannedDay, WeekStatus};
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::athlete_anchors::stored_athlete_anchors;
 use pierre_services::athlete_clock::athlete_today;
@@ -54,9 +52,12 @@ use serde_json::Value;
 use tracing::warn;
 
 mod plan_dates;
+mod plan_days;
 pub(super) use plan_dates::plan_date;
+use plan_days::validate_week;
+pub(super) use plan_days::{session_label, validate_date_entries, validate_day};
 
-use super::calendar::{bounded, validate_step, TargetRule, MAX_SESSION_STEPS, MAX_SHORT_TEXT_LEN};
+use super::calendar::{bounded, MAX_SHORT_TEXT_LEN};
 use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest};
 use super::training_plan_authorship::{
     agent_title, load_conversation, plan_authors, season_held_refusal,
@@ -71,8 +72,7 @@ use super::training_plan_schema::{
 use super::training_plan_state::plan_state_block;
 use super::training_plan_vision::{
     check_phase_indexes, check_template_slugs, instantiate_template_days, resolve_flavour,
-    validate_day_template, validate_flavour, validate_phase, validate_season_window,
-    FlavourPayload,
+    validate_flavour, validate_phase, validate_season_window, FlavourPayload,
 };
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -190,12 +190,6 @@ const MAX_PHASES: usize = 24;
 const MAX_WEEKS: usize = 104;
 pub(super) const MAX_TARGET_HOURS: f32 = 60.0;
 pub(super) const MAX_DURATION_MIN: u32 = 24 * 60;
-/// Fuelling ceilings. Nothing bounded what a plan could store, so a rate no
-/// gut can absorb reached the athlete's calendar unchallenged; these are the
-/// bound the save enforces.
-const MAX_CARBS_G_PER_H: f32 = 150.0;
-const MAX_FLUID_ML_PER_H: f32 = 1_500.0;
-const MAX_SODIUM_MG_PER_H: f32 = 2_000.0;
 
 /// Validate every date/shape/size constraint BEFORE any write so a rejected
 /// payload can never begin a partial save.
@@ -248,140 +242,6 @@ fn validate_outline(outline: &OutlinePayload) -> AppResult<()> {
     )?;
     if let Some(flavour) = outline.flavour.as_ref() {
         validate_flavour(flavour)?;
-    }
-    Ok(())
-}
-
-/// Validate one week payload (dates, day count, day dates inside the week,
-/// step bounds), and complete a structured day's `duration_min` from its
-/// steps when the agent left it out — the stored day never contradicts its
-/// own structure, and a stated duration that does is refused.
-fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
-    let start = plan_date("week_start", &week.week_start)?;
-    if week.days.is_empty() {
-        return Err(AppError::invalid_input(format!(
-            "week {} has no days",
-            week.week_start
-        )));
-    }
-    if week.days.len() > MAX_DAYS_PER_WEEK {
-        return Err(AppError::invalid_input(format!(
-            "week {} has {} days; max {MAX_DAYS_PER_WEEK}",
-            week.week_start,
-            week.days.len()
-        )));
-    }
-    bounded("week.focus", &week.focus, MAX_TEXT_LEN)?;
-    bounded(
-        "week.adjustment_reason",
-        &week.adjustment_reason,
-        MAX_TEXT_LEN,
-    )?;
-    for day in &mut week.days {
-        let date = plan_date("day date", &day.date)?;
-        let offset = (date - start).num_days();
-        if !(0..7).contains(&offset) {
-            return Err(AppError::invalid_input(format!(
-                "day {} falls outside week starting {}",
-                day.date, week.week_start
-            )));
-        }
-        if day.workout.trim().is_empty() {
-            return Err(AppError::invalid_input(format!(
-                "day {} has an empty workout",
-                day.date
-            )));
-        }
-        bounded("day.sport", &day.sport, MAX_SHORT_TEXT_LEN)?;
-        bounded("day.workout", &day.workout, MAX_TEXT_LEN)?;
-        bounded("day.intensity", &day.intensity, MAX_SHORT_TEXT_LEN)?;
-        if let Some(mins) = day.duration_min {
-            if mins > MAX_DURATION_MIN {
-                return Err(AppError::invalid_input(format!(
-                    "day {} duration_min {mins} exceeds {MAX_DURATION_MIN}",
-                    day.date
-                )));
-            }
-        }
-        if let Some(fuel) = day.fueling.as_ref() {
-            // Rates are per hour and cannot be negative, and each ceiling is
-            // the schema's own. Sodium is checked like the rest even though it
-            // is a loss estimate rather than a target — an implausible estimate
-            // produces an implausible plan just as surely.
-            for (field, value, max) in [
-                ("carbs_g_per_h", fuel.carbs_g_per_h, MAX_CARBS_G_PER_H),
-                ("fluid_ml_per_h", fuel.fluid_ml_per_h, MAX_FLUID_ML_PER_H),
-            ] {
-                if !value.is_finite() || !(0.0..=max).contains(&value) {
-                    return Err(AppError::invalid_input(format!(
-                        "day {} fueling.{field} {value} is outside 0..={max}",
-                        day.date
-                    )));
-                }
-            }
-            if let Some(sodium) = fuel.sodium_mg_per_h {
-                if !sodium.is_finite() || !(0.0..=MAX_SODIUM_MG_PER_H).contains(&sodium) {
-                    return Err(AppError::invalid_input(format!(
-                        "day {} fueling.sodium_mg_per_h {sodium} is outside 0..={MAX_SODIUM_MG_PER_H}",
-                        day.date
-                    )));
-                }
-            }
-            if let Some(source) = fuel.carb_source.as_deref() {
-                bounded("day.fueling.carb_source", source, MAX_SHORT_TEXT_LEN)?;
-            }
-            if day.is_rest() {
-                return Err(AppError::invalid_input(format!(
-                    "day {} is a rest day and carries a fuelling protocol — there is no \
-                     session to fuel",
-                    day.date
-                )));
-            }
-        }
-        validate_day_template(day)?;
-        if day.steps.is_empty() {
-            continue;
-        }
-        if day.is_rest() {
-            return Err(AppError::invalid_input(format!(
-                "day {} is a rest day and carries steps — drop the steps or give the day a sport",
-                day.date
-            )));
-        }
-        if day.steps.len() > MAX_SESSION_STEPS {
-            return Err(AppError::invalid_input(format!(
-                "day {} has {} steps; max {MAX_SESSION_STEPS}",
-                day.date,
-                day.steps.len()
-            )));
-        }
-        for (index, step) in day.steps.iter().enumerate() {
-            validate_step(
-                &format!("day {} steps[{index}]", day.date),
-                step,
-                TargetRule::Resolvable,
-            )?;
-        }
-        let minutes = WorkoutStep::total_seconds(&day.steps).div_ceil(60);
-        if minutes > u64::from(MAX_DURATION_MIN) {
-            return Err(AppError::invalid_input(format!(
-                "day {} steps total {minutes} minutes; max {MAX_DURATION_MIN}",
-                day.date
-            )));
-        }
-        let minutes = u32::try_from(minutes)
-            .map_err(|e| AppError::internal(format!("day duration does not fit in u32: {e}")))?;
-        match day.duration_min {
-            Some(stated) if stated != minutes => {
-                return Err(AppError::invalid_input(format!(
-                    "day {} duration_min {stated} contradicts its steps, which total {minutes} \
-                     minutes — omit duration_min or make it {minutes}",
-                    day.date
-                )));
-            }
-            Some(_) => {}
-            None => day.duration_min = Some(minutes),
-        }
     }
     Ok(())
 }

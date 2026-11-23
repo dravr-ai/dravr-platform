@@ -256,7 +256,7 @@ test.describe('Athlete Home — mobile viewport', () => {
     expect(names).toEqual(['Home', 'Groups', 'Discover', 'Open menu']);
     await expect(nav.getByRole('button', { name: 'Home' })).toHaveAttribute('aria-current', 'page');
     await openToday(page);
-    await expect(page.getByTestId('home-today-session')).toContainText('Tempo run');
+    await expect(page.getByTestId('home-today-session-0')).toContainText('Tempo run');
   });
 
   test('fits the phone: no sideways scroll, the week strip inside the viewport, 44px day targets', async ({ page }) => {
